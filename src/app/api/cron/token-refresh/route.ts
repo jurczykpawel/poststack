@@ -1,0 +1,50 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { env } from "@/lib/env";
+import { tokenRefreshQueue } from "@/lib/queue/client";
+import { getProvider } from "@/lib/platforms/registry";
+import { decryptTokens } from "@/lib/crypto";
+
+export const runtime = "nodejs";
+
+/**
+ * Cron job: scan for channels with expiring tokens and enqueue refresh jobs.
+ * Call hourly: GET /api/cron/token-refresh
+ * Protected by CRON_SECRET header.
+ */
+export async function GET(request: Request) {
+  const secret = request.headers.get("x-cron-secret");
+  if (secret !== env.CRON_SECRET) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  const channels = await prisma.channel.findMany({
+    where: { is_active: true },
+    select: { id: true, platform: true, token_encrypted: true },
+  });
+
+  let enqueued = 0;
+
+  for (const channel of channels) {
+    const provider = getProvider(channel.platform);
+    if (!provider.requiresTokenRefresh()) continue;
+
+    const tokens = decryptTokens(channel.token_encrypted);
+    const expiresAt = tokens.expires_at as number | undefined;
+    if (!expiresAt) continue;
+
+    const bufferSeconds = provider.refreshBufferSeconds();
+    const refreshThreshold = expiresAt - bufferSeconds;
+
+    if (Date.now() / 1000 >= refreshThreshold) {
+      await tokenRefreshQueue.add(
+        "token-refresh",
+        { channelId: channel.id },
+        { jobId: `token-refresh-${channel.id}`, removeOnComplete: true }
+      );
+      enqueued++;
+    }
+  }
+
+  return NextResponse.json({ enqueued });
+}
