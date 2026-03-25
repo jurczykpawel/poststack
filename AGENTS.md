@@ -135,7 +135,7 @@ See `.env.example`. Required:
 | 5 | Comment automation (comment → DM) | done |
 | 6 | Contacts CRM | done |
 | 7 | API keys, token refresh, settings page, cron | done |
-| 8 | OpenAPI spec completion, open source publish | next |
+| 8 | OpenAPI spec (basic, Scalar UI), open source publish | done |
 | 9 | Visual flow builder (v2) | future |
 
 ## Pre-publish Checklist

@@ -12,14 +12,15 @@ Open-source alternative to ManyChat. No platform fees, no vendor lock-in.
 
 ## Features
 
-- **Auto-reply rules** - keyword triggers (exact, contains, starts with), postbacks, welcome messages, fallback/default
-- **Comment-to-DM** - automatically DM users who comment specific keywords on your posts
-- **Live inbox** - manage all conversations, reply manually, assign to team members
-- **Drip sequences** - timed message series with configurable delays
-- **Contact CRM** - tags, custom fields, subscription management
-- **Multi-platform** - Facebook and Instagram on launch, extensible to Telegram, TikTok, and more
-- **NocoDB integration** - optional spreadsheet view of all your data (rules, contacts, messages)
-- **One-command startup** - `docker compose up`
+- **Auto-reply rules** -- keyword triggers (exact, contains, starts with), postbacks, welcome messages, fallback/default
+- **Comment-to-DM** -- automatically DM users who comment specific keywords on your posts
+- **Live inbox** -- manage all conversations, reply manually, assign to team members
+- **Drip sequences** -- timed message series with configurable delays
+- **Contact CRM** -- tags, search, subscription management
+- **Multi-platform** -- Facebook and Instagram on launch, extensible to Telegram, TikTok, and more
+- **API-first** -- every feature available via REST API with Bearer token auth
+- **NocoDB integration** -- optional spreadsheet view of all your data (rules, contacts, messages)
+- **One-command startup** -- `docker compose up`
 
 ## Quick Start
 
@@ -31,10 +32,12 @@ cd replystack
 cp .env.example .env
 ```
 
-Edit `.env` - fill in at minimum:
-- `TOKEN_ENCRYPTION_KEY` - run `openssl rand -hex 32`
-- `JWT_SECRET` - run `openssl rand -hex 32`
-- `META_APP_ID` and `META_APP_SECRET` - from [Meta for Developers](https://developers.facebook.com)
+Edit `.env` -- fill in at minimum:
+- `TOKEN_ENCRYPTION_KEY` -- run `openssl rand -hex 32`
+- `JWT_SECRET` -- run `openssl rand -hex 32`
+- `CRON_SECRET` -- run `openssl rand -hex 32`
+- `META_APP_ID` and `META_APP_SECRET` -- from [Meta for Developers](https://developers.facebook.com)
+- `META_WEBHOOK_VERIFY_TOKEN` -- any random string you choose
 
 ```bash
 docker compose up
@@ -48,18 +51,17 @@ Open http://localhost:3000, register an account, and connect your first channel.
 
 ## Meta App Setup
 
-1. Go to [developers.facebook.com](https://developers.facebook.com) and create a new App
+1. Go to [developers.facebook.com](https://developers.facebook.com) and create a new App (Business type)
 2. Add **Messenger** and **Instagram** products
-3. In Webhooks, set the callback URL to `https://your-domain.com/api/webhooks/meta/{channelId}`
-   (the exact URL is displayed on the Channels page after connecting an account)
+3. In Webhooks, set the callback URL to `https://your-domain.com/api/webhooks/meta`
 4. Set the verify token to match `META_WEBHOOK_VERIFY_TOKEN` in your `.env`
-5. Subscribe to: `messages`, `messaging_postbacks`, `message_reads`, `message_deliveries`, `feed`
+5. Subscribe to: `messages`, `messaging_postbacks`, `feed`
 
 **Note:** Some permissions require Meta App Review for production use. In development mode, you can test with your own accounts without review.
 
 ## NocoDB (Optional)
 
-NocoDB connects to the same PostgreSQL database and gives you a spreadsheet view of all your data - useful for editing rules in bulk, browsing contacts, or monitoring sequences.
+NocoDB connects to the same PostgreSQL database and gives you a spreadsheet view of all your data -- useful for editing rules in bulk, browsing contacts, or monitoring sequences.
 
 ```bash
 docker compose --profile nocodb up
@@ -84,24 +86,34 @@ Then update `NC_DB` in `docker-compose.yml` to use this role.
 
 ReplyStack is API-first. Every feature in the dashboard is available via REST API.
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/docs` | Interactive API documentation (Scalar UI) |
-| `GET /api/v1` | OpenAPI 3.1 spec (JSON) |
-| `GET /api/v1/channels` | List connected channels |
-| `GET /api/v1/contacts` | List contacts (paginated, filterable) |
-| `GET /api/v1/conversations` | List conversations |
-| `GET /api/v1/rules` | List auto-reply rules |
-| `POST /api/v1/rules` | Create a rule |
+**Docs:** `GET /api/docs` -- interactive Scalar UI
 
-**Authentication:** `Authorization: Bearer rs_live_<key>`
+**Auth:** `Authorization: Bearer rs_live_<key>` (generate in Settings > API Keys)
 
-Generate API keys in Settings > API Keys.
+| Endpoint | Methods | Description |
+|----------|---------|-------------|
+| `/api/v1/channels` | GET | List connected channels |
+| `/api/v1/channels/:id` | GET, PATCH, DELETE | Channel detail, rename, disconnect |
+| `/api/v1/conversations` | GET | List conversations (cursor-paginated) |
+| `/api/v1/conversations/:id` | GET, PATCH | Detail, mark read, close, pause automation |
+| `/api/v1/conversations/:id/messages` | GET, POST | Message history + send reply |
+| `/api/v1/rules` | GET, POST | List and create auto-reply rules |
+| `/api/v1/rules/:id` | GET, PATCH, DELETE | Rule detail, update, delete |
+| `/api/v1/sequences` | GET, POST | List and create drip sequences |
+| `/api/v1/sequences/:id` | GET, PATCH, DELETE | Sequence detail, update status, delete |
+| `/api/v1/sequences/:id/enroll` | POST | Enroll a contact in a sequence |
+| `/api/v1/contacts` | GET | List contacts (search, tag filter, cursor-paginated) |
+| `/api/v1/contacts/:id` | GET, PATCH | Contact detail, update name/email |
+| `/api/v1/tags` | GET, POST | List and create tags |
+| `/api/v1/api-keys` | GET, POST | List and create API keys |
+| `/api/v1/api-keys/:id` | DELETE | Revoke an API key |
 
 ```bash
 curl https://your-domain.com/api/v1/contacts \
   -H "Authorization: Bearer rs_live_your-key-here"
 ```
+
+All responses follow the shape `{ data, error, meta? }`.
 
 ## Stack
 
@@ -110,9 +122,9 @@ curl https://your-domain.com/api/v1/contacts \
 | Framework | Next.js 15 (App Router) |
 | Database | PostgreSQL + Prisma |
 | Queue | Redis + BullMQ |
-| Auth | JWT (jose) |
-| Styling | Tailwind CSS + shadcn/ui |
-| Runtime | Node.js 22 |
+| Auth | JWT (jose) + API keys |
+| Encryption | AES-256-GCM (tokens at rest) |
+| Runtime | Node.js 18+ |
 
 ## Development
 
@@ -125,7 +137,6 @@ npm run worker    # BullMQ worker (separate terminal)
 ```
 
 ```bash
-npm run lint        # ESLint
 npm run typecheck   # TypeScript
 npm test            # Vitest
 ```
@@ -136,8 +147,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short:
 
 1. Create `src/lib/platforms/{platform}.ts` extending `SocialProvider`
 2. Register it in `src/lib/platforms/registry.ts`
-3. Add an OAuth callback route
-4. Add the platform to `prisma/schema.prisma`
+3. Add an OAuth callback route at `src/app/api/oauth/{platform}/`
+4. Add the platform to the `Platform` enum in `prisma/schema.prisma`
 
 ## License
 
