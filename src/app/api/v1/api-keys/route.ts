@@ -19,6 +19,7 @@ export async function GET(request: Request) {
       id: true,
       name: true,
       key_prefix: true,
+      scopes: true,
       last_used_at: true,
       expires_at: true,
       created_at: true,
@@ -28,8 +29,18 @@ export async function GET(request: Request) {
   return ok(keys);
 }
 
+const VALID_SCOPES = [
+  "channels:read", "channels:write",
+  "conversations:read", "conversations:write",
+  "contacts:read", "contacts:write",
+  "rules:read", "rules:write",
+  "sequences:read", "sequences:write",
+  "tags:read", "tags:write",
+] as const;
+
 const createSchema = z.object({
   name: z.string().min(1).max(100),
+  scopes: z.array(z.enum(VALID_SCOPES)).default([]),
   expires_at: z.string().datetime().optional(),
 });
 
@@ -59,6 +70,7 @@ export async function POST(request: Request) {
       name: parsed.data.name,
       key_hash: hash,
       key_prefix: prefix,
+      scopes: parsed.data.scopes,
       expires_at: parsed.data.expires_at ? new Date(parsed.data.expires_at) : null,
     },
     select: { id: true, name: true, key_prefix: true, expires_at: true, created_at: true },
