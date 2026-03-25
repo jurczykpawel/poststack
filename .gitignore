@@ -19,6 +19,7 @@ build/
 
 # Prisma
 prisma/generated/
+src/generated/
 
 # Logs
 *.log

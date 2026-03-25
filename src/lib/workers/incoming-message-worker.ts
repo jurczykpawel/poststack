@@ -1,7 +1,7 @@
 import type { Job } from "bullmq";
 import type { IncomingMessageJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { evaluateRules } from "@/lib/rules/executor";
 
 /**

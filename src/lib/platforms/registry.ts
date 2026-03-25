@@ -1,4 +1,4 @@
-import type { Platform } from "@prisma/client";
+import type { Platform } from "@/generated/prisma/enums";
 import type { SocialProvider } from "./base";
 
 // Providers are imported lazily to avoid loading Meta SDK in worker if not needed

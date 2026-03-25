@@ -1,4 +1,4 @@
-import type { Platform } from "@prisma/client";
+import type { Platform } from "@/generated/prisma/enums";
 
 export interface TokenData {
   access_token: string;
