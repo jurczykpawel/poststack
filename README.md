@@ -203,7 +203,7 @@ All responses follow the shape `{ data, error, meta? }`.
 | Layer | Technology |
 |-------|-----------|
 | Framework | Next.js 15 (App Router) |
-| Database | PostgreSQL + Prisma 6 |
+| Database | PostgreSQL + Prisma 7 |
 | Queue | Redis + BullMQ |
 | Auth | JWT (jose) + API keys |
 | Encryption | AES-256-GCM (tokens at rest) |
@@ -244,7 +244,7 @@ See [Quick Start - Option B](#option-b-local-development) for setup. Additional 
 ```bash
 npm run lint        # ESLint
 npm run typecheck   # TypeScript
-npm test            # Vitest (23 tests)
+npm test            # Vitest (38 tests)
 npm run build       # Production build
 ```
 
