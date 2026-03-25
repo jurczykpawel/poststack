@@ -5,9 +5,7 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },
-  experimental: {
-    serverComponentsExternalPackages: ["bullmq", "ioredis"],
-  },
+  serverExternalPackages: ["bullmq", "ioredis"],
   async headers() {
     return [
       {
