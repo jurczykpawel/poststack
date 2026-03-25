@@ -1,9 +1,11 @@
-import { NextRequest } from "next/server";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth/password";
 import { signSession } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
+import { parseJsonBody } from "@/lib/api/body-limit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -11,8 +13,19 @@ const schema = z.object({
   name: z.string().min(1).max(100).optional(),
 });
 
-export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
+export async function POST(request: Request) {
+  // Rate limit: 5 registrations per hour per IP
+  const ip = getClientIp(request);
+  const rl = await rateLimit(`rl:register:${ip}`, 5, 3600);
+  if (!rl.allowed) {
+    return ApiErrors.tooManyRequests(`Too many registration attempts. Try again in ${rl.retryAfter}s.`);
+  }
+
+  const body = await parseJsonBody(request, 4_096);
+  if (body === null) {
+    return ApiErrors.badRequest("Invalid or oversized request body");
+  }
+
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
@@ -31,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const passwordHash = await hashPassword(password);
   const slug = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/g, "-") +
-    "-" + Math.random().toString(36).slice(2, 7);
+    "-" + randomBytes(4).toString("hex");
 
   const user = await prisma.user.create({
     data: {

@@ -1,9 +1,10 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth/password";
 import { signSession } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
+import { parseJsonBody } from "@/lib/api/body-limit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -12,8 +13,19 @@ const schema = z.object({
 
 const INVALID_MSG = "Invalid email or password";
 
-export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
+export async function POST(request: Request) {
+  // Rate limit: 10 attempts per 15 minutes per IP
+  const ip = getClientIp(request);
+  const rl = await rateLimit(`rl:login:${ip}`, 10, 900);
+  if (!rl.allowed) {
+    return ApiErrors.tooManyRequests(`Too many login attempts. Try again in ${rl.retryAfter}s.`);
+  }
+
+  const body = await parseJsonBody(request, 4_096);
+  if (body === null) {
+    return ApiErrors.badRequest("Invalid or oversized request body");
+  }
+
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return ApiErrors.unauthorized(INVALID_MSG);

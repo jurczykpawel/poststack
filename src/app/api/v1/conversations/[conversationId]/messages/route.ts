@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { authenticate } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, created, ApiErrors } from "@/lib/api/response";
@@ -115,7 +116,8 @@ export async function POST(
     contactId: conversation.contact.id,
     recipientPlatformId: contactChannel.platform_sender_id,
     content: { text: parsed.data.text },
-    sentByUserId: auth.userId !== "api-key" ? auth.userId : undefined,
+    sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
+    idempotencyKey: randomUUID(),
   });
 
   return created({ queued: true });
