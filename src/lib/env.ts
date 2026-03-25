@@ -33,14 +33,23 @@ const envSchema = z.object({
     .default("development"),
 });
 
-const parsed = envSchema.safeParse(process.env);
+function loadEnv() {
+  // Skip validation during next build prerendering (no runtime env available)
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return process.env as unknown as z.infer<typeof envSchema>;
+  }
 
-if (!parsed.success) {
-  console.error(
-    "Invalid environment variables:\n",
-    parsed.error.flatten().fieldErrors
-  );
-  throw new Error("Invalid environment variables. Check your .env file.");
+  const parsed = envSchema.safeParse(process.env);
+
+  if (!parsed.success) {
+    console.error(
+      "Invalid environment variables:\n",
+      parsed.error.flatten().fieldErrors
+    );
+    throw new Error("Invalid environment variables. Check your .env file.");
+  }
+
+  return parsed.data;
 }
 
-export const env = parsed.data;
+export const env = loadEnv();
