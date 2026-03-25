@@ -1,6 +1,7 @@
 import { jwtVerify } from "jose";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 
 export interface AuthContext {
@@ -11,6 +12,7 @@ export interface AuthContext {
 }
 
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
+const JWT_DENY_PREFIX = "jwt:deny:";
 
 /**
  * Authenticate a request using either:
@@ -91,9 +93,16 @@ async function authenticateSession(
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const userId = payload.sub as string;
     const workspaceId = payload.wid as string;
+    const jti = payload.jti as string | undefined;
 
     if (!userId || !workspaceId) return null;
     if (requiredWorkspaceId && workspaceId !== requiredWorkspaceId) return null;
+
+    // Check JWT denylist (invalidated on logout)
+    if (jti) {
+      const denied = await redis.get(`${JWT_DENY_PREFIX}${jti}`);
+      if (denied) return null;
+    }
 
     return { userId, workspaceId, authMethod: "session" };
   } catch {
@@ -102,8 +111,7 @@ async function authenticateSession(
 }
 
 /**
- * Issue a signed session JWT.
- * Set as HttpOnly cookie on the response.
+ * Issue a signed session JWT with a unique jti for revocation support.
  */
 export async function signSession(
   userId: string,
@@ -113,9 +121,31 @@ export async function signSession(
   return new SignJWT({ wid: workspaceId })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
+    .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(env.JWT_EXPIRY)
     .sign(JWT_SECRET);
+}
+
+/**
+ * Invalidate a session JWT by adding its jti to the Redis denylist.
+ * TTL matches the JWT's remaining lifetime so entries auto-clean.
+ */
+export async function invalidateSession(token: string): Promise<void> {
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const jti = payload.jti;
+    const exp = payload.exp;
+
+    if (!jti || !exp) return;
+
+    const ttl = exp - Math.floor(Date.now() / 1000);
+    if (ttl > 0) {
+      await redis.set(`${JWT_DENY_PREFIX}${jti}`, "1", "EX", ttl);
+    }
+  } catch {
+    // Token already expired or invalid — no need to denylist
+  }
 }
 
 /**

@@ -1,4 +1,6 @@
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { redis } from "@/lib/redis";
 import { outgoingMessagesQueue } from "@/lib/queue/client";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
@@ -53,18 +55,11 @@ export async function evaluateRules(
 
     if (!matchRule(candidate, text, eventType)) continue;
 
-    // Check cooldown: don't fire the same rule for the same contact too often
+    // Cooldown: atomic Redis SETNX prevents concurrent messages from firing the same rule
     if (rule.cooldown_seconds > 0) {
-      const cooldownStart = new Date(Date.now() - rule.cooldown_seconds * 1000);
-      const recentMessage = await prisma.message.findFirst({
-        where: {
-          conversation: { contact_id: contactId },
-          sent_by_rule_id: rule.id,
-          created_at: { gte: cooldownStart },
-        },
-        select: { id: true },
-      });
-      if (recentMessage) continue;
+      const lockKey = `cooldown:${rule.id}:${contactId}`;
+      const acquired = await redis.set(lockKey, "1", "EX", rule.cooldown_seconds, "NX");
+      if (!acquired) continue; // Another message already fired this rule within the cooldown window
     }
 
     // Fire the response
@@ -109,6 +104,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
         recipientPlatformId,
         content: { text },
         sentByRuleId: rule.id,
+        idempotencyKey: randomUUID(),
       });
       break;
     }
@@ -124,6 +120,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
         recipientPlatformId,
         content: { text },
         sentByRuleId: rule.id,
+        idempotencyKey: randomUUID(),
       });
       break;
     }
