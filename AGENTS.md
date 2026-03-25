@@ -127,15 +127,16 @@ See `.env.example`. Required:
 
 | Phase | What | Status |
 |-------|------|--------|
-| 0 | Project skeleton, auth, Docker Compose | planned |
-| 1 | OAuth channels (FB + IG), webhook receiver | planned |
-| 2 | Inbox core, manual reply, BullMQ worker | planned |
-| 3 | Rule engine (keyword auto-reply) | planned |
-| 4 | Sequences (drip campaigns) | planned |
-| 5 | Comment automation (comment → DM) | planned |
-| 6 | Contacts CRM | planned |
-| 7 | Polish + open source publish | planned |
-| 8 | Visual flow builder (v2) | future |
+| 0 | Project skeleton, auth, Docker Compose | done |
+| 1 | OAuth channels (FB + IG), webhook receiver | done |
+| 2 | Inbox core, manual reply, BullMQ worker | done |
+| 3 | Rule engine (keyword auto-reply) | done |
+| 4 | Sequences (drip campaigns) | done |
+| 5 | Comment automation (comment → DM) | done |
+| 6 | Contacts CRM | done |
+| 7 | API keys, token refresh, settings page, cron | done |
+| 8 | OpenAPI spec completion, open source publish | next |
+| 9 | Visual flow builder (v2) | future |
 
 ## Pre-publish Checklist
 
