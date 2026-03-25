@@ -263,6 +263,7 @@ model Message {
   sent_by_rule  AutoReplyRule? @relation(fields: [sent_by_rule_id], references: [id], onDelete: SetNull)
   sent_by_flow  Flow?          @relation(fields: [sent_by_flow_id], references: [id], onDelete: SetNull)
 
+  @@unique([platform_message_id])
   @@index([conversation_id, created_at])
   @@map("messages")
 }

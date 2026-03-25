@@ -1,5 +1,6 @@
 import { authenticate } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -58,10 +59,13 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
+  const { steps, ...rest } = parsed.data;
   const updated = await prisma.sequence.update({
     where: { id: sequenceId },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    data: parsed.data as any,
+    data: {
+      ...rest,
+      ...(steps !== undefined ? { steps: steps as unknown as Prisma.InputJsonValue } : {}),
+    },
   });
   return ok(updated);
 }
@@ -75,12 +79,9 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
-  const existing = await prisma.sequence.findFirst({
+  const result = await prisma.sequence.deleteMany({
     where: { id: sequenceId, workspace_id: auth.workspaceId },
-    select: { id: true },
   });
-  if (!existing) return ApiErrors.notFound();
-
-  await prisma.sequence.delete({ where: { id: sequenceId } });
+  if (result.count === 0) return ApiErrors.notFound();
   return noContent();
 }

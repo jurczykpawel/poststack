@@ -59,7 +59,8 @@ export async function GET(
       ? items[items.length - 1].created_at.toISOString()
       : null;
 
-  return ok(items.reverse(), { has_more: hasMore, next_cursor: nextCursor });
+  // Return in chronological order (oldest first) for the UI
+  return ok([...items].reverse(), { has_more: hasMore, next_cursor: nextCursor });
 }
 
 const sendSchema = z.object({

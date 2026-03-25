@@ -120,8 +120,20 @@ console.log(`[worker] ReplyStack worker started. Listening on ${workers.length} 
 
 async function shutdown() {
   console.log("[worker] Shutting down...");
-  await Promise.all(workers.map((w) => w.close()));
-  await connection.quit();
+
+  // Force exit after 30s if graceful shutdown hangs
+  const forceTimer = setTimeout(() => {
+    console.error("[worker] Graceful shutdown timed out, forcing exit");
+    process.exit(1);
+  }, 30_000);
+  forceTimer.unref();
+
+  try {
+    await Promise.all(workers.map((w) => w.close()));
+    await connection.quit();
+  } catch (err) {
+    console.error("[worker] Shutdown error:", err);
+  }
   process.exit(0);
 }
 

@@ -48,6 +48,7 @@ export async function GET(request: Request) {
   const rules = await prisma.autoReplyRule.findMany({
     where: { workspace_id: auth.workspaceId },
     orderBy: [{ priority: "desc" }, { created_at: "asc" }],
+    take: 200,
     select: {
       id: true,
       name: true,
