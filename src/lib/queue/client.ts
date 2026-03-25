@@ -13,44 +13,36 @@ const defaultJobOptions = {
   removeOnFail: 1000,
 };
 
-export const incomingMessagesQueue = new Queue<IncomingMessageJob>(
-  "incoming-messages",
-  {
-    connection: redis,
-    defaultJobOptions,
-  }
-);
+// Lazy-init queues to avoid Redis connection during next build prerendering.
+// BullMQ Queue constructor immediately pings Redis, which fails in Docker build.
 
-export const incomingCommentsQueue = new Queue<IncomingCommentJob>(
-  "incoming-comments",
-  {
-    connection: redis,
-    defaultJobOptions,
-  }
-);
-
-export const outgoingMessagesQueue = new Queue<OutgoingMessageJob>(
-  "outgoing-messages",
-  {
-    connection: redis,
-    defaultJobOptions: {
-      ...defaultJobOptions,
-      attempts: 3,
-      backoff: { type: "exponential", delay: 5000 },
+function lazyQueue<T>(name: string, opts?: Record<string, unknown>) {
+  let q: Queue<T> | null = null;
+  return new Proxy({} as Queue<T>, {
+    get(_target, prop) {
+      if (!q) {
+        q = new Queue<T>(name, {
+          connection: redis,
+          defaultJobOptions: { ...defaultJobOptions, ...opts },
+        });
+      }
+      return (q as unknown as Record<string, unknown>)[prop as string];
     },
-  }
-);
+  });
+}
 
-export const tokenRefreshQueue = new Queue<TokenRefreshJob>("token-refresh", {
-  connection: redis,
-  defaultJobOptions,
+export const incomingMessagesQueue = lazyQueue<IncomingMessageJob>("incoming-messages");
+
+export const incomingCommentsQueue = lazyQueue<IncomingCommentJob>("incoming-comments");
+
+export const outgoingMessagesQueue = lazyQueue<OutgoingMessageJob>("outgoing-messages", {
+  attempts: 3,
+  backoff: { type: "exponential", delay: 5000 },
 });
 
-export const sequenceStepsQueue = new Queue<SequenceStepJob>("sequence-steps", {
-  connection: redis,
-  defaultJobOptions: {
-    ...defaultJobOptions,
-    attempts: 3,
-    backoff: { type: "fixed", delay: 10000 },
-  },
+export const tokenRefreshQueue = lazyQueue<TokenRefreshJob>("token-refresh");
+
+export const sequenceStepsQueue = lazyQueue<SequenceStepJob>("sequence-steps", {
+  attempts: 3,
+  backoff: { type: "fixed", delay: 10000 },
 });
