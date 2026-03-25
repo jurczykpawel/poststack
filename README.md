@@ -124,6 +124,70 @@ This runs nginx (port 80) + Next.js web + BullMQ worker + PostgreSQL + Redis wit
 
 ---
 
+## Usage
+
+### 1. Connect a channel
+
+Go to **Channels** and click **+ Facebook** or **+ Instagram**. You'll be redirected to Meta to authorize access. After granting permissions, your Pages/IG accounts appear in the list.
+
+### 2. Set up auto-reply rules
+
+Go to **Rules** and click **+ New Rule**:
+
+- **Name** -- e.g. "Welcome keyword"
+- **Trigger** -- choose "Keyword (DM)", enter keywords like `hello, hi, start`
+- **Match type** -- "Contains", "Exact", or "Starts with"
+- **Reply text** -- the message to send back automatically
+- **Priority** -- higher = checked first (rules are evaluated top to bottom)
+- **Cooldown** -- minimum seconds between fires for the same contact
+
+For comment automation, use "Keyword (Comment)" trigger -- when someone comments a keyword on your post, ReplyStack sends them a DM.
+
+### 3. View conversations
+
+Go to **Inbox** to see all incoming conversations. Click a conversation to view the message thread. Type a reply and press Enter to send manually.
+
+You can:
+- **Mark as read** -- click a conversation to reset unread count
+- **Close** -- mark conversation as resolved
+- **Pause automation** -- stop auto-replies for a specific conversation
+
+### 4. Create drip sequences
+
+Go to **Sequences** and click **+ New Sequence**. Add steps:
+
+- **Message** -- text to send
+- **Delay** -- wait N minutes before the next step
+
+Activate the sequence, then enroll contacts via the API:
+
+```bash
+curl -X POST https://your-domain.com/api/v1/sequences/{id}/enroll \
+  -H "Authorization: Bearer rs_live_your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"contact_id": "...", "channel_id": "..."}'
+```
+
+### 5. API access
+
+Go to **Settings** and create an API key. Use it with any HTTP client:
+
+```bash
+# List contacts
+curl https://your-domain.com/api/v1/contacts \
+  -H "Authorization: Bearer rs_live_your-key"
+
+# Send a manual reply
+curl -X POST https://your-domain.com/api/v1/conversations/{id}/messages \
+  -H "Authorization: Bearer rs_live_your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Thanks for reaching out!"}'
+```
+
+Interactive docs at `/api/docs` (Scalar UI).
+
+---
+
 ## Architecture
 
 ```
