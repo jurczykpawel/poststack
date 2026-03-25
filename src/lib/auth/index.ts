@@ -9,6 +9,8 @@ export interface AuthContext {
   workspaceId: string;
   /** "session" = dashboard JWT cookie | "api_key" = Bearer token */
   authMethod: "session" | "api_key";
+  /** API key scopes. Empty = full access. Session auth always has full access. */
+  scopes: string[];
 }
 
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
@@ -43,7 +45,7 @@ async function authenticateApiKey(
 
   const apiKey = await prisma.apiKey.findUnique({
     where: { key_hash: keyHash },
-    select: { id: true, workspace_id: true, expires_at: true },
+    select: { id: true, workspace_id: true, scopes: true, expires_at: true },
   });
 
   if (!apiKey) return null;
@@ -64,6 +66,7 @@ async function authenticateApiKey(
     userId: `api-key:${apiKey.id}`,
     workspaceId: apiKey.workspace_id,
     authMethod: "api_key",
+    scopes: apiKey.scopes,
   };
 }
 
@@ -104,7 +107,7 @@ async function authenticateSession(
       if (denied) return null;
     }
 
-    return { userId, workspaceId, authMethod: "session" };
+    return { userId, workspaceId, authMethod: "session", scopes: [] };
   } catch {
     return null;
   }

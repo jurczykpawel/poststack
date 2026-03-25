@@ -39,6 +39,8 @@ model ApiKey {
   key_hash     String    @unique
   // Prefix shown to user to identify the key (e.g. "rs_live_abc123")
   key_prefix   String
+  // Empty array = full access. Example: ["channels:read", "conversations:read", "conversations:write"]
+  scopes       String[] @default([])
   last_used_at DateTime?
   expires_at   DateTime?
   created_at   DateTime  @default(now())
