@@ -266,7 +266,7 @@ All responses follow the shape `{ data, error, meta? }`.
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL + Prisma 7 |
 | Queue | Redis + BullMQ |
 | Auth | JWT (jose) + API keys |
