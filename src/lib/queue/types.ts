@@ -1,27 +1,45 @@
 export interface IncomingMessageJob {
-  channelId: string;
-  event: Record<string, unknown>;
+  /** "facebook" | "instagram" */
   platform: string;
-  receivedAt: string;
+  /** The FB Page ID / IG Account ID that received the message */
+  pageId: string;
+  /** Platform-native sender PSID / IG user ID */
+  senderId: string;
+  recipientId: string;
+  /** Platform message ID — used for deduplication */
+  mid: string;
+  text: string | null;
+  timestamp: number;
+  /** Full raw messaging event object from Meta */
+  raw: Record<string, unknown>;
 }
 
 export interface IncomingCommentJob {
-  channelId: string;
-  change: Record<string, unknown>;
-  receivedAt: string;
+  platform: string;
+  /** The FB Page ID that received the comment */
+  pageId: string;
+  commentId: string;
+  /** Post ID (Facebook) or Media ID (Instagram) */
+  postId: string | undefined;
+  senderId: string | undefined;
+  senderName: string | undefined;
+  text: string | undefined;
+  timestamp: number | undefined;
+  raw: Record<string, unknown>;
 }
 
 export interface OutgoingMessageJob {
   channelId: string;
   conversationId: string;
   contactId: string;
+  /** Platform-native recipient ID */
+  recipientPlatformId: string;
   content: {
     text?: string;
     attachments?: Array<{ type: string; url: string }>;
     quick_replies?: Array<{ title: string; payload: string }>;
   };
   sentByRuleId?: string;
-  sentByFlowId?: string;
   sentByUserId?: string;
 }
 

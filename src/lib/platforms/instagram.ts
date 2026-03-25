@@ -1,34 +1,241 @@
-import { SocialProvider, type TokenData, type ConnectedAccount, type MessageContent, type SentMessage } from "./base";
+import { env } from "@/lib/env";
+import {
+  SocialProvider,
+  type TokenData,
+  type ConnectedAccount,
+  type MessageContent,
+  type SentMessage,
+} from "./base";
+
+const GRAPH_API = "https://graph.facebook.com/v21.0";
+
+interface FbPage {
+  id: string;
+  name: string;
+  access_token: string;
+  instagram_business_account?: {
+    id: string;
+    name: string;
+    username: string;
+    profile_picture_url: string;
+  };
+}
+
+interface FbPagesResponse {
+  data: FbPage[];
+}
+
+interface FbUserToken {
+  access_token: string;
+}
+
+interface LongLivedToken {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
 
 export class InstagramProvider extends SocialProvider {
   readonly platform = "instagram" as const;
   readonly displayName = "Instagram";
 
-  generateAuthUrl(_state: string, _redirectUri: string): string {
-    throw new Error("InstagramProvider not yet implemented — Phase 2");
+  generateAuthUrl(state: string, redirectUri: string): string {
+    const params = new URLSearchParams({
+      client_id: env.META_APP_ID,
+      redirect_uri: redirectUri,
+      state,
+      scope: [
+        "pages_show_list",
+        "pages_read_engagement",
+        "instagram_basic",
+        "instagram_manage_messages",
+        "instagram_manage_comments",
+      ].join(","),
+      response_type: "code",
+    });
+    return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
   }
 
-  async authenticate(_code: string, _redirectUri: string): Promise<ConnectedAccount[]> {
-    throw new Error("InstagramProvider not yet implemented — Phase 2");
+  async authenticate(code: string, redirectUri: string): Promise<ConnectedAccount[]> {
+    // 1. Exchange code for user token
+    const tokenRes = await fetch(
+      `${GRAPH_API}/oauth/access_token?` +
+        new URLSearchParams({
+          client_id: env.META_APP_ID,
+          client_secret: env.META_APP_SECRET,
+          redirect_uri: redirectUri,
+          code,
+        }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) }
+    );
+    if (!tokenRes.ok) {
+      const body = await tokenRes.text();
+      throw new Error(`Meta token exchange failed: ${body}`);
+    }
+    const { access_token: userToken } = (await tokenRes.json()) as FbUserToken;
+
+    // 2. Exchange for long-lived token (valid 60 days)
+    const llRes = await fetch(
+      `${GRAPH_API}/oauth/access_token?` +
+        new URLSearchParams({
+          grant_type: "fb_exchange_token",
+          client_id: env.META_APP_ID,
+          client_secret: env.META_APP_SECRET,
+          fb_exchange_token: userToken,
+        }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) }
+    );
+    if (!llRes.ok) {
+      const body = await llRes.text();
+      throw new Error(`Meta long-lived token exchange failed: ${body}`);
+    }
+    const llToken = (await llRes.json()) as LongLivedToken;
+    const expiresAt = Math.floor(Date.now() / 1000) + llToken.expires_in;
+
+    // 3. Fetch FB pages with linked Instagram business accounts
+    const pagesRes = await fetch(
+      `${GRAPH_API}/me/accounts?` +
+        new URLSearchParams({
+          access_token: llToken.access_token,
+          fields: "id,name,access_token,instagram_business_account{id,name,username,profile_picture_url}",
+        }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) }
+    );
+    if (!pagesRes.ok) {
+      const body = await pagesRes.text();
+      throw new Error(`Failed to fetch Facebook pages: ${body}`);
+    }
+    const pages = (await pagesRes.json()) as FbPagesResponse;
+
+    const accounts: ConnectedAccount[] = [];
+    for (const page of pages.data) {
+      const igAccount = page.instagram_business_account;
+      if (!igAccount) continue;
+
+      accounts.push({
+        platformId: igAccount.id,
+        displayName: igAccount.name ?? igAccount.username,
+        username: igAccount.username,
+        profilePicture: igAccount.profile_picture_url,
+        tokens: {
+          // Store FB page token — needed to send messages via Instagram Messaging API
+          access_token: page.access_token,
+          user_access_token: llToken.access_token,
+          expires_at: expiresAt,
+          page_id: page.id,
+        },
+      });
+    }
+
+    return accounts;
   }
 
-  async refreshToken(_tokens: TokenData): Promise<TokenData> {
-    throw new Error("InstagramProvider not yet implemented — Phase 2");
+  async refreshToken(tokens: TokenData): Promise<TokenData> {
+    // Refresh the long-lived user token (valid another 60 days from refresh)
+    const res = await fetch(
+      `${GRAPH_API}/oauth/access_token?` +
+        new URLSearchParams({
+          grant_type: "fb_exchange_token",
+          client_id: env.META_APP_ID,
+          client_secret: env.META_APP_SECRET,
+          fb_exchange_token: String(tokens.user_access_token ?? tokens.access_token),
+        }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) }
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Instagram token refresh failed: ${body}`);
+    }
+    const data = (await res.json()) as LongLivedToken;
+    return {
+      ...tokens,
+      user_access_token: data.access_token,
+      expires_at: Math.floor(Date.now() / 1000) + data.expires_in,
+    };
   }
 
-  async sendMessage(_tokens: TokenData, _recipientId: string, _content: MessageContent): Promise<SentMessage> {
-    throw new Error("InstagramProvider not yet implemented — Phase 2");
+  async sendMessage(
+    tokens: TokenData,
+    recipientId: string,
+    content: MessageContent
+  ): Promise<SentMessage> {
+    const body: Record<string, unknown> = {
+      recipient: { id: recipientId },
+      messaging_type: "RESPONSE",
+    };
+
+    if (content.text) {
+      body.message = { text: content.text };
+    }
+
+    // Instagram messaging uses the FB page token scoped to the IG account
+    const res = await fetch(`${GRAPH_API}/me/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, access_token: tokens.access_token }),
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Instagram send message failed: ${err}`);
+    }
+
+    const data = (await res.json()) as { message_id: string };
+    return { platformMessageId: data.message_id };
   }
 
-  async sendComment(_tokens: TokenData, _objectId: string, _message: string): Promise<void> {
-    throw new Error("InstagramProvider not yet implemented — Phase 2");
+  async sendComment(
+    tokens: TokenData,
+    mediaId: string,
+    message: string
+  ): Promise<void> {
+    const res = await fetch(`${GRAPH_API}/${mediaId}/replies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        access_token: tokens.access_token,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Instagram send comment failed: ${err}`);
+    }
+  }
+
+  override async sendPrivateReply(
+    tokens: TokenData,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    const res = await fetch(`${GRAPH_API}/me/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { comment_id: commentId },
+        message: { text: message },
+        access_token: tokens.access_token,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Instagram private reply failed: ${err}`);
+    }
   }
 
   requiresTokenRefresh(): boolean {
-    return true; // Instagram tokens expire every 60 days
+    return true; // Instagram long-lived tokens expire in 60 days
   }
 
-  refreshBufferSeconds(): number {
+  override refreshBufferSeconds(): number {
     return 10 * 24 * 60 * 60; // Refresh 10 days before expiry
   }
 }

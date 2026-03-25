@@ -1,4 +1,3 @@
-import { type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
@@ -18,12 +17,10 @@ const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
  * 1. Session JWT cookie (dashboard frontend)
  * 2. Bearer API key (external integrations)
  *
- * Usage in API route handlers:
- *   const auth = await authenticate(request, workspaceId?)
- *   if (!auth) return ApiErrors.unauthorized()
+ * Accepts the standard Web `Request` (works in App Router route handlers).
  */
 export async function authenticate(
-  request: NextRequest,
+  request: Request,
   requiredWorkspaceId?: string
 ): Promise<AuthContext | null> {
   // Try Bearer API key first
@@ -32,7 +29,7 @@ export async function authenticate(
     return authenticateApiKey(authHeader.slice(7), requiredWorkspaceId);
   }
 
-  // Fall back to session JWT cookie
+  // Fall back to session JWT cookie (parse from Cookie header)
   return authenticateSession(request, requiredWorkspaceId);
 }
 
@@ -68,11 +65,21 @@ async function authenticateApiKey(
   };
 }
 
+/** Parse a specific cookie value from the Cookie header. */
+function parseCookie(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+}
+
 async function authenticateSession(
-  request: NextRequest,
+  request: Request,
   requiredWorkspaceId?: string
 ): Promise<AuthContext | null> {
-  const token = request.cookies.get("rs_session")?.value;
+  const token = parseCookie(request.headers.get("cookie"), "rs_session");
   if (!token) return null;
 
   try {
