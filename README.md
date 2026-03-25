@@ -70,11 +70,33 @@ Edit `.env` -- fill in at minimum:
 - `META_APP_ID` and `META_APP_SECRET` -- from [Meta for Developers](https://developers.facebook.com)
 - `META_WEBHOOK_VERIFY_TOKEN` -- any random string you choose
 
+### Option A: Docker (recommended)
+
+Builds and starts everything -- PostgreSQL, Redis, Next.js web, BullMQ worker:
+
 ```bash
-docker compose up
+docker compose --profile app up
 ```
 
-Open http://localhost:3000, register an account, and connect your first channel.
+First run takes a few minutes (builds Docker images). Open http://localhost:3000.
+
+### Option B: Local development
+
+Start only the databases, run the app with hot-reload:
+
+```bash
+docker compose up postgres redis   # databases only
+npm install
+npx prisma migrate deploy          # create tables
+npm run dev                        # Next.js (terminal 1)
+npm run worker                     # BullMQ worker (terminal 2)
+```
+
+Open http://localhost:3000.
+
+---
+
+Register an account, go to **Channels**, and connect your first Facebook Page or Instagram account.
 
 > **Dev tunnel required for Meta webhooks.** Meta needs a public HTTPS URL to send events to.
 > Run `cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`, then set the
@@ -86,7 +108,7 @@ Open http://localhost:3000, register an account, and connect your first channel.
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This runs nginx (port 80) + Next.js web + BullMQ worker + PostgreSQL + Redis.
+This runs nginx (port 80) + Next.js web + BullMQ worker + PostgreSQL + Redis with pre-built images.
 
 ---
 
@@ -217,18 +239,13 @@ Then update `NC_DB` in `docker-compose.yml` to use this role.
 
 ## Development
 
-```bash
-docker compose up postgres redis
-npm install
-npm run db:migrate
-npm run dev       # Next.js dev server
-npm run worker    # BullMQ worker (separate terminal)
-```
+See [Quick Start - Option B](#option-b-local-development) for setup. Additional commands:
 
 ```bash
 npm run lint        # ESLint
 npm run typecheck   # TypeScript
 npm test            # Vitest (23 tests)
+npm run build       # Production build
 ```
 
 ---

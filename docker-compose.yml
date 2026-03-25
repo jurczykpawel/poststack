@@ -28,10 +28,57 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- App (full stack, builds locally) ---
+  # Start everything: docker compose up
+  # Start only DB/Redis for local dev: docker compose up postgres redis
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    profiles: ["app"]
+    ports:
+      - "3000:3000"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    profiles: ["app"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    profiles: ["app"]
+    env_file: .env
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Optional: NocoDB spreadsheet view of your data
   # Access at http://localhost:8080
-  # Connects to the same PostgreSQL database.
-  # Recommended: create a read-only Postgres role (see README).
   nocodb:
     image: nocodb/nocodb:latest
     profiles: ["nocodb"]
