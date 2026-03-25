@@ -5,17 +5,18 @@ const globalForRedis = globalThis as unknown as {
 };
 
 function createRedis(): Redis {
-  // During next build, REDIS_URL may be a dummy value — don't connect
   const url = process.env.REDIS_URL;
   if (!url) {
-    // Return a placeholder that will fail at runtime if actually used without REDIS_URL
     return new Redis({ lazyConnect: true, enableOfflineQueue: false });
   }
 
   return new Redis(url, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
-    lazyConnect: process.env.NEXT_PHASE === "phase-production-build",
+    // lazyConnect: don't open TCP connection at import time.
+    // ioredis will auto-connect on first command. This prevents
+    // ECONNREFUSED during `next build` (no Redis in Docker build stage).
+    lazyConnect: true,
   });
 }
 
