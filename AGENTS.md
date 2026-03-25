@@ -11,7 +11,7 @@ Alternative to ManyChat / ZernFlow, without vendor lock-in.
 
 | Layer | Tech |
 |-------|------|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Language | TypeScript 5 |
 | Database | PostgreSQL + Prisma |
 | Cache / Queue | Redis + BullMQ |

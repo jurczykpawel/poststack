@@ -38,9 +38,9 @@ jobs:
       CRON_SECRET: ci-cron-secret-not-real-but-32chars!
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -74,7 +74,7 @@ jobs:
     needs: ci
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build web image
         run: docker build -f docker/Dockerfile -t replystack:test .
