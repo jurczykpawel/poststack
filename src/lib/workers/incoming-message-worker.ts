@@ -1,6 +1,7 @@
 import type { Job } from "bullmq";
 import type { IncomingMessageJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
+import { evaluateRules } from "@/lib/rules/executor";
 
 /**
  * Process an incoming DM from Facebook/Instagram.
@@ -89,6 +90,10 @@ export async function processIncomingMessage(
       last_message_preview: text ? text.slice(0, 255) : null,
       unread_count: { increment: 1 },
     },
+    select: {
+      id: true,
+      is_automation_paused: true,
+    },
   });
 
   // 4. Insert inbound Message (idempotent by platform_message_id)
@@ -113,4 +118,20 @@ export async function processIncomingMessage(
   await job.log(
     `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${mid}`
   );
+
+  // 5. Evaluate auto-reply rules (skip if automation is paused)
+  if (!conversation.is_automation_paused) {
+    const matchedRuleId = await evaluateRules({
+      workspaceId: channel.workspace_id,
+      channelId: channel.id,
+      conversationId: conversation.id,
+      contactId,
+      recipientPlatformId: senderId,
+      text,
+      eventType: "message",
+    });
+    if (matchedRuleId) {
+      await job.log(`Rule fired: ${matchedRuleId}`);
+    }
+  }
 }
