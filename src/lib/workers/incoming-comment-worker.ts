@@ -1,19 +1,19 @@
 import type { Job } from "bullmq";
 import type { IncomingCommentJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 /**
  * Process an incoming comment on a Facebook post or Instagram media.
  *
  * 1. Resolve Channel from pageId
- * 2. Log the comment (dedup by platform_comment_id)
- * 3. Rule engine fires in Phase 4 (comment_keyword rules → auto DM or reply)
+ * 2. Log the comment (dedup by unique constraint on channel_id + platform_comment_id)
+ * 3. Rule engine fires in Phase 4 (comment_keyword rules)
  */
 export async function processIncomingComment(
   job: Job<IncomingCommentJob>
 ): Promise<void> {
-  const { pageId, commentId, postId, senderId, senderName, text, timestamp } =
-    job.data;
+  const { pageId, commentId, postId, senderId, senderName, text } = job.data;
 
   if (!text) {
     await job.log(`Empty comment commentId=${commentId}, skipping`);
@@ -31,31 +31,27 @@ export async function processIncomingComment(
     return;
   }
 
-  // 2. Log comment (idempotent by platform_comment_id)
-  const existing = await prisma.commentLog.findFirst({
-    where: { platform_comment_id: commentId },
-    select: { id: true },
-  });
-
-  if (existing) {
-    await job.log(`commentId=${commentId} already logged, skipping`);
-    return;
+  // 2. Log comment — unique constraint prevents duplicates atomically
+  try {
+    await prisma.commentLog.create({
+      data: {
+        channel_id: channel.id,
+        workspace_id: channel.workspace_id,
+        post_id: postId ?? null,
+        platform_comment_id: commentId,
+        author_id: senderId ?? null,
+        author_name: senderName ?? null,
+        comment_text: text,
+      },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      await job.log(`commentId=${commentId} already logged (unique constraint), skipping`);
+      return;
+    }
+    throw err;
   }
 
-  await prisma.commentLog.create({
-    data: {
-      channel_id: channel.id,
-      workspace_id: channel.workspace_id,
-      post_id: postId ?? null,
-      platform_comment_id: commentId,
-      author_id: senderId ?? null,
-      author_name: senderName ?? null,
-      comment_text: text,
-    },
-  });
-
-  await job.log(
-    `Logged comment=${commentId} post=${postId} author=${senderId} ts=${timestamp}`
-  );
-  // Phase 4 will add rule matching here
+  await job.log(`Logged comment=${commentId} post=${postId} author=${senderId}`);
+  // Rule matching for comment_keyword rules will be called from here in Phase 4+
 }

@@ -46,6 +46,15 @@ export async function POST(
   if (!contact) return ApiErrors.notFound("Contact");
   if (!channel) return ApiErrors.notFound("Channel");
 
+  // Verify the contact has a platform identity on this channel
+  const contactChannel = await prisma.contactChannel.findFirst({
+    where: { contact_id: parsed.data.contact_id, channel_id: parsed.data.channel_id },
+    select: { id: true },
+  });
+  if (!contactChannel) {
+    return ApiErrors.badRequest("Contact has no platform identity on this channel");
+  }
+
   // Create enrollment (skip if already enrolled and active)
   const existing = await prisma.sequenceEnrollment.findFirst({
     where: {

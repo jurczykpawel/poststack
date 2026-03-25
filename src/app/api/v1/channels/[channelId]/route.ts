@@ -85,11 +85,9 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  const existing = await prisma.channel.findFirst({
+  const result = await prisma.channel.deleteMany({
     where: { id: channelId, workspace_id: auth.workspaceId },
   });
-  if (!existing) return ApiErrors.notFound();
-
-  await prisma.channel.delete({ where: { id: channelId } });
+  if (result.count === 0) return ApiErrors.notFound();
   return noContent();
 }

@@ -6,6 +6,8 @@ import type { IncomingMessageJob, IncomingCommentJob } from "@/lib/queue/types";
 
 export const runtime = "nodejs";
 
+const VALID_PLATFORMS = new Set(["facebook", "instagram", "page"]);
+
 // ─── Hub Verification (GET) ────────────────────────────────────────────────
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -22,7 +24,6 @@ export async function GET(request: Request) {
 
 // ─── Webhook Events (POST) ────────────────────────────────────────────────
 export async function POST(request: Request) {
-  // 1. Read raw body for HMAC verification
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256") ?? "";
 
@@ -37,24 +38,36 @@ export async function POST(request: Request) {
     return new Response("Bad Request", { status: 400 });
   }
 
-  // 2. Route to appropriate queues
+  // Validate platform - Meta sends "page" for FB page webhooks, "instagram" for IG
+  if (!VALID_PLATFORMS.has(payload.object)) {
+    return NextResponse.json({ status: "ignored", reason: "unsupported object type" });
+  }
+
+  // Normalize: Meta sends "page" for Facebook pages
+  const platform = payload.object === "page" ? "facebook" : payload.object;
+
   for (const entry of payload.entry ?? []) {
     // Messaging events (DMs)
     for (const messagingEvent of entry.messaging ?? []) {
-      if (messagingEvent.message) {
-        const job: IncomingMessageJob = {
-          platform: payload.object as "facebook" | "instagram",
-          pageId: entry.id,
-          senderId: messagingEvent.sender.id,
-          recipientId: messagingEvent.recipient.id,
-          mid: messagingEvent.message.mid,
-          text: messagingEvent.message.text ?? null,
-          timestamp: messagingEvent.timestamp,
-          raw: messagingEvent as unknown as Record<string, unknown>,
-        };
+      if (!messagingEvent.message?.mid) continue;
+
+      const job: IncomingMessageJob = {
+        platform,
+        pageId: entry.id,
+        senderId: messagingEvent.sender.id,
+        recipientId: messagingEvent.recipient.id,
+        mid: messagingEvent.message.mid,
+        text: messagingEvent.message.text ?? null,
+        timestamp: messagingEvent.timestamp,
+        raw: messagingEvent as unknown as Record<string, unknown>,
+      };
+
+      try {
         await incomingMessagesQueue.add("incoming-message", job, {
           jobId: `msg-${messagingEvent.message.mid}`,
         });
+      } catch (err) {
+        console.error("[webhook] Failed to enqueue message:", err);
       }
     }
 
@@ -63,22 +76,28 @@ export async function POST(request: Request) {
       if (
         change.field === "feed" &&
         change.value?.item === "comment" &&
-        change.value.verb === "add"
+        change.value.verb === "add" &&
+        change.value.comment_id
       ) {
         const job: IncomingCommentJob = {
-          platform: payload.object as "facebook" | "instagram",
+          platform,
           pageId: entry.id,
-          commentId: change.value.comment_id ?? "",
+          commentId: change.value.comment_id,
           postId: change.value.post_id ?? change.value.media_id,
           senderId: change.value.from?.id,
           senderName: change.value.from?.name,
           text: change.value.message,
           timestamp: change.value.created_time,
-          raw: change.value,
+          raw: change.value as Record<string, unknown>,
         };
-        await incomingCommentsQueue.add("incoming-comment", job, {
-          jobId: `comment-${change.value.comment_id}`,
-        });
+
+        try {
+          await incomingCommentsQueue.add("incoming-comment", job, {
+            jobId: `comment-${change.value.comment_id}`,
+          });
+        } catch (err) {
+          console.error("[webhook] Failed to enqueue comment:", err);
+        }
       }
     }
   }

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { env } from "@/lib/env";
 
 const ALGORITHM = "aes-256-gcm";
@@ -75,7 +75,6 @@ export function verifyMetaSignature(
 ): boolean {
   if (!signature) return false;
 
-  const { createHmac, timingSafeEqual } = require("crypto") as typeof import("crypto");
   const expected = `sha256=${createHmac("sha256", appSecret)
     .update(body, "utf8")
     .digest("hex")}`;

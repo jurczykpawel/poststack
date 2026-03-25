@@ -4,18 +4,24 @@ import { encryptTokens } from "@/lib/crypto";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
 
+const MAX_ACCOUNTS_PER_OAUTH = 50;
+
 /**
  * Upsert channels from OAuth-connected accounts.
  * Creates a new Channel or updates the tokens on an existing one.
+ * Webhook secret is only generated on first creation — not rotated on reconnect.
  */
 export async function upsertChannels(
   workspaceId: string,
   platform: Platform,
   accounts: ConnectedAccount[]
 ): Promise<void> {
+  if (accounts.length > MAX_ACCOUNTS_PER_OAUTH) {
+    throw new Error(`Too many accounts (${accounts.length}), max ${MAX_ACCOUNTS_PER_OAUTH}`);
+  }
+
   for (const account of accounts) {
     const encryptedTokens = encryptTokens(account.tokens);
-    const webhookSecret = randomBytes(32).toString("hex");
 
     await prisma.channel.upsert({
       where: {
@@ -32,7 +38,7 @@ export async function upsertChannels(
         username: account.username ?? null,
         profile_picture: account.profilePicture ?? null,
         token_encrypted: encryptedTokens,
-        webhook_secret: webhookSecret,
+        webhook_secret: randomBytes(32).toString("hex"),
         is_active: true,
       },
       update: {

@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   const tags = await prisma.tag.findMany({
     where: { workspace_id: auth.workspaceId },
     orderBy: { name: "asc" },
+    take: 500,
     select: {
       id: true,
       name: true,

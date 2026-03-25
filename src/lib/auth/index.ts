@@ -1,5 +1,5 @@
 import { jwtVerify } from "jose";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 
@@ -59,7 +59,7 @@ async function authenticateApiKey(
     .catch(() => {});
 
   return {
-    userId: "api-key",
+    userId: `api-key:${apiKey.id}`,
     workspaceId: apiKey.workspace_id,
     authMethod: "api_key",
   };
@@ -72,7 +72,12 @@ function parseCookie(cookieHeader: string | null, name: string): string | null {
     .split(";")
     .map((c) => c.trim())
     .find((c) => c.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match.slice(name.length + 1));
+  } catch {
+    return null;
+  }
 }
 
 async function authenticateSession(
@@ -118,7 +123,6 @@ export async function signSession(
  * Returns the plaintext key (shown once) and the prefix (stored).
  */
 export function generateApiKey(): { plaintext: string; prefix: string; hash: string } {
-  const { randomBytes } = require("crypto") as typeof import("crypto");
   const secret = randomBytes(32).toString("hex");
   const plaintext = `rs_live_${secret}`;
   const prefix = plaintext.slice(0, 16); // "rs_live_" + first 8 chars

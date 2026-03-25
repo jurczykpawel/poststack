@@ -1,5 +1,6 @@
 import { authenticate } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -55,10 +56,18 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
+  const { trigger_config, response_config, ...rest } = parsed.data;
   const updated = await prisma.autoReplyRule.update({
     where: { id: ruleId },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    data: parsed.data as any,
+    data: {
+      ...rest,
+      ...(trigger_config !== undefined
+        ? { trigger_config: trigger_config as Prisma.InputJsonValue }
+        : {}),
+      ...(response_config !== undefined
+        ? { response_config: response_config as Prisma.InputJsonValue }
+        : {}),
+    },
   });
 
   return ok(updated);
@@ -73,12 +82,9 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
-  const existing = await prisma.autoReplyRule.findFirst({
+  const result = await prisma.autoReplyRule.deleteMany({
     where: { id: ruleId, workspace_id: auth.workspaceId },
-    select: { id: true },
   });
-  if (!existing) return ApiErrors.notFound();
-
-  await prisma.autoReplyRule.delete({ where: { id: ruleId } });
+  if (result.count === 0) return ApiErrors.notFound();
   return noContent();
 }
