@@ -5,6 +5,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 RUN npm ci
 RUN npx prisma generate
 RUN find /app -name 'libquery_engine-darwin*' -delete
@@ -22,6 +23,7 @@ RUN adduser --system --uid 1001 worker
 
 COPY --from=builder --chown=worker:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=worker:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=worker:nodejs /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder --chown=worker:nodejs /app/src ./src
 COPY --from=builder --chown=worker:nodejs /app/worker ./worker
 COPY --from=builder --chown=worker:nodejs /app/tsconfig.json ./tsconfig.json

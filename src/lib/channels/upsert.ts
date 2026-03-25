@@ -1,4 +1,4 @@
-import type { Platform } from "@prisma/client";
+import type { Platform } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { encryptTokens } from "@/lib/crypto";
 import { randomBytes } from "crypto";
