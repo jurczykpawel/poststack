@@ -1,0 +1,586 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  email         String   @unique
+  password_hash String?
+  name          String?
+  avatar_url    String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  workspace_members WorkspaceMember[]
+  messages_sent     Message[]         @relation("SentByUser")
+  assigned_convs    Conversation[]    @relation("AssignedTo")
+
+  @@map("users")
+}
+
+// ============================================================
+// API KEYS
+// ============================================================
+
+model ApiKey {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspace_id String    @db.Uuid
+  name         String
+  // sha256 hash of the key — never store plaintext after creation
+  key_hash     String    @unique
+  // Prefix shown to user to identify the key (e.g. "rs_live_abc123")
+  key_prefix   String
+  last_used_at DateTime?
+  expires_at   DateTime?
+  created_at   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+  @@map("api_keys")
+}
+
+// ============================================================
+// WORKSPACES
+// ============================================================
+
+model Workspace {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  slug       String   @unique
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  members       WorkspaceMember[]
+  api_keys      ApiKey[]
+  channels      Channel[]
+  contacts      Contact[]
+  tags          Tag[]
+  rules         AutoReplyRule[]
+  flows         Flow[]
+  sequences     Sequence[]
+  conversations Conversation[]
+  broadcasts    Broadcast[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspace_id String   @db.Uuid
+  user_id      String   @db.Uuid
+  role         String   @default("owner") // owner | admin | agent
+  created_at   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([workspace_id, user_id])
+  @@index([user_id])
+  @@map("workspace_members")
+}
+
+// ============================================================
+// CHANNELS (OAuth connections)
+// ============================================================
+
+model Channel {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspace_id    String   @db.Uuid
+  platform        Platform
+  platform_id     String   // Page ID / Account ID from the platform
+  display_name    String?
+  username        String?
+  profile_picture String?
+  // AES-256-GCM encrypted JSON: { access_token, refresh_token?, expires_at? }
+  token_encrypted String
+  // Per-channel random string used for Meta hub.verify
+  webhook_secret  String
+  is_active       Boolean  @default(true)
+  last_comment_cursor String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  workspace            Workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  conversations        Conversation[]
+  contact_channels     ContactChannel[]
+  rules                AutoReplyRule[]
+  flow_triggers        FlowTrigger[]
+  sequence_enrollments SequenceEnrollment[]
+  comment_logs         CommentLog[]
+
+  @@unique([workspace_id, platform_id])
+  @@index([workspace_id])
+  @@map("channels")
+}
+
+enum Platform {
+  facebook
+  instagram
+  telegram
+  tiktok
+  twitter
+
+  @@map("platform")
+}
+
+// ============================================================
+// CONTACTS (CRM)
+// ============================================================
+
+model Contact {
+  id                  String    @id @default(uuid()) @db.Uuid
+  workspace_id        String    @db.Uuid
+  display_name        String?
+  email               String?
+  avatar_url          String?
+  is_subscribed       Boolean   @default(true)
+  last_interaction_at DateTime?
+  metadata            Json      @default("{}")
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  workspace            Workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  contact_channels     ContactChannel[]
+  tags                 ContactTag[]
+  conversations        Conversation[]
+  flow_sessions        FlowSession[]
+  sequence_enrollments SequenceEnrollment[]
+
+  @@index([workspace_id])
+  @@index([workspace_id, last_interaction_at(sort: Desc)])
+  @@map("contacts")
+}
+
+model ContactChannel {
+  id                 String   @id @default(uuid()) @db.Uuid
+  contact_id         String   @db.Uuid
+  channel_id         String   @db.Uuid
+  platform_sender_id String   // PSID, IG scoped ID, etc.
+  platform_username  String?
+  created_at         DateTime @default(now())
+
+  contact Contact @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  @@unique([channel_id, platform_sender_id])
+  @@index([contact_id])
+  @@map("contact_channels")
+}
+
+model Tag {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspace_id String   @db.Uuid
+  name         String
+  color        String   @default("#6366f1")
+  created_at   DateTime @default(now())
+
+  workspace Workspace    @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  contacts  ContactTag[]
+
+  @@unique([workspace_id, name])
+  @@map("tags")
+}
+
+model ContactTag {
+  contact_id String   @db.Uuid
+  tag_id     String   @db.Uuid
+  created_at DateTime @default(now())
+
+  contact Contact @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tag_id], references: [id], onDelete: Cascade)
+
+  @@id([contact_id, tag_id])
+  @@map("contact_tags")
+}
+
+// ============================================================
+// CONVERSATIONS & MESSAGES
+// ============================================================
+
+model Conversation {
+  id                       String             @id @default(uuid()) @db.Uuid
+  workspace_id             String             @db.Uuid
+  channel_id               String             @db.Uuid
+  contact_id               String             @db.Uuid
+  platform                 Platform
+  platform_conversation_id String?
+  status                   ConversationStatus @default(open)
+  assigned_to              String?            @db.Uuid
+  last_message_at          DateTime?
+  last_message_preview     String?
+  unread_count             Int                @default(0)
+  is_automation_paused     Boolean            @default(false)
+  created_at               DateTime           @default(now())
+  updated_at               DateTime           @updatedAt
+
+  workspace     Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  channel       Channel       @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  contact       Contact       @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  assignee      User?         @relation("AssignedTo", fields: [assigned_to], references: [id])
+  messages      Message[]
+  flow_sessions FlowSession[]
+
+  @@unique([channel_id, contact_id])
+  @@index([workspace_id, last_message_at(sort: Desc)])
+  @@index([workspace_id, status])
+  @@map("conversations")
+}
+
+enum ConversationStatus {
+  open
+  closed
+  snoozed
+
+  @@map("conversation_status")
+}
+
+model Message {
+  id                  String           @id @default(uuid()) @db.Uuid
+  conversation_id     String           @db.Uuid
+  direction           MessageDirection
+  text                String?
+  attachments         Json?
+  quick_reply_payload String?
+  postback_payload    String?
+  platform_message_id String?
+  sent_by_rule_id     String?          @db.Uuid
+  sent_by_flow_id     String?          @db.Uuid
+  sent_by_user_id     String?          @db.Uuid
+  status              MessageStatus    @default(sent)
+  created_at          DateTime         @default(now())
+
+  conversation  Conversation   @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  sent_by_user  User?          @relation("SentByUser", fields: [sent_by_user_id], references: [id])
+  sent_by_rule  AutoReplyRule? @relation(fields: [sent_by_rule_id], references: [id], onDelete: SetNull)
+  sent_by_flow  Flow?          @relation(fields: [sent_by_flow_id], references: [id], onDelete: SetNull)
+
+  @@index([conversation_id, created_at])
+  @@map("messages")
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+
+  @@map("message_direction")
+}
+
+enum MessageStatus {
+  pending
+  sent
+  delivered
+  failed
+
+  @@map("message_status")
+}
+
+// ============================================================
+// AUTO-REPLY RULES (v1)
+// ============================================================
+
+model AutoReplyRule {
+  id           String      @id @default(uuid()) @db.Uuid
+  workspace_id String      @db.Uuid
+  channel_id   String?     @db.Uuid
+  name         String
+  is_active    Boolean     @default(true)
+  priority     Int         @default(0)
+
+  trigger_type   TriggerType
+  // keyword: [{ value, match_type: "exact"|"contains"|"starts_with" }]
+  // comment_keyword: { post_id?, keywords: [...] }
+  // postback: { payload }
+  // welcome/default/story_reply/story_mention: {}
+  trigger_config Json        @default("{}")
+
+  response_type   ResponseType @default(text)
+  // text: { text }
+  // random_text: { messages: string[] }
+  // sequence: { sequence_id }
+  // none: {}
+  response_config Json         @default("{}")
+
+  // [{ type: "add_tag"|"remove_tag"|"set_field"|"human_takeover"|"close_conversation", ...params }]
+  actions Json @default("[]")
+
+  cooldown_seconds Int @default(0)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  channel   Channel?  @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([workspace_id, is_active])
+  @@index([channel_id, trigger_type, is_active])
+  @@map("auto_reply_rules")
+}
+
+enum TriggerType {
+  keyword
+  comment_keyword
+  postback
+  welcome
+  default
+  story_reply
+  story_mention
+
+  @@map("trigger_type")
+}
+
+enum ResponseType {
+  text
+  random_text
+  sequence
+  none
+
+  @@map("response_type")
+}
+
+// ============================================================
+// FLOWS (v2 - visual builder, reserved for future use)
+// Schema mirrors ZernFlow for easy engine port.
+// ============================================================
+
+model Flow {
+  id           String     @id @default(uuid()) @db.Uuid
+  workspace_id String     @db.Uuid
+  name         String
+  description  String?
+  status       FlowStatus @default(draft)
+  nodes        Json       @default("[]")
+  edges        Json       @default("[]")
+  viewport     Json?
+  version      Int        @default(1)
+  published_at DateTime?
+  created_at   DateTime   @default(now())
+  updated_at   DateTime   @updatedAt
+
+  workspace Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  triggers  FlowTrigger[]
+  sessions  FlowSession[]
+  versions  FlowVersion[]
+  messages  Message[]
+
+  @@index([workspace_id, status])
+  @@map("flows")
+}
+
+enum FlowStatus {
+  draft
+  published
+  archived
+
+  @@map("flow_status")
+}
+
+model FlowTrigger {
+  id         String      @id @default(uuid()) @db.Uuid
+  flow_id    String      @db.Uuid
+  channel_id String?     @db.Uuid
+  type       TriggerType
+  config     Json        @default("{}")
+  priority   Int         @default(0)
+  is_active  Boolean     @default(true)
+  created_at DateTime    @default(now())
+
+  flow    Flow     @relation(fields: [flow_id], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channel_id], references: [id], onDelete: SetNull)
+
+  @@index([channel_id, type, is_active])
+  @@map("flow_triggers")
+}
+
+model FlowSession {
+  id                String            @id @default(uuid()) @db.Uuid
+  contact_id        String            @db.Uuid
+  flow_id           String            @db.Uuid
+  conversation_id   String            @db.Uuid
+  status            FlowSessionStatus @default(active)
+  current_node_id   String?
+  variables         Json              @default("{}")
+  waiting_until     DateTime?
+  waiting_for_input Boolean           @default(false)
+  human_takeover_at DateTime?
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  contact      Contact      @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  flow         Flow         @relation(fields: [flow_id], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@index([contact_id, status])
+  @@map("flow_sessions")
+}
+
+enum FlowSessionStatus {
+  active
+  completed
+  expired
+  cancelled
+
+  @@map("flow_session_status")
+}
+
+model FlowVersion {
+  id           String   @id @default(uuid()) @db.Uuid
+  flow_id      String   @db.Uuid
+  version      Int
+  nodes        Json
+  edges        Json
+  viewport     Json?
+  name         String
+  published_by String?  @db.Uuid
+  created_at   DateTime @default(now())
+
+  flow Flow @relation(fields: [flow_id], references: [id], onDelete: Cascade)
+
+  @@unique([flow_id, version])
+  @@index([flow_id, version(sort: Desc)])
+  @@map("flow_versions")
+}
+
+// ============================================================
+// SEQUENCES (drip campaigns)
+// ============================================================
+
+model Sequence {
+  id           String         @id @default(uuid()) @db.Uuid
+  workspace_id String         @db.Uuid
+  name         String
+  description  String?
+  status       SequenceStatus @default(draft)
+  // [{ type: "message"|"delay", content?: string, delay_minutes?: number }]
+  steps        Json           @default("[]")
+  created_at   DateTime       @default(now())
+  updated_at   DateTime       @updatedAt
+
+  workspace   Workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  enrollments SequenceEnrollment[]
+
+  @@index([workspace_id])
+  @@map("sequences")
+}
+
+enum SequenceStatus {
+  draft
+  active
+  archived
+
+  @@map("sequence_status")
+}
+
+model SequenceEnrollment {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  sequence_id        String                   @db.Uuid
+  contact_id         String                   @db.Uuid
+  channel_id         String                   @db.Uuid
+  current_step_index Int                      @default(0)
+  status             SequenceEnrollmentStatus @default(active)
+  enrolled_at        DateTime                 @default(now())
+  next_step_at       DateTime?
+  completed_at       DateTime?
+
+  sequence Sequence @relation(fields: [sequence_id], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  channel  Channel  @relation(fields: [channel_id], references: [id])
+
+  @@unique([sequence_id, contact_id])
+  @@map("sequence_enrollments")
+}
+
+enum SequenceEnrollmentStatus {
+  active
+  paused
+  completed
+  cancelled
+
+  @@map("sequence_enrollment_status")
+}
+
+// ============================================================
+// COMMENT LOGS (dedup + audit)
+// ============================================================
+
+model CommentLog {
+  id                  String   @id @default(uuid()) @db.Uuid
+  channel_id          String   @db.Uuid
+  workspace_id        String   @db.Uuid
+  post_id             String?
+  platform_comment_id String
+  author_id           String?
+  author_name         String?
+  comment_text        String
+  matched_rule_id     String?  @db.Uuid
+  dm_sent             Boolean  @default(false)
+  reply_sent          Boolean  @default(false)
+  error               String?
+  created_at          DateTime @default(now())
+
+  channel Channel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  @@unique([channel_id, platform_comment_id])
+  @@index([channel_id])
+  @@index([workspace_id])
+  @@map("comment_logs")
+}
+
+// ============================================================
+// BROADCASTS
+// ============================================================
+
+model Broadcast {
+  id               String          @id @default(uuid()) @db.Uuid
+  workspace_id     String          @db.Uuid
+  name             String
+  status           BroadcastStatus @default(draft)
+  message_content  Json            @default("{}")
+  segment_filter   Json?
+  scheduled_for    DateTime?
+  total_recipients Int             @default(0)
+  sent             Int             @default(0)
+  delivered        Int             @default(0)
+  failed           Int             @default(0)
+  created_at       DateTime        @default(now())
+  updated_at       DateTime        @updatedAt
+
+  workspace  Workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  recipients BroadcastRecipient[]
+
+  @@map("broadcasts")
+}
+
+enum BroadcastStatus {
+  draft
+  scheduled
+  sending
+  completed
+  cancelled
+
+  @@map("broadcast_status")
+}
+
+model BroadcastRecipient {
+  id            String    @id @default(uuid()) @db.Uuid
+  broadcast_id  String    @db.Uuid
+  contact_id    String    @db.Uuid
+  channel_id    String    @db.Uuid
+  status        String    @default("pending")
+  sent_at       DateTime?
+  error_message String?
+
+  broadcast Broadcast @relation(fields: [broadcast_id], references: [id], onDelete: Cascade)
+
+  @@index([broadcast_id, status])
+  @@map("broadcast_recipients")
+}

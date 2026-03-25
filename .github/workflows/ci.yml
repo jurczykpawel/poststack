@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Lint, Type Check, Test, Build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: replystack
+          POSTGRES_PASSWORD: replystack-ci
+          POSTGRES_DB: replystack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://replystack:replystack-ci@localhost:5432/replystack
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-jwt-secret-not-real
+      TOKEN_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      META_APP_ID: ci-fake-app-id
+      META_APP_SECRET: ci-fake-app-secret
+      META_WEBHOOK_VERIFY_TOKEN: ci-verify-token
+      CRON_SECRET: ci-cron-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build web image
+        run: docker build -f docker/Dockerfile -t replystack:test .
+
+      - name: Build worker image
+        run: docker build -f docker/Dockerfile.worker -t replystack-worker:test .

@@ -1,0 +1,32 @@
+FROM node:22-alpine AS base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma/
+RUN npm ci
+RUN npx prisma generate
+RUN find /app -name 'libquery_engine-darwin*' -delete
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npx prisma generate
+
+FROM base AS runner
+ENV NODE_ENV=production
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 worker
+
+COPY --from=builder --chown=worker:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=worker:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=worker:nodejs /app/src ./src
+COPY --from=builder --chown=worker:nodejs /app/worker ./worker
+COPY --from=builder --chown=worker:nodejs /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=worker:nodejs /app/package.json ./package.json
+
+USER worker
+
+CMD ["node_modules/.bin/tsx", "worker/inbox-worker.ts"]

@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-replystack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replystack-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-replystack}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-replystack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-replystack-dev}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-replystack-dev}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Optional: NocoDB spreadsheet view of your data
+  # Access at http://localhost:8080
+  # Connects to the same PostgreSQL database.
+  # Recommended: create a read-only Postgres role (see README).
+  nocodb:
+    image: nocodb/nocodb:latest
+    profiles: ["nocodb"]
+    ports:
+      - "8080:8080"
+    environment:
+      NC_DB: "pg://${POSTGRES_HOST:-postgres}:5432?u=${POSTGRES_USER:-replystack}&p=${POSTGRES_PASSWORD:-replystack-dev}&d=${POSTGRES_DB:-replystack}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - nocodb_data:/usr/app/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  nocodb_data:
