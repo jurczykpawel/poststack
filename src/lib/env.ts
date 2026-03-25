@@ -19,10 +19,10 @@ const envSchema = z.object({
   // App
   NEXT_PUBLIC_APP_URL: z.string().url(),
 
-  // Meta
-  META_APP_ID: z.string().min(1),
-  META_APP_SECRET: z.string().min(1),
-  META_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
+  // Meta (optional — app starts without them, OAuth won't work until configured)
+  META_APP_ID: z.string().default(""),
+  META_APP_SECRET: z.string().default(""),
+  META_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
 
   // Cron
   CRON_SECRET: z.string().min(32),
