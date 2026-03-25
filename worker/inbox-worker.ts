@@ -25,7 +25,7 @@ const incomingWorker = new Worker(
     const { processIncomingMessage } = await import(
       "../src/lib/workers/incoming-message-worker"
     );
-    return processIncomingMessage(job.data);
+    return processIncomingMessage(job);
   },
   {
     connection,
@@ -40,7 +40,7 @@ const incomingCommentsWorker = new Worker(
     const { processIncomingComment } = await import(
       "../src/lib/workers/incoming-comment-worker"
     );
-    return processIncomingComment(job.data);
+    return processIncomingComment(job);
   },
   {
     connection,
@@ -55,7 +55,7 @@ const outgoingWorker = new Worker(
     const { processOutgoingMessage } = await import(
       "../src/lib/workers/outgoing-message-worker"
     );
-    return processOutgoingMessage(job.data);
+    return processOutgoingMessage(job);
   },
   {
     connection,
@@ -70,7 +70,7 @@ const tokenRefreshWorker = new Worker(
     const { processTokenRefresh } = await import(
       "../src/lib/workers/token-refresh-worker"
     );
-    return processTokenRefresh(job.data);
+    return processTokenRefresh(job);
   },
   {
     connection,
@@ -85,7 +85,7 @@ const sequenceStepsWorker = new Worker(
     const { processSequenceStep } = await import(
       "../src/lib/workers/sequence-step-worker"
     );
-    return processSequenceStep(job.data);
+    return processSequenceStep(job);
   },
   {
     connection,
