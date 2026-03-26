@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 
 interface Tag {
   tag: { id: string; name: string; color: string };
@@ -49,18 +49,18 @@ export default function ContactsPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const loadContacts = useCallback(async (q: string) => {
-    setLoading(true);
-    const url = `/api/v1/contacts?limit=50${q ? `&q=${encodeURIComponent(q)}` : ""}`;
-    const r = await fetch(url);
-    const d = await r.json();
-    setContacts(d.data ?? []);
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    loadContacts(debouncedSearch);
-  }, [debouncedSearch, loadContacts]);
+    const controller = new AbortController();
+    const url = `/api/v1/contacts?limit=50${debouncedSearch ? `&q=${encodeURIComponent(debouncedSearch)}` : ""}`;
+    fetch(url, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((d) => {
+        setContacts(d.data ?? []);
+        setLoading(false);
+      })
+      .catch(() => {/* aborted */});
+    return () => controller.abort();
+  }, [debouncedSearch]);
 
   function contactName(c: Contact): string {
     return (
