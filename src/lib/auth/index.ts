@@ -115,7 +115,10 @@ async function authenticateSession(
   if (!token) return null;
 
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, JWT_SECRET, {
+      issuer: "replystack",
+      audience: "replystack",
+    });
     const userId = payload.sub as string;
     const workspaceId = payload.wid as string;
     const jti = payload.jti as string | undefined;
@@ -128,6 +131,13 @@ async function authenticateSession(
       const denied = await redis.get(`${JWT_DENY_PREFIX}${jti}`);
       if (denied) return null;
     }
+
+    // Verify user still exists (handles deleted/suspended accounts)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) return null;
 
     return { userId, workspaceId, authMethod: "session", scopes: [] };
   } catch {
@@ -146,6 +156,8 @@ export async function signSession(
   return new SignJWT({ wid: workspaceId })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
+    .setIssuer("replystack")
+    .setAudience("replystack")
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(env.JWT_EXPIRY)

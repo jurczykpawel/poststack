@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { verifyMetaSignature } from "@/lib/crypto";
+import { rateLimit } from "@/lib/api/rate-limit";
 import { incomingMessagesQueue, incomingCommentsQueue } from "@/lib/queue/client";
 import type { IncomingMessageJob, IncomingCommentJob } from "@/lib/queue/types";
 
@@ -33,6 +34,12 @@ export async function POST(request: Request) {
 
   if (!verifyMetaSignature(rawBody, signature, env.META_APP_SECRET)) {
     return new Response("Forbidden", { status: 403 });
+  }
+
+  // Rate limit webhook ingress (1000 events/minute -- well above Meta's normal rate)
+  const rl = await rateLimit("rl:webhook:meta", 1000, 60);
+  if (!rl.allowed) {
+    return new Response("Too Many Requests", { status: 429 });
   }
 
   let payload: MetaWebhookPayload;

@@ -54,6 +54,9 @@ jobs:
       - name: Run database migrations
         run: npx prisma migrate deploy
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high || true
+
       - name: Lint
         run: npm run lint
 

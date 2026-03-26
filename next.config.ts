@@ -6,6 +6,23 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
   { key: "X-DNS-Prefetch-Control", value: "on" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  {
+    key: "Content-Security-Policy",
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",  // Scalar API docs CDN
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https:",  // profile pictures from Meta
+      "connect-src 'self'",
+      "font-src 'self'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join("; "),
+  },
 ];
 
 const nextConfig: NextConfig = {
@@ -17,12 +34,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Security headers on all routes
         source: "/:path*",
         headers: securityHeaders,
       },
       {
-        // API responses: no caching of sensitive data
         source: "/api/:path*",
         headers: [
           ...securityHeaders,
@@ -30,7 +45,6 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // CORS for API v1 (Bearer auth, no cookies)
         source: "/api/v1/:path*",
         headers: [
           { key: "Access-Control-Allow-Origin", value: "*" },
