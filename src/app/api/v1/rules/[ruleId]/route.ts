@@ -84,6 +84,22 @@ export async function PATCH(
         ? { response_config: response_config as Prisma.InputJsonValue }
         : {}),
     },
+    select: {
+      id: true,
+      name: true,
+      channel_id: true,
+      is_active: true,
+      priority: true,
+      trigger_type: true,
+      trigger_config: true,
+      response_type: true,
+      response_config: true,
+      cooldown_seconds: true,
+      max_sends_per_contact: true,
+      requires_approval: true,
+      created_at: true,
+      updated_at: true,
+    },
   });
 
   return ok(updated);

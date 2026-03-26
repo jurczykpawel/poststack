@@ -48,11 +48,13 @@ export async function POST(request: Request) {
   });
 
   if (!user?.password_hash) {
+    console.warn(`[auth] Failed login: unknown email, ip=${ip}`);
     return ApiErrors.unauthorized(INVALID_MSG);
   }
 
   const valid = await verifyPassword(password, user.password_hash);
   if (!valid) {
+    console.warn(`[auth] Failed login: wrong password, ip=${ip}`);
     return ApiErrors.unauthorized(INVALID_MSG);
   }
 

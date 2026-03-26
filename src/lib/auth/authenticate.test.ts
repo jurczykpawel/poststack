@@ -18,11 +18,15 @@ beforeAll(() => {
 // Mock Prisma
 const mockFindUnique = vi.fn();
 const mockUpdate = vi.fn().mockResolvedValue({});
+const mockUserFindUnique = vi.fn().mockResolvedValue({ id: "user-123" });
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     apiKey: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
       update: (...args: unknown[]) => mockUpdate(...args),
+    },
+    user: {
+      findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
     },
   },
 }));
