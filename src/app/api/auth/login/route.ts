@@ -5,10 +5,12 @@ import { signSession } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
+import { verifyCaptcha } from "@/lib/captcha/verify";
 
 const schema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  captchaToken: z.string().optional(),
 });
 
 const INVALID_MSG = "Invalid email or password";
@@ -31,7 +33,14 @@ export async function POST(request: Request) {
     return ApiErrors.unauthorized(INVALID_MSG);
   }
 
-  const { email, password } = parsed.data;
+  const { email, password, captchaToken } = parsed.data;
+
+  // Verify captcha (skipped if ALTCHA_HMAC_KEY not set)
+  const captcha = await verifyCaptcha(captchaToken);
+  if (!captcha.success) {
+    return ApiErrors.badRequest(captcha.error ?? "Security verification failed");
+  }
+
   const user = await prisma.user.findUnique({
     where: { email: email.toLowerCase().trim() },
     select: {

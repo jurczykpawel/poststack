@@ -7,11 +7,13 @@ import { signSession } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
+import { verifyCaptcha } from "@/lib/captcha/verify";
 
 const schema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1).max(100).optional(),
+  captchaToken: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -32,7 +34,13 @@ export async function POST(request: Request) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const { email, password, name } = parsed.data;
+  const { email, password, name, captchaToken } = parsed.data;
+
+  const captcha = await verifyCaptcha(captchaToken);
+  if (!captcha.success) {
+    return ApiErrors.badRequest(captcha.error ?? "Security verification failed");
+  }
+
   const normalizedEmail = email.toLowerCase().trim();
 
   const existing = await prisma.user.findUnique({

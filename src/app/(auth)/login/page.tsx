@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -7,8 +7,31 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const widgetRef = useRef<HTMLElement>(null);
+  const importedRef = useRef(false);
+
+  useEffect(() => {
+    if (importedRef.current) return;
+    importedRef.current = true;
+    import("altcha").catch(() => {});
+  }, []);
+
+  const handleStateChange = useCallback((ev: Event) => {
+    const detail = (ev as CustomEvent).detail;
+    if (detail?.state === "verified" && detail?.payload) {
+      setCaptchaToken(detail.payload);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = widgetRef.current;
+    if (!el) return;
+    el.addEventListener("statechange", handleStateChange);
+    return () => el.removeEventListener("statechange", handleStateChange);
+  }, [handleStateChange]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -18,11 +41,14 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, captchaToken }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error?.message ?? "Login failed");
+        // Reset widget on failure
+        (widgetRef.current as any)?.reset?.();
+        setCaptchaToken(null);
         return;
       }
       router.push("/inbox");
@@ -43,29 +69,33 @@ export default function LoginPage() {
           <label htmlFor="email" style={{ display: "block", marginBottom: "0.25rem", color: "var(--muted-foreground)", fontSize: "0.8rem" }}>
             Email
           </label>
-          <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
+          <input id="email" type="email" autoComplete="email" required value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ width: "100%", padding: "0.5rem 0.75rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }}
-          />
+            style={{ width: "100%", padding: "0.5rem 0.75rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }} />
         </div>
 
         <div>
           <label htmlFor="password" style={{ display: "block", marginBottom: "0.25rem", color: "var(--muted-foreground)", fontSize: "0.8rem" }}>
             Password
           </label>
-          <input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
+          <input id="password" type="password" autoComplete="current-password" required value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: "100%", padding: "0.5rem 0.75rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }}
+            style={{ width: "100%", padding: "0.5rem 0.75rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }} />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <altcha-widget
+            ref={widgetRef}
+            challengeurl="/api/captcha/challenge"
+            hidelogo
+            hidefooter
+            strings={JSON.stringify({
+              label: "Security verification",
+              verifying: "Verifying...",
+              verified: "Verified",
+              error: "Verification failed",
+            })}
+            style={{ maxWidth: "100%" }}
           />
         </div>
 
@@ -73,11 +103,8 @@ export default function LoginPage() {
           <p style={{ color: "var(--destructive)", fontSize: "0.8rem" }}>{error}</p>
         )}
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: "0.6rem", background: "var(--primary)", color: "var(--primary-foreground)", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}
-        >
+        <button type="submit" disabled={loading}
+          style={{ padding: "0.6rem", background: "var(--primary)", color: "var(--primary-foreground)", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
           {loading ? "Signing in..." : "Sign in"}
         </button>
       </form>
