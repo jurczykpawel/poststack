@@ -13,7 +13,7 @@ repos:
     hooks:
       - id: lint-typecheck-test
         name: Lint + Typecheck + Test
-        entry: bash -c 'npm run lint && npm run typecheck && npm test'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && npm run lint && npm run typecheck && npm test'
         language: system
         pass_filenames: false
         stages: [pre-push]
