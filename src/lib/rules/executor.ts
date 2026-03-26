@@ -13,6 +13,8 @@ interface EvaluateRulesInput {
   recipientPlatformId: string;
   text: string | null;
   eventType: EventType;
+  /** Post/media ID for comment_keyword post scoping */
+  postId?: string;
 }
 
 /**
@@ -23,7 +25,7 @@ interface EvaluateRulesInput {
 export async function evaluateRules(
   input: EvaluateRulesInput
 ): Promise<string | null> {
-  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType } = input;
+  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId } = input;
 
   const rules = await prisma.autoReplyRule.findMany({
     where: {
@@ -53,7 +55,7 @@ export async function evaluateRules(
       actions: rule.actions as unknown[],
     };
 
-    if (!matchRule(candidate, text, eventType)) continue;
+    if (!matchRule(candidate, { text, eventType, postId })) continue;
 
     // Cooldown: atomic Redis SETNX prevents concurrent messages from firing the same rule
     if (rule.cooldown_seconds > 0) {
