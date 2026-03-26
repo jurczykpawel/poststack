@@ -300,18 +300,23 @@ describe("evaluateRules — response types", () => {
   });
 
   it("ai_rephrase falls back to base text when no OPENAI_API_KEY", async () => {
+    const saved = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    mockFindMany.mockResolvedValueOnce([
-      makeRule({
-        response_type: "ai_rephrase",
-        response_config: { text: "Base message", tone: "casual" },
-      }),
-    ]);
+    try {
+      mockFindMany.mockResolvedValueOnce([
+        makeRule({
+          response_type: "ai_rephrase",
+          response_config: { text: "Base message", tone: "casual" },
+        }),
+      ]);
 
-    await evaluateRules(baseInput);
+      await evaluateRules(baseInput);
 
-    expect(mockAddMessage).toHaveBeenCalledTimes(1);
-    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Base message");
+      expect(mockAddMessage).toHaveBeenCalledTimes(1);
+      expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Base message");
+    } finally {
+      if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
+    }
   });
 });
 
@@ -340,5 +345,74 @@ describe("evaluateRules — priority ordering", () => {
     const result = await evaluateRules(baseInput);
 
     expect(result).toBe("fallback");
+  });
+});
+
+describe("evaluateRules — default reply_mode=dm on comment_keyword", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("sends DM (not comment reply) when reply_mode not set", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({
+        trigger_type: "comment_keyword",
+        trigger_config: { keywords: [{ value: "link", match_type: "contains" }] },
+        response_config: { text: "Here is the link!" },
+        // no reply_mode -> defaults to "dm"
+      }),
+    ]);
+
+    const result = await evaluateRules({
+      ...baseInput, text: "send me the link", eventType: "comment", commentId: "c-99",
+    });
+
+    expect(result).toBe("rule-1");
+    expect(mockAddMessage).toHaveBeenCalledTimes(1);
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Here is the link!");
+    expect(mockAddComment).not.toHaveBeenCalled();
+  });
+});
+
+describe("evaluateRules — approval proposed_content", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("stores response_type and response_config in proposed_content", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({
+        requires_approval: true,
+        response_type: "random_text",
+        response_config: { messages: ["A", "B"] },
+      }),
+    ]);
+
+    await evaluateRules(baseInput);
+
+    const content = mockPendingCreate.mock.calls[0][0].data.proposed_content;
+    expect(content).toBeDefined();
+    // JSON.parse(JSON.stringify(...)) roundtrip
+    expect(content.response_type).toBe("random_text");
+    expect(content.response_config.messages).toEqual(["A", "B"]);
+  });
+});
+
+describe("evaluateRules — findMany query shape", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("queries with correct workspace, channel OR null, is_active, and orderBy", async () => {
+    mockFindMany.mockResolvedValueOnce([]);
+
+    await evaluateRules(baseInput);
+
+    expect(mockFindMany).toHaveBeenCalledTimes(1);
+    const query = mockFindMany.mock.calls[0][0];
+    expect(query.where.workspace_id).toBe("ws-1");
+    expect(query.where.is_active).toBe(true);
+    expect(query.where.OR).toEqual([
+      { channel_id: "ch-1" },
+      { channel_id: null },
+    ]);
+    expect(query.orderBy).toEqual([
+      { priority: "desc" },
+      { created_at: "asc" },
+    ]);
   });
 });
