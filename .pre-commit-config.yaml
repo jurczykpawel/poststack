@@ -8,3 +8,12 @@ repos:
         language: golang
         pass_filenames: false
         stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: lint-typecheck-test
+        name: Lint + Typecheck + Test
+        entry: bash -c 'npm run lint && npm run typecheck && npm test'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
