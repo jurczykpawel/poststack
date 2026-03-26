@@ -21,6 +21,20 @@ export function hasScope(auth: AuthContext, scope: string): boolean {
   return auth.scopes.length === 0 || auth.scopes.includes(scope);
 }
 
+/**
+ * Authenticate + check scope in one call. Returns AuthContext or null.
+ * Usage: const auth = await authenticateWithScope(request, "channels:read");
+ */
+export async function authenticateWithScope(
+  request: Request,
+  scope: string
+): Promise<AuthContext | null> {
+  const auth = await authenticate(request).catch(() => null);
+  if (!auth) return null;
+  if (!hasScope(auth, scope)) return null;
+  return auth;
+}
+
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
 const JWT_DENY_PREFIX = "jwt:deny:";
 

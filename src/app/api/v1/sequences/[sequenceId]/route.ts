@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
@@ -11,7 +11,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ sequenceId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
@@ -43,7 +43,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ sequenceId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
@@ -75,7 +75,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ sequenceId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;

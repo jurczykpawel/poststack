@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { authenticate } from "@/lib/auth";
+import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { outgoingMessagesQueue } from "@/lib/queue/client";
@@ -17,7 +17,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;
@@ -73,7 +73,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;

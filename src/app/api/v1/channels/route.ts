@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, ApiErrors } from "@/lib/api/response";
 
@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 // GET /api/v1/channels — list all channels for the workspace
 export async function GET(request: Request) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const channels = await prisma.channel.findMany({

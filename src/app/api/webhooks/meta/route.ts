@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         pageId: entry.id,
         senderId: messagingEvent.sender.id,
         recipientId: messagingEvent.recipient.id,
-        mid: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}`,
+        mid: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
         text: null,
         postbackPayload: messagingEvent.postback.payload,
         timestamp: messagingEvent.timestamp,
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
 
       try {
         await incomingMessagesQueue.add("incoming-message", job, {
-          jobId: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}`,
+          jobId: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
         });
         enqueued++;
       } catch (err) {

@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { created, ApiErrors } from "@/lib/api/response";
 import { sequenceStepsQueue } from "@/lib/queue/client";
@@ -16,7 +16,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ sequenceId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;

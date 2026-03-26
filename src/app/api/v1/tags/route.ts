@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 // GET /api/v1/tags
 export async function GET(request: Request) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const tags = await prisma.tag.findMany({
@@ -35,7 +35,7 @@ const createSchema = z.object({
 
 // POST /api/v1/tags
 export async function POST(request: Request) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const body = await request.json().catch(() => ({}));

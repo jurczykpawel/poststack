@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
@@ -10,7 +10,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ channelId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
@@ -43,7 +43,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ channelId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
@@ -81,7 +81,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ channelId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
