@@ -152,6 +152,63 @@ describe("matchRule — welcome trigger", () => {
   });
 });
 
+describe("matchRule — postback trigger", () => {
+  it("matches exact postback payload", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "postback",
+      trigger_config: { payload: "GET_STARTED" },
+    };
+    expect(matchRule(rule, { text: null, eventType: "message", postbackPayload: "GET_STARTED" })).toBe(true);
+    expect(matchRule(rule, { text: null, eventType: "message", postbackPayload: "OTHER" })).toBe(false);
+  });
+
+  it("matches quick reply payload as postback", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "postback",
+      trigger_config: { payload: "yes_confirm" },
+    };
+    expect(matchRule(rule, { text: "Yes", eventType: "message", quickReplyPayload: "yes_confirm" })).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "postback",
+      trigger_config: { payload: "BUY_NOW" },
+    };
+    expect(matchRule(rule, { text: null, eventType: "message", postbackPayload: "buy_now" })).toBe(true);
+  });
+
+  it("does not match without payload", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "postback",
+      trigger_config: { payload: "test" },
+    };
+    expect(matchRule(rule, { text: "test", eventType: "message" })).toBe(false);
+  });
+
+  it("does not match on comment events", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "postback",
+      trigger_config: { payload: "test" },
+    };
+    expect(matchRule(rule, { text: null, eventType: "comment", postbackPayload: "test" })).toBe(false);
+  });
+
+  it("rejects rule with no payload config", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "postback",
+      trigger_config: {},
+    };
+    expect(matchRule(rule, { text: null, eventType: "message", postbackPayload: "anything" })).toBe(false);
+  });
+});
+
 describe("matchRule — inactive rule", () => {
   it("never matches", () => {
     const rule: RuleCandidate = {
