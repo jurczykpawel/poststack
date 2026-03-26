@@ -2,7 +2,7 @@ import type { Job } from "bullmq";
 import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
-import { decryptTokens } from "@/lib/crypto";
+import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 
 const IDEM_PREFIX = "idem:outmsg:";
@@ -52,8 +52,26 @@ export async function processOutgoingMessage(
     throw new Error(`Channel ${channelId} not found or inactive`);
   }
 
-  const tokens = decryptTokens(channel.token_encrypted);
+  let tokens = decryptTokens(channel.token_encrypted);
   const provider = getProvider(channel.platform);
+
+  // On-demand token refresh if near expiry
+  if (provider.requiresTokenRefresh() && tokens.expires_at) {
+    const expiresAt = tokens.expires_at as number;
+    const bufferSeconds = provider.refreshBufferSeconds();
+    if (Date.now() / 1000 >= expiresAt - bufferSeconds) {
+      try {
+        tokens = await provider.refreshToken(tokens);
+        await prisma.channel.update({
+          where: { id: channelId },
+          data: { token_encrypted: encryptTokens(tokens) },
+        });
+        await job.log("Token refreshed on-demand before send");
+      } catch (err) {
+        await job.log(`Token refresh failed, using existing: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
 
   // 3. Send via platform
   let platformMessageId: string | null = null;

@@ -109,6 +109,12 @@ export async function POST(
     return ApiErrors.badRequest("No platform identity found for this contact");
   }
 
+  // Clear needs_manual_reply flag (human is responding)
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { needs_manual_reply: false },
+  });
+
   // Enqueue outgoing message
   await outgoingMessagesQueue.add("outgoing-message", {
     channelId: conversation.channel_id,

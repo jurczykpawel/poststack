@@ -64,6 +64,21 @@ const outgoingWorker = new Worker(
   }
 );
 
+const outgoingCommentWorker = new Worker(
+  "outgoing-comments",
+  async (job: Job) => {
+    const { processOutgoingComment } = await import(
+      "../src/lib/workers/outgoing-comment-worker"
+    );
+    return processOutgoingComment(job);
+  },
+  {
+    connection,
+    concurrency: 5,
+    lockDuration: 60_000,
+  }
+);
+
 const tokenRefreshWorker = new Worker(
   "token-refresh",
   async (job: Job) => {
@@ -98,6 +113,7 @@ const workers = [
   incomingWorker,
   incomingCommentsWorker,
   outgoingWorker,
+  outgoingCommentWorker,
   tokenRefreshWorker,
   sequenceStepsWorker,
 ];

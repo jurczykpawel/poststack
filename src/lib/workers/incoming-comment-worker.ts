@@ -93,6 +93,7 @@ export async function processIncomingComment(
             text,
             eventType: "comment",
             postId: postId ?? undefined,
+            commentId,
           });
           if (matchedRuleId) {
             await job.log(`Comment rule fired: ${matchedRuleId}`);

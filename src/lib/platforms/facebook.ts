@@ -111,9 +111,45 @@ export class FacebookProvider extends SocialProvider {
       messaging_type: "RESPONSE",
     };
 
-    if (content.text) {
-      body.message = { text: content.text };
+    const message: Record<string, unknown> = {};
+
+    if (content.attachments && content.attachments.length > 0) {
+      // Send first attachment (Meta API supports one per message)
+      const att = content.attachments[0];
+      message.attachment = {
+        type: att.type || "file",
+        payload: { url: att.url, is_reusable: true },
+      };
+    } else if (content.text) {
+      message.text = content.text;
     }
+
+    if (content.quick_replies && content.quick_replies.length > 0) {
+      message.quick_replies = content.quick_replies.map((qr) => ({
+        content_type: "text",
+        title: qr.title,
+        payload: qr.payload,
+      }));
+    }
+
+    if (content.buttons && content.buttons.length > 0 && content.text) {
+      // Button template (replaces plain text)
+      message.attachment = {
+        type: "template",
+        payload: {
+          template_type: "button",
+          text: content.text,
+          buttons: content.buttons.map((btn) =>
+            btn.url
+              ? { type: "web_url", url: btn.url, title: btn.title }
+              : { type: "postback", title: btn.title, payload: btn.payload ?? btn.title }
+          ),
+        },
+      };
+      delete message.text;
+    }
+
+    body.message = message;
 
     const res = await fetch(`${GRAPH_API}/me/messages`, {
       method: "POST",
