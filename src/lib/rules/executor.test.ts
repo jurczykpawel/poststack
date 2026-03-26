@@ -13,7 +13,6 @@ beforeAll(() => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 });
 
-// Mock queues
 const mockAddMessage = vi.fn().mockResolvedValue({});
 const mockAddComment = vi.fn().mockResolvedValue({});
 vi.mock("@/lib/queue/client", () => ({
@@ -21,13 +20,11 @@ vi.mock("@/lib/queue/client", () => ({
   outgoingCommentsQueue: { add: (...args: unknown[]) => mockAddComment(...args) },
 }));
 
-// Mock Redis
 const mockRedisSet = vi.fn().mockResolvedValue("OK");
 vi.mock("@/lib/redis", () => ({
   redis: { set: (...args: unknown[]) => mockRedisSet(...args) },
 }));
 
-// Mock Prisma
 const mockFindMany = vi.fn().mockResolvedValue([]);
 const mockMessageCount = vi.fn().mockResolvedValue(0);
 const mockPendingCreate = vi.fn().mockResolvedValue({});
@@ -38,6 +35,9 @@ vi.mock("@/lib/prisma", () => ({
     pendingApproval: { create: (...args: unknown[]) => mockPendingCreate(...args) },
   },
 }));
+
+// Import once -- vitest caches modules, dynamic import per test is cargo cult
+import { evaluateRules } from "./executor";
 
 function makeRule(overrides: Record<string, unknown> = {}) {
   return {
@@ -66,23 +66,42 @@ const baseInput = {
   eventType: "message" as const,
 };
 
-describe("evaluateRules", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+describe("evaluateRules — DM fire", () => {
+  beforeEach(() => vi.clearAllMocks());
 
-  it("fires DM when rule matches with reply_mode=dm (default)", async () => {
+  it("sends DM with correct payload when keyword matches", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule()]);
 
-    const { evaluateRules } = await import("./executor");
     const result = await evaluateRules(baseInput);
 
     expect(result).toBe("rule-1");
     expect(mockAddMessage).toHaveBeenCalledTimes(1);
+    const [jobName, jobData] = mockAddMessage.mock.calls[0];
+    expect(jobName).toBe("outgoing-message");
+    expect(jobData.channelId).toBe("ch-1");
+    expect(jobData.conversationId).toBe("conv-1");
+    expect(jobData.recipientPlatformId).toBe("psid-1");
+    expect(jobData.content.text).toBe("Hi there!");
+    expect(jobData.sentByRuleId).toBe("rule-1");
+    expect(jobData.idempotencyKey).toBeDefined();
     expect(mockAddComment).not.toHaveBeenCalled();
   });
 
-  it("fires public comment reply when reply_mode=comment", async () => {
+  it("returns null and sends nothing when no rule matches", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({ trigger_config: { keywords: [{ value: "goodbye", match_type: "exact" }] } }),
+    ]);
+
+    const result = await evaluateRules(baseInput);
+    expect(result).toBeNull();
+    expect(mockAddMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("evaluateRules — comment reply modes", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("sends public comment reply with correct commentId when reply_mode=comment", async () => {
     mockFindMany.mockResolvedValueOnce([
       makeRule({
         trigger_type: "comment_keyword",
@@ -91,12 +110,8 @@ describe("evaluateRules", () => {
       }),
     ]);
 
-    const { evaluateRules } = await import("./executor");
     const result = await evaluateRules({
-      ...baseInput,
-      text: "need info",
-      eventType: "comment",
-      commentId: "comment-123",
+      ...baseInput, text: "need info", eventType: "comment", commentId: "comment-123",
     });
 
     expect(result).toBe("rule-1");
@@ -106,95 +121,158 @@ describe("evaluateRules", () => {
     expect(mockAddMessage).not.toHaveBeenCalled();
   });
 
-  it("fires both DM + comment reply when reply_mode=both", async () => {
+  it("uses dmText as fallback when comment_reply_text not set", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({
+        trigger_type: "comment_keyword",
+        trigger_config: { keywords: [{ value: "hi", match_type: "exact" }] },
+        response_config: { text: "Hello from DM!", reply_mode: "comment" },
+      }),
+    ]);
+
+    const result = await evaluateRules({
+      ...baseInput, text: "hi", eventType: "comment", commentId: "c-1",
+    });
+
+    expect(result).toBe("rule-1");
+    expect(mockAddComment.mock.calls[0][1].text).toBe("Hello from DM!");
+  });
+
+  it("sends both DM + comment when reply_mode=both", async () => {
     mockFindMany.mockResolvedValueOnce([
       makeRule({
         trigger_type: "comment_keyword",
         trigger_config: { keywords: [{ value: "deal", match_type: "exact" }] },
-        response_config: { text: "Check your DM!", comment_reply_text: "Sent you a DM!", reply_mode: "both" },
+        response_config: { text: "Check DM!", comment_reply_text: "Sent you a DM!", reply_mode: "both" },
       }),
     ]);
 
-    const { evaluateRules } = await import("./executor");
     const result = await evaluateRules({
-      ...baseInput,
-      text: "deal",
-      eventType: "comment",
-      commentId: "comment-456",
+      ...baseInput, text: "deal", eventType: "comment", commentId: "c-2",
     });
 
     expect(result).toBe("rule-1");
     expect(mockAddComment).toHaveBeenCalledTimes(1);
     expect(mockAddMessage).toHaveBeenCalledTimes(1);
+    expect(mockAddComment.mock.calls[0][1].text).toBe("Sent you a DM!");
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Check DM!");
   });
 
-  it("skips rule when max_sends_per_contact reached", async () => {
+  it("silently skips comment reply when commentId is missing", async () => {
     mockFindMany.mockResolvedValueOnce([
-      makeRule({ max_sends_per_contact: 3 }),
+      makeRule({
+        trigger_type: "comment_keyword",
+        trigger_config: { keywords: [{ value: "test", match_type: "exact" }] },
+        response_config: { text: "DM only", reply_mode: "comment" },
+      }),
     ]);
-    mockMessageCount.mockResolvedValueOnce(3); // already sent 3 times
 
-    const { evaluateRules } = await import("./executor");
+    const result = await evaluateRules({
+      ...baseInput, text: "test", eventType: "comment", // no commentId
+    });
+
+    expect(result).toBe("rule-1");
+    expect(mockAddComment).not.toHaveBeenCalled();
+    expect(mockAddMessage).not.toHaveBeenCalled(); // reply_mode=comment, no DM
+  });
+});
+
+describe("evaluateRules — cooldown", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("calls redis.set with correct key, TTL, and NX flag", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ cooldown_seconds: 120 })]);
+
+    await evaluateRules(baseInput);
+
+    expect(mockRedisSet).toHaveBeenCalledTimes(1);
+    const [key, value, ex, ttl, nx] = mockRedisSet.mock.calls[0];
+    expect(key).toBe("cooldown:rule-1:contact-1");
+    expect(value).toBe("1");
+    expect(ex).toBe("EX");
+    expect(ttl).toBe(120);
+    expect(nx).toBe("NX");
+  });
+
+  it("skips rule when redis.set returns null (lock taken)", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ cooldown_seconds: 60 })]);
+    mockRedisSet.mockResolvedValueOnce(null);
+
     const result = await evaluateRules(baseInput);
-
     expect(result).toBeNull();
     expect(mockAddMessage).not.toHaveBeenCalled();
   });
+});
 
-  it("fires rule when sends below limit", async () => {
-    mockFindMany.mockResolvedValueOnce([
-      makeRule({ max_sends_per_contact: 5 }),
-    ]);
-    mockMessageCount.mockResolvedValueOnce(2); // only 2 of 5
+describe("evaluateRules — per-rule send limit", () => {
+  beforeEach(() => vi.clearAllMocks());
 
-    const { evaluateRules } = await import("./executor");
+  it("queries message count with correct rule and contact filter", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 5 })]);
+    mockMessageCount.mockResolvedValueOnce(2);
+
+    await evaluateRules(baseInput);
+
+    expect(mockMessageCount).toHaveBeenCalledTimes(1);
+    const query = mockMessageCount.mock.calls[0][0];
+    expect(query.where.sent_by_rule_id).toBe("rule-1");
+    expect(query.where.conversation.contact_id).toBe("contact-1");
+  });
+
+  it("fires when count below limit", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 5 })]);
+    mockMessageCount.mockResolvedValueOnce(4);
+
     const result = await evaluateRules(baseInput);
-
     expect(result).toBe("rule-1");
     expect(mockAddMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("creates PendingApproval when requires_approval=true", async () => {
-    mockFindMany.mockResolvedValueOnce([
-      makeRule({ requires_approval: true }),
-    ]);
+  it("skips when count equals limit", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 3 })]);
+    mockMessageCount.mockResolvedValueOnce(3);
 
-    const { evaluateRules } = await import("./executor");
+    const result = await evaluateRules(baseInput);
+    expect(result).toBeNull();
+    expect(mockAddMessage).not.toHaveBeenCalled();
+  });
+
+  it("skips when count exceeds limit", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 2 })]);
+    mockMessageCount.mockResolvedValueOnce(10);
+
+    const result = await evaluateRules(baseInput);
+    expect(result).toBeNull();
+  });
+});
+
+describe("evaluateRules — manual approval", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("creates PendingApproval with correct data and does NOT send", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ requires_approval: true })]);
+
     const result = await evaluateRules(baseInput);
 
     expect(result).toBe("rule-1");
     expect(mockPendingCreate).toHaveBeenCalledTimes(1);
-    expect(mockPendingCreate.mock.calls[0][0].data.workspace_id).toBe("ws-1");
-    expect(mockPendingCreate.mock.calls[0][0].data.status).toBeUndefined(); // uses @default("pending")
-    expect(mockAddMessage).not.toHaveBeenCalled(); // NOT auto-sent
-  });
-
-  it("returns null when no rules match", async () => {
-    mockFindMany.mockResolvedValueOnce([
-      makeRule({ trigger_config: { keywords: [{ value: "goodbye", match_type: "exact" }] } }),
-    ]);
-
-    const { evaluateRules } = await import("./executor");
-    const result = await evaluateRules(baseInput);
-
-    expect(result).toBeNull();
+    const data = mockPendingCreate.mock.calls[0][0].data;
+    expect(data.workspace_id).toBe("ws-1");
+    expect(data.rule_id).toBe("rule-1");
+    expect(data.conversation_id).toBe("conv-1");
+    expect(data.contact_id).toBe("contact-1");
+    expect(data.channel_id).toBe("ch-1");
+    expect(data.recipient_platform_id).toBe("psid-1");
     expect(mockAddMessage).not.toHaveBeenCalled();
+    expect(mockAddComment).not.toHaveBeenCalled();
   });
+});
 
-  it("respects cooldown via Redis SETNX", async () => {
-    mockFindMany.mockResolvedValueOnce([
-      makeRule({ cooldown_seconds: 60 }),
-    ]);
-    mockRedisSet.mockResolvedValueOnce(null); // lock already taken
+describe("evaluateRules — response types", () => {
+  beforeEach(() => vi.clearAllMocks());
 
-    const { evaluateRules } = await import("./executor");
-    const result = await evaluateRules(baseInput);
-
-    expect(result).toBeNull();
-    expect(mockAddMessage).not.toHaveBeenCalled();
-  });
-
-  it("fires random_text response type", async () => {
+  it("random_text picks from messages array", async () => {
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.5);
     mockFindMany.mockResolvedValueOnce([
       makeRule({
         response_type: "random_text",
@@ -202,12 +280,65 @@ describe("evaluateRules", () => {
       }),
     ]);
 
-    const { evaluateRules } = await import("./executor");
+    await evaluateRules(baseInput);
+
+    // Math.floor(0.5 * 3) = 1 → "B"
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("B");
+    spy.mockRestore();
+  });
+
+  it("response_type=none sends nothing", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({ response_type: "none", response_config: {} }),
+    ]);
+
     const result = await evaluateRules(baseInput);
 
     expect(result).toBe("rule-1");
+    expect(mockAddMessage).not.toHaveBeenCalled();
+    expect(mockAddComment).not.toHaveBeenCalled();
+  });
+
+  it("ai_rephrase falls back to base text when no OPENAI_API_KEY", async () => {
+    delete process.env.OPENAI_API_KEY;
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({
+        response_type: "ai_rephrase",
+        response_config: { text: "Base message", tone: "casual" },
+      }),
+    ]);
+
+    await evaluateRules(baseInput);
+
     expect(mockAddMessage).toHaveBeenCalledTimes(1);
-    const sentText = mockAddMessage.mock.calls[0][1].content.text;
-    expect(["A", "B", "C"]).toContain(sentText);
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Base message");
+  });
+});
+
+describe("evaluateRules — priority ordering", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("fires only the first matching rule (highest priority)", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({ id: "high-prio", priority: 10, response_config: { text: "High!" } }),
+      makeRule({ id: "low-prio", priority: 0, response_config: { text: "Low!" } }),
+    ]);
+
+    const result = await evaluateRules(baseInput);
+
+    expect(result).toBe("high-prio");
+    expect(mockAddMessage).toHaveBeenCalledTimes(1);
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("High!");
+  });
+
+  it("falls through to second rule when first does not match", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({ id: "no-match", trigger_config: { keywords: [{ value: "bye", match_type: "exact" }] } }),
+      makeRule({ id: "fallback", trigger_type: "default", trigger_config: {} }),
+    ]);
+
+    const result = await evaluateRules(baseInput);
+
+    expect(result).toBe("fallback");
   });
 });

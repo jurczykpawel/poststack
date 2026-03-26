@@ -209,6 +209,85 @@ describe("matchRule — postback trigger", () => {
   });
 });
 
+describe("matchRule — story_reply / story_mention triggers", () => {
+  it("story_reply matches on message type", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "story_reply",
+      trigger_config: {},
+    };
+    expect(matchRule(rule, { text: "nice story", eventType: "message" })).toBe(true);
+  });
+
+  it("story_reply does NOT match on comment type", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "story_reply",
+      trigger_config: {},
+    };
+    expect(matchRule(rule, { text: "nice story", eventType: "comment" })).toBe(false);
+  });
+
+  it("story_mention matches on message type", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "story_mention",
+      trigger_config: {},
+    };
+    expect(matchRule(rule, { text: null, eventType: "message" })).toBe(true);
+  });
+});
+
+describe("matchRule — welcome trigger edge case", () => {
+  it("does NOT match on comment type", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "welcome",
+      trigger_config: {},
+    };
+    expect(matchRule(rule, { text: "hello", eventType: "comment" })).toBe(false);
+  });
+});
+
+describe("matchRule — null and edge case text", () => {
+  it("keyword does not crash on null text", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hello", match_type: "exact" }] },
+    };
+    expect(matchRule(rule, { text: null, eventType: "message" })).toBe(false);
+  });
+
+  it("empty keyword value matches everything with contains (potential bug)", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "", match_type: "contains" }] },
+    };
+    // This documents current behavior -- empty string .includes("") is always true
+    expect(matchRule(rule, { text: "anything", eventType: "message" })).toBe(true);
+  });
+
+  it("whitespace-only text is trimmed to empty string", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hello", match_type: "exact" }] },
+    };
+    expect(matchRule(rule, { text: "   ", eventType: "message" })).toBe(false);
+  });
+
+  it("unknown match_type does not match", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hello", match_type: "regex" }] },
+    };
+    expect(matchRule(rule, { text: "hello", eventType: "message" })).toBe(false);
+  });
+});
+
 describe("matchRule — inactive rule", () => {
   it("never matches", () => {
     const rule: RuleCandidate = {
