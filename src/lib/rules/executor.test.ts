@@ -158,12 +158,12 @@ describe("evaluateRules — comment reply modes", () => {
     expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Check DM!");
   });
 
-  it("silently skips comment reply when commentId is missing", async () => {
+  it("falls back to DM when reply_mode=comment but commentId is missing", async () => {
     mockFindMany.mockResolvedValueOnce([
       makeRule({
         trigger_type: "comment_keyword",
         trigger_config: { keywords: [{ value: "test", match_type: "exact" }] },
-        response_config: { text: "DM only", reply_mode: "comment" },
+        response_config: { text: "Fallback DM", reply_mode: "comment" },
       }),
     ]);
 
@@ -173,7 +173,9 @@ describe("evaluateRules — comment reply modes", () => {
 
     expect(result).toBe("rule-1");
     expect(mockAddComment).not.toHaveBeenCalled();
-    expect(mockAddMessage).not.toHaveBeenCalled(); // reply_mode=comment, no DM
+    // Fallback: sends DM instead of silently doing nothing
+    expect(mockAddMessage).toHaveBeenCalledTimes(1);
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Fallback DM");
   });
 });
 

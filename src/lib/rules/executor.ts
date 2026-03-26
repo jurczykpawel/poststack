@@ -204,6 +204,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
   }
 
   // Public comment reply (reply_mode: "comment" or "both")
+  let commentSent = false;
   if ((replyMode === "comment" || replyMode === "both") && commentId) {
     const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
     if (commentReplyText) {
@@ -214,11 +215,13 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
         sentByRuleId: rule.id,
         idempotencyKey: randomUUID(),
       });
+      commentSent = true;
     }
   }
 
-  // DM (reply_mode: "dm" or "both")
-  if ((replyMode === "dm" || replyMode === "both") && dmText) {
+  // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment failed (no commentId)
+  const shouldDM = replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !commentSent);
+  if (shouldDM && dmText) {
     await outgoingMessagesQueue.add("outgoing-message", {
       channelId,
       conversationId,
