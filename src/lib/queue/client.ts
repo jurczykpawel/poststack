@@ -19,15 +19,21 @@ const defaultJobOptions = {
 
 function lazyQueue<T>(name: string, opts?: Record<string, unknown>) {
   let q: Queue<T> | null = null;
+  function getQueue(): Queue<T> {
+    if (!q) {
+      q = new Queue<T>(name, {
+        connection: redis,
+        defaultJobOptions: { ...defaultJobOptions, ...opts },
+      });
+    }
+    return q;
+  }
   return new Proxy({} as Queue<T>, {
     get(_target, prop) {
-      if (!q) {
-        q = new Queue<T>(name, {
-          connection: redis,
-          defaultJobOptions: { ...defaultJobOptions, ...opts },
-        });
-      }
-      return (q as unknown as Record<string, unknown>)[prop as string];
+      const value = (getQueue() as unknown as Record<string, unknown>)[prop as string];
+      // Bind functions to the real Queue instance (not the proxy) to preserve `this` context
+      if (typeof value === "function") return value.bind(getQueue());
+      return value;
     },
   });
 }

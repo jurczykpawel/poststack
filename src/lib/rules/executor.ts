@@ -72,13 +72,14 @@ export async function evaluateRules(
 
     // Per-rule send limit: max N sends per contact lifetime
     if (rule.max_sends_per_contact != null) {
-      const sendCount = await prisma.message.count({
-        where: {
-          sent_by_rule_id: rule.id,
-          conversation: { contact_id: contactId },
-        },
-      });
-      if (sendCount >= rule.max_sends_per_contact) continue;
+      // Atomic: increment counter, check against limit. If over, decrement and skip.
+      const counterKey = `sends:${rule.id}:${contactId}`;
+      const count = await redis.incr(counterKey);
+      if (count > rule.max_sends_per_contact) {
+        await redis.decr(counterKey);
+        continue;
+      }
+      // No TTL -- lifetime limit. Counter persists until manually reset.
     }
 
     // Manual approval: queue for human review instead of auto-sending

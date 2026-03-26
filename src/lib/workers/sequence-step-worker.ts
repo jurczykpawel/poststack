@@ -64,13 +64,31 @@ export async function processSequenceStep(
 
   const step = steps[stepIndex];
 
+  if (step.type === "delay") {
+    // Delay step: wait, then advance and schedule next
+    const delayMs = (step.delay_minutes ?? 0) * 60 * 1000;
+    const nextStepIndex = stepIndex + 1;
+
+    if (nextStepIndex >= steps.length) {
+      await prisma.sequenceEnrollment.update({
+        where: { id: enrollmentId },
+        data: { status: "completed", completed_at: new Date(), current_step_index: nextStepIndex },
+      });
+      return;
+    }
+
+    await prisma.sequenceEnrollment.update({
+      where: { id: enrollmentId },
+      data: { current_step_index: nextStepIndex, next_step_at: new Date(Date.now() + delayMs) },
+    });
+
+    await sequenceStepsQueue.add("sequence-step", { enrollmentId }, { delay: delayMs });
+    return;
+  }
+
   if (step.type === "message" && step.content) {
-    // Find the conversation for this contact+channel pair
     const conversation = await prisma.conversation.findFirst({
-      where: {
-        contact_id: enrollment.contact_id,
-        channel_id: enrollment.channel_id,
-      },
+      where: { contact_id: enrollment.contact_id, channel_id: enrollment.channel_id },
       select: { id: true },
     });
 
@@ -87,17 +105,14 @@ export async function processSequenceStep(
         content: { text: step.content },
       });
     } else {
-      await job.log(
-        `No conversation/contactChannel found for enrollment ${enrollmentId}, skipping message`
-      );
+      await job.log(`No conversation/contactChannel for enrollment ${enrollmentId}, skipping`);
     }
   }
 
-  // Advance to next step
+  // Advance to next step immediately (no delay for message steps)
   const nextStepIndex = stepIndex + 1;
 
   if (nextStepIndex >= steps.length) {
-    // Last step done — complete
     await prisma.sequenceEnrollment.update({
       where: { id: enrollmentId },
       data: { status: "completed", completed_at: new Date(), current_step_index: nextStepIndex },
@@ -105,23 +120,11 @@ export async function processSequenceStep(
     return;
   }
 
-  const nextStep = steps[nextStepIndex];
-  const delayMs =
-    nextStep.type === "delay" ? (nextStep.delay_minutes ?? 0) * 60 * 1000 : 0;
-
   await prisma.sequenceEnrollment.update({
     where: { id: enrollmentId },
-    data: {
-      current_step_index: nextStepIndex,
-      next_step_at: new Date(Date.now() + delayMs),
-    },
+    data: { current_step_index: nextStepIndex, next_step_at: new Date() },
   });
 
-  // Schedule next step (skip delay steps — they're handled by the delay itself)
-  const jobDelay = nextStep.type === "delay" ? delayMs : 0;
-  await sequenceStepsQueue.add(
-    "sequence-step",
-    { enrollmentId },
-    { delay: jobDelay }
+  await sequenceStepsQueue.add("sequence-step", { enrollmentId }, { delay: 0 }
   );
 }

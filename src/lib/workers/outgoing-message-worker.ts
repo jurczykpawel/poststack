@@ -11,10 +11,8 @@ const IDEM_TTL = 86_400; // 24 hours
 /**
  * Send an outbound message via the platform API.
  *
- * 1. Check idempotency key (prevent duplicate sends on retry)
- * 2. Load Channel + decrypt tokens
- * 3. Send via platform provider
- * 4. Insert Message record + update conversation preview
+ * Idempotency key is claimed AFTER successful send (not before)
+ * so that BullMQ retries are not blocked by failed attempts.
  */
 export async function processOutgoingMessage(
   job: Job<OutgoingMessageJob>
@@ -22,16 +20,10 @@ export async function processOutgoingMessage(
   const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, idempotencyKey } =
     job.data;
 
-  // 1. Idempotency guard — if key exists in Redis, this is a retry of already-sent message
+  // 1. Check idempotency (already successfully sent?)
   if (idempotencyKey) {
-    const acquired = await redis.set(
-      `${IDEM_PREFIX}${idempotencyKey}`,
-      "1",
-      "EX",
-      IDEM_TTL,
-      "NX"
-    );
-    if (!acquired) {
+    const exists = await redis.get(`${IDEM_PREFIX}${idempotencyKey}`);
+    if (exists) {
       await job.log(`Idempotency key ${idempotencyKey} already claimed, skipping duplicate send`);
       return;
     }
@@ -89,10 +81,16 @@ export async function processOutgoingMessage(
         sent_by_rule_id: sentByRuleId ?? null,
       },
     });
+    // Do NOT claim idempotency key -- allow retry
     throw e;
   }
 
-  // 4. Insert sent message record
+  // 4. Claim idempotency key AFTER successful send
+  if (idempotencyKey) {
+    await redis.set(`${IDEM_PREFIX}${idempotencyKey}`, "1", "EX", IDEM_TTL);
+  }
+
+  // 5. Insert sent message record
   await prisma.message.create({
     data: {
       conversation_id: conversationId,
@@ -104,7 +102,7 @@ export async function processOutgoingMessage(
     },
   });
 
-  // 5. Update conversation preview
+  // 6. Update conversation preview
   await prisma.conversation.update({
     where: { id: conversationId },
     data: {

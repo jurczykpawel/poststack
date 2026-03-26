@@ -21,8 +21,14 @@ vi.mock("@/lib/queue/client", () => ({
 }));
 
 const mockRedisSet = vi.fn().mockResolvedValue("OK");
+const mockRedisIncr = vi.fn().mockResolvedValue(1);
+const mockRedisDecr = vi.fn().mockResolvedValue(0);
 vi.mock("@/lib/redis", () => ({
-  redis: { set: (...args: unknown[]) => mockRedisSet(...args) },
+  redis: {
+    set: (...args: unknown[]) => mockRedisSet(...args),
+    incr: (...args: unknown[]) => mockRedisIncr(...args),
+    decr: (...args: unknown[]) => mockRedisDecr(...args),
+  },
 }));
 
 const mockFindMany = vi.fn().mockResolvedValue([]);
@@ -209,42 +215,33 @@ describe("evaluateRules — cooldown", () => {
 describe("evaluateRules — per-rule send limit", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("queries message count with correct rule and contact filter", async () => {
+  it("uses atomic Redis INCR with correct key format", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 5 })]);
-    mockMessageCount.mockResolvedValueOnce(2);
+    mockRedisIncr.mockResolvedValueOnce(1); // first send
 
     await evaluateRules(baseInput);
 
-    expect(mockMessageCount).toHaveBeenCalledTimes(1);
-    const query = mockMessageCount.mock.calls[0][0];
-    expect(query.where.sent_by_rule_id).toBe("rule-1");
-    expect(query.where.conversation.contact_id).toBe("contact-1");
+    expect(mockRedisIncr).toHaveBeenCalledWith("sends:rule-1:contact-1");
+    expect(mockAddMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("fires when count below limit", async () => {
+  it("fires when count is at limit (INCR returns limit value)", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 5 })]);
-    mockMessageCount.mockResolvedValueOnce(4);
+    mockRedisIncr.mockResolvedValueOnce(5); // exactly at limit
 
     const result = await evaluateRules(baseInput);
     expect(result).toBe("rule-1");
     expect(mockAddMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("skips when count equals limit", async () => {
+  it("skips and decrements when count exceeds limit", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 3 })]);
-    mockMessageCount.mockResolvedValueOnce(3);
+    mockRedisIncr.mockResolvedValueOnce(4); // over limit
 
     const result = await evaluateRules(baseInput);
     expect(result).toBeNull();
+    expect(mockRedisDecr).toHaveBeenCalledWith("sends:rule-1:contact-1");
     expect(mockAddMessage).not.toHaveBeenCalled();
-  });
-
-  it("skips when count exceeds limit", async () => {
-    mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 2 })]);
-    mockMessageCount.mockResolvedValueOnce(10);
-
-    const result = await evaluateRules(baseInput);
-    expect(result).toBeNull();
   });
 });
 

@@ -13,6 +13,14 @@ export interface AuthContext {
   scopes: string[];
 }
 
+/**
+ * Check if the authenticated user has a required scope.
+ * Empty scopes = full access (backward compatible).
+ */
+export function hasScope(auth: AuthContext, scope: string): boolean {
+  return auth.scopes.length === 0 || auth.scopes.includes(scope);
+}
+
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
 const JWT_DENY_PREFIX = "jwt:deny:";
 
