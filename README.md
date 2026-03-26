@@ -328,8 +328,10 @@ npm run build       # Production build
 - [x] API key management + token refresh
 - [x] Rate limiting, JWT invalidation, outgoing message idempotency
 - [x] CI/CD (lint, typecheck, test, build, Docker)
-- [ ] Visual flow builder (v2)
+- [ ] Gmail support (Google OAuth2, Gmail API, Pub/Sub push)
+- [ ] Discord support (Bot API, Gateway WebSocket)
 - [ ] Telegram support
+- [ ] Visual flow builder (v2)
 - [ ] Broadcast campaigns
 - [ ] Webhook events (outbound notifications)
 - [ ] Multi-workspace team management
