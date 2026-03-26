@@ -16,9 +16,10 @@ const triggerConfigSchema = z.union([
 ]);
 
 const responseConfigSchema = z.union([
-  z.object({ text: z.string().min(1).max(2000) }),          // text
-  z.object({ messages: z.array(z.string().min(1)).min(1) }), // random_text
-  z.object({}),                                              // none / sequence
+  z.object({ text: z.string().min(1).max(2000) }),                                    // text
+  z.object({ messages: z.array(z.string().min(1)).min(1) }),                           // random_text
+  z.object({ text: z.string().min(1).max(2000), tone: z.string().max(100).optional() }), // ai_rephrase
+  z.object({}),                                                                        // none / sequence
 ]);
 
 const createRuleSchema = z.object({
@@ -35,7 +36,7 @@ const createRuleSchema = z.object({
     "story_mention",
   ]),
   trigger_config: triggerConfigSchema,
-  response_type: z.enum(["text", "random_text", "sequence", "none"]),
+  response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]),
   response_config: responseConfigSchema,
   cooldown_seconds: z.number().int().min(0).default(0),
 });
