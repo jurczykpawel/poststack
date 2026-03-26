@@ -4,6 +4,7 @@ import type {
   IncomingMessageJob,
   IncomingCommentJob,
   OutgoingMessageJob,
+  OutgoingCommentJob,
   TokenRefreshJob,
   SequenceStepJob,
 } from "./types";
@@ -36,6 +37,11 @@ export const incomingMessagesQueue = lazyQueue<IncomingMessageJob>("incoming-mes
 export const incomingCommentsQueue = lazyQueue<IncomingCommentJob>("incoming-comments");
 
 export const outgoingMessagesQueue = lazyQueue<OutgoingMessageJob>("outgoing-messages", {
+  attempts: 3,
+  backoff: { type: "exponential", delay: 5000 },
+});
+
+export const outgoingCommentsQueue = lazyQueue<OutgoingCommentJob>("outgoing-comments", {
   attempts: 3,
   backoff: { type: "exponential", delay: 5000 },
 });

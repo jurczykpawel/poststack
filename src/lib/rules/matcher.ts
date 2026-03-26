@@ -22,6 +22,10 @@ export interface MatchContext {
   eventType: EventType;
   /** Post/media ID for comment events (used for post_id scoping) */
   postId?: string;
+  /** Quick reply payload (button tap within conversation) */
+  quickReplyPayload?: string;
+  /** Postback payload (button tap from persistent menu or template) */
+  postbackPayload?: string;
 }
 
 /**
@@ -58,8 +62,11 @@ export function matchRule(
       return ctx.eventType === "message";
 
     case "postback": {
-      // postback payload matching is handled separately (not text-based)
-      return false;
+      if (ctx.eventType !== "message") return false;
+      const rulePayload = (trigger_config.payload as string | undefined)?.toLowerCase();
+      if (!rulePayload) return false;
+      const incoming = (ctx.postbackPayload ?? ctx.quickReplyPayload ?? "").toLowerCase();
+      return incoming === rulePayload;
     }
 
     case "story_reply":

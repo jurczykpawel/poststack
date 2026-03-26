@@ -51,6 +51,9 @@ export async function POST(request: Request) {
     for (const messagingEvent of entry.messaging ?? []) {
       if (!messagingEvent.message?.mid) continue;
 
+      // Skip echo messages (our own outbound messages echoed back by Meta)
+      if (messagingEvent.message.is_echo) continue;
+
       const job: IncomingMessageJob = {
         platform,
         pageId: entry.id,
@@ -58,6 +61,7 @@ export async function POST(request: Request) {
         recipientId: messagingEvent.recipient.id,
         mid: messagingEvent.message.mid,
         text: messagingEvent.message.text ?? null,
+        quickReplyPayload: messagingEvent.message.quick_reply?.payload,
         timestamp: messagingEvent.timestamp,
         raw: messagingEvent as unknown as Record<string, unknown>,
       };
@@ -68,6 +72,32 @@ export async function POST(request: Request) {
         });
       } catch (err) {
         console.error("[webhook] Failed to enqueue message:", err);
+      }
+    }
+
+    // Postback events (button taps -- no message.mid, separate event type)
+    for (const messagingEvent of entry.messaging ?? []) {
+      if (!messagingEvent.postback?.payload) continue;
+      if (messagingEvent.message) continue; // already handled above
+
+      const job: IncomingMessageJob = {
+        platform,
+        pageId: entry.id,
+        senderId: messagingEvent.sender.id,
+        recipientId: messagingEvent.recipient.id,
+        mid: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}`,
+        text: null,
+        postbackPayload: messagingEvent.postback.payload,
+        timestamp: messagingEvent.timestamp,
+        raw: messagingEvent as unknown as Record<string, unknown>,
+      };
+
+      try {
+        await incomingMessagesQueue.add("incoming-message", job, {
+          jobId: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}`,
+        });
+      } catch (err) {
+        console.error("[webhook] Failed to enqueue postback:", err);
       }
     }
 
@@ -123,7 +153,13 @@ interface MessagingEvent {
   message?: {
     mid: string;
     text?: string;
+    is_echo?: boolean;
+    quick_reply?: { payload: string };
     attachments?: unknown[];
+  };
+  postback?: {
+    payload: string;
+    title?: string;
   };
 }
 

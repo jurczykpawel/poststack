@@ -9,9 +9,19 @@ export interface IncomingMessageJob {
   /** Platform message ID — used for deduplication */
   mid: string;
   text: string | null;
+  quickReplyPayload?: string;
+  postbackPayload?: string;
   timestamp: number;
   /** Full raw messaging event object from Meta */
   raw: Record<string, unknown>;
+}
+
+export interface OutgoingCommentJob {
+  channelId: string;
+  commentId: string;
+  text: string;
+  sentByRuleId?: string;
+  idempotencyKey?: string;
 }
 
 export interface IncomingCommentJob {
@@ -57,5 +67,6 @@ export type QueueName =
   | "incoming-messages"
   | "incoming-comments"
   | "outgoing-messages"
+  | "outgoing-comments"
   | "token-refresh"
   | "sequence-steps";

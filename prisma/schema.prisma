@@ -223,6 +223,7 @@ model Conversation {
   last_message_preview     String?
   unread_count             Int                @default(0)
   is_automation_paused     Boolean            @default(false)
+  needs_manual_reply       Boolean            @default(false)
   created_at               DateTime           @default(now())
   updated_at               DateTime           @updatedAt
 
@@ -317,7 +318,9 @@ model AutoReplyRule {
   // [{ type: "add_tag"|"remove_tag"|"set_field"|"human_takeover"|"close_conversation", ...params }]
   actions Json @default("[]")
 
-  cooldown_seconds Int @default(0)
+  cooldown_seconds      Int  @default(0)
+  max_sends_per_contact Int? // null = unlimited, otherwise max N sends per contact lifetime
+  requires_approval     Boolean @default(false) // true = match but don't auto-send, queue for human review
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -329,6 +332,24 @@ model AutoReplyRule {
   @@index([workspace_id, is_active])
   @@index([channel_id, trigger_type, is_active])
   @@map("auto_reply_rules")
+}
+
+model PendingApproval {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspace_id     String    @db.Uuid
+  rule_id          String    @db.Uuid
+  conversation_id  String    @db.Uuid
+  contact_id       String    @db.Uuid
+  channel_id       String    @db.Uuid
+  recipient_platform_id String
+  proposed_content Json
+  status           String    @default("pending") // pending | approved | rejected
+  created_at       DateTime  @default(now())
+  resolved_at      DateTime?
+  resolved_by      String?   @db.Uuid
+
+  @@index([workspace_id, status])
+  @@map("pending_approvals")
 }
 
 enum TriggerType {

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
-import { outgoingMessagesQueue } from "@/lib/queue/client";
+import { outgoingMessagesQueue, outgoingCommentsQueue } from "@/lib/queue/client";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 
@@ -15,6 +15,10 @@ interface EvaluateRulesInput {
   eventType: EventType;
   /** Post/media ID for comment_keyword post scoping */
   postId?: string;
+  /** Comment ID for public comment reply */
+  commentId?: string;
+  quickReplyPayload?: string;
+  postbackPayload?: string;
 }
 
 /**
@@ -25,7 +29,7 @@ interface EvaluateRulesInput {
 export async function evaluateRules(
   input: EvaluateRulesInput
 ): Promise<string | null> {
-  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId } = input;
+  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload } = input;
 
   const rules = await prisma.autoReplyRule.findMany({
     where: {
@@ -39,6 +43,8 @@ export async function evaluateRules(
       is_active: true,
       priority: true,
       cooldown_seconds: true,
+      max_sends_per_contact: true,
+      requires_approval: true,
       trigger_type: true,
       trigger_config: true,
       response_type: true,
@@ -55,13 +61,43 @@ export async function evaluateRules(
       actions: rule.actions as unknown[],
     };
 
-    if (!matchRule(candidate, { text, eventType, postId })) continue;
+    if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload })) continue;
 
     // Cooldown: atomic Redis SETNX prevents concurrent messages from firing the same rule
     if (rule.cooldown_seconds > 0) {
       const lockKey = `cooldown:${rule.id}:${contactId}`;
       const acquired = await redis.set(lockKey, "1", "EX", rule.cooldown_seconds, "NX");
-      if (!acquired) continue; // Another message already fired this rule within the cooldown window
+      if (!acquired) continue;
+    }
+
+    // Per-rule send limit: max N sends per contact lifetime
+    if (rule.max_sends_per_contact != null) {
+      const sendCount = await prisma.message.count({
+        where: {
+          sent_by_rule_id: rule.id,
+          conversation: { contact_id: contactId },
+        },
+      });
+      if (sendCount >= rule.max_sends_per_contact) continue;
+    }
+
+    // Manual approval: queue for human review instead of auto-sending
+    if (rule.requires_approval) {
+      await prisma.pendingApproval.create({
+        data: {
+          workspace_id: workspaceId,
+          rule_id: rule.id,
+          conversation_id: conversationId,
+          contact_id: contactId,
+          channel_id: channelId,
+          recipient_platform_id: recipientPlatformId,
+          proposed_content: JSON.parse(JSON.stringify({
+            response_type: rule.response_type,
+            response_config: candidate.response_config,
+          })),
+        },
+      });
+      return rule.id;
     }
 
     // Fire the response
@@ -71,6 +107,7 @@ export async function evaluateRules(
       conversationId,
       contactId,
       recipientPlatformId,
+      commentId,
     });
 
     return rule.id;
@@ -90,6 +127,7 @@ interface FireResponseInput {
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
+  commentId?: string;
 }
 
 /**
@@ -103,7 +141,11 @@ async function rephraseWithAI(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return baseText;
 
+  const customPrompt = config.custom_prompt as string | undefined;
   const tone = (config.tone as string) ?? "friendly and professional";
+  const systemContent = customPrompt
+    ? customPrompt
+    : `You rephrase messages to sound natural and varied while keeping the same meaning and intent. Tone: ${tone}. Reply with ONLY the rephrased message, nothing else. Keep it similar length. Do not add greetings or sign-offs unless the original has them.`;
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -117,14 +159,8 @@ async function rephraseWithAI(
         max_tokens: 300,
         temperature: 0.8,
         messages: [
-          {
-            role: "system",
-            content: `You rephrase messages to sound natural and varied while keeping the same meaning and intent. Tone: ${tone}. Reply with ONLY the rephrased message, nothing else. Keep it similar length. Do not add greetings or sign-offs unless the original has them.`,
-          },
-          {
-            role: "user",
-            content: baseText,
-          },
+          { role: "system", content: systemContent },
+          { role: "user", content: baseText },
         ],
       }),
       redirect: "error",
@@ -144,61 +180,54 @@ async function rephraseWithAI(
 }
 
 async function fireResponse(input: FireResponseInput): Promise<void> {
-  const { rule, channelId, conversationId, contactId, recipientPlatformId } = input;
+  const { rule, channelId, conversationId, contactId, recipientPlatformId, commentId } = input;
+  const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
 
+  // Resolve the text to send
+  let dmText: string | null = null;
   switch (rule.response_type) {
-    case "text": {
-      const text = rule.response_config.text as string | undefined;
-      if (!text) break;
-      await outgoingMessagesQueue.add("outgoing-message", {
-        channelId,
-        conversationId,
-        contactId,
-        recipientPlatformId,
-        content: { text },
-        sentByRuleId: rule.id,
-        idempotencyKey: randomUUID(),
-      });
+    case "text":
+      dmText = (rule.response_config.text as string) ?? null;
       break;
-    }
-
     case "random_text": {
       const msgs = rule.response_config.messages as string[] | undefined;
-      if (!msgs || msgs.length === 0) break;
-      const text = msgs[Math.floor(Math.random() * msgs.length)];
-      await outgoingMessagesQueue.add("outgoing-message", {
-        channelId,
-        conversationId,
-        contactId,
-        recipientPlatformId,
-        content: { text },
-        sentByRuleId: rule.id,
-        idempotencyKey: randomUUID(),
-      });
+      if (msgs && msgs.length > 0) dmText = msgs[Math.floor(Math.random() * msgs.length)];
       break;
     }
-
     case "ai_rephrase": {
       const baseText = rule.response_config.text as string | undefined;
-      if (!baseText) break;
-      const rephrased = await rephraseWithAI(baseText, rule.response_config);
-      await outgoingMessagesQueue.add("outgoing-message", {
+      if (baseText) dmText = await rephraseWithAI(baseText, rule.response_config);
+      break;
+    }
+    case "none":
+      break;
+  }
+
+  // Public comment reply (reply_mode: "comment" or "both")
+  if ((replyMode === "comment" || replyMode === "both") && commentId) {
+    const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
+    if (commentReplyText) {
+      await outgoingCommentsQueue.add("outgoing-comment", {
         channelId,
-        conversationId,
-        contactId,
-        recipientPlatformId,
-        content: { text: rephrased },
+        commentId,
+        text: commentReplyText,
         sentByRuleId: rule.id,
         idempotencyKey: randomUUID(),
       });
-      break;
     }
-
-    case "none":
-      // Intentionally no message — useful for action-only rules
-      break;
-
-    default:
-      break;
   }
+
+  // DM (reply_mode: "dm" or "both")
+  if ((replyMode === "dm" || replyMode === "both") && dmText) {
+    await outgoingMessagesQueue.add("outgoing-message", {
+      channelId,
+      conversationId,
+      contactId,
+      recipientPlatformId,
+      content: { text: dmText },
+      sentByRuleId: rule.id,
+      idempotencyKey: randomUUID(),
+    });
+  }
+
 }

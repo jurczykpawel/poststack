@@ -16,7 +16,7 @@ import { evaluateRules } from "@/lib/rules/executor";
 export async function processIncomingMessage(
   job: Job<IncomingMessageJob>
 ): Promise<void> {
-  const { pageId, senderId, mid, text, timestamp } = job.data;
+  const { pageId, senderId, mid, text, quickReplyPayload, postbackPayload, timestamp } = job.data;
 
   // Validate timestamp bounds (reject absurd values)
   const messageDate = new Date(timestamp * 1000);
@@ -113,6 +113,8 @@ export async function processIncomingMessage(
         conversation_id: conversation.id,
         direction: "inbound",
         text: text ?? null,
+        quick_reply_payload: quickReplyPayload ?? null,
+        postback_payload: postbackPayload ?? null,
         platform_message_id: mid,
       },
     });
@@ -139,12 +141,23 @@ export async function processIncomingMessage(
         recipientPlatformId: senderId,
         text,
         eventType: "message",
+        quickReplyPayload,
+        postbackPayload,
       });
       if (matchedRuleId) {
         await job.log(`Rule fired: ${matchedRuleId}`);
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { needs_manual_reply: false },
+        });
+      } else {
+        // No rule matched -- flag for human attention
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { needs_manual_reply: true },
+        });
       }
     } catch (err) {
-      // Rule evaluation failure should not fail the entire job
       await job.log(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
