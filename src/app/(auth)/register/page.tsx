@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -8,8 +8,31 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const widgetRef = useRef<HTMLElement>(null);
+  const importedRef = useRef(false);
+
+  useEffect(() => {
+    if (importedRef.current) return;
+    importedRef.current = true;
+    import("altcha").catch(() => {});
+  }, []);
+
+  const handleStateChange = useCallback((ev: Event) => {
+    const detail = (ev as CustomEvent).detail;
+    if (detail?.state === "verified" && detail?.payload) {
+      setCaptchaToken(detail.payload);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = widgetRef.current;
+    if (!el) return;
+    el.addEventListener("statechange", handleStateChange);
+    return () => el.removeEventListener("statechange", handleStateChange);
+  }, [handleStateChange]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -19,11 +42,13 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, captchaToken }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error?.message ?? "Registration failed");
+        (widgetRef.current as any)?.reset?.();
+        setCaptchaToken(null);
         return;
       }
       router.push("/inbox");
@@ -56,6 +81,22 @@ export default function RegisterPage() {
           <label htmlFor="password" style={{ display: "block", marginBottom: "0.25rem", color: "var(--muted-foreground)", fontSize: "0.8rem" }}>Password</label>
           <input id="password" type="password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
             style={{ width: "100%", padding: "0.5rem 0.75rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }} />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <altcha-widget
+            ref={widgetRef}
+            challengeurl="/api/captcha/challenge"
+            hidelogo
+            hidefooter
+            strings={JSON.stringify({
+              label: "Security verification",
+              verifying: "Verifying...",
+              verified: "Verified",
+              error: "Verification failed",
+            })}
+            style={{ maxWidth: "100%" }}
+          />
         </div>
 
         {error && <p style={{ color: "var(--destructive)", fontSize: "0.8rem" }}>{error}</p>}

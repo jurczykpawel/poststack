@@ -19,7 +19,10 @@ const envSchema = z.object({
   // App
   NEXT_PUBLIC_APP_URL: z.string().url(),
 
-  // AI rephrase (optional — rule type "ai_rephrase" falls back to original text without key)
+  // Altcha CAPTCHA (optional -- login/register skip verification without key)
+  ALTCHA_HMAC_KEY: z.string().default(""),
+
+  // AI rephrase (optional -- rule type "ai_rephrase" falls back to original text without key)
   OPENAI_API_KEY: z.string().default(""),
 
   // Meta (optional — app starts without them, OAuth won't work until configured)
