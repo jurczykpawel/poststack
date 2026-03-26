@@ -92,6 +92,7 @@ export async function processIncomingComment(
             recipientPlatformId: contactChannel.platform_sender_id,
             text,
             eventType: "comment",
+            postId: postId ?? undefined,
           });
           if (matchedRuleId) {
             await job.log(`Comment rule fired: ${matchedRuleId}`);

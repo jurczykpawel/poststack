@@ -67,7 +67,7 @@ describe("matchRule — keyword trigger", () => {
 });
 
 describe("matchRule — comment_keyword trigger", () => {
-  it("matches comment type with keyword", () => {
+  it("matches keyword on any post (no post_id)", () => {
     const rule: RuleCandidate = {
       ...baseRule,
       trigger_type: "comment_keyword",
@@ -75,8 +75,48 @@ describe("matchRule — comment_keyword trigger", () => {
         keywords: [{ value: "info", match_type: "contains" }],
       },
     };
-    expect(matchRule(rule, "need more info please", "comment")).toBe(true);
-    expect(matchRule(rule, "need more info please", "message")).toBe(false);
+    expect(matchRule(rule, { text: "need more info please", eventType: "comment" })).toBe(true);
+    expect(matchRule(rule, { text: "need more info please", eventType: "message" })).toBe(false);
+  });
+
+  it("matches keyword only on specific post (post_id set)", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "comment_keyword",
+      trigger_config: {
+        post_id: "post-123",
+        keywords: [{ value: "want", match_type: "contains" }],
+      },
+    };
+    // Correct post + keyword = match
+    expect(matchRule(rule, { text: "I want this", eventType: "comment", postId: "post-123" })).toBe(true);
+    // Wrong post = no match
+    expect(matchRule(rule, { text: "I want this", eventType: "comment", postId: "post-other" })).toBe(false);
+    // No post = no match
+    expect(matchRule(rule, { text: "I want this", eventType: "comment" })).toBe(false);
+  });
+
+  it("matches any comment on specific post (post_id, no keywords)", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "comment_keyword",
+      trigger_config: {
+        post_id: "post-456",
+      },
+    };
+    // Any text on correct post = match
+    expect(matchRule(rule, { text: "anything at all", eventType: "comment", postId: "post-456" })).toBe(true);
+    // Wrong post = no match
+    expect(matchRule(rule, { text: "anything", eventType: "comment", postId: "post-other" })).toBe(false);
+  });
+
+  it("rejects rule with no post_id and no keywords", () => {
+    const rule: RuleCandidate = {
+      ...baseRule,
+      trigger_type: "comment_keyword",
+      trigger_config: {},
+    };
+    expect(matchRule(rule, { text: "anything", eventType: "comment" })).toBe(false);
   });
 });
 
