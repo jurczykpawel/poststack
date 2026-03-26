@@ -92,6 +92,57 @@ interface FireResponseInput {
   recipientPlatformId: string;
 }
 
+/**
+ * Rephrase a base message using an LLM to sound natural and varied.
+ * Falls back to the original text if the API call fails.
+ */
+async function rephraseWithAI(
+  baseText: string,
+  config: Record<string, unknown>
+): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return baseText;
+
+  const tone = (config.tone as string) ?? "friendly and professional";
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 300,
+        temperature: 0.8,
+        messages: [
+          {
+            role: "system",
+            content: `You rephrase messages to sound natural and varied while keeping the same meaning and intent. Tone: ${tone}. Reply with ONLY the rephrased message, nothing else. Keep it similar length. Do not add greetings or sign-offs unless the original has them.`,
+          },
+          {
+            role: "user",
+            content: baseText,
+          },
+        ],
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) return baseText;
+
+    const data = (await res.json()) as {
+      choices: Array<{ message: { content: string } }>;
+    };
+    const rephrased = data.choices?.[0]?.message?.content?.trim();
+    return rephrased && rephrased.length > 0 ? rephrased : baseText;
+  } catch {
+    return baseText;
+  }
+}
+
 async function fireResponse(input: FireResponseInput): Promise<void> {
   const { rule, channelId, conversationId, contactId, recipientPlatformId } = input;
 
@@ -121,6 +172,22 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
         contactId,
         recipientPlatformId,
         content: { text },
+        sentByRuleId: rule.id,
+        idempotencyKey: randomUUID(),
+      });
+      break;
+    }
+
+    case "ai_rephrase": {
+      const baseText = rule.response_config.text as string | undefined;
+      if (!baseText) break;
+      const rephrased = await rephraseWithAI(baseText, rule.response_config);
+      await outgoingMessagesQueue.add("outgoing-message", {
+        channelId,
+        conversationId,
+        contactId,
+        recipientPlatformId,
+        content: { text: rephrased },
         sentByRuleId: rule.id,
         idempotencyKey: randomUUID(),
       });

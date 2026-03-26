@@ -346,6 +346,7 @@ enum TriggerType {
 enum ResponseType {
   text
   random_text
+  ai_rephrase
   sequence
   none
 

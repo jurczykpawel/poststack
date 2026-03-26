@@ -19,6 +19,9 @@ const envSchema = z.object({
   // App
   NEXT_PUBLIC_APP_URL: z.string().url(),
 
+  // AI rephrase (optional — rule type "ai_rephrase" falls back to original text without key)
+  OPENAI_API_KEY: z.string().default(""),
+
   // Meta (optional — app starts without them, OAuth won't work until configured)
   META_APP_ID: z.string().default(""),
   META_APP_SECRET: z.string().default(""),

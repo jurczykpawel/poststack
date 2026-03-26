@@ -33,7 +33,9 @@ function RuleRow({ rule, onToggle, onDelete }: {
     rule.response_type === "text"
       ? String((rule.response_config as { text?: string }).text ?? "")
       : rule.response_type === "random_text"
-      ? `${((rule.response_config as { messages?: string[] }).messages ?? []).length} random messages`
+      ? `${((rule.response_config as { messages?: string[] }).messages ?? []).length} random variants`
+      : rule.response_type === "ai_rephrase"
+      ? `AI rephrase: "${String((rule.response_config as { text?: string }).text ?? "").slice(0, 40)}..."`
       : rule.response_type;
 
   const triggerPreview = (() => {
@@ -98,8 +100,10 @@ const defaultForm = {
   match_type: "contains" as const,
   post_id: "" as string,
   post_id_mode: "none" as "none" | "select" | "custom",
-  response_type: "text" as const,
+  response_type: "text" as string,
   response_text: "",
+  response_messages: [""] as string[],
+  ai_tone: "friendly and professional",
   priority: 0,
   cooldown_seconds: 0,
 };
@@ -174,7 +178,14 @@ export default function RulesPage() {
         trigger_type: form.trigger_type,
         trigger_config: triggerConfig,
         response_type: form.response_type,
-        response_config: form.response_type === "text" ? { text: form.response_text } : {},
+        response_config:
+          form.response_type === "text"
+            ? { text: form.response_text }
+            : form.response_type === "random_text"
+            ? { messages: form.response_messages.filter((m) => m.trim()) }
+            : form.response_type === "ai_rephrase"
+            ? { text: form.response_text, tone: form.ai_tone }
+            : {},
         priority: Number(form.priority),
         cooldown_seconds: Number(form.cooldown_seconds),
       };
@@ -346,9 +357,68 @@ export default function RulesPage() {
           )}
 
           <div>
-            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Reply text</label>
-            <textarea value={form.response_text} onChange={(e) => setForm({ ...form, response_text: e.target.value })} rows={3} required
-              style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem", resize: "vertical" }} />
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Response type</label>
+            <select value={form.response_type} onChange={(e) => setForm({ ...form, response_type: e.target.value })}
+              style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem", marginBottom: "0.5rem" }}>
+              <option value="text">Single reply</option>
+              <option value="random_text">Random from list</option>
+              <option value="ai_rephrase">AI rephrase</option>
+            </select>
+
+            {form.response_type === "text" && (
+              <>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Reply text</label>
+                <textarea value={form.response_text} onChange={(e) => setForm({ ...form, response_text: e.target.value })} rows={3} required
+                  style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem", resize: "vertical" }} />
+              </>
+            )}
+
+            {form.response_type === "random_text" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <label style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>Reply variants (one will be picked randomly)</label>
+                {form.response_messages.map((msg, i) => (
+                  <div key={i} style={{ display: "flex", gap: "0.5rem" }}>
+                    <textarea
+                      value={msg}
+                      onChange={(e) => {
+                        const updated = [...form.response_messages];
+                        updated[i] = e.target.value;
+                        setForm({ ...form, response_messages: updated });
+                      }}
+                      rows={2}
+                      placeholder={`Variant ${i + 1}`}
+                      style={{ flex: 1, padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem", resize: "vertical" }}
+                    />
+                    {form.response_messages.length > 1 && (
+                      <button type="button" onClick={() => setForm({ ...form, response_messages: form.response_messages.filter((_, j) => j !== i) })}
+                        style={{ padding: "0.25rem 0.5rem", background: "none", border: "1px solid var(--destructive)", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.75rem", color: "var(--destructive)", alignSelf: "flex-start" }}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button"
+                  onClick={() => setForm({ ...form, response_messages: [...form.response_messages, ""] })}
+                  style={{ alignSelf: "flex-start", padding: "0.25rem 0.75rem", background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.75rem", color: "var(--foreground)" }}>
+                  + Add variant
+                </button>
+              </div>
+            )}
+
+            {form.response_type === "ai_rephrase" && (
+              <>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Base message (AI will rephrase each time)</label>
+                <textarea value={form.response_text} onChange={(e) => setForm({ ...form, response_text: e.target.value })} rows={3} required
+                  style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem", resize: "vertical", marginBottom: "0.5rem" }} />
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Tone</label>
+                <input value={form.ai_tone} onChange={(e) => setForm({ ...form, ai_tone: e.target.value })}
+                  placeholder="e.g. friendly, professional, casual, enthusiastic"
+                  style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }} />
+                <p style={{ fontSize: "0.7rem", color: "var(--muted-foreground)", marginTop: "0.25rem" }}>
+                  Requires OPENAI_API_KEY in .env. Without it, the base message is sent as-is.
+                </p>
+              </>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
