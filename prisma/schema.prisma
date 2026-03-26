@@ -127,6 +127,8 @@ model Channel {
 enum Platform {
   facebook
   instagram
+  gmail
+  discord
   telegram
   tiktok
   twitter
