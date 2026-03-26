@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { generateApiKey } from "@/lib/auth";
 import { rateLimit } from "@/lib/api/rate-limit";
+import { parseJsonBody } from "@/lib/api/body-limit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -56,7 +57,10 @@ export async function POST(request: Request) {
     return ApiErrors.tooManyRequests("Too many API key creations. Try again later.");
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = await parseJsonBody(request, 4_096);
+  if (body === null) {
+    return ApiErrors.badRequest("Invalid or oversized request body");
+  }
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);

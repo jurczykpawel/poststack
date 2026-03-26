@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
@@ -14,7 +14,7 @@ const querySchema = z.object({
 
 // GET /api/v1/contacts
 export async function GET(request: Request) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "contacts:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { searchParams } = new URL(request.url);
