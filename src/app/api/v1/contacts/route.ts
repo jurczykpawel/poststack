@@ -24,20 +24,23 @@ export async function GET(request: Request) {
   }
   const { q, tag, limit, cursor } = parsed.data;
 
+  // Escape LIKE wildcards to prevent pattern injection
+  const safeQ = q?.replace(/[%_\\]/g, "\\$&");
+
   const contacts = await prisma.contact.findMany({
     where: {
       workspace_id: auth.workspaceId,
-      ...(q
+      ...(safeQ
         ? {
             OR: [
-              { display_name: { contains: q, mode: "insensitive" } },
-              { email: { contains: q, mode: "insensitive" } },
+              { display_name: { contains: safeQ, mode: "insensitive" } },
+              { email: { contains: safeQ, mode: "insensitive" } },
               {
                 contact_channels: {
                   some: {
                     OR: [
-                      { platform_username: { contains: q, mode: "insensitive" } },
-                      { platform_sender_id: { contains: q } },
+                      { platform_username: { contains: safeQ, mode: "insensitive" } },
+                      { platform_sender_id: { contains: safeQ } },
                     ],
                   },
                 },

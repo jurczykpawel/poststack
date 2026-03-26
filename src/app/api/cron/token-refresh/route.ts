@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { tokenRefreshQueue } from "@/lib/queue/client";
@@ -10,11 +11,12 @@ export const runtime = "nodejs";
 /**
  * Cron job: scan for channels with expiring tokens and enqueue refresh jobs.
  * Call hourly: GET /api/cron/token-refresh
- * Protected by CRON_SECRET header.
+ * Protected by CRON_SECRET header (timing-safe comparison).
  */
 export async function GET(request: Request) {
-  const secret = request.headers.get("x-cron-secret");
-  if (secret !== env.CRON_SECRET) {
+  const secret = request.headers.get("x-cron-secret") ?? "";
+  if (!env.CRON_SECRET || secret.length !== env.CRON_SECRET.length ||
+      !timingSafeEqual(Buffer.from(secret), Buffer.from(env.CRON_SECRET))) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
