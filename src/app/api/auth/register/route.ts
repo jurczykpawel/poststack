@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { hashPassword } from "@/lib/auth/password";
 import { signSession } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
@@ -46,7 +47,9 @@ export async function POST(request: Request) {
   const slug = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/g, "-") +
     "-" + randomBytes(4).toString("hex");
 
-  const user = await prisma.user.create({
+  let user;
+  try {
+  user = await prisma.user.create({
     data: {
       email: normalizedEmail,
       password_hash: passwordHash,
@@ -70,6 +73,12 @@ export async function POST(request: Request) {
       workspace_members: { select: { workspace_id: true }, take: 1 },
     },
   });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return ApiErrors.conflict("An account with this email already exists");
+    }
+    throw err;
+  }
 
   const workspaceId = user.workspace_members[0].workspace_id;
   const token = await signSession(user.id, workspaceId);

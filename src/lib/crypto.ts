@@ -1,17 +1,11 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { env } from "@/lib/env";
+import type { TokenData } from "@/lib/platforms/base";
+
+export type { TokenData };
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
-const AUTH_TAG_LENGTH = 16;
-
-export interface TokenData {
-  access_token: string;
-  refresh_token?: string;
-  expires_at?: number;
-  token_type?: string;
-  [key: string]: unknown;
-}
 
 /**
  * Encrypt OAuth token data before storing in database.

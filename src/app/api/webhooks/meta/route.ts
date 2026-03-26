@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode === "subscribe" && token === env.META_WEBHOOK_VERIFY_TOKEN) {
+  if (mode === "subscribe" && env.META_WEBHOOK_VERIFY_TOKEN && token === env.META_WEBHOOK_VERIFY_TOKEN) {
     return new Response(challenge, { status: 200 });
   }
 
@@ -26,6 +26,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256") ?? "";
+
+  if (!env.META_APP_SECRET) {
+    return new Response("Meta webhook not configured", { status: 503 });
+  }
 
   if (!verifyMetaSignature(rawBody, signature, env.META_APP_SECRET)) {
     return new Response("Forbidden", { status: 403 });
@@ -45,6 +49,9 @@ export async function POST(request: Request) {
 
   // Normalize: Meta sends "page" for Facebook pages
   const platform = payload.object === "page" ? "facebook" : payload.object;
+
+  let enqueued = 0;
+  let failed = 0;
 
   for (const entry of payload.entry ?? []) {
     // Messaging events (DMs)
@@ -70,7 +77,9 @@ export async function POST(request: Request) {
         await incomingMessagesQueue.add("incoming-message", job, {
           jobId: `msg-${messagingEvent.message.mid}`,
         });
+        enqueued++;
       } catch (err) {
+        failed++;
         console.error("[webhook] Failed to enqueue message:", err);
       }
     }
@@ -96,7 +105,9 @@ export async function POST(request: Request) {
         await incomingMessagesQueue.add("incoming-message", job, {
           jobId: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}`,
         });
+        enqueued++;
       } catch (err) {
+        failed++;
         console.error("[webhook] Failed to enqueue postback:", err);
       }
     }
@@ -125,11 +136,18 @@ export async function POST(request: Request) {
           await incomingCommentsQueue.add("incoming-comment", job, {
             jobId: `comment-${change.value.comment_id}`,
           });
+          enqueued++;
         } catch (err) {
+          failed++;
           console.error("[webhook] Failed to enqueue comment:", err);
         }
       }
     }
+  }
+
+  // Return 503 if all enqueues failed (Meta will retry)
+  if (failed > 0 && enqueued === 0) {
+    return new Response("Service Unavailable", { status: 503 });
   }
 
   return NextResponse.json({ status: "ok" });

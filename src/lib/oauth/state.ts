@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 
 const COOKIE_NAME = "rs_oauth_state";
 const COOKIE_MAX_AGE = 10 * 60; // 10 minutes
@@ -31,7 +31,8 @@ export async function verifyOAuthState(state: string): Promise<void> {
   // Clear it immediately after checking (one-time use)
   cookieStore.delete(COOKIE_NAME);
 
-  if (!stored || stored !== state) {
+  if (!stored || stored.length !== state.length ||
+      !timingSafeEqual(Buffer.from(stored), Buffer.from(state))) {
     throw new Error("Invalid OAuth state — possible CSRF attack");
   }
 }
