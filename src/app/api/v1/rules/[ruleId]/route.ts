@@ -17,6 +17,22 @@ export async function GET(
   const { ruleId } = await params;
   const rule = await prisma.autoReplyRule.findFirst({
     where: { id: ruleId, workspace_id: auth.workspaceId },
+    select: {
+      id: true,
+      name: true,
+      channel_id: true,
+      is_active: true,
+      priority: true,
+      trigger_type: true,
+      trigger_config: true,
+      response_type: true,
+      response_config: true,
+      cooldown_seconds: true,
+      max_sends_per_contact: true,
+      requires_approval: true,
+      created_at: true,
+      updated_at: true,
+    },
   });
   if (!rule) return ApiErrors.notFound();
   return ok(rule);
