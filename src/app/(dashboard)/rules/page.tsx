@@ -77,11 +77,27 @@ function RuleRow({ rule, onToggle, onDelete }: {
   );
 }
 
+interface ChannelOption {
+  id: string;
+  platform: string;
+  display_name: string | null;
+}
+
+interface PostOption {
+  id: string;
+  text: string;
+  created_at: string;
+  url: string | null;
+}
+
 const defaultForm = {
   name: "",
-  trigger_type: "keyword" as const,
+  channel_id: "" as string,
+  trigger_type: "keyword" as string,
   keywords: "",
   match_type: "contains" as const,
+  post_id: "" as string,
+  post_id_mode: "none" as "none" | "select" | "custom",
   response_type: "text" as const,
   response_text: "",
   priority: 0,
@@ -95,12 +111,18 @@ export default function RulesPage() {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
+  const [posts, setPosts] = useState<PostOption[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
   useEffect(() => {
     fetch("/api/v1/rules")
       .then((r) => r.json())
       .then((d) => setRules(d.data ?? []))
       .finally(() => setLoading(false));
+    fetch("/api/v1/channels")
+      .then((r) => r.json())
+      .then((d) => setChannels(d.data ?? []));
   }, []);
 
   async function handleToggle(id: string, active: boolean) {
@@ -117,6 +139,20 @@ export default function RulesPage() {
     setRules((prev) => prev.filter((r) => r.id !== id));
   }
 
+  async function loadPosts(channelId: string) {
+    if (!channelId) { setPosts([]); return; }
+    setLoadingPosts(true);
+    try {
+      const r = await fetch(`/api/v1/channels/${channelId}/posts`);
+      const d = await r.json();
+      setPosts(d.data ?? []);
+    } catch {
+      setPosts([]);
+    } finally {
+      setLoadingPosts(false);
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -128,10 +164,15 @@ export default function RulesPage() {
         .filter(Boolean)
         .map((value) => ({ value, match_type: form.match_type }));
 
+      const triggerConfig: Record<string, unknown> = {};
+      if (keywords.length > 0) triggerConfig.keywords = keywords;
+      if (form.post_id) triggerConfig.post_id = form.post_id;
+
       const body = {
         name: form.name,
+        channel_id: form.channel_id || undefined,
         trigger_type: form.trigger_type,
-        trigger_config: keywords.length > 0 ? { keywords } : {},
+        trigger_config: triggerConfig,
         response_type: form.response_type,
         response_config: form.response_type === "text" ? { text: form.response_text } : {},
         priority: Number(form.priority),
@@ -195,7 +236,9 @@ export default function RulesPage() {
           {(form.trigger_type === "keyword" || form.trigger_type === "comment_keyword") && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "0.75rem" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Keywords (comma separated)</label>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>
+                  Keywords (comma separated){form.trigger_type === "comment_keyword" ? " -- leave empty to match all comments" : ""}
+                </label>
                 <input value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} placeholder="buy, order, price"
                   style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }} />
               </div>
@@ -209,6 +252,97 @@ export default function RulesPage() {
                 </select>
               </div>
             </div>
+          )}
+
+          {form.trigger_type === "comment_keyword" && (
+            <>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Channel (required for post selection)</label>
+                <select
+                  value={form.channel_id}
+                  onChange={(e) => {
+                    const chId = e.target.value;
+                    setForm({ ...form, channel_id: chId, post_id: "", post_id_mode: "none" });
+                    setPosts([]);
+                    if (chId) loadPosts(chId);
+                  }}
+                  style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }}>
+                  <option value="">All channels (no post filter)</option>
+                  {channels.map((ch) => (
+                    <option key={ch.id} value={ch.id}>{ch.display_name ?? ch.platform} ({ch.platform})</option>
+                  ))}
+                </select>
+              </div>
+
+              {form.channel_id && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted-foreground)", marginBottom: "0.25rem" }}>Scope to specific post</label>
+                  <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                    {(["none", "select", "custom"] as const).map((mode) => (
+                      <label key={mode} style={{ display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.8rem", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="post_id_mode"
+                          value={mode}
+                          checked={form.post_id_mode === mode}
+                          onChange={() => setForm({ ...form, post_id_mode: mode, post_id: "" })}
+                        />
+                        {mode === "none" ? "Any post" : mode === "select" ? "Choose from recent" : "Enter post ID"}
+                      </label>
+                    ))}
+                  </div>
+
+                  {form.post_id_mode === "select" && (
+                    loadingPosts ? (
+                      <p style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>Loading posts...</p>
+                    ) : posts.length === 0 ? (
+                      <p style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>No posts found. Try entering a post ID manually.</p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", maxHeight: 200, overflowY: "auto" }}>
+                        {posts.map((p) => (
+                          <label key={p.id} style={{
+                            display: "flex", alignItems: "center", gap: "0.5rem",
+                            padding: "0.5rem", background: form.post_id === p.id ? "var(--primary)" : "var(--muted)",
+                            color: form.post_id === p.id ? "var(--primary-foreground)" : "var(--foreground)",
+                            border: "1px solid var(--border)", borderRadius: "var(--radius)",
+                            cursor: "pointer", fontSize: "0.8rem",
+                          }}>
+                            <input
+                              type="radio"
+                              name="post_select"
+                              value={p.id}
+                              checked={form.post_id === p.id}
+                              onChange={() => setForm({ ...form, post_id: p.id })}
+                              style={{ display: "none" }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div>{p.text}</div>
+                              <div style={{ fontSize: "0.7rem", opacity: 0.7 }}>{new Date(p.created_at).toLocaleDateString()}</div>
+                            </div>
+                            {p.url && (
+                              <a href={p.url} target="_blank" rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ fontSize: "0.7rem", color: "inherit", textDecoration: "underline" }}>
+                                view
+                              </a>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    )
+                  )}
+
+                  {form.post_id_mode === "custom" && (
+                    <input
+                      value={form.post_id}
+                      onChange={(e) => setForm({ ...form, post_id: e.target.value })}
+                      placeholder="e.g. 123456789_987654321"
+                      style={{ width: "100%", padding: "0.5rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem", fontFamily: "monospace" }}
+                    />
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           <div>
