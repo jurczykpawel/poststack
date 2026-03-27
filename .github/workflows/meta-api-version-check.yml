@@ -19,48 +19,47 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Detect current and next version
+      - name: Detect current version and find latest available
         id: version
         run: |
           # Extract current version from constants.ts
           CURRENT=$(grep 'META_API_VERSION' src/lib/platforms/constants.ts | grep -oP 'v\d+\.\d+')
+          CURRENT_MAJOR=$(echo "$CURRENT" | grep -oP '\d+' | head -1)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "Current version: $CURRENT"
 
-          # Calculate next version (v21.0 → v22.0)
-          MAJOR=$(echo "$CURRENT" | grep -oP '\d+' | head -1)
-          NEXT="v$((MAJOR + 1)).0"
-          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "Current: $CURRENT, checking: $NEXT"
+          # Scan forward to find the latest available version
+          # Meta versions: "does not exist" = invalid, anything else = valid
+          LATEST_MAJOR=$CURRENT_MAJOR
+          CHECK=$((CURRENT_MAJOR + 1))
+          while [ $CHECK -le $((CURRENT_MAJOR + 20)) ]; do
+            RESPONSE=$(curl -s "https://graph.facebook.com/v${CHECK}.0/")
+            if echo "$RESPONSE" | grep -q "does not exist"; then
+              break
+            fi
+            LATEST_MAJOR=$CHECK
+            echo "  v${CHECK}.0 exists"
+            CHECK=$((CHECK + 1))
+          done
 
-      - name: Check if next version exists on Meta Graph API
-        id: check
-        run: |
-          NEXT="${{ steps.version.outputs.next }}"
-          curl -s -o /tmp/meta-response.json \
-            "https://graph.facebook.com/${NEXT}/"
+          LATEST="v${LATEST_MAJOR}.0"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
 
-          echo "Response:"
-          cat /tmp/meta-response.json
-
-          # Detection logic:
-          # - Invalid version (e.g. v99.0): error message contains "does not exist"
-          # - Valid version (e.g. v21.0, v22.0): error message says "Please read the Graph API documentation"
-          # Both return HTTP 400 with error code 100, but the message differs.
-          if grep -q "does not exist" /tmp/meta-response.json 2>/dev/null; then
+          if [ "$LATEST" = "$CURRENT" ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Version $NEXT does not exist yet"
+            echo "Already on latest version ($CURRENT)"
           else
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Version $NEXT is available!"
+            echo "New version available: $CURRENT → $LATEST"
           fi
 
       - name: Check if PR/issue already exists
-        if: steps.check.outputs.exists == 'true'
+        if: steps.version.outputs.exists == 'true'
         id: existing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NEXT="${{ steps.version.outputs.next }}"
+          NEXT="${{ steps.version.outputs.latest }}"
           # Check for existing PR or issue
           PR_COUNT=$(gh pr list --search "Meta API $NEXT" --state all --json number --jq 'length')
           ISSUE_COUNT=$(gh issue list --search "Meta API $NEXT" --state all --json number --jq 'length')
@@ -73,48 +72,48 @@ jobs:
           fi
 
       - name: Bump version in constants.ts
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         run: |
           CURRENT="${{ steps.version.outputs.current }}"
-          NEXT="${{ steps.version.outputs.next }}"
+          NEXT="${{ steps.version.outputs.latest }}"
           sed -i "s|$CURRENT|$NEXT|g" src/lib/platforms/constants.ts
           echo "Bumped $CURRENT → $NEXT"
           cat src/lib/platforms/constants.ts
 
       - uses: actions/setup-node@v6
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         with:
           node-version: "22.x"
           cache: "npm"
 
       - name: Install dependencies
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         run: npm ci
 
       - name: Generate Prisma client
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         run: npx prisma generate
 
       - name: Run lint
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: lint
         continue-on-error: true
         run: npm run lint
 
       - name: Run typecheck
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: typecheck
         continue-on-error: true
         run: npm run typecheck
 
       - name: Run tests
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: test
         continue-on-error: true
         run: npm test 2>&1 | tee /tmp/test-output.txt
 
       - name: Run build
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: build
         continue-on-error: true
         env:
@@ -128,7 +127,7 @@ jobs:
         run: npm run build
 
       - name: Determine outcome
-        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: outcome
         run: |
           if [ "${{ steps.lint.outcome }}" = "success" ] && \
@@ -160,7 +159,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT="${{ steps.version.outputs.current }}"
-          NEXT="${{ steps.version.outputs.next }}"
+          NEXT="${{ steps.version.outputs.latest }}"
           BRANCH="chore/meta-api-${NEXT}"
 
           git config user.name "github-actions[bot]"
@@ -206,7 +205,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT="${{ steps.version.outputs.current }}"
-          NEXT="${{ steps.version.outputs.next }}"
+          NEXT="${{ steps.version.outputs.latest }}"
 
           gh issue create \
             --title "Meta Graph API ${NEXT} available — checks failed" \
