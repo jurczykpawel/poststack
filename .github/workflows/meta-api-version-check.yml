@@ -61,8 +61,8 @@ jobs:
         run: |
           NEXT="${{ steps.version.outputs.latest }}"
           # Check for existing PR or issue
-          PR_COUNT=$(gh pr list --search "Meta API $NEXT" --state all --json number --jq 'length')
-          ISSUE_COUNT=$(gh issue list --search "Meta API $NEXT" --state all --json number --jq 'length')
+          PR_COUNT=$(gh pr list --search "Meta API $NEXT" --state open --json number --jq 'length')
+          ISSUE_COUNT=$(gh issue list --search "Meta API $NEXT" --state open --json number --jq 'length')
 
           if [ "$PR_COUNT" -gt 0 ] || [ "$ISSUE_COUNT" -gt 0 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
