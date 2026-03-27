@@ -36,27 +36,22 @@ jobs:
         id: check
         run: |
           NEXT="${{ steps.version.outputs.next }}"
-          HTTP_CODE=$(curl -s -o /tmp/meta-response.json -w "%{http_code}" \
-            "https://graph.facebook.com/${NEXT}/")
+          curl -s -o /tmp/meta-response.json \
+            "https://graph.facebook.com/${NEXT}/"
 
-          echo "HTTP status: $HTTP_CODE"
+          echo "Response:"
           cat /tmp/meta-response.json
 
-          # Meta returns 200 for valid versions, the response body may contain
-          # version info or a generic response. Invalid versions return an error
-          # with code 803 or similar.
-          if [ "$HTTP_CODE" = "200" ]; then
-            # Check if response contains a version-not-found error
-            if grep -q '"error"' /tmp/meta-response.json 2>/dev/null; then
-              echo "exists=false" >> "$GITHUB_OUTPUT"
-              echo "Version $NEXT does not exist yet (API returned error)"
-            else
-              echo "exists=true" >> "$GITHUB_OUTPUT"
-              echo "Version $NEXT is available!"
-            fi
-          else
+          # Detection logic:
+          # - Invalid version (e.g. v99.0): error message contains "does not exist"
+          # - Valid version (e.g. v21.0, v22.0): error message says "Please read the Graph API documentation"
+          # Both return HTTP 400 with error code 100, but the message differs.
+          if grep -q "does not exist" /tmp/meta-response.json 2>/dev/null; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Version $NEXT does not exist yet (HTTP $HTTP_CODE)"
+            echo "Version $NEXT does not exist yet"
+          else
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version $NEXT is available!"
           fi
 
       - name: Check if PR/issue already exists
