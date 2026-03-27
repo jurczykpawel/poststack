@@ -112,6 +112,15 @@ jobs:
         continue-on-error: true
         run: npm test 2>&1 | tee /tmp/test-output.txt
 
+      - name: Probe real API (if credentials available)
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        id: probe
+        continue-on-error: true
+        env:
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+        run: bash scripts/meta-api-probe.sh "${{ steps.version.outputs.latest }}"
+
       - name: Run build
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: build
@@ -130,31 +139,50 @@ jobs:
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: outcome
         run: |
+          PROBE="${{ steps.probe.outcome }}"
+
+          # Core checks must pass for PR (probe failure = issue, not blocker)
           if [ "${{ steps.lint.outcome }}" = "success" ] && \
              [ "${{ steps.typecheck.outcome }}" = "success" ] && \
              [ "${{ steps.test.outcome }}" = "success" ] && \
              [ "${{ steps.build.outcome }}" = "success" ]; then
-            echo "result=pass" >> "$GITHUB_OUTPUT"
+            if [ "$PROBE" = "success" ] || [ "$PROBE" = "skipped" ]; then
+              echo "result=pass" >> "$GITHUB_OUTPUT"
+            else
+              # Code is fine but API shapes changed — needs manual fixture update
+              echo "result=probe-fail" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "result=fail" >> "$GITHUB_OUTPUT"
-            # Collect failure details
-            {
-              echo "FAILURES<<EOF"
-              [ "${{ steps.lint.outcome }}" != "success" ] && echo "- Lint failed"
-              [ "${{ steps.typecheck.outcome }}" != "success" ] && echo "- Type check failed"
-              [ "${{ steps.test.outcome }}" != "success" ] && echo "- Tests failed"
-              [ "${{ steps.build.outcome }}" != "success" ] && echo "- Build failed"
-              echo ""
-              echo "Test output (last 50 lines):"
-              tail -50 /tmp/test-output.txt 2>/dev/null || echo "(no test output)"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
+          fi
+
+          # Collect failure details
+          {
+            echo "FAILURES<<EOF"
+            [ "${{ steps.lint.outcome }}" != "success" ] && echo "- Lint failed"
+            [ "${{ steps.typecheck.outcome }}" != "success" ] && echo "- Type check failed"
+            [ "${{ steps.test.outcome }}" != "success" ] && echo "- Tests failed"
+            [ "${{ steps.build.outcome }}" != "success" ] && echo "- Build failed"
+            [ "$PROBE" = "failure" ] && echo "- API probe detected response shape changes"
+            echo ""
+            echo "Test output (last 50 lines):"
+            tail -50 /tmp/test-output.txt 2>/dev/null || echo "(no test output)"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          # Probe status for PR body
+          if [ "$PROBE" = "success" ]; then
+            echo "probe_status=All API response shapes verified against real endpoints" >> "$GITHUB_OUTPUT"
+          elif [ "$PROBE" = "skipped" ]; then
+            echo "probe_status=Skipped (META_APP_ID/META_APP_SECRET secrets not configured)" >> "$GITHUB_OUTPUT"
+          else
+            echo "probe_status=FAILED — response shapes may have changed, review probe output" >> "$GITHUB_OUTPUT"
           fi
 
       # ─── All checks pass → Create PR ─────────────────────────────────
 
       - name: Create branch and PR
-        if: steps.outcome.outputs.result == 'pass'
+        if: steps.outcome.outputs.result == 'pass' || steps.outcome.outputs.result == 'probe-fail'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -185,6 +213,7 @@ jobs:
           - Type check: passed
           - Tests (contract + unit): passed
           - Build: passed
+          - API probe: ${{ steps.outcome.outputs.probe_status }}
 
           ### Before merging
           - [ ] Review [Meta changelog for ${NEXT}](https://developers.facebook.com/docs/graph-api/changelog/version${NEXT#v})
