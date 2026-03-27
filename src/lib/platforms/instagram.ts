@@ -6,8 +6,9 @@ import {
   type MessageContent,
   type SentMessage,
 } from "./base";
+import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 
-const GRAPH_API = "https://graph.facebook.com/v21.0";
+const GRAPH_API = GRAPH_API_BASE;
 
 interface FbPage {
   id: string;
@@ -53,7 +54,7 @@ export class InstagramProvider extends SocialProvider {
       ].join(","),
       response_type: "code",
     });
-    return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
+    return `${META_OAUTH_BASE}/dialog/oauth?${params.toString()}`;
   }
 
   async authenticate(code: string, redirectUri: string): Promise<ConnectedAccount[]> {
@@ -237,5 +238,36 @@ export class InstagramProvider extends SocialProvider {
 
   override refreshBufferSeconds(): number {
     return 10 * 24 * 60 * 60; // Refresh 10 days before expiry
+  }
+
+  /**
+   * Subscribe the underlying Facebook Page to Instagram-related webhook events.
+   * Instagram messaging webhooks are delivered through the Page subscription.
+   *
+   * Requires the page_id stored in tokens during OAuth.
+   */
+  async subscribePageWebhooks(
+    pageId: string,
+    pageAccessToken: string
+  ): Promise<void> {
+    const res = await fetch(`${GRAPH_API}/${pageId}/subscribed_apps`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscribed_fields: [
+          "messages",
+          "messaging_postbacks",
+          "feed",
+        ].join(","),
+        access_token: pageAccessToken,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`[instagram] Webhook subscription failed for page ${pageId}:`, body);
+    }
   }
 }

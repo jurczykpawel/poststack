@@ -6,8 +6,9 @@ import {
   type MessageContent,
   type SentMessage,
 } from "./base";
+import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 
-const GRAPH_API = "https://graph.facebook.com/v21.0";
+const GRAPH_API = GRAPH_API_BASE;
 
 interface FbPage {
   id: string;
@@ -49,7 +50,7 @@ export class FacebookProvider extends SocialProvider {
       ].join(","),
       response_type: "code",
     });
-    return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
+    return `${META_OAUTH_BASE}/dialog/oauth?${params.toString()}`;
   }
 
   async authenticate(code: string, redirectUri: string): Promise<ConnectedAccount[]> {
@@ -233,5 +234,42 @@ export class FacebookProvider extends SocialProvider {
 
   requiresTokenRefresh(): boolean {
     return false;
+  }
+
+  /**
+   * Subscribe a Facebook Page to webhook events so we receive messages,
+   * postbacks, and feed updates automatically.
+   *
+   * Called after OAuth — saves the user from manually configuring
+   * webhooks in Meta's developer console.
+   *
+   * POST /{page-id}/subscribed_apps
+   * https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/
+   */
+  async subscribePageWebhooks(
+    pageId: string,
+    pageAccessToken: string
+  ): Promise<void> {
+    const res = await fetch(`${GRAPH_API}/${pageId}/subscribed_apps`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscribed_fields: [
+          "messages",
+          "messaging_postbacks",
+          "messaging_optins",
+          "feed",
+        ].join(","),
+        access_token: pageAccessToken,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`[facebook] Webhook subscription failed for page ${pageId}:`, body);
+      // Non-fatal — channel is still usable, webhooks can be set up manually
+    }
   }
 }
