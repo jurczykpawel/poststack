@@ -2,26 +2,36 @@
 #
 # Meta Graph API Version Probe
 #
-# Probes the Meta Graph API with real credentials to verify response shapes
-# haven't changed. Uses an app access token (client_credentials grant) —
-# no user interaction needed.
+# Verifies that Meta Graph API response shapes match what our code expects.
+# Uses a permanent page access token to test real success responses.
+#
+# Required env vars:
+#   META_PAGE_ACCESS_TOKEN — never-expiring page token
+#   META_PAGE_ID           — Facebook Page ID
+#
+# Optional (enables extra probes):
+#   META_APP_ID            — App ID (for app token + debug_token probes)
+#   META_APP_SECRET        — App Secret
 #
 # Usage:
-#   META_APP_ID=xxx META_APP_SECRET=yyy ./scripts/meta-api-probe.sh [version]
+#   META_PAGE_ACCESS_TOKEN=xxx META_PAGE_ID=yyy ./scripts/meta-api-probe.sh [version]
 #
 # Exit codes:
-#   0 = all probes passed (response shapes match expectations)
-#   1 = shape mismatch detected (details in output)
-#   2 = missing credentials or network error
+#   0 = all probes passed (or skipped due to missing credentials)
+#   1 = shape mismatch detected
 #
 
 set -euo pipefail
 
 VERSION="${1:-v25.0}"
 BASE="https://graph.facebook.com/${VERSION}"
+PAGE_TOKEN="${META_PAGE_ACCESS_TOKEN:-}"
+PAGE_ID="${META_PAGE_ID:-}"
+APP_ID="${META_APP_ID:-}"
+APP_SECRET="${META_APP_SECRET:-}"
 
-if [ -z "${META_APP_ID:-}" ] || [ -z "${META_APP_SECRET:-}" ]; then
-  echo "SKIP: META_APP_ID and META_APP_SECRET not set, skipping API probe"
+if [ -z "$PAGE_TOKEN" ] || [ -z "$PAGE_ID" ]; then
+  echo "SKIP: META_PAGE_ACCESS_TOKEN and META_PAGE_ID not set, skipping API probe"
   exit 0
 fi
 
@@ -41,9 +51,10 @@ probe() {
     if ! echo "$response" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-# Navigate dot-separated path
 obj = data
 for key in '${field}'.split('.'):
+  if isinstance(obj, list):
+    obj = obj[0] if obj else {}
   if isinstance(obj, dict) and key in obj:
     obj = obj[key]
   else:
@@ -55,7 +66,7 @@ for key in '${field}'.split('.'):
 
   if [ -n "$missing" ]; then
     MISMATCHES=$((MISMATCHES + 1))
-    REPORT="${REPORT}\n FAIL ${name}: missing fields:${missing}"
+    REPORT="${REPORT}\n  FAIL ${name}: missing fields:${missing}"
     echo "FAIL: ${name} — missing fields:${missing}"
   else
     echo "OK:   ${name}"
@@ -65,90 +76,78 @@ for key in '${field}'.split('.'):
 echo "=== Meta Graph API Probe — ${VERSION} ==="
 echo ""
 
-# ─── 1. App Access Token (client_credentials) ────────────────────────────
-echo "--- Probe: App Token Exchange ---"
-APP_TOKEN_RESPONSE=$(curl -s "${BASE}/oauth/access_token?\
-client_id=${META_APP_ID}&\
-client_secret=${META_APP_SECRET}&\
-grant_type=client_credentials")
+# ─── 1. Page Info (basic connectivity check) ─────────────────────────────
+echo "--- Probe: Page Info ---"
+PAGE_INFO=$(curl -s "${BASE}/${PAGE_ID}?access_token=${PAGE_TOKEN}&fields=id,name")
+probe "page_info" "id name" "$PAGE_INFO"
 
-probe "app_token_exchange" \
-  "access_token token_type" \
-  "$APP_TOKEN_RESPONSE"
+# ─── 2. /me/accounts — error shape verification ──────────────────────────
+# Full success response requires a user token (only available during OAuth flow).
+# With a page token we verify the endpoint exists and returns a standard error.
+echo ""
+echo "--- Probe: /me/accounts (error shape with page token) ---"
+ACCOUNTS_ERR=$(curl -s "${BASE}/me/accounts?access_token=${PAGE_TOKEN}&fields=id,name&limit=1")
+probe "me_accounts_error" "error error.message error.type error.code" "$ACCOUNTS_ERR"
 
-APP_TOKEN=$(echo "$APP_TOKEN_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || echo "")
+# ─── 3. /{page-id}/feed — posts response shape ──────────────────────────
+# Our rules UI fetches posts for comment_keyword rules
+echo ""
+echo "--- Probe: /{page-id}/feed (posts) ---"
+FEED=$(curl -s "${BASE}/${PAGE_ID}/feed?access_token=${PAGE_TOKEN}&fields=id,message,created_time,full_picture,permalink_url&limit=2")
+probe "page_feed" "data" "$FEED"
 
-if [ -z "$APP_TOKEN" ]; then
-  echo "ERROR: Could not obtain app token. Remaining probes skipped."
-  echo "$APP_TOKEN_RESPONSE"
-  exit 2
+if echo "$FEED" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['data']" 2>/dev/null; then
+  probe "page_feed_fields" "data.id data.created_time" "$FEED"
 fi
 
-# ─── 2. Debug Token (token introspection) ────────────────────────────────
+# ─── 4. /debug_token — token introspection ───────────────────────────────
 echo ""
-echo "--- Probe: Debug Token ---"
-DEBUG_RESPONSE=$(curl -s "${BASE}/debug_token?\
-input_token=${APP_TOKEN}&\
-access_token=${APP_TOKEN}")
+echo "--- Probe: debug_token ---"
+if [ -n "$APP_ID" ] && [ -n "$APP_SECRET" ]; then
+  DEBUG=$(curl -s "${BASE}/debug_token?input_token=${PAGE_TOKEN}&access_token=${APP_ID}|${APP_SECRET}")
+  probe "debug_token" "data data.app_id data.type data.is_valid" "$DEBUG"
+else
+  # Can also debug with the token itself
+  DEBUG=$(curl -s "${BASE}/debug_token?input_token=${PAGE_TOKEN}&access_token=${PAGE_TOKEN}")
+  probe "debug_token" "data data.type data.is_valid" "$DEBUG"
+fi
 
-probe "debug_token" \
-  "data data.app_id data.type data.is_valid" \
-  "$DEBUG_RESPONSE"
-
-# ─── 3. Token Exchange Error Shape ───────────────────────────────────────
+# ─── 5. /{page-id}/subscribed_apps — webhook subscription ────────────────
+# Our OAuth callback calls this to auto-subscribe pages
 echo ""
-echo "--- Probe: Token Exchange Error Shape ---"
-TOKEN_ERROR=$(curl -s "${BASE}/oauth/access_token?\
-client_id=${META_APP_ID}&\
-client_secret=${META_APP_SECRET}&\
-redirect_uri=https://localhost/test&\
-code=invalid_code_12345")
+echo "--- Probe: subscribed_apps (read current) ---"
+SUBS=$(curl -s "${BASE}/${PAGE_ID}/subscribed_apps?access_token=${PAGE_TOKEN}")
+probe "subscribed_apps_read" "data" "$SUBS"
 
-probe "token_exchange_error" \
-  "error error.message error.type error.code" \
-  "$TOKEN_ERROR"
-
-# ─── 4. Send Message Error Shape (no token) ─────────────────────────────
+# ─── 6. Send Message Error Shape ─────────────────────────────────────────
+# We can't send a real message (no PSID), but verify the error shape
 echo ""
-echo "--- Probe: Send Message Error Shape ---"
+echo "--- Probe: Send Message (error shape) ---"
 SEND_ERROR=$(curl -s -X POST "${BASE}/me/messages" \
   -H "Content-Type: application/json" \
-  -d '{"recipient":{"id":"0"},"message":{"text":"probe"},"access_token":"invalid"}')
+  -d "{\"recipient\":{\"id\":\"0\"},\"message\":{\"text\":\"probe\"},\"access_token\":\"${PAGE_TOKEN}\"}")
+probe "send_message_error" "error error.message error.type error.code" "$SEND_ERROR"
 
-probe "send_message_error" \
-  "error error.message error.type error.code" \
-  "$SEND_ERROR"
-
-# ─── 5. Page Subscription Error Shape ───────────────────────────────────
+# ─── 7. Comment Error Shape ──────────────────────────────────────────────
 echo ""
-echo "--- Probe: Page Subscription Error Shape ---"
-SUB_ERROR=$(curl -s -X POST "${BASE}/0/subscribed_apps" \
-  -H "Content-Type: application/json" \
-  -d "{\"subscribed_fields\":\"messages\",\"access_token\":\"${APP_TOKEN}\"}")
-
-probe "subscribe_webhooks_error" \
-  "error error.message error.type error.code" \
-  "$SUB_ERROR"
-
-# ─── 6. Comment Endpoint Error Shape ────────────────────────────────────
-echo ""
-echo "--- Probe: Comment Endpoint Error Shape ---"
+echo "--- Probe: Comment (error shape) ---"
 COMMENT_ERROR=$(curl -s -X POST "${BASE}/0/comments" \
   -H "Content-Type: application/json" \
-  -d '{"message":"probe","access_token":"invalid"}')
+  -d "{\"message\":\"probe\",\"access_token\":\"${PAGE_TOKEN}\"}")
+probe "comment_error" "error error.message error.type error.code" "$COMMENT_ERROR"
 
-probe "comment_endpoint_error" \
-  "error error.message error.type error.code" \
-  "$COMMENT_ERROR"
+# ─── 8. App Token Exchange (if app credentials available) ─────────────────
+if [ -n "$APP_ID" ] && [ -n "$APP_SECRET" ]; then
+  echo ""
+  echo "--- Probe: App Token Exchange ---"
+  APP_TOKEN_RESPONSE=$(curl -s "${BASE}/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&grant_type=client_credentials")
+  probe "app_token_exchange" "access_token token_type" "$APP_TOKEN_RESPONSE"
 
-# ─── 7. App Info (verify app token works) ────────────────────────────────
-echo ""
-echo "--- Probe: App Info ---"
-APP_INFO=$(curl -s "${BASE}/${META_APP_ID}?access_token=${APP_TOKEN}&fields=id,name")
-
-probe "app_info" \
-  "id name" \
-  "$APP_INFO"
+  echo ""
+  echo "--- Probe: Token Exchange Error Shape ---"
+  TOKEN_ERROR=$(curl -s "${BASE}/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&redirect_uri=https://localhost/test&code=invalid_code")
+  probe "token_exchange_error" "error error.message error.type error.code" "$TOKEN_ERROR"
+fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────
 echo ""
