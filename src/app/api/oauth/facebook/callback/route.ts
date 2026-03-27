@@ -56,6 +56,15 @@ export async function GET(request: Request) {
 
     await upsertChannels(auth.workspaceId, "facebook", accounts);
 
+    // Auto-subscribe pages to webhook events (non-blocking, best-effort)
+    if (provider.subscribePageWebhooks) {
+      await Promise.allSettled(
+        accounts.map((a) =>
+          provider.subscribePageWebhooks!(a.platformId, a.tokens.access_token)
+        )
+      );
+    }
+
     return NextResponse.redirect(
       `${env.NEXT_PUBLIC_APP_URL}/channels?connected=facebook&count=${accounts.length}`
     );

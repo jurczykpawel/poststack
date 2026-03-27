@@ -53,6 +53,21 @@ export async function GET(request: Request) {
 
     await upsertChannels(auth.workspaceId, "instagram", accounts);
 
+    // Auto-subscribe underlying FB pages to webhook events (non-blocking)
+    // Instagram webhooks are delivered through the Page subscription
+    if (provider.subscribePageWebhooks) {
+      await Promise.allSettled(
+        accounts
+          .filter((a) => a.tokens.page_id)
+          .map((a) =>
+            provider.subscribePageWebhooks!(
+              String(a.tokens.page_id),
+              a.tokens.access_token
+            )
+          )
+      );
+    }
+
     return NextResponse.redirect(
       `${env.NEXT_PUBLIC_APP_URL}/channels?connected=instagram&count=${accounts.length}`
     );

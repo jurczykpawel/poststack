@@ -2,10 +2,11 @@ import { authenticate } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decryptTokens } from "@/lib/crypto";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { GRAPH_API_BASE } from "@/lib/platforms/constants";
 
 export const runtime = "nodejs";
 
-const GRAPH_API = "https://graph.facebook.com/v21.0";
+const GRAPH_API = GRAPH_API_BASE;
 
 interface MetaPost {
   id: string;

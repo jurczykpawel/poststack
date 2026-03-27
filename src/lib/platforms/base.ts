@@ -105,6 +105,16 @@ export abstract class SocialProvider {
   abstract requiresTokenRefresh(): boolean;
 
   /**
+   * Subscribe a page/account to webhook events after OAuth.
+   * Saves users from manually configuring webhooks in the platform's developer console.
+   * Optional — not all platforms support this.
+   */
+  subscribePageWebhooks?(
+    pageId: string,
+    pageAccessToken: string
+  ): Promise<void>;
+
+  /**
    * How many seconds before expiry to refresh (used by token refresh worker).
    * Only relevant if requiresTokenRefresh() returns true.
    */

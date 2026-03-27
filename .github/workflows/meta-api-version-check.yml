@@ -1,0 +1,236 @@
+name: Meta API Version Check
+
+on:
+  schedule:
+    # Every Monday at 9:00 UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-version:
+    name: Check for new Meta Graph API version
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Detect current and next version
+        id: version
+        run: |
+          # Extract current version from constants.ts
+          CURRENT=$(grep 'META_API_VERSION' src/lib/platforms/constants.ts | grep -oP 'v\d+\.\d+')
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          # Calculate next version (v21.0 → v22.0)
+          MAJOR=$(echo "$CURRENT" | grep -oP '\d+' | head -1)
+          NEXT="v$((MAJOR + 1)).0"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT, checking: $NEXT"
+
+      - name: Check if next version exists on Meta Graph API
+        id: check
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          HTTP_CODE=$(curl -s -o /tmp/meta-response.json -w "%{http_code}" \
+            "https://graph.facebook.com/${NEXT}/")
+
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/meta-response.json
+
+          # Meta returns 200 for valid versions, the response body may contain
+          # version info or a generic response. Invalid versions return an error
+          # with code 803 or similar.
+          if [ "$HTTP_CODE" = "200" ]; then
+            # Check if response contains a version-not-found error
+            if grep -q '"error"' /tmp/meta-response.json 2>/dev/null; then
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              echo "Version $NEXT does not exist yet (API returned error)"
+            else
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "Version $NEXT is available!"
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Version $NEXT does not exist yet (HTTP $HTTP_CODE)"
+          fi
+
+      - name: Check if PR/issue already exists
+        if: steps.check.outputs.exists == 'true'
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          # Check for existing PR or issue
+          PR_COUNT=$(gh pr list --search "Meta API $NEXT" --state all --json number --jq 'length')
+          ISSUE_COUNT=$(gh issue list --search "Meta API $NEXT" --state all --json number --jq 'length')
+
+          if [ "$PR_COUNT" -gt 0 ] || [ "$ISSUE_COUNT" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR or issue for $NEXT already exists, skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version in constants.ts
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        run: |
+          CURRENT="${{ steps.version.outputs.current }}"
+          NEXT="${{ steps.version.outputs.next }}"
+          sed -i "s|$CURRENT|$NEXT|g" src/lib/platforms/constants.ts
+          echo "Bumped $CURRENT → $NEXT"
+          cat src/lib/platforms/constants.ts
+
+      - uses: actions/setup-node@v6
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        run: npx prisma generate
+
+      - name: Run lint
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        id: lint
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Run typecheck
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        id: typecheck
+        continue-on-error: true
+        run: npm run typecheck
+
+      - name: Run tests
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        id: test
+        continue-on-error: true
+        run: npm test 2>&1 | tee /tmp/test-output.txt
+
+      - name: Run build
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        id: build
+        continue-on-error: true
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+          DATABASE_URL: postgresql://localhost:5432/dummy
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-jwt-secret-not-real-but-must-be-32chars
+          TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          CRON_SECRET: ci-cron-secret-not-real-but-32chars!
+        run: npm run build
+
+      - name: Determine outcome
+        if: steps.check.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
+        id: outcome
+        run: |
+          if [ "${{ steps.lint.outcome }}" = "success" ] && \
+             [ "${{ steps.typecheck.outcome }}" = "success" ] && \
+             [ "${{ steps.test.outcome }}" = "success" ] && \
+             [ "${{ steps.build.outcome }}" = "success" ]; then
+            echo "result=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            # Collect failure details
+            {
+              echo "FAILURES<<EOF"
+              [ "${{ steps.lint.outcome }}" != "success" ] && echo "- Lint failed"
+              [ "${{ steps.typecheck.outcome }}" != "success" ] && echo "- Type check failed"
+              [ "${{ steps.test.outcome }}" != "success" ] && echo "- Tests failed"
+              [ "${{ steps.build.outcome }}" != "success" ] && echo "- Build failed"
+              echo ""
+              echo "Test output (last 50 lines):"
+              tail -50 /tmp/test-output.txt 2>/dev/null || echo "(no test output)"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      # ─── All checks pass → Create PR ─────────────────────────────────
+
+      - name: Create branch and PR
+        if: steps.outcome.outputs.result == 'pass'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT="${{ steps.version.outputs.current }}"
+          NEXT="${{ steps.version.outputs.next }}"
+          BRANCH="chore/meta-api-${NEXT}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add src/lib/platforms/constants.ts
+          git commit -m "chore: bump Meta Graph API ${CURRENT} → ${NEXT}
+
+          Automated version bump. All checks passed (lint, typecheck, tests, build).
+          Review the Meta changelog before merging:
+          https://developers.facebook.com/docs/graph-api/changelog/version${NEXT#v}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: bump Meta Graph API ${CURRENT} → ${NEXT}" \
+            --body "$(cat <<EOF
+          ## Meta Graph API version bump: ${CURRENT} → ${NEXT}
+
+          Automated check detected a new Meta Graph API version.
+
+          ### Status
+          - Lint: passed
+          - Type check: passed
+          - Tests (contract + unit): passed
+          - Build: passed
+
+          ### Before merging
+          - [ ] Review [Meta changelog for ${NEXT}](https://developers.facebook.com/docs/graph-api/changelog/version${NEXT#v})
+          - [ ] Check for deprecated fields in webhook payloads
+          - [ ] Check for changes in /me/accounts, /me/messages response shapes
+          - [ ] Update \`FIXTURES\` in \`meta-api-contract.test.ts\` if response shapes changed
+          - [ ] Test OAuth flow manually against the new version
+
+          > This PR was created automatically by the Meta API Version Check workflow.
+          EOF
+          )"
+
+      # ─── Checks failed → Open Issue ──────────────────────────────────
+
+      - name: Open issue
+        if: steps.outcome.outputs.result == 'fail'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT="${{ steps.version.outputs.current }}"
+          NEXT="${{ steps.version.outputs.next }}"
+
+          gh issue create \
+            --title "Meta Graph API ${NEXT} available — checks failed" \
+            --label "dependencies,meta-api" \
+            --body "$(cat <<EOF
+          ## New Meta Graph API version detected: ${NEXT}
+
+          Automated bump from ${CURRENT} → ${NEXT} was attempted but **checks failed**.
+
+          ### Failures
+          ${{ steps.outcome.outputs.FAILURES }}
+
+          ### Action needed
+          1. Review [Meta changelog for ${NEXT}](https://developers.facebook.com/docs/graph-api/changelog/version${NEXT#v})
+          2. Update \`FIXTURES\` in \`src/lib/platforms/meta-api-contract.test.ts\` to match new response shapes
+          3. Fix any breaking changes in provider code (\`facebook.ts\`, \`instagram.ts\`)
+          4. Bump \`META_API_VERSION\` in \`src/lib/platforms/constants.ts\`
+          5. Verify all tests pass
+
+          > This issue was created automatically by the Meta API Version Check workflow.
+          EOF
+          )"
