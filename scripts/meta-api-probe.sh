@@ -115,9 +115,16 @@ fi
 # ─── 5. /{page-id}/subscribed_apps — webhook subscription ────────────────
 # Our OAuth callback calls this to auto-subscribe pages
 echo ""
-echo "--- Probe: subscribed_apps (read current) ---"
+echo "--- Probe: subscribed_apps (read) ---"
 SUBS=$(curl -s "${BASE}/${PAGE_ID}/subscribed_apps?access_token=${PAGE_TOKEN}")
 probe "subscribed_apps_read" "data" "$SUBS"
+
+echo ""
+echo "--- Probe: subscribed_apps (write — real subscription) ---"
+SUBS_WRITE=$(curl -s -X POST "${BASE}/${PAGE_ID}/subscribed_apps" \
+  -H "Content-Type: application/json" \
+  -d "{\"subscribed_fields\":\"messages,messaging_postbacks,feed\",\"access_token\":\"${PAGE_TOKEN}\"}")
+probe "subscribed_apps_write" "success" "$SUBS_WRITE"
 
 # ─── 6. Send Message Error Shape ─────────────────────────────────────────
 # We can't send a real message (no PSID), but verify the error shape
