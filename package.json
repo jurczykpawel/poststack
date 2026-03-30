@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
+    "@prisma/client": "^7.6.0",
     "altcha": "^2.3.0",
     "altcha-lib": "^1.4.1",
     "bullmq": "5.71.1",
