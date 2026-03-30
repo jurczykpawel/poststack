@@ -26,7 +26,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.5.0",
+    "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.5.0",
     "altcha": "^2.3.0",
     "altcha-lib": "^1.4.1",
