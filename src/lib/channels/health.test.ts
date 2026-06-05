@@ -16,6 +16,9 @@ vi.mock("@/lib/notifications/channel-alert", () => ({
   notifyChannelDown: (...a: unknown[]) => mockNotify(...a),
 }));
 
+const mockAddJob = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/queue/client", () => ({ addJob: (...a: unknown[]) => mockAddJob(...a) }));
+
 import { markChannelNeedsReauth, markChannelHealthy } from "./health";
 
 const activeRow = { status: "active", workspace_id: "ws-1", platform: "instagram", display_name: "My IG" };
@@ -72,10 +75,23 @@ describe("markChannelHealthy", () => {
 
   it("sets the channel active and clears the last error", async () => {
     const now = new Date("2026-06-05T12:00:00.000Z");
+    mockFindUnique.mockResolvedValueOnce({ status: "active" });
     await markChannelHealthy("ch-1", now);
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: "ch-1" },
       data: { status: "active", last_error: null, last_health_at: now },
     });
+  });
+
+  it("drains held messages when recovering from needs_reauth", async () => {
+    mockFindUnique.mockResolvedValueOnce({ status: "needs_reauth" });
+    await markChannelHealthy("ch-1");
+    expect(mockAddJob).toHaveBeenCalledWith("drain-channel", { channelId: "ch-1" });
+  });
+
+  it("does NOT drain when the channel was already active", async () => {
+    mockFindUnique.mockResolvedValueOnce({ status: "active" });
+    await markChannelHealthy("ch-1");
+    expect(mockAddJob).not.toHaveBeenCalled();
   });
 });

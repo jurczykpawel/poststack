@@ -15,6 +15,7 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   "outgoing-comment": 3,
   "token-refresh": 3,
   "sequence-step": 3,
+  "drain-channel": 3,
 };
 
 export interface AddJobOptions {

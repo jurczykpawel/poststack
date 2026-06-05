@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notifyChannelDown } from "@/lib/notifications/channel-alert";
+import { addJob } from "@/lib/queue/client";
 
 const MAX_ERROR_LEN = 500;
 
@@ -40,13 +41,26 @@ export async function markChannelNeedsReauth(
   }
 }
 
-/** Mark a channel healthy (after a successful refresh or reconnect). */
+/**
+ * Mark a channel healthy (after a successful refresh or reconnect). When this
+ * closes an open breaker (needs_reauth → active), enqueue a drain to replay any
+ * outbound parked while the channel was down (REL5).
+ */
 export async function markChannelHealthy(
   channelId: string,
   now: Date = new Date(),
 ): Promise<void> {
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    select: { status: true },
+  });
+
   await prisma.channel.update({
     where: { id: channelId },
     data: { status: "active", last_error: null, last_health_at: now },
   });
+
+  if (channel?.status === "needs_reauth") {
+    await addJob("drain-channel", { channelId });
+  }
 }

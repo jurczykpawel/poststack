@@ -5,6 +5,7 @@ import { processOutgoingMessage } from "@/lib/workers/outgoing-message-worker";
 import { processOutgoingComment } from "@/lib/workers/outgoing-comment-worker";
 import { processTokenRefresh } from "@/lib/workers/token-refresh-worker";
 import { processSequenceStep } from "@/lib/workers/sequence-step-worker";
+import { drainChannel } from "@/lib/channels/drain";
 import type { TaskPayloadMap } from "./types";
 
 /**
@@ -25,5 +26,7 @@ export function createTaskList(): TaskList {
       processTokenRefresh(p as TaskPayloadMap["token-refresh"], h),
     "sequence-step": (p, h) =>
       processSequenceStep(p as TaskPayloadMap["sequence-step"], h),
+    "drain-channel": (p) =>
+      drainChannel((p as TaskPayloadMap["drain-channel"]).channelId).then(() => undefined),
   };
 }

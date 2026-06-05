@@ -1,6 +1,7 @@
 import type { Platform } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { encryptTokens } from "@/lib/crypto";
+import { addJob } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
 
@@ -23,7 +24,16 @@ export async function upsertChannels(
   for (const account of accounts) {
     const encryptedTokens = encryptTokens(account.tokens);
 
-    await prisma.channel.upsert({
+    // Was this channel previously broken? If so, reconnecting recovers it and
+    // we drain any outbound parked while it was down (REL5).
+    const existing = await prisma.channel.findUnique({
+      where: {
+        workspace_id_platform_id: { workspace_id: workspaceId, platform_id: account.platformId },
+      },
+      select: { id: true, status: true },
+    });
+
+    const channel = await prisma.channel.upsert({
       where: {
         workspace_id_platform_id: {
           workspace_id: workspaceId,
@@ -50,5 +60,9 @@ export async function upsertChannels(
         last_error: null,
       },
     });
+
+    if (existing?.status === "needs_reauth") {
+      await addJob("drain-channel", { channelId: channel.id });
+    }
   }
 }

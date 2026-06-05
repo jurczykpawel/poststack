@@ -6,6 +6,7 @@ vi.mock("@/lib/workers/outgoing-message-worker", () => ({ processOutgoingMessage
 vi.mock("@/lib/workers/outgoing-comment-worker", () => ({ processOutgoingComment: vi.fn() }));
 vi.mock("@/lib/workers/token-refresh-worker", () => ({ processTokenRefresh: vi.fn() }));
 vi.mock("@/lib/workers/sequence-step-worker", () => ({ processSequenceStep: vi.fn() }));
+vi.mock("@/lib/channels/drain", () => ({ drainChannel: vi.fn() }));
 
 import { createTaskList } from "./tasks";
 
@@ -16,10 +17,11 @@ const EXPECTED_TASKS = [
   "outgoing-comment",
   "token-refresh",
   "sequence-step",
+  "drain-channel",
 ];
 
 describe("createTaskList", () => {
-  it("registers exactly the six known tasks", () => {
+  it("registers exactly the known tasks", () => {
     expect(Object.keys(createTaskList()).sort()).toEqual([...EXPECTED_TASKS].sort());
   });
 

@@ -65,6 +65,10 @@ export interface SequenceStepJob {
   enrollmentId: string;
 }
 
+export interface DrainChannelJob {
+  channelId: string;
+}
+
 /** graphile-worker task identifiers → their payload type. */
 export type TaskPayloadMap = {
   "incoming-message": IncomingMessageJob;
@@ -73,6 +77,7 @@ export type TaskPayloadMap = {
   "outgoing-comment": OutgoingCommentJob;
   "token-refresh": TokenRefreshJob;
   "sequence-step": SequenceStepJob;
+  "drain-channel": DrainChannelJob;
 };
 
 export type TaskName = keyof TaskPayloadMap;
