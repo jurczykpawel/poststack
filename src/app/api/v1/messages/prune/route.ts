@@ -1,0 +1,26 @@
+import { authenticateWithScope } from "@/lib/auth";
+import { ok, ApiErrors } from "@/lib/api/response";
+import { pruneWorkspaceMessages } from "@/lib/retention";
+import { z } from "zod";
+
+export const runtime = "nodejs";
+
+const schema = z.object({
+  older_than_days: z.number().int().min(1),
+});
+
+// POST /api/v1/messages/prune — manually delete this workspace's messages
+// older than N days (DATA1). Held/pending messages are never removed.
+export async function POST(request: Request) {
+  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  if (!auth) return ApiErrors.unauthorized();
+
+  const body = await request.json().catch(() => ({}));
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  }
+
+  const result = await pruneWorkspaceMessages(auth.workspaceId, parsed.data.older_than_days);
+  return ok(result);
+}

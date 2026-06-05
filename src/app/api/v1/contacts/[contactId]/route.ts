@@ -1,6 +1,6 @@
 import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { ok, ApiErrors } from "@/lib/api/response";
+import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -85,4 +85,35 @@ export async function PATCH(
   });
 
   return ok(updated);
+}
+
+// DELETE /api/v1/contacts/:id — erase a contact and all their data (GDPR).
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ contactId: string }> }
+) {
+  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  if (!auth) return ApiErrors.unauthorized();
+
+  const { contactId } = await params;
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspace_id: auth.workspaceId },
+    select: { id: true, contact_channels: { select: { platform_sender_id: true } } },
+  });
+  if (!contact) return ApiErrors.notFound("Contact");
+
+  // CommentLog isn't FK-linked to Contact (author_id is a platform id), so the
+  // cascade doesn't reach it — erase it explicitly, workspace-scoped.
+  const senderIds = contact.contact_channels.map((cc) => cc.platform_sender_id);
+  if (senderIds.length > 0) {
+    await prisma.commentLog.deleteMany({
+      where: { workspace_id: auth.workspaceId, author_id: { in: senderIds } },
+    });
+  }
+
+  // Cascade removes ContactChannel, Conversations + Messages, enrollments,
+  // pending approvals and broadcast recipients ( foreign keys).
+  await prisma.contact.delete({ where: { id: contactId } });
+
+  return noContent();
 }

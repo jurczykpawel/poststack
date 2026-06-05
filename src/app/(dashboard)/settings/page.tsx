@@ -23,13 +23,52 @@ export default function SettingsPage() {
   const [creating, setCreating] = useState(false);
   const [justCreated, setJustCreated] = useState<ApiKey | null>(null);
   const [error, setError] = useState("");
+  const [retention, setRetention] = useState<string>("");
+  const [savingRetention, setSavingRetention] = useState(false);
+  const [retentionMsg, setRetentionMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/v1/api-keys")
       .then((r) => r.json())
       .then((d) => setKeys(d.data ?? []))
       .finally(() => setLoading(false));
+    fetch("/api/v1/workspace")
+      .then((r) => r.json())
+      .then((d) => setRetention(d.data?.message_retention_days != null ? String(d.data.message_retention_days) : ""));
   }, []);
+
+  async function saveRetention() {
+    setSavingRetention(true);
+    setRetentionMsg("");
+    try {
+      const days = retention.trim() === "" ? null : Number(retention);
+      const res = await fetch("/api/v1/workspace", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_retention_days: days }),
+      });
+      setRetentionMsg(res.ok ? "Saved." : "Could not save retention policy.");
+    } finally {
+      setSavingRetention(false);
+    }
+  }
+
+  async function pruneNow() {
+    if (retention.trim() === "") return;
+    if (!confirm(`Delete messages older than ${retention} days now? This cannot be undone.`)) return;
+    const res = await fetch("/api/v1/messages/prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ older_than_days: Number(retention) }),
+    });
+    const body = await res.json().catch(() => ({}));
+    const r = body.data ?? {};
+    setRetentionMsg(
+      res.ok
+        ? `Deleted ${r.deletedMessages ?? 0} message(s), ${r.deletedConversations ?? 0} empty conversation(s).`
+        : "Prune failed.",
+    );
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -159,6 +198,34 @@ export default function SettingsPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section style={{ marginTop: "2rem" }}>
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Data retention</h2>
+        <p style={{ fontSize: "0.875rem", color: "var(--muted-foreground)", marginBottom: "1rem" }}>
+          Automatically delete messages older than the configured number of days (runs daily).
+          Leave blank to keep messages forever. Messages waiting to be sent are never deleted.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+          <input
+            type="number" min={1} value={retention}
+            onChange={(e) => setRetention(e.target.value)}
+            placeholder="Keep forever"
+            style={{ width: 140, padding: "0.5rem 0.75rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)", color: "var(--foreground)", fontSize: "0.875rem" }}
+          />
+          <span style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>days</span>
+          <button onClick={saveRetention} disabled={savingRetention}
+            style={{ padding: "0.5rem 1rem", background: "var(--primary)", color: "var(--primary-foreground)", border: "none", borderRadius: "var(--radius)", cursor: "pointer", fontWeight: 600, fontSize: "0.875rem", opacity: savingRetention ? 0.7 : 1 }}>
+            {savingRetention ? "Saving..." : "Save"}
+          </button>
+          {retention.trim() !== "" && (
+            <button onClick={pruneNow}
+              style={{ padding: "0.5rem 1rem", background: "none", border: "1px solid var(--border)", color: "var(--foreground)", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.875rem" }}>
+              Prune now
+            </button>
+          )}
+        </div>
+        {retentionMsg && <p style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>{retentionMsg}</p>}
       </section>
 
       <section style={{ marginTop: "2rem" }}>
