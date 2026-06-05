@@ -53,6 +53,8 @@ export interface OutgoingMessageJob {
   sentByUserId?: string;
   /** Unique key to prevent duplicate sends on retry. Generated at enqueue time. */
   idempotencyKey?: string;
+  /** Set when draining a parked message: update this held row in place instead of inserting a new one (REL5). */
+  heldMessageId?: string;
 }
 
 export interface TokenRefreshJob {

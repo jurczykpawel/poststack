@@ -233,6 +233,9 @@ model Conversation {
   assigned_to              String?            @db.Uuid
   last_message_at          DateTime?
   last_message_preview     String?
+  // Timestamp of the most recent inbound (USER) message — anchors the platform
+  // messaging window used when draining held outbound (REL5).
+  last_inbound_at          DateTime?
   unread_count             Int                @default(0)
   is_automation_paused     Boolean            @default(false)
   needs_manual_reply       Boolean            @default(false)
@@ -297,6 +300,8 @@ enum MessageStatus {
   sent
   delivered
   failed
+  held // parked while the channel is down (token invalid) — awaiting drain (REL5)
+  expired // window_expired: held past the platform messaging window, not sent (REL5)
 
   @@map("message_status")
 }

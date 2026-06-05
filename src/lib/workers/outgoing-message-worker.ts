@@ -17,19 +17,37 @@ export async function processOutgoingMessage(
   payload: OutgoingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, idempotencyKey } =
+  const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, idempotencyKey, heldMessageId } =
     payload;
 
-  const recordFailed = () =>
-    prisma.message.create({
-      data: {
-        conversation_id: conversationId,
-        direction: "outbound",
-        text: content.text ?? null,
-        status: "failed",
-        sent_by_rule_id: sentByRuleId ?? null,
-      },
-    });
+  // Park the outbound while the channel is down: a `held` message awaits drain
+  // (REL5), NOT a `failed` one. On drain (heldMessageId set) the row already
+  // exists, so re-parking is a no-op rather than a duplicate.
+  const persistHeld = () =>
+    heldMessageId
+      ? Promise.resolve()
+      : prisma.message.create({
+          data: {
+            conversation_id: conversationId,
+            direction: "outbound",
+            text: content.text ?? null,
+            status: "held",
+            sent_by_rule_id: sentByRuleId ?? null,
+          },
+        });
+
+  const persistFailed = () =>
+    heldMessageId
+      ? prisma.message.update({ where: { id: heldMessageId }, data: { status: "failed" } })
+      : prisma.message.create({
+          data: {
+            conversation_id: conversationId,
+            direction: "outbound",
+            text: content.text ?? null,
+            status: "failed",
+            sent_by_rule_id: sentByRuleId ?? null,
+          },
+        });
 
   // 1. Check idempotency (already successfully sent?)
   if (idempotencyKey && (await isClaimed(idempotencyKey))) {
@@ -48,10 +66,10 @@ export async function processOutgoingMessage(
   }
 
   // Breaker open: token is known-bad, don't waste an API call that will fail.
-  // The message is recorded failed (REL5 will park it as `held` and drain).
+  // Park the message as `held` (REL5) — it drains once the channel recovers.
   if (channel.status === "needs_reauth") {
-    await recordFailed();
-    helpers.logger.info(`Channel ${channelId} needs_reauth, not sending`);
+    await persistHeld();
+    helpers.logger.info(`Channel ${channelId} needs_reauth, message held`);
     return;
   }
 
@@ -82,14 +100,15 @@ export async function processOutgoingMessage(
     const sent = await provider.sendMessage(tokens, recipientPlatformId, content);
     platformMessageId = sent.platformMessageId;
   } catch (e) {
-    await recordFailed();
     if (e instanceof TokenInvalidError) {
-      // Dead token — open the breaker and stop. Do NOT retry (it can't succeed).
+      // Dead token — park as `held` (REL5) and open the breaker. Do NOT retry.
+      await persistHeld();
       await markChannelNeedsReauth(channelId, e.message);
-      helpers.logger.info(`Channel ${channelId} token invalid on send, flagged needs_reauth`);
+      helpers.logger.info(`Channel ${channelId} token invalid on send, message held + needs_reauth`);
       return;
     }
-    // Transient — do NOT claim idempotency key, allow retry.
+    // Transient — record failed, do NOT claim idempotency key, allow retry.
+    await persistFailed();
     throw e;
   }
 
@@ -98,17 +117,25 @@ export async function processOutgoingMessage(
     await claim(idempotencyKey);
   }
 
-  // 5. Insert sent message record
-  await prisma.message.create({
-    data: {
-      conversation_id: conversationId,
-      direction: "outbound",
-      text: content.text ?? null,
-      platform_message_id: platformMessageId,
-      status: "sent",
-      sent_by_rule_id: sentByRuleId ?? null,
-    },
-  });
+  // 5. Persist the sent message. On drain, update the existing held row in
+  //    place; on a fresh send, insert a new record.
+  if (heldMessageId) {
+    await prisma.message.update({
+      where: { id: heldMessageId },
+      data: { status: "sent", platform_message_id: platformMessageId },
+    });
+  } else {
+    await prisma.message.create({
+      data: {
+        conversation_id: conversationId,
+        direction: "outbound",
+        text: content.text ?? null,
+        platform_message_id: platformMessageId,
+        status: "sent",
+        sent_by_rule_id: sentByRuleId ?? null,
+      },
+    });
+  }
 
   // 6. Update conversation preview
   await prisma.conversation.update({
