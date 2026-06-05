@@ -1,12 +1,9 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingCommentJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
-import { redis } from "@/lib/redis";
+import { isClaimed, claim } from "@/lib/idempotency";
 import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
-
-const IDEM_PREFIX = "idem:outcomment:";
-const IDEM_TTL = 86_400;
 
 /**
  * Post a public reply to a comment via the platform API.
@@ -19,12 +16,9 @@ export async function processOutgoingComment(
   const { channelId, commentId, text, sentByRuleId, idempotencyKey } = payload;
 
   // Check idempotency (already successfully sent?)
-  if (idempotencyKey) {
-    const exists = await redis.get(`${IDEM_PREFIX}${idempotencyKey}`);
-    if (exists) {
-      helpers.logger.info(`Idempotency key already claimed, skipping`);
-      return;
-    }
+  if (idempotencyKey && (await isClaimed(idempotencyKey))) {
+    helpers.logger.info(`Idempotency key already claimed, skipping`);
+    return;
   }
 
   const channel = await prisma.channel.findUnique({
@@ -44,7 +38,7 @@ export async function processOutgoingComment(
 
   // Claim idempotency key AFTER successful send
   if (idempotencyKey) {
-    await redis.set(`${IDEM_PREFIX}${idempotencyKey}`, "1", "EX", IDEM_TTL);
+    await claim(idempotencyKey);
   }
 
   await prisma.commentLog.updateMany({

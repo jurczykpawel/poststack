@@ -1,12 +1,9 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
-import { redis } from "@/lib/redis";
+import { isClaimed, claim } from "@/lib/idempotency";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
-
-const IDEM_PREFIX = "idem:outmsg:";
-const IDEM_TTL = 86_400; // 24 hours
 
 /**
  * Send an outbound message via the platform API.
@@ -22,12 +19,9 @@ export async function processOutgoingMessage(
     payload;
 
   // 1. Check idempotency (already successfully sent?)
-  if (idempotencyKey) {
-    const exists = await redis.get(`${IDEM_PREFIX}${idempotencyKey}`);
-    if (exists) {
-      helpers.logger.info(`Idempotency key ${idempotencyKey} already claimed, skipping duplicate send`);
-      return;
-    }
+  if (idempotencyKey && (await isClaimed(idempotencyKey))) {
+    helpers.logger.info(`Idempotency key ${idempotencyKey} already claimed, skipping duplicate send`);
+    return;
   }
 
   // 2. Load channel
@@ -88,7 +82,7 @@ export async function processOutgoingMessage(
 
   // 4. Claim idempotency key AFTER successful send
   if (idempotencyKey) {
-    await redis.set(`${IDEM_PREFIX}${idempotencyKey}`, "1", "EX", IDEM_TTL);
+    await claim(idempotencyKey);
   }
 
   // 5. Insert sent message record

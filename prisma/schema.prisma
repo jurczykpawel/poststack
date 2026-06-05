@@ -611,3 +611,15 @@ model BroadcastRecipient {
   @@index([broadcast_id, status])
   @@map("broadcast_recipients")
 }
+
+// Idempotency store for outbound sends (message + comment). A key is claimed
+// AFTER a successful send so a retry that re-runs a completed job is a no-op.
+// `expires_at` mirrors the former Redis 24h TTL; expired rows are ignored and
+// can be pruned (see DATA1).
+model OutboundIdempotency {
+  key        String   @id
+  expires_at DateTime
+
+  @@index([expires_at])
+  @@map("outbound_idempotency")
+}
