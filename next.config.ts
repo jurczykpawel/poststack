@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },
-  serverExternalPackages: ["bullmq", "ioredis"],
+  serverExternalPackages: ["graphile-worker"],
   async headers() {
     return [
       {

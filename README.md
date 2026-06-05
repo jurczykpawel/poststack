@@ -46,8 +46,8 @@
 
 ### Security
 - **AES-256-GCM** encryption for OAuth tokens at rest
-- **Rate limiting** on auth endpoints (Redis-backed)
-- **JWT session invalidation** on logout (Redis denylist)
+- **Rate limiting** on auth endpoints (Postgres-backed)
+- **JWT session invalidation** on logout (Postgres denylist)
 - **HMAC-SHA256** webhook signature verification
 - **Per-channel webhook secrets**
 
@@ -72,7 +72,7 @@ Edit `.env` -- fill in at minimum:
 
 ### Option A: Docker (recommended)
 
-Builds and starts everything -- PostgreSQL, Redis, Next.js web, BullMQ worker:
+Builds and starts everything -- PostgreSQL, Next.js web, graphile-worker:
 
 ```bash
 docker compose --profile app up
@@ -85,11 +85,11 @@ First run takes a few minutes (builds Docker images). Open http://localhost:3000
 Start only the databases, run the app with hot-reload:
 
 ```bash
-docker compose up postgres redis   # databases only
+docker compose up postgres         # database only
 npm install
 npx prisma migrate deploy          # create tables
 npm run dev                        # Next.js (terminal 1)
-npm run worker                     # BullMQ worker (terminal 2)
+npm run worker                     # graphile-worker (terminal 2)
 ```
 
 Open http://localhost:3000.
@@ -108,7 +108,7 @@ Register an account, go to **Channels**, and connect your first Facebook Page or
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This runs nginx (port 80) + Next.js web + BullMQ worker + PostgreSQL + Redis with pre-built images.
+This runs nginx (port 80) + Next.js web + graphile-worker + PostgreSQL with pre-built images.
 
 ---
 
@@ -268,7 +268,7 @@ All responses follow the shape `{ data, error, meta? }`.
 |-------|-----------|
 | Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL + Prisma 7 |
-| Queue | Redis + BullMQ |
+| Queue | PostgreSQL (graphile-worker) |
 | Auth | JWT (jose) + API keys |
 | Encryption | AES-256-GCM (tokens at rest) |
 | Runtime | Node.js 18+ |

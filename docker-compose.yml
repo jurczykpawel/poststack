@@ -15,22 +15,9 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD:-replystack-dev}
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-replystack-dev}", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # --- App (full stack, builds locally) ---
   # Start everything: docker compose up
-  # Start only DB/Redis for local dev: docker compose up postgres redis
+  # Start only the DB for local dev: docker compose up postgres
 
   web:
     build:
@@ -42,11 +29,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-replystack}:${POSTGRES_PASSWORD:-replystack-dev}@postgres:5432/${POSTGRES_DB:-replystack}"
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-replystack-dev}@redis:6379"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -64,11 +48,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-replystack}:${POSTGRES_PASSWORD:-replystack-dev}@postgres:5432/${POSTGRES_DB:-replystack}"
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-replystack-dev}@redis:6379"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -89,5 +70,4 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   nocodb_data:

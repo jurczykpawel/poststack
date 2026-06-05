@@ -5,7 +5,6 @@ beforeAll(() => {
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.JWT_EXPIRY = "7d";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
-  process.env.REDIS_URL = "redis://localhost:6379";
   process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
   process.env.META_APP_ID = "test";
   process.env.META_APP_SECRET = "test";

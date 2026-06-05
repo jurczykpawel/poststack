@@ -8,7 +8,7 @@ cd replystack
 cp .env.example .env
 # Fill in your values in .env
 
-docker compose up postgres redis
+docker compose up postgres
 npm install
 npm run db:migrate
 npm run dev           # web (terminal 1)
@@ -25,11 +25,10 @@ src/
 ├── lib/
 │   ├── platforms/    # Social provider implementations
 │   ├── rule-engine/  # Auto-reply matching and execution
-│   ├── workers/      # BullMQ job processors
-│   ├── queue/        # Queue definitions
+│   ├── workers/      # graphile-worker job processors
+│   ├── queue/        # graphile-worker client (addJob + task list)
 │   ├── crypto.ts     # Token encryption
-│   ├── prisma.ts     # Database client
-│   └── redis.ts      # Redis client
+│   └── prisma.ts     # Database client
 └── components/       # React components
 worker/
 └── inbox-worker.ts   # Worker entrypoint

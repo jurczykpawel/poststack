@@ -20,7 +20,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PHASE=phase-production-build
 # Dummy env vars for next build (validated at runtime, not build time)
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-ENV REDIS_URL="redis://localhost:6379"
 ENV JWT_SECRET="build-only-not-real-must-be-32-chars!!"
 ENV TOKEN_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000"
 ENV NEXT_PUBLIC_APP_URL="http://localhost:3000"

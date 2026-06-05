@@ -27,7 +27,6 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 | Language | TypeScript 5 |
 | Database | PostgreSQL + Prisma |
 | Queue | PostgreSQL (graphile-worker) |
-| Cache | Redis (sessions, rate-limit, cooldowns) |
 | Styling | Tailwind CSS 4 + shadcn/ui |
 | Platforms | Facebook, Instagram (extensible via provider pattern) |
 | Auth | Custom JWT (jose) |
@@ -73,8 +72,7 @@ src/
 │   ├── queue/            # graphile-worker client (addJob + task list)
 │   ├── workers/          # Worker implementations
 │   ├── crypto.ts         # Token encryption/decryption
-│   ├── prisma.ts         # PrismaClient singleton
-│   └── redis.ts          # IORedis singleton
+│   └── prisma.ts         # PrismaClient singleton
 ├── components/           # React components (inbox, rules, channels, ui)
 worker/
 └── inbox-worker.ts       # graphile-worker entrypoint (separate process)
@@ -94,7 +92,7 @@ Design was informed by internal reference implementations kept in a private work
 
 ```bash
 # Start dependencies
-docker compose up postgres redis nocodb
+docker compose up postgres nocodb
 
 # Install + migrate
 bun install
@@ -114,7 +112,6 @@ See `.env.example`. Required:
 | Var | Purpose |
 |-----|---------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection (with password) |
 | `TOKEN_ENCRYPTION_KEY` | 32-byte hex (`openssl rand -hex 32`) |
 | `JWT_SECRET` | Auth JWT secret |
 | `META_APP_ID` | Facebook App ID |

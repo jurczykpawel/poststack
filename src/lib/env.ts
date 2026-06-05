@@ -4,9 +4,6 @@ const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1),
 
-  // Redis
-  REDIS_URL: z.string().min(1),
-
   // Auth
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRY: z.string().default("7d"),

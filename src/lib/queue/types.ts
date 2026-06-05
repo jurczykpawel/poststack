@@ -51,7 +51,7 @@ export interface OutgoingMessageJob {
   };
   sentByRuleId?: string;
   sentByUserId?: string;
-  /** Unique key to prevent duplicate sends on BullMQ retry. Generated at enqueue time. */
+  /** Unique key to prevent duplicate sends on retry. Generated at enqueue time. */
   idempotencyKey?: string;
 }
 
