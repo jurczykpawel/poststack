@@ -27,7 +27,7 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 | Language | TypeScript 5 |
 | Database | PostgreSQL + Prisma |
 | Queue | PostgreSQL (graphile-worker) |
-| Styling | Tailwind CSS 4 + shadcn/ui |
+| Styling | Plain CSS (CSS variables, dark theme) — no UI framework |
 | Platforms | Facebook, Instagram (extensible via provider pattern) |
 | Auth | Custom JWT (jose) |
 | Encryption | AES-256-GCM (Node.js crypto) |
@@ -67,10 +67,10 @@ src/
 ├── app/                  # Next.js App Router (auth, dashboard, API routes)
 ├── lib/
 │   ├── platforms/        # SocialProvider base class + FB/IG implementations
-│   ├── rule-engine/      # matcher.ts + executor.ts
-│   ├── flow-engine/      # v2 placeholder (same shape as ZernFlow engine.ts)
+│   ├── rules/            # matcher.ts + executor.ts (keyword auto-reply)
+│   ├── auth/             # JWT sessions + API keys
 │   ├── queue/            # graphile-worker client (addJob + task list)
-│   ├── workers/          # Worker implementations
+│   ├── workers/          # Worker implementations (graphile tasks)
 │   ├── crypto.ts         # Token encryption/decryption
 │   └── prisma.ts         # PrismaClient singleton
 ├── components/           # React components (inbox, rules, channels, ui)
@@ -95,14 +95,14 @@ Design was informed by internal reference implementations kept in a private work
 docker compose up postgres nocodb
 
 # Install + migrate
-bun install
-bun run db:migrate
+npm install
+npm run db:migrate
 
 # Run web (terminal 1)
-bun dev
+npm run dev
 
 # Run worker (terminal 2)
-bun run worker
+npm run worker
 ```
 
 ## Environment Variables
@@ -127,7 +127,7 @@ See `.env.example`. Required:
 - **Webhook handlers return 200 immediately** — enqueue job, process async (Meta retries on timeout)
 - **Every DB query scoped by workspace_id** — never query cross-workspace
 - **No secrets in commit messages** (AGPL project = public history)
-- **NEVER `bun install` / `npm install` on server** — always prebuild artifacts, deploy via Docker
+- **NEVER `npm install` on server** — always prebuild artifacts, deploy via Docker
 
 ## Phases
 
