@@ -1,7 +1,6 @@
 import { jwtVerify } from "jose";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 
 export interface AuthContext {
@@ -36,7 +35,6 @@ export async function authenticateWithScope(
 }
 
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
-const JWT_DENY_PREFIX = "jwt:deny:";
 
 /**
  * Authenticate a request using either:
@@ -128,8 +126,8 @@ async function authenticateSession(
 
     // Check JWT denylist (invalidated on logout)
     if (jti) {
-      const denied = await redis.get(`${JWT_DENY_PREFIX}${jti}`);
-      if (denied) return null;
+      const revoked = await prisma.revokedToken.findUnique({ where: { jti } });
+      if (revoked && revoked.expires_at > new Date()) return null;
     }
 
     // Verify user still exists (handles deleted/suspended accounts)
@@ -165,8 +163,8 @@ export async function signSession(
 }
 
 /**
- * Invalidate a session JWT by adding its jti to the Redis denylist.
- * TTL matches the JWT's remaining lifetime so entries auto-clean.
+ * Invalidate a session JWT by adding its jti to the Postgres denylist.
+ * `expires_at` matches the JWT's expiry so entries can be pruned afterwards.
  */
 export async function invalidateSession(token: string): Promise<void> {
   try {
@@ -176,9 +174,13 @@ export async function invalidateSession(token: string): Promise<void> {
 
     if (!jti || !exp) return;
 
-    const ttl = exp - Math.floor(Date.now() / 1000);
-    if (ttl > 0) {
-      await redis.set(`${JWT_DENY_PREFIX}${jti}`, "1", "EX", ttl);
+    const expires_at = new Date(exp * 1000);
+    if (expires_at > new Date()) {
+      await prisma.revokedToken.upsert({
+        where: { jti },
+        create: { jti, expires_at },
+        update: { expires_at },
+      });
     }
   } catch {
     // Token already expired or invalid — no need to denylist

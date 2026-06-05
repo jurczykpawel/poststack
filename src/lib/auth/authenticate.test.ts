@@ -19,6 +19,8 @@ beforeAll(() => {
 const mockFindUnique = vi.fn();
 const mockUpdate = vi.fn().mockResolvedValue({});
 const mockUserFindUnique = vi.fn().mockResolvedValue({ id: "user-123" });
+const mockRevokedFindUnique = vi.fn().mockResolvedValue(null);
+const mockRevokedUpsert = vi.fn().mockResolvedValue({});
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     apiKey: {
@@ -28,16 +30,10 @@ vi.mock("@/lib/prisma", () => ({
     user: {
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
     },
-  },
-}));
-
-// Mock Redis
-const mockRedisGet = vi.fn().mockResolvedValue(null);
-const mockRedisSet = vi.fn().mockResolvedValue("OK");
-vi.mock("@/lib/redis", () => ({
-  redis: {
-    get: (...args: unknown[]) => mockRedisGet(...args),
-    set: (...args: unknown[]) => mockRedisSet(...args),
+    revokedToken: {
+      findUnique: (...args: unknown[]) => mockRevokedFindUnique(...args),
+      upsert: (...args: unknown[]) => mockRevokedUpsert(...args),
+    },
   },
 }));
 
@@ -109,8 +105,8 @@ describe("authenticate", () => {
     const { authenticate, signSession } = await import("./index");
     const token = await signSession("user-1", "ws-1");
 
-    // Simulate denylist hit
-    mockRedisGet.mockResolvedValueOnce("1");
+    // Simulate denylist hit (non-expired revoked entry)
+    mockRevokedFindUnique.mockResolvedValueOnce({ jti: "x", expires_at: new Date(Date.now() + 60_000) });
 
     const request = new Request("http://localhost/api/v1/test", {
       headers: { cookie: `rs_session=${token}` },
@@ -118,7 +114,7 @@ describe("authenticate", () => {
 
     const auth = await authenticate(request);
     expect(auth).toBeNull();
-    expect(mockRedisGet).toHaveBeenCalled();
+    expect(mockRevokedFindUnique).toHaveBeenCalled();
   });
 
   it("rejects JWT with wrong workspaceId when required", async () => {
@@ -249,25 +245,24 @@ describe("invalidateSession", () => {
     vi.clearAllMocks();
   });
 
-  it("adds jti to Redis denylist with correct TTL", async () => {
+  it("adds jti to the Postgres denylist with an expiry within the token lifetime", async () => {
     const { signSession, invalidateSession } = await import("./index");
     const token = await signSession("user-1", "ws-1");
 
     await invalidateSession(token);
 
-    expect(mockRedisSet).toHaveBeenCalledTimes(1);
-    const [key, value, ex, ttl] = mockRedisSet.mock.calls[0];
-    expect(key).toMatch(/^jwt:deny:/);
-    expect(value).toBe("1");
-    expect(ex).toBe("EX");
-    expect(ttl).toBeGreaterThan(0);
-    expect(ttl).toBeLessThanOrEqual(7 * 24 * 60 * 60);
+    expect(mockRevokedUpsert).toHaveBeenCalledTimes(1);
+    const arg = mockRevokedUpsert.mock.calls[0][0];
+    expect(typeof arg.where.jti).toBe("string");
+    const secondsLeft = (arg.create.expires_at.getTime() - Date.now()) / 1000;
+    expect(secondsLeft).toBeGreaterThan(0);
+    expect(secondsLeft).toBeLessThanOrEqual(7 * 24 * 60 * 60 + 5);
   });
 
   it("does not crash on invalid token", async () => {
     const { invalidateSession } = await import("./index");
     await expect(invalidateSession("garbage")).resolves.toBeUndefined();
-    expect(mockRedisSet).not.toHaveBeenCalled();
+    expect(mockRevokedUpsert).not.toHaveBeenCalled();
   });
 
   it("does not crash on expired token", async () => {
@@ -285,6 +280,6 @@ describe("invalidateSession", () => {
     const { invalidateSession } = await import("./index");
     await expect(invalidateSession(token)).resolves.toBeUndefined();
     // Expired token can't be verified -> no denylist entry (already expired anyway)
-    expect(mockRedisSet).not.toHaveBeenCalled();
+    expect(mockRevokedUpsert).not.toHaveBeenCalled();
   });
 });

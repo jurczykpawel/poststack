@@ -34,11 +34,11 @@ export async function middleware(request: NextRequest) {
     const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
     const { payload } = await jwtVerify(token, secret);
 
-    // Note: JWT denylist (Redis) is NOT checked here because middleware runs
-    // on edge runtime where ioredis is not available. The denylist is enforced
-    // in API route handlers via authenticate(). After logout, dashboard pages
-    // may render the HTML shell but all API calls will fail (401).
-    // This is acceptable for a self-hosted tool.
+    // Note: the JWT denylist (Postgres) is NOT checked here because middleware
+    // runs on the edge runtime where the database client is not available. The
+    // denylist is enforced in API route handlers via authenticate(). After
+    // logout, dashboard pages may render the HTML shell but all API calls will
+    // fail (401). This is acceptable for a self-hosted tool.
     void payload;
 
     return NextResponse.next();

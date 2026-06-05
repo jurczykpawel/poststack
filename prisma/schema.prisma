@@ -647,3 +647,13 @@ model RuleSendCount {
   @@id([rule_id, contact_id])
   @@map("rule_send_counts")
 }
+
+// Denylist of revoked session JWTs (logout). A jti present and not past
+// `expires_at` means the session was invalidated. Expired rows are pruned.
+model RevokedToken {
+  jti        String   @id
+  expires_at DateTime
+
+  @@index([expires_at])
+  @@map("revoked_tokens")
+}

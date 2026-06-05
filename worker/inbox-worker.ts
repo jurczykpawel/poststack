@@ -11,16 +11,26 @@
 
 import { run } from "graphile-worker";
 import { createTaskList } from "../src/lib/queue/tasks";
+import { pruneExpired } from "../src/lib/maintenance";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
 
 async function main() {
-  const taskList = createTaskList();
+  const taskList = {
+    ...createTaskList(),
+    // Cron-only maintenance task (not enqueued via addJob).
+    "prune-expired": async () => {
+      await pruneExpired();
+    },
+  };
+
   const runner = await run({
     connectionString,
     concurrency: 10,
     taskList,
+    // Hourly cleanup of expired ephemeral rows (denylist, cooldowns, idempotency).
+    crontab: "0 * * * * prune-expired",
   });
 
   console.log(
