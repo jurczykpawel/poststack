@@ -20,7 +20,16 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-vi.mock("@/generated/prisma/client", () => ({ Prisma: { PrismaClientKnownRequestError: class {} } }));
+vi.mock("@/generated/prisma/client", () => {
+  class FakePrismaError extends Error {
+    code: string;
+    constructor(code: string) {
+      super(code);
+      this.code = code;
+    }
+  }
+  return { Prisma: { PrismaClientKnownRequestError: FakePrismaError } };
+});
 
 const mockEvaluateRules = vi.fn().mockResolvedValue(null);
 vi.mock("@/lib/rules/executor", () => ({
@@ -28,6 +37,7 @@ vi.mock("@/lib/rules/executor", () => ({
 }));
 
 import { processIncomingMessage } from "./incoming-message-worker";
+import { Prisma } from "@/generated/prisma/client";
 
 const helpers = { logger: { info: vi.fn() } } as never;
 
@@ -55,5 +65,47 @@ describe("processIncomingMessage — messaging window anchor", () => {
     };
     expect(arg.create.last_inbound_at).toEqual(expected);
     expect(arg.update.last_inbound_at).toEqual(expected);
+  });
+});
+
+describe("processIncomingMessage — rule wiring", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockChannelFindFirst.mockResolvedValue({ id: "ch-1", workspace_id: "ws-1", platform: "instagram" });
+    mockContactChannelFindUnique.mockResolvedValue({ contact_id: "co-1" });
+    mockConversationUpsert.mockResolvedValue({ id: "cv-1", is_automation_paused: false });
+  });
+
+  const input = { pageId: "PG", senderId: "S", mid: "m9", text: "hi", timestamp: 1_770_000_000 } as never;
+
+  it("clears needs_manual_reply when a rule fires", async () => {
+    mockEvaluateRules.mockResolvedValueOnce("rule-1");
+    await processIncomingMessage(input, helpers);
+    expect(mockConversationUpdate).toHaveBeenCalledWith({
+      where: { id: "cv-1" },
+      data: { needs_manual_reply: false },
+    });
+  });
+
+  it("flags needs_manual_reply when no rule matches", async () => {
+    mockEvaluateRules.mockResolvedValueOnce(null);
+    await processIncomingMessage(input, helpers);
+    expect(mockConversationUpdate).toHaveBeenCalledWith({
+      where: { id: "cv-1" },
+      data: { needs_manual_reply: true },
+    });
+  });
+
+  it("does not evaluate rules when automation is paused", async () => {
+    mockConversationUpsert.mockResolvedValueOnce({ id: "cv-1", is_automation_paused: true });
+    await processIncomingMessage(input, helpers);
+    expect(mockEvaluateRules).not.toHaveBeenCalled();
+  });
+
+  it("skips a duplicate message (unique constraint) without evaluating rules", async () => {
+    const ErrCtor = Prisma.PrismaClientKnownRequestError as unknown as new (code: string) => Error;
+    mockMessageCreate.mockRejectedValueOnce(new ErrCtor("P2002"));
+    await processIncomingMessage(input, helpers);
+    expect(mockEvaluateRules).not.toHaveBeenCalled();
   });
 });
