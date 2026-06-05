@@ -129,6 +129,7 @@ See `.env.example`. Required:
 - **Every DB query scoped by workspace_id** — never query cross-workspace
 - **No secrets in commit messages** (AGPL project = public history)
 - **NEVER `npm install` on server** — always prebuild artifacts, deploy via Docker
+- **Schema: every status/state is an enum from day 1** — never a `String` with an enumerating comment, never a new boolean per state. Each `*_id` column is a Prisma `@relation` with an explicit `onDelete`.
 
 ## Phases
 

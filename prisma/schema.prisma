@@ -72,6 +72,7 @@ model Workspace {
   sequences     Sequence[]
   conversations Conversation[]
   broadcasts    Broadcast[]
+  pending_approvals PendingApproval[]
 
   @@map("workspaces")
 }
@@ -79,7 +80,7 @@ model Workspace {
 model WorkspaceMember {
   workspace_id String   @db.Uuid
   user_id      String   @db.Uuid
-  role         String   @default("owner") // owner | admin | agent
+  role         Role     @default(owner)
   created_at   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
@@ -88,6 +89,14 @@ model WorkspaceMember {
   @@id([workspace_id, user_id])
   @@index([user_id])
   @@map("workspace_members")
+}
+
+enum Role {
+  owner
+  admin
+  agent
+
+  @@map("workspace_member_role")
 }
 
 // ============================================================
@@ -121,6 +130,8 @@ model Channel {
   flow_triggers        FlowTrigger[]
   sequence_enrollments SequenceEnrollment[]
   comment_logs         CommentLog[]
+  pending_approvals    PendingApproval[]
+  broadcast_recipients BroadcastRecipient[]
 
   @@unique([workspace_id, platform_id])
   @@index([workspace_id])
@@ -178,6 +189,8 @@ model Contact {
   conversations        Conversation[]
   flow_sessions        FlowSession[]
   sequence_enrollments SequenceEnrollment[]
+  pending_approvals    PendingApproval[]
+  broadcast_recipients BroadcastRecipient[]
 
   @@index([workspace_id])
   @@index([workspace_id, last_interaction_at(sort: Desc)])
@@ -256,6 +269,7 @@ model Conversation {
   assignee      User?         @relation("AssignedTo", fields: [assigned_to], references: [id])
   messages      Message[]
   flow_sessions FlowSession[]
+  pending_approvals PendingApproval[]
 
   @@unique([channel_id, contact_id])
   @@index([workspace_id, last_message_at(sort: Desc)])
@@ -353,6 +367,7 @@ model AutoReplyRule {
   workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   channel   Channel?  @relation(fields: [channel_id], references: [id], onDelete: Cascade)
   messages  Message[]
+  pending_approvals PendingApproval[]
 
   @@index([workspace_id, is_active])
   @@index([channel_id, trigger_type, is_active])
@@ -360,21 +375,35 @@ model AutoReplyRule {
 }
 
 model PendingApproval {
-  id               String    @id @default(uuid()) @db.Uuid
-  workspace_id     String    @db.Uuid
-  rule_id          String    @db.Uuid
-  conversation_id  String    @db.Uuid
-  contact_id       String    @db.Uuid
-  channel_id       String    @db.Uuid
+  id               String         @id @default(uuid()) @db.Uuid
+  workspace_id     String         @db.Uuid
+  rule_id          String         @db.Uuid
+  conversation_id  String         @db.Uuid
+  contact_id       String         @db.Uuid
+  channel_id       String         @db.Uuid
   recipient_platform_id String
   proposed_content Json
-  status           String    @default("pending") // pending | approved | rejected
-  created_at       DateTime  @default(now())
+  status           ApprovalStatus @default(pending)
+  created_at       DateTime       @default(now())
   resolved_at      DateTime?
-  resolved_by      String?   @db.Uuid
+  resolved_by      String?        @db.Uuid
+
+  workspace    Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  rule         AutoReplyRule @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+  conversation Conversation  @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  contact      Contact       @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  channel      Channel       @relation(fields: [channel_id], references: [id], onDelete: Cascade)
 
   @@index([workspace_id, status])
   @@map("pending_approvals")
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+
+  @@map("approval_status")
 }
 
 enum TriggerType {
@@ -623,18 +652,29 @@ enum BroadcastStatus {
 }
 
 model BroadcastRecipient {
-  id            String    @id @default(uuid()) @db.Uuid
-  broadcast_id  String    @db.Uuid
-  contact_id    String    @db.Uuid
-  channel_id    String    @db.Uuid
-  status        String    @default("pending")
+  id            String                   @id @default(uuid()) @db.Uuid
+  broadcast_id  String                   @db.Uuid
+  contact_id    String                   @db.Uuid
+  channel_id    String                   @db.Uuid
+  status        BroadcastRecipientStatus @default(pending)
   sent_at       DateTime?
   error_message String?
 
   broadcast Broadcast @relation(fields: [broadcast_id], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  channel   Channel   @relation(fields: [channel_id], references: [id], onDelete: Cascade)
 
   @@index([broadcast_id, status])
   @@map("broadcast_recipients")
+}
+
+enum BroadcastRecipientStatus {
+  pending
+  sent
+  delivered
+  failed
+
+  @@map("broadcast_recipient_status")
 }
 
 // Idempotency store for outbound sends (message + comment). A key is claimed
