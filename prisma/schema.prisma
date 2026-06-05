@@ -59,6 +59,8 @@ model Workspace {
   id         String   @id @default(uuid()) @db.Uuid
   name       String
   slug       String   @unique
+  // Auto-delete messages older than this many days. null = keep forever (default, opt-in).
+  message_retention_days Int?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
