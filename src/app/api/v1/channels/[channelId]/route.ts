@@ -1,6 +1,7 @@
 import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
+import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -101,5 +102,14 @@ export async function DELETE(
     where: { id: channelId, workspace_id: auth.workspaceId },
   });
   if (result.count === 0) return ApiErrors.notFound();
+
+  await recordAudit({
+    workspaceId: auth.workspaceId,
+    actor: actorFromAuth(auth),
+    action: AuditAction.ChannelDisconnected,
+    targetType: "channel",
+    targetId: channelId,
+  });
+
   return noContent();
 }

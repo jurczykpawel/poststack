@@ -2,6 +2,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { drainChannel } from "@/lib/channels/drain";
+import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -21,5 +22,15 @@ export async function POST(
   if (!channel) return ApiErrors.notFound("Channel");
 
   const result = await drainChannel(channelId);
+
+  await recordAudit({
+    workspaceId: auth.workspaceId,
+    actor: actorFromAuth(auth),
+    action: AuditAction.ChannelDrained,
+    targetType: "channel",
+    targetId: channelId,
+    metadata: { enqueued: result.enqueued, expired: result.expired },
+  });
+
   return ok(result);
 }

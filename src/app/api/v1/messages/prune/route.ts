@@ -1,6 +1,7 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { pruneWorkspaceMessages } from "@/lib/retention";
+import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -22,5 +23,13 @@ export async function POST(request: Request) {
   }
 
   const result = await pruneWorkspaceMessages(auth.workspaceId, parsed.data.older_than_days);
+
+  await recordAudit({
+    workspaceId: auth.workspaceId,
+    actor: actorFromAuth(auth),
+    action: AuditAction.MessagesPruned,
+    metadata: { older_than_days: parsed.data.older_than_days, ...result },
+  });
+
   return ok(result);
 }

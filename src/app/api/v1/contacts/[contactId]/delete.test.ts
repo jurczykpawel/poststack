@@ -19,6 +19,13 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+const mockAudit = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/audit", () => ({
+  recordAudit: (...a: unknown[]) => mockAudit(...a),
+  actorFromAuth: () => ({ type: "user", id: "u-1" }),
+  AuditAction: { ChannelConnected: "channel.connected", ChannelDisconnected: "channel.disconnected", ChannelDrained: "channel.drained", ContactErased: "contact.erased", MessagesPruned: "messages.pruned" },
+}));
+
 import { DELETE } from "./route";
 
 const ctx = (contactId: string) => ({ params: Promise.resolve({ contactId }) });
@@ -56,5 +63,8 @@ describe("DELETE /api/v1/contacts/:id — GDPR erase", () => {
     });
     expect(mockContactDelete).toHaveBeenCalledWith({ where: { id: "co-1" } });
     expect(res.status).toBe(204);
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: "ws-1", action: "contact.erased", targetId: "co-1" }),
+    );
   });
 });

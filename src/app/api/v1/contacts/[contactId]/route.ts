@@ -1,6 +1,7 @@
 import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
+import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -114,6 +115,14 @@ export async function DELETE(
   // Cascade removes ContactChannel, Conversations + Messages, enrollments,
   // pending approvals and broadcast recipients (SCHEMA1 foreign keys).
   await prisma.contact.delete({ where: { id: contactId } });
+
+  await recordAudit({
+    workspaceId: auth.workspaceId,
+    actor: actorFromAuth(auth),
+    action: AuditAction.ContactErased,
+    targetType: "contact",
+    targetId: contactId,
+  });
 
   return noContent();
 }

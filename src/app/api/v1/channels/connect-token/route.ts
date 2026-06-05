@@ -1,6 +1,7 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { upsertChannels } from "@/lib/channels/upsert";
+import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -40,6 +41,14 @@ export async function POST(request: Request) {
 
   await upsertChannels(auth.workspaceId, parsed.data.platform, accounts, {
     connectionMode: "manual_token",
+  });
+
+  await recordAudit({
+    workspaceId: auth.workspaceId,
+    actor: actorFromAuth(auth),
+    action: AuditAction.ChannelConnected,
+    targetType: "channel",
+    metadata: { platform: parsed.data.platform, mode: "manual_token", connected: accounts.length },
   });
 
   return created({ connected: accounts.length });
