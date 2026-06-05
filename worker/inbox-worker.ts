@@ -37,6 +37,17 @@ async function main() {
     `[worker] ReplyStack worker started. Tasks: ${Object.keys(taskList).join(", ")}`
   );
 
+  // Dead-letter visibility: a job that exhausts all attempts is retained by
+  // graphile (queryable) — surface it in logs instead of failing silently.
+  runner.events.on("job:failed", ({ job, error }) => {
+    if (job.attempts >= job.max_attempts) {
+      const reason = job.last_error ?? (error instanceof Error ? error.message : String(error));
+      console.error(
+        `[worker] dead-letter: task=${job.task_identifier} job=${job.id} exhausted ${job.max_attempts} attempts: ${reason}`
+      );
+    }
+  });
+
   await runner.promise;
 }
 
