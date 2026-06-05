@@ -11,6 +11,7 @@ interface Channel {
   profile_picture: string | null;
   status: "active" | "needs_reauth" | "paused" | "disabled";
   is_active: boolean;
+  held_count: number;
   created_at: string;
 }
 
@@ -48,6 +49,20 @@ function ChannelsContent() {
     if (!confirm("Disconnect this channel? Auto-replies will stop for this account.")) return;
     await fetch(`/api/v1/channels/${id}`, { method: "DELETE" });
     setChannels((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  async function retryHeld(id: string) {
+    const res = await fetch(`/api/v1/channels/${id}/drain`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    const r = body.data ?? {};
+    alert(
+      r.skipped
+        ? `Channel not ready to drain (${r.skipped}). Reconnect it first.`
+        : `Re-queued ${r.enqueued ?? 0} held message(s); ${r.expired ?? 0} past the messaging window.`,
+    );
+    setChannels((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, held_count: r.skipped ? c.held_count : 0 } : c)),
+    );
   }
 
   return (
@@ -109,8 +124,15 @@ function ChannelsContent() {
                   {ch.status === "needs_reauth" && " · ⚠ Needs reconnect"}
                   {ch.status === "paused" && " · Paused"}
                   {ch.status === "disabled" && " · Disabled"}
+                  {ch.held_count > 0 && ` · ${ch.held_count} held`}
                 </div>
               </div>
+              {ch.held_count > 0 && (
+                <button onClick={() => retryHeld(ch.id)}
+                  style={{ padding: "0.25rem 0.75rem", background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.75rem", color: "var(--foreground)" }}>
+                  ↻ Retry held
+                </button>
+              )}
               <button onClick={() => disconnect(ch.id)}
                 style={{ padding: "0.25rem 0.75rem", background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
                 Disconnect

@@ -27,5 +27,15 @@ export async function GET(request: Request) {
   });
 
   // `is_active` kept as a computed alias for backward compatibility.
-  return ok(channels.map((c) => ({ ...c, is_active: c.status === "active" })));
+  // `held_count` surfaces outbound parked while the channel was down (REL5).
+  const withHeld = await Promise.all(
+    channels.map(async (c) => ({
+      ...c,
+      is_active: c.status === "active",
+      held_count: await prisma.message.count({
+        where: { status: "held", conversation: { channel_id: c.id } },
+      }),
+    })),
+  );
+  return ok(withHeld);
 }

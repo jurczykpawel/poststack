@@ -68,6 +68,7 @@ export const openApiSpec = {
           last_error: { type: "string", nullable: true },
           last_health_at: { type: "string", format: "date-time", nullable: true },
           is_active: { type: "boolean", description: "Computed alias for status === 'active'" },
+          held_count: { type: "integer", description: "Outbound messages parked (held) while the channel was down, awaiting drain" },
           created_at: { type: "string", format: "date-time" },
         },
       },
