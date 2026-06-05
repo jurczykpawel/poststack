@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   }
 
   const channels = await prisma.channel.findMany({
-    where: { is_active: true },
+    where: { status: "active" },
     select: { id: true, platform: true, token_encrypted: true },
   });
 

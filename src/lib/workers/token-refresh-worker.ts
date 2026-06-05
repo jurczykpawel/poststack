@@ -3,6 +3,8 @@ import type { TokenRefreshJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
+import { TokenInvalidError } from "@/lib/platforms/errors";
+import { markChannelNeedsReauth, markChannelHealthy } from "@/lib/channels/health";
 
 /**
  * Refresh an expiring platform access token.
@@ -10,7 +12,7 @@ import { getProvider } from "@/lib/platforms/registry";
  * 1. Load channel
  * 2. Decrypt current tokens
  * 3. Call platform.refreshToken()
- * 4. Re-encrypt and save
+ * 4. Re-encrypt and save (or flag the channel for re-auth if the token is dead)
  */
 export async function processTokenRefresh(
   payload: TokenRefreshJob,
@@ -20,11 +22,11 @@ export async function processTokenRefresh(
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { id: true, platform: true, token_encrypted: true, is_active: true },
+    select: { id: true, platform: true, token_encrypted: true, status: true },
   });
 
-  if (!channel || !channel.is_active) {
-    helpers.logger.info(`Channel ${channelId} not found or inactive, skipping`);
+  if (!channel || channel.status === "disabled") {
+    helpers.logger.info(`Channel ${channelId} not found or disabled, skipping`);
     return;
   }
 
@@ -35,12 +37,25 @@ export async function processTokenRefresh(
   }
 
   const currentTokens = decryptTokens(channel.token_encrypted);
-  const refreshedTokens = await provider.refreshToken(currentTokens);
+
+  let refreshedTokens;
+  try {
+    refreshedTokens = await provider.refreshToken(currentTokens);
+  } catch (err) {
+    if (err instanceof TokenInvalidError) {
+      // Dead token — flag for re-auth and stop. Retrying won't help.
+      await markChannelNeedsReauth(channelId, err.message);
+      helpers.logger.info(`Channel ${channelId} token invalid, flagged needs_reauth`);
+      return;
+    }
+    throw err; // transient — allow retry
+  }
 
   await prisma.channel.update({
     where: { id: channelId },
     data: { token_encrypted: encryptTokens(refreshedTokens) },
   });
+  await markChannelHealthy(channelId);
 
   helpers.logger.info(`Token refreshed for channel=${channelId}`);
 }

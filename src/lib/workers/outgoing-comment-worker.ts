@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { isClaimed, claim } from "@/lib/idempotency";
 import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
+import { TokenInvalidError } from "@/lib/platforms/errors";
+import { markChannelNeedsReauth } from "@/lib/channels/health";
 
 /**
  * Post a public reply to a comment via the platform API.
@@ -23,18 +25,33 @@ export async function processOutgoingComment(
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { id: true, platform: true, token_encrypted: true, is_active: true },
+    select: { id: true, platform: true, token_encrypted: true, status: true },
   });
 
-  if (!channel || !channel.is_active) {
-    throw new Error(`Channel ${channelId} not found or inactive`);
+  if (!channel || channel.status === "disabled") {
+    throw new Error(`Channel ${channelId} not found or disabled`);
+  }
+
+  // Breaker open: token is known-bad, don't attempt.
+  if (channel.status === "needs_reauth") {
+    helpers.logger.info(`Channel ${channelId} needs_reauth, not replying to comment`);
+    return;
   }
 
   const tokens = decryptTokens(channel.token_encrypted);
   const provider = getProvider(channel.platform);
 
   // Send first, claim idempotency after
-  await provider.sendComment(tokens, commentId, text);
+  try {
+    await provider.sendComment(tokens, commentId, text);
+  } catch (e) {
+    if (e instanceof TokenInvalidError) {
+      await markChannelNeedsReauth(channelId, e.message);
+      helpers.logger.info(`Channel ${channelId} token invalid on comment, flagged needs_reauth`);
+      return;
+    }
+    throw e; // transient — allow retry
+  }
 
   // Claim idempotency key AFTER successful send
   if (idempotencyKey) {

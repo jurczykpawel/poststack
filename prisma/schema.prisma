@@ -106,7 +106,9 @@ model Channel {
   token_encrypted String
   // Per-channel random string used for Meta hub.verify
   webhook_secret  String
-  is_active       Boolean  @default(true)
+  status          ChannelStatus @default(active)
+  last_error      String?
+  last_health_at  DateTime?
   last_comment_cursor String?
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -121,7 +123,17 @@ model Channel {
 
   @@unique([workspace_id, platform_id])
   @@index([workspace_id])
+  @@index([status])
   @@map("channels")
+}
+
+enum ChannelStatus {
+  active // working normally
+  needs_reauth // token invalid/expired — set by health detection, blocks sending
+  paused // manually paused (reserved)
+  disabled // manually disconnected
+
+  @@map("channel_status")
 }
 
 enum Platform {

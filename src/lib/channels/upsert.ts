@@ -39,14 +39,15 @@ export async function upsertChannels(
         profile_picture: account.profilePicture ?? null,
         token_encrypted: encryptedTokens,
         webhook_secret: randomBytes(32).toString("hex"),
-        is_active: true,
+        status: "active",
       },
       update: {
         display_name: account.displayName,
         username: account.username ?? null,
         profile_picture: account.profilePicture ?? null,
         token_encrypted: encryptedTokens,
-        is_active: true,
+        status: "active",
+        last_error: null,
       },
     });
   }

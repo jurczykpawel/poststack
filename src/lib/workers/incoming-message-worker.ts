@@ -29,7 +29,7 @@ export async function processIncomingMessage(
 
   // 1. Find active channel by platform_id
   const channel = await prisma.channel.findFirst({
-    where: { platform_id: pageId, is_active: true },
+    where: { platform_id: pageId, status: { not: "disabled" } },
     select: { id: true, workspace_id: true, platform: true },
   });
 

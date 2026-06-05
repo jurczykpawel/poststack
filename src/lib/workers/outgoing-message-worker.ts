@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { isClaimed, claim } from "@/lib/idempotency";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
+import { TokenInvalidError } from "@/lib/platforms/errors";
+import { markChannelNeedsReauth } from "@/lib/channels/health";
 
 /**
  * Send an outbound message via the platform API.
@@ -18,6 +20,17 @@ export async function processOutgoingMessage(
   const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, idempotencyKey } =
     payload;
 
+  const recordFailed = () =>
+    prisma.message.create({
+      data: {
+        conversation_id: conversationId,
+        direction: "outbound",
+        text: content.text ?? null,
+        status: "failed",
+        sent_by_rule_id: sentByRuleId ?? null,
+      },
+    });
+
   // 1. Check idempotency (already successfully sent?)
   if (idempotencyKey && (await isClaimed(idempotencyKey))) {
     helpers.logger.info(`Idempotency key ${idempotencyKey} already claimed, skipping duplicate send`);
@@ -27,16 +40,19 @@ export async function processOutgoingMessage(
   // 2. Load channel
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: {
-      id: true,
-      platform: true,
-      token_encrypted: true,
-      is_active: true,
-    },
+    select: { id: true, platform: true, token_encrypted: true, status: true },
   });
 
-  if (!channel || !channel.is_active) {
-    throw new Error(`Channel ${channelId} not found or inactive`);
+  if (!channel || channel.status === "disabled") {
+    throw new Error(`Channel ${channelId} not found or disabled`);
+  }
+
+  // Breaker open: token is known-bad, don't waste an API call that will fail.
+  // The message is recorded failed (REL5 will park it as `held` and drain).
+  if (channel.status === "needs_reauth") {
+    await recordFailed();
+    helpers.logger.info(`Channel ${channelId} needs_reauth, not sending`);
+    return;
   }
 
   let tokens = decryptTokens(channel.token_encrypted);
@@ -66,17 +82,14 @@ export async function processOutgoingMessage(
     const sent = await provider.sendMessage(tokens, recipientPlatformId, content);
     platformMessageId = sent.platformMessageId;
   } catch (e) {
-    // Insert failed message record so it's visible in the inbox
-    await prisma.message.create({
-      data: {
-        conversation_id: conversationId,
-        direction: "outbound",
-        text: content.text ?? null,
-        status: "failed",
-        sent_by_rule_id: sentByRuleId ?? null,
-      },
-    });
-    // Do NOT claim idempotency key -- allow retry
+    await recordFailed();
+    if (e instanceof TokenInvalidError) {
+      // Dead token — open the breaker and stop. Do NOT retry (it can't succeed).
+      await markChannelNeedsReauth(channelId, e.message);
+      helpers.logger.info(`Channel ${channelId} token invalid on send, flagged needs_reauth`);
+      return;
+    }
+    // Transient — do NOT claim idempotency key, allow retry.
     throw e;
   }
 

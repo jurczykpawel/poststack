@@ -9,6 +9,7 @@ interface Channel {
   display_name: string | null;
   username: string | null;
   profile_picture: string | null;
+  status: "active" | "needs_reauth" | "paused" | "disabled";
   is_active: boolean;
   created_at: string;
 }
@@ -105,7 +106,9 @@ function ChannelsContent() {
                 <div style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
                   {PLATFORM_LABELS[ch.platform] ?? ch.platform}
                   {ch.username ? ` · @${ch.username}` : ""}
-                  {!ch.is_active && " · Inactive"}
+                  {ch.status === "needs_reauth" && " · ⚠ Needs reconnect"}
+                  {ch.status === "paused" && " · Paused"}
+                  {ch.status === "disabled" && " · Disabled"}
                 </div>
               </div>
               <button onClick={() => disconnect(ch.id)}

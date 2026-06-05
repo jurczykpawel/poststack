@@ -19,10 +19,13 @@ export async function GET(request: Request) {
       display_name: true,
       username: true,
       profile_picture: true,
-      is_active: true,
+      status: true,
+      last_error: true,
+      last_health_at: true,
       created_at: true,
     },
   });
 
-  return ok(channels);
+  // `is_active` kept as a computed alias for backward compatibility.
+  return ok(channels.map((c) => ({ ...c, is_active: c.status === "active" })));
 }
