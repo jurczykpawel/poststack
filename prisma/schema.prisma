@@ -657,3 +657,14 @@ model RevokedToken {
   @@index([expires_at])
   @@map("revoked_tokens")
 }
+
+// Fixed-window rate limit counter per key (replaces Redis INCR + EXPIRE).
+// Stale windows are pruned by the prune-expired cron.
+model RateLimitCounter {
+  key          String   @id
+  count        Int
+  window_start DateTime
+
+  @@index([window_start])
+  @@map("rate_limit_counters")
+}

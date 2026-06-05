@@ -1,4 +1,4 @@
-import { redis } from "@/lib/redis";
+import { prisma } from "@/lib/prisma";
 
 interface RateLimitResult {
   allowed: boolean;
@@ -7,27 +7,36 @@ interface RateLimitResult {
 }
 
 /**
- * Rate limiter using Redis INCR + EXPIRE.
- * EXPIRE is always set (idempotent) to avoid orphaned keys if crash occurs.
+ * Fixed-window rate limiter, Postgres-backed (replaces Redis INCR + EXPIRE).
+ * One atomic `INSERT ... ON CONFLICT` per request increments the window counter,
+ * resetting it when the previous window has elapsed. The atomicity (no lost
+ * increments under concurrency) lives in the row lock on the conflict.
  */
 export async function rateLimit(
   key: string,
   limit: number,
   windowSeconds: number
 ): Promise<RateLimitResult> {
-  // Atomic pipeline: INCR + EXPIRE in one roundtrip, no crash window
-  const pipeline = redis.pipeline();
-  pipeline.incr(key);
-  pipeline.expire(key, windowSeconds);
-  const results = await pipeline.exec();
+  const rows = await prisma.$queryRaw<Array<{ count: number; window_start: Date }>>`
+    INSERT INTO rate_limit_counters (key, count, window_start)
+    VALUES (${key}, 1, now())
+    ON CONFLICT (key) DO UPDATE
+      SET count = CASE
+            WHEN rate_limit_counters.window_start < now() - (${windowSeconds} * interval '1 second')
+            THEN 1 ELSE rate_limit_counters.count + 1 END,
+          window_start = CASE
+            WHEN rate_limit_counters.window_start < now() - (${windowSeconds} * interval '1 second')
+            THEN now() ELSE rate_limit_counters.window_start END
+    RETURNING count, window_start`;
 
-  const count = (results?.[0]?.[1] as number) ?? 1;
-  const ttl = await redis.ttl(key);
+  const { count, window_start } = rows[0];
+  const windowEndMs = window_start.getTime() + windowSeconds * 1000;
+  const retryAfter = count > limit ? Math.max(1, Math.ceil((windowEndMs - Date.now()) / 1000)) : 0;
 
   return {
     allowed: count <= limit,
     remaining: Math.max(0, limit - count),
-    retryAfter: count > limit ? Math.max(ttl, 1) : 0,
+    retryAfter,
   };
 }
 
