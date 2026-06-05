@@ -117,6 +117,7 @@ See `.env.example`. Required:
 | `META_APP_ID` | Facebook App ID |
 | `META_APP_SECRET` | Facebook App Secret |
 | `NEXT_PUBLIC_APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
+| `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
 
 ## Important Rules
 
