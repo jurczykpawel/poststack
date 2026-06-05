@@ -7,6 +7,7 @@ import {
   type SentMessage,
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
+import { assertMetaOk } from "./errors";
 
 const GRAPH_API = GRAPH_API_BASE;
 
@@ -160,10 +161,7 @@ export class FacebookProvider extends SocialProvider {
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Facebook send message failed: ${err}`);
-    }
+    await assertMetaOk(res, "Facebook send message");
 
     const data = (await res.json()) as { message_id: string };
     return { platformMessageId: data.message_id };
@@ -185,10 +183,7 @@ export class FacebookProvider extends SocialProvider {
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Facebook send comment failed: ${err}`);
-    }
+    await assertMetaOk(res, "Facebook send comment");
   }
 
   override async sendPrivateReply(
@@ -208,10 +203,7 @@ export class FacebookProvider extends SocialProvider {
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Facebook private reply failed: ${err}`);
-    }
+    await assertMetaOk(res, "Facebook private reply");
   }
 
   /**

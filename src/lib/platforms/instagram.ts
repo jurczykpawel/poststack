@@ -7,6 +7,7 @@ import {
   type SentMessage,
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
+import { assertMetaOk } from "./errors";
 
 const GRAPH_API = GRAPH_API_BASE;
 
@@ -143,10 +144,7 @@ export class InstagramProvider extends SocialProvider {
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) }
     );
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Instagram token refresh failed: ${body}`);
-    }
+    await assertMetaOk(res, "Instagram token refresh");
     const data = (await res.json()) as LongLivedToken;
     return {
       ...tokens,
@@ -178,10 +176,7 @@ export class InstagramProvider extends SocialProvider {
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Instagram send message failed: ${err}`);
-    }
+    await assertMetaOk(res, "Instagram send message");
 
     const data = (await res.json()) as { message_id: string };
     return { platformMessageId: data.message_id };
@@ -203,10 +198,7 @@ export class InstagramProvider extends SocialProvider {
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Instagram send comment failed: ${err}`);
-    }
+    await assertMetaOk(res, "Instagram send comment");
   }
 
   override async sendPrivateReply(
@@ -226,10 +218,7 @@ export class InstagramProvider extends SocialProvider {
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Instagram private reply failed: ${err}`);
-    }
+    await assertMetaOk(res, "Instagram private reply");
   }
 
   requiresTokenRefresh(): boolean {
