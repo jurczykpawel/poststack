@@ -10,6 +10,7 @@ interface Channel {
   username: string | null;
   profile_picture: string | null;
   status: "active" | "needs_reauth" | "paused" | "disabled";
+  connection_mode: "oauth" | "manual_token";
   is_active: boolean;
   held_count: number;
   created_at: string;
@@ -33,6 +34,11 @@ function ChannelsContent() {
   const searchParams = useSearchParams();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showTokenForm, setShowTokenForm] = useState(false);
+  const [tokenPlatform, setTokenPlatform] = useState<"facebook" | "instagram">("facebook");
+  const [pastedToken, setPastedToken] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const connected = searchParams.get("connected");
   const count = searchParams.get("count");
@@ -49,6 +55,29 @@ function ChannelsContent() {
     if (!confirm("Disconnect this channel? Auto-replies will stop for this account.")) return;
     await fetch(`/api/v1/channels/${id}`, { method: "DELETE" });
     setChannels((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  async function connectWithToken() {
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      const res = await fetch("/api/v1/channels/connect-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: tokenPlatform, token: pastedToken.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTokenError(body.error?.message ?? "Could not connect with this token.");
+        return;
+      }
+      setPastedToken("");
+      setShowTokenForm(false);
+      const list = await fetch("/api/v1/channels").then((r) => r.json());
+      setChannels(list.data ?? []);
+    } finally {
+      setTokenBusy(false);
+    }
   }
 
   async function retryHeld(id: string) {
@@ -95,7 +124,37 @@ function ChannelsContent() {
           style={{ padding: "0.5rem 1rem", background: "linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)", color: "#fff", borderRadius: "var(--radius)", textDecoration: "none", fontSize: "0.875rem", fontWeight: 600 }}>
           + Instagram
         </a>
+        <button onClick={() => setShowTokenForm((v) => !v)}
+          style={{ padding: "0.5rem 1rem", background: "none", border: "1px solid var(--border)", color: "var(--foreground)", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.875rem", fontWeight: 600 }}>
+          Paste token
+        </button>
       </div>
+
+      {showTokenForm && (
+        <div style={{ marginBottom: "2rem", padding: "1rem", background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
+          <p style={{ fontSize: "0.8125rem", color: "var(--muted-foreground)", marginBottom: "0.75rem" }}>
+            Connect with a long-lived / System User token (no 60-day refresh cycle). The token must
+            have the messaging permissions for your Page or Instagram account.
+          </p>
+          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <select value={tokenPlatform} onChange={(e) => setTokenPlatform(e.target.value as "facebook" | "instagram")}
+              style={{ padding: "0.4rem 0.5rem", background: "var(--background)", border: "1px solid var(--border)", borderRadius: "var(--radius)", fontSize: "0.8125rem", color: "var(--foreground)" }}>
+              <option value="facebook">Facebook</option>
+              <option value="instagram">Instagram</option>
+            </select>
+          </div>
+          <textarea value={pastedToken} onChange={(e) => setPastedToken(e.target.value)}
+            placeholder="Paste the access token" rows={3}
+            style={{ width: "100%", padding: "0.5rem", background: "var(--background)", border: "1px solid var(--border)", borderRadius: "var(--radius)", fontSize: "0.8125rem", fontFamily: "monospace", color: "var(--foreground)", boxSizing: "border-box" }} />
+          {tokenError && (
+            <p style={{ color: "var(--destructive)", fontSize: "0.8125rem", margin: "0.5rem 0 0" }}>{tokenError}</p>
+          )}
+          <button onClick={connectWithToken} disabled={tokenBusy || pastedToken.trim().length < 20}
+            style={{ marginTop: "0.75rem", padding: "0.4rem 1rem", background: "var(--primary)", color: "var(--primary-foreground)", border: "none", borderRadius: "var(--radius)", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, opacity: tokenBusy || pastedToken.trim().length < 20 ? 0.5 : 1 }}>
+            {tokenBusy ? "Connecting…" : "Connect"}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <p style={{ color: "var(--muted-foreground)", fontSize: "0.875rem" }}>Loading...</p>
@@ -124,6 +183,7 @@ function ChannelsContent() {
                   {ch.status === "needs_reauth" && " · ⚠ Needs reconnect"}
                   {ch.status === "paused" && " · Paused"}
                   {ch.status === "disabled" && " · Disabled"}
+                  {ch.connection_mode === "manual_token" && " · 🔑 Long-lived token"}
                   {ch.held_count > 0 && ` · ${ch.held_count} held`}
                 </div>
               </div>

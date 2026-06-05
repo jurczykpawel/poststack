@@ -20,6 +20,7 @@ export async function GET(request: Request) {
       username: true,
       profile_picture: true,
       status: true,
+      connection_mode: true,
       last_error: true,
       last_health_at: true,
       created_at: true,

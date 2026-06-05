@@ -56,4 +56,20 @@ describe("upsertChannels — REL5 auto-drain on reconnect", () => {
 
     expect(mockAddJob).not.toHaveBeenCalled();
   });
+
+  it("defaults the connection mode to oauth", async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+    await upsertChannels("ws-1", "facebook" as never, [account]);
+    const arg = mockUpsert.mock.calls[0][0];
+    expect(arg.create.connection_mode).toBe("oauth");
+    expect(arg.update.connection_mode).toBe("oauth");
+  });
+
+  it("writes the requested connection mode (manual_token)", async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+    await upsertChannels("ws-1", "facebook" as never, [account], { connectionMode: "manual_token" });
+    const arg = mockUpsert.mock.calls[0][0];
+    expect(arg.create.connection_mode).toBe("manual_token");
+    expect(arg.update.connection_mode).toBe("manual_token");
+  });
 });

@@ -107,6 +107,7 @@ model Channel {
   // Per-channel random string used for Meta hub.verify
   webhook_secret  String
   status          ChannelStatus @default(active)
+  connection_mode ChannelConnectionMode @default(oauth)
   last_error      String?
   last_health_at  DateTime?
   last_comment_cursor String?
@@ -134,6 +135,13 @@ enum ChannelStatus {
   disabled // manually disconnected
 
   @@map("channel_status")
+}
+
+enum ChannelConnectionMode {
+  oauth // connected via Facebook Login OAuth — token may expire and is auto-refreshed
+  manual_token // a pasted long-lived / System User token — refresh machinery leaves it alone (REL4)
+
+  @@map("channel_connection_mode")
 }
 
 enum Platform {

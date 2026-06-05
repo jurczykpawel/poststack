@@ -73,10 +73,23 @@ export class FacebookProvider extends SocialProvider {
     const userToken = (await tokenRes.json()) as FbUserToken;
 
     // 2. Fetch pages the user manages
+    return this.fetchPageAccounts(userToken.access_token);
+  }
+
+  /**
+   * Connect a channel with a pasted long-lived / System User token (REL4).
+   * The token itself resolves the managed Pages; page tokens are non-expiring.
+   */
+  override async connectWithToken(token: string): Promise<ConnectedAccount[]> {
+    return this.fetchPageAccounts(token);
+  }
+
+  /** Resolve the Pages a user/System User token manages → connected accounts. */
+  private async fetchPageAccounts(userToken: string): Promise<ConnectedAccount[]> {
     const pagesRes = await fetch(
       `${GRAPH_API}/me/accounts?` +
         new URLSearchParams({
-          access_token: userToken.access_token,
+          access_token: userToken,
           fields: "id,name,access_token,picture",
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) }

@@ -95,10 +95,27 @@ export class InstagramProvider extends SocialProvider {
     const expiresAt = Math.floor(Date.now() / 1000) + llToken.expires_in;
 
     // 3. Fetch FB pages with linked Instagram business accounts
+    return this.fetchIgAccounts(llToken.access_token, expiresAt);
+  }
+
+  /**
+   * Connect a channel with a pasted long-lived / System User token (REL4).
+   * The token resolves the linked IG business accounts; tokens are stored
+   * without an expiry so the refresh worker skips them.
+   */
+  override async connectWithToken(token: string): Promise<ConnectedAccount[]> {
+    return this.fetchIgAccounts(token);
+  }
+
+  /** Resolve IG business accounts behind a user/System User token's Pages. */
+  private async fetchIgAccounts(
+    userToken: string,
+    expiresAt?: number,
+  ): Promise<ConnectedAccount[]> {
     const pagesRes = await fetch(
       `${GRAPH_API}/me/accounts?` +
         new URLSearchParams({
-          access_token: llToken.access_token,
+          access_token: userToken,
           fields: "id,name,access_token,instagram_business_account{id,name,username,profile_picture_url}",
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) }
@@ -122,9 +139,10 @@ export class InstagramProvider extends SocialProvider {
         tokens: {
           // Store FB page token — needed to send messages via Instagram Messaging API
           access_token: page.access_token,
-          user_access_token: llToken.access_token,
-          expires_at: expiresAt,
+          user_access_token: userToken,
           page_id: page.id,
+          // expires_at only set for OAuth (60-day) tokens; omitted for manual tokens.
+          ...(expiresAt !== undefined ? { expires_at: expiresAt } : {}),
         },
       });
     }

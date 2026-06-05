@@ -21,7 +21,8 @@ export async function GET(request: Request) {
   }
 
   const channels = await prisma.channel.findMany({
-    where: { status: "active" },
+    // manual_token channels carry a long-lived token and are never refreshed (REL4).
+    where: { status: "active", connection_mode: "oauth" },
     select: { id: true, platform: true, token_encrypted: true },
   });
 

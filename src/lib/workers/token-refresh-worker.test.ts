@@ -66,4 +66,10 @@ describe("processTokenRefresh — token health detection", () => {
     await processTokenRefresh({ channelId: "ch-1" }, helpers);
     expect(mockRefreshToken).not.toHaveBeenCalled();
   });
+
+  it("skips manual long-lived token channels (REL4 — no refresh cycle)", async () => {
+    mockFindUnique.mockResolvedValueOnce({ ...activeChannel, connection_mode: "manual_token" });
+    await processTokenRefresh({ channelId: "ch-1" }, helpers);
+    expect(mockRefreshToken).not.toHaveBeenCalled();
+  });
 });

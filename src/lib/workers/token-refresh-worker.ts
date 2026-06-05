@@ -22,11 +22,17 @@ export async function processTokenRefresh(
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { id: true, platform: true, token_encrypted: true, status: true },
+    select: { id: true, platform: true, token_encrypted: true, status: true, connection_mode: true },
   });
 
   if (!channel || channel.status === "disabled") {
     helpers.logger.info(`Channel ${channelId} not found or disabled, skipping`);
+    return;
+  }
+
+  // Manual long-lived / System User tokens are not on a refresh cycle (REL4).
+  if (channel.connection_mode === "manual_token") {
+    helpers.logger.info(`Channel ${channelId} uses a manual long-lived token, skipping refresh`);
     return;
   }
 
