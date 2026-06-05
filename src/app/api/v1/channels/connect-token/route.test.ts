@@ -10,6 +10,13 @@ vi.mock("@/lib/platforms/registry", () => ({ getProvider: (...a: unknown[]) => m
 const mockUpsert = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/channels/upsert", () => ({ upsertChannels: (...a: unknown[]) => mockUpsert(...a) }));
 
+const mockAudit = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/audit", () => ({
+  recordAudit: (...a: unknown[]) => mockAudit(...a),
+  actorFromAuth: () => ({ type: "user", id: "u-1" }),
+  AuditAction: { ChannelConnected: "channel.connected", ChannelDisconnected: "channel.disconnected", ChannelDrained: "channel.drained", ContactErased: "contact.erased", MessagesPruned: "messages.pruned" },
+}));
+
 import { POST } from "./route";
 
 function post(body: unknown) {
@@ -48,6 +55,9 @@ describe("POST /api/v1/channels/connect-token — manual token (REL4)", () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.data).toEqual({ connected: 1 });
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: "ws-1", action: "channel.connected" }),
+    );
   });
 
   it("returns 400 when the token resolves no accounts", async () => {

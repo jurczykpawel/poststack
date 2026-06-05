@@ -13,6 +13,13 @@ vi.mock("@/lib/prisma", () => ({
 const mockDrain = vi.fn();
 vi.mock("@/lib/channels/drain", () => ({ drainChannel: (...a: unknown[]) => mockDrain(...a) }));
 
+const mockAudit = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/audit", () => ({
+  recordAudit: (...a: unknown[]) => mockAudit(...a),
+  actorFromAuth: () => ({ type: "user", id: "u-1" }),
+  AuditAction: { ChannelConnected: "channel.connected", ChannelDisconnected: "channel.disconnected", ChannelDrained: "channel.drained", ContactErased: "contact.erased", MessagesPruned: "messages.pruned" },
+}));
+
 import { POST } from "./route";
 
 function ctx(channelId: string) {
@@ -48,5 +55,8 @@ describe("POST /api/v1/channels/:channelId/drain — force drain", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual({ enqueued: 2, expired: 1 });
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: "ws-1", action: "channel.drained", targetId: "ch-1" }),
+    );
   });
 });

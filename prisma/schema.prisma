@@ -75,8 +75,36 @@ model Workspace {
   conversations Conversation[]
   broadcasts    Broadcast[]
   pending_approvals PendingApproval[]
+  audit_logs    AuditLog[]
 
   @@map("workspaces")
+}
+
+/// Append-only record of significant actions (who did what, when). Written via
+/// recordAudit(); never updated or deleted from the app (AUDIT1).
+model AuditLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspace_id String    @db.Uuid
+  actor_type   ActorType
+  actor_id     String?
+  action       String
+  target_type  String?
+  target_id    String?
+  metadata     Json?
+  created_at   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id, created_at(sort: Desc)])
+  @@map("audit_logs")
+}
+
+enum ActorType {
+  user
+  api_key
+  system
+
+  @@map("audit_actor_type")
 }
 
 model WorkspaceMember {
