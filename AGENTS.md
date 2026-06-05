@@ -7,6 +7,18 @@ AGPL-3.0. One-command startup via Docker Compose.
 
 Alternative to ManyChat / ZernFlow, without vendor lock-in.
 
+## Task Tracking (private — never commit)
+
+All planned work lives as **one task per file** under `priv/tasks/*.md`. This directory is **gitignored** — it must never land in the AGPL public history.
+
+**Always use this system. Do not invent ad-hoc TODO lists.**
+
+- **Read `priv/tasks/INDEX.md` first** — it's the board (every task with status + priority).
+- **One task = one file.** Never lump multiple tasks into a single file. New task → new `priv/tasks/<ID>-<slug>.md` with frontmatter: `id, title, status, priority, area, epic, depends_on, created, tags`.
+- **Status:** `queued` | `active` | `parked` | `done`. **Priority:** 1–100 (higher = pilniejsze).
+- Starting work → set `status: active`. Finishing → set `status: done` and update `INDEX.md`.
+- Found a stray TODO/note (incl. `TODO.md`)? Migrate it into a `priv/tasks/` file; don't leave parallel backlogs.
+
 ## Stack
 
 | Layer | Tech |
@@ -75,11 +87,7 @@ docker/
 
 ## Reference Implementations
 
-- **Flow engine:** `repos/zernflow/lib/flow-engine/engine.ts` — port to Prisma for v2
-- **Trigger matching:** `repos/zernflow/lib/flow-engine/trigger-matcher.ts` — direct reference for `rule-engine/matcher.ts`
-- **Worker pattern:** `projects/reelstack/apps/web/worker/reel-worker.ts` — BullMQ entrypoint
-- **Platform adapter:** `repos/zernflow/lib/flow-engine/platform-adapter.ts`
-- **n8n reference:** `n8n.internal.example` workflows (IDs: REDACTED, REDACTED, REDACTED, REDACTED, REDACTED, REDACTED, REDACTED)
+Design was informed by internal reference implementations kept in a private workspace (not part of this public repo): a flow engine, a trigger matcher, a platform adapter, and a set of self-hosted n8n reference workflows. The relevant interfaces are documented inline throughout this file.
 
 ## Development
 

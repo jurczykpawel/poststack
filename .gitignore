@@ -59,3 +59,6 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Private — never commit (AGPL public history stays clean)
+priv/
