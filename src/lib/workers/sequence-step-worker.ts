@@ -1,7 +1,7 @@
-import type { Job } from "bullmq";
+import type { JobHelpers } from "graphile-worker";
 import type { SequenceStepJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
-import { outgoingMessagesQueue, sequenceStepsQueue } from "@/lib/queue/client";
+import { addJob } from "@/lib/queue/client";
 
 interface SequenceStep {
   type: "message" | "delay";
@@ -19,9 +19,10 @@ interface SequenceStep {
  * 5. If no more steps: mark enrollment as completed
  */
 export async function processSequenceStep(
-  job: Job<SequenceStepJob>
+  payload: SequenceStepJob,
+  helpers: JobHelpers,
 ): Promise<void> {
-  const { enrollmentId } = job.data;
+  const { enrollmentId } = payload;
 
   const enrollment = await prisma.sequenceEnrollment.findUnique({
     where: { id: enrollmentId },
@@ -46,7 +47,7 @@ export async function processSequenceStep(
   });
 
   if (!enrollment || enrollment.status !== "active") {
-    await job.log(`Enrollment ${enrollmentId} not found or not active, skipping`);
+    helpers.logger.info(`Enrollment ${enrollmentId} not found or not active, skipping`);
     return;
   }
 
@@ -82,7 +83,7 @@ export async function processSequenceStep(
       data: { current_step_index: nextStepIndex, next_step_at: new Date(Date.now() + delayMs) },
     });
 
-    await sequenceStepsQueue.add("sequence-step", { enrollmentId }, { delay: delayMs });
+    await addJob("sequence-step", { enrollmentId }, { delayMs });
     return;
   }
 
@@ -97,7 +98,7 @@ export async function processSequenceStep(
     );
 
     if (conversation && contactChannel) {
-      await outgoingMessagesQueue.add("outgoing-message", {
+      await addJob("outgoing-message", {
         channelId: enrollment.channel_id,
         conversationId: conversation.id,
         contactId: enrollment.contact_id,
@@ -105,7 +106,7 @@ export async function processSequenceStep(
         content: { text: step.content },
       });
     } else {
-      await job.log(`No conversation/contactChannel for enrollment ${enrollmentId}, skipping`);
+      helpers.logger.info(`No conversation/contactChannel for enrollment ${enrollmentId}, skipping`);
     }
   }
 
@@ -125,6 +126,5 @@ export async function processSequenceStep(
     data: { current_step_index: nextStepIndex, next_step_at: new Date() },
   });
 
-  await sequenceStepsQueue.add("sequence-step", { enrollmentId }, { delay: 0 }
-  );
+  await addJob("sequence-step", { enrollmentId });
 }

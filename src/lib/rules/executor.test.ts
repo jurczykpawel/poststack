@@ -13,11 +13,16 @@ beforeAll(() => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 });
 
-const mockAddMessage = vi.fn().mockResolvedValue({});
-const mockAddComment = vi.fn().mockResolvedValue({});
+// addJob(task, payload, opts?) — dispatch by task so call shape stays
+// [task, payload], identical to the former queue.add(task, payload).
+const mockAddMessage = vi.fn().mockResolvedValue(undefined);
+const mockAddComment = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/queue/client", () => ({
-  outgoingMessagesQueue: { add: (...args: unknown[]) => mockAddMessage(...args) },
-  outgoingCommentsQueue: { add: (...args: unknown[]) => mockAddComment(...args) },
+  addJob: (task: string, ...rest: unknown[]) => {
+    if (task === "outgoing-message") return mockAddMessage(task, ...rest);
+    if (task === "outgoing-comment") return mockAddComment(task, ...rest);
+    return Promise.resolve();
+  },
 }));
 
 const mockRedisSet = vi.fn().mockResolvedValue("OK");

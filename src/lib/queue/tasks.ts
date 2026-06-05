@@ -1,0 +1,29 @@
+import type { TaskList } from "graphile-worker";
+import { processIncomingMessage } from "@/lib/workers/incoming-message-worker";
+import { processIncomingComment } from "@/lib/workers/incoming-comment-worker";
+import { processOutgoingMessage } from "@/lib/workers/outgoing-message-worker";
+import { processOutgoingComment } from "@/lib/workers/outgoing-comment-worker";
+import { processTokenRefresh } from "@/lib/workers/token-refresh-worker";
+import { processSequenceStep } from "@/lib/workers/sequence-step-worker";
+import type { TaskPayloadMap } from "./types";
+
+/**
+ * The graphile-worker task registry. Each task identifier maps to its handler;
+ * the payload is cast from `unknown` to its typed shape at this boundary.
+ */
+export function createTaskList(): TaskList {
+  return {
+    "incoming-message": (p, h) =>
+      processIncomingMessage(p as TaskPayloadMap["incoming-message"], h),
+    "incoming-comment": (p, h) =>
+      processIncomingComment(p as TaskPayloadMap["incoming-comment"], h),
+    "outgoing-message": (p, h) =>
+      processOutgoingMessage(p as TaskPayloadMap["outgoing-message"], h),
+    "outgoing-comment": (p, h) =>
+      processOutgoingComment(p as TaskPayloadMap["outgoing-comment"], h),
+    "token-refresh": (p, h) =>
+      processTokenRefresh(p as TaskPayloadMap["token-refresh"], h),
+    "sequence-step": (p, h) =>
+      processSequenceStep(p as TaskPayloadMap["sequence-step"], h),
+  };
+}

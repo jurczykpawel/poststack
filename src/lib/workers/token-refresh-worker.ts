@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import type { JobHelpers } from "graphile-worker";
 import type { TokenRefreshJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
@@ -13,9 +13,10 @@ import { getProvider } from "@/lib/platforms/registry";
  * 4. Re-encrypt and save
  */
 export async function processTokenRefresh(
-  job: Job<TokenRefreshJob>
+  payload: TokenRefreshJob,
+  helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId } = job.data;
+  const { channelId } = payload;
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
@@ -23,13 +24,13 @@ export async function processTokenRefresh(
   });
 
   if (!channel || !channel.is_active) {
-    await job.log(`Channel ${channelId} not found or inactive, skipping`);
+    helpers.logger.info(`Channel ${channelId} not found or inactive, skipping`);
     return;
   }
 
   const provider = getProvider(channel.platform);
   if (!provider.requiresTokenRefresh()) {
-    await job.log(`Platform ${channel.platform} does not require token refresh`);
+    helpers.logger.info(`Platform ${channel.platform} does not require token refresh`);
     return;
   }
 
@@ -41,5 +42,5 @@ export async function processTokenRefresh(
     data: { token_encrypted: encryptTokens(refreshedTokens) },
   });
 
-  await job.log(`Token refreshed for channel=${channelId}`);
+  helpers.logger.info(`Token refreshed for channel=${channelId}`);
 }

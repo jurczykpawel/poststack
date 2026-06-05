@@ -1,7 +1,7 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { created, ApiErrors } from "@/lib/api/response";
-import { sequenceStepsQueue } from "@/lib/queue/client";
+import { addJob } from "@/lib/queue/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -84,11 +84,7 @@ export async function POST(
   });
 
   // Schedule the first step
-  await sequenceStepsQueue.add(
-    "sequence-step",
-    { enrollmentId: enrollment.id },
-    { delay }
-  );
+  await addJob("sequence-step", { enrollmentId: enrollment.id }, { delayMs: delay });
 
   return created(enrollment);
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { verifyMetaSignature } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
-import { incomingMessagesQueue, incomingCommentsQueue } from "@/lib/queue/client";
+import { addJob } from "@/lib/queue/client";
 import type { IncomingMessageJob, IncomingCommentJob } from "@/lib/queue/types";
 
 export const runtime = "nodejs";
@@ -81,8 +81,8 @@ export async function POST(request: Request) {
       };
 
       try {
-        await incomingMessagesQueue.add("incoming-message", job, {
-          jobId: `msg-${messagingEvent.message.mid}`,
+        await addJob("incoming-message", job, {
+          jobKey: `msg-${messagingEvent.message.mid}`,
         });
         enqueued++;
       } catch (err) {
@@ -109,8 +109,8 @@ export async function POST(request: Request) {
       };
 
       try {
-        await incomingMessagesQueue.add("incoming-message", job, {
-          jobId: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
+        await addJob("incoming-message", job, {
+          jobKey: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
         });
         enqueued++;
       } catch (err) {
@@ -140,8 +140,8 @@ export async function POST(request: Request) {
         };
 
         try {
-          await incomingCommentsQueue.add("incoming-comment", job, {
-            jobId: `comment-${change.value.comment_id}`,
+          await addJob("incoming-comment", job, {
+            jobKey: `comment-${change.value.comment_id}`,
           });
           enqueued++;
         } catch (err) {

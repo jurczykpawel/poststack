@@ -26,7 +26,8 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 | Framework | Next.js 16 (App Router) |
 | Language | TypeScript 5 |
 | Database | PostgreSQL + Prisma |
-| Cache / Queue | Redis + BullMQ |
+| Queue | PostgreSQL (graphile-worker) |
+| Cache | Redis (sessions, rate-limit, cooldowns) |
 | Styling | Tailwind CSS 4 + shadcn/ui |
 | Platforms | Facebook, Instagram (extensible via provider pattern) |
 | Auth | Custom JWT (jose) |
@@ -42,7 +43,7 @@ Web process (Next.js):
   - /api/cron/sequences             → drip campaign steps
   - /dashboard/*                    → admin UI
 
-Worker process (BullMQ):
+Worker process (graphile-worker):
   - incoming-messages worker  → contact upsert → rule engine → enqueue reply
   - outgoing-messages worker  → Meta Graph API send
   - token-refresh worker      → refresh expiring OAuth tokens
@@ -69,14 +70,14 @@ src/
 │   ├── platforms/        # SocialProvider base class + FB/IG implementations
 │   ├── rule-engine/      # matcher.ts + executor.ts
 │   ├── flow-engine/      # v2 placeholder (same shape as ZernFlow engine.ts)
-│   ├── queue/            # BullMQ client (queue definitions)
+│   ├── queue/            # graphile-worker client (addJob + task list)
 │   ├── workers/          # Worker implementations
 │   ├── crypto.ts         # Token encryption/decryption
 │   ├── prisma.ts         # PrismaClient singleton
 │   └── redis.ts          # IORedis singleton
 ├── components/           # React components (inbox, rules, channels, ui)
 worker/
-└── inbox-worker.ts       # BullMQ worker entrypoint (separate process)
+└── inbox-worker.ts       # graphile-worker entrypoint (separate process)
 prisma/
 └── schema.prisma         # Full schema (contacts, channels, rules, flows, sequences)
 docker/

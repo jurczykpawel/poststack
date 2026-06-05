@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import type { JobHelpers } from "graphile-worker";
 import type { IncomingCommentJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
@@ -12,12 +12,13 @@ import { evaluateRules } from "@/lib/rules/executor";
  * 3. Evaluate comment_keyword rules
  */
 export async function processIncomingComment(
-  job: Job<IncomingCommentJob>
+  payload: IncomingCommentJob,
+  helpers: JobHelpers,
 ): Promise<void> {
-  const { pageId, commentId, postId, senderId, senderName, text } = job.data;
+  const { pageId, commentId, postId, senderId, senderName, text } = payload;
 
   if (!text) {
-    await job.log(`Empty comment commentId=${commentId}, skipping`);
+    helpers.logger.info(`Empty comment commentId=${commentId}, skipping`);
     return;
   }
 
@@ -28,7 +29,7 @@ export async function processIncomingComment(
   });
 
   if (!channel) {
-    await job.log(`No active channel for pageId=${pageId}, skipping`);
+    helpers.logger.info(`No active channel for pageId=${pageId}, skipping`);
     return;
   }
 
@@ -47,13 +48,13 @@ export async function processIncomingComment(
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      await job.log(`commentId=${commentId} already logged (unique constraint), skipping`);
+      helpers.logger.info(`commentId=${commentId} already logged (unique constraint), skipping`);
       return;
     }
     throw err;
   }
 
-  await job.log(`Logged comment=${commentId} post=${postId} author=${senderId}`);
+  helpers.logger.info(`Logged comment=${commentId} post=${postId} author=${senderId}`);
 
   // 3. Evaluate comment_keyword rules
   //    Comments don't have a conversation — senderId is the commenter.
@@ -96,10 +97,10 @@ export async function processIncomingComment(
             commentId,
           });
           if (matchedRuleId) {
-            await job.log(`Comment rule fired: ${matchedRuleId}`);
+            helpers.logger.info(`Comment rule fired: ${matchedRuleId}`);
           }
         } catch (err) {
-          await job.log(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
+          helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }

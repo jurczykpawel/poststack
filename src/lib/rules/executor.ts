@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
-import { outgoingMessagesQueue, outgoingCommentsQueue } from "@/lib/queue/client";
+import { addJob } from "@/lib/queue/client";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 
@@ -209,7 +209,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
   if ((replyMode === "comment" || replyMode === "both") && commentId) {
     const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
     if (commentReplyText) {
-      await outgoingCommentsQueue.add("outgoing-comment", {
+      await addJob("outgoing-comment", {
         channelId,
         commentId,
         text: commentReplyText,
@@ -223,7 +223,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
   // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment failed (no commentId)
   const shouldDM = replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !commentSent);
   if (shouldDM && dmText) {
-    await outgoingMessagesQueue.add("outgoing-message", {
+    await addJob("outgoing-message", {
       channelId,
       conversationId,
       contactId,

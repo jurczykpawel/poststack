@@ -1,60 +1,37 @@
-import { Queue } from "bullmq";
-import { redis } from "@/lib/redis";
-import type {
-  IncomingMessageJob,
-  IncomingCommentJob,
-  OutgoingMessageJob,
-  OutgoingCommentJob,
-  TokenRefreshJob,
-  SequenceStepJob,
-} from "./types";
+import { makeWorkerUtils, type WorkerUtils } from "graphile-worker";
+import { buildTaskSpec, type AddJobOptions } from "./spec";
+import type { TaskName, TaskPayloadMap } from "./types";
 
-const defaultJobOptions = {
-  removeOnComplete: 500,
-  removeOnFail: 1000,
-};
+// Lazy singleton: graphile-worker opens its own pg pool. Initialising on first
+// use (not at import) keeps `next build` from connecting during prerender.
+let workerUtilsPromise: Promise<WorkerUtils> | null = null;
 
-// Lazy-init queues to avoid Redis connection during next build prerendering.
-// BullMQ Queue constructor immediately pings Redis, which fails in Docker build.
-
-function lazyQueue<T>(name: string, opts?: Record<string, unknown>) {
-  let q: Queue<T> | null = null;
-  function getQueue(): Queue<T> {
-    if (!q) {
-      q = new Queue<T>(name, {
-        connection: redis,
-        defaultJobOptions: { ...defaultJobOptions, ...opts },
-      });
-    }
-    return q;
+function getWorkerUtils(): Promise<WorkerUtils> {
+  if (!workerUtilsPromise) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) throw new Error("DATABASE_URL is required");
+    workerUtilsPromise = makeWorkerUtils({ connectionString });
   }
-  return new Proxy({} as Queue<T>, {
-    get(_target, prop) {
-      const value = (getQueue() as unknown as Record<string, unknown>)[prop as string];
-      // Bind functions to the real Queue instance (not the proxy) to preserve `this` context
-      if (typeof value === "function") return value.bind(getQueue());
-      return value;
-    },
-  });
+  return workerUtilsPromise;
 }
 
-export const incomingMessagesQueue = lazyQueue<IncomingMessageJob>("incoming-messages");
+/** Enqueue a job for the worker process. PG-backed (graphile-worker). */
+export async function addJob<T extends TaskName>(
+  taskName: T,
+  payload: TaskPayloadMap[T],
+  opts?: AddJobOptions,
+): Promise<void> {
+  const utils = await getWorkerUtils();
+  // Widen the generic `T` to the concrete TaskName union so graphile's own
+  // generic resolves; the public signature above keeps payload type-checked.
+  await utils.addJob(taskName as TaskName, payload, buildTaskSpec(taskName, opts));
+}
 
-export const incomingCommentsQueue = lazyQueue<IncomingCommentJob>("incoming-comments");
-
-export const outgoingMessagesQueue = lazyQueue<OutgoingMessageJob>("outgoing-messages", {
-  attempts: 3,
-  backoff: { type: "exponential", delay: 5000 },
-});
-
-export const outgoingCommentsQueue = lazyQueue<OutgoingCommentJob>("outgoing-comments", {
-  attempts: 3,
-  backoff: { type: "exponential", delay: 5000 },
-});
-
-export const tokenRefreshQueue = lazyQueue<TokenRefreshJob>("token-refresh");
-
-export const sequenceStepsQueue = lazyQueue<SequenceStepJob>("sequence-steps", {
-  attempts: 3,
-  backoff: { type: "fixed", delay: 10000 },
-});
+/** Release the WorkerUtils pool. For graceful shutdown and tests. */
+export async function closeQueue(): Promise<void> {
+  if (workerUtilsPromise) {
+    const utils = await workerUtilsPromise;
+    await utils.release();
+    workerUtilsPromise = null;
+  }
+}

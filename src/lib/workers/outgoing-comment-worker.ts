@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import type { JobHelpers } from "graphile-worker";
 import type { OutgoingCommentJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
@@ -13,15 +13,16 @@ const IDEM_TTL = 86_400;
  * Idempotency key claimed AFTER successful send (allows retry on failure).
  */
 export async function processOutgoingComment(
-  job: Job<OutgoingCommentJob>
+  payload: OutgoingCommentJob,
+  helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, commentId, text, sentByRuleId, idempotencyKey } = job.data;
+  const { channelId, commentId, text, sentByRuleId, idempotencyKey } = payload;
 
   // Check idempotency (already successfully sent?)
   if (idempotencyKey) {
     const exists = await redis.get(`${IDEM_PREFIX}${idempotencyKey}`);
     if (exists) {
-      await job.log(`Idempotency key already claimed, skipping`);
+      helpers.logger.info(`Idempotency key already claimed, skipping`);
       return;
     }
   }
@@ -51,5 +52,5 @@ export async function processOutgoingComment(
     data: { reply_sent: true, matched_rule_id: sentByRuleId ?? null },
   });
 
-  await job.log(`Public reply sent to comment=${commentId}`);
+  helpers.logger.info(`Public reply sent to comment=${commentId}`);
 }

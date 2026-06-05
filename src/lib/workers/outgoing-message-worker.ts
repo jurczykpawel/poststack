@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import type { JobHelpers } from "graphile-worker";
 import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
@@ -12,19 +12,20 @@ const IDEM_TTL = 86_400; // 24 hours
  * Send an outbound message via the platform API.
  *
  * Idempotency key is claimed AFTER successful send (not before)
- * so that BullMQ retries are not blocked by failed attempts.
+ * so that retries are not blocked by failed attempts.
  */
 export async function processOutgoingMessage(
-  job: Job<OutgoingMessageJob>
+  payload: OutgoingMessageJob,
+  helpers: JobHelpers,
 ): Promise<void> {
   const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, idempotencyKey } =
-    job.data;
+    payload;
 
   // 1. Check idempotency (already successfully sent?)
   if (idempotencyKey) {
     const exists = await redis.get(`${IDEM_PREFIX}${idempotencyKey}`);
     if (exists) {
-      await job.log(`Idempotency key ${idempotencyKey} already claimed, skipping duplicate send`);
+      helpers.logger.info(`Idempotency key ${idempotencyKey} already claimed, skipping duplicate send`);
       return;
     }
   }
@@ -58,9 +59,9 @@ export async function processOutgoingMessage(
           where: { id: channelId },
           data: { token_encrypted: encryptTokens(tokens) },
         });
-        await job.log("Token refreshed on-demand before send");
+        helpers.logger.info("Token refreshed on-demand before send");
       } catch (err) {
-        await job.log(`Token refresh failed, using existing: ${err instanceof Error ? err.message : String(err)}`);
+        helpers.logger.info(`Token refresh failed, using existing: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -111,5 +112,5 @@ export async function processOutgoingMessage(
     },
   });
 
-  await job.log(`sent platformMessageId=${platformMessageId}`);
+  helpers.logger.info(`sent platformMessageId=${platformMessageId}`);
 }

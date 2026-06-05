@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import type { JobHelpers } from "graphile-worker";
 import type { IncomingMessageJob } from "@/lib/queue/types";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
@@ -14,15 +14,16 @@ import { evaluateRules } from "@/lib/rules/executor";
  * 5. Evaluate auto-reply rules
  */
 export async function processIncomingMessage(
-  job: Job<IncomingMessageJob>
+  payload: IncomingMessageJob,
+  helpers: JobHelpers,
 ): Promise<void> {
-  const { pageId, senderId, mid, text, quickReplyPayload, postbackPayload, timestamp } = job.data;
+  const { pageId, senderId, mid, text, quickReplyPayload, postbackPayload, timestamp } = payload;
 
   // Validate timestamp bounds (reject absurd values)
   const messageDate = new Date(timestamp * 1000);
   const now = Date.now();
   if (messageDate.getTime() > now + 86_400_000 || messageDate.getTime() < now - 30 * 86_400_000 * 365) {
-    await job.log(`Invalid timestamp=${timestamp}, using current time`);
+    helpers.logger.info(`Invalid timestamp=${timestamp}, using current time`);
     messageDate.setTime(now);
   }
 
@@ -33,7 +34,7 @@ export async function processIncomingMessage(
   });
 
   if (!channel) {
-    await job.log(`No active channel for pageId=${pageId}, skipping`);
+    helpers.logger.info(`No active channel for pageId=${pageId}, skipping`);
     return;
   }
 
@@ -120,13 +121,13 @@ export async function processIncomingMessage(
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      await job.log(`mid=${mid} already processed (unique constraint), skipping`);
+      helpers.logger.info(`mid=${mid} already processed (unique constraint), skipping`);
       return;
     }
     throw err;
   }
 
-  await job.log(
+  helpers.logger.info(
     `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${mid}`
   );
 
@@ -145,7 +146,7 @@ export async function processIncomingMessage(
         postbackPayload,
       });
       if (matchedRuleId) {
-        await job.log(`Rule fired: ${matchedRuleId}`);
+        helpers.logger.info(`Rule fired: ${matchedRuleId}`);
         await prisma.conversation.update({
           where: { id: conversation.id },
           data: { needs_manual_reply: false },
@@ -158,7 +159,7 @@ export async function processIncomingMessage(
         });
       }
     } catch (err) {
-      await job.log(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
+      helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

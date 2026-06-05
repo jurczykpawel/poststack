@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
-import { tokenRefreshQueue } from "@/lib/queue/client";
+import { addJob } from "@/lib/queue/client";
 import { getProvider } from "@/lib/platforms/registry";
 import { decryptTokens } from "@/lib/crypto";
 
@@ -39,10 +39,10 @@ export async function GET(request: Request) {
     const refreshThreshold = expiresAt - bufferSeconds;
 
     if (Date.now() / 1000 >= refreshThreshold) {
-      await tokenRefreshQueue.add(
+      await addJob(
         "token-refresh",
         { channelId: channel.id },
-        { jobId: `token-refresh-${channel.id}`, removeOnComplete: true }
+        { jobKey: `token-refresh-${channel.id}` }
       );
       enqueued++;
     }

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { authenticate, authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, created, ApiErrors } from "@/lib/api/response";
-import { outgoingMessagesQueue } from "@/lib/queue/client";
+import { addJob } from "@/lib/queue/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -116,7 +116,7 @@ export async function POST(
   });
 
   // Enqueue outgoing message
-  await outgoingMessagesQueue.add("outgoing-message", {
+  await addJob("outgoing-message", {
     channelId: conversation.channel_id,
     conversationId: conversation.id,
     contactId: conversation.contact.id,

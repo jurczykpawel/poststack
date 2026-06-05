@@ -63,10 +63,14 @@ export interface SequenceStepJob {
   enrollmentId: string;
 }
 
-export type QueueName =
-  | "incoming-messages"
-  | "incoming-comments"
-  | "outgoing-messages"
-  | "outgoing-comments"
-  | "token-refresh"
-  | "sequence-steps";
+/** graphile-worker task identifiers → their payload type. */
+export type TaskPayloadMap = {
+  "incoming-message": IncomingMessageJob;
+  "incoming-comment": IncomingCommentJob;
+  "outgoing-message": OutgoingMessageJob;
+  "outgoing-comment": OutgoingCommentJob;
+  "token-refresh": TokenRefreshJob;
+  "sequence-step": SequenceStepJob;
+};
+
+export type TaskName = keyof TaskPayloadMap;
