@@ -1,7 +1,8 @@
 import type { Platform } from "@/generated/prisma/enums";
 import type { SocialProvider } from "./base";
+import { FacebookProvider } from "./facebook";
+import { InstagramProvider } from "./instagram";
 
-// Providers are imported lazily to avoid loading Meta SDK in worker if not needed
 const providerFactories: Partial<Record<Platform, () => SocialProvider>> = {};
 
 export function registerProvider(
@@ -26,12 +27,9 @@ export function getSupportedPlatforms(): Platform[] {
   return Object.keys(providerFactories) as Platform[];
 }
 
-// Auto-register available providers
-// Add new platforms here as they are implemented
-import("./facebook").then(({ FacebookProvider }) => {
-  registerProvider("facebook", () => new FacebookProvider());
-});
-
-import("./instagram").then(({ InstagramProvider }) => {
-  registerProvider("instagram", () => new InstagramProvider());
-});
+// Auto-register available providers synchronously at module load so getProvider()
+// is deterministic from the first call (no async registration race on cold start).
+// Provider factories are lazy — the provider is only constructed on first use.
+// Add new platforms here as they are implemented.
+registerProvider("facebook", () => new FacebookProvider());
+registerProvider("instagram", () => new InstagramProvider());
