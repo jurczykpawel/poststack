@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 
 beforeAll(() => {
   process.env.TOKEN_ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
@@ -284,6 +284,26 @@ describe("evaluateRules — response types", () => {
     expect(mockAddComment).not.toHaveBeenCalled();
   });
 
+  it("text with no configured text sends nothing (rule still counts as fired)", async () => {
+    mockFindMany.mockResolvedValueOnce([makeRule({ response_type: "text", response_config: {} })]);
+
+    const result = await evaluateRules(baseInput);
+
+    expect(result).toBe("rule-1");
+    expect(mockAddMessage).not.toHaveBeenCalled();
+  });
+
+  it("random_text with an empty messages array sends nothing", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({ response_type: "random_text", response_config: { messages: [] } }),
+    ]);
+
+    const result = await evaluateRules(baseInput);
+
+    expect(result).toBe("rule-1");
+    expect(mockAddMessage).not.toHaveBeenCalled();
+  });
+
   it("ai_rephrase falls back to base text when no OPENAI_API_KEY", async () => {
     const saved = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
@@ -302,6 +322,85 @@ describe("evaluateRules — response types", () => {
     } finally {
       if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
     }
+  });
+});
+
+describe("evaluateRules — ai_rephrase (LLM with mocked fetch)", () => {
+  const originalFetch = globalThis.fetch;
+  const savedKey = process.env.OPENAI_API_KEY;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.OPENAI_API_KEY = "test-openai-key";
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (savedKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = savedKey;
+  });
+
+  const aiRule = () =>
+    makeRule({ response_type: "ai_rephrase", response_config: { text: "Base message", tone: "casual" } });
+
+  it("sends the rephrased text on a successful API call", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ choices: [{ message: { content: "  Rephrased!  " } }] }),
+    ) as typeof fetch;
+    mockFindMany.mockResolvedValueOnce([aiRule()]);
+
+    await evaluateRules(baseInput);
+
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Rephrased!");
+  });
+
+  it("falls back to the base text when the API responds with an error", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("boom", { status: 500 })) as typeof fetch;
+    mockFindMany.mockResolvedValueOnce([aiRule()]);
+
+    await evaluateRules(baseInput);
+
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Base message");
+  });
+
+  it("falls back to the base text when the request throws", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+    mockFindMany.mockResolvedValueOnce([aiRule()]);
+
+    await evaluateRules(baseInput);
+
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Base message");
+  });
+
+  it("uses custom_prompt as the system message when provided", async () => {
+    let sentBody: { messages: Array<{ role: string; content: string }> } | null = null;
+    globalThis.fetch = vi.fn(async (_url: unknown, init: { body: string }) => {
+      sentBody = JSON.parse(init.body);
+      return Response.json({ choices: [{ message: { content: "ok" } }] });
+    }) as unknown as typeof fetch;
+    mockFindMany.mockResolvedValueOnce([
+      makeRule({
+        response_type: "ai_rephrase",
+        response_config: { text: "Base", custom_prompt: "Speak like a pirate." },
+      }),
+    ]);
+
+    await evaluateRules(baseInput);
+
+    expect(sentBody!.messages[0]).toEqual({ role: "system", content: "Speak like a pirate." });
+    expect(sentBody!.messages[1]).toEqual({ role: "user", content: "Base" });
+  });
+
+  it("falls back to base text when the API returns an empty completion", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ choices: [{ message: { content: "   " } }] }),
+    ) as typeof fetch;
+    mockFindMany.mockResolvedValueOnce([aiRule()]);
+
+    await evaluateRules(baseInput);
+
+    expect(mockAddMessage.mock.calls[0][1].content.text).toBe("Base message");
   });
 });
 
