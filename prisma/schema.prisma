@@ -623,3 +623,27 @@ model OutboundIdempotency {
   @@index([expires_at])
   @@map("outbound_idempotency")
 }
+
+// Per-rule, per-contact cooldown lock (replaces Redis SETNX). A row that is
+// still in the future means the rule is cooling down for that contact.
+// `expires_at` rows can be pruned once past (see DATA1).
+model RuleCooldown {
+  rule_id    String   @db.Uuid
+  contact_id String   @db.Uuid
+  expires_at DateTime
+
+  @@id([rule_id, contact_id])
+  @@index([expires_at])
+  @@map("rule_cooldowns")
+}
+
+// Per-rule, per-contact lifetime send counter (replaces Redis INCR/DECR).
+// No TTL — the count persists for the contact's lifetime.
+model RuleSendCount {
+  rule_id    String @db.Uuid
+  contact_id String @db.Uuid
+  count      Int    @default(0)
+
+  @@id([rule_id, contact_id])
+  @@map("rule_send_counts")
+}

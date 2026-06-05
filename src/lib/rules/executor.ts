@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { redis } from "@/lib/redis";
+import { acquireCooldown, incrementSendCount } from "./limits";
 import { addJob } from "@/lib/queue/client";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
@@ -63,23 +63,15 @@ export async function evaluateRules(
 
     if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload })) continue;
 
-    // Cooldown: atomic Redis SETNX prevents concurrent messages from firing the same rule
-    if (rule.cooldown_seconds > 0) {
-      const lockKey = `cooldown:${rule.id}:${contactId}`;
-      const acquired = await redis.set(lockKey, "1", "EX", rule.cooldown_seconds, "NX");
-      if (!acquired) continue;
-    }
+    // Cooldown: atomic acquire prevents concurrent events from firing the same rule
+    if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds))) continue;
 
-    // Per-rule send limit: max N sends per contact lifetime
-    if (rule.max_sends_per_contact != null) {
-      // Atomic: increment counter, check against limit. If over, decrement and skip.
-      const counterKey = `sends:${rule.id}:${contactId}`;
-      const count = await redis.incr(counterKey);
-      if (count > rule.max_sends_per_contact) {
-        await redis.decr(counterKey);
-        continue;
-      }
-      // No TTL -- lifetime limit. Counter persists until manually reset.
+    // Per-rule lifetime send limit: atomic increment-if-under-cap
+    if (
+      rule.max_sends_per_contact != null &&
+      !(await incrementSendCount(rule.id, contactId, rule.max_sends_per_contact))
+    ) {
+      continue;
     }
 
     // Manual approval: queue for human review instead of auto-sending

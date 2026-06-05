@@ -25,15 +25,14 @@ vi.mock("@/lib/queue/client", () => ({
   },
 }));
 
-const mockRedisSet = vi.fn().mockResolvedValue("OK");
-const mockRedisIncr = vi.fn().mockResolvedValue(1);
-const mockRedisDecr = vi.fn().mockResolvedValue(0);
-vi.mock("@/lib/redis", () => ({
-  redis: {
-    set: (...args: unknown[]) => mockRedisSet(...args),
-    incr: (...args: unknown[]) => mockRedisIncr(...args),
-    decr: (...args: unknown[]) => mockRedisDecr(...args),
-  },
+// Cooldown + lifetime cap now live in lib/rules/limits (Postgres-atomic).
+// The atomic SQL semantics are covered by limits.integration.test.ts; here we
+// assert the executor calls them with the right args and honours their result.
+const mockAcquireCooldown = vi.fn().mockResolvedValue(true);
+const mockIncrementSendCount = vi.fn().mockResolvedValue(true);
+vi.mock("@/lib/rules/limits", () => ({
+  acquireCooldown: (...args: unknown[]) => mockAcquireCooldown(...args),
+  incrementSendCount: (...args: unknown[]) => mockIncrementSendCount(...args),
 }));
 
 const mockFindMany = vi.fn().mockResolvedValue([]);
@@ -193,23 +192,17 @@ describe("evaluateRules — comment reply modes", () => {
 describe("evaluateRules — cooldown", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("calls redis.set with correct key, TTL, and NX flag", async () => {
+  it("acquires the cooldown with rule id, contact id, and seconds", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ cooldown_seconds: 120 })]);
 
     await evaluateRules(baseInput);
 
-    expect(mockRedisSet).toHaveBeenCalledTimes(1);
-    const [key, value, ex, ttl, nx] = mockRedisSet.mock.calls[0];
-    expect(key).toBe("cooldown:rule-1:contact-1");
-    expect(value).toBe("1");
-    expect(ex).toBe("EX");
-    expect(ttl).toBe(120);
-    expect(nx).toBe("NX");
+    expect(mockAcquireCooldown).toHaveBeenCalledWith("rule-1", "contact-1", 120);
   });
 
-  it("skips rule when redis.set returns null (lock taken)", async () => {
+  it("skips rule when the cooldown is not acquired (still cooling down)", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ cooldown_seconds: 60 })]);
-    mockRedisSet.mockResolvedValueOnce(null);
+    mockAcquireCooldown.mockResolvedValueOnce(false);
 
     const result = await evaluateRules(baseInput);
     expect(result).toBeNull();
@@ -220,32 +213,21 @@ describe("evaluateRules — cooldown", () => {
 describe("evaluateRules — per-rule send limit", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("uses atomic Redis INCR with correct key format", async () => {
+  it("increments the send counter with rule id, contact id, and cap", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 5 })]);
-    mockRedisIncr.mockResolvedValueOnce(1); // first send
 
     await evaluateRules(baseInput);
 
-    expect(mockRedisIncr).toHaveBeenCalledWith("sends:rule-1:contact-1");
+    expect(mockIncrementSendCount).toHaveBeenCalledWith("rule-1", "contact-1", 5);
     expect(mockAddMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("fires when count is at limit (INCR returns limit value)", async () => {
-    mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 5 })]);
-    mockRedisIncr.mockResolvedValueOnce(5); // exactly at limit
-
-    const result = await evaluateRules(baseInput);
-    expect(result).toBe("rule-1");
-    expect(mockAddMessage).toHaveBeenCalledTimes(1);
-  });
-
-  it("skips and decrements when count exceeds limit", async () => {
+  it("skips when the lifetime cap has been reached", async () => {
     mockFindMany.mockResolvedValueOnce([makeRule({ max_sends_per_contact: 3 })]);
-    mockRedisIncr.mockResolvedValueOnce(4); // over limit
+    mockIncrementSendCount.mockResolvedValueOnce(false);
 
     const result = await evaluateRules(baseInput);
     expect(result).toBeNull();
-    expect(mockRedisDecr).toHaveBeenCalledWith("sends:rule-1:contact-1");
     expect(mockAddMessage).not.toHaveBeenCalled();
   });
 });
