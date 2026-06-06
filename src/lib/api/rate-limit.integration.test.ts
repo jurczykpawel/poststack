@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let rateLimit: typeof import("./rate-limit").rateLimit;
 
 const KEY = "test:rate:key";
@@ -10,17 +11,17 @@ const KEY = "test:rate:key";
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ rateLimit } = await import("./rate-limit"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.$executeRawUnsafe("truncate table rate_limit_counters");
+  await db.execute(sql.raw("truncate table rate_limit_counters"));
 });
 
 afterAll(async () => {
-  if (prisma) await prisma.$disconnect();
+  if (db) await db.$client.end();
 });
 
 describe("rateLimit (real Postgres, fixed window)", () => {
@@ -46,8 +47,8 @@ describe("rateLimit (real Postgres, fixed window)", () => {
     if (!TEST_DB) return;
     await rateLimit(KEY, 2, 60);
     // Age the window past its end.
-    await prisma.$executeRawUnsafe(
-      "update rate_limit_counters set window_start = now() - interval '61 seconds'",
+    await db.execute(
+      sql.raw("update rate_limit_counters set window_start = now() - interval '61 seconds'"),
     );
     const r = await rateLimit(KEY, 2, 60);
     expect(r.allowed).toBe(true);

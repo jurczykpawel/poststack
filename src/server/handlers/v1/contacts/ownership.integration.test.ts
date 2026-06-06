@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
+import { inArray } from "drizzle-orm";
+import { workspaces, contacts, apiKeys } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let GET: typeof import("./[contactId]/route").GET;
 
 const WS_A = "ffffffff-0000-0000-0000-00000000000a";
@@ -20,31 +22,29 @@ beforeAll(async () => {
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ GET } = await import("./[contactId]/route"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: { in: [WS_A, WS_B] } } });
-  await prisma.workspace.create({ data: { id: WS_A, name: "A", slug: `a-${WS_A}` } });
-  await prisma.workspace.create({ data: { id: WS_B, name: "B", slug: `b-${WS_B}` } });
-  await prisma.contact.create({ data: { id: CONTACT_A, workspace_id: WS_A } });
-  await prisma.contact.create({ data: { id: CONTACT_B, workspace_id: WS_B } });
-  await prisma.apiKey.create({
-    data: {
-      workspace_id: WS_A,
-      name: "A key",
-      key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-      key_prefix: "rs_live_smoke",
-    },
+  await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.insert(workspaces).values({ id: WS_A, name: "A", slug: `a-${WS_A}` });
+  await db.insert(workspaces).values({ id: WS_B, name: "B", slug: `b-${WS_B}` });
+  await db.insert(contacts).values({ id: CONTACT_A, workspace_id: WS_A });
+  await db.insert(contacts).values({ id: CONTACT_B, workspace_id: WS_B });
+  await db.insert(apiKeys).values({
+    workspace_id: WS_A,
+    name: "A key",
+    key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
+    key_prefix: "rs_live_smoke",
   });
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: { in: [WS_A, WS_B] } } });
-  await prisma.$disconnect();
+  await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.$client.end();
 });
 
 function reqAsA() {

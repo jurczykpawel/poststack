@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
+import { inArray } from "drizzle-orm";
+import { workspaces, channels, contacts, apiKeys } from "@/db/schema";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_v1_integration_key_abcdef0123";
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let app: Hono;
 
@@ -24,7 +26,7 @@ beforeAll(async () => {
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ encryptTokens } = await import("@/lib/crypto"));
   const { buildApp } = await import("../app");
   app = buildApp();
@@ -32,31 +34,27 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: { in: [WS_A, WS_B] } } });
-  await prisma.workspace.create({ data: { id: WS_A, name: "A", slug: `a-${WS_A}` } });
-  await prisma.workspace.create({ data: { id: WS_B, name: "B", slug: `b-${WS_B}` } });
-  await prisma.channel.create({
-    data: {
-      id: CH_A, workspace_id: WS_A, platform: "facebook", platform_id: "PAGE_A",
-      display_name: "Page A", token_encrypted: encryptTokens({ access_token: "tok" }),
-      webhook_secret: "wh", status: "active",
-    },
+  await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.insert(workspaces).values({ id: WS_A, name: "A", slug: `a-${WS_A}` });
+  await db.insert(workspaces).values({ id: WS_B, name: "B", slug: `b-${WS_B}` });
+  await db.insert(channels).values({
+    id: CH_A, workspace_id: WS_A, platform: "facebook", platform_id: "PAGE_A",
+    display_name: "Page A", token_encrypted: encryptTokens({ access_token: "tok" }),
+    webhook_secret: "wh", status: "active",
   });
-  await prisma.contact.create({ data: { id: CONTACT_A, workspace_id: WS_A } });
-  await prisma.contact.create({ data: { id: CONTACT_B, workspace_id: WS_B } });
-  await prisma.apiKey.create({
-    data: {
-      workspace_id: WS_A, name: "A key",
-      key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-      key_prefix: "rs_live_v1_in",
-    },
+  await db.insert(contacts).values({ id: CONTACT_A, workspace_id: WS_A });
+  await db.insert(contacts).values({ id: CONTACT_B, workspace_id: WS_B });
+  await db.insert(apiKeys).values({
+    workspace_id: WS_A, name: "A key",
+    key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
+    key_prefix: "rs_live_v1_in",
   });
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: { in: [WS_A, WS_B] } } });
-  await prisma.$disconnect();
+  await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.$client.end();
 });
 
 const authHeaders = { authorization: `Bearer ${RAW_KEY}` };

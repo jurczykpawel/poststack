@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { Pool } from "pg";
 import { runMigrations } from "graphile-worker";
+import { eq } from "drizzle-orm";
+import { workspaces, channels, contacts, contactChannels, conversations, messages } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
 let pool: Pool;
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let drainChannel: typeof import("./drain").drainChannel;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
@@ -19,51 +21,45 @@ beforeAll(async () => {
   process.env.DATABASE_URL = TEST_DB;
   pool = new Pool({ connectionString: TEST_DB });
   await runMigrations({ connectionString: TEST_DB });
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ drainChannel } = await import("./drain"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.workspace.create({ data: { id: WS, name: "Drain Test", slug: `drain-${WS}` } });
-  await prisma.channel.create({
-    data: {
-      id: CH, workspace_id: WS, platform: "instagram", platform_id: "PG-1",
-      token_encrypted: "enc", webhook_secret: "secret", status: "active",
-    },
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.insert(workspaces).values({ id: WS, name: "Drain Test", slug: `drain-${WS}` });
+  await db.insert(channels).values({
+    id: CH, workspace_id: WS, platform: "instagram", platform_id: "PG-1",
+    token_encrypted: "enc", webhook_secret: "secret", status: "active",
   });
-  await prisma.contact.create({ data: { id: CONTACT, workspace_id: WS } });
-  await prisma.contactChannel.create({
-    data: { contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-1" },
-  });
-  await prisma.conversation.create({
-    data: { id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "instagram" },
-  });
+  await db.insert(contacts).values({ id: CONTACT, workspace_id: WS });
+  await db.insert(contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-1" });
+  await db.insert(conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "instagram" });
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.message.deleteMany({ where: { conversation_id: CONV } });
+  await db.delete(messages).where(eq(messages.conversation_id, CONV));
   await pool.query("truncate table graphile_worker._private_jobs cascade");
-  await prisma.channel.update({ where: { id: CH }, data: { status: "active" } });
+  await db.update(channels).set({ status: "active" }).where(eq(channels.id, CH));
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: WS } });
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
   if (closeQueue) await closeQueue();
-  if (prisma) await prisma.$disconnect();
+  if (db) await db.$client.end();
   if (pool) await pool.end();
 });
 
 async function seedHeld(text: string): Promise<string> {
-  const m = await prisma.message.create({
-    data: { conversation_id: CONV, direction: "outbound", text, status: "held" },
-  });
+  const [m] = await db.insert(messages)
+    .values({ conversation_id: CONV, direction: "outbound", text, status: "held" })
+    .returning({ id: messages.id });
   return m.id;
 }
 
 async function setAnchor(at: Date | null) {
-  await prisma.conversation.update({ where: { id: CONV }, data: { last_inbound_at: at } });
+  await db.update(conversations).set({ last_inbound_at: at }).where(eq(conversations.id, CONV));
 }
 
 describe("drainChannel (real Postgres) — park + drain end to end", () => {
@@ -75,7 +71,7 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     const result = await drainChannel(CH);
 
     expect(result).toEqual({ enqueued: 1, expired: 0 });
-    const row = await prisma.message.findUnique({ where: { id } });
+    const row = await db.query.messages.findFirst({ where: eq(messages.id, id) });
     expect(row?.status).toBe("held");
 
     const jobs = await pool.query(
@@ -94,7 +90,7 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     const result = await drainChannel(CH);
 
     expect(result).toEqual({ enqueued: 0, expired: 1 });
-    const row = await prisma.message.findUnique({ where: { id } });
+    const row = await db.query.messages.findFirst({ where: eq(messages.id, id) });
     expect(row?.status).toBe("expired");
     const jobs = await pool.query("select count(*)::int as n from graphile_worker._private_jobs");
     expect(jobs.rows[0].n).toBe(0);
@@ -104,12 +100,12 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     if (!TEST_DB) return;
     await setAnchor(new Date());
     const id = await seedHeld("still down");
-    await prisma.channel.update({ where: { id: CH }, data: { status: "needs_reauth" } });
+    await db.update(channels).set({ status: "needs_reauth" }).where(eq(channels.id, CH));
 
     const result = await drainChannel(CH);
 
     expect(result.skipped).toBe("needs_reauth");
-    const row = await prisma.message.findUnique({ where: { id } });
+    const row = await db.query.messages.findFirst({ where: eq(messages.id, id) });
     expect(row?.status).toBe("held");
   });
 });

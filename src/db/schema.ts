@@ -14,6 +14,7 @@ export const flowStatus = pgEnum("flow_status", ['draft', 'published', 'archived
 export const messageDirection = pgEnum("message_direction", ['inbound', 'outbound'])
 export const messageStatus = pgEnum("message_status", ['pending', 'sent', 'delivered', 'failed', 'held', 'expired'])
 export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord'])
+export type Platform = (typeof platform.enumValues)[number]
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase'])
 export const sequenceEnrollmentStatus = pgEnum("sequence_enrollment_status", ['active', 'paused', 'completed', 'cancelled'])
 export const sequenceStatus = pgEnum("sequence_status", ['draft', 'active', 'archived'])
