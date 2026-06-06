@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db";
 
 interface RateLimitResult {
   allowed: boolean;
@@ -17,7 +18,7 @@ export async function rateLimit(
   limit: number,
   windowSeconds: number
 ): Promise<RateLimitResult> {
-  const rows = await prisma.$queryRaw<Array<{ count: number; window_start: Date }>>`
+  const result = await db.execute(sql`
     INSERT INTO rate_limit_counters (key, count, window_start)
     VALUES (${key}, 1, now())
     ON CONFLICT (key) DO UPDATE
@@ -27,10 +28,11 @@ export async function rateLimit(
           window_start = CASE
             WHEN rate_limit_counters.window_start < now() - (${windowSeconds} * interval '1 second')
             THEN now() ELSE rate_limit_counters.window_start END
-    RETURNING count, window_start`;
+    RETURNING count, window_start`);
 
-  const { count, window_start } = rows[0];
-  const windowEndMs = window_start.getTime() + windowSeconds * 1000;
+  const row = result.rows[0] as { count: number | string; window_start: string | Date };
+  const count = Number(row.count);
+  const windowEndMs = new Date(row.window_start).getTime() + windowSeconds * 1000;
   const retryAfter = count > limit ? Math.max(1, Math.ceil((windowEndMs - Date.now()) / 1000)) : 0;
 
   return {
