@@ -119,6 +119,17 @@ describe("evaluateRules (real Postgres)", () => {
     expect(Number((pr.rows[0] as { n: number }).n)).toBe(1);
   });
 
+  it("fires a story_reply rule only when the message is a story reply", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Story", trigger_type: "story_reply", is_active: true, cooldown_seconds: 0,
+      trigger_config: {}, response_type: "text", response_config: { text: "thanks for the story reply!" },
+    });
+    expect(await evaluateRules({ ...baseInput, text: "love it" })).toBeNull(); // plain DM
+    expect(await evaluateRules({ ...baseInput, text: "love it", isStoryReply: true })).not.toBeNull();
+    expect(await outgoingJobCount()).toBe(1);
+  });
+
   it("queues a pending approval (no send) when the rule requires approval", async () => {
     if (!TEST_DB) return;
     const id = await seedRule({ requires_approval: true });

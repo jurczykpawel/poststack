@@ -67,6 +67,11 @@ export async function POST(request: Request) {
       // Skip echo messages (our own outbound messages echoed back by Meta)
       if (messagingEvent.message.is_echo) continue;
 
+      const replyToStory = messagingEvent.message.reply_to?.story;
+      const isStoryMention = messagingEvent.message.attachments?.some(
+        (a) => (a as { type?: string }).type === "story_mention",
+      );
+
       const job: IncomingMessageJob = {
         platform,
         pageId: entry.id,
@@ -75,6 +80,9 @@ export async function POST(request: Request) {
         mid: messagingEvent.message.mid,
         text: messagingEvent.message.text ?? null,
         quickReplyPayload: messagingEvent.message.quick_reply?.payload,
+        isStoryReply: replyToStory ? true : undefined,
+        isStoryMention: isStoryMention ? true : undefined,
+        storyId: replyToStory?.id,
         timestamp: messagingEvent.timestamp,
         raw: messagingEvent as unknown as Record<string, unknown>,
       };
@@ -221,6 +229,7 @@ interface MessagingEvent {
     is_echo?: boolean;
     quick_reply?: { payload: string };
     attachments?: unknown[];
+    reply_to?: { story?: { id?: string; url?: string } };
   };
   postback?: {
     payload: string;
