@@ -28,8 +28,9 @@
 ## Features
 
 ### Messaging
-- **Auto-reply rules** -- keyword triggers (exact, contains, starts with), postbacks, welcome messages, fallback/default
-- **Comment-to-DM** -- automatically DM users who comment specific keywords on your posts
+- **Auto-reply rules** -- triggers for keywords (exact, contains, starts with), comment keywords, postbacks, welcome messages, story replies/mentions, emoji reactions, and fallback/default
+- **Comment automation** -- reply publicly under the comment, send a private DM (Meta `private_replies`), or both -- scoped to a specific post or all posts, on Facebook **and** Instagram
+- **AI rephrasing** -- optionally rewrite any reply (including a random pool) through an OpenAI-compatible endpoint before sending
 - **Live inbox** -- manage all conversations, reply manually, assign to team members
 - **Drip sequences** -- timed message series with configurable delays between steps
 
@@ -108,7 +109,9 @@ Register an account, go to **Channels**, and connect your first Facebook Page or
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images.
+This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images from GHCR.
+
+> **Images & registry.** By default it pulls `ghcr.io/jurczykpawel/replystack` (and `-worker`). If the packages are private, run `docker login ghcr.io` first. Forks: set `IMAGE_REPO` in `.env` to your own registry path, and `IMAGE_TAG` to pin a version.
 
 ---
 
@@ -193,37 +196,43 @@ Interactive docs at `/api/docs` (Scalar UI).
 ```
 replystack/
 ├── src/
-│   ├── app/
-│   │   ├── (auth)/              # Login, register pages
-│   │   ├── (dashboard)/         # Inbox, rules, channels, contacts, sequences, settings
-│   │   └── api/
-│   │       ├── auth/            # Login, register, logout
-│   │       ├── oauth/           # Facebook + Instagram OAuth flows
-│   │       ├── webhooks/meta/   # Meta webhook receiver (HMAC verified)
-│   │       ├── cron/            # Token refresh scheduler
-│   │       └── v1/              # REST API (channels, conversations, rules, etc.)
-│   └── lib/
-│       ├── platforms/           # SocialProvider base + Facebook, Instagram
-│       ├── rules/               # Matcher + executor (keyword, comment, welcome, default)
-│       ├── workers/             # BullMQ job processors
-│       ├── auth/                # JWT sessions, API keys, password hashing
-│       ├── api/                 # Response helpers, rate limiter, body parser
-│       └── queue/               # graphile-worker queue client
-├── worker/                      # Standalone graphile-worker process
-├── src/db/                      # Drizzle schema + relations
-├── drizzle/                     # Generated SQL migrations
+│   ├── server/                  # Hono app (web process)
+│   │   ├── app.ts               #   factory: security headers, CORS, route mounting
+│   │   ├── index.ts             #   entrypoint
+│   │   ├── routes/              #   public / v1 / oauth / webhooks / pages routers
+│   │   ├── handlers/            #   framework-neutral HTTP handlers (routes delegate here)
+│   │   ├── ui/                  #   hono/html SSR templates + CSS (htmx + Alpine)
+│   │   └── middleware/          #   security headers, page auth
+│   ├── lib/
+│   │   ├── platforms/           #   SocialProvider base + Facebook, Instagram
+│   │   ├── rules/               #   matcher + executor (keyword, comment, story, reaction, ...)
+│   │   ├── workers/             #   graphile-worker job processors
+│   │   ├── queue/               #   graphile-worker client (addJob + task list)
+│   │   ├── auth/                #   JWT sessions, API keys, password hashing
+│   │   ├── api/                 #   response helpers, rate limiter, OpenAPI spec
+│   │   ├── oauth/               #   OAuth flow helpers
+│   │   ├── channels/            #   channel connect / upsert
+│   │   ├── notifications/       #   channel-failure alerts (outbound webhook)
+│   │   ├── ai/                  #   AI rephrase adapter (optional)
+│   │   └── crypto.ts            #   token encryption (AES-256-GCM)
+│   ├── db/                      # Drizzle schema + relations
+│   └── types/                   # shared types
+├── worker/                      # standalone graphile-worker process (inbox-worker.ts)
+├── drizzle/                     # generated SQL migrations (drizzle-kit)
 └── docker/                      # Dockerfile, Dockerfile.worker, nginx.conf
 ```
 
 ```
-Web (Hono)                       Worker (graphile-worker)
-─────────────                    ───────────────
-POST /api/webhooks/meta    ──>   incoming-messages  ──> contact upsert
-                                                    ──> rule engine ──> outgoing-messages
-GET/POST /api/v1/*               incoming-comments  ──> comment log + rule eval
-GET /api/oauth/*                 outgoing-messages   ──> Meta Graph API send
-                                 token-refresh       ──> refresh expiring OAuth tokens
-                                 sequence-steps      ──> drip campaign delivery
+Web (Hono on Bun)                Worker (graphile-worker on Bun)
+─────────────────                ───────────────────────────────
+POST /api/webhooks/meta    ──>   incoming-message    ──> contact upsert
+                                                     ──> rule engine ──> outgoing-message
+GET/POST /api/v1/*               incoming-comment    ──> comment log + rule eval
+GET /api/oauth/*                                     ──> outgoing-comment / outgoing-private-reply
+GET /api/cron/token-refresh      incoming-reaction   ──> reaction rule eval
+                                 outgoing-*           ──> Meta Graph API send
+                                 token-refresh        ──> refresh expiring OAuth tokens
+                                 sequence-steps       ──> drip campaign delivery
 ```
 
 ---
@@ -308,10 +317,10 @@ Then update `NC_DB` in `docker-compose.yml` to use this role.
 See [Quick Start - Option B](#option-b-local-development) for setup. Additional commands:
 
 ```bash
-npm run lint        # ESLint
-npm run typecheck   # TypeScript
-npm test            # Vitest (38 tests)
-npm run build       # Production build
+npm run lint              # ESLint
+npm run typecheck         # TypeScript (tsc --noEmit; Bun runs the TS entrypoint directly, no build artifact)
+npm test                  # Vitest unit (212 tests)
+npm run test:integration  # Vitest integration (127 tests, needs a Postgres on :5433)
 ```
 
 ---
@@ -322,14 +331,16 @@ npm run build       # Production build
 - [x] OAuth channels (Facebook + Instagram)
 - [x] Meta webhook receiver (HMAC verified)
 - [x] Inbox -- conversation list, message thread, manual reply
-- [x] BullMQ workers (incoming messages, outgoing messages, comments)
+- [x] graphile-worker job processors (incoming/outgoing messages, comments, reactions, token refresh, sequences)
 - [x] Rule engine -- keyword auto-reply with cooldown
-- [x] Comment-to-DM automation
+- [x] Comment automation -- public reply + private DM (first-touch), Facebook & Instagram
+- [x] Story reply/mention and emoji reaction triggers
+- [x] Optional AI rephrasing of replies (OpenAI-compatible)
 - [x] Drip sequences with delays
 - [x] Contacts CRM with tags and search
 - [x] API key management + token refresh
-- [x] Rate limiting, JWT invalidation, outgoing message idempotency
-- [x] CI/CD (lint, typecheck, test, build, Docker)
+- [x] Rate limiting, JWT invalidation, outgoing message idempotency (all Postgres-backed, no Redis)
+- [x] CI/CD (lint, typecheck, test, Docker build + push)
 - [ ] Gmail support (Google OAuth2, Gmail API, Pub/Sub push)
 - [ ] Discord support (Bot API, Gateway WebSocket)
 - [ ] Telegram support
