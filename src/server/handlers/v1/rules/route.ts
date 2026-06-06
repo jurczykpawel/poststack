@@ -1,5 +1,7 @@
+import { and, eq, asc, desc } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { autoReplyRules, channels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -46,11 +48,11 @@ export async function GET(request: Request) {
   const auth = await authenticateWithScope(request, "rules:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
-  const rules = await prisma.autoReplyRule.findMany({
-    where: { workspace_id: auth.workspaceId },
-    orderBy: [{ priority: "desc" }, { created_at: "asc" }],
-    take: 200,
-    select: {
+  const rules = await db.query.autoReplyRules.findMany({
+    where: eq(autoReplyRules.workspace_id, auth.workspaceId),
+    orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
+    limit: 200,
+    columns: {
       id: true,
       name: true,
       channel_id: true,
@@ -81,15 +83,16 @@ export async function POST(request: Request) {
 
   // Verify channel belongs to this workspace if provided
   if (parsed.data.channel_id) {
-    const channel = await prisma.channel.findFirst({
-      where: { id: parsed.data.channel_id, workspace_id: auth.workspaceId },
-      select: { id: true },
+    const channel = await db.query.channels.findFirst({
+      where: and(eq(channels.id, parsed.data.channel_id), eq(channels.workspace_id, auth.workspaceId)),
+      columns: { id: true },
     });
     if (!channel) return ApiErrors.notFound("Channel");
   }
 
-  const rule = await prisma.autoReplyRule.create({
-    data: {
+  const [rule] = await db
+    .insert(autoReplyRules)
+    .values({
       workspace_id: auth.workspaceId,
       name: parsed.data.name,
       channel_id: parsed.data.channel_id ?? null,
@@ -99,8 +102,8 @@ export async function POST(request: Request) {
       response_type: parsed.data.response_type,
       response_config: parsed.data.response_config,
       cooldown_seconds: parsed.data.cooldown_seconds,
-    },
-  });
+    })
+    .returning();
 
   return created(rule);
 }
