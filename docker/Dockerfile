@@ -9,7 +9,7 @@ FROM base AS deps
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
-RUN npm ci
+RUN npm ci --omit=dev
 
 # Production runner — Bun runs the TypeScript entrypoint directly (no build step).
 FROM base AS runner
