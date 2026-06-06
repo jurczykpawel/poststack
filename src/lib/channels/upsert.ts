@@ -1,9 +1,13 @@
-import type { Platform, ChannelConnectionMode } from "@/generated/prisma/enums";
-import { prisma } from "@/lib/prisma";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels, platform as platformEnum, channelConnectionMode as connModeEnum } from "@/db/schema";
 import { encryptTokens } from "@/lib/crypto";
 import { addJob } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
+
+type Platform = (typeof platformEnum.enumValues)[number];
+type ChannelConnectionMode = (typeof connModeEnum.enumValues)[number];
 
 const MAX_ACCOUNTS_PER_OAUTH = 50;
 
@@ -28,21 +32,14 @@ export async function upsertChannels(
 
     // Was this channel previously broken? If so, reconnecting recovers it and
     // we drain any outbound parked while it was down (REL5).
-    const existing = await prisma.channel.findUnique({
-      where: {
-        workspace_id_platform_id: { workspace_id: workspaceId, platform_id: account.platformId },
-      },
-      select: { id: true, status: true },
+    const existing = await db.query.channels.findFirst({
+      where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform_id, account.platformId)),
+      columns: { id: true, status: true },
     });
 
-    const channel = await prisma.channel.upsert({
-      where: {
-        workspace_id_platform_id: {
-          workspace_id: workspaceId,
-          platform_id: account.platformId,
-        },
-      },
-      create: {
+    const [channel] = await db
+      .insert(channels)
+      .values({
         workspace_id: workspaceId,
         platform,
         platform_id: account.platformId,
@@ -53,17 +50,20 @@ export async function upsertChannels(
         webhook_secret: randomBytes(32).toString("hex"),
         status: "active",
         connection_mode: connectionMode,
-      },
-      update: {
-        display_name: account.displayName,
-        username: account.username ?? null,
-        profile_picture: account.profilePicture ?? null,
-        token_encrypted: encryptedTokens,
-        status: "active",
-        last_error: null,
-        connection_mode: connectionMode,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: [channels.workspace_id, channels.platform_id],
+        set: {
+          display_name: account.displayName,
+          username: account.username ?? null,
+          profile_picture: account.profilePicture ?? null,
+          token_encrypted: encryptedTokens,
+          status: "active",
+          last_error: null,
+          connection_mode: connectionMode,
+        },
+      })
+      .returning({ id: channels.id });
 
     if (existing?.status === "needs_reauth") {
       await addJob("drain-channel", { channelId: channel.id });
