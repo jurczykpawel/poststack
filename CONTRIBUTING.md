@@ -21,15 +21,15 @@ Open http://localhost:3000
 
 ```
 src/
-├── app/              # Next.js App Router
+├── server/           # Hono app: app.ts, routes/, ui/ (htmx + Alpine), middleware/
+├── app/api/          # Framework-neutral HTTP handler modules (Hono routes delegate here)
 ├── lib/
 │   ├── platforms/    # Social provider implementations
-│   ├── rule-engine/  # Auto-reply matching and execution
+│   ├── rules/        # Auto-reply matching and execution
 │   ├── workers/      # graphile-worker job processors
 │   ├── queue/        # graphile-worker client (addJob + task list)
 │   ├── crypto.ts     # Token encryption
 │   └── prisma.ts     # Database client
-└── components/       # React components
 worker/
 └── inbox-worker.ts   # Worker entrypoint
 prisma/

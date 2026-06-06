@@ -23,7 +23,8 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 
 | Layer | Tech |
 |-------|------|
-| Framework | Next.js 16 (App Router) |
+| Framework | Hono (web server + API), `hono/html` SSR |
+| UI | Server-rendered HTML + htmx + Alpine.js (no client framework) |
 | Language | TypeScript 5 |
 | Database | PostgreSQL + Prisma |
 | Queue | PostgreSQL (graphile-worker) |
@@ -31,18 +32,21 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 | Platforms | Facebook, Instagram (extensible via provider pattern) |
 | Auth | Custom JWT (jose) |
 | Encryption | AES-256-GCM (Node.js crypto) |
+| Runtime | Bun (web + worker); Vitest on Node for tests |
 | Infra | Docker Compose |
 
 ## Architecture
 
 ```
-Web process (Next.js):
-  - /api/webhooks/meta/[channelId]  → enqueue jobs
-  - /api/oauth/facebook|instagram   → OAuth callbacks
-  - /api/cron/sequences             → drip campaign steps
-  - /dashboard/*                    → admin UI
+Web process (Hono, on Bun):
+  - src/server/app.ts             → Hono app: security headers, CORS, routing
+  - /api/webhooks/meta            → enqueue jobs
+  - /api/oauth/facebook|instagram → OAuth callbacks
+  - /api/cron/token-refresh       → token refresh trigger
+  - /api/v1/*                     → REST API (handlers in src/app/api/v1, delegated)
+  - /inbox, /channels, ...        → server-rendered dashboard (htmx + Alpine)
 
-Worker process (graphile-worker):
+Worker process (graphile-worker, on Bun):
   - incoming-messages worker  → contact upsert → rule engine → enqueue reply
   - outgoing-messages worker  → Meta Graph API send
   - token-refresh worker      → refresh expiring OAuth tokens
@@ -64,7 +68,10 @@ ReplyStack is API-first. All features exposed via REST at `/api/v1/*`.
 
 ```
 src/
-├── app/                  # Next.js App Router (auth, dashboard, API routes)
+├── server/               # Hono app: app.ts, routes/ (public/v1/special/pages/dashboard),
+│                         #   ui/ (hono/html templates + CSS), middleware/, index.ts (entry)
+├── app/api/              # Framework-neutral HTTP handler modules — the Hono routers in
+│                         #   src/server/routes delegate to these (no Next runtime)
 ├── lib/
 │   ├── platforms/        # SocialProvider base class + FB/IG implementations
 │   ├── rules/            # matcher.ts + executor.ts (keyword auto-reply)
@@ -73,7 +80,6 @@ src/
 │   ├── workers/          # Worker implementations (graphile tasks)
 │   ├── crypto.ts         # Token encryption/decryption
 │   └── prisma.ts         # PrismaClient singleton
-├── components/           # React components (inbox, rules, channels, ui)
 worker/
 └── inbox-worker.ts       # graphile-worker entrypoint (separate process)
 prisma/
@@ -94,14 +100,14 @@ Design was informed by internal reference implementations kept in a private work
 # Start dependencies
 docker compose up postgres nocodb
 
-# Install + migrate
+# Install + migrate (npm for deps + Prisma CLI; runtime is Bun)
 npm install
 npm run db:migrate
 
-# Run web (terminal 1)
+# Run web (Hono on Bun, terminal 1)
 npm run dev
 
-# Run worker (terminal 2)
+# Run worker (graphile-worker on Bun, terminal 2)
 npm run worker
 ```
 

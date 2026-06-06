@@ -55,7 +55,7 @@
 
 ## Quick Start
 
-**Prerequisites:** Docker, Docker Compose
+**Prerequisites:** Docker, Docker Compose (for local development without Docker: [Bun](https://bun.sh) + Node.js for tooling)
 
 ```bash
 git clone https://github.com/jurczykpawel/replystack.git
@@ -72,7 +72,7 @@ Edit `.env` -- fill in at minimum:
 
 ### Option A: Docker (recommended)
 
-Builds and starts everything -- PostgreSQL, Next.js web, graphile-worker:
+Builds and starts everything -- PostgreSQL, the Hono web server, graphile-worker:
 
 ```bash
 docker compose --profile app up
@@ -88,8 +88,8 @@ Start only the databases, run the app with hot-reload:
 docker compose up postgres         # database only
 npm install
 npx prisma migrate deploy          # create tables
-npm run dev                        # Next.js (terminal 1)
-npm run worker                     # graphile-worker (terminal 2)
+npm run dev                        # Hono web server (Bun, terminal 1)
+npm run worker                     # graphile-worker (Bun, terminal 2)
 ```
 
 Open http://localhost:3000.
@@ -108,7 +108,7 @@ Register an account, go to **Channels**, and connect your first Facebook Page or
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This runs nginx (port 80) + Next.js web + graphile-worker + PostgreSQL with pre-built images.
+This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images.
 
 ---
 
@@ -208,14 +208,14 @@ replystack/
 │       ├── workers/             # BullMQ job processors
 │       ├── auth/                # JWT sessions, API keys, password hashing
 │       ├── api/                 # Response helpers, rate limiter, body parser
-│       └── queue/               # BullMQ queue definitions
-├── worker/                      # Standalone BullMQ worker process
+│       └── queue/               # graphile-worker queue client
+├── worker/                      # Standalone graphile-worker process
 ├── prisma/                      # Database schema (15 models)
 └── docker/                      # Dockerfile, Dockerfile.worker, nginx.conf
 ```
 
 ```
-Web (Next.js)                    Worker (BullMQ)
+Web (Hono)                       Worker (graphile-worker)
 ─────────────                    ───────────────
 POST /api/webhooks/meta    ──>   incoming-messages  ──> contact upsert
                                                     ──> rule engine ──> outgoing-messages
@@ -266,12 +266,13 @@ All responses follow the shape `{ data, error, meta? }`.
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 16 (App Router) |
+| Framework | Hono (web server + API) |
+| UI | Server-rendered HTML + htmx + Alpine.js (no client framework) |
 | Database | PostgreSQL + Prisma 7 |
 | Queue | PostgreSQL (graphile-worker) |
 | Auth | JWT (jose) + API keys |
 | Encryption | AES-256-GCM (tokens at rest) |
-| Runtime | Node.js 18+ |
+| Runtime | Bun |
 | Infra | Docker Compose |
 
 ---
