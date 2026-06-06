@@ -148,7 +148,7 @@ See `.env.example`. Required:
 |-------|------|--------|
 | 0 | Project skeleton, auth, Docker Compose | done |
 | 1 | OAuth channels (FB + IG), webhook receiver | done |
-| 2 | Inbox core, manual reply, BullMQ worker | done |
+| 2 | Inbox core, manual reply, queue worker (graphile-worker) | done |
 | 3 | Rule engine (keyword auto-reply) | done |
 | 4 | Sequences (drip campaigns) | done |
 | 5 | Comment automation (comment → DM) | done |
