@@ -1,6 +1,8 @@
 import { jwtVerify } from "jose";
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { apiKeys, revokedTokens, users } from "@/db/schema";
 import { env } from "@/lib/env";
 
 export interface AuthContext {
@@ -63,9 +65,9 @@ async function authenticateApiKey(
 ): Promise<AuthContext | null> {
   const keyHash = createHash("sha256").update(rawKey).digest("hex");
 
-  const apiKey = await prisma.apiKey.findUnique({
-    where: { key_hash: keyHash },
-    select: { id: true, workspace_id: true, scopes: true, expires_at: true },
+  const apiKey = await db.query.apiKeys.findFirst({
+    where: eq(apiKeys.key_hash, keyHash),
+    columns: { id: true, workspace_id: true, scopes: true, expires_at: true },
   });
 
   if (!apiKey) return null;
@@ -75,18 +77,17 @@ async function authenticateApiKey(
   }
 
   // Update last_used_at in background (non-blocking)
-  void prisma.apiKey
-    .update({
-      where: { id: apiKey.id },
-      data: { last_used_at: new Date() },
-    })
+  void db
+    .update(apiKeys)
+    .set({ last_used_at: new Date() })
+    .where(eq(apiKeys.id, apiKey.id))
     .catch(() => {});
 
   return {
     userId: `api-key:${apiKey.id}`,
     workspaceId: apiKey.workspace_id,
     authMethod: "api_key",
-    scopes: apiKey.scopes,
+    scopes: apiKey.scopes ?? [],
   };
 }
 
@@ -126,14 +127,14 @@ async function authenticateSession(
 
     // Check JWT denylist (invalidated on logout)
     if (jti) {
-      const revoked = await prisma.revokedToken.findUnique({ where: { jti } });
+      const revoked = await db.query.revokedTokens.findFirst({ where: eq(revokedTokens.jti, jti) });
       if (revoked && revoked.expires_at > new Date()) return null;
     }
 
     // Verify user still exists (handles deleted/suspended accounts)
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true },
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { id: true },
     });
     if (!user) return null;
 
@@ -176,11 +177,10 @@ export async function invalidateSession(token: string): Promise<void> {
 
     const expires_at = new Date(exp * 1000);
     if (expires_at > new Date()) {
-      await prisma.revokedToken.upsert({
-        where: { jti },
-        create: { jti, expires_at },
-        update: { expires_at },
-      });
+      await db
+        .insert(revokedTokens)
+        .values({ jti: jti as string, expires_at })
+        .onConflictDoUpdate({ target: revokedTokens.jti, set: { expires_at } });
     }
   } catch {
     // Token already expired or invalid — no need to denylist
