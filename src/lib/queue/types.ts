@@ -54,6 +54,21 @@ export interface IncomingCommentJob {
   raw: Record<string, unknown>;
 }
 
+/** Emoji reaction to one of our messages (Messenger/IG `reaction` event). */
+export interface IncomingReactionJob {
+  platform: string;
+  pageId: string;
+  /** Reactor's platform-native id (PSID / IG user id) */
+  senderId: string;
+  /** Message id that was reacted to */
+  reactedMid: string;
+  /** Semantic reaction type (love, like, wow, ...) */
+  reactionType: string | undefined;
+  emoji: string | undefined;
+  timestamp: number | undefined;
+  raw: Record<string, unknown>;
+}
+
 export interface OutgoingMessageJob {
   channelId: string;
   conversationId: string;
@@ -89,6 +104,7 @@ export interface DrainChannelJob {
 export type TaskPayloadMap = {
   "incoming-message": IncomingMessageJob;
   "incoming-comment": IncomingCommentJob;
+  "incoming-reaction": IncomingReactionJob;
   "outgoing-message": OutgoingMessageJob;
   "outgoing-comment": OutgoingCommentJob;
   "outgoing-private-reply": OutgoingPrivateReplyJob;

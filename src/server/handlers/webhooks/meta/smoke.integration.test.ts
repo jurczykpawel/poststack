@@ -175,6 +175,46 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(job.rows[0].payload.storyId).toBe("STORY_1");
   });
 
+  it("ingests an emoji reaction (messaging.reaction) and enqueues incoming-reaction", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "page",
+      entry: [{
+        id: PAGE,
+        messaging: [{
+          sender: { id: "REACTOR" }, recipient: { id: PAGE }, timestamp: 1_770_000_000_000,
+          reaction: { mid: "MID_REACTED", action: "react", reaction: "love", emoji: "❤️" },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+    const job = await pool.query(
+      "select j.task_identifier, pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      ["reaction-REACTOR-MID_REACTED-1770000000000"],
+    );
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0].task_identifier).toBe("incoming-reaction");
+    expect(job.rows[0].payload.reactionType).toBe("love");
+    expect(job.rows[0].payload.reactedMid).toBe("MID_REACTED");
+  });
+
+  it("ignores an unreact event", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "page",
+      entry: [{
+        id: PAGE,
+        messaging: [{
+          sender: { id: "REACTOR" }, recipient: { id: PAGE }, timestamp: 1_770_000_000_001,
+          reaction: { mid: "MID_UN", action: "unreact" },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-reaction' and key like 'reaction-REACTOR-MID_UN%'");
+    expect(job.rows[0].n).toBe(0);
+  });
+
   it("flags a story mention (attachments[].type=story_mention) on the incoming-message job", async () => {
     if (!TEST_DB) return;
     const res = await POST(signed({

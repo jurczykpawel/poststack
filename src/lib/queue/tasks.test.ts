@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/workers/incoming-message-worker", () => ({ processIncomingMessage: vi.fn() }));
 vi.mock("@/lib/workers/incoming-comment-worker", () => ({ processIncomingComment: vi.fn() }));
+vi.mock("@/lib/workers/incoming-reaction-worker", () => ({ processIncomingReaction: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-message-worker", () => ({ processOutgoingMessage: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-comment-worker", () => ({ processOutgoingComment: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-private-reply-worker", () => ({ processOutgoingPrivateReply: vi.fn() }));
@@ -14,6 +15,7 @@ import { createTaskList } from "./tasks";
 const EXPECTED_TASKS = [
   "incoming-message",
   "incoming-comment",
+  "incoming-reaction",
   "outgoing-message",
   "outgoing-comment",
   "outgoing-private-reply",

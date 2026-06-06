@@ -30,6 +30,10 @@ export interface MatchContext {
   isStoryReply?: boolean;
   /** Message mentions us in the sender's story */
   isStoryMention?: boolean;
+  /** Event is an emoji reaction to one of our messages */
+  isReaction?: boolean;
+  /** Semantic reaction type (love, like, wow, sad, angry, dislike, smile, other) */
+  reactionType?: string;
 }
 
 /**
@@ -78,6 +82,15 @@ export function matchRule(
 
     case "story_mention":
       return ctx.eventType === "message" && ctx.isStoryMention === true;
+
+    case "reaction": {
+      if (ctx.eventType !== "message" || ctx.isReaction !== true) return false;
+      const allowed = trigger_config.reactions as string[] | undefined;
+      if (allowed && allowed.length > 0) {
+        return ctx.reactionType ? allowed.includes(ctx.reactionType) : false;
+      }
+      return true;
+    }
 
     default:
       return false;

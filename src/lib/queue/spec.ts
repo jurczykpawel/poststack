@@ -11,6 +11,7 @@ import type { TaskName } from "./types";
 export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   "incoming-message": 3,
   "incoming-comment": 3,
+  "incoming-reaction": 3,
   "outgoing-message": 3,
   "outgoing-comment": 3,
   "outgoing-private-reply": 3,
