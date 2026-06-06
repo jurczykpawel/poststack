@@ -27,12 +27,14 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.4",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
     "altcha": "^2.3.0",
     "altcha-lib": "^1.4.1",
     "dotenv": "^17.3.1",
     "graphile-worker": "^0.16.6",
+    "hono": "^4.12.23",
     "jose": "6.2.2",
     "next": "^16.2.1",
     "pg": "^8.20.0",
