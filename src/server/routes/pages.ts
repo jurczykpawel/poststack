@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { html, raw } from "hono/html";
-import * as login from "@/app/api/auth/login/route";
-import * as register from "@/app/api/auth/register/route";
-import * as logout from "@/app/api/auth/logout/route";
+import * as login from "@/server/handlers/auth/login/route";
+import * as register from "@/server/handlers/auth/register/route";
+import * as logout from "@/server/handlers/auth/logout/route";
 import { doc } from "../ui/layout";
 import { requireSession } from "../middleware/page-auth";
 import { registerDashboard } from "./dashboard";

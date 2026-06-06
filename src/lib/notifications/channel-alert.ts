@@ -15,7 +15,7 @@ export async function notifyChannelDown(alert: ChannelDownAlert): Promise<void> 
   const url = process.env.CHANNEL_ALERT_WEBHOOK_URL;
   if (!url) return;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = process.env.APP_URL;
   try {
     await fetch(url, {
       method: "POST",

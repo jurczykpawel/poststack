@@ -1,13 +1,13 @@
 import { Hono } from "hono";
-import * as login from "@/app/api/auth/login/route";
-import * as logout from "@/app/api/auth/logout/route";
-import * as register from "@/app/api/auth/register/route";
-import * as oauthFacebook from "@/app/api/oauth/facebook/route";
-import * as oauthFacebookCallback from "@/app/api/oauth/facebook/callback/route";
-import * as oauthInstagram from "@/app/api/oauth/instagram/route";
-import * as oauthInstagramCallback from "@/app/api/oauth/instagram/callback/route";
-import * as webhook from "@/app/api/webhooks/meta/route";
-import * as cronTokenRefresh from "@/app/api/cron/token-refresh/route";
+import * as login from "@/server/handlers/auth/login/route";
+import * as logout from "@/server/handlers/auth/logout/route";
+import * as register from "@/server/handlers/auth/register/route";
+import * as oauthFacebook from "@/server/handlers/oauth/facebook/route";
+import * as oauthFacebookCallback from "@/server/handlers/oauth/facebook/callback/route";
+import * as oauthInstagram from "@/server/handlers/oauth/instagram/route";
+import * as oauthInstagramCallback from "@/server/handlers/oauth/instagram/callback/route";
+import * as webhook from "@/server/handlers/webhooks/meta/route";
+import * as cronTokenRefresh from "@/server/handlers/cron/token-refresh/route";
 
 export const special = new Hono();
 

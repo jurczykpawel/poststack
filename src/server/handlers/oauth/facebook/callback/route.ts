@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 function redirect(path: string): Response {
   return new Response(null, {
     status: 302,
-    headers: { Location: `${env.NEXT_PUBLIC_APP_URL}${path}`, "Set-Cookie": clearOAuthStateCookie() },
+    headers: { Location: `${env.APP_URL}${path}`, "Set-Cookie": clearOAuthStateCookie() },
   });
 }
 
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 
   try {
     const provider = getProvider("facebook");
-    const redirectUri = `${env.NEXT_PUBLIC_APP_URL}/api/oauth/facebook/callback`;
+    const redirectUri = `${env.APP_URL}/api/oauth/facebook/callback`;
     const accounts = await provider.authenticate(code, redirectUri);
 
     if (accounts.length === 0) return redirect("/channels?error=no_pages");

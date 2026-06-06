@@ -133,7 +133,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-jwt-secret-not-real-but-must-be-32chars
           TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          APP_URL: http://localhost:3000
           CRON_SECRET: ci-cron-secret-not-real-but-32chars!
         run: npm run build
 

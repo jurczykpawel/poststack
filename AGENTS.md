@@ -43,7 +43,7 @@ Web process (Hono, on Bun):
   - /api/webhooks/meta            → enqueue jobs
   - /api/oauth/facebook|instagram → OAuth callbacks
   - /api/cron/token-refresh       → token refresh trigger
-  - /api/v1/*                     → REST API (handlers in src/app/api/v1, delegated)
+  - /api/v1/*                     → REST API (handlers in src/server/handlers/v1, delegated)
   - /inbox, /channels, ...        → server-rendered dashboard (htmx + Alpine)
 
 Worker process (graphile-worker, on Bun):
@@ -68,10 +68,12 @@ ReplyStack is API-first. All features exposed via REST at `/api/v1/*`.
 
 ```
 src/
-├── server/               # Hono app: app.ts, routes/ (public/v1/special/pages/dashboard),
-│                         #   ui/ (hono/html templates + CSS), middleware/, index.ts (entry)
-├── app/api/              # Framework-neutral HTTP handler modules — the Hono routers in
-│                         #   src/server/routes delegate to these (no Next runtime)
+├── server/               # Hono app
+│   ├── app.ts            #   factory: security headers, CORS, route mounting; index.ts (entry)
+│   ├── routes/           #   public/v1/special/pages/dashboard routers
+│   ├── handlers/         #   framework-neutral HTTP handler modules (routes delegate here)
+│   ├── ui/               #   hono/html templates + CSS
+│   └── middleware/       #   security-headers, page-auth
 ├── lib/
 │   ├── platforms/        # SocialProvider base class + FB/IG implementations
 │   ├── rules/            # matcher.ts + executor.ts (keyword auto-reply)
