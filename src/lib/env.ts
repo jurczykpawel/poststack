@@ -14,7 +14,7 @@ const envSchema = z.object({
     .length(64, "TOKEN_ENCRYPTION_KEY must be a 32-byte hex string (64 chars). Generate: openssl rand -hex 32"),
 
   // App
-  NEXT_PUBLIC_APP_URL: z.string().url(),
+  APP_URL: z.string().url(),
 
   // Altcha CAPTCHA (optional -- login/register skip verification without key)
   ALTCHA_HMAC_KEY: z.string().default(""),

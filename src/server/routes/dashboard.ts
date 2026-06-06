@@ -4,16 +4,16 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import { prisma } from "@/lib/prisma";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
-import * as channel from "@/app/api/v1/channels/[channelId]/route";
-import * as channelDrain from "@/app/api/v1/channels/[channelId]/drain/route";
-import * as channelConnectToken from "@/app/api/v1/channels/connect-token/route";
-import * as conversationMessages from "@/app/api/v1/conversations/[conversationId]/messages/route";
-import * as rules from "@/app/api/v1/rules/route";
-import * as rule from "@/app/api/v1/rules/[ruleId]/route";
-import * as sequences from "@/app/api/v1/sequences/route";
-import * as sequence from "@/app/api/v1/sequences/[sequenceId]/route";
-import * as apiKeys from "@/app/api/v1/api-keys/route";
-import * as apiKey from "@/app/api/v1/api-keys/[keyId]/route";
+import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
+import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
+import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
+import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
+import * as rules from "@/server/handlers/v1/rules/route";
+import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
+import * as sequences from "@/server/handlers/v1/sequences/route";
+import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
+import * as apiKeys from "@/server/handlers/v1/api-keys/route";
+import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { dashboardDoc } from "../ui/layout";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -355,7 +355,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
           <section class="section">
             <h2>Webhook</h2>
             <p class="muted" style="margin-bottom:.5rem">Configure the Meta webhook to receive messages and comments.</p>
-            <div class="card mono">${env.NEXT_PUBLIC_APP_URL}/api/webhooks/meta</div>
+            <div class="card mono">${env.APP_URL}/api/webhooks/meta</div>
           </section>
         </div>`,
       ),

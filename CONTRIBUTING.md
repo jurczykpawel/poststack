@@ -21,8 +21,7 @@ Open http://localhost:3000
 
 ```
 src/
-├── server/           # Hono app: app.ts, routes/, ui/ (htmx + Alpine), middleware/
-├── app/api/          # Framework-neutral HTTP handler modules (Hono routes delegate here)
+├── server/           # Hono app: app.ts, routes/, handlers/ (framework-neutral), ui/, middleware/
 ├── lib/
 │   ├── platforms/    # Social provider implementations
 │   ├── rules/        # Auto-reply matching and execution
