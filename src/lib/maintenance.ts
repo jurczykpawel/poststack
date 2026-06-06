@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { lt } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { outboundIdempotency, ruleCooldowns, revokedTokens, rateLimitCounters } from "@/db/schema";
 
 /**
  * Delete time-expired ephemeral rows so the tables don't grow unbounded.
@@ -8,12 +10,9 @@ import { prisma } from "@/lib/prisma";
  * (rule_send_counts) are not pruned.
  */
 export async function pruneExpired(now: Date = new Date()): Promise<void> {
-  const where = { expires_at: { lt: now } };
-  await prisma.outboundIdempotency.deleteMany({ where });
-  await prisma.ruleCooldown.deleteMany({ where });
-  await prisma.revokedToken.deleteMany({ where });
+  await db.delete(outboundIdempotency).where(lt(outboundIdempotency.expires_at, now));
+  await db.delete(ruleCooldowns).where(lt(ruleCooldowns.expires_at, now));
+  await db.delete(revokedTokens).where(lt(revokedTokens.expires_at, now));
   // Rate-limit counters age by window_start, not expires_at; drop stale windows.
-  await prisma.rateLimitCounter.deleteMany({
-    where: { window_start: { lt: new Date(now.getTime() - 3_600_000) } },
-  });
+  await db.delete(rateLimitCounters).where(lt(rateLimitCounters.window_start, new Date(now.getTime() - 3_600_000)));
 }
