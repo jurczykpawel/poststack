@@ -1,4 +1,4 @@
-import { authenticate, authenticateWithScope } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";

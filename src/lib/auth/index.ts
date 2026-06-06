@@ -188,6 +188,15 @@ export async function invalidateSession(token: string): Promise<void> {
 }
 
 /**
+ * Build a `Set-Cookie` header value for the session cookie.
+ * An empty token with maxAge 0 clears it.
+ */
+export function sessionCookie(token: string, maxAgeSeconds: number): string {
+  const secure = process.env.NODE_ENV === "production" ? " Secure;" : "";
+  return `rs_session=${token}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+}
+
+/**
  * Generate a new API key for a workspace.
  * Returns the plaintext key (shown once) and the prefix (stored).
  */

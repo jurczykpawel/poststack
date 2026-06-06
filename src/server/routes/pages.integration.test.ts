@@ -7,6 +7,7 @@ const PASSWORD = "supersecret123";
 
 let prisma: typeof import("@/lib/prisma").prisma;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
+let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 let app: Hono;
 let cookie = "";
 let workspaceId = "";
@@ -28,6 +29,7 @@ beforeAll(async () => {
   delete process.env.ALTCHA_HMAC_KEY;
   ({ prisma } = await import("@/lib/prisma"));
   ({ encryptTokens } = await import("@/lib/crypto"));
+  ({ closeQueue } = await import("@/lib/queue/client"));
   const { buildApp } = await import("../app");
   app = buildApp();
 
@@ -51,7 +53,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!TEST_DB) return;
+  // The reply test enqueues an outgoing-message; clear the shared queue for
+  // serially-following suites.
+  await prisma.$executeRawUnsafe("truncate table graphile_worker._private_jobs cascade");
   await prisma.user.deleteMany({ where: { email: EMAIL } });
+  if (closeQueue) await closeQueue();
   await prisma.$disconnect();
 });
 

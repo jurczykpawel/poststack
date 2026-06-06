@@ -56,6 +56,8 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (!TEST_DB) return;
+  // Leave the shared graphile queue clean for serially-following suites.
+  await pool.query("truncate table graphile_worker._private_jobs cascade");
   await prisma.user.deleteMany({ where: { email: EMAIL } });
   await prisma.workspace.deleteMany({ where: { id: WS } });
   if (closeQueue) await closeQueue();

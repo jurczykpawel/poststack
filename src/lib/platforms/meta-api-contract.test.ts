@@ -14,7 +14,7 @@
  * See: https://developers.facebook.com/docs/graph-api/changelog
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { META_API_VERSION, GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
+import { META_API_VERSION, META_OAUTH_BASE } from "./constants";
 
 // --- Mock env before importing providers ---
 vi.mock("@/lib/env", () => ({
