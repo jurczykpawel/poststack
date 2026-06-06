@@ -3,6 +3,7 @@ import { processIncomingMessage } from "@/lib/workers/incoming-message-worker";
 import { processIncomingComment } from "@/lib/workers/incoming-comment-worker";
 import { processOutgoingMessage } from "@/lib/workers/outgoing-message-worker";
 import { processOutgoingComment } from "@/lib/workers/outgoing-comment-worker";
+import { processOutgoingPrivateReply } from "@/lib/workers/outgoing-private-reply-worker";
 import { processTokenRefresh } from "@/lib/workers/token-refresh-worker";
 import { processSequenceStep } from "@/lib/workers/sequence-step-worker";
 import { drainChannel } from "@/lib/channels/drain";
@@ -22,6 +23,8 @@ export function createTaskList(): TaskList {
       processOutgoingMessage(p as TaskPayloadMap["outgoing-message"], h),
     "outgoing-comment": (p, h) =>
       processOutgoingComment(p as TaskPayloadMap["outgoing-comment"], h),
+    "outgoing-private-reply": (p, h) =>
+      processOutgoingPrivateReply(p as TaskPayloadMap["outgoing-private-reply"], h),
     "token-refresh": (p, h) =>
       processTokenRefresh(p as TaskPayloadMap["token-refresh"], h),
     "sequence-step": (p, h) =>

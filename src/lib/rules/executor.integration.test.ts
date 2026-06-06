@@ -105,6 +105,20 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(1);
   });
 
+  it("routes a comment-triggered DM through outgoing-private-reply (not outgoing-message)", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "CmtDM", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "DM!", reply_mode: "dm" },
+    });
+    const fired = await evaluateRules({ ...baseInput, text: "info here", eventType: "comment", commentId: "CMT-1" });
+    expect(fired).not.toBeNull();
+    expect(await outgoingJobCount()).toBe(0);
+    const pr = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-private-reply'`);
+    expect(Number((pr.rows[0] as { n: number }).n)).toBe(1);
+  });
+
   it("queues a pending approval (no send) when the rule requires approval", async () => {
     if (!TEST_DB) return;
     const id = await seedRule({ requires_approval: true });

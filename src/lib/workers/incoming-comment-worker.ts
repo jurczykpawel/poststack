@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import type { IncomingCommentJob } from "@/lib/queue/types";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, commentLogs, contactChannels, conversations } from "@/db/schema";
+import { channels, commentLogs, contactChannels, contacts, conversations } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 
 /**
@@ -10,7 +10,9 @@ import { evaluateRules } from "@/lib/rules/executor";
  *
  * 1. Resolve Channel from pageId
  * 2. Log the comment (dedup by unique constraint on channel_id + platform_comment_id)
- * 3. Evaluate comment_keyword rules
+ * 3. Upsert a contact + conversation for the commenter, then evaluate rules.
+ *    Works first-touch: a commenter who never DM'd still gets a public reply
+ *    and/or a private reply (addressed by comment_id).
  */
 export async function processIncomingComment(
   payload: IncomingCommentJob,
@@ -26,7 +28,7 @@ export async function processIncomingComment(
   // 1. Find active channel
   const channel = await db.query.channels.findFirst({
     where: and(eq(channels.platform_id, pageId), ne(channels.status, "disabled")),
-    columns: { id: true, workspace_id: true },
+    columns: { id: true, workspace_id: true, platform: true },
   });
 
   if (!channel) {
@@ -57,47 +59,72 @@ export async function processIncomingComment(
 
   helpers.logger.info(`Logged comment=${commentId} post=${postId} author=${senderId}`);
 
-  // 3. Evaluate comment_keyword rules
-  //    Comments don't have a conversation — senderId is the commenter.
-  //    If a rule fires, it sends a DM (needs a contact + conversation for this sender).
-  if (senderId) {
-    // Find or skip — if this commenter has never DM'd, we don't have their contact yet.
-    // The rule can only send a DM if we have an existing ContactChannel (PSID).
-    const contactChannel = await db.query.contactChannels.findFirst({
-      where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
-      columns: {
-        contact_id: true,
-        platform_sender_id: true,
-      },
-    });
+  // 3. Upsert the commenter as a contact + conversation, then evaluate rules.
+  //    The commenter is keyed by their comment author id. A DM reply is sent via
+  //    private_replies (comment_id), so no prior messaging PSID is required.
+  if (!senderId) return;
 
-    if (contactChannel) {
-      // Find conversation for this contact+channel
-      const conversation = await db.query.conversations.findFirst({
-        where: and(eq(conversations.channel_id, channel.id), eq(conversations.contact_id, contactChannel.contact_id)),
-        columns: { id: true, is_automation_paused: true },
+  const existingCC = await db.query.contactChannels.findFirst({
+    where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
+    columns: { contact_id: true },
+  });
+
+  let contactId: string;
+  if (existingCC) {
+    contactId = existingCC.contact_id;
+    await db.update(contacts).set({ last_interaction_at: new Date() }).where(eq(contacts.id, contactId));
+  } else {
+    contactId = await db.transaction(async (tx) => {
+      const [contact] = await tx
+        .insert(contacts)
+        .values({ workspace_id: channel.workspace_id, display_name: senderName ?? null, last_interaction_at: new Date() })
+        .returning({ id: contacts.id });
+      await tx.insert(contactChannels).values({
+        contact_id: contact.id,
+        channel_id: channel.id,
+        platform_sender_id: senderId,
       });
+      return contact.id;
+    });
+  }
 
-      if (conversation && !conversation.is_automation_paused) {
-        try {
-          const matchedRuleId = await evaluateRules({
-            workspaceId: channel.workspace_id,
-            channelId: channel.id,
-            conversationId: conversation.id,
-            contactId: contactChannel.contact_id,
-            recipientPlatformId: contactChannel.platform_sender_id,
-            text,
-            eventType: "comment",
-            postId: postId ?? undefined,
-            commentId,
-          });
-          if (matchedRuleId) {
-            helpers.logger.info(`Comment rule fired: ${matchedRuleId}`);
-          }
-        } catch (err) {
-          helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+  const [conversation] = await db
+    .insert(conversations)
+    .values({
+      workspace_id: channel.workspace_id,
+      channel_id: channel.id,
+      contact_id: contactId,
+      platform: channel.platform,
+      last_message_at: new Date(),
+      last_message_preview: text.slice(0, 255),
+    })
+    .onConflictDoUpdate({
+      target: [conversations.channel_id, conversations.contact_id],
+      set: { status: "open", last_message_at: new Date() },
+    })
+    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
+
+  if (conversation.is_automation_paused) {
+    helpers.logger.info(`Automation paused for conversation=${conversation.id}, not replying`);
+    return;
+  }
+
+  try {
+    const matchedRuleId = await evaluateRules({
+      workspaceId: channel.workspace_id,
+      channelId: channel.id,
+      conversationId: conversation.id,
+      contactId,
+      recipientPlatformId: senderId,
+      text,
+      eventType: "comment",
+      postId: postId ?? undefined,
+      commentId,
+    });
+    if (matchedRuleId) {
+      helpers.logger.info(`Comment rule fired: ${matchedRuleId}`);
     }
+  } catch (err) {
+    helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

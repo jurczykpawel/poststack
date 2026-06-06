@@ -4,6 +4,7 @@ vi.mock("@/lib/workers/incoming-message-worker", () => ({ processIncomingMessage
 vi.mock("@/lib/workers/incoming-comment-worker", () => ({ processIncomingComment: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-message-worker", () => ({ processOutgoingMessage: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-comment-worker", () => ({ processOutgoingComment: vi.fn() }));
+vi.mock("@/lib/workers/outgoing-private-reply-worker", () => ({ processOutgoingPrivateReply: vi.fn() }));
 vi.mock("@/lib/workers/token-refresh-worker", () => ({ processTokenRefresh: vi.fn() }));
 vi.mock("@/lib/workers/sequence-step-worker", () => ({ processSequenceStep: vi.fn() }));
 vi.mock("@/lib/channels/drain", () => ({ drainChannel: vi.fn() }));
@@ -15,6 +16,7 @@ const EXPECTED_TASKS = [
   "incoming-comment",
   "outgoing-message",
   "outgoing-comment",
+  "outgoing-private-reply",
   "token-refresh",
   "sequence-step",
   "drain-channel",
