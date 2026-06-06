@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
 import { env } from "@/lib/env";
 import { addJob } from "@/lib/queue/client";
 import { getProvider } from "@/lib/platforms/registry";
@@ -19,15 +21,15 @@ export async function GET(request: Request) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const channels = await prisma.channel.findMany({
-    // manual_token channels carry a long-lived token and are never refreshed (REL4).
-    where: { status: "active", connection_mode: "oauth" },
-    select: { id: true, platform: true, token_encrypted: true },
+  // manual_token channels carry a long-lived token and are never refreshed (REL4).
+  const rows = await db.query.channels.findMany({
+    where: and(eq(channels.status, "active"), eq(channels.connection_mode, "oauth")),
+    columns: { id: true, platform: true, token_encrypted: true },
   });
 
   let enqueued = 0;
 
-  for (const channel of channels) {
+  for (const channel of rows) {
     const provider = getProvider(channel.platform);
     if (!provider.requiresTokenRefresh()) continue;
 

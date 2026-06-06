@@ -1,7 +1,8 @@
-import { authenticate } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { eq, desc } from "drizzle-orm";
+import { authenticate, generateApiKey } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { apiKeys } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
-import { generateApiKey } from "@/lib/auth";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
 import { z } from "zod";
@@ -13,10 +14,10 @@ export async function GET(request: Request) {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
-  const keys = await prisma.apiKey.findMany({
-    where: { workspace_id: auth.workspaceId },
-    orderBy: { created_at: "desc" },
-    select: {
+  const keys = await db.query.apiKeys.findMany({
+    where: eq(apiKeys.workspace_id, auth.workspaceId),
+    orderBy: desc(apiKeys.created_at),
+    columns: {
       id: true,
       name: true,
       key_prefix: true,
@@ -68,17 +69,23 @@ export async function POST(request: Request) {
 
   const { plaintext, prefix, hash } = generateApiKey();
 
-  const apiKey = await prisma.apiKey.create({
-    data: {
+  const [apiKey] = await db
+    .insert(apiKeys)
+    .values({
       workspace_id: auth.workspaceId,
       name: parsed.data.name,
       key_hash: hash,
       key_prefix: prefix,
       scopes: parsed.data.scopes,
       expires_at: parsed.data.expires_at ? new Date(parsed.data.expires_at) : null,
-    },
-    select: { id: true, name: true, key_prefix: true, expires_at: true, created_at: true },
-  });
+    })
+    .returning({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      key_prefix: apiKeys.key_prefix,
+      expires_at: apiKeys.expires_at,
+      created_at: apiKeys.created_at,
+    });
 
   // plaintext is returned ONCE and never stored
   return created({ ...apiKey, key: plaintext });

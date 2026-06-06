@@ -1,5 +1,7 @@
+import { eq, desc } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { auditLogs } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 
 export const runtime = "nodejs";
@@ -16,12 +18,12 @@ export async function GET(request: Request) {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
-  const logs = await prisma.auditLog.findMany({
-    where: { workspace_id: auth.workspaceId },
-    orderBy: { created_at: "desc" },
-    take: limit,
-    skip: offset,
-    select: {
+  const logs = await db.query.auditLogs.findMany({
+    where: eq(auditLogs.workspace_id, auth.workspaceId),
+    orderBy: desc(auditLogs.created_at),
+    limit,
+    offset,
+    columns: {
       id: true,
       actor_type: true,
       actor_id: true,

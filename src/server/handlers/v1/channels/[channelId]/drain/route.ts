@@ -1,5 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { drainChannel } from "@/lib/channels/drain";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
@@ -15,9 +17,9 @@ export async function POST(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  const channel = await prisma.channel.findFirst({
-    where: { id: channelId, workspace_id: auth.workspaceId },
-    select: { id: true },
+  const channel = await db.query.channels.findFirst({
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!channel) return ApiErrors.notFound("Channel");
 
