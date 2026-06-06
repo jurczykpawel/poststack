@@ -118,35 +118,29 @@ export async function POST(request: Request) {
       }
     }
 
-    // Comment events
+    // Comment events — Facebook (field "feed") and Instagram (field "comments")
     for (const change of entry.changes ?? []) {
-      if (
-        change.field === "feed" &&
-        change.value?.item === "comment" &&
-        change.value.verb === "add" &&
-        change.value.comment_id
-      ) {
-        const job: IncomingCommentJob = {
-          platform,
-          pageId: entry.id,
-          commentId: change.value.comment_id,
-          postId: change.value.post_id ?? change.value.media_id,
-          senderId: change.value.from?.id,
-          senderName: change.value.from?.name,
-          text: change.value.message,
-          timestamp: change.value.created_time,
-          raw: change.value as Record<string, unknown>,
-        };
+      const comment = normalizeComment(change);
+      if (!comment) continue;
 
-        try {
-          await addJob("incoming-comment", job, {
-            jobKey: `comment-${change.value.comment_id}`,
-          });
-          enqueued++;
-        } catch (err) {
-          failed++;
-          console.error("[webhook] Failed to enqueue comment:", err);
-        }
+      const job: IncomingCommentJob = {
+        platform,
+        pageId: entry.id,
+        commentId: comment.commentId,
+        postId: comment.postId,
+        senderId: comment.senderId,
+        senderName: comment.senderName,
+        text: comment.text,
+        timestamp: comment.timestamp,
+        raw: change.value as Record<string, unknown>,
+      };
+
+      try {
+        await addJob("incoming-comment", job, { jobKey: `comment-${comment.commentId}` });
+        enqueued++;
+      } catch (err) {
+        failed++;
+        console.error("[webhook] Failed to enqueue comment:", err);
       }
     }
   }
@@ -157,6 +151,53 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ status: "ok" });
+}
+
+// ─── Comment normalization ─────────────────────────────────────────────────
+
+interface NormalizedComment {
+  commentId: string;
+  postId: string | undefined;
+  senderId: string | undefined;
+  senderName: string | undefined;
+  text: string | undefined;
+  timestamp: number | undefined;
+}
+
+/**
+ * Normalize a comment change across platforms.
+ * Facebook page comments arrive as field "feed" (item=comment, verb=add);
+ * Instagram comments arrive as field "comments" with a flatter shape.
+ */
+function normalizeComment(change: ChangeEvent): NormalizedComment | null {
+  const v = change.value;
+  if (!v) return null;
+
+  if (change.field === "feed") {
+    if (v.item !== "comment" || v.verb !== "add" || !v.comment_id) return null;
+    return {
+      commentId: v.comment_id,
+      postId: v.post_id ?? v.media_id,
+      senderId: v.from?.id,
+      senderName: v.from?.name,
+      text: v.message,
+      timestamp: v.created_time,
+    };
+  }
+
+  if (change.field === "comments") {
+    if (!v.id) return null;
+    return {
+      commentId: v.id,
+      postId: v.media?.id ?? v.media_id,
+      senderId: v.from?.id,
+      senderName: v.from?.username ?? v.from?.name,
+      text: v.text,
+      timestamp: v.created_time,
+    };
+  }
+
+  return null;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -190,13 +231,18 @@ interface MessagingEvent {
 interface ChangeEvent {
   field: string;
   value: {
+    // Facebook "feed" comment fields
     item?: string;
     verb?: string;
     comment_id?: string;
     post_id?: string;
-    media_id?: string;
-    from?: { id: string; name: string };
     message?: string;
+    // Instagram "comments" fields
+    id?: string;
+    text?: string;
+    media?: { id?: string };
+    media_id?: string;
+    from?: { id: string; name?: string; username?: string };
     created_time?: number;
     [key: string]: unknown;
   };

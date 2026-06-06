@@ -90,6 +90,69 @@ function signedWebhook(mid: string, text: string) {
   });
 }
 
+function signed(payload: unknown) {
+  const body = JSON.stringify(payload);
+  const signature = `sha256=${createHmac("sha256", APP_SECRET).update(body, "utf8").digest("hex")}`;
+  return new Request("http://x/api/webhooks/meta", {
+    method: "POST",
+    headers: { "x-hub-signature-256": signature, "content-type": "application/json" },
+    body,
+  });
+}
+
+describe("webhook ingestion: Instagram comments (real Postgres)", () => {
+  it("ingests a Facebook page comment (field=feed) and enqueues incoming-comment", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "page",
+      entry: [{
+        id: "FB_PAGE",
+        changes: [{
+          field: "feed",
+          value: { item: "comment", verb: "add", comment_id: "FB_CMT_1", post_id: "POST_7", message: "info", from: { id: "ASID1", name: "Bob" } },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+    const job = await pool.query(
+      "select j.task_identifier, pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      ["comment-FB_CMT_1"],
+    );
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0].payload.postId).toBe("POST_7");
+    expect(job.rows[0].payload.platform).toBe("facebook");
+  });
+
+  it("ingests an Instagram comment (field=comments) and enqueues incoming-comment", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "instagram",
+      entry: [{
+        id: "IG_PAGE",
+        changes: [{
+          field: "comments",
+          value: { id: "IG_CMT_1", text: "info please", from: { id: "IGSID1", username: "jane" }, media: { id: "MEDIA_1" } },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+
+    const job = await pool.query(
+      "select j.task_identifier, pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      ["comment-IG_CMT_1"],
+    );
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0].task_identifier).toBe("incoming-comment");
+    const p = job.rows[0].payload;
+    expect(p.platform).toBe("instagram");
+    expect(p.commentId).toBe("IG_CMT_1");
+    expect(p.postId).toBe("MEDIA_1");
+    expect(p.text).toBe("info please");
+    expect(p.senderId).toBe("IGSID1");
+    expect(p.senderName).toBe("jane");
+  });
+});
+
 describe("smoke E2E: webhook → worker → auto-reply (real Postgres)", () => {
   it("ingests a DM, the incoming worker fires a rule, and a reply is enqueued", async () => {
     if (!TEST_DB) return;
