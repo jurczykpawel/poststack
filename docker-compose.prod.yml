@@ -11,7 +11,7 @@ services:
     restart: always
 
   web:
-    image: ghcr.io/${GITHUB_REPOSITORY:-replystack/replystack}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}:${IMAGE_TAG:-latest}
     env_file: .env
     depends_on:
       postgres:
@@ -24,7 +24,7 @@ services:
       retries: 3
 
   worker:
-    image: ghcr.io/${GITHUB_REPOSITORY:-replystack/replystack}-worker:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}-worker:${IMAGE_TAG:-latest}
     env_file: .env
     depends_on:
       postgres:
