@@ -1,6 +1,7 @@
 import type { TaskList } from "graphile-worker";
 import { processIncomingMessage } from "@/lib/workers/incoming-message-worker";
 import { processIncomingComment } from "@/lib/workers/incoming-comment-worker";
+import { processIncomingReaction } from "@/lib/workers/incoming-reaction-worker";
 import { processOutgoingMessage } from "@/lib/workers/outgoing-message-worker";
 import { processOutgoingComment } from "@/lib/workers/outgoing-comment-worker";
 import { processOutgoingPrivateReply } from "@/lib/workers/outgoing-private-reply-worker";
@@ -19,6 +20,8 @@ export function createTaskList(): TaskList {
       processIncomingMessage(p as TaskPayloadMap["incoming-message"], h),
     "incoming-comment": (p, h) =>
       processIncomingComment(p as TaskPayloadMap["incoming-comment"], h),
+    "incoming-reaction": (p, h) =>
+      processIncomingReaction(p as TaskPayloadMap["incoming-reaction"], h),
     "outgoing-message": (p, h) =>
       processOutgoingMessage(p as TaskPayloadMap["outgoing-message"], h),
     "outgoing-comment": (p, h) =>

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."trigger_type" ADD VALUE 'reaction';

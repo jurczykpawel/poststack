@@ -46,7 +46,7 @@ const patchSchema = z.object({
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).max(999).optional(),
   trigger_type: z
-    .enum(["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention"])
+    .enum(["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention", "reaction"])
     .optional(),
   trigger_config: z.record(z.string(), z.unknown()).optional(),
   response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]).optional(),

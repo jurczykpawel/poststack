@@ -2,7 +2,7 @@ import { env } from "@/lib/env";
 import { verifyMetaSignature } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { addJob } from "@/lib/queue/client";
-import type { IncomingMessageJob, IncomingCommentJob } from "@/lib/queue/types";
+import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob } from "@/lib/queue/types";
 
 export const runtime = "nodejs";
 
@@ -126,6 +126,33 @@ export async function POST(request: Request) {
       }
     }
 
+    // Reaction events (emoji reaction to one of our messages -- separate event)
+    for (const messagingEvent of entry.messaging ?? []) {
+      const reaction = messagingEvent.reaction;
+      if (!reaction || reaction.action !== "react") continue;
+
+      const job: IncomingReactionJob = {
+        platform,
+        pageId: entry.id,
+        senderId: messagingEvent.sender.id,
+        reactedMid: reaction.mid,
+        reactionType: reaction.reaction,
+        emoji: reaction.emoji,
+        timestamp: messagingEvent.timestamp,
+        raw: messagingEvent as unknown as Record<string, unknown>,
+      };
+
+      try {
+        await addJob("incoming-reaction", job, {
+          jobKey: `reaction-${messagingEvent.sender.id}-${reaction.mid}-${messagingEvent.timestamp}`,
+        });
+        enqueued++;
+      } catch (err) {
+        failed++;
+        console.error("[webhook] Failed to enqueue reaction:", err);
+      }
+    }
+
     // Comment events — Facebook (field "feed") and Instagram (field "comments")
     for (const change of entry.changes ?? []) {
       const comment = normalizeComment(change);
@@ -234,6 +261,12 @@ interface MessagingEvent {
   postback?: {
     payload: string;
     title?: string;
+  };
+  reaction?: {
+    mid: string;
+    action: string;
+    emoji?: string;
+    reaction?: string;
   };
 }
 

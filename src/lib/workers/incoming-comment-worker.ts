@@ -2,8 +2,9 @@ import type { JobHelpers } from "graphile-worker";
 import type { IncomingCommentJob } from "@/lib/queue/types";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, commentLogs, contactChannels, contacts, conversations } from "@/db/schema";
+import { channels, commentLogs } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
+import { resolveContactConversation } from "./resolve-contact";
 
 /**
  * Process an incoming comment on a Facebook post or Instagram media.
@@ -64,48 +65,15 @@ export async function processIncomingComment(
   //    private_replies (comment_id), so no prior messaging PSID is required.
   if (!senderId) return;
 
-  const existingCC = await db.query.contactChannels.findFirst({
-    where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
-    columns: { contact_id: true },
-  });
+  const { contactId, conversationId, isAutomationPaused } = await resolveContactConversation(
+    channel,
+    senderId,
+    senderName ?? null,
+    text.slice(0, 255),
+  );
 
-  let contactId: string;
-  if (existingCC) {
-    contactId = existingCC.contact_id;
-    await db.update(contacts).set({ last_interaction_at: new Date() }).where(eq(contacts.id, contactId));
-  } else {
-    contactId = await db.transaction(async (tx) => {
-      const [contact] = await tx
-        .insert(contacts)
-        .values({ workspace_id: channel.workspace_id, display_name: senderName ?? null, last_interaction_at: new Date() })
-        .returning({ id: contacts.id });
-      await tx.insert(contactChannels).values({
-        contact_id: contact.id,
-        channel_id: channel.id,
-        platform_sender_id: senderId,
-      });
-      return contact.id;
-    });
-  }
-
-  const [conversation] = await db
-    .insert(conversations)
-    .values({
-      workspace_id: channel.workspace_id,
-      channel_id: channel.id,
-      contact_id: contactId,
-      platform: channel.platform,
-      last_message_at: new Date(),
-      last_message_preview: text.slice(0, 255),
-    })
-    .onConflictDoUpdate({
-      target: [conversations.channel_id, conversations.contact_id],
-      set: { status: "open", last_message_at: new Date() },
-    })
-    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
-
-  if (conversation.is_automation_paused) {
-    helpers.logger.info(`Automation paused for conversation=${conversation.id}, not replying`);
+  if (isAutomationPaused) {
+    helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying`);
     return;
   }
 
@@ -113,7 +81,7 @@ export async function processIncomingComment(
     const matchedRuleId = await evaluateRules({
       workspaceId: channel.workspace_id,
       channelId: channel.id,
-      conversationId: conversation.id,
+      conversationId,
       contactId,
       recipientPlatformId: senderId,
       text,

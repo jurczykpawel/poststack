@@ -21,6 +21,7 @@ let s: typeof import("@/db/schema");
 let w: {
   processIncomingMessage: typeof import("./incoming-message-worker").processIncomingMessage;
   processIncomingComment: typeof import("./incoming-comment-worker").processIncomingComment;
+  processIncomingReaction: typeof import("./incoming-reaction-worker").processIncomingReaction;
   processOutgoingMessage: typeof import("./outgoing-message-worker").processOutgoingMessage;
   processOutgoingComment: typeof import("./outgoing-comment-worker").processOutgoingComment;
   processOutgoingPrivateReply: typeof import("./outgoing-private-reply-worker").processOutgoingPrivateReply;
@@ -55,6 +56,7 @@ beforeAll(async () => {
   w = {
     processIncomingMessage: (await import("./incoming-message-worker")).processIncomingMessage,
     processIncomingComment: (await import("./incoming-comment-worker")).processIncomingComment,
+    processIncomingReaction: (await import("./incoming-reaction-worker")).processIncomingReaction,
     processOutgoingMessage: (await import("./outgoing-message-worker")).processOutgoingMessage,
     processOutgoingComment: (await import("./outgoing-comment-worker")).processOutgoingComment,
     processOutgoingPrivateReply: (await import("./outgoing-private-reply-worker")).processOutgoingPrivateReply,
@@ -168,6 +170,33 @@ describe("incoming-comment worker", () => {
     await w.processIncomingComment(job as never, helpers);
     expect(await jobCount("outgoing-comment")).toBe(0);
     expect(await jobCount("outgoing-private-reply")).toBe(0);
+  });
+});
+
+describe("incoming-reaction worker", () => {
+  async function seedReactionRule(over: Record<string, unknown> = {}) {
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "React", trigger_type: "reaction", is_active: true, cooldown_seconds: 0,
+      trigger_config: {}, response_type: "text", response_config: { text: "thanks for the reaction!" }, ...over,
+    });
+  }
+
+  it("fires a reaction rule and DMs the reactor (new contact materialised)", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule();
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-1", reactedMid: "m-1", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    const cc = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "REACTOR-1")));
+    expect(cc.length).toBe(1);
+    expect(await jobCount("outgoing-message")).toBe(1);
+  });
+
+  it("respects a reactions filter (only the listed type fires)", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule({ trigger_config: { reactions: ["love"] } });
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "angry", emoji: "😠", timestamp: ts(), raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(0);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
   });
 });
 

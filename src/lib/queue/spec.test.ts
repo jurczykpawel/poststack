@@ -5,6 +5,7 @@ import type { TaskName } from "./types";
 const ALL_TASKS: TaskName[] = [
   "incoming-message",
   "incoming-comment",
+  "incoming-reaction",
   "outgoing-message",
   "outgoing-comment",
   "outgoing-private-reply",

@@ -17,6 +17,7 @@ const triggerConfigSchema = z
     keywords: z.array(keywordSchema).min(1).optional(),
     post_id: z.string().min(1).max(255).optional(), // comment_keyword: scope to one post/media
     payload: z.string().min(1).max(255).optional(), // postback
+    reactions: z.array(z.string().min(1)).optional(), // reaction: filter by reaction type (empty = any)
   })
   .strict();
 
@@ -45,6 +46,7 @@ const createRuleSchema = z
       "default",
       "story_reply",
       "story_mention",
+      "reaction",
     ]),
     trigger_config: triggerConfigSchema,
     response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]),

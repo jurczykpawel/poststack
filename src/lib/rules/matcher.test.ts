@@ -234,6 +234,28 @@ describe("matchRule — story_reply / story_mention triggers", () => {
   });
 });
 
+describe("matchRule — reaction trigger", () => {
+  const anyReaction: RuleCandidate = { ...baseRule, trigger_type: "reaction", trigger_config: {} };
+  const loveOnly: RuleCandidate = { ...baseRule, trigger_type: "reaction", trigger_config: { reactions: ["love"] } };
+
+  it("matches any reaction when no filter is set", () => {
+    expect(matchRule(anyReaction, { text: null, eventType: "message", isReaction: true, reactionType: "wow" })).toBe(true);
+  });
+
+  it("does NOT match a plain message (no reaction)", () => {
+    expect(matchRule(anyReaction, { text: "hi", eventType: "message" })).toBe(false);
+  });
+
+  it("does NOT match a comment", () => {
+    expect(matchRule(anyReaction, { text: null, eventType: "comment", isReaction: true, reactionType: "love" })).toBe(false);
+  });
+
+  it("with a reactions filter, matches only the listed reaction types", () => {
+    expect(matchRule(loveOnly, { text: null, eventType: "message", isReaction: true, reactionType: "love" })).toBe(true);
+    expect(matchRule(loveOnly, { text: null, eventType: "message", isReaction: true, reactionType: "angry" })).toBe(false);
+  });
+});
+
 describe("matchRule — welcome trigger edge case", () => {
   it("does NOT match on comment type", () => {
     const rule: RuleCandidate = {
