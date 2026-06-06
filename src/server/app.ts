@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { securityHeaders } from "./middleware/security-headers";
 import { publicRoutes } from "./routes/public";
+import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
 
 const corsMiddleware = cors({
@@ -18,6 +19,7 @@ export function buildApp(): Hono {
   app.use("/api/v1/*", corsMiddleware);
 
   app.route("/", publicRoutes);
+  app.route("/", special);
   app.route("/api/v1", v1);
 
   return app;
