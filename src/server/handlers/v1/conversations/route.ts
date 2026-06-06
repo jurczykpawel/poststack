@@ -1,5 +1,7 @@
+import { and, eq, lt, desc, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { conversations } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -24,18 +26,16 @@ export async function GET(request: Request) {
   }
   const { status, channel_id, limit, cursor } = parsed.data;
 
-  const conversations = await prisma.conversation.findMany({
-    where: {
-      workspace_id: auth.workspaceId,
-      ...(status ? { status } : {}),
-      ...(channel_id ? { channel_id } : {}),
-      ...(cursor
-        ? { last_message_at: { lt: new Date(cursor) } }
-        : {}),
-    },
-    orderBy: { last_message_at: "desc" },
-    take: limit + 1,
-    select: {
+  const conds: SQL[] = [eq(conversations.workspace_id, auth.workspaceId)];
+  if (status) conds.push(eq(conversations.status, status));
+  if (channel_id) conds.push(eq(conversations.channel_id, channel_id));
+  if (cursor) conds.push(lt(conversations.last_message_at, new Date(cursor)));
+
+  const rows = await db.query.conversations.findMany({
+    where: and(...conds),
+    orderBy: desc(conversations.last_message_at),
+    limit: limit + 1,
+    columns: {
       id: true,
       platform: true,
       status: true,
@@ -43,24 +43,20 @@ export async function GET(request: Request) {
       last_message_preview: true,
       unread_count: true,
       is_automation_paused: true,
-      channel: {
-        select: { id: true, display_name: true, platform: true },
-      },
+    },
+    with: {
+      channel: { columns: { id: true, display_name: true, platform: true } },
       contact: {
-        select: { id: true, display_name: true, avatar_url: true, contact_channels: {
-          select: { platform_sender_id: true, platform_username: true },
-          take: 1,
-        }},
+        columns: { id: true, display_name: true, avatar_url: true },
+        with: { contact_channels: { columns: { platform_sender_id: true, platform_username: true }, limit: 1 } },
       },
     },
   });
 
-  const hasMore = conversations.length > limit;
-  const items = hasMore ? conversations.slice(0, limit) : conversations;
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor =
-    hasMore && items.length > 0
-      ? items[items.length - 1].last_message_at?.toISOString()
-      : null;
+    hasMore && items.length > 0 ? (items[items.length - 1].last_message_at?.toISOString() ?? null) : null;
 
   return ok(items, { has_more: hasMore, next_cursor: nextCursor });
 }

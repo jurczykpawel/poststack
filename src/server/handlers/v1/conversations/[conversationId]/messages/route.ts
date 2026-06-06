@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
+import { and, eq, lt, desc, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { messages, conversations, contactChannels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { addJob } from "@/lib/queue/client";
 import { z } from "zod";
@@ -21,9 +23,9 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;
-  const conversation = await prisma.conversation.findFirst({
-    where: { id: conversationId, workspace_id: auth.workspaceId },
-    select: { id: true },
+  const conversation = await db.query.conversations.findFirst({
+    where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!conversation) return ApiErrors.notFound();
 
@@ -34,14 +36,14 @@ export async function GET(
   }
   const { limit, cursor } = parsed.data;
 
-  const messages = await prisma.message.findMany({
-    where: {
-      conversation_id: conversationId,
-      ...(cursor ? { created_at: { lt: new Date(cursor) } } : {}),
-    },
-    orderBy: { created_at: "desc" },
-    take: limit + 1,
-    select: {
+  const conds: SQL[] = [eq(messages.conversation_id, conversationId)];
+  if (cursor) conds.push(lt(messages.created_at, new Date(cursor)));
+
+  const rows = await db.query.messages.findMany({
+    where: and(...conds),
+    orderBy: desc(messages.created_at),
+    limit: limit + 1,
+    columns: {
       id: true,
       direction: true,
       text: true,
@@ -53,12 +55,9 @@ export async function GET(
     },
   });
 
-  const hasMore = messages.length > limit;
-  const items = hasMore ? messages.slice(0, limit) : messages;
-  const nextCursor =
-    hasMore && items.length > 0
-      ? items[items.length - 1].created_at.toISOString()
-      : null;
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].created_at.toISOString() : null;
 
   // Return in chronological order (oldest first) for the UI
   return ok([...items].reverse(), { has_more: hasMore, next_cursor: nextCursor });
@@ -77,22 +76,9 @@ export async function POST(
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;
-  const conversation = await prisma.conversation.findFirst({
-    where: { id: conversationId, workspace_id: auth.workspaceId },
-    select: {
-      id: true,
-      channel_id: true,
-      contact: {
-        select: {
-          id: true,
-          contact_channels: {
-            where: { channel: { id: { not: undefined } } },
-            select: { platform_sender_id: true, channel_id: true },
-            take: 1,
-          },
-        },
-      },
-    },
+  const conversation = await db.query.conversations.findFirst({
+    where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
+    columns: { id: true, channel_id: true, contact_id: true },
   });
   if (!conversation) return ApiErrors.notFound();
 
@@ -102,24 +88,25 @@ export async function POST(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const contactChannel = conversation.contact.contact_channels.find(
-    (cc) => cc.channel_id === conversation.channel_id
-  );
+  const contactChannel = await db.query.contactChannels.findFirst({
+    where: and(
+      eq(contactChannels.contact_id, conversation.contact_id),
+      eq(contactChannels.channel_id, conversation.channel_id),
+    ),
+    columns: { platform_sender_id: true },
+  });
   if (!contactChannel) {
     return ApiErrors.badRequest("No platform identity found for this contact");
   }
 
   // Clear needs_manual_reply flag (human is responding)
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: { needs_manual_reply: false },
-  });
+  await db.update(conversations).set({ needs_manual_reply: false }).where(eq(conversations.id, conversation.id));
 
   // Enqueue outgoing message
   await addJob("outgoing-message", {
     channelId: conversation.channel_id,
     conversationId: conversation.id,
-    contactId: conversation.contact.id,
+    contactId: conversation.contact_id,
     recipientPlatformId: contactChannel.platform_sender_id,
     content: { text: parsed.data.text },
     sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
