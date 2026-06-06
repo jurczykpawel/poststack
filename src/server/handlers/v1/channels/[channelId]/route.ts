@@ -1,10 +1,25 @@
+import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
+
+const DETAIL_COLUMNS = {
+  id: true,
+  platform: true,
+  platform_id: true,
+  display_name: true,
+  username: true,
+  profile_picture: true,
+  status: true,
+  last_error: true,
+  last_health_at: true,
+  created_at: true,
+} as const;
 
 // GET /api/v1/channels/:channelId
 export async function GET(
@@ -15,21 +30,9 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  const channel = await prisma.channel.findFirst({
-    where: { id: channelId, workspace_id: auth.workspaceId },
-    select: {
-      id: true,
-      platform: true,
-      platform_id: true,
-      display_name: true,
-      username: true,
-      profile_picture: true,
-      webhook_secret: true,
-      status: true,
-      last_error: true,
-      last_health_at: true,
-      created_at: true,
-    },
+  const channel = await db.query.channels.findFirst({
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    columns: { ...DETAIL_COLUMNS, webhook_secret: true },
   });
 
   if (!channel) return ApiErrors.notFound();
@@ -59,8 +62,9 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const existing = await prisma.channel.findFirst({
-    where: { id: channelId, workspace_id: auth.workspaceId },
+  const existing = await db.query.channels.findFirst({
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -69,22 +73,22 @@ export async function PATCH(
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   else if (parsed.data.is_active !== undefined) data.status = parsed.data.is_active ? "active" : "disabled";
 
-  const updated = await prisma.channel.update({
-    where: { id: channelId },
-    data,
-    select: {
-      id: true,
-      platform: true,
-      platform_id: true,
-      display_name: true,
-      username: true,
-      profile_picture: true,
-      status: true,
-      last_error: true,
-      last_health_at: true,
-      created_at: true,
-    },
-  });
+  const [updated] = await db
+    .update(channels)
+    .set(data)
+    .where(eq(channels.id, channelId))
+    .returning({
+      id: channels.id,
+      platform: channels.platform,
+      platform_id: channels.platform_id,
+      display_name: channels.display_name,
+      username: channels.username,
+      profile_picture: channels.profile_picture,
+      status: channels.status,
+      last_error: channels.last_error,
+      last_health_at: channels.last_health_at,
+      created_at: channels.created_at,
+    });
 
   return ok({ ...updated, is_active: updated.status === "active" });
 }
@@ -98,10 +102,10 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  const result = await prisma.channel.deleteMany({
-    where: { id: channelId, workspace_id: auth.workspaceId },
-  });
-  if (result.count === 0) return ApiErrors.notFound();
+  const result = await db
+    .delete(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)));
+  if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
 
   await recordAudit({
     workspaceId: auth.workspaceId,

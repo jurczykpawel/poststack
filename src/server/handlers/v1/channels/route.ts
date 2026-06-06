@@ -1,5 +1,7 @@
+import { and, eq, asc, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { channels, messages, conversations } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 
 export const runtime = "nodejs";
@@ -9,10 +11,10 @@ export async function GET(request: Request) {
   const auth = await authenticateWithScope(request, "channels:read");
   if (!auth) return ApiErrors.unauthorized();
 
-  const channels = await prisma.channel.findMany({
-    where: { workspace_id: auth.workspaceId },
-    orderBy: { created_at: "asc" },
-    select: {
+  const rows = await db.query.channels.findMany({
+    where: eq(channels.workspace_id, auth.workspaceId),
+    orderBy: asc(channels.created_at),
+    columns: {
       id: true,
       platform: true,
       platform_id: true,
@@ -30,13 +32,14 @@ export async function GET(request: Request) {
   // `is_active` kept as a computed alias for backward compatibility.
   // `held_count` surfaces outbound parked while the channel was down (REL5).
   const withHeld = await Promise.all(
-    channels.map(async (c) => ({
-      ...c,
-      is_active: c.status === "active",
-      held_count: await prisma.message.count({
-        where: { status: "held", conversation: { channel_id: c.id } },
-      }),
-    })),
+    rows.map(async (c) => {
+      const [{ n }] = await db
+        .select({ n: count() })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
+        .where(and(eq(messages.status, "held"), eq(conversations.channel_id, c.id)));
+      return { ...c, is_active: c.status === "active", held_count: Number(n) };
+    }),
   );
   return ok(withHeld);
 }
