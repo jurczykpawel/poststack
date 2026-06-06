@@ -1,0 +1,114 @@
+import { Hono } from "hono";
+import * as channels from "@/app/api/v1/channels/route";
+import * as channel from "@/app/api/v1/channels/[channelId]/route";
+import * as channelDrain from "@/app/api/v1/channels/[channelId]/drain/route";
+import * as channelPosts from "@/app/api/v1/channels/[channelId]/posts/route";
+import * as channelConnectToken from "@/app/api/v1/channels/connect-token/route";
+import * as contacts from "@/app/api/v1/contacts/route";
+import * as contact from "@/app/api/v1/contacts/[contactId]/route";
+import * as conversations from "@/app/api/v1/conversations/route";
+import * as conversation from "@/app/api/v1/conversations/[conversationId]/route";
+import * as conversationMessages from "@/app/api/v1/conversations/[conversationId]/messages/route";
+import * as rules from "@/app/api/v1/rules/route";
+import * as rule from "@/app/api/v1/rules/[ruleId]/route";
+import * as sequences from "@/app/api/v1/sequences/route";
+import * as sequence from "@/app/api/v1/sequences/[sequenceId]/route";
+import * as sequenceEnroll from "@/app/api/v1/sequences/[sequenceId]/enroll/route";
+import * as apiKeys from "@/app/api/v1/api-keys/route";
+import * as apiKey from "@/app/api/v1/api-keys/[keyId]/route";
+import * as auditLog from "@/app/api/v1/audit-log/route";
+import * as messagesPrune from "@/app/api/v1/messages/prune/route";
+import * as workspace from "@/app/api/v1/workspace/route";
+import * as tags from "@/app/api/v1/tags/route";
+
+export const v1 = new Hono();
+
+// Channels
+v1.get("/channels", (c) => channels.GET(c.req.raw));
+v1.post("/channels/connect-token", (c) => channelConnectToken.POST(c.req.raw));
+v1.get("/channels/:channelId", (c) =>
+  channel.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+v1.patch("/channels/:channelId", (c) =>
+  channel.PATCH(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+v1.delete("/channels/:channelId", (c) =>
+  channel.DELETE(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+v1.post("/channels/:channelId/drain", (c) =>
+  channelDrain.POST(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+v1.get("/channels/:channelId/posts", (c) =>
+  channelPosts.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+
+// Contacts
+v1.get("/contacts", (c) => contacts.GET(c.req.raw));
+v1.get("/contacts/:contactId", (c) =>
+  contact.GET(c.req.raw, { params: Promise.resolve({ contactId: c.req.param("contactId") }) }),
+);
+v1.patch("/contacts/:contactId", (c) =>
+  contact.PATCH(c.req.raw, { params: Promise.resolve({ contactId: c.req.param("contactId") }) }),
+);
+v1.delete("/contacts/:contactId", (c) =>
+  contact.DELETE(c.req.raw, { params: Promise.resolve({ contactId: c.req.param("contactId") }) }),
+);
+
+// Conversations
+v1.get("/conversations", (c) => conversations.GET(c.req.raw));
+v1.get("/conversations/:conversationId", (c) =>
+  conversation.GET(c.req.raw, { params: Promise.resolve({ conversationId: c.req.param("conversationId") }) }),
+);
+v1.patch("/conversations/:conversationId", (c) =>
+  conversation.PATCH(c.req.raw, { params: Promise.resolve({ conversationId: c.req.param("conversationId") }) }),
+);
+v1.get("/conversations/:conversationId/messages", (c) =>
+  conversationMessages.GET(c.req.raw, { params: Promise.resolve({ conversationId: c.req.param("conversationId") }) }),
+);
+v1.post("/conversations/:conversationId/messages", (c) =>
+  conversationMessages.POST(c.req.raw, { params: Promise.resolve({ conversationId: c.req.param("conversationId") }) }),
+);
+
+// Rules
+v1.get("/rules", (c) => rules.GET(c.req.raw));
+v1.post("/rules", (c) => rules.POST(c.req.raw));
+v1.get("/rules/:ruleId", (c) =>
+  rule.GET(c.req.raw, { params: Promise.resolve({ ruleId: c.req.param("ruleId") }) }),
+);
+v1.patch("/rules/:ruleId", (c) =>
+  rule.PATCH(c.req.raw, { params: Promise.resolve({ ruleId: c.req.param("ruleId") }) }),
+);
+v1.delete("/rules/:ruleId", (c) =>
+  rule.DELETE(c.req.raw, { params: Promise.resolve({ ruleId: c.req.param("ruleId") }) }),
+);
+
+// Sequences
+v1.get("/sequences", (c) => sequences.GET(c.req.raw));
+v1.post("/sequences", (c) => sequences.POST(c.req.raw));
+v1.get("/sequences/:sequenceId", (c) =>
+  sequence.GET(c.req.raw, { params: Promise.resolve({ sequenceId: c.req.param("sequenceId") }) }),
+);
+v1.patch("/sequences/:sequenceId", (c) =>
+  sequence.PATCH(c.req.raw, { params: Promise.resolve({ sequenceId: c.req.param("sequenceId") }) }),
+);
+v1.delete("/sequences/:sequenceId", (c) =>
+  sequence.DELETE(c.req.raw, { params: Promise.resolve({ sequenceId: c.req.param("sequenceId") }) }),
+);
+v1.post("/sequences/:sequenceId/enroll", (c) =>
+  sequenceEnroll.POST(c.req.raw, { params: Promise.resolve({ sequenceId: c.req.param("sequenceId") }) }),
+);
+
+// API keys
+v1.get("/api-keys", (c) => apiKeys.GET(c.req.raw));
+v1.post("/api-keys", (c) => apiKeys.POST(c.req.raw));
+v1.delete("/api-keys/:keyId", (c) =>
+  apiKey.DELETE(c.req.raw, { params: Promise.resolve({ keyId: c.req.param("keyId") }) }),
+);
+
+// Audit log, retention, workspace, tags
+v1.get("/audit-log", (c) => auditLog.GET(c.req.raw));
+v1.post("/messages/prune", (c) => messagesPrune.POST(c.req.raw));
+v1.get("/workspace", (c) => workspace.GET(c.req.raw));
+v1.patch("/workspace", (c) => workspace.PATCH(c.req.raw));
+v1.get("/tags", (c) => tags.GET(c.req.raw));
+v1.post("/tags", (c) => tags.POST(c.req.raw));
