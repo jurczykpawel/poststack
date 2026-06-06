@@ -1,5 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { conversations } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -14,26 +16,21 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;
-  const conversation = await prisma.conversation.findFirst({
-    where: { id: conversationId, workspace_id: auth.workspaceId },
-    select: {
+  const conversation = await db.query.conversations.findFirst({
+    where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
+    columns: {
       id: true,
       platform: true,
       status: true,
       last_message_at: true,
       unread_count: true,
       is_automation_paused: true,
-      channel: { select: { id: true, display_name: true, platform: true } },
+    },
+    with: {
+      channel: { columns: { id: true, display_name: true, platform: true } },
       contact: {
-        select: {
-          id: true,
-          display_name: true,
-          avatar_url: true,
-          contact_channels: {
-            select: { platform_sender_id: true, platform_username: true },
-            take: 1,
-          },
-        },
+        columns: { id: true, display_name: true, avatar_url: true },
+        with: { contact_channels: { columns: { platform_sender_id: true, platform_username: true }, limit: 1 } },
       },
     },
   });
@@ -58,9 +55,9 @@ export async function PATCH(
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;
-  const existing = await prisma.conversation.findFirst({
-    where: { id: conversationId, workspace_id: auth.workspaceId },
-    select: { id: true },
+  const existing = await db.query.conversations.findFirst({
+    where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -70,17 +67,17 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const updated = await prisma.conversation.update({
-    where: { id: conversationId },
-    data: parsed.data,
-    select: {
-      id: true,
-      status: true,
-      unread_count: true,
-      is_automation_paused: true,
-      assigned_to: true,
-    },
-  });
+  const [updated] = await db
+    .update(conversations)
+    .set(parsed.data)
+    .where(eq(conversations.id, conversationId))
+    .returning({
+      id: conversations.id,
+      status: conversations.status,
+      unread_count: conversations.unread_count,
+      is_automation_paused: conversations.is_automation_paused,
+      assigned_to: conversations.assigned_to,
+    });
 
   return ok(updated);
 }
