@@ -4,6 +4,7 @@ import { securityHeaders } from "./middleware/security-headers";
 import { publicRoutes } from "./routes/public";
 import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
+import { pages } from "./routes/pages";
 
 const corsMiddleware = cors({
   origin: "*",
@@ -21,6 +22,7 @@ export function buildApp(): Hono {
   app.route("/", publicRoutes);
   app.route("/", special);
   app.route("/api/v1", v1);
+  app.route("/", pages);
 
   return app;
 }
