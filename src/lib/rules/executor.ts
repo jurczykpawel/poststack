@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { autoReplyRules, pendingApprovals } from "@/db/schema";
 import { acquireCooldown, incrementSendCount } from "./limits";
 import { addJob } from "@/lib/queue/client";
 import { rephrase } from "@/lib/ai/rephrase";
@@ -32,14 +34,14 @@ export async function evaluateRules(
 ): Promise<string | null> {
   const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload } = input;
 
-  const rules = await prisma.autoReplyRule.findMany({
-    where: {
-      workspace_id: workspaceId,
-      is_active: true,
-      OR: [{ channel_id: channelId }, { channel_id: null }],
-    },
-    orderBy: [{ priority: "desc" }, { created_at: "asc" }],
-    select: {
+  const rules = await db.query.autoReplyRules.findMany({
+    where: and(
+      eq(autoReplyRules.workspace_id, workspaceId),
+      eq(autoReplyRules.is_active, true),
+      or(eq(autoReplyRules.channel_id, channelId), isNull(autoReplyRules.channel_id)),
+    ),
+    orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
+    columns: {
       id: true,
       is_active: true,
       priority: true,
@@ -77,19 +79,17 @@ export async function evaluateRules(
 
     // Manual approval: queue for human review instead of auto-sending
     if (rule.requires_approval) {
-      await prisma.pendingApproval.create({
-        data: {
-          workspace_id: workspaceId,
-          rule_id: rule.id,
-          conversation_id: conversationId,
-          contact_id: contactId,
-          channel_id: channelId,
-          recipient_platform_id: recipientPlatformId,
-          proposed_content: JSON.parse(JSON.stringify({
-            response_type: rule.response_type,
-            response_config: candidate.response_config,
-          })),
-        },
+      await db.insert(pendingApprovals).values({
+        workspace_id: workspaceId,
+        rule_id: rule.id,
+        conversation_id: conversationId,
+        contact_id: contactId,
+        channel_id: channelId,
+        recipient_platform_id: recipientPlatformId,
+        proposed_content: JSON.parse(JSON.stringify({
+          response_type: rule.response_type,
+          response_config: candidate.response_config,
+        })),
       });
       return rule.id;
     }
