@@ -49,7 +49,7 @@ afterAll(async () => {
 const req = (qs = "") => new Request(`http://x/api/v1/contacts${qs}`, { headers: { authorization: `Bearer ${RAW_KEY}` } });
 
 describe("contacts list (real Postgres)", () => {
-  it("lists contacts with nested channels + tags in the Prisma shape", async () => {
+  it("lists contacts with nested channels + tags in the API response shape", async () => {
     if (!TEST_DB) return;
     const res = await GET(req());
     const { data } = await res.json();

@@ -28,11 +28,12 @@ src/
 │   ├── workers/      # graphile-worker job processors
 │   ├── queue/        # graphile-worker client (addJob + task list)
 │   ├── crypto.ts     # Token encryption
-│   └── prisma.ts     # Database client
+│   └── db.ts         # Drizzle client
 worker/
 └── inbox-worker.ts   # Worker entrypoint
-prisma/
-└── schema.prisma     # Database schema
+src/db/
+├── schema.ts         # Database schema + enums
+└── relations.ts      # Drizzle relations
 ```
 
 ## Adding a New Platform
@@ -40,8 +41,8 @@ prisma/
 1. Create `src/lib/platforms/{platform}.ts` extending `SocialProvider`
 2. Implement: `generateAuthUrl()`, `authenticate()`, `refreshToken()`, `sendMessage()`, `sendComment()`
 3. Register in `src/lib/platforms/registry.ts`
-4. Add OAuth callback: `src/app/api/oauth/{platform}/route.ts`
-5. Add to `Platform` enum in `prisma/schema.prisma` + create migration
+4. Add OAuth callback: `src/server/handlers/oauth/{platform}/route.ts`
+5. Add to the `platform` enum in `src/db/schema.ts`, then run `npm run db:generate`
 
 See `src/lib/platforms/base.ts` for the full interface and JSDoc.
 
@@ -64,9 +65,9 @@ npm run test:watch  # watch mode
 ## Database Changes
 
 ```bash
-# After editing prisma/schema.prisma:
-npm run db:migrate   # creates migration + applies
-npm run db:generate  # regenerates Prisma client
+# After editing src/db/schema.ts:
+npm run db:generate  # generates a new SQL migration from the schema diff
+npm run db:migrate   # applies pending migrations
 ```
 
 ## Pull Requests

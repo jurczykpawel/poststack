@@ -17,10 +17,6 @@ build/
 .env.production.local
 .env.production
 
-# Prisma
-prisma/generated/
-src/generated/
-
 # Logs
 *.log
 npm-debug.log*

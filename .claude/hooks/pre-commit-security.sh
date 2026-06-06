@@ -53,7 +53,7 @@ fi
 # 4. SQL string concatenation (injection risk)
 # ─────────────────────────────────────────────
 if echo "$DIFF" | grep -qE '^\+.*\`(SELECT|INSERT|UPDATE|DELETE|DROP).*\$\{' 2>/dev/null; then
-  ERRORS+=("SQL string interpolation detected. Use Prisma client with parameterized queries instead.")
+  ERRORS+=("SQL string interpolation detected. Use Drizzle's sql tagged template with parameter bindings instead.")
 fi
 
 # ─────────────────────────────────────────────
@@ -64,10 +64,10 @@ if echo "$DIFF" | grep -qE '^\+.*TOKEN_ENCRYPTION_KEY.*\|\|.*["'"'"']' 2>/dev/nu
 fi
 
 # ─────────────────────────────────────────────
-# 6. Prisma raw queries (injection risk)
+# 6. Drizzle raw queries (injection risk)
 # ─────────────────────────────────────────────
-if echo "$DIFF" | grep -qE '^\+.*\$queryRaw.*\$\{|^\+.*\$executeRaw.*\$\{' 2>/dev/null; then
-  ERRORS+=("Prisma raw query with string interpolation detected. Use Prisma.sql tagged template or parameterized queries.")
+if echo "$DIFF" | grep -qE '^\+.*sql\.raw\(.*\$\{' 2>/dev/null; then
+  ERRORS+=("sql.raw() with string interpolation detected. Use the sql tagged template (sql\`...\${value}\`) so values are bound as parameters.")
 fi
 
 # ─────────────────────────────────────────────

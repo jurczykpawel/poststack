@@ -26,7 +26,7 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 | Framework | Hono (web server + API), `hono/html` SSR |
 | UI | Server-rendered HTML + htmx + Alpine.js (no client framework) |
 | Language | TypeScript 5 |
-| Database | PostgreSQL + Prisma |
+| Database | PostgreSQL + Drizzle ORM |
 | Queue | PostgreSQL (graphile-worker) |
 | Styling | Plain CSS (CSS variables, dark theme) — no UI framework |
 | Platforms | Facebook, Instagram (extensible via provider pattern) |
@@ -81,11 +81,14 @@ src/
 │   ├── queue/            # graphile-worker client (addJob + task list)
 │   ├── workers/          # Worker implementations (graphile tasks)
 │   ├── crypto.ts         # Token encryption/decryption
-│   └── prisma.ts         # PrismaClient singleton
+│   └── db.ts             # Drizzle client singleton
+src/db/
+├── schema.ts            # Full schema (contacts, channels, rules, flows, sequences) + enums
+└── relations.ts         # Drizzle relational-query relations
 worker/
 └── inbox-worker.ts       # graphile-worker entrypoint (separate process)
-prisma/
-└── schema.prisma         # Full schema (contacts, channels, rules, flows, sequences)
+drizzle/
+└── 0000_init.sql         # Generated SQL migrations (drizzle-kit)
 docker/
 ├── Dockerfile
 ├── Dockerfile.worker
@@ -102,7 +105,7 @@ Design was informed by internal reference implementations kept in a private work
 # Start dependencies
 docker compose up postgres nocodb
 
-# Install + migrate (npm for deps + Prisma CLI; runtime is Bun)
+# Install + migrate (npm for deps + drizzle-kit; runtime is Bun)
 npm install
 npm run db:migrate
 
@@ -124,7 +127,7 @@ See `.env.example`. Required:
 | `JWT_SECRET` | Auth JWT secret |
 | `META_APP_ID` | Facebook App ID |
 | `META_APP_SECRET` | Facebook App Secret |
-| `NEXT_PUBLIC_APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
+| `APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
 | `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
 
 ## Important Rules
@@ -137,7 +140,7 @@ See `.env.example`. Required:
 - **Every DB query scoped by workspace_id** — never query cross-workspace
 - **No secrets in commit messages** (AGPL project = public history)
 - **NEVER `npm install` on server** — always prebuild artifacts, deploy via Docker
-- **Schema: every status/state is an enum from day 1** — never a `String` with an enumerating comment, never a new boolean per state. Each `*_id` column is a Prisma `@relation` with an explicit `onDelete`.
+- **Schema: every status/state is an enum from day 1** — never a `String` with an enumerating comment, never a new boolean per state. Each `*_id` column has a Drizzle `foreignKey` with an explicit `onDelete`.
 
 ## Phases
 

@@ -87,7 +87,7 @@ Start only the databases, run the app with hot-reload:
 ```bash
 docker compose up postgres         # database only
 npm install
-npx prisma migrate deploy          # create tables
+npm run db:migrate                 # create tables (drizzle-kit)
 npm run dev                        # Hono web server (Bun, terminal 1)
 npm run worker                     # graphile-worker (Bun, terminal 2)
 ```
@@ -210,7 +210,8 @@ replystack/
 │       ├── api/                 # Response helpers, rate limiter, body parser
 │       └── queue/               # graphile-worker queue client
 ├── worker/                      # Standalone graphile-worker process
-├── prisma/                      # Database schema (15 models)
+├── src/db/                      # Drizzle schema + relations
+├── drizzle/                     # Generated SQL migrations
 └── docker/                      # Dockerfile, Dockerfile.worker, nginx.conf
 ```
 
@@ -268,7 +269,7 @@ All responses follow the shape `{ data, error, meta? }`.
 |-------|-----------|
 | Framework | Hono (web server + API) |
 | UI | Server-rendered HTML + htmx + Alpine.js (no client framework) |
-| Database | PostgreSQL + Prisma 7 |
+| Database | PostgreSQL + Drizzle ORM |
 | Queue | PostgreSQL (graphile-worker) |
 | Auth | JWT (jose) + API keys |
 | Encryption | AES-256-GCM (tokens at rest) |
@@ -347,8 +348,8 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 
 1. Create `src/lib/platforms/{platform}.ts` extending `SocialProvider`
 2. Register it in `src/lib/platforms/registry.ts`
-3. Add an OAuth callback route at `src/app/api/oauth/{platform}/`
-4. Add the platform to the `Platform` enum in `prisma/schema.prisma`
+3. Add an OAuth callback route at `src/server/handlers/oauth/{platform}/`
+4. Add the platform to the `platform` enum in `src/db/schema.ts`
 
 ### Development workflow
 

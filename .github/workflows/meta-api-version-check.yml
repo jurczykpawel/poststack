@@ -90,10 +90,6 @@ jobs:
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         run: npm ci
 
-      - name: Generate Prisma client
-        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
-        run: npx prisma generate
-
       - name: Run lint
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true'
         id: lint
