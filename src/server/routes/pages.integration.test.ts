@@ -160,6 +160,24 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(rule?.trigger_type).toBe("keyword");
   });
 
+  it("creates a comment rule scoped to a post with a reply mode from the form", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        name: "PostScoped", trigger_type: "comment_keyword", keywords: "info",
+        post_id: "POST_42", reply_mode: "both", comment_reply_text: "DM sent!", text: "check your DMs",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "PostScoped")) });
+    expect(rule?.trigger_type).toBe("comment_keyword");
+    expect((rule?.trigger_config as { post_id?: string }).post_id).toBe("POST_42");
+    expect((rule?.response_config as { reply_mode?: string }).reply_mode).toBe("both");
+    expect((rule?.response_config as { comment_reply_text?: string }).comment_reply_text).toBe("DM sent!");
+  });
+
   it("creates a sequence from line-based steps", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/sequences", {
