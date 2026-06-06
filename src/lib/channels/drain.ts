@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { and, eq, asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels, messages, conversations, contactChannels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
 
 /**
@@ -28,42 +30,45 @@ export interface DrainResult {
  * `expired` (window elapsed). Sends are staggered to avoid a backlog burst.
  */
 export async function drainChannel(channelId: string, now: Date = new Date()): Promise<DrainResult> {
-  const channel = await prisma.channel.findUnique({
-    where: { id: channelId },
-    select: { id: true, status: true },
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { id: true, status: true },
   });
   if (!channel) return { enqueued: 0, expired: 0, skipped: "not_found" };
   if (channel.status !== "active") return { enqueued: 0, expired: 0, skipped: channel.status };
 
-  const held = await prisma.message.findMany({
-    where: { status: "held", conversation: { channel_id: channelId } },
-    select: {
-      id: true,
-      text: true,
-      sent_by_rule_id: true,
-      conversation: { select: { id: true, contact_id: true, last_inbound_at: true } },
-    },
-    orderBy: { created_at: "asc" },
-  });
+  const held = await db
+    .select({
+      id: messages.id,
+      text: messages.text,
+      sent_by_rule_id: messages.sent_by_rule_id,
+      conv_id: conversations.id,
+      contact_id: conversations.contact_id,
+      last_inbound_at: conversations.last_inbound_at,
+    })
+    .from(messages)
+    .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
+    .where(and(eq(messages.status, "held"), eq(conversations.channel_id, channelId)))
+    .orderBy(asc(messages.created_at));
 
   let enqueued = 0;
   let expired = 0;
 
   for (const msg of held) {
-    const anchor = msg.conversation.last_inbound_at;
+    const anchor = msg.last_inbound_at;
     if (!anchor || now.getTime() - anchor.getTime() > STANDARD_WINDOW_MS) {
-      await prisma.message.update({ where: { id: msg.id }, data: { status: "expired" } });
+      await db.update(messages).set({ status: "expired" }).where(eq(messages.id, msg.id));
       expired++;
       continue;
     }
 
-    const cc = await prisma.contactChannel.findFirst({
-      where: { channel_id: channelId, contact_id: msg.conversation.contact_id },
-      select: { platform_sender_id: true },
+    const cc = await db.query.contactChannels.findFirst({
+      where: and(eq(contactChannels.channel_id, channelId), eq(contactChannels.contact_id, msg.contact_id)),
+      columns: { platform_sender_id: true },
     });
     if (!cc) {
       // No way to address this contact on the channel — cannot deliver.
-      await prisma.message.update({ where: { id: msg.id }, data: { status: "failed" } });
+      await db.update(messages).set({ status: "failed" }).where(eq(messages.id, msg.id));
       continue;
     }
 
@@ -71,8 +76,8 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
       "outgoing-message",
       {
         channelId,
-        conversationId: msg.conversation.id,
-        contactId: msg.conversation.contact_id,
+        conversationId: msg.conv_id,
+        contactId: msg.contact_id,
         recipientPlatformId: cc.platform_sender_id,
         content: { text: msg.text ?? undefined },
         sentByRuleId: msg.sent_by_rule_id ?? undefined,
