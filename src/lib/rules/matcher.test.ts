@@ -210,31 +210,27 @@ describe("matchRule — postback trigger", () => {
 });
 
 describe("matchRule — story_reply / story_mention triggers", () => {
-  it("story_reply matches on message type", () => {
-    const rule: RuleCandidate = {
-      ...baseRule,
-      trigger_type: "story_reply",
-      trigger_config: {},
-    };
-    expect(matchRule(rule, { text: "nice story", eventType: "message" })).toBe(true);
+  const storyReplyRule: RuleCandidate = { ...baseRule, trigger_type: "story_reply", trigger_config: {} };
+  const storyMentionRule: RuleCandidate = { ...baseRule, trigger_type: "story_mention", trigger_config: {} };
+
+  it("story_reply matches a message that is a reply to a story", () => {
+    expect(matchRule(storyReplyRule, { text: "nice story", eventType: "message", isStoryReply: true })).toBe(true);
   });
 
-  it("story_reply does NOT match on comment type", () => {
-    const rule: RuleCandidate = {
-      ...baseRule,
-      trigger_type: "story_reply",
-      trigger_config: {},
-    };
-    expect(matchRule(rule, { text: "nice story", eventType: "comment" })).toBe(false);
+  it("story_reply does NOT match a plain DM (no story context)", () => {
+    expect(matchRule(storyReplyRule, { text: "nice story", eventType: "message" })).toBe(false);
   });
 
-  it("story_mention matches on message type", () => {
-    const rule: RuleCandidate = {
-      ...baseRule,
-      trigger_type: "story_mention",
-      trigger_config: {},
-    };
-    expect(matchRule(rule, { text: null, eventType: "message" })).toBe(true);
+  it("story_reply does NOT match a comment", () => {
+    expect(matchRule(storyReplyRule, { text: "nice story", eventType: "comment", isStoryReply: true })).toBe(false);
+  });
+
+  it("story_mention matches a message that mentions us in a story", () => {
+    expect(matchRule(storyMentionRule, { text: null, eventType: "message", isStoryMention: true })).toBe(true);
+  });
+
+  it("story_mention does NOT match a plain DM", () => {
+    expect(matchRule(storyMentionRule, { text: null, eventType: "message" })).toBe(false);
   });
 });
 

@@ -11,6 +11,12 @@ export interface IncomingMessageJob {
   text: string | null;
   quickReplyPayload?: string;
   postbackPayload?: string;
+  /** Message is a reply to one of our stories */
+  isStoryReply?: boolean;
+  /** Message mentions us in the sender's story */
+  isStoryMention?: boolean;
+  /** Story being replied to (when isStoryReply) */
+  storyId?: string;
   timestamp: number;
   /** Full raw messaging event object from Meta */
   raw: Record<string, unknown>;

@@ -26,6 +26,10 @@ export interface MatchContext {
   quickReplyPayload?: string;
   /** Postback payload (button tap from persistent menu or template) */
   postbackPayload?: string;
+  /** Message is a reply to one of our stories */
+  isStoryReply?: boolean;
+  /** Message mentions us in the sender's story */
+  isStoryMention?: boolean;
 }
 
 /**
@@ -70,8 +74,10 @@ export function matchRule(
     }
 
     case "story_reply":
+      return ctx.eventType === "message" && ctx.isStoryReply === true;
+
     case "story_mention":
-      return ctx.eventType === "message";
+      return ctx.eventType === "message" && ctx.isStoryMention === true;
 
     default:
       return false;

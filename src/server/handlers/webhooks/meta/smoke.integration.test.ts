@@ -151,6 +151,47 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(p.senderId).toBe("IGSID1");
     expect(p.senderName).toBe("jane");
   });
+
+  it("flags a story reply (message.reply_to.story) on the incoming-message job", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "instagram",
+      entry: [{
+        id: "IG_PAGE",
+        messaging: [{
+          sender: { id: "IGSID2" }, recipient: { id: "IG_PAGE" }, timestamp: 1_770_000_000_000,
+          message: { mid: "mid-story-reply", text: "love it", reply_to: { story: { id: "STORY_1" } } },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+    const job = await pool.query(
+      "select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      ["msg-mid-story-reply"],
+    );
+    expect(job.rows[0].payload.isStoryReply).toBe(true);
+    expect(job.rows[0].payload.storyId).toBe("STORY_1");
+  });
+
+  it("flags a story mention (attachments[].type=story_mention) on the incoming-message job", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "instagram",
+      entry: [{
+        id: "IG_PAGE",
+        messaging: [{
+          sender: { id: "IGSID3" }, recipient: { id: "IG_PAGE" }, timestamp: 1_770_000_000_000,
+          message: { mid: "mid-story-mention", attachments: [{ type: "story_mention", payload: { url: "x" } }] },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+    const job = await pool.query(
+      "select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      ["msg-mid-story-mention"],
+    );
+    expect(job.rows[0].payload.isStoryMention).toBe(true);
+  });
 });
 
 describe("smoke E2E: webhook → worker → auto-reply (real Postgres)", () => {

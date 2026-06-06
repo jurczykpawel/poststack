@@ -18,7 +18,7 @@ export async function processIncomingMessage(
   payload: IncomingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { pageId, senderId, mid, text, quickReplyPayload, postbackPayload, timestamp } = payload;
+  const { pageId, senderId, mid, text, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, timestamp } = payload;
 
   // Validate timestamp bounds (reject absurd values)
   const messageDate = new Date(timestamp * 1000);
@@ -128,6 +128,8 @@ export async function processIncomingMessage(
         eventType: "message",
         quickReplyPayload,
         postbackPayload,
+        isStoryReply,
+        isStoryMention,
       });
       if (matchedRuleId) {
         helpers.logger.info(`Rule fired: ${matchedRuleId}`);

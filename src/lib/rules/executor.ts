@@ -22,6 +22,8 @@ interface EvaluateRulesInput {
   commentId?: string;
   quickReplyPayload?: string;
   postbackPayload?: string;
+  isStoryReply?: boolean;
+  isStoryMention?: boolean;
 }
 
 /**
@@ -32,7 +34,7 @@ interface EvaluateRulesInput {
 export async function evaluateRules(
   input: EvaluateRulesInput
 ): Promise<string | null> {
-  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload } = input;
+  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention } = input;
 
   const rules = await db.query.autoReplyRules.findMany({
     where: and(
@@ -64,7 +66,7 @@ export async function evaluateRules(
       actions: rule.actions as unknown[],
     };
 
-    if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload })) continue;
+    if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention })) continue;
 
     // Cooldown: atomic acquire prevents concurrent events from firing the same rule
     if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds))) continue;
