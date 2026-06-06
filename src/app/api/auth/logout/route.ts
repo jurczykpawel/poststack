@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import { invalidateSession } from "@/lib/auth";
+import { invalidateSession, sessionCookie } from "@/lib/auth";
 
 export async function POST(request: Request) {
   // Parse session cookie and add to denylist
@@ -14,13 +13,8 @@ export async function POST(request: Request) {
     await invalidateSession(token);
   }
 
-  const response = NextResponse.json({ data: { ok: true }, error: null });
-  response.cookies.set("rs_session", "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-  return response;
+  return Response.json(
+    { data: { ok: true }, error: null },
+    { headers: { "set-cookie": sessionCookie("", 0) } },
+  );
 }

@@ -8,6 +8,9 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["**/*.integration.test.ts"],
+    // Integration tests share one Postgres + graphile queue; run files serially
+    // so worker-draining suites don't consume each other's enqueued jobs.
+    fileParallelism: false,
   },
   resolve: {
     alias: {

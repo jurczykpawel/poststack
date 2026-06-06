@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { hashPassword } from "@/lib/auth/password";
-import { signSession } from "@/lib/auth";
+import { signSession, sessionCookie } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
@@ -92,12 +92,6 @@ export async function POST(request: Request) {
   const token = await signSession(user.id, workspaceId);
 
   const response = ok({ id: user.id, email: user.email, name: user.name }, undefined, 201);
-  response.cookies.set("rs_session", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
+  response.headers.set("set-cookie", sessionCookie(token, 60 * 60 * 24 * 7));
   return response;
 }

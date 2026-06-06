@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { verifyMetaSignature } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
@@ -51,7 +50,7 @@ export async function POST(request: Request) {
 
   // Validate platform - Meta sends "page" for FB page webhooks, "instagram" for IG
   if (!VALID_PLATFORMS.has(payload.object)) {
-    return NextResponse.json({ status: "ignored", reason: "unsupported object type" });
+    return Response.json({ status: "ignored", reason: "unsupported object type" });
   }
 
   // Normalize: Meta sends "page" for Facebook pages
@@ -157,7 +156,7 @@ export async function POST(request: Request) {
     return new Response("Service Unavailable", { status: 503 });
   }
 
-  return NextResponse.json({ status: "ok" });
+  return Response.json({ status: "ok" });
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────

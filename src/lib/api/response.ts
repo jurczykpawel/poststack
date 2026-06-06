@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 export type ApiResponse<T> =
   | { data: T; error: null; meta?: Record<string, unknown> }
   | { data: null; error: { code: string; message: string; details?: unknown }; meta?: never };
@@ -11,31 +9,22 @@ export type PaginationMeta = {
   has_more: boolean;
 };
 
-export function ok<T>(
-  data: T,
-  meta?: Record<string, unknown>,
-  status = 200
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json({ data, error: null, ...(meta ? { meta } : {}) }, { status });
+export function ok<T>(data: T, meta?: Record<string, unknown>, status = 200): Response {
+  return Response.json({ data, error: null, ...(meta ? { meta } : {}) }, { status });
 }
 
-export function created<T>(data: T): NextResponse<ApiResponse<T>> {
+export function created<T>(data: T): Response {
   return ok(data, undefined, 201);
 }
 
-export function noContent(): NextResponse {
-  return new NextResponse(null, { status: 204 });
+export function noContent(): Response {
+  return new Response(null, { status: 204 });
 }
 
-export function err(
-  code: string,
-  message: string,
-  status: number,
-  details?: unknown
-): NextResponse<ApiResponse<never>> {
-  return NextResponse.json(
+export function err(code: string, message: string, status: number, details?: unknown): Response {
+  return Response.json(
     { data: null, error: { code, message, ...(details ? { details } : {}) } },
-    { status }
+    { status },
   );
 }
 

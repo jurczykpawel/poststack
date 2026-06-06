@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
@@ -17,7 +16,7 @@ export async function GET(request: Request) {
   const secret = request.headers.get("x-cron-secret") ?? "";
   if (!env.CRON_SECRET || secret.length !== env.CRON_SECRET.length ||
       !timingSafeEqual(Buffer.from(secret), Buffer.from(env.CRON_SECRET))) {
-    return new NextResponse("Forbidden", { status: 403 });
+    return new Response("Forbidden", { status: 403 });
   }
 
   const channels = await prisma.channel.findMany({
@@ -49,5 +48,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ enqueued });
+  return Response.json({ enqueued });
 }
