@@ -1,6 +1,8 @@
 import type { JobHelpers } from "graphile-worker";
+import { and, eq } from "drizzle-orm";
 import type { SequenceStepJob } from "@/lib/queue/types";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { sequenceEnrollments, sequences, conversations, contactChannels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
 
 interface SequenceStep {
@@ -24,26 +26,9 @@ export async function processSequenceStep(
 ): Promise<void> {
   const { enrollmentId } = payload;
 
-  const enrollment = await prisma.sequenceEnrollment.findUnique({
-    where: { id: enrollmentId },
-    select: {
-      id: true,
-      status: true,
-      current_step_index: true,
-      contact_id: true,
-      channel_id: true,
-      sequence: {
-        select: { id: true, steps: true },
-      },
-      contact: {
-        select: {
-          contact_channels: {
-            where: { channel_id: { not: undefined } },
-            select: { platform_sender_id: true, channel_id: true },
-          },
-        },
-      },
-    },
+  const enrollment = await db.query.sequenceEnrollments.findFirst({
+    where: eq(sequenceEnrollments.id, enrollmentId),
+    columns: { id: true, status: true, current_step_index: true, contact_id: true, channel_id: true, sequence_id: true },
   });
 
   if (!enrollment || enrollment.status !== "active") {
@@ -51,15 +36,19 @@ export async function processSequenceStep(
     return;
   }
 
-  const steps = enrollment.sequence.steps as unknown as SequenceStep[];
+  const sequence = await db.query.sequences.findFirst({
+    where: eq(sequences.id, enrollment.sequence_id),
+    columns: { steps: true },
+  });
+  const steps = (sequence?.steps ?? []) as unknown as SequenceStep[];
   const stepIndex = enrollment.current_step_index;
 
   if (stepIndex >= steps.length) {
     // No more steps — complete
-    await prisma.sequenceEnrollment.update({
-      where: { id: enrollmentId },
-      data: { status: "completed", completed_at: new Date() },
-    });
+    await db
+      .update(sequenceEnrollments)
+      .set({ status: "completed", completed_at: new Date() })
+      .where(eq(sequenceEnrollments.id, enrollmentId));
     return;
   }
 
@@ -71,31 +60,33 @@ export async function processSequenceStep(
     const nextStepIndex = stepIndex + 1;
 
     if (nextStepIndex >= steps.length) {
-      await prisma.sequenceEnrollment.update({
-        where: { id: enrollmentId },
-        data: { status: "completed", completed_at: new Date(), current_step_index: nextStepIndex },
-      });
+      await db
+        .update(sequenceEnrollments)
+        .set({ status: "completed", completed_at: new Date(), current_step_index: nextStepIndex })
+        .where(eq(sequenceEnrollments.id, enrollmentId));
       return;
     }
 
-    await prisma.sequenceEnrollment.update({
-      where: { id: enrollmentId },
-      data: { current_step_index: nextStepIndex, next_step_at: new Date(Date.now() + delayMs) },
-    });
+    await db
+      .update(sequenceEnrollments)
+      .set({ current_step_index: nextStepIndex, next_step_at: new Date(Date.now() + delayMs) })
+      .where(eq(sequenceEnrollments.id, enrollmentId));
 
     await addJob("sequence-step", { enrollmentId }, { delayMs });
     return;
   }
 
   if (step.type === "message" && step.content) {
-    const conversation = await prisma.conversation.findFirst({
-      where: { contact_id: enrollment.contact_id, channel_id: enrollment.channel_id },
-      select: { id: true },
+    const conversation = await db.query.conversations.findFirst({
+      where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
+      columns: { id: true },
     });
 
-    const contactChannel = enrollment.contact.contact_channels.find(
-      (cc) => cc.channel_id === enrollment.channel_id
-    );
+    const ccs = await db.query.contactChannels.findMany({
+      where: eq(contactChannels.contact_id, enrollment.contact_id),
+      columns: { platform_sender_id: true, channel_id: true },
+    });
+    const contactChannel = ccs.find((cc) => cc.channel_id === enrollment.channel_id);
 
     if (conversation && contactChannel) {
       await addJob("outgoing-message", {
@@ -114,17 +105,17 @@ export async function processSequenceStep(
   const nextStepIndex = stepIndex + 1;
 
   if (nextStepIndex >= steps.length) {
-    await prisma.sequenceEnrollment.update({
-      where: { id: enrollmentId },
-      data: { status: "completed", completed_at: new Date(), current_step_index: nextStepIndex },
-    });
+    await db
+      .update(sequenceEnrollments)
+      .set({ status: "completed", completed_at: new Date(), current_step_index: nextStepIndex })
+      .where(eq(sequenceEnrollments.id, enrollmentId));
     return;
   }
 
-  await prisma.sequenceEnrollment.update({
-    where: { id: enrollmentId },
-    data: { current_step_index: nextStepIndex, next_step_at: new Date() },
-  });
+  await db
+    .update(sequenceEnrollments)
+    .set({ current_step_index: nextStepIndex, next_step_at: new Date() })
+    .where(eq(sequenceEnrollments.id, enrollmentId));
 
   await addJob("sequence-step", { enrollmentId });
 }

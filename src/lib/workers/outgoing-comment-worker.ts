@@ -1,6 +1,8 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingCommentJob } from "@/lib/queue/types";
-import { prisma } from "@/lib/prisma";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels, commentLogs } from "@/db/schema";
 import { isClaimed, claim } from "@/lib/idempotency";
 import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
@@ -23,9 +25,9 @@ export async function processOutgoingComment(
     return;
   }
 
-  const channel = await prisma.channel.findUnique({
-    where: { id: channelId },
-    select: { id: true, platform: true, token_encrypted: true, status: true },
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { id: true, platform: true, token_encrypted: true, status: true },
   });
 
   if (!channel || channel.status === "disabled") {
@@ -58,10 +60,10 @@ export async function processOutgoingComment(
     await claim(idempotencyKey);
   }
 
-  await prisma.commentLog.updateMany({
-    where: { platform_comment_id: commentId, channel_id: channelId },
-    data: { reply_sent: true, matched_rule_id: sentByRuleId ?? null },
-  });
+  await db
+    .update(commentLogs)
+    .set({ reply_sent: true, matched_rule_id: sentByRuleId ?? null })
+    .where(and(eq(commentLogs.platform_comment_id, commentId), eq(commentLogs.channel_id, channelId)));
 
   helpers.logger.info(`Public reply sent to comment=${commentId}`);
 }

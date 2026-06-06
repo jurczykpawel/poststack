@@ -1,6 +1,8 @@
 import type { JobHelpers } from "graphile-worker";
 import type { TokenRefreshJob } from "@/lib/queue/types";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { TokenInvalidError } from "@/lib/platforms/errors";
@@ -20,9 +22,9 @@ export async function processTokenRefresh(
 ): Promise<void> {
   const { channelId } = payload;
 
-  const channel = await prisma.channel.findUnique({
-    where: { id: channelId },
-    select: { id: true, platform: true, token_encrypted: true, status: true, connection_mode: true },
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { id: true, platform: true, token_encrypted: true, status: true, connection_mode: true },
   });
 
   if (!channel || channel.status === "disabled") {
@@ -57,10 +59,7 @@ export async function processTokenRefresh(
     throw err; // transient — allow retry
   }
 
-  await prisma.channel.update({
-    where: { id: channelId },
-    data: { token_encrypted: encryptTokens(refreshedTokens) },
-  });
+  await db.update(channels).set({ token_encrypted: encryptTokens(refreshedTokens) }).where(eq(channels.id, channelId));
   await markChannelHealthy(channelId);
 
   helpers.logger.info(`Token refreshed for channel=${channelId}`);

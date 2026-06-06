@@ -1,7 +1,8 @@
 import type { JobHelpers } from "graphile-worker";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { IncomingMessageJob } from "@/lib/queue/types";
-import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/generated/prisma/client";
+import { db } from "@/lib/db";
+import { channels, contactChannels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 
 /**
@@ -28,9 +29,9 @@ export async function processIncomingMessage(
   }
 
   // 1. Find active channel by platform_id
-  const channel = await prisma.channel.findFirst({
-    where: { platform_id: pageId, status: { not: "disabled" } },
-    select: { id: true, workspace_id: true, platform: true },
+  const channel = await db.query.channels.findFirst({
+    where: and(eq(channels.platform_id, pageId), ne(channels.status, "disabled")),
+    columns: { id: true, workspace_id: true, platform: true },
   });
 
   if (!channel) {
@@ -39,53 +40,35 @@ export async function processIncomingMessage(
   }
 
   // 2. Upsert Contact via ContactChannel
-  const existingCC = await prisma.contactChannel.findUnique({
-    where: {
-      channel_id_platform_sender_id: {
-        channel_id: channel.id,
-        platform_sender_id: senderId,
-      },
-    },
-    select: { contact_id: true },
+  const existingCC = await db.query.contactChannels.findFirst({
+    where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
+    columns: { contact_id: true },
   });
 
   let contactId: string;
 
   if (existingCC) {
     contactId = existingCC.contact_id;
-    await prisma.contact.update({
-      where: { id: contactId },
-      data: { last_interaction_at: messageDate },
-    });
+    await db.update(contacts).set({ last_interaction_at: messageDate }).where(eq(contacts.id, contactId));
   } else {
-    const result = await prisma.$transaction(async (tx) => {
-      const contact = await tx.contact.create({
-        data: {
-          workspace_id: channel.workspace_id,
-          last_interaction_at: messageDate,
-        },
+    contactId = await db.transaction(async (tx) => {
+      const [contact] = await tx
+        .insert(contacts)
+        .values({ workspace_id: channel.workspace_id, last_interaction_at: messageDate })
+        .returning({ id: contacts.id });
+      await tx.insert(contactChannels).values({
+        contact_id: contact.id,
+        channel_id: channel.id,
+        platform_sender_id: senderId,
       });
-      await tx.contactChannel.create({
-        data: {
-          contact_id: contact.id,
-          channel_id: channel.id,
-          platform_sender_id: senderId,
-        },
-      });
-      return contact;
+      return contact.id;
     });
-    contactId = result.id;
   }
 
   // 3. Upsert Conversation
-  const conversation = await prisma.conversation.upsert({
-    where: {
-      channel_id_contact_id: {
-        channel_id: channel.id,
-        contact_id: contactId,
-      },
-    },
-    create: {
+  const [conversation] = await db
+    .insert(conversations)
+    .values({
       workspace_id: channel.workspace_id,
       channel_id: channel.id,
       contact_id: contactId,
@@ -94,39 +77,38 @@ export async function processIncomingMessage(
       last_inbound_at: messageDate,
       last_message_preview: text ? text.slice(0, 255) : null,
       unread_count: 1,
-    },
-    update: {
-      status: "open",
-      last_message_at: messageDate,
-      last_inbound_at: messageDate,
-      last_message_preview: text ? text.slice(0, 255) : null,
-      unread_count: { increment: 1 },
-    },
-    select: {
-      id: true,
-      is_automation_paused: true,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: [conversations.channel_id, conversations.contact_id],
+      set: {
+        status: "open",
+        last_message_at: messageDate,
+        last_inbound_at: messageDate,
+        last_message_preview: text ? text.slice(0, 255) : null,
+        unread_count: sql`${conversations.unread_count} + 1`,
+      },
+    })
+    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
 
   // 4. Insert inbound Message — unique constraint on platform_message_id
-  //    prevents race condition (two concurrent workers for same mid)
-  try {
-    await prisma.message.create({
-      data: {
-        conversation_id: conversation.id,
-        direction: "inbound",
-        text: text ?? null,
-        quick_reply_payload: quickReplyPayload ?? null,
-        postback_payload: postbackPayload ?? null,
-        platform_message_id: mid,
-      },
-    });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      helpers.logger.info(`mid=${mid} already processed (unique constraint), skipping`);
-      return;
-    }
-    throw err;
+  //    prevents a race (two concurrent workers for the same mid). A no-op
+  //    conflict returns no row → the message was already processed.
+  const [inserted] = await db
+    .insert(messages)
+    .values({
+      conversation_id: conversation.id,
+      direction: "inbound",
+      text: text ?? null,
+      quick_reply_payload: quickReplyPayload ?? null,
+      postback_payload: postbackPayload ?? null,
+      platform_message_id: mid,
+    })
+    .onConflictDoNothing({ target: messages.platform_message_id })
+    .returning({ id: messages.id });
+
+  if (!inserted) {
+    helpers.logger.info(`mid=${mid} already processed (unique constraint), skipping`);
+    return;
   }
 
   helpers.logger.info(
@@ -149,16 +131,10 @@ export async function processIncomingMessage(
       });
       if (matchedRuleId) {
         helpers.logger.info(`Rule fired: ${matchedRuleId}`);
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { needs_manual_reply: false },
-        });
+        await db.update(conversations).set({ needs_manual_reply: false }).where(eq(conversations.id, conversation.id));
       } else {
         // No rule matched -- flag for human attention
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { needs_manual_reply: true },
-        });
+        await db.update(conversations).set({ needs_manual_reply: true }).where(eq(conversations.id, conversation.id));
       }
     } catch (err) {
       helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);

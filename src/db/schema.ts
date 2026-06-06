@@ -1,4 +1,4 @@
-import { pgTable, varchar, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { randomUUID } from "crypto"
 
