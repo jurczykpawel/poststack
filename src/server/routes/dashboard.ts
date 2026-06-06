@@ -1,7 +1,12 @@
 import type { Hono, MiddlewareHandler, Context } from "hono";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { prisma } from "@/lib/prisma";
+import { and, or, eq, asc, desc, ilike, like, exists, sql, count, type SQL } from "drizzle-orm";
+import { db } from "@/lib/db";
+import {
+  conversations, messages, channels, contacts, contactChannels,
+  apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
+} from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
@@ -60,14 +65,16 @@ function contactName(c: ConvName): string {
   );
 }
 
-const CONV_SELECT = {
-  id: true, platform: true, status: true, last_message_at: true,
-  last_message_preview: true, unread_count: true,
-  channel: { select: { id: true, display_name: true, platform: true } },
-  contact: {
-    select: {
-      id: true, display_name: true, avatar_url: true,
-      contact_channels: { select: { platform_sender_id: true, platform_username: true }, take: 1 },
+const CONV_QUERY = {
+  columns: {
+    id: true, platform: true, status: true, last_message_at: true,
+    last_message_preview: true, unread_count: true,
+  },
+  with: {
+    channel: { columns: { id: true, display_name: true, platform: true } },
+    contact: {
+      columns: { id: true, display_name: true, avatar_url: true },
+      with: { contact_channels: { columns: { platform_sender_id: true, platform_username: true }, limit: 1 } },
     },
   },
 } as const;
@@ -106,21 +113,28 @@ function renderThread(conv: ConvName & { id: string; channel: { display_name: st
 }
 
 function loadConversations(workspaceId: string) {
-  return prisma.conversation.findMany({
-    where: { workspace_id: workspaceId },
-    orderBy: { last_message_at: "desc" },
-    take: 50,
-    select: CONV_SELECT,
+  return db.query.conversations.findMany({
+    where: eq(conversations.workspace_id, workspaceId),
+    orderBy: desc(conversations.last_message_at),
+    limit: 50,
+    ...CONV_QUERY,
+  });
+}
+
+function loadConversation(id: string, workspaceId: string) {
+  return db.query.conversations.findFirst({
+    where: and(eq(conversations.id, id), eq(conversations.workspace_id, workspaceId)),
+    ...CONV_QUERY,
   });
 }
 
 function loadMessages(conversationId: string) {
-  return prisma.message
+  return db.query.messages
     .findMany({
-      where: { conversation_id: conversationId },
-      orderBy: { created_at: "desc" },
-      take: 50,
-      select: { id: true, direction: true, text: true, created_at: true },
+      where: eq(messages.conversation_id, conversationId),
+      orderBy: desc(messages.created_at),
+      limit: 50,
+      columns: { id: true, direction: true, text: true, created_at: true },
     })
     .then((m) => m.reverse());
 }
@@ -138,19 +152,23 @@ const CHANNEL_ERRORS: Record<string, string> = {
 };
 
 async function loadChannels(workspaceId: string) {
-  const channels = await prisma.channel.findMany({
-    where: { workspace_id: workspaceId },
-    orderBy: { created_at: "asc" },
-    select: {
+  const rows = await db.query.channels.findMany({
+    where: eq(channels.workspace_id, workspaceId),
+    orderBy: asc(channels.created_at),
+    columns: {
       id: true, platform: true, platform_id: true, display_name: true, username: true,
       profile_picture: true, status: true, connection_mode: true,
     },
   });
   return Promise.all(
-    channels.map(async (ch) => ({
-      ...ch,
-      held_count: await prisma.message.count({ where: { status: "held", conversation: { channel_id: ch.id } } }),
-    })),
+    rows.map(async (ch) => {
+      const [{ n }] = await db
+        .select({ n: count() })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
+        .where(and(eq(messages.status, "held"), eq(conversations.channel_id, ch.id)));
+      return { ...ch, held_count: Number(n) };
+    }),
   );
 }
 
@@ -195,18 +213,21 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
-    const conv = await prisma.conversation.findFirst({ where: { id, workspace_id: a.workspaceId }, select: CONV_SELECT });
+    const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
-    await prisma.conversation.update({ where: { id }, data: { unread_count: 0 } }).catch(() => {});
-    const messages = await loadMessages(id);
-    return c.html(renderThread(conv, messages));
+    await db.update(conversations).set({ unread_count: 0 }).where(eq(conversations.id, id)).catch(() => {});
+    const msgs = await loadMessages(id);
+    return c.html(renderThread(conv, msgs));
   });
 
   app.get("/inbox/:id/messages", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
-    const conv = await prisma.conversation.findFirst({ where: { id, workspace_id: a.workspaceId }, select: { id: true } });
+    const conv = await db.query.conversations.findFirst({
+      where: and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId)),
+      columns: { id: true },
+    });
     if (!conv) return c.notFound();
     return c.html(renderMessages(await loadMessages(id)));
   });
@@ -216,7 +237,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     await conversationMessages.POST(c.req.raw, { params: Promise.resolve({ conversationId: id }) }).catch(() => {});
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const conv = await prisma.conversation.findFirst({ where: { id, workspace_id: a.workspaceId }, select: CONV_SELECT });
+    const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     return c.html(renderThread(conv, await loadMessages(id)));
   });
@@ -318,12 +339,8 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const [keys, workspace] = await Promise.all([
-      prisma.apiKey.findMany({
-        where: { workspace_id: a.workspaceId },
-        orderBy: { created_at: "desc" },
-        select: { id: true, name: true, key_prefix: true, last_used_at: true, expires_at: true },
-      }),
-      prisma.workspace.findUnique({ where: { id: a.workspaceId }, select: { message_retention_days: true } }),
+      loadKeys(a.workspaceId),
+      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
     ]);
     return c.html(
       dashboardDoc(
@@ -367,11 +384,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const body = await res.json().catch(() => ({}));
-    const keys = await prisma.apiKey.findMany({
-      where: { workspace_id: a.workspaceId },
-      orderBy: { created_at: "desc" },
-      select: { id: true, name: true, key_prefix: true, last_used_at: true, expires_at: true },
-    });
+    const keys = await loadKeys(a.workspaceId);
     const created = res.status === 201 ? body?.data?.key : null;
     const banner = created
       ? html`<div class="notice notice-ok"><strong>Copy this key now — it won't be shown again:</strong><br /><code class="mono">${created}</code></div>`
@@ -386,11 +399,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     await apiKey.DELETE(c.req.raw, { params: Promise.resolve({ keyId: id }) }).catch(() => {});
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const keys = await prisma.apiKey.findMany({
-      where: { workspace_id: a.workspaceId },
-      orderBy: { created_at: "desc" },
-      select: { id: true, name: true, key_prefix: true, last_used_at: true, expires_at: true },
-    });
+    const keys = await loadKeys(a.workspaceId);
     return c.html(renderKeys(keys));
   });
 
@@ -457,7 +466,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const id = c.req.param("id");
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const existing = await prisma.autoReplyRule.findFirst({ where: { id, workspace_id: a.workspaceId }, select: { is_active: true } });
+    const existing = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, a.workspaceId)), columns: { is_active: true } });
     if (existing) {
       await rule.PATCH(jsonReqMethod(c, "PATCH", { is_active: !existing.is_active }), { params: Promise.resolve({ ruleId: id }) }).catch(() => {});
     }
@@ -549,7 +558,7 @@ async function workspacePatch(c: Context, days: number | null): Promise<boolean>
   const a = await auth(c);
   if (!a) return false;
   try {
-    await prisma.workspace.update({ where: { id: a.workspaceId }, data: { message_retention_days: days } });
+    await db.update(workspaces).set({ message_retention_days: days }).where(eq(workspaces.id, a.workspaceId));
     return true;
   } catch {
     return false;
@@ -560,24 +569,38 @@ async function workspacePatch(c: Context, days: number | null): Promise<boolean>
 
 function loadContacts(workspaceId: string, q: string) {
   const safeQ = q ? q.replace(/[%_\\]/g, "\\$&") : "";
-  return prisma.contact.findMany({
-    where: {
-      workspace_id: workspaceId,
-      ...(safeQ
-        ? {
-            OR: [
-              { display_name: { contains: safeQ, mode: "insensitive" } },
-              { email: { contains: safeQ, mode: "insensitive" } },
-              { contact_channels: { some: { OR: [{ platform_username: { contains: safeQ, mode: "insensitive" } }, { platform_sender_id: { contains: safeQ } }] } } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { last_interaction_at: "desc" },
-    take: 50,
-    select: {
-      id: true, display_name: true, email: true, is_subscribed: true, last_interaction_at: true,
-      contact_channels: { select: { platform_sender_id: true, platform_username: true, channel: { select: { platform: true } } }, take: 3 },
+  const conds: SQL[] = [eq(contacts.workspace_id, workspaceId)];
+  if (safeQ) {
+    const pat = `%${safeQ}%`;
+    conds.push(
+      or(
+        ilike(contacts.display_name, pat),
+        ilike(contacts.email, pat),
+        exists(
+          db
+            .select({ x: sql`1` })
+            .from(contactChannels)
+            .where(
+              and(
+                eq(contactChannels.contact_id, contacts.id),
+                or(ilike(contactChannels.platform_username, pat), like(contactChannels.platform_sender_id, pat)),
+              ),
+            ),
+        ),
+      )!,
+    );
+  }
+  return db.query.contacts.findMany({
+    where: and(...conds),
+    orderBy: desc(contacts.last_interaction_at),
+    limit: 50,
+    columns: { id: true, display_name: true, email: true, is_subscribed: true, last_interaction_at: true },
+    with: {
+      contact_channels: {
+        columns: { platform_sender_id: true, platform_username: true },
+        limit: 3,
+        with: { channel: { columns: { platform: true } } },
+      },
     },
   });
 }
@@ -597,6 +620,14 @@ function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = 
   </tbody></table>`;
 }
 
+function loadKeys(workspaceId: string) {
+  return db.query.apiKeys.findMany({
+    where: eq(apiKeysTbl.workspace_id, workspaceId),
+    orderBy: desc(apiKeysTbl.created_at),
+    columns: { id: true, name: true, key_prefix: true, last_used_at: true, expires_at: true },
+  });
+}
+
 function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; last_used_at: Date | null; expires_at: Date | null }>): Html {
   if (keys.length === 0) return html`<p class="muted">No API keys yet.</p>`;
   return html`<table><thead><tr><th>Name</th><th>Last used</th><th>Expiry</th><th></th></tr></thead><tbody>
@@ -612,11 +643,11 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
 }
 
 function loadRules(workspaceId: string) {
-  return prisma.autoReplyRule.findMany({
-    where: { workspace_id: workspaceId },
-    orderBy: [{ priority: "desc" }, { created_at: "asc" }],
-    take: 200,
-    select: { id: true, name: true, is_active: true, trigger_type: true, response_type: true },
+  return db.query.autoReplyRules.findMany({
+    where: eq(autoReplyRules.workspace_id, workspaceId),
+    orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
+    limit: 200,
+    columns: { id: true, name: true, is_active: true, trigger_type: true, response_type: true },
   });
 }
 
@@ -631,12 +662,18 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>): Html {
   )}</div>`;
 }
 
-function loadSequences(workspaceId: string) {
-  return prisma.sequence.findMany({
-    where: { workspace_id: workspaceId },
-    orderBy: { created_at: "desc" },
-    select: { id: true, name: true, status: true, steps: true, _count: { select: { enrollments: true } } },
+async function loadSequences(workspaceId: string) {
+  const rows = await db.query.sequences.findMany({
+    where: eq(sequencesTbl.workspace_id, workspaceId),
+    orderBy: desc(sequencesTbl.created_at),
+    columns: { id: true, name: true, status: true, steps: true },
   });
+  return Promise.all(
+    rows.map(async (seq) => ({
+      ...seq,
+      _count: { enrollments: await db.$count(sequenceEnrollments, eq(sequenceEnrollments.sequence_id, seq.id)) },
+    })),
+  );
 }
 
 function renderSequences(seqs: Awaited<ReturnType<typeof loadSequences>>): Html {
