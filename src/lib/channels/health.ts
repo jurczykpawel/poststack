@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
 import { notifyChannelDown } from "@/lib/notifications/channel-alert";
 import { addJob } from "@/lib/queue/client";
 
@@ -14,20 +16,20 @@ export async function markChannelNeedsReauth(
   error: string,
   now: Date = new Date(),
 ): Promise<void> {
-  const channel = await prisma.channel.findUnique({
-    where: { id: channelId },
-    select: { status: true, workspace_id: true, platform: true, display_name: true },
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { status: true, workspace_id: true, platform: true, display_name: true },
   });
   if (!channel) return;
 
-  await prisma.channel.update({
-    where: { id: channelId },
-    data: {
+  await db
+    .update(channels)
+    .set({
       status: "needs_reauth",
       last_error: error.slice(0, MAX_ERROR_LEN),
       last_health_at: now,
-    },
-  });
+    })
+    .where(eq(channels.id, channelId));
 
   // Notify only when the channel was previously healthy (one alert per outage).
   if (channel.status !== "needs_reauth") {
@@ -50,15 +52,15 @@ export async function markChannelHealthy(
   channelId: string,
   now: Date = new Date(),
 ): Promise<void> {
-  const channel = await prisma.channel.findUnique({
-    where: { id: channelId },
-    select: { status: true },
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { status: true },
   });
 
-  await prisma.channel.update({
-    where: { id: channelId },
-    data: { status: "active", last_error: null, last_health_at: now },
-  });
+  await db
+    .update(channels)
+    .set({ status: "active", last_error: null, last_health_at: now })
+    .where(eq(channels.id, channelId));
 
   if (channel?.status === "needs_reauth") {
     await addJob("drain-channel", { channelId });
