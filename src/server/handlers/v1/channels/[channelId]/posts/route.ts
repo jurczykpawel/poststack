@@ -1,5 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { authenticate } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { GRAPH_API_BASE } from "@/lib/platforms/constants";
@@ -29,9 +31,9 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  const channel = await prisma.channel.findFirst({
-    where: { id: channelId, workspace_id: auth.workspaceId },
-    select: { id: true, platform: true, platform_id: true, token_encrypted: true },
+  const channel = await db.query.channels.findFirst({
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    columns: { id: true, platform: true, platform_id: true, token_encrypted: true },
   });
 
   if (!channel) return ApiErrors.notFound("Channel");

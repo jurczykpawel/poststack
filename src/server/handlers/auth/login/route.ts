@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { eq, asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users, workspaceMembers } from "@/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
 import { signSession, sessionCookie } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
@@ -41,19 +43,9 @@ export async function POST(request: Request) {
     return ApiErrors.badRequest(captcha.error ?? "Security verification failed");
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: email.toLowerCase().trim() },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      password_hash: true,
-      workspace_members: {
-        select: { workspace_id: true },
-        orderBy: { created_at: "asc" },
-        take: 1,
-      },
-    },
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, email.toLowerCase().trim()),
+    columns: { id: true, email: true, name: true, password_hash: true },
   });
 
   if (!user?.password_hash) {
@@ -67,12 +59,16 @@ export async function POST(request: Request) {
     return ApiErrors.unauthorized(INVALID_MSG);
   }
 
-  const workspaceId = user.workspace_members[0]?.workspace_id;
-  if (!workspaceId) {
+  const member = await db.query.workspaceMembers.findFirst({
+    where: eq(workspaceMembers.user_id, user.id),
+    orderBy: asc(workspaceMembers.created_at),
+    columns: { workspace_id: true },
+  });
+  if (!member) {
     return ApiErrors.internal("Account has no workspace");
   }
 
-  const token = await signSession(user.id, workspaceId);
+  const token = await signSession(user.id, member.workspace_id);
 
   const response = ok({ id: user.id, email: user.email, name: user.name });
   response.headers.set("set-cookie", sessionCookie(token, 60 * 60 * 24 * 7));

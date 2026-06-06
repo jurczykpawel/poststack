@@ -1,5 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { authenticate } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { apiKeys } from "@/db/schema";
 import { noContent, ApiErrors } from "@/lib/api/response";
 
 export const runtime = "nodejs";
@@ -13,12 +15,9 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { keyId } = await params;
-  const existing = await prisma.apiKey.findFirst({
-    where: { id: keyId, workspace_id: auth.workspaceId },
-    select: { id: true },
-  });
-  if (!existing) return ApiErrors.notFound();
-
-  await prisma.apiKey.delete({ where: { id: keyId } });
+  const result = await db
+    .delete(apiKeys)
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.workspace_id, auth.workspaceId)));
+  if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
   return noContent();
 }

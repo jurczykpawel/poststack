@@ -1,7 +1,8 @@
 import { randomBytes } from "crypto";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/generated/prisma/client";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users, workspaces, workspaceMembers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import { signSession, sessionCookie } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
@@ -15,6 +16,10 @@ const schema = z.object({
   name: z.string().min(1).max(100).optional(),
   captchaToken: z.string().optional(),
 });
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "23505";
+}
 
 export async function POST(request: Request) {
   // Rate limit: 5 registrations per hour per IP
@@ -43,52 +48,42 @@ export async function POST(request: Request) {
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  const existing = await prisma.user.findUnique({
-    where: { email: normalizedEmail },
-    select: { id: true },
+  const existing = await db.query.users.findFirst({
+    where: eq(users.email, normalizedEmail),
+    columns: { id: true },
   });
   if (existing) {
     return ApiErrors.conflict("An account with this email already exists");
   }
 
   const passwordHash = await hashPassword(password);
-  const slug = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/g, "-") +
-    "-" + randomBytes(4).toString("hex");
+  const slug =
+    normalizedEmail.split("@")[0].replace(/[^a-z0-9]/g, "-") + "-" + randomBytes(4).toString("hex");
 
-  let user;
+  let user: { id: string; email: string; name: string | null };
+  let workspaceId: string;
   try {
-  user = await prisma.user.create({
-    data: {
-      email: normalizedEmail,
-      password_hash: passwordHash,
-      name: name ?? normalizedEmail.split("@")[0],
-      workspace_members: {
-        create: {
-          role: "owner",
-          workspace: {
-            create: {
-              name: name ? `${name}'s workspace` : "My workspace",
-              slug,
-            },
-          },
-        },
-      },
-    },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      workspace_members: { select: { workspace_id: true }, take: 1 },
-    },
-  });
+    const result = await db.transaction(async (tx) => {
+      const [ws] = await tx
+        .insert(workspaces)
+        .values({ name: name ? `${name}'s workspace` : "My workspace", slug })
+        .returning({ id: workspaces.id });
+      const [u] = await tx
+        .insert(users)
+        .values({ email: normalizedEmail, password_hash: passwordHash, name: name ?? normalizedEmail.split("@")[0] })
+        .returning({ id: users.id, email: users.email, name: users.name });
+      await tx.insert(workspaceMembers).values({ workspace_id: ws.id, user_id: u.id, role: "owner" });
+      return { u, wsId: ws.id };
+    });
+    user = result.u;
+    workspaceId = result.wsId;
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    if (isUniqueViolation(err)) {
       return ApiErrors.conflict("An account with this email already exists");
     }
     throw err;
   }
 
-  const workspaceId = user.workspace_members[0].workspace_id;
   const token = await signSession(user.id, workspaceId);
 
   const response = ok({ id: user.id, email: user.email, name: user.name }, undefined, 201);

@@ -131,4 +131,35 @@ describe("v1 delegation parity (real Postgres)", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it("returns the audit log", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api/v1/audit-log", { headers: authHeaders });
+    expect(res.status).toBe(200);
+    expect(Array.isArray((await res.json()).data)).toBe(true);
+  });
+
+  it("updates the workspace retention policy (PATCH)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api/v1/workspace", {
+      method: "PATCH",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ message_retention_days: 30 }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.message_retention_days).toBe(30);
+  });
+
+  it("force-drains a channel (200)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request(`/api/v1/channels/${CH_A}/drain`, { method: "POST", headers: authHeaders });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toHaveProperty("data.enqueued");
+  });
+
+  it("deletes a contact (204)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request(`/api/v1/contacts/${CONTACT_A}`, { method: "DELETE", headers: authHeaders });
+    expect(res.status).toBe(204);
+  });
 });

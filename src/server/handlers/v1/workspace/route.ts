@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { workspaces } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -10,9 +12,9 @@ export async function GET(request: Request) {
   const auth = await authenticateWithScope(request, "settings:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: auth.workspaceId },
-    select: { id: true, name: true, message_retention_days: true },
+  const workspace = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, auth.workspaceId),
+    columns: { id: true, name: true, message_retention_days: true },
   });
   if (!workspace) return ApiErrors.notFound("Workspace");
   return ok(workspace);
@@ -34,10 +36,10 @@ export async function PATCH(request: Request) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const updated = await prisma.workspace.update({
-    where: { id: auth.workspaceId },
-    data: { message_retention_days: parsed.data.message_retention_days },
-    select: { id: true, name: true, message_retention_days: true },
-  });
+  const [updated] = await db
+    .update(workspaces)
+    .set({ message_retention_days: parsed.data.message_retention_days })
+    .where(eq(workspaces.id, auth.workspaceId))
+    .returning({ id: workspaces.id, name: workspaces.name, message_retention_days: workspaces.message_retention_days });
   return ok(updated);
 }
