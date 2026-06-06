@@ -119,6 +119,20 @@ describe("evaluateRules (real Postgres)", () => {
     expect(Number((pr.rows[0] as { n: number }).n)).toBe(1);
   });
 
+  it("random_text + ai_rephrase: picks one from the pool then sends it (AI is a no-op without a key)", async () => {
+    if (!TEST_DB) return;
+    const pool = ["Thanks a lot!", "Cheers!", "Appreciate it!"];
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Pool", trigger_type: "keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "random_text", response_config: { messages: pool, ai_rephrase: true },
+    });
+    expect(await evaluateRules(baseInput)).not.toBeNull();
+    const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
+    const text = (job.rows[0] as { payload: { content: { text: string } } }).payload.content.text;
+    expect(pool).toContain(text);
+  });
+
   it("fires a story_reply rule only when the message is a story reply", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({

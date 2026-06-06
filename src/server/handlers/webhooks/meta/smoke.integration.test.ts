@@ -3,7 +3,7 @@ import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations, runOnce } from "graphile-worker";
 import { eq } from "drizzle-orm";
-import { workspaces, channels, autoReplyRules, messages } from "@/db/schema";
+import { workspaces, channels, autoReplyRules, messages, commentLogs, contactChannels } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const APP_SECRET = "smoke-app-secret";
@@ -13,6 +13,7 @@ let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let POST: typeof import("./route").POST;
 let processIncomingMessage: typeof import("@/lib/workers/incoming-message-worker").processIncomingMessage;
+let processIncomingComment: typeof import("@/lib/workers/incoming-comment-worker").processIncomingComment;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-000000000001";
@@ -38,6 +39,7 @@ beforeAll(async () => {
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ POST } = await import("./route"));
   ({ processIncomingMessage } = await import("@/lib/workers/incoming-message-worker"));
+  ({ processIncomingComment } = await import("@/lib/workers/incoming-comment-worker"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -227,6 +229,75 @@ describe("smoke E2E: webhook → worker → auto-reply (real Postgres)", () => {
       "select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'",
     );
     expect(outgoing.rows[0].n).toBe(1);
+  });
+
+  it("ingests a comment on a post, fires a post-scoped rule, and enqueues public + private reply", async () => {
+    if (!TEST_DB) return;
+    await db.insert(autoReplyRules).values({
+      workspace_id: WS, channel_id: null, name: "Post rule", is_active: true,
+      trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }], post_id: "POST_E2E" },
+      response_type: "text",
+      response_config: { text: "Check your DMs!", reply_mode: "both", comment_reply_text: "Replied 🙌" },
+    });
+
+    // 1. Signed comment webhook → 200 + incoming-comment enqueued.
+    const res = await POST(signed({
+      object: "page",
+      entry: [{
+        id: PAGE,
+        changes: [{
+          field: "feed",
+          value: { item: "comment", verb: "add", comment_id: "CMT_E2E", post_id: "POST_E2E", message: "need info pls", from: { id: "FAN_1", name: "Fan" } },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+
+    // 2. Run only the incoming-comment task.
+    await runOnce({
+      connectionString: TEST_DB,
+      taskList: {
+        "incoming-comment": async (p, h) =>
+          processIncomingComment(p as Parameters<typeof processIncomingComment>[0], h),
+      },
+    });
+
+    // 3. Comment logged, contact + conversation materialised first-touch.
+    const log = await db.query.commentLogs.findFirst({ where: eq(commentLogs.platform_comment_id, "CMT_E2E") });
+    expect(log).toBeTruthy();
+    const cc = await db.select().from(contactChannels).where(eq(contactChannels.platform_sender_id, "FAN_1"));
+    expect(cc.length).toBe(1);
+
+    // 4. Both a public comment reply and a private reply are queued.
+    const pub = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-comment'");
+    const priv = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-private-reply'");
+    expect(pub.rows[0].n).toBe(1);
+    expect(priv.rows[0].n).toBe(1);
+  });
+
+  it("does not fire a post-scoped rule for a comment on a different post", async () => {
+    if (!TEST_DB) return;
+    await db.insert(autoReplyRules).values({
+      workspace_id: WS, channel_id: null, name: "Post rule", is_active: true,
+      trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }], post_id: "POST_ONLY" },
+      response_type: "text", response_config: { text: "x", reply_mode: "comment", comment_reply_text: "y" },
+    });
+    const res = await POST(signed({
+      object: "page",
+      entry: [{
+        id: PAGE,
+        changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: "CMT_OTHER", post_id: "DIFFERENT_POST", message: "info", from: { id: "FAN_2", name: "F" } } }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+    await runOnce({
+      connectionString: TEST_DB,
+      taskList: { "incoming-comment": async (p, h) => processIncomingComment(p as Parameters<typeof processIncomingComment>[0], h) },
+    });
+    const pub = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-comment'");
+    expect(pub.rows[0].n).toBe(0);
   });
 
   it("rejects a webhook with a bad signature", async () => {

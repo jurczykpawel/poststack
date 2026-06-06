@@ -26,6 +26,7 @@ const responseConfigSchema = z
     messages: z.array(z.string().min(1)).min(1).optional(),  // random_text pool
     tone: z.string().max(100).optional(),                    // ai_rephrase
     custom_prompt: z.string().max(2000).optional(),          // ai_rephrase
+    ai_rephrase: z.boolean().optional(),                     // post-process any source through the LLM
     reply_mode: z.enum(["dm", "comment", "both"]).optional(),
     comment_reply_text: z.string().min(1).max(2000).optional(),
   })

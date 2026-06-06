@@ -7,6 +7,7 @@ import { addJob } from "@/lib/queue/client";
 import { rephrase } from "@/lib/ai/rephrase";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
+import { selectResponse } from "./response";
 
 interface EvaluateRulesInput {
   workspaceId: string;
@@ -130,29 +131,15 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
   const { rule, channelId, conversationId, contactId, recipientPlatformId, commentId } = input;
   const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
 
-  // Resolve the text to send
-  let dmText: string | null = null;
-  switch (rule.response_type) {
-    case "text":
-      dmText = (rule.response_config.text as string) ?? null;
-      break;
-    case "random_text": {
-      const msgs = rule.response_config.messages as string[] | undefined;
-      if (msgs && msgs.length > 0) dmText = msgs[Math.floor(Math.random() * msgs.length)];
-      break;
-    }
-    case "ai_rephrase": {
-      const baseText = rule.response_config.text as string | undefined;
-      if (baseText) {
-        dmText = await rephrase(baseText, {
-          customPrompt: rule.response_config.custom_prompt as string | undefined,
-          tone: rule.response_config.tone as string | undefined,
-        });
-      }
-      break;
-    }
-    case "none":
-      break;
+  // Resolve the text to send: pick one base (single or random from a pool),
+  // then optionally rephrase it through the LLM so replies vary.
+  const { baseText, aiEnabled } = selectResponse(rule.response_type, rule.response_config);
+  let dmText: string | null = baseText;
+  if (aiEnabled && baseText) {
+    dmText = await rephrase(baseText, {
+      customPrompt: rule.response_config.custom_prompt as string | undefined,
+      tone: rule.response_config.tone as string | undefined,
+    });
   }
 
   // Public comment reply (reply_mode: "comment" or "both")
