@@ -12,36 +12,65 @@ const keywordSchema = z.object({
   match_type: z.enum(["exact", "contains", "starts_with"]),
 });
 
-const triggerConfigSchema = z.union([
-  z.object({ keywords: z.array(keywordSchema).min(1) }), // keyword / comment_keyword
-  z.object({}), // welcome / default / story_reply / story_mention
-]);
+const triggerConfigSchema = z
+  .object({
+    keywords: z.array(keywordSchema).min(1).optional(),
+    post_id: z.string().min(1).max(255).optional(), // comment_keyword: scope to one post/media
+    payload: z.string().min(1).max(255).optional(), // postback
+  })
+  .strict();
 
-const responseConfigSchema = z.union([
-  z.object({ text: z.string().min(1).max(2000) }),                                    // text
-  z.object({ messages: z.array(z.string().min(1)).min(1) }),                           // random_text
-  z.object({ text: z.string().min(1).max(2000), tone: z.string().max(100).optional() }), // ai_rephrase
-  z.object({}),                                                                        // none / sequence
-]);
+const responseConfigSchema = z
+  .object({
+    text: z.string().min(1).max(2000).optional(),            // text / ai_rephrase base
+    messages: z.array(z.string().min(1)).min(1).optional(),  // random_text pool
+    tone: z.string().max(100).optional(),                    // ai_rephrase
+    custom_prompt: z.string().max(2000).optional(),          // ai_rephrase
+    reply_mode: z.enum(["dm", "comment", "both"]).optional(),
+    comment_reply_text: z.string().min(1).max(2000).optional(),
+  })
+  .strict();
 
-const createRuleSchema = z.object({
-  name: z.string().min(1).max(100),
-  channel_id: z.string().uuid().optional().nullable(),
-  priority: z.number().int().min(0).max(999).default(0),
-  trigger_type: z.enum([
-    "keyword",
-    "comment_keyword",
-    "postback",
-    "welcome",
-    "default",
-    "story_reply",
-    "story_mention",
-  ]),
-  trigger_config: triggerConfigSchema,
-  response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]),
-  response_config: responseConfigSchema,
-  cooldown_seconds: z.number().int().min(0).default(0),
-});
+const createRuleSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    channel_id: z.string().uuid().optional().nullable(),
+    priority: z.number().int().min(0).max(999).default(0),
+    trigger_type: z.enum([
+      "keyword",
+      "comment_keyword",
+      "postback",
+      "welcome",
+      "default",
+      "story_reply",
+      "story_mention",
+    ]),
+    trigger_config: triggerConfigSchema,
+    response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]),
+    response_config: responseConfigSchema,
+    cooldown_seconds: z.number().int().min(0).default(0),
+  })
+  .superRefine((data, ctx) => {
+    const t = data.trigger_config;
+    const r = data.response_config;
+    const hasKeywords = (t.keywords?.length ?? 0) > 0;
+
+    if (data.trigger_type === "keyword" && !hasKeywords) {
+      ctx.addIssue({ code: "custom", path: ["trigger_config", "keywords"], message: "keyword trigger requires keywords" });
+    }
+    if (data.trigger_type === "comment_keyword" && !hasKeywords && !t.post_id) {
+      ctx.addIssue({ code: "custom", path: ["trigger_config"], message: "comment_keyword requires keywords or post_id" });
+    }
+    if (data.trigger_type === "postback" && !t.payload) {
+      ctx.addIssue({ code: "custom", path: ["trigger_config", "payload"], message: "postback trigger requires payload" });
+    }
+    if ((data.response_type === "text" || data.response_type === "ai_rephrase") && !r.text) {
+      ctx.addIssue({ code: "custom", path: ["response_config", "text"], message: `${data.response_type} requires text` });
+    }
+    if (data.response_type === "random_text" && (r.messages?.length ?? 0) === 0) {
+      ctx.addIssue({ code: "custom", path: ["response_config", "messages"], message: "random_text requires messages" });
+    }
+  });
 
 // GET /api/v1/rules
 export async function GET(request: Request) {

@@ -79,6 +79,89 @@ describe("rules CRUD (real Postgres)", () => {
   });
 });
 
+describe("rule config exposure: post scoping + reply mode + AI prompt (real Postgres)", () => {
+  it("round-trips post_id, reply_mode and comment_reply_text on a comment rule", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "Scoped",
+      trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }], post_id: "POST_123" },
+      response_type: "text",
+      response_config: { text: "check DM", reply_mode: "both", comment_reply_text: "sent you a DM!" },
+    }));
+    expect(res.status).toBe(201);
+    const id = (await res.json()).data.id;
+
+    const got = await rule.GET(get(), { params: Promise.resolve({ ruleId: id }) });
+    const data = (await got.json()).data;
+    expect(data.trigger_config.post_id).toBe("POST_123");
+    expect(data.response_config.reply_mode).toBe("both");
+    expect(data.response_config.comment_reply_text).toBe("sent you a DM!");
+  });
+
+  it("round-trips custom_prompt on an ai_rephrase rule", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "AI",
+      trigger_type: "comment_keyword",
+      trigger_config: { post_id: "POST_9" },
+      response_type: "ai_rephrase",
+      response_config: { text: "thanks!", custom_prompt: "Reply warmly, max 1 sentence.", reply_mode: "comment" },
+    }));
+    expect(res.status).toBe(201);
+    const data = (await res.json()).data;
+    expect(data.response_config.custom_prompt).toBe("Reply warmly, max 1 sentence.");
+  });
+
+  it("accepts a comment rule scoped to a post with no keywords (any comment on that post)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "AnyComment",
+      trigger_type: "comment_keyword",
+      trigger_config: { post_id: "POST_ONLY" },
+      response_type: "text",
+      response_config: { text: "hi", reply_mode: "comment" },
+    }));
+    expect(res.status).toBe(201);
+  });
+
+  it("rejects a comment rule with neither keywords nor post_id (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "Bad",
+      trigger_type: "comment_keyword",
+      trigger_config: {},
+      response_type: "text",
+      response_config: { text: "hi" },
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects a text rule with no text (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "Empty",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: {},
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects unknown keys in trigger_config (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "Junk",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }], bogus: 1 },
+      response_type: "text",
+      response_config: { text: "hi" },
+    }));
+    expect(res.status).toBe(422);
+  });
+});
+
 describe("sequences CRUD + enroll (real Postgres)", () => {
   it("creates, patches (activate), enrolls a contact, and blocks double-enroll", async () => {
     if (!TEST_DB) return;

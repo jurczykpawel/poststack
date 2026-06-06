@@ -421,13 +421,28 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
         "/rules",
         html`<div class="page">
           <h1>Rules</h1>
-          <p class="muted">Keyword auto-replies. The API supports richer triggers; this form covers the common keyword → text reply.</p>
+          <p class="muted">Auto-replies for DMs and comments. Leave keywords blank on a comment rule with a post to reply to every comment on that post.</p>
           <details class="card" style="margin:1rem 0">
-            <summary style="cursor:pointer;font-weight:600">+ New keyword rule</summary>
+            <summary style="cursor:pointer;font-weight:600">+ New rule</summary>
             <form hx-post="/rules" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem">
               <div><label class="label">Name</label><input class="input" name="name" required /></div>
-              <div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" required /></div>
-              <div><label class="label">Reply text</label><textarea class="textarea" name="text" rows="2" required></textarea></div>
+              <div><label class="label">Trigger</label>
+                <select class="input" name="trigger_type">
+                  <option value="keyword">DM keyword</option>
+                  <option value="comment_keyword">Comment keyword</option>
+                </select>
+              </div>
+              <div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" /></div>
+              <div><label class="label">Post ID (comment rules only — blank = any post)</label><input class="input" name="post_id" placeholder="leave blank for any post" /></div>
+              <div><label class="label">Reply via (comment rules)</label>
+                <select class="input" name="reply_mode">
+                  <option value="dm">DM only</option>
+                  <option value="comment">Public comment only</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
+              <div><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea></div>
+              <div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create rule</button>
             </form>
           </details>
@@ -444,12 +459,23 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
       .map((k) => k.trim())
       .filter(Boolean)
       .map((value) => ({ value, match_type: "contains" }));
+    const triggerType = form.trigger_type === "comment_keyword" ? "comment_keyword" : "keyword";
+    const postId = (form.post_id ?? "").trim();
+    const commentReply = (form.comment_reply_text ?? "").trim();
+    const triggerConfig: Record<string, unknown> = {};
+    if (keywords.length) triggerConfig.keywords = keywords;
+    if (triggerType === "comment_keyword" && postId) triggerConfig.post_id = postId;
+    const responseConfig: Record<string, unknown> = { text: form.text ?? "" };
+    if (triggerType === "comment_keyword") {
+      responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
+      if (commentReply) responseConfig.comment_reply_text = commentReply;
+    }
     const payload = {
       name: form.name ?? "",
-      trigger_type: "keyword",
-      trigger_config: { keywords },
+      trigger_type: triggerType,
+      trigger_config: triggerConfig,
       response_type: "text",
-      response_config: { text: form.text ?? "" },
+      response_config: responseConfig,
     };
     const res = await rules.POST(jsonReq(c, payload));
     const a = await auth(c);
