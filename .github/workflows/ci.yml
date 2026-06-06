@@ -62,11 +62,6 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build
-        run: npm run build
-        env:
-          NEXT_TELEMETRY_DISABLED: 1
-
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
