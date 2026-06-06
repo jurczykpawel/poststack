@@ -1,6 +1,7 @@
 import { Hono } from "hono";
+import { sql } from "drizzle-orm";
 import { createChallenge } from "altcha-lib";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { openApiSpec } from "@/lib/api/openapi";
 
 const DOCS_HTML = `<!doctype html>
@@ -24,7 +25,7 @@ export const publicRoutes = new Hono();
 
 publicRoutes.get("/api/health", async (c) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await db.execute(sql`SELECT 1`);
     return c.json({ status: "ok", timestamp: new Date().toISOString() });
   } catch {
     return c.json({ status: "error", message: "Database unreachable" }, 503);
