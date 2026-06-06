@@ -2,12 +2,14 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations, runOnce } from "graphile-worker";
+import { eq } from "drizzle-orm";
+import { workspaces, channels, autoReplyRules, messages } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const APP_SECRET = "smoke-app-secret";
 
 let pool: Pool;
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let POST: typeof import("./route").POST;
 let processIncomingMessage: typeof import("@/lib/workers/incoming-message-worker").processIncomingMessage;
@@ -32,7 +34,7 @@ beforeAll(async () => {
   pool = new Pool({ connectionString: TEST_DB });
   await runMigrations({ connectionString: TEST_DB });
 
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ POST } = await import("./route"));
   ({ processIncomingMessage } = await import("@/lib/workers/incoming-message-worker"));
@@ -42,28 +44,24 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await pool.query("truncate table graphile_worker._private_jobs cascade");
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.workspace.create({ data: { id: WS, name: "Smoke", slug: `smoke-${WS}` } });
-  await prisma.channel.create({
-    data: {
-      id: CH, workspace_id: WS, platform: "facebook", platform_id: PAGE,
-      token_encrypted: encryptTokens({ access_token: "tok" }), webhook_secret: "wh", status: "active",
-    },
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.insert(workspaces).values({ id: WS, name: "Smoke", slug: `smoke-${WS}` });
+  await db.insert(channels).values({
+    id: CH, workspace_id: WS, platform: "facebook", platform_id: PAGE,
+    token_encrypted: encryptTokens({ access_token: "tok" }), webhook_secret: "wh", status: "active",
   });
-  await prisma.autoReplyRule.create({
-    data: {
-      workspace_id: WS, channel_id: null, name: "Hello rule", is_active: true,
-      trigger_type: "keyword", trigger_config: { keywords: [{ value: "hello", match_type: "contains" }] },
-      response_type: "text", response_config: { text: "Auto reply!" },
-    },
+  await db.insert(autoReplyRules).values({
+    workspace_id: WS, channel_id: null, name: "Hello rule", is_active: true,
+    trigger_type: "keyword", trigger_config: { keywords: [{ value: "hello", match_type: "contains" }] },
+    response_type: "text", response_config: { text: "Auto reply!" },
   });
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: WS } });
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
   if (closeQueue) await closeQueue();
-  await prisma.$disconnect();
+  await db.$client.end();
   await pool.end();
 });
 
@@ -117,7 +115,7 @@ describe("smoke E2E: webhook → worker → auto-reply (real Postgres)", () => {
     });
 
     // 3. The inbound message is stored.
-    const inbound = await prisma.message.findFirst({ where: { platform_message_id: "mid-e2e" } });
+    const inbound = await db.query.messages.findFirst({ where: eq(messages.platform_message_id, "mid-e2e") });
     expect(inbound?.direction).toBe("inbound");
 
     // 4. The rule fired → an outgoing-message (the auto-reply) is now queued.

@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { eq } from "drizzle-orm";
+import { workspaces, channels, contacts, conversations, messages } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const DAY = 86_400_000;
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let pruneWorkspaceMessages: typeof import("./retention").pruneWorkspaceMessages;
 let pruneOldMessages: typeof import("./retention").pruneOldMessages;
 
@@ -21,38 +23,32 @@ const recent = new Date(now.getTime() - 1 * DAY);
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ pruneWorkspaceMessages, pruneOldMessages } = await import("./retention"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.workspace.create({ data: { id: WS, name: "Retention", slug: `ret-${WS}`, message_retention_days: 30 } });
-  await prisma.channel.create({
-    data: { id: CH, workspace_id: WS, platform: "instagram", platform_id: "PG-R", token_encrypted: "e", webhook_secret: "s" },
-  });
-  await prisma.contact.create({ data: { id: CONTACT, workspace_id: WS } });
-  await prisma.contact.create({ data: { id: CONTACT2, workspace_id: WS } });
-  await prisma.conversation.create({
-    data: { id: CONV_KEEP, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "instagram", last_message_at: recent },
-  });
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.insert(workspaces).values({ id: WS, name: "Retention", slug: `ret-${WS}`, message_retention_days: 30 });
+  await db.insert(channels).values({ id: CH, workspace_id: WS, platform: "instagram", platform_id: "PG-R", token_encrypted: "e", webhook_secret: "s" });
+  await db.insert(contacts).values({ id: CONTACT, workspace_id: WS });
+  await db.insert(contacts).values({ id: CONTACT2, workspace_id: WS });
+  await db.insert(conversations).values({ id: CONV_KEEP, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "instagram", last_message_at: recent });
   // Second conversation (different contact, same channel) — all its messages are old.
-  await prisma.conversation.create({
-    data: { id: CONV_EMPTY, workspace_id: WS, channel_id: CH, contact_id: CONTACT2, platform: "facebook", last_message_at: old },
-  });
+  await db.insert(conversations).values({ id: CONV_EMPTY, workspace_id: WS, channel_id: CH, contact_id: CONTACT2, platform: "facebook", last_message_at: old });
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.$disconnect();
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.$client.end();
 });
 
 async function seedMessage(conversationId: string, status: "sent" | "held", createdAt: Date) {
-  const m = await prisma.message.create({
-    data: { conversation_id: conversationId, direction: "outbound", text: "x", status, created_at: createdAt },
-  });
+  const [m] = await db.insert(messages)
+    .values({ conversation_id: conversationId, direction: "outbound", text: "x", status, created_at: createdAt })
+    .returning({ id: messages.id });
   return m.id;
 }
 
@@ -70,12 +66,12 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect(result.deletedMessages).toBe(2); // oldSent + oldOnly
     expect(result.deletedConversations).toBe(1); // CONV_EMPTY
 
-    expect(await prisma.message.findUnique({ where: { id: oldSent } })).toBeNull();
-    expect(await prisma.message.findUnique({ where: { id: oldOnly } })).toBeNull();
-    expect(await prisma.message.findUnique({ where: { id: heldOld } })).not.toBeNull(); // held survives
-    expect(await prisma.message.findUnique({ where: { id: recentSent } })).not.toBeNull(); // recent survives
-    expect(await prisma.conversation.findUnique({ where: { id: CONV_KEEP } })).not.toBeNull();
-    expect(await prisma.conversation.findUnique({ where: { id: CONV_EMPTY } })).toBeNull();
+    expect(await db.query.messages.findFirst({ where: eq(messages.id, oldSent) })).toBeUndefined();
+    expect(await db.query.messages.findFirst({ where: eq(messages.id, oldOnly) })).toBeUndefined();
+    expect(await db.query.messages.findFirst({ where: eq(messages.id, heldOld) })).toBeDefined(); // held survives
+    expect(await db.query.messages.findFirst({ where: eq(messages.id, recentSent) })).toBeDefined(); // recent survives
+    expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_KEEP) })).toBeDefined();
+    expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_EMPTY) })).toBeUndefined();
   });
 
   it("pruneOldMessages applies each workspace's own retention policy", async () => {
@@ -85,6 +81,6 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     const result = await pruneOldMessages(now);
 
     expect(result.workspaces).toBeGreaterThanOrEqual(1);
-    expect(await prisma.message.findUnique({ where: { id: oldSent } })).toBeNull();
+    expect(await db.query.messages.findFirst({ where: eq(messages.id, oldSent) })).toBeUndefined();
   });
 });

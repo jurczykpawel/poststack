@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { eq } from "drizzle-orm";
+import { workspaces, auditLogs } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let recordAudit: typeof import("./audit").recordAudit;
 
 const WS = "dddddddd-0000-0000-0000-000000000001";
@@ -10,20 +12,20 @@ const WS = "dddddddd-0000-0000-0000-000000000001";
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ recordAudit } = await import("./audit"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.workspace.create({ data: { id: WS, name: "Audit", slug: `audit-${WS}` } });
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.insert(workspaces).values({ id: WS, name: "Audit", slug: `audit-${WS}` });
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.$disconnect();
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.$client.end();
 });
 
 describe("recordAudit (real Postgres)", () => {
@@ -39,7 +41,7 @@ describe("recordAudit (real Postgres)", () => {
       metadata: { reason: "gdpr" },
     });
 
-    const rows = await prisma.auditLog.findMany({ where: { workspace_id: WS } });
+    const rows = await db.query.auditLogs.findMany({ where: eq(auditLogs.workspace_id, WS) });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       actor_type: "api_key",

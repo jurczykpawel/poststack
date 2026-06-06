@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations } from "graphile-worker";
+import { eq } from "drizzle-orm";
+import { users, workspaces, channels } from "@/db/schema";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -11,7 +13,7 @@ const PASSWORD = "supersecret123";
 const PAGE = "PAGE-SPECIAL";
 
 let pool: Pool;
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 let app: Hono;
@@ -33,7 +35,7 @@ beforeAll(async () => {
 
   pool = new Pool({ connectionString: TEST_DB });
   await runMigrations({ connectionString: TEST_DB });
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ closeQueue } = await import("@/lib/queue/client"));
   const { buildApp } = await import("../app");
@@ -43,14 +45,12 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await pool.query("truncate table graphile_worker._private_jobs cascade");
-  await prisma.user.deleteMany({ where: { email: EMAIL } });
-  await prisma.workspace.deleteMany({ where: { id: WS } });
-  await prisma.workspace.create({ data: { id: WS, name: "Smoke", slug: `sp-${WS}` } });
-  await prisma.channel.create({
-    data: {
-      id: CH, workspace_id: WS, platform: "facebook", platform_id: PAGE,
-      token_encrypted: encryptTokens({ access_token: "tok" }), webhook_secret: "wh", status: "active",
-    },
+  await db.delete(users).where(eq(users.email, EMAIL));
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
+  await db.insert(workspaces).values({ id: WS, name: "Smoke", slug: `sp-${WS}` });
+  await db.insert(channels).values({
+    id: CH, workspace_id: WS, platform: "facebook", platform_id: PAGE,
+    token_encrypted: encryptTokens({ access_token: "tok" }), webhook_secret: "wh", status: "active",
   });
 });
 
@@ -58,10 +58,10 @@ afterAll(async () => {
   if (!TEST_DB) return;
   // Leave the shared graphile queue clean for serially-following suites.
   await pool.query("truncate table graphile_worker._private_jobs cascade");
-  await prisma.user.deleteMany({ where: { email: EMAIL } });
-  await prisma.workspace.deleteMany({ where: { id: WS } });
+  await db.delete(users).where(eq(users.email, EMAIL));
+  await db.delete(workspaces).where(eq(workspaces.id, WS));
   if (closeQueue) await closeQueue();
-  await prisma.$disconnect();
+  await db.$client.end();
   await pool.end();
 });
 

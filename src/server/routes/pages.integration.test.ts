@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { and, eq, sql } from "drizzle-orm";
+import {
+  users, channels, contacts, contactChannels, conversations, messages, autoReplyRules, sequences,
+} from "@/db/schema";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const EMAIL = "hono-pages@example.test";
 const PASSWORD = "supersecret123";
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 let app: Hono;
@@ -27,7 +31,7 @@ beforeAll(async () => {
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   delete process.env.ALTCHA_HMAC_KEY;
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ closeQueue } = await import("@/lib/queue/client"));
   const { buildApp } = await import("../app");
@@ -35,8 +39,8 @@ beforeAll(async () => {
 
   // Clear the shared rate-limit table so the once-per-run registration isn't
   // blocked by counters left over from other suites / earlier runs.
-  await prisma.$executeRawUnsafe("DELETE FROM rate_limit_counters");
-  await prisma.user.deleteMany({ where: { email: EMAIL } });
+  await db.execute(sql.raw("DELETE FROM rate_limit_counters"));
+  await db.delete(users).where(eq(users.email, EMAIL));
   const res = await app.request("/register", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -44,21 +48,22 @@ beforeAll(async () => {
   });
   expect(res.status).toBe(204);
   cookie = cookieFrom(res);
-  const user = await prisma.user.findUnique({
-    where: { email: EMAIL },
-    select: { workspace_members: { select: { workspace_id: true }, take: 1 } },
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, EMAIL),
+    columns: {},
+    with: { workspaceMembers: { columns: { workspace_id: true }, limit: 1 } },
   });
-  workspaceId = user!.workspace_members[0].workspace_id;
+  workspaceId = user!.workspaceMembers[0].workspace_id;
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
   // The reply test enqueues an outgoing-message; clear the shared queue for
   // serially-following suites.
-  await prisma.$executeRawUnsafe("truncate table graphile_worker._private_jobs cascade");
-  await prisma.user.deleteMany({ where: { email: EMAIL } });
+  await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
+  await db.delete(users).where(eq(users.email, EMAIL));
   if (closeQueue) await closeQueue();
-  await prisma.$disconnect();
+  await db.$client.end();
 });
 
 const withCookie = (extra: Record<string, string> = {}) => ({ cookie, ...extra });
@@ -75,25 +80,23 @@ describe("authenticated dashboard (real Postgres)", () => {
 
   it("renders a seeded conversation and its thread, and accepts a reply", async () => {
     if (!TEST_DB) return;
-    const channel = await prisma.channel.create({
-      data: {
-        workspace_id: workspaceId, platform: "facebook", platform_id: "PAGE_PG",
-        display_name: "Page", token_encrypted: encryptTokens({ access_token: "tok" }),
-        webhook_secret: "wh", status: "active",
-      },
+    const [channel] = await db.insert(channels).values({
+      workspace_id: workspaceId, platform: "facebook", platform_id: "PAGE_PG",
+      display_name: "Page", token_encrypted: encryptTokens({ access_token: "tok" }),
+      webhook_secret: "wh", status: "active",
+    }).returning({ id: channels.id });
+    const [contact] = await db.insert(contacts).values({
+      workspace_id: workspaceId, display_name: "Jane Doe",
+    }).returning({ id: contacts.id });
+    await db.insert(contactChannels).values({
+      contact_id: contact.id, channel_id: channel.id, platform_sender_id: "PSID1", platform_username: "jane",
     });
-    const contact = await prisma.contact.create({
-      data: {
-        workspace_id: workspaceId, display_name: "Jane Doe",
-        contact_channels: { create: { channel_id: channel.id, platform_sender_id: "PSID1", platform_username: "jane" } },
-      },
-    });
-    const conv = await prisma.conversation.create({
-      data: {
-        workspace_id: workspaceId, channel_id: channel.id, contact_id: contact.id,
-        platform: "facebook", status: "open", last_message_preview: "hello there", unread_count: 2,
-        messages: { create: { direction: "inbound", text: "hello there", status: "delivered" } },
-      },
+    const [conv] = await db.insert(conversations).values({
+      workspace_id: workspaceId, channel_id: channel.id, contact_id: contact.id,
+      platform: "facebook", status: "open", last_message_preview: "hello there", unread_count: 2,
+    }).returning({ id: conversations.id });
+    await db.insert(messages).values({
+      conversation_id: conv.id, direction: "inbound", text: "hello there", status: "delivered",
     });
 
     const list = await app.request("/inbox", { headers: withCookie() });
@@ -104,7 +107,7 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(await thread.text()).toContain("hello there");
 
     // opening the thread cleared unread
-    const refreshed = await prisma.conversation.findUnique({ where: { id: conv.id }, select: { unread_count: true } });
+    const refreshed = await db.query.conversations.findFirst({ where: eq(conversations.id, conv.id), columns: { unread_count: true } });
     expect(refreshed!.unread_count).toBe(0);
 
     const reply = await app.request(`/inbox/${conv.id}/reply`, {
@@ -153,7 +156,7 @@ describe("authenticated dashboard (real Postgres)", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Greet");
-    const rule = await prisma.autoReplyRule.findFirst({ where: { workspace_id: workspaceId, name: "Greet" } });
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "Greet")) });
     expect(rule?.trigger_type).toBe("keyword");
   });
 
@@ -166,7 +169,7 @@ describe("authenticated dashboard (real Postgres)", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Onboarding");
-    const seq = await prisma.sequence.findFirst({ where: { workspace_id: workspaceId, name: "Onboarding" } });
+    const seq = await db.query.sequences.findFirst({ where: and(eq(sequences.workspace_id, workspaceId), eq(sequences.name, "Onboarding")) });
     expect(Array.isArray(seq?.steps) ? (seq!.steps as unknown[]).length : 0).toBe(2);
   });
 });

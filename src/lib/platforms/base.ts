@@ -1,4 +1,4 @@
-import type { Platform } from "@/generated/prisma/enums";
+import type { Platform } from "@/db/schema";
 
 export interface TokenData {
   access_token: string;
@@ -35,8 +35,8 @@ export interface SentMessage {
  * 1. Create src/lib/platforms/{platform}.ts extending SocialProvider
  * 2. Implement all abstract methods
  * 3. Register in src/lib/platforms/registry.ts
- * 4. Add OAuth callback route in src/app/api/oauth/{platform}/route.ts
- * 5. Add the platform to the Platform enum in prisma/schema.prisma
+ * 4. Add OAuth callback route in src/server/handlers/oauth/{platform}/route.ts
+ * 5. Add the platform to the platform enum in src/db/schema.ts
  */
 export abstract class SocialProvider {
   abstract readonly platform: Platform;

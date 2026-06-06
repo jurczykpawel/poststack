@@ -1,4 +1,4 @@
-import type { Platform } from "@/generated/prisma/enums";
+import type { Platform } from "@/db/schema";
 import type { SocialProvider } from "./base";
 import { FacebookProvider } from "./facebook";
 import { InstagramProvider } from "./instagram";

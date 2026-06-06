@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
-let prisma: typeof import("@/lib/prisma").prisma;
+let db: typeof import("@/lib/db").db;
 let acquireCooldown: typeof import("./limits").acquireCooldown;
 let incrementSendCount: typeof import("./limits").incrementSendCount;
 
@@ -12,17 +13,17 @@ const CONTACT = "22222222-2222-2222-2222-222222222222";
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  ({ prisma } = await import("@/lib/prisma"));
+  ({ db } = await import("@/lib/db"));
   ({ acquireCooldown, incrementSendCount } = await import("./limits"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  await prisma.$executeRawUnsafe("truncate table rule_cooldowns, rule_send_counts");
+  await db.execute(sql.raw("truncate table rule_cooldowns, rule_send_counts"));
 });
 
 afterAll(async () => {
-  if (prisma) await prisma.$disconnect();
+  if (db) await db.$client.end();
 });
 
 describe("acquireCooldown (real Postgres, atomic acquire-or-skip)", () => {
@@ -35,7 +36,7 @@ describe("acquireCooldown (real Postgres, atomic acquire-or-skip)", () => {
   it("re-acquires once the previous cooldown has expired", async () => {
     if (!TEST_DB) return;
     expect(await acquireCooldown(RULE, CONTACT, 60)).toBe(true);
-    await prisma.$executeRawUnsafe("update rule_cooldowns set expires_at = now() - interval '1 second'");
+    await db.execute(sql.raw("update rule_cooldowns set expires_at = now() - interval '1 second'"));
     expect(await acquireCooldown(RULE, CONTACT, 60)).toBe(true);
   });
 
