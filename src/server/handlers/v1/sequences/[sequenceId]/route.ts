@@ -1,6 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/generated/prisma/client";
+import { db } from "@/lib/db";
+import { sequences, sequenceEnrollments } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -15,12 +16,13 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
-  const sequence = await prisma.sequence.findFirst({
-    where: { id: sequenceId, workspace_id: auth.workspaceId },
-    include: { _count: { select: { enrollments: true } } },
+  const sequence = await db.query.sequences.findFirst({
+    where: and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, auth.workspaceId)),
   });
   if (!sequence) return ApiErrors.notFound();
-  return ok(sequence);
+
+  const enrollments = await db.$count(sequenceEnrollments, eq(sequenceEnrollments.sequence_id, sequenceId));
+  return ok({ ...sequence, _count: { enrollments } });
 }
 
 const patchSchema = z.object({
@@ -47,9 +49,9 @@ export async function PATCH(
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
-  const existing = await prisma.sequence.findFirst({
-    where: { id: sequenceId, workspace_id: auth.workspaceId },
-    select: { id: true },
+  const existing = await db.query.sequences.findFirst({
+    where: and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -59,14 +61,11 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const { steps, ...rest } = parsed.data;
-  const updated = await prisma.sequence.update({
-    where: { id: sequenceId },
-    data: {
-      ...rest,
-      ...(steps !== undefined ? { steps: steps as unknown as Prisma.InputJsonValue } : {}),
-    },
-  });
+  const [updated] = await db
+    .update(sequences)
+    .set(parsed.data)
+    .where(eq(sequences.id, sequenceId))
+    .returning();
   return ok(updated);
 }
 
@@ -79,9 +78,9 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
-  const result = await prisma.sequence.deleteMany({
-    where: { id: sequenceId, workspace_id: auth.workspaceId },
-  });
-  if (result.count === 0) return ApiErrors.notFound();
+  const result = await db
+    .delete(sequences)
+    .where(and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, auth.workspaceId)));
+  if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
   return noContent();
 }

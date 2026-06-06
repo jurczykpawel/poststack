@@ -1,5 +1,7 @@
+import { eq, desc } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { sequences, sequenceEnrollments } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -27,21 +29,20 @@ export async function GET(request: Request) {
   const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
-  const sequences = await prisma.sequence.findMany({
-    where: { workspace_id: auth.workspaceId },
-    orderBy: { created_at: "desc" },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      status: true,
-      steps: true,
-      created_at: true,
-      _count: { select: { enrollments: true } },
-    },
+  const rows = await db.query.sequences.findMany({
+    where: eq(sequences.workspace_id, auth.workspaceId),
+    orderBy: desc(sequences.created_at),
+    columns: { id: true, name: true, description: true, status: true, steps: true, created_at: true },
   });
 
-  return ok(sequences);
+  const withCounts = await Promise.all(
+    rows.map(async (seq) => ({
+      ...seq,
+      _count: { enrollments: await db.$count(sequenceEnrollments, eq(sequenceEnrollments.sequence_id, seq.id)) },
+    })),
+  );
+
+  return ok(withCounts);
 }
 
 // POST /api/v1/sequences
@@ -55,14 +56,15 @@ export async function POST(request: Request) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const sequence = await prisma.sequence.create({
-    data: {
+  const [sequence] = await db
+    .insert(sequences)
+    .values({
       workspace_id: auth.workspaceId,
       name: parsed.data.name,
       description: parsed.data.description ?? null,
       steps: parsed.data.steps,
-    },
-  });
+    })
+    .returning();
 
   return created(sequence);
 }

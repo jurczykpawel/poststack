@@ -1,10 +1,28 @@
+import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/generated/prisma/client";
+import { db } from "@/lib/db";
+import { autoReplyRules } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
 export const runtime = "nodejs";
+
+const RULE_COLUMNS = {
+  id: true,
+  name: true,
+  channel_id: true,
+  is_active: true,
+  priority: true,
+  trigger_type: true,
+  trigger_config: true,
+  response_type: true,
+  response_config: true,
+  cooldown_seconds: true,
+  max_sends_per_contact: true,
+  requires_approval: true,
+  created_at: true,
+  updated_at: true,
+} as const;
 
 // GET /api/v1/rules/:ruleId
 export async function GET(
@@ -15,24 +33,9 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
-  const rule = await prisma.autoReplyRule.findFirst({
-    where: { id: ruleId, workspace_id: auth.workspaceId },
-    select: {
-      id: true,
-      name: true,
-      channel_id: true,
-      is_active: true,
-      priority: true,
-      trigger_type: true,
-      trigger_config: true,
-      response_type: true,
-      response_config: true,
-      cooldown_seconds: true,
-      max_sends_per_contact: true,
-      requires_approval: true,
-      created_at: true,
-      updated_at: true,
-    },
+  const rule = await db.query.autoReplyRules.findFirst({
+    where: and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)),
+    columns: RULE_COLUMNS,
   });
   if (!rule) return ApiErrors.notFound();
   return ok(rule);
@@ -43,10 +46,10 @@ const patchSchema = z.object({
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).max(999).optional(),
   trigger_type: z
-    .enum(["keyword","comment_keyword","postback","welcome","default","story_reply","story_mention"])
+    .enum(["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention"])
     .optional(),
   trigger_config: z.record(z.string(), z.unknown()).optional(),
-  response_type: z.enum(["text","random_text","ai_rephrase","sequence","none"]).optional(),
+  response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]).optional(),
   response_config: z.record(z.string(), z.unknown()).optional(),
   cooldown_seconds: z.number().int().min(0).optional(),
 });
@@ -60,9 +63,9 @@ export async function PATCH(
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
-  const existing = await prisma.autoReplyRule.findFirst({
-    where: { id: ruleId, workspace_id: auth.workspaceId },
-    select: { id: true },
+  const existing = await db.query.autoReplyRules.findFirst({
+    where: and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -72,35 +75,26 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const { trigger_config, response_config, ...rest } = parsed.data;
-  const updated = await prisma.autoReplyRule.update({
-    where: { id: ruleId },
-    data: {
-      ...rest,
-      ...(trigger_config !== undefined
-        ? { trigger_config: trigger_config as Prisma.InputJsonValue }
-        : {}),
-      ...(response_config !== undefined
-        ? { response_config: response_config as Prisma.InputJsonValue }
-        : {}),
-    },
-    select: {
-      id: true,
-      name: true,
-      channel_id: true,
-      is_active: true,
-      priority: true,
-      trigger_type: true,
-      trigger_config: true,
-      response_type: true,
-      response_config: true,
-      cooldown_seconds: true,
-      max_sends_per_contact: true,
-      requires_approval: true,
-      created_at: true,
-      updated_at: true,
-    },
-  });
+  const [updated] = await db
+    .update(autoReplyRules)
+    .set(parsed.data)
+    .where(eq(autoReplyRules.id, ruleId))
+    .returning({
+      id: autoReplyRules.id,
+      name: autoReplyRules.name,
+      channel_id: autoReplyRules.channel_id,
+      is_active: autoReplyRules.is_active,
+      priority: autoReplyRules.priority,
+      trigger_type: autoReplyRules.trigger_type,
+      trigger_config: autoReplyRules.trigger_config,
+      response_type: autoReplyRules.response_type,
+      response_config: autoReplyRules.response_config,
+      cooldown_seconds: autoReplyRules.cooldown_seconds,
+      max_sends_per_contact: autoReplyRules.max_sends_per_contact,
+      requires_approval: autoReplyRules.requires_approval,
+      created_at: autoReplyRules.created_at,
+      updated_at: autoReplyRules.updated_at,
+    });
 
   return ok(updated);
 }
@@ -114,9 +108,9 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
-  const result = await prisma.autoReplyRule.deleteMany({
-    where: { id: ruleId, workspace_id: auth.workspaceId },
-  });
-  if (result.count === 0) return ApiErrors.notFound();
+  const result = await db
+    .delete(autoReplyRules)
+    .where(and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)));
+  if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
   return noContent();
 }
