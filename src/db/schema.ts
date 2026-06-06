@@ -1,5 +1,6 @@
 import { pgTable, varchar, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
+import { randomUUID } from "crypto"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
 export const auditActorType = pgEnum("audit_actor_type", ['user', 'api_key', 'system'])
@@ -21,7 +22,7 @@ export const workspaceMemberRole = pgEnum("workspace_member_role", ['owner', 'ad
 
 
 export const conversations = pgTable("conversations", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
@@ -64,7 +65,7 @@ export const conversations = pgTable("conversations", {
 ]);
 
 export const channels = pgTable("channels", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	platform: platform().notNull(),
 	platform_id: text("platform_id").notNull(),
@@ -92,7 +93,7 @@ export const channels = pgTable("channels", {
 ]);
 
 export const workspaces = pgTable("workspaces", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	name: text().notNull(),
 	slug: text().notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -103,7 +104,7 @@ export const workspaces = pgTable("workspaces", {
 ]);
 
 export const users = pgTable("users", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	email: text().notNull(),
 	password_hash: text("password_hash"),
 	name: text(),
@@ -115,7 +116,7 @@ export const users = pgTable("users", {
 ]);
 
 export const contacts = pgTable("contacts", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	display_name: text("display_name"),
 	email: text(),
@@ -136,7 +137,7 @@ export const contacts = pgTable("contacts", {
 ]);
 
 export const contactChannels = pgTable("contact_channels", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
 	platform_sender_id: text("platform_sender_id").notNull(),
@@ -158,7 +159,7 @@ export const contactChannels = pgTable("contact_channels", {
 ]);
 
 export const tags = pgTable("tags", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	color: text().default('#6366f1').notNull(),
@@ -173,7 +174,7 @@ export const tags = pgTable("tags", {
 ]);
 
 export const auditLogs = pgTable("audit_logs", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	actor_type: auditActorType("actor_type").notNull(),
 	actor_id: text("actor_id"),
@@ -192,7 +193,7 @@ export const auditLogs = pgTable("audit_logs", {
 ]);
 
 export const flows = pgTable("flows", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	description: text(),
@@ -214,7 +215,7 @@ export const flows = pgTable("flows", {
 ]);
 
 export const flowTriggers = pgTable("flow_triggers", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	flow_id: uuid("flow_id").notNull(),
 	channel_id: uuid("channel_id"),
 	type: trigger_type().notNull(),
@@ -237,7 +238,7 @@ export const flowTriggers = pgTable("flow_triggers", {
 ]);
 
 export const messages = pgTable("messages", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	conversation_id: uuid("conversation_id").notNull(),
 	direction: messageDirection().notNull(),
 	text: text(),
@@ -276,7 +277,7 @@ export const messages = pgTable("messages", {
 ]);
 
 export const flowSessions = pgTable("flow_sessions", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	contact_id: uuid("contact_id").notNull(),
 	flow_id: uuid("flow_id").notNull(),
 	conversation_id: uuid("conversation_id").notNull(),
@@ -308,7 +309,7 @@ export const flowSessions = pgTable("flow_sessions", {
 ]);
 
 export const sequences = pgTable("sequences", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	description: text(),
@@ -326,7 +327,7 @@ export const sequences = pgTable("sequences", {
 ]);
 
 export const sequenceEnrollments = pgTable("sequence_enrollments", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	sequence_id: uuid("sequence_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
@@ -355,7 +356,7 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 ]);
 
 export const broadcasts = pgTable("broadcasts", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	status: broadcastStatus().default('draft').notNull(),
@@ -377,7 +378,7 @@ export const broadcasts = pgTable("broadcasts", {
 ]);
 
 export const broadcastRecipients = pgTable("broadcast_recipients", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	broadcast_id: uuid("broadcast_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
@@ -404,7 +405,7 @@ export const broadcastRecipients = pgTable("broadcast_recipients", {
 ]);
 
 export const commentLogs = pgTable("comment_logs", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	channel_id: uuid("channel_id").notNull(),
 	workspace_id: uuid("workspace_id").notNull(),
 	post_id: text("post_id"),
@@ -429,7 +430,7 @@ export const commentLogs = pgTable("comment_logs", {
 ]);
 
 export const flowVersions = pgTable("flow_versions", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	flow_id: uuid("flow_id").notNull(),
 	version: integer().notNull(),
 	nodes: jsonb().notNull(),
@@ -449,7 +450,7 @@ export const flowVersions = pgTable("flow_versions", {
 ]);
 
 export const apiKeys = pgTable("api_keys", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	key_hash: text("key_hash").notNull(),
@@ -469,7 +470,7 @@ export const apiKeys = pgTable("api_keys", {
 ]);
 
 export const autoReplyRules = pgTable("auto_reply_rules", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	channel_id: uuid("channel_id"),
 	name: text().notNull(),
@@ -508,7 +509,7 @@ export const outboundIdempotency = pgTable("outbound_idempotency", {
 ]);
 
 export const pendingApprovals = pgTable("pending_approvals", {
-	id: uuid().primaryKey().notNull(),
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
 	workspace_id: uuid("workspace_id").notNull(),
 	rule_id: uuid("rule_id").notNull(),
 	conversation_id: uuid("conversation_id").notNull(),
