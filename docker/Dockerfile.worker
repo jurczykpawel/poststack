@@ -1,4 +1,4 @@
-# Node base for reproducible `npm ci` + Prisma CLI; Bun binary for the runtime.
+# Node base for reproducible `npm ci`; Bun binary for the runtime.
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat
 COPY --from=oven/bun:1-alpine /usr/local/bin/bun /usr/local/bin/bun
@@ -6,8 +6,6 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json* ./
-COPY prisma ./prisma/
-COPY prisma.config.ts ./
 RUN npm ci --omit=dev
 
 FROM base AS runner
@@ -17,10 +15,8 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 worker
 
 COPY --from=deps --chown=worker:nodejs /app/node_modules ./node_modules
-COPY --chown=worker:nodejs prisma ./prisma
-COPY --chown=worker:nodejs prisma.config.ts tsconfig.json package.json ./
+COPY --chown=worker:nodejs tsconfig.json package.json ./
 COPY --chown=worker:nodejs src ./src
-COPY --from=deps --chown=worker:nodejs /app/src/generated ./src/generated
 COPY --chown=worker:nodejs worker ./worker
 
 USER worker

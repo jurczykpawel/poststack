@@ -15,6 +15,4 @@ docker/
 *.md
 coverage/
 .turbo/
-prisma/generated/
-src/generated/
 .worktrees/

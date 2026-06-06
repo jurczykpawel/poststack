@@ -40,9 +40,9 @@ export const conversations = pgTable("conversations", {
 	needs_manual_reply: boolean("needs_manual_reply").default(false).notNull(),
 	last_inbound_at: timestamp("last_inbound_at", { precision: 3, mode: 'date' }),
 }, (table) => [
-	uniqueIndex("conversations_channel_id_contact_id_key").using("btree", table.channel_id.asc().nullsLast().op("uuid_ops"), table.contact_id.asc().nullsLast().op("uuid_ops")),
-	index("conversations_workspace_id_last_message_at_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"), table.last_message_at.desc().nullsFirst().op("timestamp_ops")),
-	index("conversations_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("conversations_channel_id_contact_id_key").using("btree", table.channel_id.asc().nullsLast(), table.contact_id.asc().nullsLast()),
+	index("conversations_workspace_id_last_message_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.last_message_at.desc().nullsFirst()),
+	index("conversations_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -83,9 +83,9 @@ export const channels = pgTable("channels", {
 	status: channelStatus().default('active').notNull(),
 	connection_mode: channelConnectionMode("connection_mode").default('oauth').notNull(),
 }, (table) => [
-	index("channels_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
-	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
-	uniqueIndex("channels_workspace_id_platform_id_key").using("btree", table.workspace_id.asc().nullsLast().op("text_ops"), table.platform_id.asc().nullsLast().op("text_ops")),
+	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
+	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	uniqueIndex("channels_workspace_id_platform_id_key").using("btree", table.workspace_id.asc().nullsLast(), table.platform_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -101,7 +101,7 @@ export const workspaces = pgTable("workspaces", {
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
 	message_retention_days: integer("message_retention_days"),
 }, (table) => [
-	uniqueIndex("workspaces_slug_key").using("btree", table.slug.asc().nullsLast().op("text_ops")),
+	uniqueIndex("workspaces_slug_key").using("btree", table.slug.asc().nullsLast()),
 ]);
 
 export const users = pgTable("users", {
@@ -113,7 +113,7 @@ export const users = pgTable("users", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
 }, (table) => [
-	uniqueIndex("users_email_key").using("btree", table.email.asc().nullsLast().op("text_ops")),
+	uniqueIndex("users_email_key").using("btree", table.email.asc().nullsLast()),
 ]);
 
 export const contacts = pgTable("contacts", {
@@ -128,8 +128,8 @@ export const contacts = pgTable("contacts", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
 }, (table) => [
-	index("contacts_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
-	index("contacts_workspace_id_last_interaction_at_idx").using("btree", table.workspace_id.asc().nullsLast().op("timestamp_ops"), table.last_interaction_at.desc().nullsFirst().op("timestamp_ops")),
+	index("contacts_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	index("contacts_workspace_id_last_interaction_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.last_interaction_at.desc().nullsFirst()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -145,8 +145,8 @@ export const contactChannels = pgTable("contact_channels", {
 	platform_username: text("platform_username"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("contact_channels_channel_id_platform_sender_id_key").using("btree", table.channel_id.asc().nullsLast().op("text_ops"), table.platform_sender_id.asc().nullsLast().op("text_ops")),
-	index("contact_channels_contact_id_idx").using("btree", table.contact_id.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("contact_channels_channel_id_platform_sender_id_key").using("btree", table.channel_id.asc().nullsLast(), table.platform_sender_id.asc().nullsLast()),
+	index("contact_channels_contact_id_idx").using("btree", table.contact_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.contact_id],
 			foreignColumns: [contacts.id],
@@ -166,7 +166,7 @@ export const tags = pgTable("tags", {
 	color: text().default('#6366f1').notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("tags_workspace_id_name_key").using("btree", table.workspace_id.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	uniqueIndex("tags_workspace_id_name_key").using("btree", table.workspace_id.asc().nullsLast(), table.name.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -185,7 +185,7 @@ export const auditLogs = pgTable("audit_logs", {
 	metadata: jsonb(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("audit_logs_workspace_id_created_at_idx").using("btree", table.workspace_id.asc().nullsLast().op("timestamp_ops"), table.created_at.desc().nullsFirst().op("timestamp_ops")),
+	index("audit_logs_workspace_id_created_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.desc().nullsFirst()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -207,7 +207,7 @@ export const flows = pgTable("flows", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
 }, (table) => [
-	index("flows_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("uuid_ops")),
+	index("flows_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -225,7 +225,7 @@ export const flowTriggers = pgTable("flow_triggers", {
 	is_active: boolean("is_active").default(true).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("flow_triggers_channel_id_type_is_active_idx").using("btree", table.channel_id.asc().nullsLast().op("enum_ops"), table.type.asc().nullsLast().op("bool_ops"), table.is_active.asc().nullsLast().op("enum_ops")),
+	index("flow_triggers_channel_id_type_is_active_idx").using("btree", table.channel_id.asc().nullsLast(), table.type.asc().nullsLast(), table.is_active.asc().nullsLast()),
 	foreignKey({
 			columns: [table.flow_id],
 			foreignColumns: [flows.id],
@@ -253,8 +253,8 @@ export const messages = pgTable("messages", {
 	status: messageStatus().default('sent').notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("messages_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast().op("timestamp_ops"), table.created_at.asc().nullsLast().op("timestamp_ops")),
-	uniqueIndex("messages_platform_message_id_key").using("btree", table.platform_message_id.asc().nullsLast().op("text_ops")),
+	index("messages_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast(), table.created_at.asc().nullsLast()),
+	uniqueIndex("messages_platform_message_id_key").using("btree", table.platform_message_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.conversation_id],
 			foreignColumns: [conversations.id],
@@ -291,7 +291,7 @@ export const flowSessions = pgTable("flow_sessions", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
 }, (table) => [
-	index("flow_sessions_contact_id_status_idx").using("btree", table.contact_id.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("uuid_ops")),
+	index("flow_sessions_contact_id_status_idx").using("btree", table.contact_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.contact_id],
 			foreignColumns: [contacts.id],
@@ -319,7 +319,7 @@ export const sequences = pgTable("sequences", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
 }, (table) => [
-	index("sequences_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+	index("sequences_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -338,7 +338,7 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 	next_step_at: timestamp("next_step_at", { precision: 3, mode: 'date' }),
 	completed_at: timestamp("completed_at", { precision: 3, mode: 'date' }),
 }, (table) => [
-	uniqueIndex("sequence_enrollments_sequence_id_contact_id_key").using("btree", table.sequence_id.asc().nullsLast().op("uuid_ops"), table.contact_id.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("sequence_enrollments_sequence_id_contact_id_key").using("btree", table.sequence_id.asc().nullsLast(), table.contact_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.sequence_id],
 			foreignColumns: [sequences.id],
@@ -387,7 +387,7 @@ export const broadcastRecipients = pgTable("broadcast_recipients", {
 	sent_at: timestamp("sent_at", { precision: 3, mode: 'date' }),
 	error_message: text("error_message"),
 }, (table) => [
-	index("broadcast_recipients_broadcast_id_status_idx").using("btree", table.broadcast_id.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("uuid_ops")),
+	index("broadcast_recipients_broadcast_id_status_idx").using("btree", table.broadcast_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.broadcast_id],
 			foreignColumns: [broadcasts.id],
@@ -420,9 +420,9 @@ export const commentLogs = pgTable("comment_logs", {
 	error: text(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("comment_logs_channel_id_idx").using("btree", table.channel_id.asc().nullsLast().op("uuid_ops")),
-	uniqueIndex("comment_logs_channel_id_platform_comment_id_key").using("btree", table.channel_id.asc().nullsLast().op("text_ops"), table.platform_comment_id.asc().nullsLast().op("text_ops")),
-	index("comment_logs_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+	index("comment_logs_channel_id_idx").using("btree", table.channel_id.asc().nullsLast()),
+	uniqueIndex("comment_logs_channel_id_platform_comment_id_key").using("btree", table.channel_id.asc().nullsLast(), table.platform_comment_id.asc().nullsLast()),
+	index("comment_logs_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.channel_id],
 			foreignColumns: [channels.id],
@@ -441,8 +441,8 @@ export const flowVersions = pgTable("flow_versions", {
 	published_by: uuid("published_by"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("flow_versions_flow_id_version_idx").using("btree", table.flow_id.asc().nullsLast().op("int4_ops"), table.version.desc().nullsFirst().op("int4_ops")),
-	uniqueIndex("flow_versions_flow_id_version_key").using("btree", table.flow_id.asc().nullsLast().op("uuid_ops"), table.version.asc().nullsLast().op("uuid_ops")),
+	index("flow_versions_flow_id_version_idx").using("btree", table.flow_id.asc().nullsLast(), table.version.desc().nullsFirst()),
+	uniqueIndex("flow_versions_flow_id_version_key").using("btree", table.flow_id.asc().nullsLast(), table.version.asc().nullsLast()),
 	foreignKey({
 			columns: [table.flow_id],
 			foreignColumns: [flows.id],
@@ -461,8 +461,8 @@ export const apiKeys = pgTable("api_keys", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	scopes: text().array().default(["RAY"]),
 }, (table) => [
-	uniqueIndex("api_keys_key_hash_key").using("btree", table.key_hash.asc().nullsLast().op("text_ops")),
-	index("api_keys_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("api_keys_key_hash_key").using("btree", table.key_hash.asc().nullsLast()),
+	index("api_keys_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -488,8 +488,8 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 	max_sends_per_contact: integer("max_sends_per_contact"),
 	requires_approval: boolean("requires_approval").default(false).notNull(),
 }, (table) => [
-	index("auto_reply_rules_channel_id_trigger_type_is_active_idx").using("btree", table.channel_id.asc().nullsLast().op("enum_ops"), table.trigger_type.asc().nullsLast().op("bool_ops"), table.is_active.asc().nullsLast().op("enum_ops")),
-	index("auto_reply_rules_workspace_id_is_active_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"), table.is_active.asc().nullsLast().op("bool_ops")),
+	index("auto_reply_rules_channel_id_trigger_type_is_active_idx").using("btree", table.channel_id.asc().nullsLast(), table.trigger_type.asc().nullsLast(), table.is_active.asc().nullsLast()),
+	index("auto_reply_rules_workspace_id_is_active_idx").using("btree", table.workspace_id.asc().nullsLast(), table.is_active.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -506,7 +506,7 @@ export const outboundIdempotency = pgTable("outbound_idempotency", {
 	key: text().primaryKey().notNull(),
 	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("outbound_idempotency_expires_at_idx").using("btree", table.expires_at.asc().nullsLast().op("timestamp_ops")),
+	index("outbound_idempotency_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
 ]);
 
 export const pendingApprovals = pgTable("pending_approvals", {
@@ -523,7 +523,7 @@ export const pendingApprovals = pgTable("pending_approvals", {
 	resolved_at: timestamp("resolved_at", { precision: 3, mode: 'date' }),
 	resolved_by: uuid("resolved_by"),
 }, (table) => [
-	index("pending_approvals_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("uuid_ops")),
+	index("pending_approvals_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -555,7 +555,7 @@ export const revokedTokens = pgTable("revoked_tokens", {
 	jti: text().primaryKey().notNull(),
 	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("revoked_tokens_expires_at_idx").using("btree", table.expires_at.asc().nullsLast().op("timestamp_ops")),
+	index("revoked_tokens_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
 ]);
 
 export const rateLimitCounters = pgTable("rate_limit_counters", {
@@ -563,7 +563,7 @@ export const rateLimitCounters = pgTable("rate_limit_counters", {
 	count: integer().notNull(),
 	window_start: timestamp("window_start", { precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("rate_limit_counters_window_start_idx").using("btree", table.window_start.asc().nullsLast().op("timestamp_ops")),
+	index("rate_limit_counters_window_start_idx").using("btree", table.window_start.asc().nullsLast()),
 ]);
 
 export const contactTags = pgTable("contact_tags", {
@@ -589,7 +589,7 @@ export const ruleCooldowns = pgTable("rule_cooldowns", {
 	contact_id: uuid("contact_id").notNull(),
 	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("rule_cooldowns_expires_at_idx").using("btree", table.expires_at.asc().nullsLast().op("timestamp_ops")),
+	index("rule_cooldowns_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
 	primaryKey({ columns: [table.rule_id, table.contact_id], name: "rule_cooldowns_pkey"}),
 ]);
 
@@ -607,7 +607,7 @@ export const workspaceMembers = pgTable("workspace_members", {
 	role: workspaceMemberRole().default('owner').notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("workspace_members_user_id_idx").using("btree", table.user_id.asc().nullsLast().op("uuid_ops")),
+	index("workspace_members_user_id_idx").using("btree", table.user_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
