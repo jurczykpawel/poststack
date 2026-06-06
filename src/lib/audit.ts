@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { auditLogs } from "@/db/schema";
 import type { AuthContext } from "@/lib/auth";
 
 export type AuditActorType = "user" | "api_key" | "system";
@@ -39,16 +40,14 @@ export interface RecordAuditInput {
  */
 export async function recordAudit(input: RecordAuditInput): Promise<void> {
   try {
-    await prisma.auditLog.create({
-      data: {
-        workspace_id: input.workspaceId,
-        actor_type: input.actor.type,
-        actor_id: input.actor.id ?? null,
-        action: input.action,
-        target_type: input.targetType ?? null,
-        target_id: input.targetId ?? null,
-        metadata: input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : undefined,
-      },
+    await db.insert(auditLogs).values({
+      workspace_id: input.workspaceId,
+      actor_type: input.actor.type,
+      actor_id: input.actor.id ?? null,
+      action: input.action,
+      target_type: input.targetType ?? null,
+      target_id: input.targetId ?? null,
+      metadata: input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : null,
     });
   } catch (err) {
     console.error("[audit] failed to record:", err instanceof Error ? err.message : String(err));

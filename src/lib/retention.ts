@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { and, eq, lt, inArray, isNotNull, notExists } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { messages, commentLogs, conversations, workspaces } from "@/db/schema";
 
 const BATCH_SIZE = 1000;
 const DAY_MS = 86_400_000;
@@ -34,34 +36,41 @@ export async function pruneWorkspaceMessages(
 
   const deletedMessages = await deleteInBatches(
     () =>
-      prisma.message.findMany({
-        where: {
-          created_at: { lt: cutoff },
-          status: { in: [...PRUNABLE_STATUSES] },
-          conversation: { workspace_id: workspaceId },
-        },
-        select: { id: true },
-        take: BATCH_SIZE,
-      }),
-    (ids) => prisma.message.deleteMany({ where: { id: { in: ids } } }),
+      db
+        .select({ id: messages.id })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
+        .where(
+          and(
+            lt(messages.created_at, cutoff),
+            inArray(messages.status, [...PRUNABLE_STATUSES]),
+            eq(conversations.workspace_id, workspaceId),
+          ),
+        )
+        .limit(BATCH_SIZE),
+    async (ids) => (await db.delete(messages).where(inArray(messages.id, ids))).rowCount ?? 0,
   );
 
   const deletedComments = await deleteInBatches(
     () =>
-      prisma.commentLog.findMany({
-        where: { created_at: { lt: cutoff }, workspace_id: workspaceId },
-        select: { id: true },
-        take: BATCH_SIZE,
-      }),
-    (ids) => prisma.commentLog.deleteMany({ where: { id: { in: ids } } }),
+      db
+        .select({ id: commentLogs.id })
+        .from(commentLogs)
+        .where(and(lt(commentLogs.created_at, cutoff), eq(commentLogs.workspace_id, workspaceId)))
+        .limit(BATCH_SIZE),
+    async (ids) => (await db.delete(commentLogs).where(inArray(commentLogs.id, ids))).rowCount ?? 0,
   );
 
   // Conversations whose messages were all pruned are stale husks — remove them.
-  const emptied = await prisma.conversation.deleteMany({
-    where: { workspace_id: workspaceId, last_message_at: { lt: cutoff }, messages: { none: {} } },
-  });
+  const emptied = await db.delete(conversations).where(
+    and(
+      eq(conversations.workspace_id, workspaceId),
+      lt(conversations.last_message_at, cutoff),
+      notExists(db.select().from(messages).where(eq(messages.conversation_id, conversations.id))),
+    ),
+  );
 
-  return { deletedMessages, deletedComments, deletedConversations: emptied.count };
+  return { deletedMessages, deletedComments, deletedConversations: emptied.rowCount ?? 0 };
 }
 
 /**
@@ -70,19 +79,19 @@ export async function pruneWorkspaceMessages(
  * policy (message_retention_days = null) are skipped — retention is opt-in.
  */
 export async function pruneOldMessages(now: Date = new Date()): Promise<RetentionResult> {
-  const workspaces = await prisma.workspace.findMany({
-    where: { message_retention_days: { not: null } },
-    select: { id: true, message_retention_days: true },
-  });
+  const wss = await db
+    .select({ id: workspaces.id, message_retention_days: workspaces.message_retention_days })
+    .from(workspaces)
+    .where(isNotNull(workspaces.message_retention_days));
 
   const result: RetentionResult = {
-    workspaces: workspaces.length,
+    workspaces: wss.length,
     deletedMessages: 0,
     deletedComments: 0,
     deletedConversations: 0,
   };
 
-  for (const ws of workspaces) {
+  for (const ws of wss) {
     const ws_result = await pruneWorkspaceMessages(ws.id, ws.message_retention_days as number, now);
     result.deletedMessages += ws_result.deletedMessages;
     result.deletedComments += ws_result.deletedComments;
@@ -94,14 +103,13 @@ export async function pruneOldMessages(now: Date = new Date()): Promise<Retentio
 
 async function deleteInBatches(
   fetchIds: () => Promise<Array<{ id: string }>>,
-  del: (ids: string[]) => Promise<{ count: number }>,
+  del: (ids: string[]) => Promise<number>,
 ): Promise<number> {
   let total = 0;
   for (;;) {
     const rows = await fetchIds();
     if (rows.length === 0) break;
-    const res = await del(rows.map((r) => r.id));
-    total += res.count;
+    total += await del(rows.map((r) => r.id));
     if (rows.length < BATCH_SIZE) break;
   }
   return total;

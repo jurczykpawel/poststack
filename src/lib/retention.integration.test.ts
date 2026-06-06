@@ -5,6 +5,7 @@ const DAY = 86_400_000;
 
 let prisma: typeof import("@/lib/prisma").prisma;
 let pruneWorkspaceMessages: typeof import("./retention").pruneWorkspaceMessages;
+let pruneOldMessages: typeof import("./retention").pruneOldMessages;
 
 const WS = "cccccccc-0000-0000-0000-000000000001";
 const CH = "cccccccc-0000-0000-0000-000000000002";
@@ -21,7 +22,7 @@ beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
   ({ prisma } = await import("@/lib/prisma"));
-  ({ pruneWorkspaceMessages } = await import("./retention"));
+  ({ pruneWorkspaceMessages, pruneOldMessages } = await import("./retention"));
 });
 
 beforeEach(async () => {
@@ -75,5 +76,15 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect(await prisma.message.findUnique({ where: { id: recentSent } })).not.toBeNull(); // recent survives
     expect(await prisma.conversation.findUnique({ where: { id: CONV_KEEP } })).not.toBeNull();
     expect(await prisma.conversation.findUnique({ where: { id: CONV_EMPTY } })).toBeNull();
+  });
+
+  it("pruneOldMessages applies each workspace's own retention policy", async () => {
+    if (!TEST_DB) return;
+    const oldSent = await seedMessage(CONV_KEEP, "sent", old);
+
+    const result = await pruneOldMessages(now);
+
+    expect(result.workspaces).toBeGreaterThanOrEqual(1);
+    expect(await prisma.message.findUnique({ where: { id: oldSent } })).toBeNull();
   });
 });
