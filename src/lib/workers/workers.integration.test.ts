@@ -7,6 +7,7 @@ const provider = {
   refreshBufferSeconds: vi.fn(() => 0),
   sendMessage: vi.fn(async () => ({ platformMessageId: "PMID-1" })),
   sendComment: vi.fn(async () => ({})),
+  sendPrivateReply: vi.fn(async () => {}),
   refreshToken: vi.fn(async (t: unknown) => t),
 };
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
@@ -22,6 +23,7 @@ let w: {
   processIncomingComment: typeof import("./incoming-comment-worker").processIncomingComment;
   processOutgoingMessage: typeof import("./outgoing-message-worker").processOutgoingMessage;
   processOutgoingComment: typeof import("./outgoing-comment-worker").processOutgoingComment;
+  processOutgoingPrivateReply: typeof import("./outgoing-private-reply-worker").processOutgoingPrivateReply;
   processSequenceStep: typeof import("./sequence-step-worker").processSequenceStep;
   processTokenRefresh: typeof import("./token-refresh-worker").processTokenRefresh;
 };
@@ -55,6 +57,7 @@ beforeAll(async () => {
     processIncomingComment: (await import("./incoming-comment-worker")).processIncomingComment,
     processOutgoingMessage: (await import("./outgoing-message-worker")).processOutgoingMessage,
     processOutgoingComment: (await import("./outgoing-comment-worker")).processOutgoingComment,
+    processOutgoingPrivateReply: (await import("./outgoing-private-reply-worker")).processOutgoingPrivateReply,
     processSequenceStep: (await import("./sequence-step-worker")).processSequenceStep,
     processTokenRefresh: (await import("./token-refresh-worker")).processTokenRefresh,
   };
@@ -118,6 +121,82 @@ describe("incoming-comment worker", () => {
     await w.processIncomingComment(job as never, helpers);
     const logs = await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "cmt-w1"));
     expect(logs.length).toBe(1);
+  });
+
+  async function seedCommentRule(responseConfig: Record<string, unknown>) {
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "C", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: responseConfig,
+    });
+  }
+
+  it("first-touch: a brand-new commenter gets a contact, conversation, public reply + private reply (both)", async () => {
+    if (!TEST_DB) return;
+    await seedCommentRule({ text: "DM!", reply_mode: "both", comment_reply_text: "replied!" });
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-new", postId: "p1", senderId: "NEW-COMMENTER", senderName: "Jane", text: "info please", timestamp: ts(), raw: {} };
+    await w.processIncomingComment(job as never, helpers);
+
+    const cc = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "NEW-COMMENTER")));
+    expect(cc.length).toBe(1);
+    expect(await jobCount("outgoing-comment")).toBe(1);
+    expect(await jobCount("outgoing-private-reply")).toBe(1);
+  });
+
+  it("reply_mode comment → public reply only, no private reply", async () => {
+    if (!TEST_DB) return;
+    await seedCommentRule({ text: "x", reply_mode: "comment", comment_reply_text: "public!" });
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-pub", postId: "p1", senderId: "C2", senderName: "B", text: "info", timestamp: ts(), raw: {} };
+    await w.processIncomingComment(job as never, helpers);
+    expect(await jobCount("outgoing-comment")).toBe(1);
+    expect(await jobCount("outgoing-private-reply")).toBe(0);
+  });
+
+  it("reply_mode dm → private reply only, no public reply", async () => {
+    if (!TEST_DB) return;
+    await seedCommentRule({ text: "dm only", reply_mode: "dm" });
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-dm", postId: "p1", senderId: "C3", senderName: "B", text: "info", timestamp: ts(), raw: {} };
+    await w.processIncomingComment(job as never, helpers);
+    expect(await jobCount("outgoing-comment")).toBe(0);
+    expect(await jobCount("outgoing-private-reply")).toBe(1);
+  });
+
+  it("does not reply when no rule matches (but still logs)", async () => {
+    if (!TEST_DB) return;
+    await seedCommentRule({ text: "x", reply_mode: "both", comment_reply_text: "y" });
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-nomatch", postId: "p1", senderId: "C4", senderName: "B", text: "unrelated chatter", timestamp: ts(), raw: {} };
+    await w.processIncomingComment(job as never, helpers);
+    expect(await jobCount("outgoing-comment")).toBe(0);
+    expect(await jobCount("outgoing-private-reply")).toBe(0);
+  });
+});
+
+describe("outgoing-private-reply worker", () => {
+  it("sends a private reply and records a sent outbound message", async () => {
+    if (!TEST_DB) return;
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "cmt-pr", text: "hi via DM" } as never, helpers);
+    expect(provider.sendPrivateReply).toHaveBeenCalled();
+    const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
+    expect(sent.length).toBe(1);
+    expect(sent[0].text).toBe("hi via DM");
+  });
+
+  it("holds (not fails) when the channel breaker is open", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "cmt-pr2", text: "x" } as never, helpers);
+    expect(provider.sendPrivateReply).not.toHaveBeenCalled();
+    const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
+    expect(held.length).toBe(1);
+  });
+
+  it("holds + flags needs_reauth when the token is invalid", async () => {
+    if (!TEST_DB) return;
+    provider.sendPrivateReply.mockRejectedValueOnce(new TokenInvalidError("dead"));
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "cmt-pr3", text: "x" } as never, helpers);
+    expect(health.markChannelNeedsReauth).toHaveBeenCalled();
+    const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
+    expect(held.length).toBe(1);
   });
 });
 

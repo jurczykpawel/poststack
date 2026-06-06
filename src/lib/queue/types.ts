@@ -24,6 +24,16 @@ export interface OutgoingCommentJob {
   idempotencyKey?: string;
 }
 
+/** Comment-to-DM: a private reply addressed by comment_id (first-touch DM). */
+export interface OutgoingPrivateReplyJob {
+  channelId: string;
+  conversationId: string;
+  commentId: string;
+  text: string;
+  sentByRuleId?: string;
+  idempotencyKey?: string;
+}
+
 export interface IncomingCommentJob {
   platform: string;
   /** The FB Page ID that received the comment */
@@ -75,6 +85,7 @@ export type TaskPayloadMap = {
   "incoming-comment": IncomingCommentJob;
   "outgoing-message": OutgoingMessageJob;
   "outgoing-comment": OutgoingCommentJob;
+  "outgoing-private-reply": OutgoingPrivateReplyJob;
   "token-refresh": TokenRefreshJob;
   "sequence-step": SequenceStepJob;
   "drain-channel": DrainChannelJob;

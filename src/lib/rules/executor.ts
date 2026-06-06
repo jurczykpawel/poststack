@@ -172,15 +172,27 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
   // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment failed (no commentId)
   const shouldDM = replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !commentSent);
   if (shouldDM && dmText) {
-    await addJob("outgoing-message", {
-      channelId,
-      conversationId,
-      contactId,
-      recipientPlatformId,
-      content: { text: dmText },
-      sentByRuleId: rule.id,
-      idempotencyKey: randomUUID(),
-    });
+    if (commentId) {
+      // Comment-triggered DM: addressed by comment_id (works first-touch, no PSID needed).
+      await addJob("outgoing-private-reply", {
+        channelId,
+        conversationId,
+        commentId,
+        text: dmText,
+        sentByRuleId: rule.id,
+        idempotencyKey: randomUUID(),
+      });
+    } else {
+      await addJob("outgoing-message", {
+        channelId,
+        conversationId,
+        contactId,
+        recipientPlatformId,
+        content: { text: dmText },
+        sentByRuleId: rule.id,
+        idempotencyKey: randomUUID(),
+      });
+    }
   }
 
 }
