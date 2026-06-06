@@ -1,5 +1,7 @@
+import { and, or, eq, lt, ilike, like, desc, exists, sql, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { contacts, contactChannels, contactTags, tags } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -27,55 +29,70 @@ export async function GET(request: Request) {
   // Escape LIKE wildcards to prevent pattern injection
   const safeQ = q?.replace(/[%_\\]/g, "\\$&");
 
-  const contacts = await prisma.contact.findMany({
-    where: {
-      workspace_id: auth.workspaceId,
-      ...(safeQ
-        ? {
-            OR: [
-              { display_name: { contains: safeQ, mode: "insensitive" } },
-              { email: { contains: safeQ, mode: "insensitive" } },
-              {
-                contact_channels: {
-                  some: {
-                    OR: [
-                      { platform_username: { contains: safeQ, mode: "insensitive" } },
-                      { platform_sender_id: { contains: safeQ } },
-                    ],
-                  },
-                },
-              },
-            ],
-          }
-        : {}),
-      ...(tag
-        ? { tags: { some: { tag: { name: tag } } } }
-        : {}),
-      ...(cursor
-        ? { last_interaction_at: { lt: new Date(cursor) } }
-        : {}),
-    },
-    orderBy: { last_interaction_at: "desc" },
-    take: limit + 1,
-    select: {
+  const conds: SQL[] = [eq(contacts.workspace_id, auth.workspaceId)];
+
+  if (safeQ) {
+    const pat = `%${safeQ}%`;
+    conds.push(
+      or(
+        ilike(contacts.display_name, pat),
+        ilike(contacts.email, pat),
+        exists(
+          db
+            .select({ x: sql`1` })
+            .from(contactChannels)
+            .where(
+              and(
+                eq(contactChannels.contact_id, contacts.id),
+                or(ilike(contactChannels.platform_username, pat), like(contactChannels.platform_sender_id, pat)),
+              ),
+            ),
+        ),
+      )!,
+    );
+  }
+
+  if (tag) {
+    conds.push(
+      exists(
+        db
+          .select({ x: sql`1` })
+          .from(contactTags)
+          .innerJoin(tags, eq(contactTags.tag_id, tags.id))
+          .where(and(eq(contactTags.contact_id, contacts.id), eq(tags.name, tag))),
+      ),
+    );
+  }
+
+  if (cursor) conds.push(lt(contacts.last_interaction_at, new Date(cursor)));
+
+  const rows = await db.query.contacts.findMany({
+    where: and(...conds),
+    orderBy: desc(contacts.last_interaction_at),
+    limit: limit + 1,
+    columns: {
       id: true,
       display_name: true,
       email: true,
       avatar_url: true,
       is_subscribed: true,
       last_interaction_at: true,
+    },
+    with: {
       contact_channels: {
-        select: { platform_sender_id: true, platform_username: true, channel: { select: { platform: true } } },
-        take: 3,
+        columns: { platform_sender_id: true, platform_username: true },
+        limit: 3,
+        with: { channel: { columns: { platform: true } } },
       },
       tags: {
-        select: { tag: { select: { id: true, name: true, color: true } } },
+        columns: {},
+        with: { tag: { columns: { id: true, name: true, color: true } } },
       },
     },
   });
 
-  const hasMore = contacts.length > limit;
-  const items = hasMore ? contacts.slice(0, limit) : contacts;
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor =
     hasMore && items.length > 0
       ? (items[items.length - 1].last_interaction_at?.toISOString() ?? null)

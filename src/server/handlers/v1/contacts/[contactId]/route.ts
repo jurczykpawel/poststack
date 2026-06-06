@@ -1,5 +1,7 @@
+import { and, eq, inArray } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { contacts, commentLogs, conversations, sequenceEnrollments } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
@@ -15,9 +17,9 @@ export async function GET(
   if (!auth) return ApiErrors.unauthorized();
 
   const { contactId } = await params;
-  const contact = await prisma.contact.findFirst({
-    where: { id: contactId, workspace_id: auth.workspaceId },
-    select: {
+  const contact = await db.query.contacts.findFirst({
+    where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
+    columns: {
       id: true,
       display_name: true,
       email: true,
@@ -26,25 +28,24 @@ export async function GET(
       last_interaction_at: true,
       metadata: true,
       created_at: true,
+    },
+    with: {
       contact_channels: {
-        select: {
-          id: true,
-          platform_sender_id: true,
-          platform_username: true,
-          channel: { select: { id: true, platform: true, display_name: true } },
-        },
+        columns: { id: true, platform_sender_id: true, platform_username: true },
+        with: { channel: { columns: { id: true, platform: true, display_name: true } } },
       },
-      tags: {
-        select: { tag: { select: { id: true, name: true, color: true } } },
-      },
-      _count: {
-        select: { conversations: true, sequence_enrollments: true },
-      },
+      tags: { columns: {}, with: { tag: { columns: { id: true, name: true, color: true } } } },
     },
   });
 
   if (!contact) return ApiErrors.notFound();
-  return ok(contact);
+
+  const [conversationCount, enrollmentCount] = await Promise.all([
+    db.$count(conversations, eq(conversations.contact_id, contactId)),
+    db.$count(sequenceEnrollments, eq(sequenceEnrollments.contact_id, contactId)),
+  ]);
+
+  return ok({ ...contact, _count: { conversations: conversationCount, sequence_enrollments: enrollmentCount } });
 }
 
 const patchSchema = z.object({
@@ -62,9 +63,9 @@ export async function PATCH(
   if (!auth) return ApiErrors.unauthorized();
 
   const { contactId } = await params;
-  const existing = await prisma.contact.findFirst({
-    where: { id: contactId, workspace_id: auth.workspaceId },
-    select: { id: true },
+  const existing = await db.query.contacts.findFirst({
+    where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -74,16 +75,16 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  const updated = await prisma.contact.update({
-    where: { id: contactId },
-    data: parsed.data,
-    select: {
-      id: true,
-      display_name: true,
-      email: true,
-      is_subscribed: true,
-    },
-  });
+  const [updated] = await db
+    .update(contacts)
+    .set(parsed.data)
+    .where(eq(contacts.id, contactId))
+    .returning({
+      id: contacts.id,
+      display_name: contacts.display_name,
+      email: contacts.email,
+      is_subscribed: contacts.is_subscribed,
+    });
 
   return ok(updated);
 }
@@ -97,9 +98,10 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { contactId } = await params;
-  const contact = await prisma.contact.findFirst({
-    where: { id: contactId, workspace_id: auth.workspaceId },
-    select: { id: true, contact_channels: { select: { platform_sender_id: true } } },
+  const contact = await db.query.contacts.findFirst({
+    where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
+    columns: { id: true },
+    with: { contact_channels: { columns: { platform_sender_id: true } } },
   });
   if (!contact) return ApiErrors.notFound("Contact");
 
@@ -107,14 +109,14 @@ export async function DELETE(
   // cascade doesn't reach it — erase it explicitly, workspace-scoped.
   const senderIds = contact.contact_channels.map((cc) => cc.platform_sender_id);
   if (senderIds.length > 0) {
-    await prisma.commentLog.deleteMany({
-      where: { workspace_id: auth.workspaceId, author_id: { in: senderIds } },
-    });
+    await db
+      .delete(commentLogs)
+      .where(and(eq(commentLogs.workspace_id, auth.workspaceId), inArray(commentLogs.author_id, senderIds)));
   }
 
   // Cascade removes ContactChannel, Conversations + Messages, enrollments,
   // pending approvals and broadcast recipients ( foreign keys).
-  await prisma.contact.delete({ where: { id: contactId } });
+  await db.delete(contacts).where(eq(contacts.id, contactId));
 
   await recordAudit({
     workspaceId: auth.workspaceId,

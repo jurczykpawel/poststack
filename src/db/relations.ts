@@ -59,12 +59,12 @@ export const contactsRelations = relations(contacts, ({one, many}) => ({
 		fields: [contacts.workspace_id],
 		references: [workspaces.id]
 	}),
-	contactChannels: many(contactChannels),
+	contact_channels: many(contactChannels),
 	flowSessions: many(flowSessions),
 	sequenceEnrollments: many(sequenceEnrollments),
 	broadcastRecipients: many(broadcastRecipients),
 	pendingApprovals: many(pendingApprovals),
-	contactTags: many(contactTags),
+	tags: many(contactTags),
 }));
 
 export const usersRelations = relations(users, ({many}) => ({
