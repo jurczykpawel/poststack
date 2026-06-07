@@ -8,7 +8,7 @@ on:
 
 jobs:
   ci:
-    name: Lint, Type Check, Test, Build
+    name: Lint, Type Check, Test
     runs-on: ubuntu-latest
 
     services:
@@ -61,48 +61,3 @@ jobs:
 
       - name: Test
         run: npm test
-
-  docker:
-    name: Docker Build & Push
-    runs-on: ubuntu-latest
-    needs: ci
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.CR_PAT }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push web
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          push: true
-          provenance: false
-          tags: |
-            ghcr.io/jurczykpawel/replystack:latest
-            ghcr.io/jurczykpawel/replystack:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push worker
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.worker
-          push: true
-          provenance: false
-          tags: |
-            ghcr.io/jurczykpawel/replystack-worker:latest
-            ghcr.io/jurczykpawel/replystack-worker:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
