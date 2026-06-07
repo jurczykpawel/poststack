@@ -16,6 +16,11 @@ const envSchema = z.object({
   // App
   APP_URL: z.string().url(),
 
+  // Reverse-proxy trust. "" (default) = only trust X-Real-IP / the rightmost
+  // X-Forwarded-For hop (the proxy's own value). Set "cloudflare" ONLY when
+  // actually behind Cloudflare, to trust CF-Connecting-IP.
+  TRUSTED_PROXY: z.string().default(""),
+
   // Altcha CAPTCHA (optional -- login/register skip verification without key)
   ALTCHA_HMAC_KEY: z.string().default(""),
 

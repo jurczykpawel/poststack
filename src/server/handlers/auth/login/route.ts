@@ -8,6 +8,7 @@ import { ok, ApiErrors } from "@/lib/api/response";
 import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
 import { verifyCaptcha } from "@/lib/captcha/verify";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 const schema = z.object({
   email: z.string().email(),
@@ -49,13 +50,13 @@ export async function POST(request: Request) {
   });
 
   if (!user?.password_hash) {
-    console.warn(`[auth] Failed login: unknown email, ip=${ip}`);
+    console.warn(`[auth] Failed login: unknown email, ip=${sanitizeForLog(ip)}`);
     return ApiErrors.unauthorized(INVALID_MSG);
   }
 
   const valid = await verifyPassword(password, user.password_hash);
   if (!valid) {
-    console.warn(`[auth] Failed login: wrong password, ip=${ip}`);
+    console.warn(`[auth] Failed login: wrong password, ip=${sanitizeForLog(ip)}`);
     return ApiErrors.unauthorized(INVALID_MSG);
   }
 

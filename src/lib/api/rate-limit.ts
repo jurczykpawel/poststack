@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 
 interface RateLimitResult {
   allowed: boolean;
@@ -43,15 +44,29 @@ export async function rateLimit(
 }
 
 /**
- * Extract client IP from request headers.
- * Prefers CF-Connecting-IP (set by Cloudflare, not spoofable behind CF proxy).
- * Falls back to X-Forwarded-For, X-Real-IP.
+ * Resolve the client IP from headers a reverse proxy can be trusted to set.
+ *
+ * Client-supplied headers (CF-Connecting-IP, the leftmost X-Forwarded-For entry)
+ * are forgeable and would let a caller mint unlimited rate-limit buckets, so they
+ * are NOT trusted by default. We use X-Real-IP (the proxy sets it to the socket
+ * peer) or the rightmost X-Forwarded-For hop (the value the proxy itself added).
+ * CF-Connecting-IP is honoured only when `trustedProxy` is "cloudflare".
  */
-export function getClientIp(request: Request): string {
-  return (
-    request.headers.get("cf-connecting-ip") ??
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    request.headers.get("x-real-ip") ??
-    "unknown"
-  );
+export function getClientIp(request: Request, trustedProxy: string = env.TRUSTED_PROXY): string {
+  if (trustedProxy === "cloudflare") {
+    const cf = request.headers.get("cf-connecting-ip")?.trim();
+    if (cf) return cf;
+  }
+
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+
+  // Rightmost hop = the entry the nearest proxy appended (not the client-controlled left).
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const hops = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
+
+  return "unknown";
 }

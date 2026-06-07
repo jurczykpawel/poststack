@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     columns: { id: true },
   });
   if (existing) {
-    return ApiErrors.conflict("An account with this email already exists");
+    return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
   }
 
   const passwordHash = await hashPassword(password);
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     workspaceId = result.wsId;
   } catch (err) {
     if (isUniqueViolation(err)) {
-      return ApiErrors.conflict("An account with this email already exists");
+      return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
     }
     throw err;
   }

@@ -79,6 +79,25 @@ describe("auth flow under Hono (real Postgres)", () => {
     expect(setCookie).not.toMatch(/rs_session=;/);
   });
 
+  it("does not reveal whether an email is already registered", async () => {
+    if (!TEST_DB) return;
+    await pool.query("DELETE FROM rate_limit_counters");
+    const first = await app.request("/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+    expect(first.status).toBe(201);
+    const second = await app.request("/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+    const body = (await second.text()).toLowerCase();
+    expect(body).not.toContain("already exists");
+    expect(body).not.toContain("email");
+  });
+
   it("register accepts an empty name field (the json-enc form always sends name)", async () => {
     if (!TEST_DB) return;
     // The register form posts via htmx json-enc, which serializes every field,

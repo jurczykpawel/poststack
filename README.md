@@ -52,6 +52,13 @@
 - **HMAC-SHA256** webhook signature verification
 - **Per-channel webhook secrets**
 
+**Production hardening notes:**
+- **Client IP / rate limiting** — the client IP is taken from the reverse proxy's `X-Real-IP` (the bundled nginx sets it and strips any client-supplied `CF-Connecting-IP`). Set `TRUSTED_PROXY=cloudflare` *only* when actually behind Cloudflare. Don't expose the app directly without a proxy that overwrites these headers.
+- **CAPTCHA** — set `ALTCHA_HMAC_KEY` in production. Empty = verification skipped (dev only). Solved challenges are single-use.
+- **AI rephrase** — `OPENAI_API_KEY` sends reply text to that provider; mind GDPR (use a self-hosted/DPA endpoint via `OPENAI_BASE_URL`).
+- **Content Security Policy** — uses `unsafe-inline`/`unsafe-eval` because the UI runs Alpine.js + inline htmx; output is auto-escaped (`hono/html`), so CSP here is defence-in-depth, not the primary XSS control.
+- **Meta `appsecret_proof`** — not sent by default. If you enable *Require app secret* in your Meta App, add it to the Graph API calls (`HMAC-SHA256(page_token, META_APP_SECRET)`).
+
 ---
 
 ## Quick Start
