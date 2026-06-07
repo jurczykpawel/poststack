@@ -111,6 +111,24 @@ describe("upsertChannels (real Postgres)", () => {
     expect(tg.id).not.toBe(fbBefore!.id);
   });
 
+  it("the DB permits the same (platform, platform_id) across workspaces (unique index is a superset of the old key)", async () => {
+    if (!TEST_DB) return;
+    const WS2 = "eeeeeeee-0000-0000-0000-0000000000c3";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    await db.insert(s.workspaces).values({ id: WS2, name: "X", slug: `x-${WS2}` });
+    try {
+      // Direct inserts (bypassing the app-layer ownership check) must be allowed by
+      // the constraint — this is exactly the data the old schema permitted, so the
+      // unique-index migration can never fail on it.
+      await db.insert(s.channels).values({ workspace_id: WS, platform: "facebook", platform_id: "DUP", token_encrypted: "x", webhook_secret: "a" });
+      await db.insert(s.channels).values({ workspace_id: WS2, platform: "facebook", platform_id: "DUP", token_encrypted: "x", webhook_secret: "b" });
+      const rows = await db.select().from(s.channels).where(eq(s.channels.platform_id, "DUP"));
+      expect(rows.length).toBe(2);
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    }
+  });
+
   it("refuses to connect a channel already owned by another workspace", async () => {
     if (!TEST_DB) return;
     const WS2 = "eeeeeeee-0000-0000-0000-0000000000c2";

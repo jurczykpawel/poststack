@@ -53,20 +53,27 @@ export async function rateLimit(
  * CF-Connecting-IP is honoured only when `trustedProxy` is "cloudflare".
  */
 export function getClientIp(request: Request, trustedProxy: string = env.TRUSTED_PROXY): string {
+  // Cloudflare: trust CF-Connecting-IP, nothing else.
   if (trustedProxy === "cloudflare") {
-    const cf = request.headers.get("cf-connecting-ip")?.trim();
-    if (cf) return cf;
+    return request.headers.get("cf-connecting-ip")?.trim() || "unknown";
   }
 
-  const realIp = request.headers.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
-
-  // Rightmost hop = the entry the nearest proxy appended (not the client-controlled left).
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const hops = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
-    if (hops.length > 0) return hops[hops.length - 1];
+  // Any other configured reverse proxy (e.g. "proxy", "nginx"): trust X-Real-IP
+  // (the proxy sets it to the socket peer) or the rightmost X-Forwarded-For hop
+  // (the value the proxy itself appended), never the client-controlled left.
+  if (trustedProxy) {
+    const realIp = request.headers.get("x-real-ip")?.trim();
+    if (realIp) return realIp;
+    const forwarded = request.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const hops = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
+      if (hops.length > 0) return hops[hops.length - 1];
+    }
+    return "unknown";
   }
 
+  // No trusted proxy configured: forwarding headers are client-forgeable, so we
+  // do not trust any of them. A directly-exposed instance shares one bucket
+  // (coarse but un-bypassable) — configure TRUSTED_PROXY behind a real proxy.
   return "unknown";
 }

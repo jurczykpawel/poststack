@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users, workspaces, workspaceMembers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
@@ -53,6 +53,16 @@ export async function POST(request: Request) {
 
   const normalizedEmail = email.toLowerCase().trim();
 
+  // Registration is closed by default. The first user (empty instance) may always
+  // register to bootstrap the admin; after that REGISTRATION_ENABLED must be "true".
+  if (process.env.REGISTRATION_ENABLED !== "true") {
+    const [{ n }] = await db.select({ n: count() }).from(users);
+    if (n > 0) return ApiErrors.forbidden("Registration is disabled");
+  }
+
+  // Hash up-front so the response time does not reveal whether the email exists.
+  const passwordHash = await hashPassword(password);
+
   const existing = await db.query.users.findFirst({
     where: eq(users.email, normalizedEmail),
     columns: { id: true },
@@ -61,7 +71,6 @@ export async function POST(request: Request) {
     return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
   }
 
-  const passwordHash = await hashPassword(password);
   const slug =
     normalizedEmail.split("@")[0].replace(/[^a-z0-9]/g, "-") + "-" + randomBytes(4).toString("hex");
 

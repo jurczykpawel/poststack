@@ -7,6 +7,9 @@ const envSchema = z.object({
   // Auth
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRY: z.string().default("7d"),
+  // Open self-registration. Default closed: the first user (empty instance) can
+  // always register to bootstrap; after that, set "true" to allow more.
+  REGISTRATION_ENABLED: z.string().default("false"),
 
   // Encryption - must be 32-byte hex (64 chars)
   TOKEN_ENCRYPTION_KEY: z

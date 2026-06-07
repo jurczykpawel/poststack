@@ -9,18 +9,23 @@ import { getClientIp } from "./rate-limit";
 const req = (headers: Record<string, string>) => new Request("http://x", { headers });
 
 describe("getClientIp", () => {
-  it("ignores client-supplied CF-Connecting-IP and the leftmost X-Forwarded-For without a trusted proxy", () => {
+  it("trusts no forwarding header without a configured proxy (un-bypassable shared bucket)", () => {
     const r = req({
       "cf-connecting-ip": "9.9.9.9",
       "x-forwarded-for": "1.1.1.1, 5.5.5.5",
       "x-real-ip": "5.5.5.5",
     });
-    expect(getClientIp(r, "")).toBe("5.5.5.5"); // the proxy-set X-Real-IP, not the forged values
+    expect(getClientIp(r, "")).toBe("unknown");
   });
 
-  it("falls back to the rightmost X-Forwarded-For hop when X-Real-IP is absent", () => {
+  it("uses X-Real-IP when a reverse proxy is configured", () => {
+    const r = req({ "x-real-ip": "5.5.5.5", "x-forwarded-for": "1.1.1.1, 5.5.5.5" });
+    expect(getClientIp(r, "proxy")).toBe("5.5.5.5");
+  });
+
+  it("falls back to the rightmost X-Forwarded-For hop behind a proxy", () => {
     const r = req({ "x-forwarded-for": "1.1.1.1, 5.5.5.5" });
-    expect(getClientIp(r, "")).toBe("5.5.5.5");
+    expect(getClientIp(r, "proxy")).toBe("5.5.5.5");
   });
 
   it("uses CF-Connecting-IP only when configured behind Cloudflare", () => {
@@ -28,12 +33,12 @@ describe("getClientIp", () => {
     expect(getClientIp(r, "cloudflare")).toBe("9.9.9.9");
   });
 
-  it("does not honour CF-Connecting-IP when no trusted proxy is configured", () => {
-    const r = req({ "cf-connecting-ip": "9.9.9.9" });
-    expect(getClientIp(r, "")).toBe("unknown");
+  it("does not fall back to X-Real-IP in Cloudflare mode when CF-Connecting-IP is absent", () => {
+    const r = req({ "x-real-ip": "5.5.5.5" });
+    expect(getClientIp(r, "cloudflare")).toBe("unknown");
   });
 
   it("returns 'unknown' when no usable header is present", () => {
-    expect(getClientIp(req({}), "")).toBe("unknown");
+    expect(getClientIp(req({}), "proxy")).toBe("unknown");
   });
 });

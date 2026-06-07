@@ -44,7 +44,10 @@ publicRoutes.get("/api/captcha/challenge", async (c) => {
     return c.json({ error: "Captcha not configured" }, 503);
   }
   try {
-    const challenge = await createChallenge({ hmacKey, maxNumber: 100_000 });
+    // Expire the challenge in 10 minutes so a solution cannot be redeemed long
+    // after issuance (verifySolution rejects an expired salt). This is shorter
+    // than the single-use record's lifetime, so there is no reuse window.
+    const challenge = await createChallenge({ hmacKey, maxNumber: 100_000, expires: new Date(Date.now() + 10 * 60_000) });
     return c.json(challenge);
   } catch (err) {
     console.error("[captcha/challenge] Failed:", err);

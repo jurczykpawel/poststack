@@ -66,7 +66,7 @@ export async function PATCH(
   const { ruleId } = await params;
   const existing = await db.query.autoReplyRules.findFirst({
     where: and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)),
-    columns: { id: true, response_type: true, response_config: true, requires_approval: true },
+    columns: { id: true, trigger_type: true, response_type: true, response_config: true, requires_approval: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -81,10 +81,14 @@ export async function PATCH(
   const patchedConfig = parsed.data.response_config as Record<string, unknown> | undefined;
   const effRequiresApproval = parsed.data.requires_approval ?? existing.requires_approval;
   const effResponseType = parsed.data.response_type ?? existing.response_type;
+  const effTriggerType = parsed.data.trigger_type ?? existing.trigger_type;
   const effReplyMode = (patchedConfig ?? (existing.response_config as Record<string, unknown>))?.reply_mode as string | undefined;
   if (effRequiresApproval) {
     if (!["text", "random_text", "ai_rephrase"].includes(effResponseType)) {
       return ApiErrors.validationError({ requires_approval: ["requires_approval is only supported for text, random_text or ai_rephrase responses"] });
+    }
+    if (effTriggerType === "comment_keyword") {
+      return ApiErrors.validationError({ requires_approval: ["requires_approval is not supported for comment triggers"] });
     }
     if (effReplyMode && effReplyMode !== "dm") {
       return ApiErrors.validationError({ reply_mode: ["requires_approval only supports reply_mode dm"] });

@@ -55,10 +55,7 @@ export async function upsertChannels(
         connection_mode: connectionMode,
       })
       .onConflictDoUpdate({
-        target: [channels.platform, channels.platform_id],
-        // Only ever update a row in the same workspace; this also closes the race
-        // where a concurrent connect from another workspace owns the conflict row.
-        setWhere: eq(channels.workspace_id, workspaceId),
+        target: [channels.workspace_id, channels.platform, channels.platform_id],
         set: {
           display_name: account.displayName,
           username: account.username ?? null,
@@ -70,10 +67,6 @@ export async function upsertChannels(
         },
       })
       .returning({ id: channels.id });
-
-    if (!channel) {
-      throw new Error(`This ${platform} account is already connected to another workspace`);
-    }
 
     if (existing?.status === "needs_reauth") {
       await addJob("drain-channel", { channelId: channel.id });

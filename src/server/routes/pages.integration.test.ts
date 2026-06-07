@@ -30,6 +30,7 @@ beforeAll(async () => {
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
+  process.env.REGISTRATION_ENABLED = "true";
   delete process.env.ALTCHA_HMAC_KEY;
   ({ db } = await import("@/lib/db"));
   ({ encryptTokens } = await import("@/lib/crypto"));

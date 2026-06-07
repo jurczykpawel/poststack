@@ -1,5 +1,5 @@
 {
-  "id": "0bc31045-406b-48f6-8777-4827ada27035",
+  "id": "430915fb-ab72-4adc-8a09-c9d139e6ce3b",
   "prevId": "3453bc69-e55b-43dd-b7bb-7d80197120a0",
   "version": "7",
   "dialect": "postgresql",
@@ -789,9 +789,15 @@
           "method": "btree",
           "with": {}
         },
-        "channels_platform_platform_id_key": {
-          "name": "channels_platform_platform_id_key",
+        "channels_workspace_id_platform_platform_id_key": {
+          "name": "channels_workspace_id_platform_platform_id_key",
           "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "platform",
               "isExpression": false,

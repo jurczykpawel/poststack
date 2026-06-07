@@ -57,6 +57,17 @@ describe("verifyCaptcha (real Postgres)", () => {
     expect(replay.success).toBe(false);
   });
 
+  it("rejects an expired challenge solution", async () => {
+    if (!TEST_DB) return;
+    const ch = await createChallenge({ hmacKey: HMAC, maxNumber: 100, expires: new Date(Date.now() - 1000) });
+    const sol = await solveChallenge(ch.challenge, ch.salt, ch.algorithm, 100).promise;
+    if (!sol) throw new Error("could not solve test challenge");
+    const payload = Buffer.from(
+      JSON.stringify({ algorithm: ch.algorithm, challenge: ch.challenge, number: sol.number, salt: ch.salt, signature: ch.signature }),
+    ).toString("base64");
+    expect((await verifyCaptcha(payload)).success).toBe(false);
+  });
+
   it("rejects a tampered payload", async () => {
     if (!TEST_DB) return;
     const bad = Buffer.from(

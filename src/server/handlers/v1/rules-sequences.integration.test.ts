@@ -318,6 +318,29 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     expect(res.status).toBe(422);
   });
 
+  it("rejects requires_approval on a comment trigger (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "CmtApproval", trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi", reply_mode: "dm" }, requires_approval: true,
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH cannot turn on approval for a comment-trigger rule", async () => {
+    if (!TEST_DB) return;
+    const created = await rules.POST(post({
+      name: "CmtDm", trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi", reply_mode: "dm" },
+    }));
+    expect(created.status).toBe(201);
+    const id = (await created.json()).data.id;
+    const res = await rule.PATCH(post({ requires_approval: true }), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(422);
+  });
+
   it("PATCH allows a legitimate change on an approval-gated rule", async () => {
     if (!TEST_DB) return;
     const created = await rules.POST(post({
@@ -329,6 +352,17 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     const res = await rule.PATCH(post({ name: "Renamed" }), { params: Promise.resolve({ ruleId: id }) });
     expect(res.status).toBe(200);
     expect((await res.json()).data.name).toBe("Renamed");
+  });
+
+  it("exposes requires_approval in the rule list", async () => {
+    if (!TEST_DB) return;
+    await rules.POST(post({
+      name: "Gated3", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" }, requires_approval: true,
+    }));
+    const listed = (await (await rules.GET(get())).json()).data as Array<{ name: string; requires_approval?: boolean }>;
+    expect(listed.find((x) => x.name === "Gated3")?.requires_approval).toBe(true);
   });
 });
 

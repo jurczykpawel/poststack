@@ -29,6 +29,7 @@ beforeAll(async () => {
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
+  process.env.REGISTRATION_ENABLED = "true";
   process.env.META_APP_ID = "app-id";
   process.env.META_APP_SECRET = APP_SECRET;
   process.env.META_WEBHOOK_VERIFY_TOKEN = "verify";
@@ -45,6 +46,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await pool.query("truncate table graphile_worker._private_jobs cascade");
+  // Auth requests here carry no IP header → they share the "unknown" rate-limit
+  // bucket; reset it so register/login tests don't trip each other's limits.
+  await pool.query("DELETE FROM rate_limit_counters");
   await db.delete(users).where(eq(users.email, EMAIL));
   await db.delete(workspaces).where(eq(workspaces.id, WS));
   await db.insert(workspaces).values({ id: WS, name: "Smoke", slug: `sp-${WS}` });
@@ -96,6 +100,27 @@ describe("auth flow under Hono (real Postgres)", () => {
     const body = (await second.text()).toLowerCase();
     expect(body).not.toContain("already exists");
     expect(body).not.toContain("email");
+  });
+
+  it("blocks registration when disabled once an account exists", async () => {
+    if (!TEST_DB) return;
+    await pool.query("DELETE FROM rate_limit_counters");
+    const first = await app.request("/api/auth/register", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+    expect(first.status).toBe(201);
+    const prev = process.env.REGISTRATION_ENABLED;
+    process.env.REGISTRATION_ENABLED = "false";
+    try {
+      const res = await app.request("/api/auth/register", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "blocked@example.test", password: PASSWORD }),
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      process.env.REGISTRATION_ENABLED = prev;
+    }
   });
 
   it("register accepts an empty name field (the json-enc form always sends name)", async () => {

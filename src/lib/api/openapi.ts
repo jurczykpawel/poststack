@@ -135,6 +135,8 @@ export const openApiSpec = {
           response_type: { type: "string", enum: ["text", "random_text", "sequence", "none", "ai_rephrase", "follow_gate"] },
           response_config: { type: "object" },
           cooldown_seconds: { type: "integer" },
+          max_sends_per_contact: { type: "integer", nullable: true },
+          requires_approval: { type: "boolean", description: "Park the reply for human review instead of sending (text/random_text/ai_rephrase, DM only)" },
         },
       },
     },
