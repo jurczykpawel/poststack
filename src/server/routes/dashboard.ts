@@ -432,6 +432,8 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
                 quickReplies: [],
                 buttons: [],
                 requiresApproval: false,
+                triggerType: 'keyword',
+                responseMode: 'text',
                 qrJson() {
                   return JSON.stringify(this.quickReplies
                     .filter(q => q.content_type !== 'text' || (q.title && q.title.trim()))
@@ -447,24 +449,42 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
               }">
               <div><label class="label">Name</label><input class="input" name="name" required /></div>
               <div><label class="label">Trigger</label>
-                <select class="input" name="trigger_type">
+                <select class="input" name="trigger_type" x-model="triggerType">
                   <option value="keyword">DM keyword</option>
                   <option value="comment_keyword">Comment keyword</option>
+                  <option value="postback">Button tap (postback)</option>
                 </select>
               </div>
-              <div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" /></div>
-              <div><label class="label">Post ID (comment rules only — blank = any post)</label><input class="input" name="post_id" placeholder="leave blank for any post" /></div>
-              <div><label class="label">Reply via (comment rules)</label>
+              <div x-show="triggerType !== 'postback'"><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" /></div>
+              <div x-show="triggerType === 'postback'"><label class="label">Button payload (must match the payload of the button you sent)</label><input class="input" name="payload" placeholder="CLAIM_LM" /></div>
+              <div x-show="triggerType === 'comment_keyword'"><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" placeholder="leave blank for any post" /></div>
+              <div x-show="triggerType === 'comment_keyword' && responseMode === 'text'"><label class="label">Reply via</label>
                 <select class="input" name="reply_mode">
                   <option value="dm">DM only</option>
                   <option value="comment">Public comment only</option>
                   <option value="both">Both</option>
                 </select>
               </div>
-              <div><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea></div>
-              <div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
-              <div>
+              <div><label class="label">Response</label>
+                <select class="input" name="response_mode" x-model="responseMode">
+                  <option value="text">Text reply (with optional buttons / quick replies)</option>
+                  <option value="follow_gate">Follow-gate (unlock only after they follow)</option>
+                </select>
+              </div>
+
+              <!-- Follow-gate branches -->
+              <div x-show="responseMode === 'follow_gate'" class="stack">
+                <p class="muted" style="font-size:.75rem">Use with a Button-tap trigger. On each tap we check if they follow you, then send one of these. Instagram only.</p>
+                <div><label class="label">When they follow — final message (e.g. your resource link)</label><textarea class="textarea" name="followed_text" rows="2"></textarea></div>
+                <div><label class="label">When they don't follow yet — re-prompt message</label><textarea class="textarea" name="not_followed_text" rows="2" placeholder="Follow us first, then tap again 🙏"></textarea></div>
+                <div><label class="label">Re-prompt button label</label><input class="input" name="claim_label" maxlength="20" placeholder="Chcę odebrać" /></div>
+              </div>
+
+              <div x-show="responseMode === 'text'"><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea></div>
+              <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
+
+              <div x-show="responseMode === 'text'">
                 <label class="label">Quick replies (tappable chips above the text box · max 13)</label>
                 <template x-for="(q, i) in quickReplies" :key="i">
                   <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
@@ -481,7 +501,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
                 <button class="btn btn-sm" type="button" @click="quickReplies.push({ content_type: 'text', title: '', payload: '' })" x-show="quickReplies.length < 13">+ quick reply</button>
               </div>
 
-              <div>
+              <div x-show="responseMode === 'text'">
                 <label class="label">Buttons (shown inside the message · max 3)</label>
                 <template x-for="(b, i) in buttons" :key="i">
                   <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
@@ -522,26 +542,45 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
       .map((k) => k.trim())
       .filter(Boolean)
       .map((value) => ({ value, match_type: "contains" }));
-    const triggerType = form.trigger_type === "comment_keyword" ? "comment_keyword" : "keyword";
+    const triggerType = ["comment_keyword", "postback"].includes(form.trigger_type) ? form.trigger_type : "keyword";
     const postId = (form.post_id ?? "").trim();
+    const payloadValue = (form.payload ?? "").trim();
     const commentReply = (form.comment_reply_text ?? "").trim();
+    const followGate = form.response_mode === "follow_gate";
+
     const triggerConfig: Record<string, unknown> = {};
-    if (keywords.length) triggerConfig.keywords = keywords;
-    if (triggerType === "comment_keyword" && postId) triggerConfig.post_id = postId;
-    const responseConfig: Record<string, unknown> = { text: form.text ?? "" };
-    if (triggerType === "comment_keyword") {
-      responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
-      if (commentReply) responseConfig.comment_reply_text = commentReply;
+    if (triggerType === "postback") {
+      if (payloadValue) triggerConfig.payload = payloadValue;
+    } else {
+      if (keywords.length) triggerConfig.keywords = keywords;
+      if (triggerType === "comment_keyword" && postId) triggerConfig.post_id = postId;
     }
-    const quickReplies = parseJsonArray(form.quick_replies_json);
-    if (quickReplies.length) responseConfig.quick_replies = quickReplies;
-    const buttons = parseJsonArray(form.buttons_json);
-    if (buttons.length) responseConfig.buttons = buttons;
+
+    let responseType = "text";
+    const responseConfig: Record<string, unknown> = {};
+    if (followGate) {
+      responseType = "follow_gate";
+      const claimLabel = (form.claim_label ?? "").trim() || "Chcę odebrać";
+      const claimPayload = payloadValue || "CLAIM";
+      responseConfig.followed = { text: form.followed_text ?? "" };
+      responseConfig.not_followed = { text: form.not_followed_text ?? "", buttons: [{ title: claimLabel, payload: claimPayload }] };
+    } else {
+      responseConfig.text = form.text ?? "";
+      if (triggerType === "comment_keyword") {
+        responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
+        if (commentReply) responseConfig.comment_reply_text = commentReply;
+      }
+      const quickReplies = parseJsonArray(form.quick_replies_json);
+      if (quickReplies.length) responseConfig.quick_replies = quickReplies;
+      const buttons = parseJsonArray(form.buttons_json);
+      if (buttons.length) responseConfig.buttons = buttons;
+    }
+
     const payload = {
       name: form.name ?? "",
       trigger_type: triggerType,
       trigger_config: triggerConfig,
-      response_type: "text",
+      response_type: responseType,
       response_config: responseConfig,
       requires_approval: form.requires_approval === "true",
     };

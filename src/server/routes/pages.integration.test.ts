@@ -237,6 +237,26 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(rule?.requires_approval).toBe(true);
   });
 
+  it("creates a follow_gate postback rule from the form", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        name: "FollowGate", trigger_type: "postback", payload: "CLAIM_LM", response_mode: "follow_gate",
+        followed_text: "Here is your guide", not_followed_text: "Follow first 🙏", claim_label: "Chcę odebrać",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "FollowGate")) });
+    expect(rule?.response_type).toBe("follow_gate");
+    expect(rule?.trigger_type).toBe("postback");
+    expect((rule?.trigger_config as { payload?: string }).payload).toBe("CLAIM_LM");
+    const rc = rule?.response_config as { followed: { text: string }; not_followed: { text: string; buttons: Array<{ payload: string }> } };
+    expect(rc.followed.text).toBe("Here is your guide");
+    expect(rc.not_followed.buttons[0].payload).toBe("CLAIM_LM");
+  });
+
   it("renders the approvals review page", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/approvals", { headers: withCookie() })).text();
