@@ -459,7 +459,7 @@ export const apiKeys = pgTable("api_keys", {
 	last_used_at: timestamp("last_used_at", { precision: 3, mode: 'date' }),
 	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	scopes: text().array().default(["RAY"]),
+	scopes: text().array().default([]),
 }, (table) => [
 	uniqueIndex("api_keys_key_hash_key").using("btree", table.key_hash.asc().nullsLast()),
 	index("api_keys_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),

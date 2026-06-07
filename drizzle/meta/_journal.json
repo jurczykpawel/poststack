@@ -15,6 +15,13 @@
       "when": 1780762890493,
       "tag": "0001_add_reaction_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780841233431,
+      "tag": "0002_majestic_spacker_dave",
+      "breakpoints": true
     }
   ]
 }
