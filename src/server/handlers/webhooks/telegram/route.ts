@@ -31,19 +31,24 @@ export async function POST(request: Request): Promise<Response> {
     // MVP: only plain text messages. edited_message / callback_query / etc. are ignored.
     if (!update || !msg || !msg.text) return ok();
 
+    // message_id is unique only per chat, so identity must include bot + chat to
+    // avoid cross-chat dedup collisions dropping messages.
+    const identity = `${channel.platform_id}-${msg.chat.id}-${msg.message_id}`;
     await addJob(
       "incoming-message",
       {
         platform: "telegram",
+        channelId: channel.id, // webhook already verified the channel — route deterministically
         pageId: channel.platform_id,
         senderId: String(msg.chat.id),
         recipientId: channel.platform_id,
-        mid: String(msg.message_id),
+        mid: identity,
         text: msg.text,
-        timestamp: (msg.date ?? Math.floor(Date.now() / 1000)) * 1000,
+        // seconds — the worker converts to a Date (×1000); do NOT pre-multiply.
+        timestamp: msg.date ?? Math.floor(Date.now() / 1000),
         raw: update as unknown as Record<string, unknown>,
       },
-      { jobKey: `tg-${channel.platform_id}-${msg.message_id}` },
+      { jobKey: `tg-${identity}` },
     );
   } catch (err) {
     console.error("[telegram webhook] failed:", err);

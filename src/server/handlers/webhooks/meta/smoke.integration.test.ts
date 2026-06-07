@@ -3,7 +3,7 @@ import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations, runOnce } from "graphile-worker";
 import { eq } from "drizzle-orm";
-import { workspaces, channels, autoReplyRules, messages, commentLogs, contactChannels } from "@/db/schema";
+import { workspaces, channels, autoReplyRules, messages, commentLogs, contactChannels, contacts } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const APP_SECRET = "smoke-app-secret";
@@ -520,17 +520,18 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
   const TG_SECRET = "tg-secret-xyz";
   const CHAT = "555444333";
 
-  function tgUpdate(text: string, secret = TG_SECRET) {
+  function tgUpdate(text: string, opts: { secret?: string; messageId?: number; chatId?: string; date?: number } = {}) {
+    const { secret = TG_SECRET, messageId = 99, chatId = CHAT, date = 1_770_000_000 } = opts;
     return new Request("http://x/api/webhooks/telegram", {
       method: "POST",
       headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
       body: JSON.stringify({
-        update_id: 1,
+        update_id: messageId,
         message: {
-          message_id: 99,
-          from: { id: Number(CHAT), is_bot: false, first_name: "Jan" },
-          chat: { id: Number(CHAT), type: "private" },
-          date: 1_770_000_000,
+          message_id: messageId,
+          from: { id: Number(chatId), is_bot: false, first_name: "Jan" },
+          chat: { id: Number(chatId), type: "private" },
+          date,
           text,
         },
       }),
@@ -547,7 +548,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
   it("ignores an update whose secret matches no channel (no job)", async () => {
     if (!TEST_DB) return;
     await seedTgChannel();
-    const res = await telegramWebhookPost(tgUpdate("hello", "wrong-secret"));
+    const res = await telegramWebhookPost(tgUpdate("hello", { secret: "wrong-secret" }));
     expect(res.status).toBe(200);
     const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
     expect(n.rows[0].n).toBe(0);
@@ -559,14 +560,26 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     // beforeEach seeded "Hello rule" (keyword "hello", channel_id null) — applies to Telegram too.
     const res = await telegramWebhookPost(tgUpdate("hello there"));
     expect(res.status).toBe(200);
-    const enq = await pool.query("select task_identifier from graphile_worker.jobs where key = $1", [`tg-${BOT}-99`]);
-    expect(enq.rows[0]?.task_identifier).toBe("incoming-message");
+    // jobKey + payload identity include bot + chat + message (FIXR2/FIXR3/FIXR7).
+    const enq = await pool.query(
+      "select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      [`tg-${BOT}-${CHAT}-99`],
+    );
+    expect(enq.rows).toHaveLength(1);
+    const jp = enq.rows[0].payload as { channelId: string; mid: string; timestamp: number; pageId: string };
+    expect(jp.channelId).toBe(TG_CH);
+    expect(jp.mid).toBe(`${BOT}-${CHAT}-99`);
+    expect(jp.timestamp).toBe(1_770_000_000); // seconds, not pre-multiplied
 
     await runOnce({
       connectionString: TEST_DB,
       taskList: { "incoming-message": async (p, h) => processIncomingMessage(p as Parameters<typeof processIncomingMessage>[0], h) },
     });
     expect((await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'")).rows[0].n).toBe(1);
+
+    // FIXR7: contact's last interaction reflects the event time, not processing time.
+    const contact = await db.query.contacts.findFirst({ where: eq(contacts.workspace_id, WS), columns: { last_interaction_at: true } });
+    expect(contact?.last_interaction_at?.getTime()).toBe(1_770_000_000_000);
 
     const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
     const realFetch = globalThis.fetch;
@@ -588,5 +601,18 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(send!.url).toContain("api.telegram.org/botbot-token/sendMessage");
     expect(send!.body.chat_id).toBe(CHAT);
     expect(send!.body.text).toBe("Auto reply!");
+  });
+
+  it("does not dedup the same message_id across different chats (FIXR3)", async () => {
+    if (!TEST_DB) return;
+    await seedTgChannel();
+    await telegramWebhookPost(tgUpdate("hi", { messageId: 7, chatId: "111" }));
+    await telegramWebhookPost(tgUpdate("hi", { messageId: 7, chatId: "222" })); // same message_id, different chat
+    const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(n.rows[0].n).toBe(2);
+    // ...but a true duplicate (same bot+chat+message) is deduped.
+    await telegramWebhookPost(tgUpdate("hi", { messageId: 7, chatId: "111" }));
+    const n2 = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(n2.rows[0].n).toBe(2);
   });
 });

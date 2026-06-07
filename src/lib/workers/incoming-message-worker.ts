@@ -18,7 +18,7 @@ export async function processIncomingMessage(
   payload: IncomingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { pageId, senderId, mid, text, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, timestamp } = payload;
+  const { platform, channelId, pageId, senderId, mid, text, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, timestamp } = payload;
 
   // Validate timestamp bounds (reject absurd values)
   const messageDate = new Date(timestamp * 1000);
@@ -28,14 +28,20 @@ export async function processIncomingMessage(
     messageDate.setTime(now);
   }
 
-  // 1. Find active channel by platform_id
+  // 1. Resolve the channel. Prefer the channelId the webhook already verified
+  //    (Telegram); otherwise look it up by (platform, platform_id) — globally
+  //    unique, so routing is unambiguous and never crosses platforms/workspaces.
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.platform_id, pageId), ne(channels.status, "disabled")),
+    where: and(
+      channelId ? eq(channels.id, channelId) : eq(channels.platform_id, pageId),
+      eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
+      ne(channels.status, "disabled"),
+    ),
     columns: { id: true, workspace_id: true, platform: true },
   });
 
   if (!channel) {
-    helpers.logger.info(`No active channel for pageId=${pageId}, skipping`);
+    helpers.logger.info(`No active channel for platform=${platform} pageId=${pageId} channelId=${channelId ?? "-"}, skipping`);
     return;
   }
 

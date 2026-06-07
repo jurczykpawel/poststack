@@ -1,9 +1,11 @@
 import type { MessageContent } from "@/lib/platforms/base";
 
 export interface IncomingMessageJob {
-  /** "facebook" | "instagram" */
+  /** "facebook" | "instagram" | "telegram" */
   platform: string;
-  /** The FB Page ID / IG Account ID that received the message */
+  /** Resolved channel id, when the webhook already identified it (Telegram). Preferred over pageId lookup. */
+  channelId?: string;
+  /** The FB Page ID / IG Account ID / Telegram bot ID that received the message */
   pageId: string;
   /** Platform-native sender PSID / IG user ID */
   senderId: string;

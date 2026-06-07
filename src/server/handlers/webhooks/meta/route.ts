@@ -83,7 +83,7 @@ export async function POST(request: Request) {
         isStoryReply: replyToStory ? true : undefined,
         isStoryMention: isStoryMention ? true : undefined,
         storyId: replyToStory?.id,
-        timestamp: messagingEvent.timestamp,
+        timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
         raw: messagingEvent as unknown as Record<string, unknown>,
       };
 
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
         mid: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
         text: null,
         postbackPayload: messagingEvent.postback.payload,
-        timestamp: messagingEvent.timestamp,
+        timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
         raw: messagingEvent as unknown as Record<string, unknown>,
       };
 

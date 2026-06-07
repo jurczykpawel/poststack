@@ -31,9 +31,10 @@ export async function upsertChannels(
     const encryptedTokens = encryptTokens(account.tokens);
 
     // Was this channel previously broken? If so, reconnecting recovers it and
-    // we drain any outbound parked while it was down (REL5).
+    // we drain any outbound parked while it was down (REL5). Channels are
+    // globally unique per (platform, platform_id).
     const existing = await db.query.channels.findFirst({
-      where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform_id, account.platformId)),
+      where: and(eq(channels.platform, platform), eq(channels.platform_id, account.platformId)),
       columns: { id: true, status: true },
     });
 
@@ -52,7 +53,7 @@ export async function upsertChannels(
         connection_mode: connectionMode,
       })
       .onConflictDoUpdate({
-        target: [channels.workspace_id, channels.platform_id],
+        target: [channels.platform, channels.platform_id],
         set: {
           display_name: account.displayName,
           username: account.username ?? null,

@@ -85,7 +85,10 @@ export const channels = pgTable("channels", {
 }, (table) => [
 	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
 	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
-	uniqueIndex("channels_workspace_id_platform_id_key").using("btree", table.workspace_id.asc().nullsLast(), table.platform_id.asc().nullsLast()),
+	// Globally unique per (platform, platform_id): a given page/bot maps to exactly
+	// one channel, so webhook routing by platform_id is unambiguous and a numeric
+	// id collision across platforms (e.g. FB page vs Telegram bot) cannot overwrite.
+	uniqueIndex("channels_platform_platform_id_key").using("btree", table.platform.asc().nullsLast(), table.platform_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],

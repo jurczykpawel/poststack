@@ -88,4 +88,26 @@ describe("upsertChannels (real Postgres)", () => {
     const many = Array.from({ length: 51 }, (_, i) => account(`n${i}`));
     await expect(upsertChannels(WS, "facebook", many)).rejects.toThrow(/Too many accounts/);
   });
+
+  it("a Telegram bot and a Facebook page with the same numeric id do not collide", async () => {
+    if (!TEST_DB) return;
+    const COLLIDE = "100200300";
+    await upsertChannels(WS, "facebook", [{ platformId: COLLIDE, displayName: "FB Page", tokens: { access_token: "fb-token" } }]);
+    const fbBefore = await db.query.channels.findFirst({
+      where: and(eq(s.channels.platform, "facebook"), eq(s.channels.platform_id, COLLIDE)),
+      columns: { id: true, token_encrypted: true },
+    });
+    expect(fbBefore).toBeTruthy();
+
+    // Connecting a Telegram bot with the same numeric id must NOT overwrite the FB channel.
+    await upsertChannels(WS, "telegram", [{ platformId: COLLIDE, displayName: "TG Bot", tokens: { access_token: "tg-token" } }], { connectionMode: "manual_token" });
+
+    const rows = await db.select().from(s.channels).where(eq(s.channels.platform_id, COLLIDE));
+    expect(rows.length).toBe(2);
+    const fbAfter = rows.find((r) => r.platform === "facebook")!;
+    const tg = rows.find((r) => r.platform === "telegram")!;
+    expect(fbAfter.token_encrypted).toBe(fbBefore!.token_encrypted); // untouched
+    expect(fbAfter.id).toBe(fbBefore!.id);
+    expect(tg.id).not.toBe(fbBefore!.id);
+  });
 });
