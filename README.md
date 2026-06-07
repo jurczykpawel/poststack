@@ -58,7 +58,8 @@
 - **AI rephrase** — `OPENAI_API_KEY` sends reply text to that provider; mind GDPR (use a self-hosted/DPA endpoint via `OPENAI_BASE_URL`).
 - **Content Security Policy** — uses `unsafe-inline`/`unsafe-eval` because the UI runs Alpine.js + inline htmx; output is auto-escaped (`hono/html`), so CSP here is defence-in-depth, not the primary XSS control.
 - **Meta `appsecret_proof`** — not sent by default. If you enable *Require app secret* in your Meta App, add it to the Graph API calls (`HMAC-SHA256(page_token, META_APP_SECRET)`).
-- **Channel uniqueness** — each connected account is unique per `(platform, platform_id)` and belongs to exactly one workspace. If you run multiple workspaces, do not connect the same page/bot to more than one; the unique-index migration assumes no pre-existing cross-workspace duplicates (resolve any before upgrading).
+- **Channel uniqueness** — each connected account belongs to exactly one workspace: a partial unique index allows at most one active channel per `(platform, platform_id)` instance-wide, so incoming events route to a single owner. Connecting an account already live in another workspace is refused. The migration that adds this index automatically disables any pre-existing cross-workspace duplicate (keeping the earliest-connected), so upgrades never fail.
+- **First-run admin bootstrap** — registration is closed by default (`REGISTRATION_ENABLED` unset/`false`), but the **first** account on an empty instance can always register, to bootstrap the owner. This means whoever reaches `/register` first on a fresh deploy becomes the admin. Register immediately after deploying (or keep the instance network-restricted until you have), then leave `REGISTRATION_ENABLED` off so no further self-signups are possible.
 
 ---
 
