@@ -17,6 +17,7 @@ let processIncomingComment: typeof import("@/lib/workers/incoming-comment-worker
 let processOutgoingPrivateReply: typeof import("@/lib/workers/outgoing-private-reply-worker").processOutgoingPrivateReply;
 let processFollowGate: typeof import("@/lib/workers/follow-gate-worker").processFollowGate;
 let processOutgoingMessage: typeof import("@/lib/workers/outgoing-message-worker").processOutgoingMessage;
+let telegramWebhookPost: typeof import("@/server/handlers/webhooks/telegram/route").POST;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-000000000001";
@@ -46,6 +47,7 @@ beforeAll(async () => {
   ({ processOutgoingPrivateReply } = await import("@/lib/workers/outgoing-private-reply-worker"));
   ({ processFollowGate } = await import("@/lib/workers/follow-gate-worker"));
   ({ processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker"));
+  ({ POST: telegramWebhookPost } = await import("@/server/handlers/webhooks/telegram/route"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -509,5 +511,82 @@ describe("follow-gate E2E: postback → follow check → gated reply (real Postg
     const msg = send!.body.message as { text?: string; attachment?: unknown };
     expect(msg.text).toBe("Here is your guide: https://example.com/guide");
     expect(msg.attachment).toBeUndefined();
+  });
+});
+
+describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
+  const TG_CH = "eeeeeeee-0000-0000-0000-0000000000fd";
+  const BOT = "BOT_TG";
+  const TG_SECRET = "tg-secret-xyz";
+  const CHAT = "555444333";
+
+  function tgUpdate(text: string, secret = TG_SECRET) {
+    return new Request("http://x/api/webhooks/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
+      body: JSON.stringify({
+        update_id: 1,
+        message: {
+          message_id: 99,
+          from: { id: Number(CHAT), is_bot: false, first_name: "Jan" },
+          chat: { id: Number(CHAT), type: "private" },
+          date: 1_770_000_000,
+          text,
+        },
+      }),
+    });
+  }
+
+  async function seedTgChannel() {
+    await db.insert(channels).values({
+      id: TG_CH, workspace_id: WS, platform: "telegram", platform_id: BOT,
+      token_encrypted: encryptTokens({ access_token: "bot-token" }), webhook_secret: TG_SECRET, status: "active",
+    });
+  }
+
+  it("ignores an update whose secret matches no channel (no job)", async () => {
+    if (!TEST_DB) return;
+    await seedTgChannel();
+    const res = await telegramWebhookPost(tgUpdate("hello", "wrong-secret"));
+    expect(res.status).toBe(200);
+    const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(n.rows[0].n).toBe(0);
+  });
+
+  it("ingests a text message, fires the keyword rule, and sends a Telegram reply", async () => {
+    if (!TEST_DB) return;
+    await seedTgChannel();
+    // beforeEach seeded "Hello rule" (keyword "hello", channel_id null) — applies to Telegram too.
+    const res = await telegramWebhookPost(tgUpdate("hello there"));
+    expect(res.status).toBe(200);
+    const enq = await pool.query("select task_identifier from graphile_worker.jobs where key = $1", [`tg-${BOT}-99`]);
+    expect(enq.rows[0]?.task_identifier).toBe("incoming-message");
+
+    await runOnce({
+      connectionString: TEST_DB,
+      taskList: { "incoming-message": async (p, h) => processIncomingMessage(p as Parameters<typeof processIncomingMessage>[0], h) },
+    });
+    expect((await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'")).rows[0].n).toBe(1);
+
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: JSON.parse(init!.body as string) });
+      return Response.json({ ok: true, result: { message_id: 1001 } });
+    }) as typeof fetch;
+    try {
+      await runOnce({
+        connectionString: TEST_DB,
+        taskList: { "outgoing-message": async (p, h) => processOutgoingMessage(p as Parameters<typeof processOutgoingMessage>[0], h) },
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    expect(send!.url).toContain("api.telegram.org/botbot-token/sendMessage");
+    expect(send!.body.chat_id).toBe(CHAT);
+    expect(send!.body.text).toBe("Auto reply!");
   });
 });

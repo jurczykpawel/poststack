@@ -7,6 +7,7 @@ import * as oauthFacebookCallback from "@/server/handlers/oauth/facebook/callbac
 import * as oauthInstagram from "@/server/handlers/oauth/instagram/route";
 import * as oauthInstagramCallback from "@/server/handlers/oauth/instagram/callback/route";
 import * as webhook from "@/server/handlers/webhooks/meta/route";
+import * as telegramWebhook from "@/server/handlers/webhooks/telegram/route";
 import * as cronTokenRefresh from "@/server/handlers/cron/token-refresh/route";
 
 export const special = new Hono();
@@ -25,6 +26,9 @@ special.get("/api/oauth/instagram/callback", (c) => oauthInstagramCallback.GET(c
 // Webhooks (Meta) — GET verification, POST signed events
 special.get("/api/webhooks/meta", (c) => webhook.GET(c.req.raw));
 special.post("/api/webhooks/meta", (c) => webhook.POST(c.req.raw));
+
+// Webhooks (Telegram) — POST updates, verified by per-channel secret header
+special.post("/api/webhooks/telegram", (c) => telegramWebhook.POST(c.req.raw));
 
 // Cron
 special.get("/api/cron/token-refresh", (c) => cronTokenRefresh.GET(c.req.raw));

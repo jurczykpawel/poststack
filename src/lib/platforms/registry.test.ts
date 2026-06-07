@@ -9,9 +9,9 @@ beforeAll(() => {
 });
 
 describe("provider registry", () => {
-  it("registers facebook + instagram synchronously on import (no deferred race)", async () => {
+  it("registers the built-in providers synchronously on import (no deferred race)", async () => {
     const { getSupportedPlatforms } = await import("./registry");
-    expect(getSupportedPlatforms().sort()).toEqual(["facebook", "instagram"]);
+    expect(getSupportedPlatforms().sort()).toEqual(["facebook", "instagram", "telegram"]);
   });
 
   it("getProvider returns the right provider instance for each platform", async () => {

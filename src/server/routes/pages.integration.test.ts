@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import {
   users, channels, contacts, contactChannels, conversations, messages, autoReplyRules, sequences,
@@ -255,6 +255,45 @@ describe("authenticated dashboard (real Postgres)", () => {
     const rc = rule?.response_config as { followed: { text: string }; not_followed: { text: string; buttons: Array<{ payload: string }> } };
     expect(rc.followed.text).toBe("Here is your guide");
     expect(rc.not_followed.buttons[0].payload).toBe("CLAIM_LM");
+  });
+
+  it("connects a Telegram bot from the channels form (getMe + setWebhook)", async () => {
+    if (!TEST_DB) return;
+    const realFetch = globalThis.fetch;
+    const seen: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.endsWith("/getMe")) return Response.json({ ok: true, result: { id: 987654, is_bot: true, first_name: "ReplyBot", username: "reply_bot" } });
+      if (url.endsWith("/setWebhook")) return Response.json({ ok: true, result: true });
+      return new Response("nope", { status: 404 });
+    }) as typeof fetch;
+    try {
+      const res = await app.request("/channels/telegram/connect", {
+        method: "POST",
+        headers: withCookie({ "content-type": "application/json" }),
+        body: JSON.stringify({ token: "987654321:AAExampleBotTokenValue1234567890" }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(seen.some((u) => u.endsWith("/setWebhook"))).toBe(true);
+    const ch = await db.query.channels.findFirst({ where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform, "telegram")) });
+    expect(ch?.platform_id).toBe("987654");
+    expect(ch?.username).toBe("reply_bot");
+  });
+
+  it("rejects an invalid Telegram token shape (no channel created)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/channels/telegram/connect", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ token: "not-a-real-token" }),
+    });
+    expect(res.status).toBe(200); // dashboard wraps the 422 into an htmx error fragment
+    const bots = await db.select().from(channels).where(and(eq(channels.workspace_id, workspaceId), eq(channels.platform, "telegram")));
+    expect(bots.every((b) => b.platform_id !== "not-a-real-token")).toBe(true);
   });
 
   it("renders the approvals review page", async () => {

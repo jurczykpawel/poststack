@@ -2,6 +2,7 @@ import type { Platform } from "@/db/schema";
 import type { SocialProvider } from "./base";
 import { FacebookProvider } from "./facebook";
 import { InstagramProvider } from "./instagram";
+import { TelegramProvider } from "./telegram";
 
 const providerFactories: Partial<Record<Platform, () => SocialProvider>> = {};
 
@@ -33,3 +34,4 @@ export function getSupportedPlatforms(): Platform[] {
 // Add new platforms here as they are implemented.
 registerProvider("facebook", () => new FacebookProvider());
 registerProvider("instagram", () => new InstagramProvider());
+registerProvider("telegram", () => new TelegramProvider());

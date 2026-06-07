@@ -4,6 +4,7 @@ import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
 import * as channelPosts from "@/server/handlers/v1/channels/[channelId]/posts/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
+import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
 import * as contacts from "@/server/handlers/v1/contacts/route";
 import * as contact from "@/server/handlers/v1/contacts/[contactId]/route";
 import * as conversations from "@/server/handlers/v1/conversations/route";
@@ -29,6 +30,7 @@ export const v1 = new Hono();
 // Channels
 v1.get("/channels", (c) => channels.GET(c.req.raw));
 v1.post("/channels/connect-token", (c) => channelConnectToken.POST(c.req.raw));
+v1.post("/channels/telegram/connect", (c) => channelTelegram.POST(c.req.raw));
 v1.get("/channels/:channelId", (c) =>
   channel.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
 );

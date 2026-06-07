@@ -13,6 +13,7 @@ import { env } from "@/lib/env";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
+import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
 import * as rules from "@/server/handlers/v1/rules/route";
 import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
@@ -262,10 +263,11 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
           <p class="muted">Connect your Facebook Pages and Instagram Business accounts.</p>
           ${errorKey ? html`<div class="notice notice-err">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : html``}
           ${connected && count ? html`<div class="notice notice-ok">${count} ${PLATFORM_LABELS[connected] ?? connected} account(s) connected.</div>` : html``}
-          <div x-data="{ token: false }">
+          <div x-data="{ token: false, tg: false }">
             <div class="row" style="margin:1rem 0 1rem">
               <a class="btn" style="background:#1877f2;color:#fff;border:none" href="/api/oauth/facebook">+ Facebook</a>
               <a class="btn" style="background:#bc1888;color:#fff;border:none" href="/api/oauth/instagram">+ Instagram</a>
+              <button class="btn" type="button" style="background:#229ED9;color:#fff;border:none" @click="tg = !tg">+ Telegram</button>
               <button class="btn" type="button" @click="token = !token">Paste token</button>
             </div>
             <div x-show="token" x-cloak class="card" style="margin-bottom:1.5rem">
@@ -274,6 +276,13 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
                 <select class="input" name="platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select>
                 <textarea class="textarea mono" name="token" rows="3" placeholder="Paste the access token" required></textarea>
                 <button class="btn btn-primary" type="submit" style="align-self:flex-start">Connect</button>
+              </form>
+            </div>
+            <div x-show="tg" x-cloak class="card" style="margin-bottom:1.5rem">
+              <p class="muted" style="margin-bottom:.5rem">In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token (it looks like <code>1234567890:AA…</code>, not your password). We register the webhook for you.</p>
+              <form hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="#channels-list" hx-swap="innerHTML" class="stack">
+                <input class="input mono" name="token" placeholder="123456789:AA..." required />
+                <button class="btn btn-primary" type="submit" style="align-self:flex-start">Connect Telegram</button>
               </form>
             </div>
           </div>
@@ -307,6 +316,18 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
       return c.html(html`<div class="notice notice-err">${body?.error?.message ?? "Could not connect with this token."}</div>${list}`);
+    }
+    return c.html(list);
+  });
+
+  app.post("/channels/telegram/connect", guard, async (c) => {
+    const res = await channelTelegram.POST(c.req.raw);
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const list = renderChannels(await loadChannels(a.workspaceId));
+    if (res.status >= 400) {
+      const body = await res.json().catch(() => ({}));
+      return c.html(html`<div class="notice notice-err">${body?.error?.message ?? "Could not connect the Telegram bot."}</div>${list}`);
     }
     return c.html(list);
   });

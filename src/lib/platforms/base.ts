@@ -104,11 +104,13 @@ export abstract class SocialProvider {
 
   /**
    * Post a public comment reply.
+   * Meta-native — optional. Platforms without a comment surface (Telegram,
+   * Email, SMS) omit it; the outgoing-comment worker guards on its presence.
    * @param tokens - Decrypted channel tokens
    * @param objectId - The comment or post ID to reply to
    * @param message - Reply text
    */
-  abstract sendComment(
+  sendComment?(
     tokens: TokenData,
     objectId: string,
     message: string
@@ -156,5 +158,22 @@ export abstract class SocialProvider {
    */
   refreshBufferSeconds(): number {
     return 7 * 24 * 60 * 60; // 7 days before expiry
+  }
+
+  /**
+   * Capability probe (duck-typed on optional method presence) so callers can
+   * branch before enqueuing platform-specific work.
+   */
+  supportsFeature(feature: "comments" | "private_reply" | "token_connect" | "follow_check"): boolean {
+    switch (feature) {
+      case "comments":
+        return typeof this.sendComment === "function";
+      case "private_reply":
+        return typeof this.sendPrivateReply === "function";
+      case "token_connect":
+        return typeof this.connectWithToken === "function";
+      case "follow_check":
+        return typeof this.checkFollowsBusiness === "function";
+    }
   }
 }

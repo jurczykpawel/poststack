@@ -42,6 +42,9 @@ export async function processOutgoingComment(
 
   const tokens = decryptTokens(channel.token_encrypted);
   const provider = getProvider(channel.platform);
+  if (!provider.sendComment) {
+    throw new Error(`Platform ${channel.platform} does not support comments`);
+  }
 
   // Send first, claim idempotency after
   try {
