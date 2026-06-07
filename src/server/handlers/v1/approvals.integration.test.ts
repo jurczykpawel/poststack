@@ -93,6 +93,27 @@ describe("approval workflow (real Postgres)", () => {
     expect(rule?.requires_approval).toBe(true);
   });
 
+  it("rejects requires_approval on a follow_gate rule (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "BadGate", trigger_type: "postback", trigger_config: { payload: "X" },
+      response_type: "follow_gate",
+      response_config: { followed: { text: "a" }, not_followed: { text: "b", buttons: [{ title: "B", payload: "X" }] } },
+      requires_approval: true,
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects requires_approval with a non-dm reply mode (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "BadMode", trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi", reply_mode: "comment" }, requires_approval: true,
+    }));
+    expect(res.status).toBe(422);
+  });
+
   it("lists pending approvals (and not resolved ones)", async () => {
     if (!TEST_DB) return;
     const pendingId = await seedApproval();
@@ -112,9 +133,10 @@ describe("approval workflow (real Postgres)", () => {
     expect((await res.json()).data).toMatchObject({ status: "approved", queued: true });
     expect(await outgoingCount()).toBe(1);
     const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
-    const payload = (job.rows[0] as { payload: { content: { text: string; buttons: unknown }; recipientPlatformId: string } }).payload;
+    const payload = (job.rows[0] as { payload: { content: { text: string; buttons: unknown }; recipientPlatformId: string; idempotencyKey: string } }).payload;
     expect(payload.content.text).toBe("Approved msg");
     expect(payload.recipientPlatformId).toBe("PSID-A");
+    expect(payload.idempotencyKey).toBe(`approval:${id}`); // deterministic → retry-safe (FIXR4)
     const row = await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) });
     expect(row?.status).toBe("approved");
     expect(row?.resolved_at).toBeTruthy();

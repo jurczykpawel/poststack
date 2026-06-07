@@ -118,6 +118,15 @@ const createRuleSchema = z
     if (data.response_type === "follow_gate" && (!r.followed || !r.not_followed)) {
       ctx.addIssue({ code: "custom", path: ["response_config"], message: "follow_gate requires followed and not_followed messages" });
     }
+    // Approval gate parks a single DM, so it only applies to DM-producing responses.
+    if (data.requires_approval) {
+      if (!["text", "random_text", "ai_rephrase"].includes(data.response_type)) {
+        ctx.addIssue({ code: "custom", path: ["requires_approval"], message: "requires_approval is only supported for text, random_text or ai_rephrase responses" });
+      }
+      if (r.reply_mode && r.reply_mode !== "dm") {
+        ctx.addIssue({ code: "custom", path: ["response_config", "reply_mode"], message: "requires_approval only supports reply_mode dm" });
+      }
+    }
   });
 
 // GET /api/v1/rules

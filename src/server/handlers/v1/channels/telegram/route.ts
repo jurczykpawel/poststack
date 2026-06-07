@@ -37,12 +37,22 @@ export async function POST(request: Request) {
   await upsertChannels(auth.workspaceId, "telegram", accounts, { connectionMode: "manual_token" });
 
   // Register the webhook with the channel's stored secret so incoming updates verify.
+  // A bot without a working webhook has a dead inbox — treat failure as a failed
+  // connection: flag the channel needs_reauth and report the error.
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.workspace_id, auth.workspaceId), eq(channels.platform_id, accounts[0].platformId)),
-    columns: { webhook_secret: true },
+    where: and(eq(channels.platform, "telegram"), eq(channels.platform_id, accounts[0].platformId)),
+    columns: { id: true, webhook_secret: true },
   });
-  if (channel?.webhook_secret) {
+  try {
+    if (!channel?.webhook_secret) throw new Error("channel webhook secret missing after upsert");
     await provider.setWebhook(parsed.data.token, `${env.APP_URL}/api/webhooks/telegram`, channel.webhook_secret);
+  } catch {
+    if (channel) {
+      await db.update(channels)
+        .set({ status: "needs_reauth", last_error: "Telegram webhook registration failed" })
+        .where(eq(channels.id, channel.id));
+    }
+    return ApiErrors.badRequest("Bot connected but webhook registration failed — check the token and try again");
   }
 
   await recordAudit({

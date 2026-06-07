@@ -206,6 +206,31 @@ export const openApiSpec = {
         },
       },
     },
+    "/channels/telegram/connect": {
+      post: {
+        tags: ["Channels"],
+        summary: "Connect a Telegram bot by token (no OAuth)",
+        description: "Validates the bot token via getMe and registers the webhook. Paste a token from @BotFather.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["token"],
+                properties: { token: { type: "string", example: "123456789:AA..." } },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Bot connected" },
+          "400": { description: "Invalid bot token or webhook registration failed" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "422": { description: "Validation error" },
+        },
+      },
+    },
     "/contacts": {
       get: {
         tags: ["Contacts"],

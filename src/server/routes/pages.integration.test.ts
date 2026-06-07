@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import {
-  users, channels, contacts, contactChannels, conversations, messages, autoReplyRules, sequences,
+  users, workspaces, channels, contacts, contactChannels, conversations, messages, autoReplyRules, sequences,
 } from "@/db/schema";
 import type { Hono } from "hono";
 
@@ -40,6 +40,17 @@ beforeAll(async () => {
   // Clear the shared rate-limit table so the once-per-run registration isn't
   // blocked by counters left over from other suites / earlier runs.
   await db.execute(sql.raw("DELETE FROM rate_limit_counters"));
+  // Drop the prior run's workspace(s) too (cascades channels) — channels are
+  // globally unique per (platform, platform_id), so a leaked PAGE_PG would
+  // collide on the next run if only the user were deleted.
+  const prior = await db.query.users.findFirst({
+    where: eq(users.email, EMAIL),
+    columns: {},
+    with: { workspaceMembers: { columns: { workspace_id: true } } },
+  });
+  for (const m of prior?.workspaceMembers ?? []) {
+    await db.delete(workspaces).where(eq(workspaces.id, m.workspace_id));
+  }
   await db.delete(users).where(eq(users.email, EMAIL));
   const res = await app.request("/register", {
     method: "POST",
@@ -61,6 +72,9 @@ afterAll(async () => {
   // The reply test enqueues an outgoing-message; clear the shared queue for
   // serially-following suites.
   await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
+  // Delete the workspace (cascades channels/conversations) so no orphan channel
+  // survives to collide on the global (platform, platform_id) unique index.
+  if (workspaceId) await db.delete(workspaces).where(eq(workspaces.id, workspaceId));
   await db.delete(users).where(eq(users.email, EMAIL));
   if (closeQueue) await closeQueue();
   await db.$client.end();
@@ -282,6 +296,32 @@ describe("authenticated dashboard (real Postgres)", () => {
     const ch = await db.query.channels.findFirst({ where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform, "telegram")) });
     expect(ch?.platform_id).toBe("987654");
     expect(ch?.username).toBe("reply_bot");
+  });
+
+  it("marks the channel unhealthy when Telegram webhook registration fails (FIXR6)", async () => {
+    if (!TEST_DB) return;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/getMe")) return Response.json({ ok: true, result: { id: 111222, is_bot: true, first_name: "BrokenBot", username: "broken_bot" } });
+      if (url.endsWith("/setWebhook")) return Response.json({ ok: false, description: "bad url" }, { status: 400 });
+      return new Response("nope", { status: 404 });
+    }) as typeof fetch;
+    let bodyText = "";
+    try {
+      const res = await app.request("/channels/telegram/connect", {
+        method: "POST",
+        headers: withCookie({ "content-type": "application/json" }),
+        body: JSON.stringify({ token: "111222333:AAExampleBotTokenValue1234567890" }),
+      });
+      expect(res.status).toBe(200); // dashboard wraps the error as an htmx fragment
+      bodyText = await res.text();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(bodyText.toLowerCase()).toContain("webhook");
+    const ch = await db.query.channels.findFirst({ where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform_id, "111222")) });
+    expect(ch?.status).toBe("needs_reauth"); // not reported as healthy/active
   });
 
   it("rejects an invalid Telegram token shape (no channel created)", async () => {

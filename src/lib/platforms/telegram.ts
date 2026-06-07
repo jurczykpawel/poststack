@@ -89,7 +89,9 @@ export class TelegramProvider extends SocialProvider {
 
   /**
    * Register the webhook so Telegram POSTs updates to us. The secret_token is
-   * returned in a header on every update for verification.
+   * returned in a header on every update for verification. Throws on failure —
+   * a bot without a registered webhook has a silently dead inbox, so the caller
+   * must treat this as a failed connection.
    */
   async setWebhook(token: string, url: string, secretToken: string): Promise<void> {
     const res = await fetch(`${this.base(token)}/setWebhook`, {
@@ -99,10 +101,9 @@ export class TelegramProvider extends SocialProvider {
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) {
-      const body = await res.text();
-      console.error(`[telegram] setWebhook failed:`, body);
-      // Non-fatal — the channel is still usable; webhook can be set manually.
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string };
+    if (!res.ok || !body.ok) {
+      throw new Error(`Telegram setWebhook failed: ${body.description ?? res.status}`);
     }
   }
 
