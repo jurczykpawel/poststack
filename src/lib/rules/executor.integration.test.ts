@@ -133,6 +133,41 @@ describe("evaluateRules (real Postgres)", () => {
     expect(pool).toContain(text);
   });
 
+  it("carries quick replies and buttons into the outgoing-message payload", async () => {
+    if (!TEST_DB) return;
+    const quick_replies = [
+      { content_type: "text", title: "Yes", payload: "YES" },
+      { content_type: "user_email" },
+    ];
+    const buttons = [{ title: "Claim", payload: "CLAIM_LM" }];
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Interactive", trigger_type: "keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "Pick:", quick_replies, buttons },
+    });
+    expect(await evaluateRules(baseInput)).not.toBeNull();
+    const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
+    const content = (job.rows[0] as { payload: { content: { text: string; quick_replies: unknown; buttons: unknown } } }).payload.content;
+    expect(content.text).toBe("Pick:");
+    expect(content.quick_replies).toEqual(quick_replies);
+    expect(content.buttons).toEqual(buttons);
+  });
+
+  it("carries a button into a comment-triggered private reply (first-touch)", async () => {
+    if (!TEST_DB) return;
+    const buttons = [{ title: "Chcę odebrać", payload: "CLAIM_LM" }];
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "CmtBtn", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "Tap to claim:", reply_mode: "dm", buttons },
+    });
+    expect(await evaluateRules({ ...baseInput, text: "info please", eventType: "comment", commentId: "CMT-9" })).not.toBeNull();
+    const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-private-reply'`);
+    const payload = (job.rows[0] as { payload: { text: string; content: { buttons: unknown } } }).payload;
+    expect(payload.text).toBe("Tap to claim:");
+    expect(payload.content.buttons).toEqual(buttons);
+  });
+
   it("fires a story_reply rule only when the message is a story reply", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({

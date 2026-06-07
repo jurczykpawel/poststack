@@ -115,13 +115,15 @@ export abstract class SocialProvider {
   ): Promise<void>;
 
   /**
-   * Send a private reply (comment-to-DM).
+   * Send a private reply (comment-to-DM), addressed by comment_id.
+   * Accepts full message content so first-touch DMs can carry quick replies /
+   * buttons, not just text.
    * Optional - only some platforms support this (e.g. Instagram, Facebook).
    */
   sendPrivateReply?(
     tokens: TokenData,
     commentId: string,
-    message: string
+    content: MessageContent
   ): Promise<void>;
 
   /**

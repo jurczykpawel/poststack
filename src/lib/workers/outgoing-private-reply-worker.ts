@@ -18,7 +18,8 @@ export async function processOutgoingPrivateReply(
   payload: OutgoingPrivateReplyJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, conversationId, commentId, text, sentByRuleId, idempotencyKey } = payload;
+  const { channelId, conversationId, commentId, text, content, sentByRuleId, idempotencyKey } = payload;
+  const messageContent = content ?? { text };
 
   const persist = (status: "sent" | "held" | "failed", platformMessageId: string | null = null) =>
     db.insert(messages).values({
@@ -57,7 +58,7 @@ export async function processOutgoingPrivateReply(
   }
 
   try {
-    await provider.sendPrivateReply(tokens, commentId, text);
+    await provider.sendPrivateReply(tokens, commentId, messageContent);
   } catch (e) {
     if (e instanceof TokenInvalidError) {
       await persist("held");

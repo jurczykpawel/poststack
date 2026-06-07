@@ -731,13 +731,31 @@ describe("Meta Graph API Contract Tests", () => {
       await fb.sendPrivateReply!(
         { access_token: "tok" },
         "comment_abc",
-        "Thanks for your comment!"
+        { text: "Thanks for your comment!" }
       );
 
       const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
       const body = JSON.parse(call!.init!.body as string);
       expect(body.recipient).toEqual({ comment_id: "comment_abc" });
       expect(body.message).toEqual({ text: "Thanks for your comment!" });
+    });
+
+    it("carries a button template in a first-touch private reply (Instagram)", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      await ig.sendPrivateReply!(
+        { access_token: "tok" },
+        "ig_comment_1",
+        { text: "Tap to claim:", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] }
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.recipient).toEqual({ comment_id: "ig_comment_1" });
+      expect(body.message.attachment.payload.template_type).toBe("button");
+      expect(body.message.attachment.payload.buttons).toEqual([
+        { type: "postback", title: "Chcę odebrać", payload: "CLAIM_LM" },
+      ]);
     });
   });
 

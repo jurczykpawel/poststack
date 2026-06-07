@@ -7,7 +7,7 @@ import { addJob } from "@/lib/queue/client";
 import { rephrase } from "@/lib/ai/rephrase";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
-import { selectResponse } from "./response";
+import { selectResponse, buildInteractiveContent } from "./response";
 
 interface EvaluateRulesInput {
   workspaceId: string;
@@ -160,6 +160,10 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
     }
   }
 
+  // Interactive add-ons (quick replies / buttons) attach to the DM body.
+  const interactive = buildInteractiveContent(rule.response_config);
+  const hasInteractive = interactive.quick_replies !== undefined || interactive.buttons !== undefined;
+
   // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment failed (no commentId)
   const shouldDM = replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !commentSent);
   if (shouldDM && dmText) {
@@ -170,6 +174,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
         conversationId,
         commentId,
         text: dmText,
+        ...(hasInteractive ? { content: { text: dmText, ...interactive } } : {}),
         sentByRuleId: rule.id,
         idempotencyKey: randomUUID(),
       });
@@ -179,7 +184,7 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
         conversationId,
         contactId,
         recipientPlatformId,
-        content: { text: dmText },
+        content: { text: dmText, ...interactive },
         sentByRuleId: rule.id,
         idempotencyKey: randomUUID(),
       });

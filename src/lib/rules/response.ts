@@ -1,3 +1,22 @@
+import type { QuickReply, MessageButton } from "@/lib/platforms/base";
+
+/**
+ * Extract the interactive parts of a response (quick replies / buttons) from a
+ * rule's response_config. The config was validated at write time, so this only
+ * passes the stored arrays through; it defends against bad shapes and drops
+ * empty arrays so callers can spread the result without sending empty fields.
+ */
+export function buildInteractiveContent(
+  responseConfig: Record<string, unknown>,
+): { quick_replies?: QuickReply[]; buttons?: MessageButton[] } {
+  const out: { quick_replies?: QuickReply[]; buttons?: MessageButton[] } = {};
+  const qr = responseConfig.quick_replies;
+  if (Array.isArray(qr) && qr.length > 0) out.quick_replies = qr as QuickReply[];
+  const buttons = responseConfig.buttons;
+  if (Array.isArray(buttons) && buttons.length > 0) out.buttons = buttons as MessageButton[];
+  return out;
+}
+
 /**
  * Resolve the base reply text and whether to AI-rephrase it. The text source
  * (a single `text` or a random pick from `messages`) is orthogonal to AI

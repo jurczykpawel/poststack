@@ -1,3 +1,5 @@
+import type { MessageContent } from "@/lib/platforms/base";
+
 export interface IncomingMessageJob {
   /** "facebook" | "instagram" */
   platform: string;
@@ -35,7 +37,10 @@ export interface OutgoingPrivateReplyJob {
   channelId: string;
   conversationId: string;
   commentId: string;
+  /** Plain-text preview, persisted to the message row. */
   text: string;
+  /** Full interactive content (quick replies / buttons). Falls back to `text` when absent. */
+  content?: MessageContent;
   sentByRuleId?: string;
   idempotencyKey?: string;
 }
@@ -75,11 +80,7 @@ export interface OutgoingMessageJob {
   contactId: string;
   /** Platform-native recipient ID */
   recipientPlatformId: string;
-  content: {
-    text?: string;
-    attachments?: Array<{ type: string; url: string }>;
-    quick_replies?: Array<{ title: string; payload: string }>;
-  };
+  content: MessageContent;
   sentByRuleId?: string;
   sentByUserId?: string;
   /** Unique key to prevent duplicate sends on retry. Generated at enqueue time. */

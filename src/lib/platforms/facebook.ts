@@ -165,14 +165,14 @@ export class FacebookProvider extends SocialProvider {
   override async sendPrivateReply(
     tokens: TokenData,
     commentId: string,
-    message: string
+    content: MessageContent
   ): Promise<void> {
     const res = await fetch(`${GRAPH_API}/me/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         recipient: { comment_id: commentId },
-        message: { text: message },
+        message: buildMessageObject(content, { allowQuickReplyImages: true }),
         access_token: tokens.access_token,
       }),
       redirect: "error",
