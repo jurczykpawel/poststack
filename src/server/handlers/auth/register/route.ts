@@ -13,7 +13,12 @@ import { verifyCaptcha } from "@/lib/captcha/verify";
 const schema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  name: z.string().min(1).max(100).optional(),
+  // The register form posts via htmx json-enc, which always sends every field —
+  // so a blank name arrives as "". Treat empty/whitespace as absent.
+  name: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).max(100).optional(),
+  ),
   captchaToken: z.string().optional(),
 });
 
