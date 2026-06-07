@@ -68,6 +68,21 @@ afterAll(async () => {
 
 const withCookie = (extra: Record<string, string> = {}) => ({ cookie, ...extra });
 
+describe("register validation errors are human-readable (real Postgres)", () => {
+  it("a too-short password shows the field message, not a generic error", async () => {
+    if (!TEST_DB) return;
+    await db.execute(sql.raw("DELETE FROM rate_limit_counters"));
+    const res = await app.request("/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "shortpw@example.test", password: "short" }),
+    });
+    const body = await res.text();
+    expect(body).toContain("at least 8 characters");
+    expect(body).not.toContain("Invalid request data");
+  });
+});
+
 describe("authenticated dashboard (real Postgres)", () => {
   it("register issues a working session that renders the inbox", async () => {
     if (!TEST_DB) return;

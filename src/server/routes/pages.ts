@@ -80,20 +80,34 @@ pages.post("/login", async (c) => {
   const res = await login.POST(c.req.raw);
   if (res.status === 200) return htmxRedirect(res, "/inbox");
   const body = await res.json().catch(() => ({}));
-  return c.html(html`<p class="error">${raw(escapeText(body?.error?.message ?? "Login failed"))}</p>`);
+  return c.html(html`<p class="error">${raw(escapeText(authErrorMessage(body, "Login failed")))}</p>`);
 });
 
 pages.post("/register", async (c) => {
   const res = await register.POST(c.req.raw);
   if (res.status === 201) return htmxRedirect(res, "/inbox");
   const body = await res.json().catch(() => ({}));
-  return c.html(html`<p class="error">${raw(escapeText(body?.error?.message ?? "Registration failed"))}</p>`);
+  return c.html(html`<p class="error">${raw(escapeText(authErrorMessage(body, "Registration failed")))}</p>`);
 });
 
 pages.post("/logout", async (c) => {
   const res = await logout.POST(c.req.raw);
   return htmxRedirect(res, "/login");
 });
+
+// Prefer zod field errors (e.g. "Password must be at least 8 characters") over
+// the generic top-level "Invalid request data" so the form tells the user what to fix.
+function authErrorMessage(body: unknown, fallback: string): string {
+  const error = (body as { error?: { message?: string; details?: unknown } } | null)?.error;
+  if (!error) return fallback;
+  if (error.details && typeof error.details === "object") {
+    const messages = Object.values(error.details as Record<string, unknown>)
+      .flat()
+      .filter((m): m is string => typeof m === "string");
+    if (messages.length > 0) return messages.join(". ");
+  }
+  return error.message ?? fallback;
+}
 
 function escapeText(s: string): string {
   return s.replace(/[&<>"']/g, (ch) =>
