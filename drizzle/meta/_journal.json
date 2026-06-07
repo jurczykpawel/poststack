@@ -22,6 +22,13 @@
       "when": 1780841233431,
       "tag": "0002_majestic_spacker_dave",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780842370904,
+      "tag": "0003_material_red_hulk",
+      "breakpoints": true
     }
   ]
 }

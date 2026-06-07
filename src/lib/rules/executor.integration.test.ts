@@ -168,6 +168,27 @@ describe("evaluateRules (real Postgres)", () => {
     expect(payload.content.buttons).toEqual(buttons);
   });
 
+  it("routes a follow_gate postback rule to a follow-gate job (not a direct send)", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Gate", trigger_type: "postback", is_active: true, cooldown_seconds: 0,
+      trigger_config: { payload: "CLAIM_LM" },
+      response_type: "follow_gate",
+      response_config: {
+        followed: { text: "Here's your guide!" },
+        not_followed: { text: "Follow first 🙏", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] },
+      },
+    });
+    const fired = await evaluateRules({ ...baseInput, text: null, postbackPayload: "CLAIM_LM" });
+    expect(fired).not.toBeNull();
+    expect(await outgoingJobCount()).toBe(0); // gated — nothing sent directly
+    const fg = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'follow-gate'`);
+    const p = (fg.rows[0] as { payload: { followed: { text: string }; notFollowed: { text: string; buttons: Array<{ payload: string }> } } }).payload;
+    expect(p.followed.text).toBe("Here's your guide!");
+    expect(p.notFollowed.text).toBe("Follow first 🙏");
+    expect(p.notFollowed.buttons[0].payload).toBe("CLAIM_LM");
+  });
+
   it("fires a story_reply rule only when the message is a story reply", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({

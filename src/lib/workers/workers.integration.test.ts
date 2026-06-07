@@ -8,6 +8,7 @@ const provider = {
   sendMessage: vi.fn(async () => ({ platformMessageId: "PMID-1" })),
   sendComment: vi.fn(async () => ({})),
   sendPrivateReply: vi.fn(async () => {}),
+  checkFollowsBusiness: vi.fn(async () => true),
   refreshToken: vi.fn(async (t: unknown) => t),
 };
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
@@ -25,6 +26,7 @@ let w: {
   processOutgoingMessage: typeof import("./outgoing-message-worker").processOutgoingMessage;
   processOutgoingComment: typeof import("./outgoing-comment-worker").processOutgoingComment;
   processOutgoingPrivateReply: typeof import("./outgoing-private-reply-worker").processOutgoingPrivateReply;
+  processFollowGate: typeof import("./follow-gate-worker").processFollowGate;
   processSequenceStep: typeof import("./sequence-step-worker").processSequenceStep;
   processTokenRefresh: typeof import("./token-refresh-worker").processTokenRefresh;
 };
@@ -60,6 +62,7 @@ beforeAll(async () => {
     processOutgoingMessage: (await import("./outgoing-message-worker")).processOutgoingMessage,
     processOutgoingComment: (await import("./outgoing-comment-worker")).processOutgoingComment,
     processOutgoingPrivateReply: (await import("./outgoing-private-reply-worker")).processOutgoingPrivateReply,
+    processFollowGate: (await import("./follow-gate-worker")).processFollowGate,
     processSequenceStep: (await import("./sequence-step-worker")).processSequenceStep,
     processTokenRefresh: (await import("./token-refresh-worker")).processTokenRefresh,
   };
@@ -306,5 +309,66 @@ describe("token-refresh worker", () => {
     await w.processTokenRefresh({ channelId: CH } as never, helpers);
     expect(provider.refreshToken).toHaveBeenCalled();
     expect(health.markChannelHealthy).toHaveBeenCalledWith(CH);
+  });
+});
+
+describe("follow-gate worker", () => {
+  const fgJob = (over: Record<string, unknown> = {}) => ({
+    channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID,
+    followed: { text: "Here is your guide", buttons: [{ title: "Open", url: "https://x" }] },
+    notFollowed: { text: "Please follow first, then tap again", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] },
+    sentByRuleId: undefined, idempotencyKey: "idem-fg",
+    ...over,
+  });
+
+  async function lastOutgoingContent() {
+    const r = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
+    return (r.rows[0] as { payload: { content: { text: string; buttons?: Array<{ payload?: string }> } } }).payload.content;
+  }
+
+  it("delivers the followed content when the user follows", async () => {
+    if (!TEST_DB) return;
+    provider.checkFollowsBusiness.mockResolvedValueOnce(true);
+    await w.processFollowGate(fgJob() as never, helpers);
+    expect(provider.checkFollowsBusiness).toHaveBeenCalledWith({ access_token: "x" }, PSID);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect((await lastOutgoingContent()).text).toBe("Here is your guide");
+  });
+
+  it("re-prompts (with the claim button) when the user does not follow", async () => {
+    if (!TEST_DB) return;
+    provider.checkFollowsBusiness.mockResolvedValueOnce(false);
+    await w.processFollowGate(fgJob() as never, helpers);
+    const content = await lastOutgoingContent();
+    expect(content.text).toBe("Please follow first, then tap again");
+    expect(content.buttons?.[0].payload).toBe("CLAIM_LM");
+  });
+
+  it("leaves the gate open (delivers) when the platform has no follow graph", async () => {
+    if (!TEST_DB) return;
+    const orig = provider.checkFollowsBusiness;
+    (provider as { checkFollowsBusiness?: unknown }).checkFollowsBusiness = undefined;
+    try {
+      await w.processFollowGate(fgJob() as never, helpers);
+    } finally {
+      (provider as { checkFollowsBusiness?: unknown }).checkFollowsBusiness = orig;
+    }
+    expect((await lastOutgoingContent()).text).toBe("Here is your guide");
+  });
+
+  it("skips when the channel needs re-auth (cannot check follow status)", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processFollowGate(fgJob() as never, helpers);
+    expect(provider.checkFollowsBusiness).not.toHaveBeenCalled();
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
+  it("flags needs_reauth when the follow check hits an invalid token", async () => {
+    if (!TEST_DB) return;
+    provider.checkFollowsBusiness.mockRejectedValueOnce(new TokenInvalidError("dead"));
+    await w.processFollowGate(fgJob() as never, helpers);
+    expect(health.markChannelNeedsReauth).toHaveBeenCalled();
+    expect(await jobCount("outgoing-message")).toBe(0);
   });
 });

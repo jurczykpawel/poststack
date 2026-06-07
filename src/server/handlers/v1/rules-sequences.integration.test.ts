@@ -261,6 +261,36 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     }));
     expect(res.status).toBe(422);
   });
+
+  it("creates a follow_gate postback rule with followed + not_followed branches", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "FollowGate",
+      trigger_type: "postback",
+      trigger_config: { payload: "CLAIM_LM" },
+      response_type: "follow_gate",
+      response_config: {
+        followed: { text: "Here's your guide: https://x/guide" },
+        not_followed: { text: "Please follow first 🙏", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] },
+      },
+    }));
+    expect(res.status).toBe(201);
+    const data = (await res.json()).data;
+    expect(data.response_type).toBe("follow_gate");
+    expect(data.response_config.not_followed.buttons[0].payload).toBe("CLAIM_LM");
+  });
+
+  it("rejects a follow_gate rule missing the not_followed branch (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "GateBad",
+      trigger_type: "postback",
+      trigger_config: { payload: "CLAIM_LM" },
+      response_type: "follow_gate",
+      response_config: { followed: { text: "guide" } },
+    }));
+    expect(res.status).toBe(422);
+  });
 });
 
 describe("sequences CRUD + enroll (real Postgres)", () => {

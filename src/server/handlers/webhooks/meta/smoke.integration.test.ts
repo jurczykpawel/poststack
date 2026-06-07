@@ -15,6 +15,8 @@ let POST: typeof import("./route").POST;
 let processIncomingMessage: typeof import("@/lib/workers/incoming-message-worker").processIncomingMessage;
 let processIncomingComment: typeof import("@/lib/workers/incoming-comment-worker").processIncomingComment;
 let processOutgoingPrivateReply: typeof import("@/lib/workers/outgoing-private-reply-worker").processOutgoingPrivateReply;
+let processFollowGate: typeof import("@/lib/workers/follow-gate-worker").processFollowGate;
+let processOutgoingMessage: typeof import("@/lib/workers/outgoing-message-worker").processOutgoingMessage;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-000000000001";
@@ -42,6 +44,8 @@ beforeAll(async () => {
   ({ processIncomingMessage } = await import("@/lib/workers/incoming-message-worker"));
   ({ processIncomingComment } = await import("@/lib/workers/incoming-comment-worker"));
   ({ processOutgoingPrivateReply } = await import("@/lib/workers/outgoing-private-reply-worker"));
+  ({ processFollowGate } = await import("@/lib/workers/follow-gate-worker"));
+  ({ processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -413,5 +417,97 @@ describe("smoke E2E: webhook → worker → auto-reply (real Postgres)", () => {
     });
     const res = await POST(bad);
     expect(res.status).toBe(403);
+  });
+});
+
+describe("follow-gate E2E: postback → follow check → gated reply (real Postgres)", () => {
+  const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fe";
+  const IG_PAGE = "IG_PAGE_FG";
+  const IGSID = "IGSID_FG";
+
+  // Drives a tap on the claim button through the full pipeline up to (but not
+  // running) the follow-gate job, which the test then runs with a mocked
+  // follow status. Returns nothing — jobs are queued in Postgres.
+  async function tapClaimButton() {
+    await db.insert(channels).values({
+      id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: IG_PAGE,
+      token_encrypted: encryptTokens({ access_token: "ig-tok" }), webhook_secret: "wh", status: "active",
+    });
+    await db.insert(autoReplyRules).values({
+      workspace_id: WS, channel_id: null, name: "Follow gate", is_active: true,
+      trigger_type: "postback", trigger_config: { payload: "CLAIM_LM" },
+      response_type: "follow_gate",
+      response_config: {
+        followed: { text: "Here is your guide: https://example.com/guide" },
+        not_followed: { text: "Please follow us first, then tap again 🙏", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] },
+      },
+    });
+
+    const res = await POST(signed({
+      object: "instagram",
+      entry: [{
+        id: IG_PAGE,
+        messaging: [{
+          sender: { id: IGSID }, recipient: { id: IG_PAGE }, timestamp: 1_770_000_111_000,
+          postback: { payload: "CLAIM_LM", title: "Chcę odebrać" },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+
+    await runOnce({
+      connectionString: TEST_DB,
+      taskList: { "incoming-message": async (p, h) => processIncomingMessage(p as Parameters<typeof processIncomingMessage>[0], h) },
+    });
+    const fg = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'follow-gate'");
+    expect(fg.rows[0].n).toBe(1);
+  }
+
+  // Runs the follow-gate worker (live follow check) then the outgoing-message
+  // worker, with the Graph API mocked. Returns the captured /me/messages send.
+  async function drainWithFollowStatus(isFollowing: boolean) {
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("is_user_follow_business")) return Response.json({ is_user_follow_business: isFollowing });
+      calls.push({ url, body: JSON.parse(init!.body as string) });
+      return Response.json({ recipient_id: IGSID, message_id: "m_fg" });
+    }) as typeof fetch;
+    try {
+      await runOnce({
+        connectionString: TEST_DB,
+        taskList: { "follow-gate": async (p, h) => processFollowGate(p as Parameters<typeof processFollowGate>[0], h) },
+      });
+      await runOnce({
+        connectionString: TEST_DB,
+        taskList: { "outgoing-message": async (p, h) => processOutgoingMessage(p as Parameters<typeof processOutgoingMessage>[0], h) },
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    return calls.find((c) => c.url.includes("/me/messages"));
+  }
+
+  it("re-prompts with the claim button when the user does not follow yet", async () => {
+    if (!TEST_DB) return;
+    await tapClaimButton();
+    const send = await drainWithFollowStatus(false);
+    expect(send).toBeDefined();
+    const msg = send!.body.message as { attachment: { payload: { text: string; buttons: unknown[] } } };
+    expect(msg.attachment.payload.text).toBe("Please follow us first, then tap again 🙏");
+    expect(msg.attachment.payload.buttons).toEqual([
+      { type: "postback", title: "Chcę odebrać", payload: "CLAIM_LM" },
+    ]);
+  });
+
+  it("delivers the guide once the user follows", async () => {
+    if (!TEST_DB) return;
+    await tapClaimButton();
+    const send = await drainWithFollowStatus(true);
+    expect(send).toBeDefined();
+    const msg = send!.body.message as { text?: string; attachment?: unknown };
+    expect(msg.text).toBe("Here is your guide: https://example.com/guide");
+    expect(msg.attachment).toBeUndefined();
   });
 });

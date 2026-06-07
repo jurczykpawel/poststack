@@ -759,6 +759,42 @@ describe("Meta Graph API Contract Tests", () => {
     });
   });
 
+  // ─── Follow check (follow-gate) ───────────────────────────────────────
+
+  describe("checkFollowsBusiness (Instagram)", () => {
+    it("requests is_user_follow_business for the user and returns true when set", async () => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ url: String(input), init });
+        return Response.json({ is_user_follow_business: true });
+      }) as typeof fetch;
+
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      const follows = await ig.checkFollowsBusiness!({ access_token: "page-tok" }, "IGSID_42");
+
+      const call = fetchCalls.find((c) => c.url.includes("IGSID_42"));
+      expect(call!.url).toContain("fields=is_user_follow_business");
+      expect(call!.url).toContain("access_token=page-tok");
+      expect(follows).toBe(true);
+    });
+
+    it("returns false when is_user_follow_business is false or absent", async () => {
+      globalThis.fetch = vi.fn(async () => Response.json({ is_user_follow_business: false })) as typeof fetch;
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      expect(await ig.checkFollowsBusiness!({ access_token: "tok" }, "IGSID_1")).toBe(false);
+
+      globalThis.fetch = vi.fn(async () => Response.json({ name: "Jane" })) as typeof fetch;
+      expect(await ig.checkFollowsBusiness!({ access_token: "tok" }, "IGSID_2")).toBe(false);
+    });
+
+    it("Facebook does not implement a follow check (gate stays open)", async () => {
+      const { FacebookProvider } = await import("./facebook");
+      const fb = new FacebookProvider();
+      expect(fb.checkFollowsBusiness).toBeUndefined();
+    });
+  });
+
   // ─── Webhook Subscription ────────────────────────────────────────────
 
   describe("subscribePageWebhooks", () => {

@@ -101,6 +101,24 @@ export interface DrainChannelJob {
   channelId: string;
 }
 
+/**
+ * Follow-gate: on a tap, re-check whether the user follows the business and
+ * send the gated content accordingly (the lead magnet when they follow, a
+ * re-prompt otherwise). Stateless — each tap re-checks live.
+ */
+export interface FollowGateJob {
+  channelId: string;
+  conversationId: string;
+  contactId: string;
+  recipientPlatformId: string;
+  /** Sent when the user follows the business (e.g. the resource link). */
+  followed: MessageContent;
+  /** Sent when the user does not follow yet (re-prompt + claim button). */
+  notFollowed: MessageContent;
+  sentByRuleId?: string;
+  idempotencyKey?: string;
+}
+
 /** graphile-worker task identifiers → their payload type. */
 export type TaskPayloadMap = {
   "incoming-message": IncomingMessageJob;
@@ -109,6 +127,7 @@ export type TaskPayloadMap = {
   "outgoing-message": OutgoingMessageJob;
   "outgoing-comment": OutgoingCommentJob;
   "outgoing-private-reply": OutgoingPrivateReplyJob;
+  "follow-gate": FollowGateJob;
   "token-refresh": TokenRefreshJob;
   "sequence-step": SequenceStepJob;
   "drain-channel": DrainChannelJob;

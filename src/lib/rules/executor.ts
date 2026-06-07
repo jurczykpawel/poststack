@@ -129,8 +129,31 @@ interface FireResponseInput {
   commentId?: string;
 }
 
+/** Build outbound content from a follow-gate branch config ({ text, quick_replies?, buttons? }). */
+function gatedContent(branch: unknown) {
+  const cfg = (branch ?? {}) as Record<string, unknown>;
+  return { text: cfg.text as string | undefined, ...buildInteractiveContent(cfg) };
+}
+
 async function fireResponse(input: FireResponseInput): Promise<void> {
   const { rule, channelId, conversationId, contactId, recipientPlatformId, commentId } = input;
+
+  // Follow-gate: defer to a worker that re-checks follow status live, then
+  // sends the lead magnet or a re-prompt. Stateless — driven by each tap.
+  if (rule.response_type === "follow_gate") {
+    await addJob("follow-gate", {
+      channelId,
+      conversationId,
+      contactId,
+      recipientPlatformId,
+      followed: gatedContent(rule.response_config.followed),
+      notFollowed: gatedContent(rule.response_config.not_followed),
+      sentByRuleId: rule.id,
+      idempotencyKey: randomUUID(),
+    });
+    return;
+  }
+
   const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
 
   // Resolve the text to send: pick one base (single or random from a pool),

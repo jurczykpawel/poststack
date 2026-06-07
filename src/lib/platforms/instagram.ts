@@ -238,6 +238,28 @@ export class InstagramProvider extends SocialProvider {
     await assertMetaOk(res, "Instagram private reply");
   }
 
+  /**
+   * Whether the user follows the connected IG business account, via the
+   * `is_user_follow_business` field on the user profile (IG Messaging API).
+   * Drives the follow-gate.
+   *
+   * NOTE: the exact field/permission must be confirmed against a live IG
+   * Business account before relying on it in production (see FG1).
+   */
+  override async checkFollowsBusiness(tokens: TokenData, userId: string): Promise<boolean> {
+    const res = await fetch(
+      `${GRAPH_API}/${userId}?` +
+        new URLSearchParams({
+          fields: "is_user_follow_business",
+          access_token: tokens.access_token,
+        }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    await assertMetaOk(res, "Instagram follow check");
+    const data = (await res.json()) as { is_user_follow_business?: boolean };
+    return data.is_user_follow_business === true;
+  }
+
   requiresTokenRefresh(): boolean {
     return true; // Instagram long-lived tokens expire in 60 days
   }

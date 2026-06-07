@@ -127,6 +127,14 @@ export abstract class SocialProvider {
   ): Promise<void>;
 
   /**
+   * Whether a user follows the connected business account.
+   * Used by the follow-gate. Optional — only platforms with a follow graph
+   * implement it (Instagram). Platforms without one leave the gate open.
+   * @param userId - Platform-native id of the user (PSID / IG-scoped id)
+   */
+  checkFollowsBusiness?(tokens: TokenData, userId: string): Promise<boolean>;
+
+  /**
    * Whether tokens from this provider need periodic refresh.
    * Facebook page tokens are permanent; Instagram tokens expire in 60 days.
    */

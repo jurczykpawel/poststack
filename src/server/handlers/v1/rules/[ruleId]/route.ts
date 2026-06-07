@@ -49,7 +49,7 @@ const patchSchema = z.object({
     .enum(["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention", "reaction"])
     .optional(),
   trigger_config: z.record(z.string(), z.unknown()).optional(),
-  response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]).optional(),
+  response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none", "follow_gate"]).optional(),
   response_config: z.record(z.string(), z.unknown()).optional(),
   cooldown_seconds: z.number().int().min(0).optional(),
 });

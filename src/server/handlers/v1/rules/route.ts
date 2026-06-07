@@ -49,6 +49,15 @@ const buttonSchema = z
     message: "button must have exactly one of url or payload",
   });
 
+// One branch of a follow-gate response (text + optional interactive add-ons).
+const gatedMessageSchema = z
+  .object({
+    text: z.string().min(1).max(2000),
+    quick_replies: z.array(quickReplySchema).max(13).optional(),
+    buttons: z.array(buttonSchema).min(1).max(3).optional(),
+  })
+  .strict();
+
 const responseConfigSchema = z
   .object({
     text: z.string().min(1).max(2000).optional(),            // text / ai_rephrase base
@@ -60,6 +69,8 @@ const responseConfigSchema = z
     comment_reply_text: z.string().min(1).max(2000).optional(),
     quick_replies: z.array(quickReplySchema).max(13).optional(),
     buttons: z.array(buttonSchema).min(1).max(3).optional(),
+    followed: gatedMessageSchema.optional(),      // follow_gate: sent when the user follows
+    not_followed: gatedMessageSchema.optional(),  // follow_gate: sent when they do not (re-prompt)
   })
   .strict();
 
@@ -79,7 +90,7 @@ const createRuleSchema = z
       "reaction",
     ]),
     trigger_config: triggerConfigSchema,
-    response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none"]),
+    response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none", "follow_gate"]),
     response_config: responseConfigSchema,
     cooldown_seconds: z.number().int().min(0).default(0),
   })
@@ -102,6 +113,9 @@ const createRuleSchema = z
     }
     if (data.response_type === "random_text" && (r.messages?.length ?? 0) === 0) {
       ctx.addIssue({ code: "custom", path: ["response_config", "messages"], message: "random_text requires messages" });
+    }
+    if (data.response_type === "follow_gate" && (!r.followed || !r.not_followed)) {
+      ctx.addIssue({ code: "custom", path: ["response_config"], message: "follow_gate requires followed and not_followed messages" });
     }
   });
 
