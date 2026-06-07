@@ -129,6 +129,25 @@ describe("upsertChannels (real Postgres)", () => {
     }
   });
 
+  it("serializes concurrent connects of the same account so only one workspace wins", async () => {
+    if (!TEST_DB) return;
+    const WS2 = "eeeeeeee-0000-0000-0000-0000000000c4";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    await db.insert(s.workspaces).values({ id: WS2, name: "P", slug: `p-${WS2}` });
+    try {
+      const PAGE_X = "RACE_PAGE";
+      const a = upsertChannels(WS, "facebook", [{ platformId: PAGE_X, displayName: "A", tokens: { access_token: "a" } }]);
+      const b = upsertChannels(WS2, "facebook", [{ platformId: PAGE_X, displayName: "B", tokens: { access_token: "b" } }]);
+      const results = await Promise.allSettled([a, b]);
+      expect(results.filter((r) => r.status === "fulfilled").length).toBe(1);
+      expect(results.filter((r) => r.status === "rejected").length).toBe(1);
+      const rows = await db.select().from(s.channels).where(eq(s.channels.platform_id, PAGE_X));
+      expect(rows.length).toBe(1); // never two owners
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    }
+  });
+
   it("refuses to connect a channel already owned by another workspace", async () => {
     if (!TEST_DB) return;
     const WS2 = "eeeeeeee-0000-0000-0000-0000000000c2";

@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { z } from "zod";
-import { eq, count } from "drizzle-orm";
+import { eq, count, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users, workspaces, workspaceMembers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
@@ -53,31 +53,42 @@ export async function POST(request: Request) {
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  // Registration is closed by default. The first user (empty instance) may always
-  // register to bootstrap the admin; after that REGISTRATION_ENABLED must be "true".
-  if (process.env.REGISTRATION_ENABLED !== "true") {
-    const [{ n }] = await db.select({ n: count() }).from(users);
-    if (n > 0) return ApiErrors.forbidden("Registration is disabled");
-  }
-
-  // Hash up-front so the response time does not reveal whether the email exists.
+  // Hash up-front (outside the lock) so the response time does not reveal whether
+  // the email exists, and so the expensive hash never runs while holding the lock.
   const passwordHash = await hashPassword(password);
-
-  const existing = await db.query.users.findFirst({
-    where: eq(users.email, normalizedEmail),
-    columns: { id: true },
-  });
-  if (existing) {
-    return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
-  }
 
   const slug =
     normalizedEmail.split("@")[0].replace(/[^a-z0-9]/g, "-") + "-" + randomBytes(4).toString("hex");
 
-  let user: { id: string; email: string; name: string | null };
-  let workspaceId: string;
+  // The closed-by-default gate and the bootstrap insert must be atomic: two
+  // simultaneous first-account registrations on an empty instance must not both
+  // see "0 accounts" and each create an owner. A transaction-scoped advisory lock
+  // serializes them; the lock releases on commit, so the count check and insert
+  // below act as one critical section.
+  type Outcome =
+    | { kind: "disabled" }
+    | { kind: "conflict" }
+    | { kind: "ok"; user: { id: string; email: string; name: string | null }; workspaceId: string };
+
+  let outcome: Outcome;
   try {
-    const result = await db.transaction(async (tx) => {
+    outcome = await db.transaction(async (tx): Promise<Outcome> => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('replystack:registration'))`);
+
+      // Registration is closed by default. The first user (empty instance) may
+      // always register to bootstrap the admin; after that REGISTRATION_ENABLED
+      // must be "true".
+      if (process.env.REGISTRATION_ENABLED !== "true") {
+        const [{ n }] = await tx.select({ n: count() }).from(users);
+        if (n > 0) return { kind: "disabled" };
+      }
+
+      const existing = await tx.query.users.findFirst({
+        where: eq(users.email, normalizedEmail),
+        columns: { id: true },
+      });
+      if (existing) return { kind: "conflict" };
+
       const [ws] = await tx
         .insert(workspaces)
         .values({ name: name ? `${name}'s workspace` : "My workspace", slug })
@@ -87,16 +98,21 @@ export async function POST(request: Request) {
         .values({ email: normalizedEmail, password_hash: passwordHash, name: name ?? normalizedEmail.split("@")[0] })
         .returning({ id: users.id, email: users.email, name: users.name });
       await tx.insert(workspaceMembers).values({ workspace_id: ws.id, user_id: u.id, role: "owner" });
-      return { u, wsId: ws.id };
+      return { kind: "ok", user: u, workspaceId: ws.id };
     });
-    user = result.u;
-    workspaceId = result.wsId;
   } catch (err) {
     if (isUniqueViolation(err)) {
       return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
     }
     throw err;
   }
+
+  if (outcome.kind === "disabled") return ApiErrors.forbidden("Registration is disabled");
+  if (outcome.kind === "conflict") {
+    return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
+  }
+
+  const { user, workspaceId } = outcome;
 
   const token = await signSession(user.id, workspaceId);
 

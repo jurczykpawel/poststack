@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { autoReplyRules } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
+import { createRuleSchema } from "../route";
 
 export const runtime = "nodejs";
 
@@ -66,7 +67,18 @@ export async function PATCH(
   const { ruleId } = await params;
   const existing = await db.query.autoReplyRules.findFirst({
     where: and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)),
-    columns: { id: true, trigger_type: true, response_type: true, response_config: true, requires_approval: true },
+    columns: {
+      id: true,
+      name: true,
+      channel_id: true,
+      priority: true,
+      trigger_type: true,
+      trigger_config: true,
+      response_type: true,
+      response_config: true,
+      cooldown_seconds: true,
+      requires_approval: true,
+    },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -76,23 +88,25 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
-  // Approval gate parks a single DM, so enforce the same restriction the create
-  // path does — on the EFFECTIVE (merged) rule, so a PATCH can't slip past it.
-  const patchedConfig = parsed.data.response_config as Record<string, unknown> | undefined;
-  const effRequiresApproval = parsed.data.requires_approval ?? existing.requires_approval;
-  const effResponseType = parsed.data.response_type ?? existing.response_type;
-  const effTriggerType = parsed.data.trigger_type ?? existing.trigger_type;
-  const effReplyMode = (patchedConfig ?? (existing.response_config as Record<string, unknown>))?.reply_mode as string | undefined;
-  if (effRequiresApproval) {
-    if (!["text", "random_text", "ai_rephrase"].includes(effResponseType)) {
-      return ApiErrors.validationError({ requires_approval: ["requires_approval is only supported for text, random_text or ai_rephrase responses"] });
-    }
-    if (effTriggerType === "comment_keyword") {
-      return ApiErrors.validationError({ requires_approval: ["requires_approval is not supported for comment triggers"] });
-    }
-    if (effReplyMode && effReplyMode !== "dm") {
-      return ApiErrors.validationError({ reply_mode: ["requires_approval only supports reply_mode dm"] });
-    }
+  // PATCH replaces whole columns (no deep merge), so validate the EFFECTIVE rule —
+  // existing values with the patch laid over them — against the same schema the
+  // create path uses. This catches a PATCH that would leave the rule incomplete
+  // (e.g. emptying response_config of a text rule, or switching trigger_type to one
+  // whose required config is now missing) instead of silently persisting it.
+  const merged = {
+    name: parsed.data.name ?? existing.name,
+    channel_id: existing.channel_id,
+    priority: parsed.data.priority ?? existing.priority,
+    trigger_type: parsed.data.trigger_type ?? existing.trigger_type,
+    trigger_config: parsed.data.trigger_config ?? existing.trigger_config,
+    response_type: parsed.data.response_type ?? existing.response_type,
+    response_config: parsed.data.response_config ?? existing.response_config,
+    cooldown_seconds: parsed.data.cooldown_seconds ?? existing.cooldown_seconds,
+    requires_approval: parsed.data.requires_approval ?? existing.requires_approval,
+  };
+  const validated = createRuleSchema.safeParse(merged);
+  if (!validated.success) {
+    return ApiErrors.validationError(validated.error.flatten().fieldErrors);
   }
 
   const [updated] = await db

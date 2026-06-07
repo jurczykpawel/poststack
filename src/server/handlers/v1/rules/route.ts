@@ -74,7 +74,7 @@ const responseConfigSchema = z
   })
   .strict();
 
-const createRuleSchema = z
+export const createRuleSchema = z
   .object({
     name: z.string().min(1).max(100),
     channel_id: z.string().uuid().optional().nullable(),

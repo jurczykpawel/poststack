@@ -354,6 +354,36 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     expect((await res.json()).data.name).toBe("Renamed");
   });
 
+  it("PATCH cannot empty the response_config so the rule no longer has a reply", async () => {
+    if (!TEST_DB) return;
+    const created = await rules.POST(post({
+      name: "Gated4", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" }, requires_approval: true,
+    }));
+    expect(created.status).toBe(201);
+    const id = (await created.json()).data.id;
+    // Wiping response_config leaves a text rule with no text — the merged rule is
+    // invalid and must be refused, not silently persisted as an empty response.
+    const res = await rule.PATCH(post({ response_config: {} }), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH cannot switch trigger_type to one whose required config is missing", async () => {
+    if (!TEST_DB) return;
+    const created = await rules.POST(post({
+      name: "ToPostback", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" },
+    }));
+    expect(created.status).toBe(201);
+    const id = (await created.json()).data.id;
+    // postback triggers require a payload; the existing keyword config has none,
+    // so the merged rule is invalid.
+    const res = await rule.PATCH(post({ trigger_type: "postback" }), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(422);
+  });
+
   it("exposes requires_approval in the rule list", async () => {
     if (!TEST_DB) return;
     await rules.POST(post({
