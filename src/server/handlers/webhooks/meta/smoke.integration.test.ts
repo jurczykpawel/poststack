@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations, runOnce } from "graphile-worker";
@@ -14,6 +14,7 @@ let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let POST: typeof import("./route").POST;
 let processIncomingMessage: typeof import("@/lib/workers/incoming-message-worker").processIncomingMessage;
 let processIncomingComment: typeof import("@/lib/workers/incoming-comment-worker").processIncomingComment;
+let processOutgoingPrivateReply: typeof import("@/lib/workers/outgoing-private-reply-worker").processOutgoingPrivateReply;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-000000000001";
@@ -40,6 +41,7 @@ beforeAll(async () => {
   ({ POST } = await import("./route"));
   ({ processIncomingMessage } = await import("@/lib/workers/incoming-message-worker"));
   ({ processIncomingComment } = await import("@/lib/workers/incoming-comment-worker"));
+  ({ processOutgoingPrivateReply } = await import("@/lib/workers/outgoing-private-reply-worker"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -314,6 +316,68 @@ describe("smoke E2E: webhook → worker → auto-reply (real Postgres)", () => {
     const priv = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-private-reply'");
     expect(pub.rows[0].n).toBe(1);
     expect(priv.rows[0].n).toBe(1);
+  });
+
+  it("comment → first-touch private reply DM carries a button template to the Graph API", async () => {
+    if (!TEST_DB) return;
+    await db.insert(autoReplyRules).values({
+      workspace_id: WS, channel_id: null, name: "Button DM", is_active: true,
+      trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }], post_id: "POST_BTN" },
+      response_type: "text",
+      response_config: {
+        text: "Tap to claim your guide:",
+        reply_mode: "dm",
+        buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }],
+      },
+    });
+
+    // 1. Comment webhook → 200 + incoming-comment enqueued.
+    const res = await POST(signed({
+      object: "page",
+      entry: [{
+        id: PAGE,
+        changes: [{
+          field: "feed",
+          value: { item: "comment", verb: "add", comment_id: "CMT_BTN", post_id: "POST_BTN", message: "send info", from: { id: "FAN_BTN", name: "Fan" } },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+
+    // 2. Incoming-comment worker → enqueues outgoing-private-reply with button content.
+    await runOnce({
+      connectionString: TEST_DB,
+      taskList: { "incoming-comment": async (p, h) => processIncomingComment(p as Parameters<typeof processIncomingComment>[0], h) },
+    });
+
+    // 3. Outgoing-private-reply worker → real provider.sendPrivateReply; mock the Graph API boundary.
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: JSON.parse(init!.body as string) });
+      return Response.json({ recipient_id: "FAN_BTN", message_id: "m_btn_1" });
+    }) as typeof fetch;
+
+    try {
+      await runOnce({
+        connectionString: TEST_DB,
+        taskList: { "outgoing-private-reply": async (p, h) => processOutgoingPrivateReply(p as Parameters<typeof processOutgoingPrivateReply>[0], h) },
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    // 4. Exactly one Graph API send, addressed by comment_id, carrying the button template.
+    const send = calls.find((c) => c.url.includes("/me/messages"));
+    expect(send).toBeDefined();
+    const body = send!.body as { recipient: { comment_id: string }; message: { attachment: { payload: { template_type: string; text: string; buttons: unknown[] } } } };
+    expect(body.recipient).toEqual({ comment_id: "CMT_BTN" });
+    expect(body.message.attachment.payload.template_type).toBe("button");
+    expect(body.message.attachment.payload.text).toBe("Tap to claim your guide:");
+    expect(body.message.attachment.payload.buttons).toEqual([
+      { type: "postback", title: "Chcę odebrać", payload: "CLAIM_LM" },
+    ]);
   });
 
   it("does not fire a post-scoped rule for a comment on a different post", async () => {
