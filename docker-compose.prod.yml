@@ -13,6 +13,13 @@ services:
   web:
     image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}:${IMAGE_TAG:-latest}
     env_file: .env
+    environment:
+      # web sits behind the bundled nginx, which sets X-Real-IP to the real client,
+      # so trust forwarding headers for per-IP rate limiting. Override in .env
+      # (e.g. TRUSTED_PROXY=cloudflare) if you front it differently.
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-proxy}
+      # Self-registration stays closed after the first account; set true to open it.
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
