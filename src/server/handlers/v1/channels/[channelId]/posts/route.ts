@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
@@ -27,7 +27,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ channelId: string }> }
 ) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;

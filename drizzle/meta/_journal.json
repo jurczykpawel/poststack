@@ -36,6 +36,13 @@
       "when": 1780851755015,
       "tag": "0004_hot_norrin_radd",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780865640572,
+      "tag": "0005_wet_red_hulk",
+      "breakpoints": true
     }
   ]
 }

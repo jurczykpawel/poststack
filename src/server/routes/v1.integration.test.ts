@@ -188,4 +188,16 @@ describe("api-key management is session-only + scope catalog (real Postgres)", (
     const res = await app.request("/api/v1/tags", { headers: { authorization: `Bearer ${TAGS_KEY}` } });
     expect(res.status).toBe(200);
   });
+
+  it("a sequences:read-scoped key can list sequences (GET /sequences requires :read, not :write)", async () => {
+    if (!TEST_DB) return;
+    const SEQ_KEY = "rs_live_seqread_key_0123456789abcd";
+    await db.insert(apiKeys).values({
+      workspace_id: WS_A, name: "sequence reader",
+      key_hash: createHash("sha256").update(SEQ_KEY).digest("hex"),
+      key_prefix: "rs_live_seq", scopes: ["sequences:read"],
+    });
+    const res = await app.request("/api/v1/sequences", { headers: { authorization: `Bearer ${SEQ_KEY}` } });
+    expect(res.status).toBe(200);
+  });
 });

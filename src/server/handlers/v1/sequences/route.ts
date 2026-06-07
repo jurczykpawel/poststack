@@ -26,7 +26,7 @@ const createSchema = z.object({
 
 // GET /api/v1/sequences
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "sequences:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const rows = await db.query.sequences.findMany({

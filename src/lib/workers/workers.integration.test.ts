@@ -110,6 +110,18 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(msgs[0].direction).toBe("inbound");
   });
 
+  it("deduplicates per conversation, not globally — the same id in two conversations is stored once each", async () => {
+    if (!TEST_DB) return;
+    // Two different senders on the same page resolve to two different
+    // conversations. A message id only deduplicates within its own conversation,
+    // so a shared id must not let one conversation suppress another's message.
+    const SHARED = "shared-message-id";
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "SENDER-A", recipientId: PAGE, mid: SHARED, text: "a", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "SENDER-B", recipientId: PAGE, mid: SHARED, text: "b", timestamp: ts(), raw: {} } as never, helpers);
+    const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, SHARED));
+    expect(msgs.length).toBe(2);
+  });
+
   it("skips when no channel matches the page", async () => {
     if (!TEST_DB) return;
     await expect(

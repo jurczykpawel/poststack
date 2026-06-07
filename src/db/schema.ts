@@ -259,7 +259,7 @@ export const messages = pgTable("messages", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	index("messages_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast(), table.created_at.asc().nullsLast()),
-	uniqueIndex("messages_platform_message_id_key").using("btree", table.platform_message_id.asc().nullsLast()),
+	uniqueIndex("messages_conversation_id_platform_message_id_key").using("btree", table.conversation_id.asc().nullsLast(), table.platform_message_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.conversation_id],
 			foreignColumns: [conversations.id],

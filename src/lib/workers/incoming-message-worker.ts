@@ -97,9 +97,11 @@ export async function processIncomingMessage(
     })
     .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
 
-  // 4. Insert inbound Message — unique constraint on platform_message_id
-  //    prevents a race (two concurrent workers for the same mid). A no-op
-  //    conflict returns no row → the message was already processed.
+  // 4. Insert inbound Message — unique on (conversation_id, platform_message_id)
+  //    prevents a race (two concurrent workers for the same mid in this
+  //    conversation). Scoping to the conversation keeps the id from one
+  //    conversation from suppressing another's message. A no-op conflict returns
+  //    no row → the message was already processed.
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -110,7 +112,7 @@ export async function processIncomingMessage(
       postback_payload: postbackPayload ?? null,
       platform_message_id: mid,
     })
-    .onConflictDoNothing({ target: messages.platform_message_id })
+    .onConflictDoNothing({ target: [messages.conversation_id, messages.platform_message_id] })
     .returning({ id: messages.id });
 
   if (!inserted) {
@@ -119,7 +121,7 @@ export async function processIncomingMessage(
   }
 
   helpers.logger.info(
-    `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${mid}`
+    `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${sanitizeForLog(mid)}`
   );
 
   // 5. Evaluate auto-reply rules (skip if automation is paused)

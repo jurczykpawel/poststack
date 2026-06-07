@@ -12,8 +12,10 @@ const schema = z.object({
 
 // POST /api/v1/messages/prune — manually delete this workspace's messages
 // older than N days (DATA1). Held/pending messages are never removed.
+// Retention is a settings-domain action (it mirrors the workspace's
+// message_retention_days, which is governed by settings:write).
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const body = await request.json().catch(() => ({}));
