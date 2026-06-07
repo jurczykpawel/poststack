@@ -42,13 +42,23 @@ export async function upsertChannels(
     throw new Error(`Too many accounts (${accounts.length}), max ${MAX_ACCOUNTS_PER_OAUTH}`);
   }
 
-  for (const account of accounts) {
-    const encryptedTokens = encryptTokens(account.tokens);
-    const lockKey = `channel:${platform}:${account.platformId}`;
+  // Acquire the per-account advisory locks in a stable order so two concurrent
+  // multi-account connects can't deadlock taking them in different orders.
+  const ordered = [...accounts].sort((a, b) =>
+    a.platformId < b.platformId ? -1 : a.platformId > b.platformId ? 1 : 0,
+  );
 
-    const result = await db.transaction(async (tx) => {
-      // Serialize concurrent connects for this exact account; the lock releases
-      // on commit, so the ownership check and the insert below are atomic.
+  // One transaction for every account: either all channels are written or none is,
+  // so a later account's rejection rolls back the earlier ones instead of leaving
+  // them half-connected.
+  const results = await db.transaction(async (tx) => {
+    const out: { channelId: string; recovered: boolean }[] = [];
+    for (const account of ordered) {
+      const encryptedTokens = encryptTokens(account.tokens);
+      const lockKey = `channel:${platform}:${account.platformId}`;
+
+      // Serialize concurrent connects for this exact account; the lock releases on
+      // commit, so the ownership check and the insert are one critical section.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
       const existing = await tx.query.channels.findFirst({
@@ -87,13 +97,16 @@ export async function upsertChannels(
         })
         .returning({ id: channels.id });
 
-      // Reconnecting a broken channel recovers it — drain anything parked while
-      // it was down (REL5). Enqueue after commit so a rollback can't leave a job.
-      return { channelId: channel.id, recovered: existing?.status === "needs_reauth" };
-    });
+      out.push({ channelId: channel.id, recovered: existing?.status === "needs_reauth" });
+    }
+    return out;
+  });
 
-    if (result.recovered) {
-      await addJob("drain-channel", { channelId: result.channelId });
+  // Reconnecting a broken channel recovers it — drain anything parked while it was
+  // down (REL5). Enqueue after commit so a rollback can't leave a stray job.
+  for (const r of results) {
+    if (r.recovered) {
+      await addJob("drain-channel", { channelId: r.channelId });
     }
   }
 }

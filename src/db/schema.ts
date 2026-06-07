@@ -91,6 +91,14 @@ export const channels = pgTable("channels", {
 	// page vs a Telegram bot). "One account, one workspace" is enforced in the app
 	// layer (upsertChannels rejects connecting an account owned elsewhere).
 	uniqueIndex("channels_workspace_id_platform_platform_id_key").using("btree", table.workspace_id.asc().nullsLast(), table.platform.asc().nullsLast(), table.platform_id.asc().nullsLast()),
+	// At most one NON-disabled channel per (platform, platform_id) across the whole
+	// instance. Incoming webhook events carry only the account id, so routing resolves
+	// the channel by (platform, platform_id) filtered to non-disabled — this partial
+	// index makes that resolution unambiguous (one live owner per account). Disabled
+	// rows are exempt, so an account released by one workspace can be re-used, and the
+	// migration that adds this index stays safe (it disables any pre-existing duplicate
+	// first, then the index can be created).
+	uniqueIndex("channels_active_platform_platform_id_key").using("btree", table.platform.asc().nullsLast(), table.platform_id.asc().nullsLast()).where(sql`status <> 'disabled'`),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],

@@ -19,7 +19,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { conversationId } = await params;

@@ -26,7 +26,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ channelId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "channels:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;

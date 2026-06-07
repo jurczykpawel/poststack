@@ -56,7 +56,6 @@ export async function POST(request: Request) {
   // Normalize: Meta sends "page" for Facebook pages
   const platform = payload.object === "page" ? "facebook" : payload.object;
 
-  let enqueued = 0;
   let failed = 0;
 
   for (const entry of payload.entry ?? []) {
@@ -91,7 +90,6 @@ export async function POST(request: Request) {
         await addJob("incoming-message", job, {
           jobKey: `msg-${messagingEvent.message.mid}`,
         });
-        enqueued++;
       } catch (err) {
         failed++;
         console.error("[webhook] Failed to enqueue message:", err);
@@ -119,7 +117,6 @@ export async function POST(request: Request) {
         await addJob("incoming-message", job, {
           jobKey: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
         });
-        enqueued++;
       } catch (err) {
         failed++;
         console.error("[webhook] Failed to enqueue postback:", err);
@@ -146,7 +143,6 @@ export async function POST(request: Request) {
         await addJob("incoming-reaction", job, {
           jobKey: `reaction-${messagingEvent.sender.id}-${reaction.mid}-${messagingEvent.timestamp}`,
         });
-        enqueued++;
       } catch (err) {
         failed++;
         console.error("[webhook] Failed to enqueue reaction:", err);
@@ -172,7 +168,6 @@ export async function POST(request: Request) {
 
       try {
         await addJob("incoming-comment", job, { jobKey: `comment-${comment.commentId}` });
-        enqueued++;
       } catch (err) {
         failed++;
         console.error("[webhook] Failed to enqueue comment:", err);
@@ -180,8 +175,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Return 503 if all enqueues failed (Meta will retry)
-  if (failed > 0 && enqueued === 0) {
+  // If ANY event failed to enqueue, signal a retry — Meta re-delivers the whole
+  // batch and the jobs are keyed + idempotent, so re-running the ones that already
+  // succeeded is harmless, whereas dropping the failed ones loses events.
+  if (failed > 0) {
     return new Response("Service Unavailable", { status: 503 });
   }
 

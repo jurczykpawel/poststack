@@ -61,3 +61,13 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # Integration tests run against a real Postgres. Install the graphile-worker
+      # queue schema up front so suites can use it regardless of run order.
+      - name: Bootstrap queue schema
+        run: npx graphile-worker --schema-only -c "$DATABASE_URL"
+
+      - name: Integration tests
+        run: npm run test:integration
+        env:
+          TEST_DATABASE_URL: postgresql://replystack:replystack-ci@localhost:5432/replystack

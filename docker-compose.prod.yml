@@ -14,6 +14,10 @@ services:
     image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}:${IMAGE_TAG:-latest}
     env_file: .env
     environment:
+      # Reach the bundled postgres service by its in-network name, derived from the
+      # same POSTGRES_* vars. This overrides any DATABASE_URL in .env (whose example
+      # points at localhost for running the app directly on the host during dev).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # web sits behind the bundled nginx, which sets X-Real-IP to the real client,
       # so trust forwarding headers for per-IP rate limiting. Override in .env
       # (e.g. TRUSTED_PROXY=cloudflare) if you front it differently.
@@ -33,6 +37,9 @@ services:
   worker:
     image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}-worker:${IMAGE_TAG:-latest}
     env_file: .env
+    environment:
+      # Same in-network DATABASE_URL override as web (see note above).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
       postgres:
         condition: service_healthy

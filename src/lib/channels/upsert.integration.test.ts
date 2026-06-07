@@ -111,19 +111,25 @@ describe("upsertChannels (real Postgres)", () => {
     expect(tg.id).not.toBe(fbBefore!.id);
   });
 
-  it("the DB permits the same (platform, platform_id) across workspaces (unique index is a superset of the old key)", async () => {
+  it("rejects a second ACTIVE channel for the same account across workspaces, but lets a disabled one coexist", async () => {
     if (!TEST_DB) return;
     const WS2 = "eeeeeeee-0000-0000-0000-0000000000c3";
     await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
     await db.insert(s.workspaces).values({ id: WS2, name: "X", slug: `x-${WS2}` });
     try {
-      // Direct inserts (bypassing the app-layer ownership check) must be allowed by
-      // the constraint — this is exactly the data the old schema permitted, so the
-      // unique-index migration can never fail on it.
       await db.insert(s.channels).values({ workspace_id: WS, platform: "facebook", platform_id: "DUP", token_encrypted: "x", webhook_secret: "a" });
-      await db.insert(s.channels).values({ workspace_id: WS2, platform: "facebook", platform_id: "DUP", token_encrypted: "x", webhook_secret: "b" });
+      // A second NON-disabled channel for the same account (even in another
+      // workspace, bypassing the app-layer check) is refused by the partial unique
+      // index — routing must resolve to exactly one live owner per account.
+      await expect(
+        db.insert(s.channels).values({ workspace_id: WS2, platform: "facebook", platform_id: "DUP", token_encrypted: "x", webhook_secret: "b" }),
+      ).rejects.toThrow();
+      // A DISABLED row is exempt, so a released account can be reconnected elsewhere
+      // and the dedup migration (disable-then-index) is safe.
+      await db.insert(s.channels).values({ workspace_id: WS2, platform: "facebook", platform_id: "DUP", token_encrypted: "x", webhook_secret: "c", status: "disabled" });
       const rows = await db.select().from(s.channels).where(eq(s.channels.platform_id, "DUP"));
       expect(rows.length).toBe(2);
+      expect(rows.filter((r) => r.status !== "disabled").length).toBe(1);
     } finally {
       await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
     }
@@ -167,6 +173,31 @@ describe("upsertChannels (real Postgres)", () => {
       expect(after?.display_name).toBe("Owner A");
       const inWs2 = await db.select().from(s.channels).where(and(eq(s.channels.workspace_id, WS2), eq(s.channels.platform_id, PAGE)));
       expect(inWs2.length).toBe(0);
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    }
+  });
+
+  it("connecting several accounts is atomic — a later account's rejection rolls back the earlier ones", async () => {
+    if (!TEST_DB) return;
+    const WS2 = "eeeeeeee-0000-0000-0000-0000000000c5";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    await db.insert(s.workspaces).values({ id: WS2, name: "Owner", slug: `ow-${WS2}` });
+    try {
+      // WS2 already owns "OWNED".
+      await upsertChannels(WS2, "facebook", [{ platformId: "OWNED", displayName: "Owned", tokens: { access_token: "x" } }]);
+      // WS connects a free account AND the owned one in a single call. The owned
+      // account belongs to WS2, so the whole operation must fail without leaving
+      // the free account half-connected.
+      await expect(
+        upsertChannels(WS, "facebook", [
+          { platformId: "FREE-ACCT", displayName: "Free", tokens: { access_token: "f" } },
+          { platformId: "OWNED", displayName: "Hijack", tokens: { access_token: "h" } },
+        ]),
+      ).rejects.toThrow(/another workspace/);
+
+      const free = await db.select().from(s.channels).where(and(eq(s.channels.workspace_id, WS), eq(s.channels.platform_id, "FREE-ACCT")));
+      expect(free.length).toBe(0); // rolled back, not persisted
     } finally {
       await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
     }
