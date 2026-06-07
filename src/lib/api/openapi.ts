@@ -60,7 +60,7 @@ export const openApiSpec = {
         type: "object",
         properties: {
           id: { type: "string", format: "uuid" },
-          platform: { type: "string", enum: ["facebook", "instagram"] },
+          platform: { type: "string", enum: ["facebook", "instagram", "telegram"] },
           display_name: { type: "string", example: "My Business Page" },
           username: { type: "string", nullable: true },
           profile_picture: { type: "string", format: "uri", nullable: true },
@@ -100,7 +100,7 @@ export const openApiSpec = {
         type: "object",
         properties: {
           id: { type: "string", format: "uuid" },
-          platform: { type: "string", enum: ["facebook", "instagram"] },
+          platform: { type: "string", enum: ["facebook", "instagram", "telegram"] },
           status: { type: "string", enum: ["open", "closed", "snoozed"] },
           last_message_at: { type: "string", format: "date-time", nullable: true },
           last_message_preview: { type: "string", nullable: true },
@@ -129,10 +129,10 @@ export const openApiSpec = {
           priority: { type: "integer" },
           trigger_type: {
             type: "string",
-            enum: ["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention"],
+            enum: ["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention", "reaction"],
           },
           trigger_config: { type: "object" },
-          response_type: { type: "string", enum: ["text", "random_text", "sequence", "none"] },
+          response_type: { type: "string", enum: ["text", "random_text", "sequence", "none", "ai_rephrase", "follow_gate"] },
           response_config: { type: "object" },
           cooldown_seconds: { type: "integer" },
         },

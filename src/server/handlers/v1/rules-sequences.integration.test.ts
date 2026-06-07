@@ -291,6 +291,45 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     }));
     expect(res.status).toBe(422);
   });
+
+  it("PATCH cannot move an approval-gated rule to an unsupported response type", async () => {
+    if (!TEST_DB) return;
+    const created = await rules.POST(post({
+      name: "Gated", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" }, requires_approval: true,
+    }));
+    expect(created.status).toBe(201);
+    const id = (await created.json()).data.id;
+    const res = await rule.PATCH(post({ response_type: "follow_gate" }), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH cannot turn on approval for a non-dm reply mode", async () => {
+    if (!TEST_DB) return;
+    const created = await rules.POST(post({
+      name: "Cmt", trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi", reply_mode: "comment", comment_reply_text: "yo" },
+    }));
+    expect(created.status).toBe(201);
+    const id = (await created.json()).data.id;
+    const res = await rule.PATCH(post({ requires_approval: true }), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH allows a legitimate change on an approval-gated rule", async () => {
+    if (!TEST_DB) return;
+    const created = await rules.POST(post({
+      name: "Gated2", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" }, requires_approval: true,
+    }));
+    const id = (await created.json()).data.id;
+    const res = await rule.PATCH(post({ name: "Renamed" }), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.name).toBe("Renamed");
+  });
 });
 
 describe("sequences CRUD + enroll (real Postgres)", () => {

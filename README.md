@@ -58,6 +58,7 @@
 - **AI rephrase** — `OPENAI_API_KEY` sends reply text to that provider; mind GDPR (use a self-hosted/DPA endpoint via `OPENAI_BASE_URL`).
 - **Content Security Policy** — uses `unsafe-inline`/`unsafe-eval` because the UI runs Alpine.js + inline htmx; output is auto-escaped (`hono/html`), so CSP here is defence-in-depth, not the primary XSS control.
 - **Meta `appsecret_proof`** — not sent by default. If you enable *Require app secret* in your Meta App, add it to the Graph API calls (`HMAC-SHA256(page_token, META_APP_SECRET)`).
+- **Channel uniqueness** — each connected account is unique per `(platform, platform_id)` and belongs to exactly one workspace. If you run multiple workspaces, do not connect the same page/bot to more than one; the unique-index migration assumes no pre-existing cross-workspace duplicates (resolve any before upgrading).
 
 ---
 

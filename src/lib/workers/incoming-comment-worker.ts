@@ -19,16 +19,21 @@ export async function processIncomingComment(
   payload: IncomingCommentJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { pageId, commentId, postId, senderId, senderName, text } = payload;
+  const { platform, pageId, commentId, postId, senderId, senderName, text } = payload;
 
   if (!text) {
     helpers.logger.info(`Empty comment commentId=${commentId}, skipping`);
     return;
   }
 
-  // 1. Find active channel
+  // 1. Find active channel — scoped by platform so a numeric id shared across
+  //    platforms cannot route into the wrong channel/workspace.
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.platform_id, pageId), ne(channels.status, "disabled")),
+    where: and(
+      eq(channels.platform_id, pageId),
+      eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
+      ne(channels.status, "disabled"),
+    ),
     columns: { id: true, workspace_id: true, platform: true },
   });
 

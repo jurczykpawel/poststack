@@ -128,6 +128,18 @@ describe("incoming-comment worker", () => {
     expect(logs.length).toBe(1);
   });
 
+  it("routes to the channel matching the event platform, not a same-id channel on another platform", async () => {
+    if (!TEST_DB) return;
+    const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fc";
+    await db.insert(s.channels).values({ id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: PAGE, token_encrypted: "x", webhook_secret: "s2", status: "active" });
+    const job = { platform: "instagram", pageId: PAGE, commentId: "cmt-ig", postId: "m1", senderId: "IG-COMMENTER", senderName: "Iga", text: "hi", timestamp: ts(), raw: {} };
+    await w.processIncomingComment(job as never, helpers);
+    const onIg = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, IG_CH), eq(s.contactChannels.platform_sender_id, "IG-COMMENTER")));
+    expect(onIg.length).toBe(1);
+    const onFb = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "IG-COMMENTER")));
+    expect(onFb.length).toBe(0);
+  });
+
   async function seedCommentRule(responseConfig: Record<string, unknown>) {
     await db.insert(s.autoReplyRules).values({
       workspace_id: WS, name: "C", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
@@ -183,6 +195,18 @@ describe("incoming-reaction worker", () => {
       trigger_config: {}, response_type: "text", response_config: { text: "thanks for the reaction!" }, ...over,
     });
   }
+
+  it("routes to the channel matching the event platform, not a same-id channel on another platform", async () => {
+    if (!TEST_DB) return;
+    const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fb";
+    await db.insert(s.channels).values({ id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: PAGE, token_encrypted: "x", webhook_secret: "s3", status: "active" });
+    await seedReactionRule();
+    await w.processIncomingReaction({ platform: "instagram", pageId: PAGE, senderId: "IG-REACTOR", reactedMid: "m-ig", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    const onIg = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, IG_CH), eq(s.contactChannels.platform_sender_id, "IG-REACTOR")));
+    expect(onIg.length).toBe(1);
+    const onFb = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "IG-REACTOR")));
+    expect(onFb.length).toBe(0);
+  });
 
   it("fires a reaction rule and DMs the reactor (new contact materialised)", async () => {
     if (!TEST_DB) return;

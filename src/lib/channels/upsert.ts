@@ -30,13 +30,15 @@ export async function upsertChannels(
   for (const account of accounts) {
     const encryptedTokens = encryptTokens(account.tokens);
 
-    // Was this channel previously broken? If so, reconnecting recovers it and
-    // we drain any outbound parked while it was down (REL5). Channels are
-    // globally unique per (platform, platform_id).
+    // Channels are globally unique per (platform, platform_id): a given page/bot
+    // belongs to exactly one workspace. Refuse to touch one owned elsewhere.
     const existing = await db.query.channels.findFirst({
       where: and(eq(channels.platform, platform), eq(channels.platform_id, account.platformId)),
-      columns: { id: true, status: true },
+      columns: { id: true, status: true, workspace_id: true },
     });
+    if (existing && existing.workspace_id !== workspaceId) {
+      throw new Error(`This ${platform} account is already connected to another workspace`);
+    }
 
     const [channel] = await db
       .insert(channels)
@@ -54,6 +56,9 @@ export async function upsertChannels(
       })
       .onConflictDoUpdate({
         target: [channels.platform, channels.platform_id],
+        // Only ever update a row in the same workspace; this also closes the race
+        // where a concurrent connect from another workspace owns the conflict row.
+        setWhere: eq(channels.workspace_id, workspaceId),
         set: {
           display_name: account.displayName,
           username: account.username ?? null,
@@ -65,6 +70,10 @@ export async function upsertChannels(
         },
       })
       .returning({ id: channels.id });
+
+    if (!channel) {
+      throw new Error(`This ${platform} account is already connected to another workspace`);
+    }
 
     if (existing?.status === "needs_reauth") {
       await addJob("drain-channel", { channelId: channel.id });

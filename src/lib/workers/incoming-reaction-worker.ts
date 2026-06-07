@@ -18,15 +18,21 @@ export async function processIncomingReaction(
   payload: IncomingReactionJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { pageId, senderId, reactionType } = payload;
+  const { platform, pageId, senderId, reactionType } = payload;
 
   if (!senderId) {
     helpers.logger.info("Reaction without sender id, skipping");
     return;
   }
 
+  // Scope by platform so a numeric id shared across platforms cannot route into
+  // the wrong channel/workspace.
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.platform_id, pageId), ne(channels.status, "disabled")),
+    where: and(
+      eq(channels.platform_id, pageId),
+      eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
+      ne(channels.status, "disabled"),
+    ),
     columns: { id: true, workspace_id: true, platform: true },
   });
 

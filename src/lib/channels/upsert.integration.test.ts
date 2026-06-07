@@ -110,4 +110,28 @@ describe("upsertChannels (real Postgres)", () => {
     expect(fbAfter.id).toBe(fbBefore!.id);
     expect(tg.id).not.toBe(fbBefore!.id);
   });
+
+  it("refuses to connect a channel already owned by another workspace", async () => {
+    if (!TEST_DB) return;
+    const WS2 = "eeeeeeee-0000-0000-0000-0000000000c2";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    await db.insert(s.workspaces).values({ id: WS2, name: "Other", slug: `o-${WS2}` });
+    try {
+      await upsertChannels(WS, "facebook", [account("Owner A")]);
+      const before = await getChannel();
+
+      await expect(
+        upsertChannels(WS2, "facebook", [{ platformId: PAGE, displayName: "Hijack", tokens: { access_token: "evil" } }]),
+      ).rejects.toThrow(/another workspace/);
+
+      const after = await getChannel();
+      expect(after?.id).toBe(before?.id);
+      expect(after?.token_encrypted).toBe(before?.token_encrypted); // not clobbered
+      expect(after?.display_name).toBe("Owner A");
+      const inWs2 = await db.select().from(s.channels).where(and(eq(s.channels.workspace_id, WS2), eq(s.channels.platform_id, PAGE)));
+      expect(inWs2.length).toBe(0);
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    }
+  });
 });
