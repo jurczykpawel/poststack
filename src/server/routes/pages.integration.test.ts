@@ -149,6 +149,14 @@ describe("authenticated dashboard (real Postgres)", () => {
     }
   });
 
+  it("renders the quick reply + button editor on the rules page", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/rules", { headers: withCookie() })).text();
+    expect(body).toContain("Quick replies");
+    expect(body).toContain("name=\"quick_replies_json\"");
+    expect(body).toContain("name=\"buttons_json\"");
+  });
+
   it("creates an API key and shows the plaintext once", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/settings/api-keys", {
@@ -191,6 +199,43 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect((rule?.trigger_config as { post_id?: string }).post_id).toBe("POST_42");
     expect((rule?.response_config as { reply_mode?: string }).reply_mode).toBe("both");
     expect((rule?.response_config as { comment_reply_text?: string }).comment_reply_text).toBe("DM sent!");
+  });
+
+  it("creates a rule with quick replies and buttons from the form", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        name: "Interactive",
+        keywords: "hi",
+        text: "Pick one:",
+        quick_replies_json: JSON.stringify([
+          { content_type: "text", title: "Yes", payload: "YES" },
+          { content_type: "user_email" },
+        ]),
+        buttons_json: JSON.stringify([{ title: "Claim", payload: "CLAIM_LM" }]),
+      }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "Interactive")) });
+    const rc = rule?.response_config as { quick_replies?: unknown[]; buttons?: Array<{ title: string; payload?: string }> };
+    expect(rc.quick_replies).toHaveLength(2);
+    expect(rc.buttons?.[0]).toEqual({ title: "Claim", payload: "CLAIM_LM" });
+  });
+
+  it("ignores empty interactive JSON without erroring", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ name: "Plain", keywords: "yo", text: "hello", quick_replies_json: "[]", buttons_json: "" }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "Plain")) });
+    const rc = rule?.response_config as Record<string, unknown>;
+    expect(rc.quick_replies).toBeUndefined();
+    expect(rc.buttons).toBeUndefined();
   });
 
   it("creates a sequence from line-based steps", async () => {

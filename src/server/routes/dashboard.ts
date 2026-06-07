@@ -424,7 +424,23 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
           <p class="muted">Auto-replies for DMs and comments. Leave keywords blank on a comment rule with a post to reply to every comment on that post.</p>
           <details class="card" style="margin:1rem 0">
             <summary style="cursor:pointer;font-weight:600">+ New rule</summary>
-            <form hx-post="/rules" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem">
+            <form hx-post="/rules" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem"
+              x-data="{
+                quickReplies: [],
+                buttons: [],
+                qrJson() {
+                  return JSON.stringify(this.quickReplies
+                    .filter(q => q.content_type !== 'text' || (q.title && q.title.trim()))
+                    .map(q => q.content_type === 'text'
+                      ? { content_type: 'text', title: q.title.trim(), payload: (q.payload && q.payload.trim()) ? q.payload.trim() : q.title.trim() }
+                      : { content_type: q.content_type }));
+                },
+                btnJson() {
+                  return JSON.stringify(this.buttons
+                    .filter(b => b.title && b.title.trim() && b.value && b.value.trim())
+                    .map(b => b.kind === 'url' ? { title: b.title.trim(), url: b.value.trim() } : { title: b.title.trim(), payload: b.value.trim() }));
+                }
+              }">
               <div><label class="label">Name</label><input class="input" name="name" required /></div>
               <div><label class="label">Trigger</label>
                 <select class="input" name="trigger_type">
@@ -443,6 +459,43 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
               </div>
               <div><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea></div>
               <div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
+
+              <div>
+                <label class="label">Quick replies (tappable chips above the text box · max 13)</label>
+                <template x-for="(q, i) in quickReplies" :key="i">
+                  <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
+                    <select class="input" x-model="q.content_type" style="max-width:150px">
+                      <option value="text">Text</option>
+                      <option value="user_email">Ask email</option>
+                      <option value="user_phone_number">Ask phone</option>
+                    </select>
+                    <input class="input" placeholder="Label (≤20)" maxlength="20" x-model="q.title" x-show="q.content_type === 'text'" />
+                    <input class="input" placeholder="Payload (tap value)" x-model="q.payload" x-show="q.content_type === 'text'" />
+                    <button class="btn btn-sm btn-danger" type="button" @click="quickReplies.splice(i, 1)">×</button>
+                  </div>
+                </template>
+                <button class="btn btn-sm" type="button" @click="quickReplies.push({ content_type: 'text', title: '', payload: '' })" x-show="quickReplies.length < 13">+ quick reply</button>
+              </div>
+
+              <div>
+                <label class="label">Buttons (shown inside the message · max 3)</label>
+                <template x-for="(b, i) in buttons" :key="i">
+                  <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
+                    <input class="input" placeholder="Label (≤20)" maxlength="20" x-model="b.title" />
+                    <select class="input" x-model="b.kind" style="max-width:170px">
+                      <option value="postback">Reply (postback)</option>
+                      <option value="url">Open link</option>
+                    </select>
+                    <input class="input" :placeholder="b.kind === 'url' ? 'https://…' : 'PAYLOAD'" x-model="b.value" />
+                    <button class="btn btn-sm btn-danger" type="button" @click="buttons.splice(i, 1)">×</button>
+                  </div>
+                </template>
+                <button class="btn btn-sm" type="button" @click="buttons.push({ title: '', kind: 'postback', value: '' })" x-show="buttons.length < 3">+ button</button>
+                <p class="muted" style="font-size:.7rem;margin-top:.25rem">Instagram supports postback + link buttons; quick-reply icons and extra button types are Messenger-only.</p>
+              </div>
+
+              <input type="hidden" name="quick_replies_json" :value="qrJson()" />
+              <input type="hidden" name="buttons_json" :value="btnJson()" />
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create rule</button>
             </form>
           </details>
@@ -470,6 +523,10 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
       responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
       if (commentReply) responseConfig.comment_reply_text = commentReply;
     }
+    const quickReplies = parseJsonArray(form.quick_replies_json);
+    if (quickReplies.length) responseConfig.quick_replies = quickReplies;
+    const buttons = parseJsonArray(form.buttons_json);
+    if (buttons.length) responseConfig.buttons = buttons;
     const payload = {
       name: form.name ?? "",
       trigger_type: triggerType,
@@ -666,6 +723,17 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
       </tr>`,
     )}
   </tbody></table>`;
+}
+
+/** Parse a JSON-array string from the rule form (quick replies / buttons); returns [] on anything else. */
+function parseJsonArray(raw: string | undefined): unknown[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function loadRules(workspaceId: string) {
