@@ -16,11 +16,29 @@ export interface ConnectedAccount {
   tokens: TokenData;
 }
 
+export interface QuickReply {
+  /** "text" (tappable, returns payload) | "user_email" | "user_phone_number" (pre-filled from profile). Defaults to "text". */
+  content_type?: "text" | "user_email" | "user_phone_number";
+  /** Required for text quick replies (≤20 chars). Omitted for user_email/user_phone_number. */
+  title?: string;
+  payload?: string;
+  /** Icon next to a text quick reply. Messenger only — Instagram does not render it. */
+  image_url?: string;
+}
+
+export interface MessageButton {
+  title: string;
+  /** postback button: returned to the postback trigger on tap. */
+  payload?: string;
+  /** web_url button: opens the URL. */
+  url?: string;
+}
+
 export interface MessageContent {
   text?: string;
   attachments?: Array<{ type: string; url: string }>;
-  quick_replies?: Array<{ title: string; payload: string }>;
-  buttons?: Array<{ title: string; payload?: string; url?: string }>;
+  quick_replies?: QuickReply[];
+  buttons?: MessageButton[];
 }
 
 export interface SentMessage {

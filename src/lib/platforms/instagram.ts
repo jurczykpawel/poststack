@@ -8,6 +8,7 @@ import {
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 import { assertMetaOk } from "./errors";
+import { buildMessageObject } from "./message-payload";
 
 const GRAPH_API = GRAPH_API_BASE;
 
@@ -179,11 +180,9 @@ export class InstagramProvider extends SocialProvider {
     const body: Record<string, unknown> = {
       recipient: { id: recipientId },
       messaging_type: "RESPONSE",
+      // Instagram does not render image_url on quick replies, so it is stripped.
+      message: buildMessageObject(content, { allowQuickReplyImages: false }),
     };
-
-    if (content.text) {
-      body.message = { text: content.text };
-    }
 
     // Instagram messaging uses the FB page token scoped to the IG account
     const res = await fetch(`${GRAPH_API}/me/messages`, {

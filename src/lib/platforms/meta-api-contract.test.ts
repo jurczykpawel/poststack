@@ -565,6 +565,128 @@ describe("Meta Graph API Contract Tests", () => {
       // text should NOT be in message (moved to template payload)
       expect(body.message.text).toBeUndefined();
     });
+
+    it("sends user_email / user_phone_number quick replies as content_type only", async () => {
+      const { FacebookProvider } = await import("./facebook");
+      const fb = new FacebookProvider();
+      await fb.sendMessage(
+        { access_token: "tok" },
+        "user1",
+        {
+          text: "Share your details:",
+          quick_replies: [
+            { content_type: "user_email" },
+            { content_type: "user_phone_number" },
+          ],
+        }
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.message.quick_replies).toEqual([
+        { content_type: "user_email" },
+        { content_type: "user_phone_number" },
+      ]);
+    });
+
+    it("Messenger passes image_url through on text quick replies", async () => {
+      const { FacebookProvider } = await import("./facebook");
+      const fb = new FacebookProvider();
+      await fb.sendMessage(
+        { access_token: "tok" },
+        "user1",
+        {
+          text: "Pick:",
+          quick_replies: [{ content_type: "text", title: "Red", payload: "R", image_url: "https://x/r.png" }],
+        }
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.message.quick_replies[0]).toEqual({
+        content_type: "text",
+        title: "Red",
+        payload: "R",
+        image_url: "https://x/r.png",
+      });
+    });
+
+    it("Instagram sends a plain text DM", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      const result = await ig.sendMessage({ access_token: "tok" }, "ig_user_1", { text: "Hi there" });
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.message.text).toBe("Hi there");
+      expect(result.platformMessageId).toBe("m_mid.test_message_id_001");
+    });
+
+    it("Instagram sends quick replies", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      await ig.sendMessage(
+        { access_token: "tok" },
+        "ig_user_1",
+        {
+          text: "Choose:",
+          quick_replies: [
+            { content_type: "text", title: "Yes", payload: "YES" },
+            { content_type: "user_email" },
+          ],
+        }
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.message.quick_replies).toEqual([
+        { content_type: "text", title: "Yes", payload: "YES" },
+        { content_type: "user_email" },
+      ]);
+    });
+
+    it("Instagram sends a button template (postback + web_url)", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      await ig.sendMessage(
+        { access_token: "tok" },
+        "ig_user_1",
+        {
+          text: "Claim it:",
+          buttons: [
+            { title: "Chcę odebrać", payload: "CLAIM_LM" },
+            { title: "Strona", url: "https://example.com" },
+          ],
+        }
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.message.attachment.payload.template_type).toBe("button");
+      expect(body.message.attachment.payload.buttons).toEqual([
+        { type: "postback", title: "Chcę odebrać", payload: "CLAIM_LM" },
+        { type: "web_url", url: "https://example.com", title: "Strona" },
+      ]);
+      expect(body.message.text).toBeUndefined();
+    });
+
+    it("Instagram strips image_url from quick replies (unsupported)", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const ig = new InstagramProvider();
+      await ig.sendMessage(
+        { access_token: "tok" },
+        "ig_user_1",
+        {
+          text: "Pick:",
+          quick_replies: [{ content_type: "text", title: "Red", payload: "R", image_url: "https://x/r.png" }],
+        }
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"));
+      const body = JSON.parse(call!.init!.body as string);
+      expect(body.message.quick_replies[0]).toEqual({ content_type: "text", title: "Red", payload: "R" });
+      expect(body.message.quick_replies[0].image_url).toBeUndefined();
+    });
   });
 
   // ─── Send Comment ─────────────────────────────────────────────────────
