@@ -79,6 +79,18 @@ describe("auth flow under Hono (real Postgres)", () => {
     expect(setCookie).not.toMatch(/rs_session=;/);
   });
 
+  it("register accepts an empty name field (the json-enc form always sends name)", async () => {
+    if (!TEST_DB) return;
+    // The register form posts via htmx json-enc, which serializes every field,
+    // so a blank optional name arrives as "" — it must be treated as absent.
+    const res = await app.request("/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: "" }),
+    });
+    expect(res.status).toBe(201);
+  });
+
   it("login with correct credentials issues a session cookie", async () => {
     if (!TEST_DB) return;
     await app.request("/api/auth/register", {
