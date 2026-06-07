@@ -160,6 +160,107 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     }));
     expect(res.status).toBe(422);
   });
+
+  it("round-trips quick replies and buttons on a rule", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "Interactive",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: {
+        text: "Pick:",
+        quick_replies: [
+          { content_type: "text", title: "Yes", payload: "YES" },
+          { content_type: "user_email" },
+        ],
+        buttons: [
+          { title: "Claim", payload: "CLAIM_LM" },
+          { title: "Site", url: "https://example.com" },
+        ],
+      },
+    }));
+    expect(res.status).toBe(201);
+    const data = (await res.json()).data;
+    expect(data.response_config.quick_replies).toHaveLength(2);
+    expect(data.response_config.buttons[0]).toEqual({ title: "Claim", payload: "CLAIM_LM" });
+  });
+
+  it("defaults quick reply content_type to text", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "QRDefault",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "Pick:", quick_replies: [{ title: "Yes", payload: "Y" }] },
+    }));
+    expect(res.status).toBe(201);
+    const data = (await res.json()).data;
+    expect(data.response_config.quick_replies[0].content_type).toBe("text");
+  });
+
+  it("rejects more than 13 quick replies (422)", async () => {
+    if (!TEST_DB) return;
+    const quick_replies = Array.from({ length: 14 }, (_, i) => ({ content_type: "text", title: `q${i}`, payload: `P${i}` }));
+    const res = await rules.POST(post({
+      name: "TooMany",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "Pick:", quick_replies },
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects a text quick reply without a title (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "NoTitle",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "Pick:", quick_replies: [{ content_type: "text", payload: "P" }] },
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects a button with both url and payload (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "AmbiguousBtn",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "t", buttons: [{ title: "X", url: "https://x", payload: "P" }] },
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects a button title longer than 20 chars (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({
+      name: "LongBtn",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "t", buttons: [{ title: "x".repeat(21), payload: "P" }] },
+    }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects more than 3 buttons (422)", async () => {
+    if (!TEST_DB) return;
+    const buttons = Array.from({ length: 4 }, (_, i) => ({ title: `b${i}`, payload: `P${i}` }));
+    const res = await rules.POST(post({
+      name: "TooManyBtn",
+      trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "t", buttons },
+    }));
+    expect(res.status).toBe(422);
+  });
 });
 
 describe("sequences CRUD + enroll (real Postgres)", () => {

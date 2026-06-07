@@ -21,6 +21,34 @@ const triggerConfigSchema = z
   })
   .strict();
 
+// Interactive add-ons. Limits are Meta's structural maxima (platform-agnostic);
+// per-platform rendering quirks (e.g. IG ignores quick-reply image_url) are
+// handled at send time so channel-agnostic rules stay valid for both networks.
+const quickReplySchema = z
+  .object({
+    content_type: z.enum(["text", "user_email", "user_phone_number"]).default("text"),
+    title: z.string().min(1).max(20).optional(), // Meta truncates titles >20 chars
+    payload: z.string().max(1000).optional(),
+    image_url: z.string().url().optional(),       // Messenger only
+  })
+  .strict()
+  .superRefine((qr, ctx) => {
+    if (qr.content_type === "text" && !qr.title) {
+      ctx.addIssue({ code: "custom", path: ["title"], message: "text quick reply requires a title" });
+    }
+  });
+
+const buttonSchema = z
+  .object({
+    title: z.string().min(1).max(20),
+    payload: z.string().max(1000).optional(), // postback button
+    url: z.string().url().optional(),         // web_url button
+  })
+  .strict()
+  .refine((b) => (b.url ? 1 : 0) + (b.payload ? 1 : 0) === 1, {
+    message: "button must have exactly one of url or payload",
+  });
+
 const responseConfigSchema = z
   .object({
     text: z.string().min(1).max(2000).optional(),            // text / ai_rephrase base
@@ -30,6 +58,8 @@ const responseConfigSchema = z
     ai_rephrase: z.boolean().optional(),                     // post-process any source through the LLM
     reply_mode: z.enum(["dm", "comment", "both"]).optional(),
     comment_reply_text: z.string().min(1).max(2000).optional(),
+    quick_replies: z.array(quickReplySchema).max(13).optional(),
+    buttons: z.array(buttonSchema).min(1).max(3).optional(),
   })
   .strict();
 
