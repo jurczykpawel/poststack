@@ -5,6 +5,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Opt JS-based actions (docker/*) into Node.js 24 now; GitHub forces it 2026-06-16.
+# Harmless no-op once Node 24 is the default.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   verify:
     name: Lint, Type Check, Test
