@@ -4,6 +4,7 @@ import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { channels, contactChannels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
  * Process an incoming DM from Facebook/Instagram.
@@ -41,7 +42,7 @@ export async function processIncomingMessage(
   });
 
   if (!channel) {
-    helpers.logger.info(`No active channel for platform=${platform} pageId=${pageId} channelId=${channelId ?? "-"}, skipping`);
+    helpers.logger.info(`No active channel for platform=${sanitizeForLog(platform)} pageId=${sanitizeForLog(pageId)} channelId=${channelId ?? "-"}, skipping`);
     return;
   }
 
@@ -113,7 +114,7 @@ export async function processIncomingMessage(
     .returning({ id: messages.id });
 
   if (!inserted) {
-    helpers.logger.info(`mid=${mid} already processed (unique constraint), skipping`);
+    helpers.logger.info(`mid=${sanitizeForLog(mid)} already processed (unique constraint), skipping`);
     return;
   }
 

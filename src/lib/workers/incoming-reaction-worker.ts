@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { resolveContactConversation } from "./resolve-contact";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
  * Process an emoji reaction to one of our messages.
@@ -37,7 +38,7 @@ export async function processIncomingReaction(
   });
 
   if (!channel) {
-    helpers.logger.info(`No active channel for pageId=${pageId}, skipping reaction`);
+    helpers.logger.info(`No active channel for pageId=${sanitizeForLog(pageId)}, skipping reaction`);
     return;
   }
 

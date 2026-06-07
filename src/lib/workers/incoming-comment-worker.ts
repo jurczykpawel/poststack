@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { channels, commentLogs } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { resolveContactConversation } from "./resolve-contact";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
  * Process an incoming comment on a Facebook post or Instagram media.
@@ -22,7 +23,7 @@ export async function processIncomingComment(
   const { platform, pageId, commentId, postId, senderId, senderName, text } = payload;
 
   if (!text) {
-    helpers.logger.info(`Empty comment commentId=${commentId}, skipping`);
+    helpers.logger.info(`Empty comment commentId=${sanitizeForLog(commentId)}, skipping`);
     return;
   }
 
@@ -38,7 +39,7 @@ export async function processIncomingComment(
   });
 
   if (!channel) {
-    helpers.logger.info(`No active channel for pageId=${pageId}, skipping`);
+    helpers.logger.info(`No active channel for pageId=${sanitizeForLog(pageId)}, skipping`);
     return;
   }
 
@@ -59,11 +60,11 @@ export async function processIncomingComment(
     .returning({ id: commentLogs.id });
 
   if (!logged) {
-    helpers.logger.info(`commentId=${commentId} already logged (unique constraint), skipping`);
+    helpers.logger.info(`commentId=${sanitizeForLog(commentId)} already logged (unique constraint), skipping`);
     return;
   }
 
-  helpers.logger.info(`Logged comment=${commentId} post=${postId} author=${senderId}`);
+  helpers.logger.info(`Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} author=${sanitizeForLog(senderId ?? "")}`);
 
   // 3. Upsert the commenter as a contact + conversation, then evaluate rules.
   //    The commenter is keyed by their comment author id. A DM reply is sent via

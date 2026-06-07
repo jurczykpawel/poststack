@@ -17,6 +17,9 @@ const schema = z.object({
 });
 
 const INVALID_MSG = "Invalid email or password";
+// A well-formed (salt:hash) dummy so the unknown-email path still runs scrypt,
+// keeping login response time independent of whether the account exists.
+const DUMMY_HASH = `${"0".repeat(32)}:${"0".repeat(128)}`;
 
 export async function POST(request: Request) {
   // Rate limit: 10 attempts per 15 minutes per IP
@@ -50,6 +53,7 @@ export async function POST(request: Request) {
   });
 
   if (!user?.password_hash) {
+    await verifyPassword(password, DUMMY_HASH); // equalise timing with the real path
     console.warn(`[auth] Failed login: unknown email, ip=${sanitizeForLog(ip)}`);
     return ApiErrors.unauthorized(INVALID_MSG);
   }

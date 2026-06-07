@@ -13,6 +13,9 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  // Key management is session-only: an API key must not be able to enumerate,
+  // create, or revoke keys (a restricted key could otherwise mint a full one).
+  if (auth.authMethod === "api_key") return ApiErrors.forbidden("API key management requires a logged-in session");
 
   const keys = await db.query.apiKeys.findMany({
     where: eq(apiKeys.workspace_id, auth.workspaceId),
@@ -38,6 +41,7 @@ const VALID_SCOPES = [
   "rules:read", "rules:write",
   "sequences:read", "sequences:write",
   "tags:read", "tags:write",
+  "settings:read", "settings:write",
 ] as const;
 
 const createSchema = z.object({
@@ -51,6 +55,7 @@ const createSchema = z.object({
 export async function POST(request: Request) {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  if (auth.authMethod === "api_key") return ApiErrors.forbidden("API key management requires a logged-in session");
 
   // Rate limit: 10 key creations per hour per workspace
   const rl = await rateLimit(`rl:apikey:${auth.workspaceId}`, 10, 3600);

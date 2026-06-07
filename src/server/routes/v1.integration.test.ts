@@ -161,3 +161,31 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(res.status).toBe(204);
   });
 });
+
+describe("api-key management is session-only + scope catalog (real Postgres)", () => {
+  it("rejects api-key auth on key management routes (403)", async () => {
+    if (!TEST_DB) return;
+    const list = await app.request("/api/v1/api-keys", { headers: authHeaders });
+    expect(list.status).toBe(403);
+    const create = await app.request("/api/v1/api-keys", {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ name: "escalate", scopes: [] }),
+    });
+    expect(create.status).toBe(403);
+    const del = await app.request(`/api/v1/api-keys/${CONTACT_A}`, { method: "DELETE", headers: authHeaders });
+    expect(del.status).toBe(403);
+  });
+
+  it("a tags:read-scoped key can list tags (GET /tags requires tags:read, not tags:write)", async () => {
+    if (!TEST_DB) return;
+    const TAGS_KEY = "rs_live_tagsread_key_0123456789abcd";
+    await db.insert(apiKeys).values({
+      workspace_id: WS_A, name: "tags reader",
+      key_hash: createHash("sha256").update(TAGS_KEY).digest("hex"),
+      key_prefix: "rs_live_tags", scopes: ["tags:read"],
+    });
+    const res = await app.request("/api/v1/tags", { headers: { authorization: `Bearer ${TAGS_KEY}` } });
+    expect(res.status).toBe(200);
+  });
+});

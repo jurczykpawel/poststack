@@ -13,6 +13,7 @@ export async function DELETE(
 ) {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  if (auth.authMethod === "api_key") return ApiErrors.forbidden("API key management requires a logged-in session");
 
   const { keyId } = await params;
   const result = await db

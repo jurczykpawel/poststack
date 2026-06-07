@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 // GET /api/v1/tags
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   const rows = await db.query.tags.findMany({
