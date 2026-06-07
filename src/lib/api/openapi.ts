@@ -280,6 +280,49 @@ export const openApiSpec = {
         },
       },
     },
+    "/approvals": {
+      get: {
+        tags: ["Approvals"],
+        summary: "List replies awaiting human approval",
+        parameters: [
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["pending", "approved", "rejected"], default: "pending" },
+          },
+        ],
+        responses: {
+          "200": { description: "List of approvals" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/approvals/{approvalId}/approve": {
+      post: {
+        tags: ["Approvals"],
+        summary: "Approve a parked reply and send it",
+        parameters: [{ name: "approvalId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Approved and queued for sending" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Approval not found" },
+          "409": { description: "Already resolved" },
+        },
+      },
+    },
+    "/approvals/{approvalId}/reject": {
+      post: {
+        tags: ["Approvals"],
+        summary: "Reject a parked reply (discard, no send)",
+        parameters: [{ name: "approvalId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Rejected" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Approval not found" },
+          "409": { description: "Already resolved" },
+        },
+      },
+    },
   },
   tags: [
     { name: "System", description: "Health and status" },
@@ -287,5 +330,6 @@ export const openApiSpec = {
     { name: "Contacts", description: "CRM - contacts and tags" },
     { name: "Conversations", description: "Message threads" },
     { name: "Rules", description: "Auto-reply rules" },
+    { name: "Approvals", description: "Human-in-the-loop review before sending" },
   ],
 };

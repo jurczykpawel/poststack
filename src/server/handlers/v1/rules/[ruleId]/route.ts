@@ -52,6 +52,7 @@ const patchSchema = z.object({
   response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none", "follow_gate"]).optional(),
   response_config: z.record(z.string(), z.unknown()).optional(),
   cooldown_seconds: z.number().int().min(0).optional(),
+  requires_approval: z.boolean().optional(),
 });
 
 // PATCH /api/v1/rules/:ruleId

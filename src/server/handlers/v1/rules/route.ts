@@ -93,6 +93,7 @@ const createRuleSchema = z
     response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none", "follow_gate"]),
     response_config: responseConfigSchema,
     cooldown_seconds: z.number().int().min(0).default(0),
+    requires_approval: z.boolean().default(false), // hold for human review before sending
   })
   .superRefine((data, ctx) => {
     const t = data.trigger_config;
@@ -178,6 +179,7 @@ export async function POST(request: Request) {
       response_type: parsed.data.response_type,
       response_config: parsed.data.response_config,
       cooldown_seconds: parsed.data.cooldown_seconds,
+      requires_approval: parsed.data.requires_approval,
     })
     .returning();
 

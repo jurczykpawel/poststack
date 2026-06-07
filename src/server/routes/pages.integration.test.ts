@@ -140,6 +140,7 @@ describe("authenticated dashboard (real Postgres)", () => {
       ["/channels", "Channels"],
       ["/contacts", "Contacts"],
       ["/rules", "Rules"],
+      ["/approvals", "Approvals"],
       ["/sequences", "Sequences"],
       ["/settings", "API Keys"],
     ] as const) {
@@ -222,6 +223,25 @@ describe("authenticated dashboard (real Postgres)", () => {
     const rc = rule?.response_config as { quick_replies?: unknown[]; buttons?: Array<{ title: string; payload?: string }> };
     expect(rc.quick_replies).toHaveLength(2);
     expect(rc.buttons?.[0]).toEqual({ title: "Claim", payload: "CLAIM_LM" });
+  });
+
+  it("creates a rule with requires_approval from the form", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ name: "Gated", keywords: "review", text: "needs review", requires_approval: "true" }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "Gated")) });
+    expect(rule?.requires_approval).toBe(true);
+  });
+
+  it("renders the approvals review page", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/approvals", { headers: withCookie() })).text();
+    expect(body).toContain("Approvals");
+    expect(body).toContain("Nothing waiting for approval");
   });
 
   it("ignores empty interactive JSON without erroring", async () => {

@@ -20,6 +20,9 @@ import * as auditLog from "@/server/handlers/v1/audit-log/route";
 import * as messagesPrune from "@/server/handlers/v1/messages/prune/route";
 import * as workspace from "@/server/handlers/v1/workspace/route";
 import * as tags from "@/server/handlers/v1/tags/route";
+import * as approvals from "@/server/handlers/v1/approvals/route";
+import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
+import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
 
 export const v1 = new Hono();
 
@@ -96,6 +99,15 @@ v1.delete("/sequences/:sequenceId", (c) =>
 );
 v1.post("/sequences/:sequenceId/enroll", (c) =>
   sequenceEnroll.POST(c.req.raw, { params: Promise.resolve({ sequenceId: c.req.param("sequenceId") }) }),
+);
+
+// Approvals (human-in-the-loop before send)
+v1.get("/approvals", (c) => approvals.GET(c.req.raw));
+v1.post("/approvals/:approvalId/approve", (c) =>
+  approvalApprove.POST(c.req.raw, { params: Promise.resolve({ approvalId: c.req.param("approvalId") }) }),
+);
+v1.post("/approvals/:approvalId/reject", (c) =>
+  approvalReject.POST(c.req.raw, { params: Promise.resolve({ approvalId: c.req.param("approvalId") }) }),
 );
 
 // API keys

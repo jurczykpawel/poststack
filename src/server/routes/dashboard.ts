@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
+  pendingApprovals,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
@@ -15,6 +16,8 @@ import * as channelConnectToken from "@/server/handlers/v1/channels/connect-toke
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
 import * as rules from "@/server/handlers/v1/rules/route";
 import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
+import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
+import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
 import * as sequences from "@/server/handlers/v1/sequences/route";
 import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
@@ -428,6 +431,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
               x-data="{
                 quickReplies: [],
                 buttons: [],
+                requiresApproval: false,
                 qrJson() {
                   return JSON.stringify(this.quickReplies
                     .filter(q => q.content_type !== 'text' || (q.title && q.title.trim()))
@@ -494,8 +498,14 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
                 <p class="muted" style="font-size:.7rem;margin-top:.25rem">Instagram supports postback + link buttons; quick-reply icons and extra button types are Messenger-only.</p>
               </div>
 
+              <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
+                <input type="checkbox" x-model="requiresApproval" />
+                Hold for human approval before sending (review in Approvals)
+              </label>
+
               <input type="hidden" name="quick_replies_json" :value="qrJson()" />
               <input type="hidden" name="buttons_json" :value="btnJson()" />
+              <input type="hidden" name="requires_approval" :value="requiresApproval" />
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create rule</button>
             </form>
           </details>
@@ -533,6 +543,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
       trigger_config: triggerConfig,
       response_type: "text",
       response_config: responseConfig,
+      requires_approval: form.requires_approval === "true",
     };
     const res = await rules.POST(jsonReq(c, payload));
     const a = await auth(c);
@@ -562,6 +573,39 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     return c.html(renderRules(await loadRules(a.workspaceId)));
+  });
+
+  // Approvals (human-in-the-loop review queue)
+  app.get("/approvals", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.redirect("/login");
+    return c.html(
+      dashboardDoc(
+        "Approvals · ReplyStack",
+        "/approvals",
+        html`<div class="page">
+          <h1>Approvals</h1>
+          <p class="muted">Replies from rules marked “hold for approval” wait here. Approve to send, or reject to discard.</p>
+          <div id="approvals-list">${renderApprovals(await loadApprovals(a.workspaceId))}</div>
+        </div>`,
+      ),
+    );
+  });
+
+  app.post("/approvals/:id/approve", guard, async (c) => {
+    const id = c.req.param("id");
+    await approvalApprove.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => {});
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    return c.html(renderApprovals(await loadApprovals(a.workspaceId)));
+  });
+
+  app.post("/approvals/:id/reject", guard, async (c) => {
+    const id = c.req.param("id");
+    await approvalReject.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => {});
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    return c.html(renderApprovals(await loadApprovals(a.workspaceId)));
   });
 
   // Sequences
@@ -754,6 +798,43 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>): Html {
       <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
     </div>`,
   )}</div>`;
+}
+
+function loadApprovals(workspaceId: string) {
+  return db
+    .select({
+      id: pendingApprovals.id,
+      recipient: pendingApprovals.recipient_platform_id,
+      proposed: pendingApprovals.proposed_content,
+      created_at: pendingApprovals.created_at,
+      ruleName: autoReplyRules.name,
+    })
+    .from(pendingApprovals)
+    .leftJoin(autoReplyRules, eq(autoReplyRules.id, pendingApprovals.rule_id))
+    .where(and(eq(pendingApprovals.workspace_id, workspaceId), eq(pendingApprovals.status, "pending")))
+    .orderBy(desc(pendingApprovals.created_at))
+    .limit(100);
+}
+
+function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>): Html {
+  if (list.length === 0) return html`<p class="muted">Nothing waiting for approval.</p>`;
+  return html`<div class="list">${list.map((a) => {
+    const content = ((a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } } | null)?.content) ?? {};
+    const preview = content.text ?? "(no text)";
+    const extras = [
+      content.buttons?.length ? `${content.buttons.length} button(s)` : null,
+      content.quick_replies?.length ? `${content.quick_replies.length} quick repl(ies)` : null,
+    ].filter(Boolean).join(" · ");
+    return html`<div class="list-row">
+      <div class="grow">
+        <div style="font-weight:600">${a.ruleName ?? "rule"} <span class="muted" style="font-size:.75rem">→ ${a.recipient} · ${timeAgo(a.created_at)}</span></div>
+        <div style="font-size:.875rem;white-space:pre-wrap">${preview}</div>
+        ${extras ? html`<div class="muted" style="font-size:.7rem">${extras}</div>` : html``}
+      </div>
+      <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
+      <button class="btn btn-sm btn-danger" hx-post="/approvals/${a.id}/reject" hx-target="#approvals-list" hx-swap="innerHTML">Reject</button>
+    </div>`;
+  })}</div>`;
 }
 
 async function loadSequences(workspaceId: string) {

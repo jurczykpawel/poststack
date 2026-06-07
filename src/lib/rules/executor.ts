@@ -8,6 +8,40 @@ import { rephrase } from "@/lib/ai/rephrase";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent } from "./response";
+import type { MessageContent } from "@/lib/platforms/base";
+
+/**
+ * Resolve a rule's reply text: pick the base (single or random from a pool),
+ * then optionally rephrase it through the LLM. Shared by the live send path
+ * and the approval-park path so both produce identical wording.
+ */
+async function resolveDmText(
+  responseType: string,
+  responseConfig: Record<string, unknown>,
+): Promise<string | null> {
+  const { baseText, aiEnabled } = selectResponse(responseType, responseConfig);
+  if (aiEnabled && baseText) {
+    return rephrase(baseText, {
+      customPrompt: responseConfig.custom_prompt as string | undefined,
+      tone: responseConfig.tone as string | undefined,
+    });
+  }
+  return baseText;
+}
+
+/**
+ * Resolve the full DM content (text + interactive add-ons) a rule would send.
+ * Returns null when there is no text to send. Used to park an approvable,
+ * ready-to-send message so the human approves exactly what goes out.
+ */
+export async function resolveReplyContent(
+  responseType: string,
+  responseConfig: Record<string, unknown>,
+): Promise<MessageContent | null> {
+  const text = await resolveDmText(responseType, responseConfig);
+  if (!text) return null;
+  return { text, ...buildInteractiveContent(responseConfig) };
+}
 
 interface EvaluateRulesInput {
   workspaceId: string;
@@ -82,8 +116,12 @@ export async function evaluateRules(
       continue;
     }
 
-    // Manual approval: queue for human review instead of auto-sending
+    // Manual approval: park a ready-to-send message for human review instead
+    // of auto-sending. Store the resolved content so the approver acts on the
+    // exact text/buttons that will go out (DM path; comment/follow-gate
+    // approval is out of scope for now).
     if (rule.requires_approval) {
+      const content = await resolveReplyContent(rule.response_type, candidate.response_config);
       await db.insert(pendingApprovals).values({
         workspace_id: workspaceId,
         rule_id: rule.id,
@@ -91,10 +129,7 @@ export async function evaluateRules(
         contact_id: contactId,
         channel_id: channelId,
         recipient_platform_id: recipientPlatformId,
-        proposed_content: JSON.parse(JSON.stringify({
-          response_type: rule.response_type,
-          response_config: candidate.response_config,
-        })),
+        proposed_content: JSON.parse(JSON.stringify({ content })),
       });
       return rule.id;
     }
@@ -156,16 +191,8 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
 
   const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
 
-  // Resolve the text to send: pick one base (single or random from a pool),
-  // then optionally rephrase it through the LLM so replies vary.
-  const { baseText, aiEnabled } = selectResponse(rule.response_type, rule.response_config);
-  let dmText: string | null = baseText;
-  if (aiEnabled && baseText) {
-    dmText = await rephrase(baseText, {
-      customPrompt: rule.response_config.custom_prompt as string | undefined,
-      tone: rule.response_config.tone as string | undefined,
-    });
-  }
+  // Resolve the text to send (single or random pick, optionally LLM-rephrased).
+  const dmText = await resolveDmText(rule.response_type, rule.response_config);
 
   // Public comment reply (reply_mode: "comment" or "both")
   let commentSent = false;

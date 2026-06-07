@@ -209,5 +209,7 @@ describe("evaluateRules (real Postgres)", () => {
     const approvals = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
     expect(approvals.length).toBe(1);
     expect(approvals[0].status).toBe("pending");
+    // Parks the resolved, ready-to-send content (approve-what-you-see), not the raw config.
+    expect((approvals[0].proposed_content as { content: { text: string } }).content.text).toBe("hello");
   });
 });

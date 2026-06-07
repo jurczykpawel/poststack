@@ -26,6 +26,7 @@ ${HEAD}
 
 const NAV = [
   { href: "/inbox", label: "Inbox" },
+  { href: "/approvals", label: "Approvals" },
   { href: "/rules", label: "Rules" },
   { href: "/channels", label: "Channels" },
   { href: "/contacts", label: "Contacts" },
