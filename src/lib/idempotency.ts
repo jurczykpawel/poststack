@@ -2,6 +2,9 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { idempotencyKeys } from "@/db/schema";
 
+/** A Drizzle db or an open transaction — anything that can run `.insert`. */
+type Executor = Pick<typeof db, "insert">;
+
 // Claims live for a fixed TTL; expired claims are ignored and may be pruned (see DATA1).
 const TTL_MS = 86_400_000; // 24h
 
@@ -28,22 +31,21 @@ export async function claim(key: string, now: Date = new Date()): Promise<void> 
  * existed (the caller should treat it as already done). Used to deduplicate, at
  * ingest, events that have no natural unique row of their own (e.g. reactions),
  * so an at-least-once redelivery does not process them twice.
+ *
+ * Pass an open transaction as `executor` so the claim commits (or rolls back) with the
+ * rest of the unit of work — then a failed reply leaves no claim and the event retries
+ * cleanly, while a successful one is durably deduped.
  */
-export async function claimOnce(key: string, now: Date = new Date()): Promise<boolean> {
+export async function claimOnce(
+  key: string,
+  now: Date = new Date(),
+  executor: Executor = db,
+): Promise<boolean> {
   const expires_at = new Date(now.getTime() + TTL_MS);
-  const [row] = await db
+  const [row] = await executor
     .insert(idempotencyKeys)
     .values({ key, expires_at })
     .onConflictDoNothing({ target: idempotencyKeys.key })
     .returning({ key: idempotencyKeys.key });
   return row != null;
-}
-
-/**
- * Drop a claim taken with `claimOnce` so a unit of work that ultimately failed can be
- * retried (and re-claimed). Without this, a claim-before-work pattern would permanently
- * suppress an event whose processing threw after the claim was taken.
- */
-export async function release(key: string): Promise<void> {
-  await db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, key));
 }

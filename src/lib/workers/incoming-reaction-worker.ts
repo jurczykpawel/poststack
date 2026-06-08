@@ -6,7 +6,6 @@ import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
-import { claimOnce, release } from "@/lib/idempotency";
 
 /**
  * Process an emoji reaction to one of our messages.
@@ -56,35 +55,25 @@ export async function processIncomingReaction(
   }
 
   // A reaction is not stored as a message, so unlike DMs/comments it has no natural
-  // ingest-dedup row. Claim its identity once — right before firing — so a redelivered
-  // webhook batch (we 503 on partial enqueue failure) cannot fire the rule, and send
-  // the reply, twice. claimOnce is atomic, so even concurrent redeliveries can't both win.
-  const dedupKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
-  if (!(await claimOnce(dedupKey))) {
-    helpers.logger.info("Reaction already processed, skipping redelivery");
-    return;
-  }
-
-  try {
-    const matchedRuleId = await evaluateRules({
-      workspaceId: channel.workspace_id,
-      channelId: channel.id,
-      conversationId,
-      contactId,
-      recipientPlatformId: senderId,
-      text: null,
-      eventType: "message",
-      isReaction: true,
-      reactionType: reactionType ?? undefined,
-    });
-    if (matchedRuleId) {
-      helpers.logger.info(`Reaction rule fired: ${matchedRuleId}`);
-    }
-  } catch (err) {
-    // The claim stands for committed effects. If processing failed, release it and let
-    // the error propagate so the job is retried (and re-claimed) — otherwise the claim
-    // would permanently suppress this reaction's reply on every redelivery.
-    await release(dedupKey);
-    throw err;
+  // ingest-dedup row. Pass a stable identity as the event key: evaluateRules claims it
+  // in the same transaction as the cooldown/send-count mutations and the reply enqueue,
+  // so a redelivered webhook batch (we 503 on partial enqueue failure) cannot fire the
+  // rule, or send the reply, twice — and a transient failure rolls the whole thing back,
+  // leaving nothing claimed, so the job simply retries.
+  const eventKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
+  const matchedRuleId = await evaluateRules({
+    workspaceId: channel.workspace_id,
+    channelId: channel.id,
+    conversationId,
+    contactId,
+    recipientPlatformId: senderId,
+    text: null,
+    eventType: "message",
+    isReaction: true,
+    reactionType: reactionType ?? undefined,
+    eventKey,
+  });
+  if (matchedRuleId) {
+    helpers.logger.info(`Reaction rule fired: ${matchedRuleId}`);
   }
 }

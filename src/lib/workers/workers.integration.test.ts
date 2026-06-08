@@ -205,10 +205,11 @@ describe("incoming-comment worker", () => {
 
 describe("incoming-reaction worker", () => {
   async function seedReactionRule(over: Record<string, unknown> = {}) {
-    await db.insert(s.autoReplyRules).values({
+    const [row] = await db.insert(s.autoReplyRules).values({
       workspace_id: WS, name: "React", trigger_type: "reaction", is_active: true, cooldown_seconds: 0,
       trigger_config: {}, response_type: "text", response_config: { text: "thanks for the reaction!" }, ...over,
-    });
+    }).returning({ id: s.autoReplyRules.id });
+    return row.id;
   }
 
   it("routes to the channel matching the event platform, not a same-id channel on another platform", async () => {
@@ -277,6 +278,79 @@ describe("incoming-reaction worker", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("a cooldown rule whose first reply fails is not blocked by its own cooldown on retry", async () => {
+    if (!TEST_DB) return;
+    // Cooldown is a durable side effect; it must not be spent on a reply that never
+    // went out, or the retry skips the rule and the reply is lost for good.
+    await seedReactionRule({ cooldown_seconds: 3600, response_config: { text: "thanks!", ai_rephrase: true } });
+    const ai = await import("@/lib/ai/rephrase");
+    const spy = vi.spyOn(ai, "rephrase").mockRejectedValueOnce(new Error("AI down"));
+    try {
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-CD", reactedMid: "m-cd", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_333, raw: {} };
+      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      expect(await jobCount("outgoing-message")).toBe(0);
+      // Retry: the cooldown was rolled back with the failed reply, so the rule fires.
+      await w.processIncomingReaction(evt as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a max_sends=1 rule whose first reply fails still sends exactly once on retry (count ends at 1)", async () => {
+    if (!TEST_DB) return;
+    const ruleId = await seedReactionRule({ max_sends_per_contact: 1, response_config: { text: "thanks!", ai_rephrase: true } });
+    const ai = await import("@/lib/ai/rephrase");
+    const spy = vi.spyOn(ai, "rephrase").mockRejectedValueOnce(new Error("AI down"));
+    try {
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-CAP", reactedMid: "m-cap", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_444, raw: {} };
+      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      expect(await jobCount("outgoing-message")).toBe(0);
+      // Retry: the lifetime counter was not spent on the failed reply.
+      await w.processIncomingReaction(evt as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+      const counts = await db.select().from(s.ruleSendCounts).where(eq(s.ruleSendCounts.rule_id, ruleId));
+      expect(counts.length).toBe(1);
+      expect(counts[0].count).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an enqueue failure rolls back the event claim with the reply, so the retry is not silently skipped", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule({ cooldown_seconds: 3600 });
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("enqueue down"));
+    try {
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-ENQ", reactedMid: "m-enq", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_555, raw: {} };
+      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      expect(await jobCount("outgoing-message")).toBe(0);
+      // The claim is taken in the same transaction as the enqueue, so a failed enqueue
+      // leaves no claim behind — otherwise the retry would hit it and skip silently.
+      expect((await db.select().from(s.idempotencyKeys)).length).toBe(0);
+      // Retry: enqueue works, the event fires exactly once and is now claimed.
+      await w.processIncomingReaction(evt as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+      expect((await db.select().from(s.idempotencyKeys)).length).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a higher-priority rule on cooldown does not claim the event and starve a lower-priority rule", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule({ name: "A", priority: 10, cooldown_seconds: 3600 });
+    await seedReactionRule({ name: "B", priority: 5, cooldown_seconds: 0 });
+    // First reaction: A (higher priority) fires and goes on cooldown for this contact.
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-A", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_661, raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    // A different reaction from the same contact: A is cooling down, so B must fire. A's
+    // skip must roll back its event claim, or B would see the event as already handled.
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-B", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_662, raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(2);
   });
 });
 

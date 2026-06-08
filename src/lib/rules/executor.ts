@@ -3,12 +3,25 @@ import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals } from "@/db/schema";
 import { acquireCooldown, incrementSendCount } from "./limits";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
+import { claimOnce } from "@/lib/idempotency";
 import { rephrase } from "@/lib/ai/rephrase";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent } from "./response";
 import type { MessageContent } from "@/lib/platforms/base";
+
+/** The transaction handle passed to db.transaction's callback. */
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/** A deferred unit of DB work — runs inside the fire transaction (enqueue or park). */
+type CommitFn = (tx: DbTx) => Promise<void>;
+
+/** Thrown inside the fire transaction to roll back a non-firing outcome (skip / already). */
+class NotFired extends Error {
+  constructor(public reason: "already" | "skip") {
+    super(reason);
+  }
+}
 
 /**
  * Resolve a rule's reply text: pick the base (single or random from a pool),
@@ -61,6 +74,13 @@ interface EvaluateRulesInput {
   isStoryMention?: boolean;
   isReaction?: boolean;
   reactionType?: string;
+  /**
+   * Stable identity for an event that has no natural ingest-dedup row of its own
+   * (e.g. a reaction). When set, the fire is deduped on it in-transaction and the
+   * outbound jobs get a deterministic idempotency key derived from it, so an
+   * at-least-once redelivery cannot fire the rule (or send the reply) twice.
+   */
+  eventKey?: string;
 }
 
 /**
@@ -71,7 +91,7 @@ interface EvaluateRulesInput {
 export async function evaluateRules(
   input: EvaluateRulesInput
 ): Promise<string | null> {
-  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType } = input;
+  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
 
   const rules = await db.query.autoReplyRules.findMany({
     where: and(
@@ -105,52 +125,84 @@ export async function evaluateRules(
 
     if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType })) continue;
 
-    // Cooldown: atomic acquire prevents concurrent events from firing the same rule
-    if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds))) continue;
+    // Resolve everything that can fail on the network (LLM rephrase) BEFORE we touch
+    // any durable state. A failure here spends no cooldown/send-count and writes no
+    // claim, so the event simply retries.
+    const keyBase = eventKey ? `${eventKey}:${rule.id}` : null;
+    const commit: CommitFn = rule.requires_approval
+      ? await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId })
+      : await planResponse({ rule: candidate, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase });
 
-    // Per-rule lifetime send limit: atomic increment-if-under-cap
-    if (
-      rule.max_sends_per_contact != null &&
-      !(await incrementSendCount(rule.id, contactId, rule.max_sends_per_contact))
-    ) {
-      continue;
-    }
-
-    // Manual approval: park a ready-to-send message for human review instead
-    // of auto-sending. Store the resolved content so the approver acts on the
-    // exact text/buttons that will go out (DM path; comment/follow-gate
-    // approval is out of scope for now).
-    if (rule.requires_approval) {
-      const content = await resolveReplyContent(rule.response_type, candidate.response_config);
-      await db.insert(pendingApprovals).values({
-        workspace_id: workspaceId,
-        rule_id: rule.id,
-        conversation_id: conversationId,
-        contact_id: contactId,
-        channel_id: channelId,
-        recipient_platform_id: recipientPlatformId,
-        proposed_content: JSON.parse(JSON.stringify({ content })),
+    // Commit the rule's side effects as one unit: the event claim, the cooldown and
+    // send-count mutations, and the outbound enqueue (or the parked approval) all
+    // commit together or roll back together. So a failed/rolled-back fire never leaves
+    // a spent limit or a stuck claim that would block the retry.
+    //
+    // Only a *fire* commits. A skip (cooldown/cap) or an already-handled event must roll
+    // back everything the transaction touched — including the event claim and any cooldown
+    // acquired before the cap check — otherwise a rule that didn't send would claim the
+    // event (suppressing the next rule and the retry). Returning a value commits, so we
+    // force the rollback by throwing a sentinel and reading it back out.
+    let outcome: "already" | "skip" | "fired" = "fired";
+    try {
+      await db.transaction(async (tx) => {
+        // Event-level dedup: a redelivery of an already-fired event finds the claim.
+        if (eventKey && !(await claimOnce(eventKey, new Date(), tx))) throw new NotFired("already");
+        // Cooldown: atomic acquire prevents concurrent events from firing the same rule.
+        if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds, tx))) throw new NotFired("skip");
+        // Per-rule lifetime send limit: atomic increment-if-under-cap.
+        if (
+          rule.max_sends_per_contact != null &&
+          !(await incrementSendCount(rule.id, contactId, rule.max_sends_per_contact, tx))
+        ) {
+          throw new NotFired("skip");
+        }
+        await commit(tx);
       });
-      return rule.id;
+    } catch (e) {
+      if (!(e instanceof NotFired)) throw e; // a real failure → rolled back; let the job retry
+      outcome = e.reason;
     }
 
-    // Fire the response
-    await fireResponse({
-      rule: candidate,
-      channelId,
-      conversationId,
-      contactId,
-      recipientPlatformId,
-      commentId,
-    });
-
-    return rule.id;
+    if (outcome === "already") return null; // the whole event was already handled
+    if (outcome === "fired") return rule.id;
+    // "skip": this rule is cooling down / at cap (or lost the race) — try the next one.
   }
 
   return null;
 }
 
-interface FireResponseInput {
+/**
+ * Manual approval: park a ready-to-send message for human review instead of
+ * auto-sending. The content (incl. LLM rephrase) is resolved up front so the
+ * approver acts on the exact text/buttons that will go out; the returned fn
+ * inserts the parked row inside the fire transaction. (DM path; comment/follow-gate
+ * approval is out of scope for now.)
+ */
+async function planApproval(input: {
+  rule: { id: string; response_type: string; response_config: Record<string, unknown> };
+  workspaceId: string;
+  channelId: string;
+  conversationId: string;
+  contactId: string;
+  recipientPlatformId: string;
+}): Promise<CommitFn> {
+  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId } = input;
+  const content = await resolveReplyContent(rule.response_type, rule.response_config);
+  return async (tx) => {
+    await tx.insert(pendingApprovals).values({
+      workspace_id: workspaceId,
+      rule_id: rule.id,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      channel_id: channelId,
+      recipient_platform_id: recipientPlatformId,
+      proposed_content: JSON.parse(JSON.stringify({ content })),
+    });
+  };
+}
+
+interface PlanResponseInput {
   rule: {
     id: string;
     response_type: string;
@@ -162,6 +214,8 @@ interface FireResponseInput {
   contactId: string;
   recipientPlatformId: string;
   commentId?: string;
+  /** `${eventKey}:${ruleId}` when the event has a stable identity, else null. */
+  keyBase: string | null;
 }
 
 /** Build outbound content from a follow-gate branch config ({ text, quick_replies?, buttons? }). */
@@ -170,23 +224,37 @@ function gatedContent(branch: unknown) {
   return { text: cfg.text as string | undefined, ...buildInteractiveContent(cfg) };
 }
 
-async function fireResponse(input: FireResponseInput): Promise<void> {
-  const { rule, channelId, conversationId, contactId, recipientPlatformId, commentId } = input;
+/**
+ * Resolve a rule's response (incl. LLM rephrase) and return a function that enqueues
+ * the outbound job(s) inside the fire transaction. Resolving here — before the
+ * transaction — keeps the network call out of the lock window; if it throws, no limit
+ * is spent. When `keyBase` is set, each job carries a deterministic idempotency key so
+ * a redelivery cannot send a duplicate even if it is re-evaluated.
+ */
+async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
+  const { rule, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase } = input;
+  // Deterministic per-job key when we have an event identity; a fresh uuid otherwise.
+  const idemKey = (discriminator: string) => (keyBase ? `${keyBase}:${discriminator}` : randomUUID());
+  // Dedup the queued job too when the key is deterministic (extra guard on top of the
+  // event claim); leave it unset for uuid keys to preserve prior behaviour.
+  const jobKeyFor = (k: string) => (keyBase ? k : undefined);
 
   // Follow-gate: defer to a worker that re-checks follow status live, then
-  // sends the lead magnet or a re-prompt. Stateless — driven by each tap.
+  // sends the appropriate branch or a re-prompt. Stateless — driven by each tap.
   if (rule.response_type === "follow_gate") {
-    await addJob("follow-gate", {
-      channelId,
-      conversationId,
-      contactId,
-      recipientPlatformId,
-      followed: gatedContent(rule.response_config.followed),
-      notFollowed: gatedContent(rule.response_config.not_followed),
-      sentByRuleId: rule.id,
-      idempotencyKey: randomUUID(),
-    });
-    return;
+    const key = idemKey("gate");
+    return async (tx) => {
+      await addJobTx(tx, "follow-gate", {
+        channelId,
+        conversationId,
+        contactId,
+        recipientPlatformId,
+        followed: gatedContent(rule.response_config.followed),
+        notFollowed: gatedContent(rule.response_config.not_followed),
+        sentByRuleId: rule.id,
+        idempotencyKey: key,
+      }, { jobKey: jobKeyFor(key) });
+    };
   }
 
   const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
@@ -195,50 +263,54 @@ async function fireResponse(input: FireResponseInput): Promise<void> {
   const dmText = await resolveDmText(rule.response_type, rule.response_config);
 
   // Public comment reply (reply_mode: "comment" or "both")
-  let commentSent = false;
-  if ((replyMode === "comment" || replyMode === "both") && commentId) {
-    const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
-    if (commentReplyText) {
-      await addJob("outgoing-comment", {
-        channelId,
-        commentId,
-        text: commentReplyText,
-        sentByRuleId: rule.id,
-        idempotencyKey: randomUUID(),
-      });
-      commentSent = true;
-    }
-  }
+  const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
+  const sendComment = (replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
 
   // Interactive add-ons (quick replies / buttons) attach to the DM body.
   const interactive = buildInteractiveContent(rule.response_config);
   const hasInteractive = interactive.quick_replies !== undefined || interactive.buttons !== undefined;
 
-  // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment failed (no commentId)
-  const shouldDM = replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !commentSent);
-  if (shouldDM && dmText) {
-    if (commentId) {
-      // Comment-triggered DM: addressed by comment_id (works first-touch, no PSID needed).
-      await addJob("outgoing-private-reply", {
-        channelId,
-        conversationId,
-        commentId,
-        text: dmText,
-        ...(hasInteractive ? { content: { text: dmText, ...interactive } } : {}),
-        sentByRuleId: rule.id,
-        idempotencyKey: randomUUID(),
-      });
-    } else {
-      await addJob("outgoing-message", {
-        channelId,
-        conversationId,
-        contactId,
-        recipientPlatformId,
-        content: { text: dmText, ...interactive },
-        sentByRuleId: rule.id,
-        idempotencyKey: randomUUID(),
-      });
-    }
-  }
+  // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment couldn't go out.
+  const shouldDM =
+    (replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !sendComment)) && !!dmText;
 
+  return async (tx) => {
+    if (sendComment) {
+      const key = idemKey("comment");
+      await addJobTx(tx, "outgoing-comment", {
+        channelId,
+        commentId,
+        text: commentReplyText!,
+        sentByRuleId: rule.id,
+        idempotencyKey: key,
+      }, { jobKey: jobKeyFor(key) });
+    }
+
+    if (shouldDM) {
+      if (commentId) {
+        // Comment-triggered DM: addressed by comment_id (works first-touch, no PSID needed).
+        const key = idemKey("dm");
+        await addJobTx(tx, "outgoing-private-reply", {
+          channelId,
+          conversationId,
+          commentId,
+          text: dmText!,
+          ...(hasInteractive ? { content: { text: dmText!, ...interactive } } : {}),
+          sentByRuleId: rule.id,
+          idempotencyKey: key,
+        }, { jobKey: jobKeyFor(key) });
+      } else {
+        const key = idemKey("dm");
+        await addJobTx(tx, "outgoing-message", {
+          channelId,
+          conversationId,
+          contactId,
+          recipientPlatformId,
+          content: { text: dmText!, ...interactive },
+          sentByRuleId: rule.id,
+          idempotencyKey: key,
+        }, { jobKey: jobKeyFor(key) });
+      }
+    }
+  };
 }
