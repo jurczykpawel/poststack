@@ -6,6 +6,7 @@ import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { claimOnce } from "@/lib/idempotency";
 
 /**
  * Process an emoji reaction to one of our messages.
@@ -51,6 +52,17 @@ export async function processIncomingReaction(
 
   if (isAutomationPaused) {
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
+    return;
+  }
+
+  // A reaction is not stored as a message, so unlike DMs/comments it has no natural
+  // ingest-dedup row. Claim its identity once — right before firing — so a redelivered
+  // webhook batch (we 503 on partial enqueue failure) cannot fire the rule, and send
+  // the reply, twice. Claiming here (after the idempotent contact upsert) means a
+  // transient failure above is retried rather than swallowed by the claim.
+  const dedupKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
+  if (!(await claimOnce(dedupKey))) {
+    helpers.logger.info("Reaction already processed, skipping redelivery");
     return;
   }
 

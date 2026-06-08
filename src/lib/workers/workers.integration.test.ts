@@ -77,6 +77,9 @@ beforeEach(async () => {
   provider.sendMessage.mockResolvedValue({ platformMessageId: "PMID-1" });
   provider.refreshToken.mockImplementation(async (t: unknown) => t);
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
+  // Idempotency claims are a shared key→TTL store with no workspace scope; clear it
+  // so reaction-dedup keys don't survive into a re-run of this suite.
+  await db.delete(s.outboundIdempotency);
   // sequence_enrollments.channel_id has no cascade — remove before the workspace.
   await db.delete(s.sequenceEnrollments).where(eq(s.sequenceEnrollments.channel_id, CH));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
@@ -235,6 +238,17 @@ describe("incoming-reaction worker", () => {
     await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "angry", emoji: "😠", timestamp: ts(), raw: {} } as never, helpers);
     expect(await jobCount("outgoing-message")).toBe(0);
     await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+  });
+
+  it("deduplicates a redelivered reaction so the rule fires (and replies) only once", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule();
+    // Same reaction identity (sender + reacted message + timestamp) delivered twice,
+    // as happens when the webhook batch is retried. The rule must fire only once.
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-DUP", reactedMid: "m-dup", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_111, raw: {} };
+    await w.processIncomingReaction(evt as never, helpers);
+    await w.processIncomingReaction(evt as never, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 });

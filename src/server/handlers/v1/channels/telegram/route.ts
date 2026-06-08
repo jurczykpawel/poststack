@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { upsertChannels } from "@/lib/channels/upsert";
+import { addJob } from "@/lib/queue/client";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { created, ApiErrors } from "@/lib/api/response";
 import { db } from "@/lib/db";
@@ -34,7 +35,15 @@ export async function POST(request: Request) {
     return ApiErrors.badRequest("Invalid bot token — create one with @BotFather and paste it here");
   }
 
-  await upsertChannels(auth.workspaceId, "telegram", accounts, { connectionMode: "manual_token" });
+  // Defer draining any parked messages until setWebhook confirms the inbox works —
+  // otherwise a reconnect would flush held messages through a channel whose webhook
+  // ends up failing.
+  const { recoveredChannelIds } = await upsertChannels(
+    auth.workspaceId,
+    "telegram",
+    accounts,
+    { connectionMode: "manual_token", deferDrain: true },
+  );
 
   // Register the webhook with the channel's stored secret so incoming updates verify.
   // A bot without a working webhook has a dead inbox — treat failure as a failed
@@ -57,6 +66,11 @@ export async function POST(request: Request) {
         .where(eq(channels.id, channel.id));
     }
     return ApiErrors.badRequest("Bot connected but webhook registration failed — check the token and try again");
+  }
+
+  // Webhook is live — now it's safe to flush anything parked while the bot was down.
+  for (const channelId of recoveredChannelIds) {
+    await addJob("drain-channel", { channelId });
   }
 
   await recordAudit({

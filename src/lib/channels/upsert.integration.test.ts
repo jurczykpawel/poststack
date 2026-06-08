@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -81,6 +81,19 @@ describe("upsertChannels (real Postgres)", () => {
     expect(c?.status).toBe("active");
     const jobs = await db.execute(sql`select task_identifier from graphile_worker.jobs where task_identifier = 'drain-channel'`);
     expect(jobs.rows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("deferDrain returns the recovered channels without enqueuing the drain (caller drains after confirming)", async () => {
+    if (!TEST_DB) return;
+    await upsertChannels(WS, "facebook", [account("X")]);
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.platform_id, PAGE));
+    const before = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = 'drain-channel'`);
+    const { recoveredChannelIds } = await upsertChannels(WS, "facebook", [account("X")], { deferDrain: true });
+    const c = await getChannel();
+    expect(recoveredChannelIds).toEqual([c!.id]);
+    // No drain was enqueued — the caller will do it once the channel is confirmed working.
+    const after = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = 'drain-channel'`);
+    expect((after.rows[0] as { n: number }).n).toBe((before.rows[0] as { n: number }).n);
   });
 
   it("rejects more than the per-call account cap", async () => {
@@ -173,6 +186,33 @@ describe("upsertChannels (real Postgres)", () => {
       expect(after?.display_name).toBe("Owner A");
       const inWs2 = await db.select().from(s.channels).where(and(eq(s.channels.workspace_id, WS2), eq(s.channels.platform_id, PAGE)));
       expect(inWs2.length).toBe(0);
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    }
+  });
+
+  it("a stale (disabled) owner reconnecting an account that is live elsewhere gets a clean error, not a constraint crash", async () => {
+    if (!TEST_DB) return;
+    const WS2 = "eeeeeeee-0000-0000-0000-0000000000c6";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
+    await db.insert(s.workspaces).values({ id: WS2, name: "Live", slug: `live-${WS2}` });
+    try {
+      const ACCT = "STALE-PAGE";
+      // The caller (WS) used to own this account, but its channel is now disabled.
+      await db.insert(s.channels).values({ workspace_id: WS, platform: "facebook", platform_id: ACCT, token_encrypted: "x", webhook_secret: "old", status: "disabled" });
+      // WS2 now owns it live.
+      await upsertChannels(WS2, "facebook", [{ platformId: ACCT, displayName: "Live", tokens: { access_token: "t" } }]);
+      // WS reconnects. The ownership check must look at the LIVE owner deterministically
+      // and reject cleanly — not pass on its own disabled row and then hit a raw unique
+      // constraint when the upsert tries to re-activate it.
+      await expect(
+        upsertChannels(WS, "facebook", [{ platformId: ACCT, displayName: "Reclaim", tokens: { access_token: "r" } }]),
+      ).rejects.toThrow(/another workspace/);
+      const wsChan = await db.query.channels.findFirst({ where: and(eq(s.channels.workspace_id, WS), eq(s.channels.platform_id, ACCT)) });
+      expect(wsChan?.status).toBe("disabled"); // untouched
+      const active = await db.select().from(s.channels).where(and(eq(s.channels.platform_id, ACCT), ne(s.channels.status, "disabled")));
+      expect(active.length).toBe(1);
+      expect(active[0].workspace_id).toBe(WS2);
     } finally {
       await db.delete(s.workspaces).where(eq(s.workspaces.id, WS2));
     }

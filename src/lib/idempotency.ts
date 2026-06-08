@@ -22,3 +22,20 @@ export async function claim(key: string, now: Date = new Date()): Promise<void> 
     .values({ key, expires_at })
     .onConflictDoUpdate({ target: outboundIdempotency.key, set: { expires_at } });
 }
+
+/**
+ * Atomically claim a key only if it is not already claimed. Returns true when this
+ * call created the claim (the caller should do the work) and false when it already
+ * existed (the caller should treat it as already done). Used to deduplicate, at
+ * ingest, events that have no natural unique row of their own (e.g. reactions),
+ * so an at-least-once redelivery does not process them twice.
+ */
+export async function claimOnce(key: string, now: Date = new Date()): Promise<boolean> {
+  const expires_at = new Date(now.getTime() + TTL_MS);
+  const [row] = await db
+    .insert(outboundIdempotency)
+    .values({ key, expires_at })
+    .onConflictDoNothing({ target: outboundIdempotency.key })
+    .returning({ key: outboundIdempotency.key });
+  return row != null;
+}

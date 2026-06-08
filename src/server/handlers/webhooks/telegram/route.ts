@@ -11,29 +11,40 @@ export const runtime = "nodejs";
  * (and authenticate) the channel by the per-channel secret Telegram echoes in
  * the X-Telegram-Bot-Api-Secret-Token header (set during connect via setWebhook).
  *
- * Always returns 200 — Telegram retries for ~1h on non-200, so unknown secrets
- * and unsupported update types are silently ignored (same posture as Meta).
+ * Telegram retries for ~1h on non-200. Non-retryable conditions (no/unknown
+ * secret, unsupported update type) return 200 so they aren't re-sent. But a
+ * transient failure (DB lookup or enqueue throwing) returns 500 so the update is
+ * retried instead of silently dropped; the per-update jobKey keeps retries
+ * idempotent.
  */
 export async function POST(request: Request): Promise<Response> {
   const ok = () => new Response("ok", { status: 200 });
-  try {
-    const secret = request.headers.get("x-telegram-bot-api-secret-token");
-    if (!secret) return ok();
+  const retry = () => new Response("error", { status: 500 });
 
-    const channel = await db.query.channels.findFirst({
+  const secret = request.headers.get("x-telegram-bot-api-secret-token");
+  if (!secret) return ok();
+
+  let channel: { id: string; platform_id: string } | undefined;
+  try {
+    channel = await db.query.channels.findFirst({
       where: and(eq(channels.webhook_secret, secret), eq(channels.platform, "telegram"), ne(channels.status, "disabled")),
       columns: { id: true, platform_id: true },
     });
-    if (!channel) return ok();
+  } catch (err) {
+    console.error("[telegram webhook] channel lookup failed:", err);
+    return retry(); // transient — let Telegram redeliver
+  }
+  if (!channel) return ok();
 
-    const update = (await request.json().catch(() => null)) as TelegramUpdate | null;
-    const msg = update?.message;
-    // MVP: only plain text messages. edited_message / callback_query / etc. are ignored.
-    if (!update || !msg || !msg.text) return ok();
+  const update = (await request.json().catch(() => null)) as TelegramUpdate | null;
+  const msg = update?.message;
+  // MVP: only plain text messages. edited_message / callback_query / etc. are ignored.
+  if (!update || !msg || !msg.text) return ok();
 
-    // message_id is unique only per chat, so identity must include bot + chat to
-    // avoid cross-chat dedup collisions dropping messages.
-    const identity = `${channel.platform_id}-${msg.chat.id}-${msg.message_id}`;
+  // message_id is unique only per chat, so identity must include bot + chat to
+  // avoid cross-chat dedup collisions dropping messages.
+  const identity = `${channel.platform_id}-${msg.chat.id}-${msg.message_id}`;
+  try {
     await addJob(
       "incoming-message",
       {
@@ -51,7 +62,8 @@ export async function POST(request: Request): Promise<Response> {
       { jobKey: `tg-${identity}` },
     );
   } catch (err) {
-    console.error("[telegram webhook] failed:", err);
+    console.error("[telegram webhook] enqueue failed:", err);
+    return retry(); // transient — let Telegram redeliver (jobKey dedups)
   }
   return ok();
 }

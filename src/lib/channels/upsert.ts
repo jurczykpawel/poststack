@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, platform as platformEnum, channelConnectionMode as connModeEnum } from "@/db/schema";
 import { encryptTokens } from "@/lib/crypto";
@@ -35,8 +35,8 @@ export async function upsertChannels(
   workspaceId: string,
   platform: Platform,
   accounts: ConnectedAccount[],
-  opts: { connectionMode?: ChannelConnectionMode } = {}
-): Promise<void> {
+  opts: { connectionMode?: ChannelConnectionMode; deferDrain?: boolean } = {}
+): Promise<{ recoveredChannelIds: string[] }> {
   const connectionMode = opts.connectionMode ?? "oauth";
   if (accounts.length > MAX_ACCOUNTS_PER_OAUTH) {
     throw new Error(`Too many accounts (${accounts.length}), max ${MAX_ACCOUNTS_PER_OAUTH}`);
@@ -61,11 +61,19 @@ export async function upsertChannels(
       // commit, so the ownership check and the insert are one critical section.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
-      const existing = await tx.query.channels.findFirst({
-        where: and(eq(channels.platform, platform), eq(channels.platform_id, account.platformId)),
+      // Look at the LIVE (non-disabled) owner only. The partial unique index
+      // guarantees at most one such row per account, so this is deterministic —
+      // unlike matching any row, which could return a stale disabled duplicate and
+      // let the upsert re-activate it into a raw unique-constraint violation.
+      const live = await tx.query.channels.findFirst({
+        where: and(
+          eq(channels.platform, platform),
+          eq(channels.platform_id, account.platformId),
+          ne(channels.status, "disabled"),
+        ),
         columns: { id: true, status: true, workspace_id: true },
       });
-      if (existing && existing.workspace_id !== workspaceId) {
+      if (live && live.workspace_id !== workspaceId) {
         throw new Error(`This ${platform} account is already connected to another workspace`);
       }
 
@@ -97,16 +105,20 @@ export async function upsertChannels(
         })
         .returning({ id: channels.id });
 
-      out.push({ channelId: channel.id, recovered: existing?.status === "needs_reauth" });
+      out.push({ channelId: channel.id, recovered: live?.status === "needs_reauth" });
     }
     return out;
   });
 
   // Reconnecting a broken channel recovers it — drain anything parked while it was
-  // down (REL5). Enqueue after commit so a rollback can't leave a stray job.
-  for (const r of results) {
-    if (r.recovered) {
-      await addJob("drain-channel", { channelId: r.channelId });
+  // down (REL5). Enqueue after commit so a rollback can't leave a stray job. Callers
+  // that must confirm the channel actually works first (e.g. Telegram waits for
+  // setWebhook) pass deferDrain and enqueue the drain themselves once confirmed.
+  const recoveredChannelIds = results.filter((r) => r.recovered).map((r) => r.channelId);
+  if (!opts.deferDrain) {
+    for (const channelId of recoveredChannelIds) {
+      await addJob("drain-channel", { channelId });
     }
   }
+  return { recoveredChannelIds };
 }
