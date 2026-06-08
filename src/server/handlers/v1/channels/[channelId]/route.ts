@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
@@ -74,22 +74,33 @@ export async function PATCH(
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   else if (parsed.data.is_active !== undefined) data.status = parsed.data.is_active ? "active" : "disabled";
 
-  const [updated] = await db
-    .update(channels)
-    .set(data)
-    .where(eq(channels.id, channelId))
-    .returning({
-      id: channels.id,
-      platform: channels.platform,
-      platform_id: channels.platform_id,
-      display_name: channels.display_name,
-      username: channels.username,
-      profile_picture: channels.profile_picture,
-      status: channels.status,
-      last_error: channels.last_error,
-      last_health_at: channels.last_health_at,
-      created_at: channels.created_at,
-    });
+  let updated;
+  try {
+    [updated] = await db
+      .update(channels)
+      .set(data)
+      .where(eq(channels.id, channelId))
+      .returning({
+        id: channels.id,
+        platform: channels.platform,
+        platform_id: channels.platform_id,
+        display_name: channels.display_name,
+        username: channels.username,
+        profile_picture: channels.profile_picture,
+        status: channels.status,
+        last_error: channels.last_error,
+        last_health_at: channels.last_health_at,
+        created_at: channels.created_at,
+      });
+  } catch (err) {
+    // Reactivating an account that is already active in another workspace hits the
+    // active-channel uniqueness index. The DB correctly rejects it (one live channel
+    // per account) — surface that as a clean conflict, not a 500.
+    if (isUniqueViolation(err)) {
+      return ApiErrors.conflict("This account is already connected and active in another workspace");
+    }
+    throw err;
+  }
 
   return ok({ ...updated, is_active: updated.status === "active" });
 }

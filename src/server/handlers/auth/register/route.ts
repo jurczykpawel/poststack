@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { eq, count, sql } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { users, workspaces, workspaceMembers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import { signSession, sessionCookie } from "@/lib/auth";
@@ -21,10 +21,6 @@ const schema = z.object({
   ),
   captchaToken: z.string().optional(),
 });
-
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "23505";
-}
 
 export async function POST(request: Request) {
   // Rate limit: 5 registrations per hour per IP

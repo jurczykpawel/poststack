@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
-import { inArray } from "drizzle-orm";
+import { inArray, eq } from "drizzle-orm";
 import { workspaces, channels, contacts, apiKeys } from "@/db/schema";
 import type { Hono } from "hono";
 
@@ -93,6 +93,29 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.display_name).toBe("Renamed");
+  });
+
+  it("returns 409 (not 500) when reactivating a channel whose account is active in another workspace", async () => {
+    if (!TEST_DB) return;
+    const SHARED = "PAGE_SHARED_SEC15";
+    const CH_A_DIS = "dddddddd-0000-0000-0000-0000000000d1";
+    const CH_B_ACT = "dddddddd-0000-0000-0000-0000000000d2";
+    // WS_B owns the account live; WS_A has only a disabled row for the same account.
+    await db.insert(channels).values({ id: CH_B_ACT, workspace_id: WS_B, platform: "facebook", platform_id: SHARED, token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "wb", status: "active" });
+    await db.insert(channels).values({ id: CH_A_DIS, workspace_id: WS_A, platform: "facebook", platform_id: SHARED, token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "wa", status: "disabled" });
+    try {
+      const res = await app.request(`/api/v1/channels/${CH_A_DIS}`, {
+        method: "PATCH",
+        headers: { ...authHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ status: "active" }),
+      });
+      expect(res.status).toBe(409);
+      // The DB rejected the reactivation, so WS_A's channel stays disabled.
+      const row = await db.query.channels.findFirst({ where: eq(channels.id, CH_A_DIS), columns: { status: true } });
+      expect(row?.status).toBe("disabled");
+    } finally {
+      await db.delete(channels).where(inArray(channels.id, [CH_A_DIS, CH_B_ACT]));
+    }
   });
 
   it("omits webhook_secret from the channel detail response (machine-only field)", async () => {
