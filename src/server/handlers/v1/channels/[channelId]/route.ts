@@ -32,7 +32,8 @@ export async function GET(
   const { channelId } = await params;
   const channel = await db.query.channels.findFirst({
     where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
-    columns: { ...DETAIL_COLUMNS, webhook_secret: true },
+    // webhook_secret is machine-only (the app registers + verifies it); never in the API response.
+    columns: DETAIL_COLUMNS,
   });
 
   if (!channel) return ApiErrors.notFound();

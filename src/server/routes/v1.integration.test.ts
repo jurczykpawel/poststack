@@ -95,6 +95,15 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(body.data.display_name).toBe("Renamed");
   });
 
+  it("omits webhook_secret from the channel detail response (machine-only field)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request(`/api/v1/channels/${CH_A}`, { headers: authHeaders });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.id).toBe(CH_A);
+    expect(body.data).not.toHaveProperty("webhook_secret");
+  });
+
   it("returns the workspace settings", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api/v1/workspace", { headers: authHeaders });
