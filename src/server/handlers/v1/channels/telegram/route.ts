@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { upsertChannels } from "@/lib/channels/upsert";
@@ -69,8 +69,24 @@ export async function POST(request: Request) {
   }
 
   // Webhook is live — now it's safe to flush anything parked while the bot was down.
-  for (const channelId of recoveredChannelIds) {
-    await addJob("drain-channel", { channelId });
+  // If the drain can't be scheduled, the channel is already active but its held
+  // messages have nothing to flush them: a later reconnect won't re-recover an
+  // already-active channel. Roll the un-drained channels back to needs_reauth so the
+  // next reconnect re-recovers them and retries the drain, rather than stranding them.
+  const drained: string[] = [];
+  try {
+    for (const channelId of recoveredChannelIds) {
+      await addJob("drain-channel", { channelId });
+      drained.push(channelId);
+    }
+  } catch {
+    const stranded = recoveredChannelIds.filter((id) => !drained.includes(id));
+    if (stranded.length > 0) {
+      await db.update(channels)
+        .set({ status: "needs_reauth", last_error: "Held-message drain could not be scheduled — reconnect to retry" })
+        .where(inArray(channels.id, stranded));
+    }
+    return ApiErrors.badRequest("Bot connected but queuing held messages failed — try connecting again");
   }
 
   await recordAudit({
