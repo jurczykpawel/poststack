@@ -4,7 +4,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { messages, conversations, contactChannels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -99,18 +99,20 @@ export async function POST(
     return ApiErrors.badRequest("No platform identity found for this contact");
   }
 
-  // Clear needs_manual_reply flag (human is responding)
-  await db.update(conversations).set({ needs_manual_reply: false }).where(eq(conversations.id, conversation.id));
-
-  // Enqueue outgoing message
-  await addJob("outgoing-message", {
-    channelId: conversation.channel_id,
-    conversationId: conversation.id,
-    contactId: conversation.contact_id,
-    recipientPlatformId: contactChannel.platform_sender_id,
-    content: { text: parsed.data.text },
-    sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
-    idempotencyKey: randomUUID(),
+  // Clear the manual-attention flag and enqueue the reply in ONE transaction: if
+  // the enqueue fails, the flag stays set so the operator still sees the conversation needs
+  // a reply, instead of clearing the alert for a message that never went out.
+  await db.transaction(async (tx) => {
+    await tx.update(conversations).set({ needs_manual_reply: false }).where(eq(conversations.id, conversation.id));
+    await addJobTx(tx, "outgoing-message", {
+      channelId: conversation.channel_id,
+      conversationId: conversation.id,
+      contactId: conversation.contact_id,
+      recipientPlatformId: contactChannel.platform_sender_id,
+      content: { text: parsed.data.text },
+      sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
+      idempotencyKey: randomUUID(),
+    });
   });
 
   return created({ queued: true });
