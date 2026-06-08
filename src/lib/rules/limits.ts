@@ -55,3 +55,37 @@ export async function incrementSendCount(
     RETURNING count`);
   return result.rows.length > 0;
 }
+
+/**
+ * Non-mutating eligibility prechecks. These are an optimisation/guard so that an
+ * ineligible rule does not run the expensive, fallible response planning (LLM
+ * rephrase) before the authoritative transactional acquire. They are advisory only —
+ * the in-transaction `acquireCooldown` / `incrementSendCount` remain the concurrency
+ * authority, since a peek can race with a concurrent fire.
+ */
+
+/** True if the rule is currently cooling down for this contact (would not acquire). */
+export async function isOnCooldown(
+  ruleId: string,
+  contactId: string,
+  cooldownSeconds: number,
+): Promise<boolean> {
+  if (cooldownSeconds <= 0) return false; // no cooldown configured
+  const result = await db.execute(sql`
+    SELECT 1 FROM rule_cooldowns
+    WHERE rule_id = ${ruleId}::uuid AND contact_id = ${contactId}::uuid AND expires_at > now()`);
+  return result.rows.length > 0;
+}
+
+/** True if the rule has already reached its lifetime send cap for this contact. */
+export async function isAtCap(
+  ruleId: string,
+  contactId: string,
+  maxSends: number,
+): Promise<boolean> {
+  if (maxSends <= 0) return true; // never send
+  const result = await db.execute(sql`
+    SELECT 1 FROM rule_send_counts
+    WHERE rule_id = ${ruleId}::uuid AND contact_id = ${contactId}::uuid AND count >= ${maxSends}`);
+  return result.rows.length > 0;
+}

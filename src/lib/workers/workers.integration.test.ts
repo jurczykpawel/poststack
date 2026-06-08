@@ -131,6 +131,31 @@ describe("incoming-message worker (real Postgres)", () => {
       w.processIncomingMessage({ platform: "facebook", pageId: "NOPE", senderId: "x", recipientId: "y", mid: "m", text: "t", timestamp: ts(), raw: {} } as never, helpers),
     ).resolves.toBeUndefined();
   });
+
+  it("retries a DM rule whose first reply enqueue failed — not lost to the message dedup", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "DM", trigger_type: "default", is_active: true, cooldown_seconds: 0,
+      trigger_config: {}, response_type: "text", response_config: { text: "hi back" },
+    });
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("enqueue down"));
+    try {
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-RETRY", recipientId: PAGE, mid: "mid-dmretry", text: "hello", timestamp: ts(), raw: {} };
+      // First delivery: message is stored, then the reply enqueue fails. The worker must
+      // surface the error (retry) instead of swallowing it behind the committed message.
+      await expect(w.processIncomingMessage(job as never, helpers)).rejects.toThrow();
+      expect(await jobCount("outgoing-message")).toBe(0);
+      // Retry: the message is already stored (deduped), but the rule must still fire once.
+      await w.processIncomingMessage(job as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+      // Redelivery after success: no duplicate reply.
+      await w.processIncomingMessage(job as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("incoming-comment worker", () => {
@@ -191,6 +216,27 @@ describe("incoming-comment worker", () => {
     await w.processIncomingComment(job as never, helpers);
     expect(await jobCount("outgoing-comment")).toBe(0);
     expect(await jobCount("outgoing-private-reply")).toBe(1);
+  });
+
+  it("retries a comment rule whose first reply enqueue failed — not lost to the comment-log dedup", async () => {
+    if (!TEST_DB) return;
+    await seedCommentRule({ text: "DM!", reply_mode: "dm" });
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("enqueue down"));
+    try {
+      const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-retry", postId: "p1", senderId: "CMT-RETRY", senderName: "Bob", text: "info please", timestamp: ts(), raw: {} };
+      // First delivery: the comment is logged, then the reply enqueue fails → surface it.
+      await expect(w.processIncomingComment(job as never, helpers)).rejects.toThrow();
+      expect(await jobCount("outgoing-private-reply")).toBe(0);
+      // Retry: the comment is already logged (deduped), but the rule must still fire once.
+      await w.processIncomingComment(job as never, helpers);
+      expect(await jobCount("outgoing-private-reply")).toBe(1);
+      // Redelivery after success: no duplicate reply.
+      await w.processIncomingComment(job as never, helpers);
+      expect(await jobCount("outgoing-private-reply")).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("does not reply when no rule matches (but still logs)", async () => {
@@ -351,6 +397,56 @@ describe("incoming-reaction worker", () => {
     // skip must roll back its event claim, or B would see the event as already handled.
     await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-B", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_662, raw: {} } as never, helpers);
     expect(await jobCount("outgoing-message")).toBe(2);
+  });
+
+  //  — eligibility precheck must gate the (paid/slow) AI before planning a reply.
+  it("does not call the AI for a redelivered, already-handled reaction", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule({ response_config: { text: "thanks!", ai_rephrase: true } });
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "R-AI-DUP", reactedMid: "m-aidup", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_771, raw: {} };
+    await w.processIncomingReaction(evt as never, helpers); // first: fires + claims (AI ran)
+    const ai = await import("@/lib/ai/rephrase");
+    const spy = vi.spyOn(ai, "rephrase");
+    try {
+      await w.processIncomingReaction(evt as never, helpers); // redelivery: already claimed
+      expect(spy).not.toHaveBeenCalled();
+      expect(await jobCount("outgoing-message")).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a cooling-down AI rule does not call the AI, and a lower-priority rule still fires", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule({ name: "Hi", priority: 10, cooldown_seconds: 3600, response_config: { text: "hi", ai_rephrase: true } });
+    await seedReactionRule({ name: "Lo", priority: 5, cooldown_seconds: 0, response_config: { text: "lo" } });
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CD-AI", reactedMid: "m-cd1", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_772, raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    const ai = await import("@/lib/ai/rephrase");
+    const spy = vi.spyOn(ai, "rephrase");
+    try {
+      await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CD-AI", reactedMid: "m-cd2", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_773, raw: {} } as never, helpers);
+      expect(spy).not.toHaveBeenCalled(); // high rule cooling down → no AI; low rule has none
+      expect(await jobCount("outgoing-message")).toBe(2); // low rule fired
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a rule at its send cap does not call the AI", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule({ max_sends_per_contact: 1, response_config: { text: "x", ai_rephrase: true } });
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CAP-AI", reactedMid: "m-cap1", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_774, raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    const ai = await import("@/lib/ai/rephrase");
+    const spy = vi.spyOn(ai, "rephrase");
+    try {
+      await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CAP-AI", reactedMid: "m-cap2", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_775, raw: {} } as never, helpers);
+      expect(spy).not.toHaveBeenCalled();
+      expect(await jobCount("outgoing-message")).toBe(1); // capped → no second send
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

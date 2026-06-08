@@ -72,7 +72,10 @@ export async function processIncomingMessage(
     });
   }
 
-  // 3. Upsert Conversation
+  // 3. Ensure the Conversation row exists and capture its id + automation flag. Stats
+  //    (unread count, previews) are NOT mutated here — that happens once, only for a
+  //    newly-ingested message (step 5), so a redelivery or a retry can't inflate them.
+  const preview = text ? text.slice(0, 255) : null;
   const [conversation] = await db
     .insert(conversations)
     .values({
@@ -82,26 +85,19 @@ export async function processIncomingMessage(
       platform: channel.platform,
       last_message_at: messageDate,
       last_inbound_at: messageDate,
-      last_message_preview: text ? text.slice(0, 255) : null,
-      unread_count: 1,
+      last_message_preview: preview,
+      unread_count: 0,
     })
     .onConflictDoUpdate({
       target: [conversations.channel_id, conversations.contact_id],
-      set: {
-        status: "open",
-        last_message_at: messageDate,
-        last_inbound_at: messageDate,
-        last_message_preview: text ? text.slice(0, 255) : null,
-        unread_count: sql`${conversations.unread_count} + 1`,
-      },
+      set: { status: "open" },
     })
     .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
 
   // 4. Insert inbound Message — unique on (conversation_id, platform_message_id)
-  //    prevents a race (two concurrent workers for the same mid in this
-  //    conversation). Scoping to the conversation keeps the id from one
-  //    conversation from suppressing another's message. A no-op conflict returns
-  //    no row → the message was already processed.
+  //    prevents a race (two concurrent workers for the same mid in this conversation)
+  //    and dedups a redelivery. Scoping to the conversation keeps the id from one
+  //    conversation from suppressing another's message.
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -115,40 +111,47 @@ export async function processIncomingMessage(
     .onConflictDoNothing({ target: [messages.conversation_id, messages.platform_message_id] })
     .returning({ id: messages.id });
 
-  if (!inserted) {
-    helpers.logger.info(`mid=${sanitizeForLog(mid)} already processed (unique constraint), skipping`);
-    return;
+  const isNewMessage = !!inserted;
+
+  // 5. For a newly-ingested message, bump conversation stats exactly once.
+  if (isNewMessage) {
+    await db.update(conversations).set({
+      last_message_at: messageDate,
+      last_inbound_at: messageDate,
+      last_message_preview: preview,
+      unread_count: sql`${conversations.unread_count} + 1`,
+    }).where(eq(conversations.id, conversation.id));
+    helpers.logger.info(
+      `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${sanitizeForLog(mid)}`
+    );
+  } else {
+    helpers.logger.info(`mid=${sanitizeForLog(mid)} already ingested — re-evaluating (idempotent via event key)`);
   }
 
-  helpers.logger.info(
-    `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${sanitizeForLog(mid)}`
-  );
-
-  // 5. Evaluate auto-reply rules (skip if automation is paused)
+  // 6. Evaluate auto-reply rules (skip if automation is paused). Always evaluate, even on
+  //    a redelivery/retry: the event key makes the rule fire at most once (claimed in the
+  //    same transaction as the reply enqueue), and any failure here propagates so the job
+  //    is retried — rather than being swallowed and then lost to the message dedup.
   if (!conversation.is_automation_paused) {
-    try {
-      const matchedRuleId = await evaluateRules({
-        workspaceId: channel.workspace_id,
-        channelId: channel.id,
-        conversationId: conversation.id,
-        contactId,
-        recipientPlatformId: senderId,
-        text,
-        eventType: "message",
-        quickReplyPayload,
-        postbackPayload,
-        isStoryReply,
-        isStoryMention,
-      });
-      if (matchedRuleId) {
-        helpers.logger.info(`Rule fired: ${matchedRuleId}`);
-        await db.update(conversations).set({ needs_manual_reply: false }).where(eq(conversations.id, conversation.id));
-      } else {
-        // No rule matched -- flag for human attention
-        await db.update(conversations).set({ needs_manual_reply: true }).where(eq(conversations.id, conversation.id));
-      }
-    } catch (err) {
-      helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
+    const matchedRuleId = await evaluateRules({
+      workspaceId: channel.workspace_id,
+      channelId: channel.id,
+      conversationId: conversation.id,
+      contactId,
+      recipientPlatformId: senderId,
+      text,
+      eventType: "message",
+      quickReplyPayload,
+      postbackPayload,
+      isStoryReply,
+      isStoryMention,
+      eventKey: `message:${conversation.id}:${mid}`,
+    });
+    // The manual-attention flag reflects the freshly-ingested message; don't re-flip it on
+    // a redelivery (when evaluateRules no-ops on the existing claim and returns null).
+    if (isNewMessage) {
+      await db.update(conversations).set({ needs_manual_reply: matchedRuleId == null }).where(eq(conversations.id, conversation.id));
     }
+    if (matchedRuleId) helpers.logger.info(`Rule fired: ${matchedRuleId}`);
   }
 }

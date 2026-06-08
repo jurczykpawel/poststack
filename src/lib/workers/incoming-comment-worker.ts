@@ -43,8 +43,9 @@ export async function processIncomingComment(
     return;
   }
 
-  // 2. Log comment — unique constraint prevents duplicates atomically; a no-op
-  //    conflict returns no row → already logged.
+  // 2. Log the comment for the inbox — unique constraint dedups a redelivery
+  //    idempotently. Logging is just storage; it does NOT gate the rule evaluation
+  //    below, so a retry after a failed reply still re-evaluates.
   const [logged] = await db
     .insert(commentLogs)
     .values({
@@ -59,12 +60,11 @@ export async function processIncomingComment(
     .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
     .returning({ id: commentLogs.id });
 
-  if (!logged) {
-    helpers.logger.info(`commentId=${sanitizeForLog(commentId)} already logged (unique constraint), skipping`);
-    return;
-  }
-
-  helpers.logger.info(`Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} author=${sanitizeForLog(senderId ?? "")}`);
+  helpers.logger.info(
+    logged
+      ? `Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} author=${sanitizeForLog(senderId ?? "")}`
+      : `commentId=${sanitizeForLog(commentId)} already logged — re-evaluating (idempotent via event key)`,
+  );
 
   // 3. Upsert the commenter as a contact + conversation, then evaluate rules.
   //    The commenter is keyed by their comment author id. A DM reply is sent via
@@ -83,22 +83,22 @@ export async function processIncomingComment(
     return;
   }
 
-  try {
-    const matchedRuleId = await evaluateRules({
-      workspaceId: channel.workspace_id,
-      channelId: channel.id,
-      conversationId,
-      contactId,
-      recipientPlatformId: senderId,
-      text,
-      eventType: "comment",
-      postId: postId ?? undefined,
-      commentId,
-    });
-    if (matchedRuleId) {
-      helpers.logger.info(`Comment rule fired: ${matchedRuleId}`);
-    }
-  } catch (err) {
-    helpers.logger.info(`Rule evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
+  // Always evaluate (even on a redelivery): the event key makes the rule fire at most once
+  // — claimed in the same transaction as the reply enqueue — and any failure propagates so
+  // the job retries instead of being swallowed and lost to the comment-log dedup.
+  const matchedRuleId = await evaluateRules({
+    workspaceId: channel.workspace_id,
+    channelId: channel.id,
+    conversationId,
+    contactId,
+    recipientPlatformId: senderId,
+    text,
+    eventType: "comment",
+    postId: postId ?? undefined,
+    commentId,
+    eventKey: `comment:${channel.id}:${commentId}`,
+  });
+  if (matchedRuleId) {
+    helpers.logger.info(`Comment rule fired: ${matchedRuleId}`);
   }
 }

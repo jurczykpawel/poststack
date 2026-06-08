@@ -2,9 +2,9 @@ import { randomUUID } from "crypto";
 import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals } from "@/db/schema";
-import { acquireCooldown, incrementSendCount } from "./limits";
+import { acquireCooldown, incrementSendCount, isOnCooldown, isAtCap } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
-import { claimOnce } from "@/lib/idempotency";
+import { claimOnce, isClaimed } from "@/lib/idempotency";
 import { rephrase } from "@/lib/ai/rephrase";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
@@ -115,6 +115,11 @@ export async function evaluateRules(
     },
   });
 
+  // Eligibility precheck (non-mutating): if this event was already handled, do nothing —
+  // and never plan a reply (LLM rephrase) for it. The in-transaction claim below is the
+  // authority; this just avoids the work on a redelivery.
+  if (eventKey && (await isClaimed(eventKey))) return null;
+
   for (const rule of rules) {
     const candidate = {
       ...rule,
@@ -124,6 +129,13 @@ export async function evaluateRules(
     };
 
     if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType })) continue;
+
+    // Eligibility precheck (non-mutating): skip planning the reply for a rule that is
+    // cooling down or at its cap, so it neither calls the AI nor blocks fallthrough to a
+    // lower-priority rule that should answer. The transactional acquire below stays the
+    // concurrency authority (a peek can race), but it only runs for plausibly-firing rules.
+    if (await isOnCooldown(rule.id, contactId, rule.cooldown_seconds)) continue;
+    if (rule.max_sends_per_contact != null && (await isAtCap(rule.id, contactId, rule.max_sends_per_contact))) continue;
 
     // Resolve everything that can fail on the network (LLM rephrase) BEFORE we touch
     // any durable state. A failure here spends no cooldown/send-count and writes no
