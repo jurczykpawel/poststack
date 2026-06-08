@@ -79,7 +79,7 @@ beforeEach(async () => {
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
   // Idempotency claims are a shared key→TTL store with no workspace scope; clear it
   // so reaction-dedup keys don't survive into a re-run of this suite.
-  await db.delete(s.outboundIdempotency);
+  await db.delete(s.idempotencyKeys);
   // sequence_enrollments.channel_id has no cascade — remove before the workspace.
   await db.delete(s.sequenceEnrollments).where(eq(s.sequenceEnrollments.channel_id, CH));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
@@ -250,6 +250,33 @@ describe("incoming-reaction worker", () => {
     await w.processIncomingReaction(evt as never, helpers);
     await w.processIncomingReaction(evt as never, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
+  });
+
+  it("retries a reaction whose first evaluation failed, replying exactly once (no permanent drop)", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule();
+    const executor = await import("@/lib/rules/executor");
+    const spy = vi.spyOn(executor, "evaluateRules").mockRejectedValueOnce(new Error("transient downstream failure"));
+    try {
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-RETRY", reactedMid: "m-retry", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_222, raw: {} };
+
+      // First delivery: the claim is taken, then evaluation throws. The worker must
+      // surface the error so the job is retried — not swallow it behind the claim,
+      // which would drop the reply for good.
+      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      expect(await jobCount("outgoing-message")).toBe(0);
+
+      // Retry of the same reaction (graphile reschedule): the released claim lets it
+      // run, and the rule fires exactly once.
+      await w.processIncomingReaction(evt as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+
+      // A still-later duplicate is deduped by the now-committed claim.
+      await w.processIncomingReaction(evt as never, helpers);
+      expect(await jobCount("outgoing-message")).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

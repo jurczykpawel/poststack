@@ -21,7 +21,7 @@ const PAST = new Date(NOW.getTime() - 60_000);
 const FUTURE = new Date(NOW.getTime() + 3_600_000);
 
 async function cleanup() {
-  await db.delete(s.outboundIdempotency).where(inArray(s.outboundIdempotency.key, [IDEM_OLD, IDEM_NEW]));
+  await db.delete(s.idempotencyKeys).where(inArray(s.idempotencyKeys.key, [IDEM_OLD, IDEM_NEW]));
   await db.delete(s.ruleCooldowns).where(eq(s.ruleCooldowns.rule_id, RULE));
   await db.delete(s.revokedTokens).where(inArray(s.revokedTokens.jti, [JTI_OLD, JTI_NEW]));
   await db.delete(s.rateLimitCounters).where(inArray(s.rateLimitCounters.key, [RL_OLD, RL_NEW]));
@@ -38,7 +38,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await cleanup();
-  await db.insert(s.outboundIdempotency).values([
+  await db.insert(s.idempotencyKeys).values([
     { key: IDEM_OLD, expires_at: PAST },
     { key: IDEM_NEW, expires_at: FUTURE },
   ]);
@@ -65,7 +65,7 @@ describe("pruneExpired (real Postgres)", () => {
     if (!TEST_DB) return;
     await pruneExpired(NOW);
 
-    const idem = await db.select().from(s.outboundIdempotency).where(inArray(s.outboundIdempotency.key, [IDEM_OLD, IDEM_NEW]));
+    const idem = await db.select().from(s.idempotencyKeys).where(inArray(s.idempotencyKeys.key, [IDEM_OLD, IDEM_NEW]));
     expect(idem.map((r) => r.key)).toEqual([IDEM_NEW]);
 
     const cds = await db.select().from(s.ruleCooldowns).where(eq(s.ruleCooldowns.rule_id, RULE));

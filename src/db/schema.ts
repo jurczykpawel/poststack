@@ -515,11 +515,13 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
-export const outboundIdempotency = pgTable("outbound_idempotency", {
+// Generic key → expires_at claim/dedup store (TTL). Backs outgoing-send
+// idempotency and at-ingest event dedup (e.g. reactions, see claimOnce).
+export const idempotencyKeys = pgTable("idempotency_keys", {
 	key: text().primaryKey().notNull(),
 	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("outbound_idempotency_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
+	index("idempotency_keys_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
 ]);
 
 export const pendingApprovals = pgTable("pending_approvals", {
