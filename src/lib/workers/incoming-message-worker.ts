@@ -133,25 +133,36 @@ export async function processIncomingMessage(
   //    same transaction as the reply enqueue), and any failure here propagates so the job
   //    is retried — rather than being swallowed and then lost to the message dedup.
   if (!conversation.is_automation_paused) {
-    const matchedRuleId = await evaluateRules({
-      workspaceId: channel.workspace_id,
-      channelId: channel.id,
-      conversationId: conversation.id,
-      contactId,
-      recipientPlatformId: senderId,
-      text,
-      eventType: "message",
-      quickReplyPayload,
-      postbackPayload,
-      isStoryReply,
-      isStoryMention,
-      eventKey: `message:${conversation.id}:${mid}`,
-    });
-    // The manual-attention flag reflects the freshly-ingested message; don't re-flip it on
-    // a redelivery (when evaluateRules no-ops on the existing claim and returns null).
-    if (isNewMessage) {
-      await db.update(conversations).set({ needs_manual_reply: matchedRuleId == null }).where(eq(conversations.id, conversation.id));
+    try {
+      const matchedRuleId = await evaluateRules({
+        workspaceId: channel.workspace_id,
+        channelId: channel.id,
+        conversationId: conversation.id,
+        contactId,
+        recipientPlatformId: senderId,
+        text,
+        eventType: "message",
+        quickReplyPayload,
+        postbackPayload,
+        isStoryReply,
+        isStoryMention,
+        eventKey: `message:${conversation.id}:${mid}`,
+      });
+      // The manual-attention flag reflects the freshly-ingested message; don't re-flip it on
+      // a redelivery (when evaluateRules no-ops on the existing claim and returns null).
+      if (isNewMessage) {
+        await db.update(conversations).set({ needs_manual_reply: matchedRuleId == null }).where(eq(conversations.id, conversation.id));
+      }
+      if (matchedRuleId) helpers.logger.info(`Rule fired: ${matchedRuleId}`);
+    } catch (err) {
+      // The auto-reply couldn't be produced/queued. Earlier attempts just retry; on the
+      // final attempt the reply is permanently lost, so flag the conversation for a human
+      // before rethrowing (which dead-letters the job) — otherwise the failure is silent.
+      const job: { attempts: number; max_attempts: number } | undefined = helpers.job;
+      if (job && job.attempts >= job.max_attempts) {
+        await db.update(conversations).set({ needs_manual_reply: true }).where(eq(conversations.id, conversation.id));
+      }
+      throw err;
     }
-    if (matchedRuleId) helpers.logger.info(`Rule fired: ${matchedRuleId}`);
   }
 }

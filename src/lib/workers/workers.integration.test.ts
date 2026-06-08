@@ -156,6 +156,65 @@ describe("incoming-message worker (real Postgres)", () => {
       spy.mockRestore();
     }
   });
+
+  //  — a permanently-lost DM auto-reply must surface to the operator.
+  const helpersJob = (attempts: number, max_attempts: number) =>
+    ({ logger: { info: () => {} }, job: { attempts, max_attempts } } as never);
+  async function convFlag(sender: string) {
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, sender));
+    const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
+    return conv.needs_manual_reply;
+  }
+  async function seedDefaultDmRule() {
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "DM", trigger_type: "default", is_active: true, cooldown_seconds: 0,
+      trigger_config: {}, response_type: "text", response_config: { text: "hi" },
+    });
+  }
+
+  it("flags the conversation for manual reply when a DM auto-reply fails on its final attempt", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent"));
+    try {
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-LAST", recipientId: PAGE, mid: "mid-last", text: "hello", timestamp: ts(), raw: {} };
+      await expect(w.processIncomingMessage(job as never, helpersJob(3, 3))).rejects.toThrow();
+      expect(await convFlag("DM-LAST")).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not flag the conversation on a non-final failed attempt (still retrying)", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("transient"));
+    try {
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-MID", recipientId: PAGE, mid: "mid-mid", text: "hello", timestamp: ts(), raw: {} };
+      await expect(w.processIncomingMessage(job as never, helpersJob(1, 3))).rejects.toThrow();
+      expect(await convFlag("DM-MID")).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("leaves the manual-reply flag false when a transient DM failure then succeeds on retry", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("transient"));
+    try {
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-OK", recipientId: PAGE, mid: "mid-ok", text: "hello", timestamp: ts(), raw: {} };
+      await expect(w.processIncomingMessage(job as never, helpersJob(1, 3))).rejects.toThrow(); // attempt 1 fails
+      await w.processIncomingMessage(job as never, helpersJob(2, 3)); // attempt 2 succeeds
+      expect(await jobCount("outgoing-message")).toBe(1);
+      expect(await convFlag("DM-OK")).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("incoming-comment worker", () => {
