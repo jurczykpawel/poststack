@@ -215,6 +215,79 @@ describe("incoming-message worker (real Postgres)", () => {
       spy.mockRestore();
     }
   });
+
+  //  — a no-match / paused event is terminally claimed, so a later redelivery
+  // (after a rule is added or after unpause) does not produce a late reply to an old event.
+  it("a no-match DM is terminally claimed — adding a rule then redelivering does not reply late", async () => {
+    if (!TEST_DB) return;
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-NM", recipientId: PAGE, mid: "mid-nm", text: "hello", timestamp: ts(), raw: {} };
+    await w.processIncomingMessage(job as never, helpers); // no rule yet → no-match, claimed
+    expect(await jobCount("outgoing-message")).toBe(0);
+    await seedDefaultDmRule(); // operator adds a matching rule
+    await w.processIncomingMessage(job as never, helpers); // redelivery of the SAME event
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
+  it("a paused DM is terminally claimed — unpausing then redelivering does not reply late", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const CONTACT_P = "eeeeeeee-0000-0000-0000-0000000aa001";
+    await db.insert(s.contacts).values({ id: CONTACT_P, workspace_id: WS });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "-PAUSE" });
+    await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_P, platform: "facebook", is_automation_paused: true });
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-PAUSE", recipientId: PAGE, mid: "mid-pause", text: "hello", timestamp: ts(), raw: {} };
+    await w.processIncomingMessage(job as never, helpers); // paused → claim + skip
+    expect(await jobCount("outgoing-message")).toBe(0);
+    await db.update(s.conversations).set({ is_automation_paused: false }).where(eq(s.conversations.contact_id, CONTACT_P));
+    await w.processIncomingMessage(job as never, helpers); // redelivery after unpause
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
+  //  — two parallel deliveries of the same new DM: the worker that loses the claim
+  // race must read "already handled" (not no-match) and not flag a conversation the winner
+  // just auto-replied to.
+  it("two parallel deliveries of the same DM → exactly one reply and needs_manual_reply stays false", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const CONTACT_R = "eeeeeeee-0000-0000-0000-0000000aa002";
+    // Pre-seed identity so both deliveries race only on the message/claim, not contact creation.
+    await db.insert(s.contacts).values({ id: CONTACT_R, workspace_id: WS });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT_R, channel_id: CH, platform_sender_id: "-RACE" });
+    await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_R, platform: "facebook" });
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-RACE", recipientId: PAGE, mid: "mid-race", text: "hello", timestamp: ts(), raw: {} };
+    await Promise.all([
+      w.processIncomingMessage(job as never, helpers),
+      w.processIncomingMessage(job as never, helpers),
+    ]);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect(await convFlag("-RACE")).toBe(false);
+  });
+
+  //  — a stale final-failure of an old message must not re-raise the flag on a
+  // conversation a newer message already resolved.
+  it("an old DM's final-failure does not overwrite a conversation a newer message resolved", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const SENDER = "";
+    const OLD_TS = 1_770_000_900;
+    const NEW_TS = 1_770_001_000;
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx");
+    spy.mockRejectedValueOnce(new Error("transient")); // old msg, attempt 1: fails (non-final)
+    spy.mockResolvedValueOnce(undefined); // newer msg: auto-reply succeeds, resolves the conversation
+    spy.mockRejectedValue(new Error("permanent")); // old msg, final attempt: fails for good
+    try {
+      const oldJob = { platform: "facebook", pageId: PAGE, senderId: SENDER, recipientId: PAGE, mid: "mid-old", text: "hello", timestamp: OLD_TS, raw: {} };
+      await expect(w.processIncomingMessage(oldJob as never, helpersJob(1, 3))).rejects.toThrow();
+      const newJob = { ...oldJob, mid: "mid-new", timestamp: NEW_TS };
+      await w.processIncomingMessage(newJob as never, helpers); // newer message resolves it → flag false
+      expect(await convFlag(SENDER)).toBe(false);
+      await expect(w.processIncomingMessage(oldJob as never, helpersJob(3, 3))).rejects.toThrow(); // old final fail
+      expect(await convFlag(SENDER)).toBe(false); // not re-raised by the stale retry
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("incoming-comment worker", () => {
@@ -305,6 +378,25 @@ describe("incoming-comment worker", () => {
     await w.processIncomingComment(job as never, helpers);
     expect(await jobCount("outgoing-comment")).toBe(0);
     expect(await jobCount("outgoing-private-reply")).toBe(0);
+  });
+
+  //  — a redelivered comment resolves identity but must not bump activity/status.
+  it("a redelivered comment does not reopen or reorder a closed conversation", async () => {
+    if (!TEST_DB) return;
+    await seedCommentRule({ text: "x", reply_mode: "dm" });
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-reopen", postId: "p1", senderId: "CMT-REOPEN", senderName: "Z", text: "info", timestamp: ts(), raw: {} };
+    await w.processIncomingComment(job as never, helpers); // first delivery: logs + fires DM
+    expect(await jobCount("outgoing-private-reply")).toBe(1);
+    // Operator closes the conversation; record an old last_message_at.
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "CMT-REOPEN"));
+    const past = new Date("2020-01-01T00:00:00.000Z");
+    await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
+    // Redelivery of the SAME comment: identity resolves, but status/order are untouched.
+    await w.processIncomingComment(job as never, helpers);
+    const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
+    expect(conv.status).toBe("closed");
+    expect(conv.last_message_at?.getTime()).toBe(past.getTime());
+    expect(await jobCount("outgoing-private-reply")).toBe(1); // no duplicate reply
   });
 });
 

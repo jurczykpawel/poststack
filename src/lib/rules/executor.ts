@@ -16,6 +16,16 @@ type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** A deferred unit of DB work — runs inside the fire transaction (enqueue or park). */
 type CommitFn = (tx: DbTx) => Promise<void>;
 
+/**
+ * The terminal result of evaluating an event:
+ * - `fired`      — a rule matched and its reply/approval was queued (`ruleId` set);
+ * - `no_match`   — no rule fired; the event is now terminally claimed (so a redelivery,
+ *                  even after a rule is added, won't reply late) — flag for a human;
+ * - `already`    — the event was already handled (a prior delivery or a concurrent one);
+ *                  the caller must NOT change conversation state for it.
+ */
+export type EvaluateOutcome = { outcome: "fired" | "no_match" | "already"; ruleId: string | null };
+
 /** Thrown inside the fire transaction to roll back a non-firing outcome (skip / already). */
 class NotFired extends Error {
   constructor(public reason: "already" | "skip") {
@@ -90,7 +100,7 @@ interface EvaluateRulesInput {
  */
 export async function evaluateRules(
   input: EvaluateRulesInput
-): Promise<string | null> {
+): Promise<EvaluateOutcome> {
   const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
 
   const rules = await db.query.autoReplyRules.findMany({
@@ -118,7 +128,7 @@ export async function evaluateRules(
   // Eligibility precheck (non-mutating): if this event was already handled, do nothing —
   // and never plan a reply (LLM rephrase) for it. The in-transaction claim below is the
   // authority; this just avoids the work on a redelivery.
-  if (eventKey && (await isClaimed(eventKey))) return null;
+  if (eventKey && (await isClaimed(eventKey))) return { outcome: "already", ruleId: null };
 
   for (const rule of rules) {
     const candidate = {
@@ -176,12 +186,19 @@ export async function evaluateRules(
       outcome = e.reason;
     }
 
-    if (outcome === "already") return null; // the whole event was already handled
-    if (outcome === "fired") return rule.id;
+    if (outcome === "already") return { outcome: "already", ruleId: null }; // already handled
+    if (outcome === "fired") return { outcome: "fired", ruleId: rule.id };
     // "skip": this rule is cooling down / at cap (or lost the race) — try the next one.
   }
 
-  return null;
+  // No rule fired. Terminally mark the event as processed so a redelivery — even after a
+  // new rule is added, or after the conversation is unpaused — does not produce a late
+  // reply to an old event. A lost claim race means a concurrent delivery already handled it.
+  if (eventKey) {
+    const claimed = await claimOnce(eventKey);
+    return { outcome: claimed ? "no_match" : "already", ruleId: null };
+  }
+  return { outcome: "no_match", ruleId: null };
 }
 
 /**

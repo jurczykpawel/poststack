@@ -4,6 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, commentLogs } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
+import { claimOnce } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -76,9 +77,17 @@ export async function processIncomingComment(
     senderId,
     senderName ?? null,
     text.slice(0, 255),
+    // Only a newly-logged comment bumps activity; a redelivery/retry of an old comment
+    // resolves identity without reordering the inbox or reopening the conversation.
+    { mutateActivity: !!logged },
   );
 
+  const eventKey = `comment:${channel.id}:${commentId}`;
+
   if (isAutomationPaused) {
+    // Still terminally claim the event so a redelivery after unpause doesn't reply to an
+    // old comment.
+    await claimOnce(eventKey);
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying`);
     return;
   }
@@ -86,7 +95,7 @@ export async function processIncomingComment(
   // Always evaluate (even on a redelivery): the event key makes the rule fire at most once
   // — claimed in the same transaction as the reply enqueue — and any failure propagates so
   // the job retries instead of being swallowed and lost to the comment-log dedup.
-  const matchedRuleId = await evaluateRules({
+  const { ruleId } = await evaluateRules({
     workspaceId: channel.workspace_id,
     channelId: channel.id,
     conversationId,
@@ -96,9 +105,9 @@ export async function processIncomingComment(
     eventType: "comment",
     postId: postId ?? undefined,
     commentId,
-    eventKey: `comment:${channel.id}:${commentId}`,
+    eventKey,
   });
-  if (matchedRuleId) {
-    helpers.logger.info(`Comment rule fired: ${matchedRuleId}`);
+  if (ruleId) {
+    helpers.logger.info(`Comment rule fired: ${ruleId}`);
   }
 }

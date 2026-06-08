@@ -1,9 +1,10 @@
 import type { JobHelpers } from "graphile-worker";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, lte, ne, sql } from "drizzle-orm";
 import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { channels, contactChannels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
+import { claimOnce } from "@/lib/idempotency";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
@@ -128,41 +129,57 @@ export async function processIncomingMessage(
     helpers.logger.info(`mid=${sanitizeForLog(mid)} already ingested — re-evaluating (idempotent via event key)`);
   }
 
-  // 6. Evaluate auto-reply rules (skip if automation is paused). Always evaluate, even on
-  //    a redelivery/retry: the event key makes the rule fire at most once (claimed in the
-  //    same transaction as the reply enqueue), and any failure here propagates so the job
-  //    is retried — rather than being swallowed and then lost to the message dedup.
-  if (!conversation.is_automation_paused) {
-    try {
-      const matchedRuleId = await evaluateRules({
-        workspaceId: channel.workspace_id,
-        channelId: channel.id,
-        conversationId: conversation.id,
-        contactId,
-        recipientPlatformId: senderId,
-        text,
-        eventType: "message",
-        quickReplyPayload,
-        postbackPayload,
-        isStoryReply,
-        isStoryMention,
-        eventKey: `message:${conversation.id}:${mid}`,
-      });
-      // The manual-attention flag reflects the freshly-ingested message; don't re-flip it on
-      // a redelivery (when evaluateRules no-ops on the existing claim and returns null).
-      if (isNewMessage) {
-        await db.update(conversations).set({ needs_manual_reply: matchedRuleId == null }).where(eq(conversations.id, conversation.id));
-      }
-      if (matchedRuleId) helpers.logger.info(`Rule fired: ${matchedRuleId}`);
-    } catch (err) {
-      // The auto-reply couldn't be produced/queued. Earlier attempts just retry; on the
-      // final attempt the reply is permanently lost, so flag the conversation for a human
-      // before rethrowing (which dead-letters the job) — otherwise the failure is silent.
-      const job: { attempts: number; max_attempts: number } | undefined = helpers.job;
-      if (job && job.attempts >= job.max_attempts) {
-        await db.update(conversations).set({ needs_manual_reply: true }).where(eq(conversations.id, conversation.id));
-      }
-      throw err;
+  const eventKey = `message:${conversation.id}:${mid}`;
+
+  // Only mutate the per-conversation manual-attention flag when THIS message is still the
+  // latest activity: an old retry / late dead-letter must not overwrite a state a
+  // newer message or a human reply already resolved. `last_message_at` advances on any
+  // newer inbound or outbound, so this is a no-op once the conversation has moved on.
+  const flagIfLatest = (needs: boolean) =>
+    db.update(conversations)
+      .set({ needs_manual_reply: needs })
+      .where(and(eq(conversations.id, conversation.id), lte(conversations.last_message_at, messageDate)));
+
+  // 6. Evaluate auto-reply rules. When paused, the event is still terminally claimed so a
+  //    redelivery after unpause doesn't reply to an old message. Otherwise always
+  //    evaluate, even on a redelivery/retry: the event key makes the rule fire at most once
+  //    (claimed in the same transaction as the reply enqueue), and any failure propagates so
+  //    the job is retried rather than swallowed and lost to the message dedup.
+  if (conversation.is_automation_paused) {
+    await claimOnce(eventKey);
+    return;
+  }
+
+  try {
+    const { outcome, ruleId } = await evaluateRules({
+      workspaceId: channel.workspace_id,
+      channelId: channel.id,
+      conversationId: conversation.id,
+      contactId,
+      recipientPlatformId: senderId,
+      text,
+      eventType: "message",
+      quickReplyPayload,
+      postbackPayload,
+      isStoryReply,
+      isStoryMention,
+      eventKey,
+    });
+    // Change the flag only for an outcome THIS call actually decided: a fired reply
+    // clears it, a real no-match raises it, and an `already`-handled event (a concurrent or
+    // redelivered duplicate) leaves it untouched — so a lost claim race can't wrongly flag a
+    // conversation that another worker just auto-replied to.
+    if (outcome === "fired") await flagIfLatest(false);
+    else if (outcome === "no_match") await flagIfLatest(true);
+    if (ruleId) helpers.logger.info(`Rule fired: ${ruleId}`);
+  } catch (err) {
+    // The auto-reply couldn't be produced/queued. Earlier attempts just retry; on the final
+    // attempt the reply is permanently lost, so flag the conversation for a human before
+    // rethrowing (which dead-letters the job) — otherwise the failure is silent.
+    const job: { attempts: number; max_attempts: number } | undefined = helpers.job;
+    if (job && job.attempts >= job.max_attempts) {
+      await flagIfLatest(true);
     }
+    throw err;
   }
 }

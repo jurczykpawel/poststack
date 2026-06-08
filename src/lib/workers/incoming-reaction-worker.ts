@@ -4,6 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
+import { claimOnce } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -49,11 +50,6 @@ export async function processIncomingReaction(
     reactionType ? `Reacted: ${reactionType}` : "Reacted",
   );
 
-  if (isAutomationPaused) {
-    helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
-    return;
-  }
-
   // A reaction is not stored as a message, so unlike DMs/comments it has no natural
   // ingest-dedup row. Pass a stable identity as the event key: evaluateRules claims it
   // in the same transaction as the cooldown/send-count mutations and the reply enqueue,
@@ -61,7 +57,15 @@ export async function processIncomingReaction(
   // rule, or send the reply, twice — and a transient failure rolls the whole thing back,
   // leaving nothing claimed, so the job simply retries.
   const eventKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
-  const matchedRuleId = await evaluateRules({
+
+  if (isAutomationPaused) {
+    // Still terminally claim so a redelivery after unpause doesn't fire on an old reaction.
+    await claimOnce(eventKey);
+    helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
+    return;
+  }
+
+  const { ruleId } = await evaluateRules({
     workspaceId: channel.workspace_id,
     channelId: channel.id,
     conversationId,
@@ -73,7 +77,7 @@ export async function processIncomingReaction(
     reactionType: reactionType ?? undefined,
     eventKey,
   });
-  if (matchedRuleId) {
-    helpers.logger.info(`Reaction rule fired: ${matchedRuleId}`);
+  if (ruleId) {
+    helpers.logger.info(`Reaction rule fired: ${ruleId}`);
   }
 }

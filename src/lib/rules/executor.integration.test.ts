@@ -85,7 +85,7 @@ describe("evaluateRules (real Postgres)", () => {
     if (!TEST_DB) return;
     const id = await seedRule();
     const fired = await evaluateRules(baseInput);
-    expect(fired).toBe(id);
+    expect(fired.ruleId).toBe(id);
     expect(await outgoingJobCount()).toBe(1);
   });
 
@@ -93,15 +93,15 @@ describe("evaluateRules (real Postgres)", () => {
     if (!TEST_DB) return;
     await seedRule();
     const fired = await evaluateRules({ ...baseInput, text: "unrelated" });
-    expect(fired).toBeNull();
+    expect(fired.ruleId).toBeNull();
     expect(await outgoingJobCount()).toBe(0);
   });
 
   it("respects the cooldown: a second identical event does not re-fire", async () => {
     if (!TEST_DB) return;
     await seedRule({ cooldown_seconds: 3600 });
-    expect(await evaluateRules(baseInput)).not.toBeNull();
-    expect(await evaluateRules(baseInput)).toBeNull();
+    expect((await evaluateRules(baseInput)).ruleId).not.toBeNull();
+    expect((await evaluateRules(baseInput)).ruleId).toBeNull();
     expect(await outgoingJobCount()).toBe(1);
   });
 
@@ -113,7 +113,7 @@ describe("evaluateRules (real Postgres)", () => {
       response_type: "text", response_config: { text: "DM!", reply_mode: "dm" },
     });
     const fired = await evaluateRules({ ...baseInput, text: "info here", eventType: "comment", commentId: "CMT-1" });
-    expect(fired).not.toBeNull();
+    expect(fired.ruleId).not.toBeNull();
     expect(await outgoingJobCount()).toBe(0);
     const pr = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-private-reply'`);
     expect(Number((pr.rows[0] as { n: number }).n)).toBe(1);
@@ -127,7 +127,7 @@ describe("evaluateRules (real Postgres)", () => {
       trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
       response_type: "random_text", response_config: { messages: pool, ai_rephrase: true },
     });
-    expect(await evaluateRules(baseInput)).not.toBeNull();
+    expect((await evaluateRules(baseInput)).ruleId).not.toBeNull();
     const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
     const text = (job.rows[0] as { payload: { content: { text: string } } }).payload.content.text;
     expect(pool).toContain(text);
@@ -145,7 +145,7 @@ describe("evaluateRules (real Postgres)", () => {
       trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
       response_type: "text", response_config: { text: "Pick:", quick_replies, buttons },
     });
-    expect(await evaluateRules(baseInput)).not.toBeNull();
+    expect((await evaluateRules(baseInput)).ruleId).not.toBeNull();
     const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
     const content = (job.rows[0] as { payload: { content: { text: string; quick_replies: unknown; buttons: unknown } } }).payload.content;
     expect(content.text).toBe("Pick:");
@@ -161,7 +161,7 @@ describe("evaluateRules (real Postgres)", () => {
       trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
       response_type: "text", response_config: { text: "Tap to claim:", reply_mode: "dm", buttons },
     });
-    expect(await evaluateRules({ ...baseInput, text: "info please", eventType: "comment", commentId: "CMT-9" })).not.toBeNull();
+    expect((await evaluateRules({ ...baseInput, text: "info please", eventType: "comment", commentId: "CMT-9" })).ruleId).not.toBeNull();
     const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-private-reply'`);
     const payload = (job.rows[0] as { payload: { text: string; content: { buttons: unknown } } }).payload;
     expect(payload.text).toBe("Tap to claim:");
@@ -180,7 +180,7 @@ describe("evaluateRules (real Postgres)", () => {
       },
     });
     const fired = await evaluateRules({ ...baseInput, text: null, postbackPayload: "CLAIM_LM" });
-    expect(fired).not.toBeNull();
+    expect(fired.ruleId).not.toBeNull();
     expect(await outgoingJobCount()).toBe(0); // gated — nothing sent directly
     const fg = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'follow-gate'`);
     const p = (fg.rows[0] as { payload: { followed: { text: string }; notFollowed: { text: string; buttons: Array<{ payload: string }> } } }).payload;
@@ -195,8 +195,8 @@ describe("evaluateRules (real Postgres)", () => {
       workspace_id: WS, name: "Story", trigger_type: "story_reply", is_active: true, cooldown_seconds: 0,
       trigger_config: {}, response_type: "text", response_config: { text: "thanks for the story reply!" },
     });
-    expect(await evaluateRules({ ...baseInput, text: "love it" })).toBeNull(); // plain DM
-    expect(await evaluateRules({ ...baseInput, text: "love it", isStoryReply: true })).not.toBeNull();
+    expect((await evaluateRules({ ...baseInput, text: "love it" })).ruleId).toBeNull(); // plain DM
+    expect((await evaluateRules({ ...baseInput, text: "love it", isStoryReply: true })).ruleId).not.toBeNull();
     expect(await outgoingJobCount()).toBe(1);
   });
 
@@ -204,7 +204,7 @@ describe("evaluateRules (real Postgres)", () => {
     if (!TEST_DB) return;
     const id = await seedRule({ requires_approval: true });
     const fired = await evaluateRules(baseInput);
-    expect(fired).toBe(id);
+    expect(fired.ruleId).toBe(id);
     expect(await outgoingJobCount()).toBe(0);
     const approvals = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
     expect(approvals.length).toBe(1);
