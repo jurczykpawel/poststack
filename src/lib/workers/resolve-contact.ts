@@ -4,6 +4,40 @@ import { contacts, contactChannels, conversations } from "@/db/schema";
 import type { Platform } from "@/db/schema";
 
 /**
+ * Ensure a conversation row exists for (channel, contact) and return its id + automation
+ * flag, WITHOUT mutating any existing row's activity/status. A brand-new row gets the
+ * supplied initial timestamp/preview; an existing one is left exactly as it is — so a
+ * redelivery/retry can resolve identity without reordering the inbox or reopening a
+ * closed/snoozed conversation. Activity is bumped explicitly by the caller,
+ * only for a genuinely new, newest event.
+ */
+export async function ensureConversation(
+  channel: { id: string; workspace_id: string; platform: Platform },
+  contactId: string,
+  initial: { last_message_at: Date; last_message_preview: string | null },
+): Promise<{ id: string; is_automation_paused: boolean }> {
+  const [created] = await db
+    .insert(conversations)
+    .values({
+      workspace_id: channel.workspace_id,
+      channel_id: channel.id,
+      contact_id: contactId,
+      platform: channel.platform,
+      last_message_at: initial.last_message_at,
+      last_message_preview: initial.last_message_preview,
+      unread_count: 0,
+    })
+    .onConflictDoNothing({ target: [conversations.channel_id, conversations.contact_id] })
+    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
+  if (created) return created;
+  const existing = await db.query.conversations.findFirst({
+    where: and(eq(conversations.channel_id, channel.id), eq(conversations.contact_id, contactId)),
+    columns: { id: true, is_automation_paused: true },
+  });
+  return existing!;
+}
+
+/**
  * Find-or-create the contact + conversation for a sender on a channel, keyed by
  * the platform-native sender id. Shared by the comment and reaction workers,
  * which both need to materialise a conversation before evaluating rules.
@@ -69,26 +103,7 @@ export async function resolveContactConversation(
     return { contactId, conversationId: conversation.id, isAutomationPaused: conversation.is_automation_paused };
   }
 
-  // Ensure the conversation exists WITHOUT touching activity/status: a brand-new row gets
-  // its initial timestamp, but an existing conversation is left exactly as it is.
-  const [created] = await db
-    .insert(conversations)
-    .values({
-      workspace_id: channel.workspace_id,
-      channel_id: channel.id,
-      contact_id: contactId,
-      platform: channel.platform,
-      last_message_at: new Date(),
-      last_message_preview: preview,
-    })
-    .onConflictDoNothing({ target: [conversations.channel_id, conversations.contact_id] })
-    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
-  if (created) {
-    return { contactId, conversationId: created.id, isAutomationPaused: created.is_automation_paused };
-  }
-  const existing = await db.query.conversations.findFirst({
-    where: and(eq(conversations.channel_id, channel.id), eq(conversations.contact_id, contactId)),
-    columns: { id: true, is_automation_paused: true },
-  });
-  return { contactId, conversationId: existing!.id, isAutomationPaused: existing!.is_automation_paused };
+  // Ensure the conversation exists WITHOUT touching activity/status.
+  const conversation = await ensureConversation(channel, contactId, { last_message_at: new Date(), last_message_preview: preview });
+  return { contactId, conversationId: conversation.id, isAutomationPaused: conversation.is_automation_paused };
 }

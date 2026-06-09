@@ -307,6 +307,47 @@ describe("incoming-message worker (real Postgres)", () => {
     await w.processIncomingMessage(job as never, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
   });
+
+  //  — an out-of-order older message must not move conversation activity backwards.
+  it("an out-of-order older message does not move conversation activity backwards", async () => {
+    if (!TEST_DB) return;
+    const T2 = ts();
+    const T1 = T2 - 3600; // an hour older, but ingested second
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t2", text: "newer", timestamp: T2, raw: {} } as never, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t1", text: "older", timestamp: T1, raw: {} } as never, helpers);
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, ""));
+    const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
+    expect(conv.last_message_at?.getTime()).toBe(T2 * 1000);
+    expect(conv.last_inbound_at?.getTime()).toBe(T2 * 1000);
+    expect(conv.last_message_preview).toBe("newer");
+  });
+
+  //  — a duplicate DM must dedup before mutating lifecycle (no reopen / no reorder).
+  it("a duplicate DM does not reopen or reorder a closed conversation", async () => {
+    if (!TEST_DB) return;
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-DM", recipientId: PAGE, mid: "m-dup", text: "hi", timestamp: ts(), raw: {} };
+    await w.processIncomingMessage(job as never, helpers); // creates conversation
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "-DM"));
+    const past = new Date("2020-01-01T00:00:00.000Z");
+    await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
+    await w.processIncomingMessage(job as never, helpers); // redelivery of the SAME message
+    const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
+    expect(conv.status).toBe("closed");
+    expect(conv.last_message_at?.getTime()).toBe(past.getTime());
+  });
+
+  //  — a new DM that arrives while automation is paused must surface for a human.
+  it("a new DM on a paused conversation flags it for manual attention", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    const CONTACT_P = "eeeeeeee-0000-0000-0000-0000000aa026";
+    await db.insert(s.contacts).values({ id: CONTACT_P, workspace_id: WS });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "" });
+    await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_P, platform: "facebook", is_automation_paused: true });
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-26", text: "hello", timestamp: ts(), raw: {} } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(0); // paused → no auto-reply
+    expect(await convFlag("")).toBe(true); // but surfaced for a human
+  });
 });
 
 describe("incoming-comment worker", () => {
@@ -617,6 +658,23 @@ describe("incoming-reaction worker", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  //  — a redelivered reaction is deduped BEFORE resolving/mutating the conversation.
+  it("a duplicate reaction does not reopen or reorder a closed conversation", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule();
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "-RX", reactedMid: "m-rx", reactionType: "love", emoji: "❤️", timestamp: 1_770_002_001, raw: {} };
+    await w.processIncomingReaction(evt as never, helpers); // fires + claims, materialises conversation
+    expect(await jobCount("outgoing-message")).toBe(1);
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "-RX"));
+    const past = new Date("2020-01-01T00:00:00.000Z");
+    await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
+    await w.processIncomingReaction(evt as never, helpers); // redelivery
+    const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
+    expect(conv.status).toBe("closed");
+    expect(conv.last_message_at?.getTime()).toBe(past.getTime());
+    expect(await jobCount("outgoing-message")).toBe(1);
   });
 });
 

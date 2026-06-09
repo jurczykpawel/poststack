@@ -4,7 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEventOnce } from "@/lib/idempotency";
+import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -43,20 +43,24 @@ export async function processIncomingReaction(
     return;
   }
 
+  // A reaction is not stored as a message, so unlike DMs/comments it has no natural
+  // ingest-dedup row — its identity lives in the durable event-dedup store. Check it BEFORE
+  // resolving (and mutating) the contact/conversation, so a redelivery of an already-handled
+  // reaction can't reopen/reorder the conversation. A still-unprocessed event (first
+  // delivery, or a retry whose prior attempt rolled back) falls through and is claimed
+  // atomically inside evaluateRules.
+  const eventKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
+  if (await isEventProcessed(eventKey)) {
+    helpers.logger.info("Reaction already processed, skipping redelivery");
+    return;
+  }
+
   const { contactId, conversationId, isAutomationPaused } = await resolveContactConversation(
     channel,
     senderId,
     null,
     reactionType ? `Reacted: ${reactionType}` : "Reacted",
   );
-
-  // A reaction is not stored as a message, so unlike DMs/comments it has no natural
-  // ingest-dedup row. Pass a stable identity as the event key: evaluateRules claims it
-  // in the same transaction as the cooldown/send-count mutations and the reply enqueue,
-  // so a redelivered webhook batch (we 503 on partial enqueue failure) cannot fire the
-  // rule, or send the reply, twice — and a transient failure rolls the whole thing back,
-  // leaving nothing claimed, so the job simply retries.
-  const eventKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
 
   if (isAutomationPaused) {
     // Still terminally claim so a redelivery after unpause doesn't fire on an old reaction.

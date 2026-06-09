@@ -78,4 +78,17 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
     expect(addJobTx).toHaveBeenCalledTimes(1);
     expect(await flag()).toBe(false);
   });
+
+  //  — clearing the flag must advance last_message_at NOW (the resolution marker), so a
+  // stale old-inbound final-retry can't re-raise the flag before the outgoing job runs.
+  it("advances last_message_at on manual reply so a later stale retry cannot re-raise the flag", async () => {
+    if (!TEST_DB) return;
+    const past = new Date("2020-01-01T00:00:00.000Z");
+    await db.update(s.conversations).set({ last_message_at: past }).where(eq(s.conversations.id, CONV));
+    const res = await POST(postReq(), ctx);
+    expect(res.status).toBe(201);
+    const [c] = await db.select().from(s.conversations).where(eq(s.conversations.id, CONV));
+    expect(c.needs_manual_reply).toBe(false);
+    expect(c.last_message_at!.getTime()).toBeGreaterThan(past.getTime());
+  });
 });

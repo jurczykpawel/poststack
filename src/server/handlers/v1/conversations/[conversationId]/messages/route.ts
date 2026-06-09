@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, eq, lt, desc, type SQL } from "drizzle-orm";
+import { and, eq, lt, desc, sql, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { messages, conversations, contactChannels } from "@/db/schema";
@@ -102,8 +102,15 @@ export async function POST(
   // Clear the manual-attention flag and enqueue the reply in ONE transaction: if
   // the enqueue fails, the flag stays set so the operator still sees the conversation needs
   // a reply, instead of clearing the alert for a message that never went out.
+  //
+  // Also advance last_message_at NOW (the human just acted), not later when the reply is
+  // sent: that timestamp is the "is this still the latest activity" marker the inbound
+  // worker uses, so without this a stale old-inbound final-retry could re-raise the flag in
+  // the window before the outgoing job runs. GREATEST keeps it monotonic.
   await db.transaction(async (tx) => {
-    await tx.update(conversations).set({ needs_manual_reply: false }).where(eq(conversations.id, conversation.id));
+    await tx.update(conversations)
+      .set({ needs_manual_reply: false, last_message_at: sql`GREATEST(${conversations.last_message_at}, now())` })
+      .where(eq(conversations.id, conversation.id));
     await addJobTx(tx, "outgoing-message", {
       channelId: conversation.channel_id,
       conversationId: conversation.id,
