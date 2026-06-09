@@ -106,9 +106,9 @@ const ts = () => Math.floor(Date.now() / 1000);
 describe("incoming-message worker (real Postgres)", () => {
   it("stores an inbound message for a new sender and dedups by mid", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, senderId: "NEW-PSID", recipientId: PAGE, mid: "mid-w1", text: "hi", timestamp: ts(), raw: {} };
-    await w.processIncomingMessage(job as never, helpers);
-    await w.processIncomingMessage(job as never, helpers); // dedup
+    const job = { platform: "facebook", pageId: PAGE, senderId: "NEW-PSID", recipientId: PAGE, mid: "mid-w1", text: "hi", timestamp: ts() };
+    await w.processIncomingMessage(job, helpers);
+    await w.processIncomingMessage(job, helpers); // dedup
     const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, "mid-w1"));
     expect(msgs.length).toBe(1);
     expect(msgs[0].direction).toBe("inbound");
@@ -120,8 +120,8 @@ describe("incoming-message worker (real Postgres)", () => {
     // conversations. A message id only deduplicates within its own conversation,
     // so a shared id must not let one conversation suppress another's message.
     const SHARED = "shared-message-id";
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "SENDER-A", recipientId: PAGE, mid: SHARED, text: "a", timestamp: ts(), raw: {} } as never, helpers);
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "SENDER-B", recipientId: PAGE, mid: SHARED, text: "b", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "SENDER-A", recipientId: PAGE, mid: SHARED, text: "a", timestamp: ts() }, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "SENDER-B", recipientId: PAGE, mid: SHARED, text: "b", timestamp: ts() }, helpers);
     const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, SHARED));
     expect(msgs.length).toBe(2);
   });
@@ -129,7 +129,7 @@ describe("incoming-message worker (real Postgres)", () => {
   it("skips when no channel matches the page", async () => {
     if (!TEST_DB) return;
     await expect(
-      w.processIncomingMessage({ platform: "facebook", pageId: "NOPE", senderId: "x", recipientId: "y", mid: "m", text: "t", timestamp: ts(), raw: {} } as never, helpers),
+      w.processIncomingMessage({ platform: "facebook", pageId: "NOPE", senderId: "x", recipientId: "y", mid: "m", text: "t", timestamp: ts() }, helpers),
     ).resolves.toBeUndefined();
   });
 
@@ -142,16 +142,16 @@ describe("incoming-message worker (real Postgres)", () => {
     const qc = await import("@/lib/queue/client");
     const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("enqueue down"));
     try {
-      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-RETRY", recipientId: PAGE, mid: "mid-dmretry", text: "hello", timestamp: ts(), raw: {} };
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-RETRY", recipientId: PAGE, mid: "mid-dmretry", text: "hello", timestamp: ts() };
       // First delivery: message is stored, then the reply enqueue fails. The worker must
       // surface the error (retry) instead of swallowing it behind the committed message.
-      await expect(w.processIncomingMessage(job as never, helpers)).rejects.toThrow();
+      await expect(w.processIncomingMessage(job, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
       // Retry: the message is already stored (deduped), but the rule must still fire once.
-      await w.processIncomingMessage(job as never, helpers);
+      await w.processIncomingMessage(job, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
       // Redelivery after success: no duplicate reply.
-      await w.processIncomingMessage(job as never, helpers);
+      await w.processIncomingMessage(job, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
     } finally {
       spy.mockRestore();
@@ -179,8 +179,8 @@ describe("incoming-message worker (real Postgres)", () => {
     const qc = await import("@/lib/queue/client");
     const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent"));
     try {
-      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-LAST", recipientId: PAGE, mid: "mid-last", text: "hello", timestamp: ts(), raw: {} };
-      await expect(w.processIncomingMessage(job as never, helpersJob(3, 3))).rejects.toThrow();
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-LAST", recipientId: PAGE, mid: "mid-last", text: "hello", timestamp: ts() };
+      await expect(w.processIncomingMessage(job, helpersJob(3, 3))).rejects.toThrow();
       expect(await convFlag("DM-LAST")).toBe(true);
     } finally {
       spy.mockRestore();
@@ -193,8 +193,8 @@ describe("incoming-message worker (real Postgres)", () => {
     const qc = await import("@/lib/queue/client");
     const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("transient"));
     try {
-      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-MID", recipientId: PAGE, mid: "mid-mid", text: "hello", timestamp: ts(), raw: {} };
-      await expect(w.processIncomingMessage(job as never, helpersJob(1, 3))).rejects.toThrow();
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-MID", recipientId: PAGE, mid: "mid-mid", text: "hello", timestamp: ts() };
+      await expect(w.processIncomingMessage(job, helpersJob(1, 3))).rejects.toThrow();
       expect(await convFlag("DM-MID")).toBe(false);
     } finally {
       spy.mockRestore();
@@ -207,9 +207,9 @@ describe("incoming-message worker (real Postgres)", () => {
     const qc = await import("@/lib/queue/client");
     const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("transient"));
     try {
-      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-OK", recipientId: PAGE, mid: "mid-ok", text: "hello", timestamp: ts(), raw: {} };
-      await expect(w.processIncomingMessage(job as never, helpersJob(1, 3))).rejects.toThrow(); // attempt 1 fails
-      await w.processIncomingMessage(job as never, helpersJob(2, 3)); // attempt 2 succeeds
+      const job = { platform: "facebook", pageId: PAGE, senderId: "DM-OK", recipientId: PAGE, mid: "mid-ok", text: "hello", timestamp: ts() };
+      await expect(w.processIncomingMessage(job, helpersJob(1, 3))).rejects.toThrow(); // attempt 1 fails
+      await w.processIncomingMessage(job, helpersJob(2, 3)); // attempt 2 succeeds
       expect(await jobCount("outgoing-message")).toBe(1);
       expect(await convFlag("DM-OK")).toBe(false);
     } finally {
@@ -221,11 +221,11 @@ describe("incoming-message worker (real Postgres)", () => {
   // (after a rule is added or after unpause) does not produce a late reply to an old event.
   it("a no-match DM is terminally claimed — adding a rule then redelivering does not reply late", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-NM", recipientId: PAGE, mid: "mid-nm", text: "hello", timestamp: ts(), raw: {} };
-    await w.processIncomingMessage(job as never, helpers); // no rule yet → no-match, claimed
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-NM", recipientId: PAGE, mid: "mid-nm", text: "hello", timestamp: ts() };
+    await w.processIncomingMessage(job, helpers); // no rule yet → no-match, claimed
     expect(await jobCount("outgoing-message")).toBe(0);
     await seedDefaultDmRule(); // operator adds a matching rule
-    await w.processIncomingMessage(job as never, helpers); // redelivery of the SAME event
+    await w.processIncomingMessage(job, helpers); // redelivery of the SAME event
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
@@ -236,11 +236,11 @@ describe("incoming-message worker (real Postgres)", () => {
     await db.insert(s.contacts).values({ id: CONTACT_P, workspace_id: WS });
     await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "-PAUSE" });
     await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_P, platform: "facebook", is_automation_paused: true });
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-PAUSE", recipientId: PAGE, mid: "mid-pause", text: "hello", timestamp: ts(), raw: {} };
-    await w.processIncomingMessage(job as never, helpers); // paused → claim + skip
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-PAUSE", recipientId: PAGE, mid: "mid-pause", text: "hello", timestamp: ts() };
+    await w.processIncomingMessage(job, helpers); // paused → claim + skip
     expect(await jobCount("outgoing-message")).toBe(0);
     await db.update(s.conversations).set({ is_automation_paused: false }).where(eq(s.conversations.contact_id, CONTACT_P));
-    await w.processIncomingMessage(job as never, helpers); // redelivery after unpause
+    await w.processIncomingMessage(job, helpers); // redelivery after unpause
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
@@ -255,10 +255,10 @@ describe("incoming-message worker (real Postgres)", () => {
     await db.insert(s.contacts).values({ id: CONTACT_R, workspace_id: WS });
     await db.insert(s.contactChannels).values({ contact_id: CONTACT_R, channel_id: CH, platform_sender_id: "-RACE" });
     await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_R, platform: "facebook" });
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-RACE", recipientId: PAGE, mid: "mid-race", text: "hello", timestamp: ts(), raw: {} };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-RACE", recipientId: PAGE, mid: "mid-race", text: "hello", timestamp: ts() };
     await Promise.all([
-      w.processIncomingMessage(job as never, helpers),
-      w.processIncomingMessage(job as never, helpers),
+      w.processIncomingMessage(job, helpers),
+      w.processIncomingMessage(job, helpers),
     ]);
     expect(await jobCount("outgoing-message")).toBe(1);
     expect(await convFlag("-RACE")).toBe(false);
@@ -278,12 +278,12 @@ describe("incoming-message worker (real Postgres)", () => {
     spy.mockResolvedValueOnce(undefined); // newer msg: auto-reply succeeds, resolves the conversation
     spy.mockRejectedValue(new Error("permanent")); // old msg, final attempt: fails for good
     try {
-      const oldJob = { platform: "facebook", pageId: PAGE, senderId: SENDER, recipientId: PAGE, mid: "mid-old", text: "hello", timestamp: OLD_TS, raw: {} };
-      await expect(w.processIncomingMessage(oldJob as never, helpersJob(1, 3))).rejects.toThrow();
+      const oldJob = { platform: "facebook", pageId: PAGE, senderId: SENDER, recipientId: PAGE, mid: "mid-old", text: "hello", timestamp: OLD_TS };
+      await expect(w.processIncomingMessage(oldJob, helpersJob(1, 3))).rejects.toThrow();
       const newJob = { ...oldJob, mid: "mid-new", timestamp: NEW_TS };
-      await w.processIncomingMessage(newJob as never, helpers); // newer message resolves it → flag false
+      await w.processIncomingMessage(newJob, helpers); // newer message resolves it → flag false
       expect(await convFlag(SENDER)).toBe(false);
-      await expect(w.processIncomingMessage(oldJob as never, helpersJob(3, 3))).rejects.toThrow(); // old final fail
+      await expect(w.processIncomingMessage(oldJob, helpersJob(3, 3))).rejects.toThrow(); // old final fail
       expect(await convFlag(SENDER)).toBe(false); // not re-raised by the stale retry
     } finally {
       spy.mockRestore();
@@ -292,19 +292,22 @@ describe("incoming-message worker (real Postgres)", () => {
 
   //  — the durable event claim must outlive the ephemeral TTL prune (cooldowns,
   // rate-limit windows, the token denylist), so an old webhook redelivery can't fire a
-  // second/late reply after maintenance runs.
+  // second/late reply after maintenance runs. The claim is kept for the full platform
+  // redelivery window; it is only pruned far past it (60 days, ), so a prune run two
+  // days out clears the short-lived stores while the claim — and thus dedup — survives.
   it("a processed event stays deduped after the operational TTL stores are pruned", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     const { pruneExpired } = await import("@/lib/maintenance");
-    const job = { platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "mid-22", text: "hello", timestamp: ts(), raw: {} };
-    await w.processIncomingMessage(job as never, helpers); // fires + durably records the event
+    const job = { platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "mid-22", text: "hello", timestamp: ts() };
+    await w.processIncomingMessage(job, helpers); // fires + durably records the event
     expect(await jobCount("outgoing-message")).toBe(1);
-    // Maintenance prunes the ephemeral TTL stores, far in the future.
-    await pruneExpired(new Date(Date.now() + 100 * 86_400_000));
+    // Maintenance prunes the ephemeral TTL stores (seconds-to-hours lived); two days out is
+    // well past them but inside the event-dedup retention window.
+    await pruneExpired(new Date(Date.now() + 2 * 86_400_000));
     expect((await db.select().from(s.processedEvents)).length).toBeGreaterThan(0); // event claim survives
     // Redelivery after the prune must not reply again.
-    await w.processIncomingMessage(job as never, helpers);
+    await w.processIncomingMessage(job, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
@@ -313,8 +316,8 @@ describe("incoming-message worker (real Postgres)", () => {
     if (!TEST_DB) return;
     const T2 = ts();
     const T1 = T2 - 3600; // an hour older, but ingested second
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t2", text: "newer", timestamp: T2, raw: {} } as never, helpers);
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t1", text: "older", timestamp: T1, raw: {} } as never, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t2", text: "newer", timestamp: T2 }, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t1", text: "older", timestamp: T1 }, helpers);
     const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, ""));
     const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
     expect(conv.last_message_at?.getTime()).toBe(T2 * 1000);
@@ -325,12 +328,12 @@ describe("incoming-message worker (real Postgres)", () => {
   //  — a duplicate DM must dedup before mutating lifecycle (no reopen / no reorder).
   it("a duplicate DM does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-DM", recipientId: PAGE, mid: "m-dup", text: "hi", timestamp: ts(), raw: {} };
-    await w.processIncomingMessage(job as never, helpers); // creates conversation
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-DM", recipientId: PAGE, mid: "m-dup", text: "hi", timestamp: ts() };
+    await w.processIncomingMessage(job, helpers); // creates conversation
     const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "-DM"));
     const past = new Date("2020-01-01T00:00:00.000Z");
     await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
-    await w.processIncomingMessage(job as never, helpers); // redelivery of the SAME message
+    await w.processIncomingMessage(job, helpers); // redelivery of the SAME message
     const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
     expect(conv.status).toBe("closed");
     expect(conv.last_message_at?.getTime()).toBe(past.getTime());
@@ -344,7 +347,7 @@ describe("incoming-message worker (real Postgres)", () => {
     await db.insert(s.contacts).values({ id: CONTACT_P, workspace_id: WS });
     await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "" });
     await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_P, platform: "facebook", is_automation_paused: true });
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-26", text: "hello", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-26", text: "hello", timestamp: ts() }, helpers);
     expect(await jobCount("outgoing-message")).toBe(0); // paused → no auto-reply
     expect(await convFlag("")).toBe(true); // but surfaced for a human
   });
@@ -354,7 +357,7 @@ describe("incoming-message worker (real Postgres)", () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-40", text: "hello", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-40", text: "hello", timestamp: ts() }, helpers);
     const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, "m-40"));
     expect(msgs.length).toBe(1); // still ingested to the inbox
     expect(await jobCount("outgoing-message")).toBe(0); // but no auto-reply
@@ -365,9 +368,9 @@ describe("incoming-message worker (real Postgres)", () => {
 describe("incoming-comment worker", () => {
   it("logs a comment and dedups by (channel, comment id)", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-w1", postId: "post-1", senderId: PSID, senderName: "A", text: "hello", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers);
-    await w.processIncomingComment(job as never, helpers);
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-w1", postId: "post-1", senderId: PSID, senderName: "A", text: "hello", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
+    await w.processIncomingComment(job, helpers);
     const logs = await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "cmt-w1"));
     expect(logs.length).toBe(1);
   });
@@ -376,8 +379,8 @@ describe("incoming-comment worker", () => {
     if (!TEST_DB) return;
     const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fc";
     await db.insert(s.channels).values({ id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: PAGE, token_encrypted: "x", webhook_secret: "s2", status: "active" });
-    const job = { platform: "instagram", pageId: PAGE, commentId: "cmt-ig", postId: "m1", senderId: "IG-COMMENTER", senderName: "Iga", text: "hi", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers);
+    const job = { platform: "instagram", pageId: PAGE, commentId: "cmt-ig", postId: "m1", senderId: "IG-COMMENTER", senderName: "Iga", text: "hi", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
     const onIg = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, IG_CH), eq(s.contactChannels.platform_sender_id, "IG-COMMENTER")));
     expect(onIg.length).toBe(1);
     const onFb = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "IG-COMMENTER")));
@@ -395,8 +398,8 @@ describe("incoming-comment worker", () => {
   it("first-touch: a brand-new commenter gets a contact, conversation, public reply + private reply (both)", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "DM!", reply_mode: "both", comment_reply_text: "replied!" });
-    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-new", postId: "p1", senderId: "NEW-COMMENTER", senderName: "Jane", text: "info please", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers);
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-new", postId: "p1", senderId: "NEW-COMMENTER", senderName: "Jane", text: "info please", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
 
     const cc = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "NEW-COMMENTER")));
     expect(cc.length).toBe(1);
@@ -407,8 +410,8 @@ describe("incoming-comment worker", () => {
   it("reply_mode comment → public reply only, no private reply", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "x", reply_mode: "comment", comment_reply_text: "public!" });
-    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-pub", postId: "p1", senderId: "C2", senderName: "B", text: "info", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers);
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-pub", postId: "p1", senderId: "C2", senderName: "B", text: "info", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
     expect(await jobCount("outgoing-comment")).toBe(1);
     expect(await jobCount("outgoing-private-reply")).toBe(0);
   });
@@ -416,8 +419,8 @@ describe("incoming-comment worker", () => {
   it("reply_mode dm → private reply only, no public reply", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "dm only", reply_mode: "dm" });
-    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-dm", postId: "p1", senderId: "C3", senderName: "B", text: "info", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers);
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-dm", postId: "p1", senderId: "C3", senderName: "B", text: "info", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
     expect(await jobCount("outgoing-comment")).toBe(0);
     expect(await jobCount("outgoing-private-reply")).toBe(1);
   });
@@ -428,15 +431,15 @@ describe("incoming-comment worker", () => {
     const qc = await import("@/lib/queue/client");
     const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("enqueue down"));
     try {
-      const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-retry", postId: "p1", senderId: "CMT-RETRY", senderName: "Bob", text: "info please", timestamp: ts(), raw: {} };
+      const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-retry", postId: "p1", senderId: "CMT-RETRY", senderName: "Bob", text: "info please", timestamp: ts() };
       // First delivery: the comment is logged, then the reply enqueue fails → surface it.
-      await expect(w.processIncomingComment(job as never, helpers)).rejects.toThrow();
+      await expect(w.processIncomingComment(job, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-private-reply")).toBe(0);
       // Retry: the comment is already logged (deduped), but the rule must still fire once.
-      await w.processIncomingComment(job as never, helpers);
+      await w.processIncomingComment(job, helpers);
       expect(await jobCount("outgoing-private-reply")).toBe(1);
       // Redelivery after success: no duplicate reply.
-      await w.processIncomingComment(job as never, helpers);
+      await w.processIncomingComment(job, helpers);
       expect(await jobCount("outgoing-private-reply")).toBe(1);
     } finally {
       spy.mockRestore();
@@ -446,8 +449,8 @@ describe("incoming-comment worker", () => {
   it("does not reply when no rule matches (but still logs)", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "x", reply_mode: "both", comment_reply_text: "y" });
-    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-nomatch", postId: "p1", senderId: "C4", senderName: "B", text: "unrelated chatter", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers);
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-nomatch", postId: "p1", senderId: "C4", senderName: "B", text: "unrelated chatter", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
     expect(await jobCount("outgoing-comment")).toBe(0);
     expect(await jobCount("outgoing-private-reply")).toBe(0);
   });
@@ -456,15 +459,15 @@ describe("incoming-comment worker", () => {
   it("a redelivered comment does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "x", reply_mode: "dm" });
-    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-reopen", postId: "p1", senderId: "CMT-REOPEN", senderName: "Z", text: "info", timestamp: ts(), raw: {} };
-    await w.processIncomingComment(job as never, helpers); // first delivery: logs + fires DM
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-reopen", postId: "p1", senderId: "CMT-REOPEN", senderName: "Z", text: "info", timestamp: ts() };
+    await w.processIncomingComment(job, helpers); // first delivery: logs + fires DM
     expect(await jobCount("outgoing-private-reply")).toBe(1);
     // Operator closes the conversation; record an old last_message_at.
     const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "CMT-REOPEN"));
     const past = new Date("2020-01-01T00:00:00.000Z");
     await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
     // Redelivery of the SAME comment: identity resolves, but status/order are untouched.
-    await w.processIncomingComment(job as never, helpers);
+    await w.processIncomingComment(job, helpers);
     const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
     expect(conv.status).toBe("closed");
     expect(conv.last_message_at?.getTime()).toBe(past.getTime());
@@ -486,7 +489,7 @@ describe("incoming-reaction worker", () => {
     const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fb";
     await db.insert(s.channels).values({ id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: PAGE, token_encrypted: "x", webhook_secret: "s3", status: "active" });
     await seedReactionRule();
-    await w.processIncomingReaction({ platform: "instagram", pageId: PAGE, senderId: "IG-REACTOR", reactedMid: "m-ig", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "instagram", pageId: PAGE, senderId: "IG-REACTOR", reactedMid: "m-ig", reactionType: "love", emoji: "❤️", timestamp: ts() }, helpers);
     const onIg = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, IG_CH), eq(s.contactChannels.platform_sender_id, "IG-REACTOR")));
     expect(onIg.length).toBe(1);
     const onFb = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "IG-REACTOR")));
@@ -496,7 +499,7 @@ describe("incoming-reaction worker", () => {
   it("fires a reaction rule and DMs the reactor (new contact materialised)", async () => {
     if (!TEST_DB) return;
     await seedReactionRule();
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-1", reactedMid: "m-1", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-1", reactedMid: "m-1", reactionType: "love", emoji: "❤️", timestamp: ts() }, helpers);
     const cc = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "REACTOR-1")));
     expect(cc.length).toBe(1);
     expect(await jobCount("outgoing-message")).toBe(1);
@@ -505,9 +508,9 @@ describe("incoming-reaction worker", () => {
   it("respects a reactions filter (only the listed type fires)", async () => {
     if (!TEST_DB) return;
     await seedReactionRule({ trigger_config: { reactions: ["love"] } });
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "angry", emoji: "😠", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "angry", emoji: "😠", timestamp: ts() }, helpers);
     expect(await jobCount("outgoing-message")).toBe(0);
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "love", emoji: "❤️", timestamp: ts(), raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-2", reactedMid: "m-2", reactionType: "love", emoji: "❤️", timestamp: ts() }, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
@@ -516,9 +519,9 @@ describe("incoming-reaction worker", () => {
     await seedReactionRule();
     // Same reaction identity (sender + reacted message + timestamp) delivered twice,
     // as happens when the webhook batch is retried. The rule must fire only once.
-    const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-DUP", reactedMid: "m-dup", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_111, raw: {} };
-    await w.processIncomingReaction(evt as never, helpers);
-    await w.processIncomingReaction(evt as never, helpers);
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-DUP", reactedMid: "m-dup", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_111 };
+    await w.processIncomingReaction(evt, helpers);
+    await w.processIncomingReaction(evt, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
@@ -528,21 +531,21 @@ describe("incoming-reaction worker", () => {
     const executor = await import("@/lib/rules/executor");
     const spy = vi.spyOn(executor, "evaluateRules").mockRejectedValueOnce(new Error("transient downstream failure"));
     try {
-      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-RETRY", reactedMid: "m-retry", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_222, raw: {} };
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-RETRY", reactedMid: "m-retry", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_222 };
 
       // First delivery: the claim is taken, then evaluation throws. The worker must
       // surface the error so the job is retried — not swallow it behind the claim,
       // which would drop the reply for good.
-      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      await expect(w.processIncomingReaction(evt, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
 
       // Retry of the same reaction (graphile reschedule): the released claim lets it
       // run, and the rule fires exactly once.
-      await w.processIncomingReaction(evt as never, helpers);
+      await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
 
       // A still-later duplicate is deduped by the now-committed claim.
-      await w.processIncomingReaction(evt as never, helpers);
+      await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
     } finally {
       spy.mockRestore();
@@ -557,11 +560,11 @@ describe("incoming-reaction worker", () => {
     const ai = await import("@/lib/ai/rephrase");
     const spy = vi.spyOn(ai, "rephrase").mockRejectedValueOnce(new Error("AI down"));
     try {
-      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-CD", reactedMid: "m-cd", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_333, raw: {} };
-      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-CD", reactedMid: "m-cd", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_333 };
+      await expect(w.processIncomingReaction(evt, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
       // Retry: the cooldown was rolled back with the failed reply, so the rule fires.
-      await w.processIncomingReaction(evt as never, helpers);
+      await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
     } finally {
       spy.mockRestore();
@@ -574,11 +577,11 @@ describe("incoming-reaction worker", () => {
     const ai = await import("@/lib/ai/rephrase");
     const spy = vi.spyOn(ai, "rephrase").mockRejectedValueOnce(new Error("AI down"));
     try {
-      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-CAP", reactedMid: "m-cap", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_444, raw: {} };
-      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-CAP", reactedMid: "m-cap", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_444 };
+      await expect(w.processIncomingReaction(evt, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
       // Retry: the lifetime counter was not spent on the failed reply.
-      await w.processIncomingReaction(evt as never, helpers);
+      await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
       const counts = await db.select().from(s.ruleSendCounts).where(eq(s.ruleSendCounts.rule_id, ruleId));
       expect(counts.length).toBe(1);
@@ -594,14 +597,14 @@ describe("incoming-reaction worker", () => {
     const qc = await import("@/lib/queue/client");
     const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("enqueue down"));
     try {
-      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-ENQ", reactedMid: "m-enq", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_555, raw: {} };
-      await expect(w.processIncomingReaction(evt as never, helpers)).rejects.toThrow();
+      const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-ENQ", reactedMid: "m-enq", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_555 };
+      await expect(w.processIncomingReaction(evt, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
       // The claim is taken in the same transaction as the enqueue, so a failed enqueue
       // leaves no claim behind — otherwise the retry would hit it and skip silently.
       expect((await db.select().from(s.processedEvents)).length).toBe(0);
       // Retry: enqueue works, the event fires exactly once and is now claimed.
-      await w.processIncomingReaction(evt as never, helpers);
+      await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
       expect((await db.select().from(s.processedEvents)).length).toBe(1);
     } finally {
@@ -614,11 +617,11 @@ describe("incoming-reaction worker", () => {
     await seedReactionRule({ name: "A", priority: 10, cooldown_seconds: 3600 });
     await seedReactionRule({ name: "B", priority: 5, cooldown_seconds: 0 });
     // First reaction: A (higher priority) fires and goes on cooldown for this contact.
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-A", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_661, raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-A", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_661 }, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
     // A different reaction from the same contact: A is cooling down, so B must fire. A's
     // skip must roll back its event claim, or B would see the event as already handled.
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-B", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_662, raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-MULTI", reactedMid: "m-B", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_662 }, helpers);
     expect(await jobCount("outgoing-message")).toBe(2);
   });
 
@@ -626,12 +629,12 @@ describe("incoming-reaction worker", () => {
   it("does not call the AI for a redelivered, already-handled reaction", async () => {
     if (!TEST_DB) return;
     await seedReactionRule({ response_config: { text: "thanks!", ai_rephrase: true } });
-    const evt = { platform: "facebook", pageId: PAGE, senderId: "R-AI-DUP", reactedMid: "m-aidup", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_771, raw: {} };
-    await w.processIncomingReaction(evt as never, helpers); // first: fires + claims (AI ran)
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "R-AI-DUP", reactedMid: "m-aidup", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_771 };
+    await w.processIncomingReaction(evt, helpers); // first: fires + claims (AI ran)
     const ai = await import("@/lib/ai/rephrase");
     const spy = vi.spyOn(ai, "rephrase");
     try {
-      await w.processIncomingReaction(evt as never, helpers); // redelivery: already claimed
+      await w.processIncomingReaction(evt, helpers); // redelivery: already claimed
       expect(spy).not.toHaveBeenCalled();
       expect(await jobCount("outgoing-message")).toBe(1);
     } finally {
@@ -643,12 +646,12 @@ describe("incoming-reaction worker", () => {
     if (!TEST_DB) return;
     await seedReactionRule({ name: "Hi", priority: 10, cooldown_seconds: 3600, response_config: { text: "hi", ai_rephrase: true } });
     await seedReactionRule({ name: "Lo", priority: 5, cooldown_seconds: 0, response_config: { text: "lo" } });
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CD-AI", reactedMid: "m-cd1", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_772, raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CD-AI", reactedMid: "m-cd1", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_772 }, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
     const ai = await import("@/lib/ai/rephrase");
     const spy = vi.spyOn(ai, "rephrase");
     try {
-      await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CD-AI", reactedMid: "m-cd2", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_773, raw: {} } as never, helpers);
+      await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CD-AI", reactedMid: "m-cd2", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_773 }, helpers);
       expect(spy).not.toHaveBeenCalled(); // high rule cooling down → no AI; low rule has none
       expect(await jobCount("outgoing-message")).toBe(2); // low rule fired
     } finally {
@@ -659,12 +662,12 @@ describe("incoming-reaction worker", () => {
   it("a rule at its send cap does not call the AI", async () => {
     if (!TEST_DB) return;
     await seedReactionRule({ max_sends_per_contact: 1, response_config: { text: "x", ai_rephrase: true } });
-    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CAP-AI", reactedMid: "m-cap1", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_774, raw: {} } as never, helpers);
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CAP-AI", reactedMid: "m-cap1", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_774 }, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
     const ai = await import("@/lib/ai/rephrase");
     const spy = vi.spyOn(ai, "rephrase");
     try {
-      await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CAP-AI", reactedMid: "m-cap2", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_775, raw: {} } as never, helpers);
+      await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "R-CAP-AI", reactedMid: "m-cap2", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_775 }, helpers);
       expect(spy).not.toHaveBeenCalled();
       expect(await jobCount("outgoing-message")).toBe(1); // capped → no second send
     } finally {
@@ -676,13 +679,13 @@ describe("incoming-reaction worker", () => {
   it("a duplicate reaction does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;
     await seedReactionRule();
-    const evt = { platform: "facebook", pageId: PAGE, senderId: "-RX", reactedMid: "m-rx", reactionType: "love", emoji: "❤️", timestamp: 1_770_002_001, raw: {} };
-    await w.processIncomingReaction(evt as never, helpers); // fires + claims, materialises conversation
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "-RX", reactedMid: "m-rx", reactionType: "love", emoji: "❤️", timestamp: 1_770_002_001 };
+    await w.processIncomingReaction(evt, helpers); // fires + claims, materialises conversation
     expect(await jobCount("outgoing-message")).toBe(1);
     const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "-RX"));
     const past = new Date("2020-01-01T00:00:00.000Z");
     await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
-    await w.processIncomingReaction(evt as never, helpers); // redelivery
+    await w.processIncomingReaction(evt, helpers); // redelivery
     const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
     expect(conv.status).toBe("closed");
     expect(conv.last_message_at?.getTime()).toBe(past.getTime());

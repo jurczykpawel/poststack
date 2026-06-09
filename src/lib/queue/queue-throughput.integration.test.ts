@@ -199,7 +199,7 @@ describe("queue throughput & drain (real Postgres + real graphile runner)", () =
 
     await utils.addJob("incoming-message", {
       platform: "facebook", pageId: PAGE, senderId: "PSID-Q", recipientId: PAGE,
-      mid: "mid-pipeline", text: "hello there", timestamp: Math.floor(Date.now() / 1000), raw: {},
+      mid: "mid-pipeline", text: "hello there", timestamp: Math.floor(Date.now() / 1000),
     });
 
     await startRunner(createTaskList() as never, 10);
