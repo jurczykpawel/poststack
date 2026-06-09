@@ -3,13 +3,17 @@ import { and, eq } from "drizzle-orm";
 import type { SequenceStepJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { sequenceEnrollments, conversations, contactChannels, contacts } from "@/db/schema";
-import { addJobTx } from "@/lib/queue/client";
+import { addJob, addJobTx } from "@/lib/queue/client";
 
 interface SequenceStep {
   type: "message" | "delay";
   content?: string;
   delay_minutes?: number;
 }
+
+/** While a conversation's automation is paused, a due drip step is re-checked (not advanced)
+ *  on this cadence, so it resumes from the right place once the operator un-pauses. */
+const PAUSE_RECHECK_MS = 30 * 60 * 1000;
 
 /**
  * Execute one step of a sequence enrollment.
@@ -71,8 +75,20 @@ export async function processSequenceStep(
     } else {
       const conversation = await db.query.conversations.findFirst({
         where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
-        columns: { id: true },
+        columns: { id: true, is_automation_paused: true },
       });
+      // Per-conversation kill switch: if an operator paused automation (e.g. a human took over),
+      // HOLD the drip — don't send and don't advance the cursor. Re-check later so the sequence
+      // resumes from the same step once un-paused, instead of silently skipping it.
+      if (conversation?.is_automation_paused) {
+        await addJob(
+          "sequence-step",
+          { enrollmentId },
+          { jobKey: `seq-step-paused:${enrollmentId}:${stepIndex}`, delayMs: PAUSE_RECHECK_MS },
+        );
+        helpers.logger.info(`Automation paused for enrollment ${enrollmentId}, deferring step ${stepIndex}`);
+        return;
+      }
       const cc = await db.query.contactChannels.findFirst({
         where: and(eq(contactChannels.contact_id, enrollment.contact_id), eq(contactChannels.channel_id, enrollment.channel_id)),
         columns: { platform_sender_id: true },

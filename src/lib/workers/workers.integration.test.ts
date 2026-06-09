@@ -31,6 +31,7 @@ let w: {
   processTokenRefresh: typeof import("./token-refresh-worker").processTokenRefresh;
 };
 let TokenInvalidError: typeof import("@/lib/platforms/errors").TokenInvalidError;
+let MessagingPolicyError: typeof import("@/lib/platforms/errors").MessagingPolicyError;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-0000000000f1";
@@ -66,7 +67,7 @@ beforeAll(async () => {
     processSequenceStep: (await import("./sequence-step-worker")).processSequenceStep,
     processTokenRefresh: (await import("./token-refresh-worker")).processTokenRefresh,
   };
-  ({ TokenInvalidError } = await import("@/lib/platforms/errors"));
+  ({ TokenInvalidError, MessagingPolicyError } = await import("@/lib/platforms/errors"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -753,6 +754,19 @@ describe("outgoing-message worker", () => {
     const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
     expect(held.length).toBe(1);
   });
+
+  //  — a messaging-policy rejection (e.g. outside the 24h window) is terminal: the delivery
+  // is dropped (expired) and NOT rethrown, so a stale step can't grind every retry to dead-letter.
+  it("drops (expired, no rethrow) on a messaging-policy rejection", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValueOnce(new MessagingPolicyError("outside the allowed messaging window"));
+    await expect(
+      w.processOutgoingMessage(job({ idempotencyKey: "d-policy" }) as never, helpers),
+    ).resolves.toBeUndefined(); // does not throw → graphile will not retry
+    const row = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-policy") });
+    expect(row?.status).toBe("expired");
+    expect(health.markChannelNeedsReauth).not.toHaveBeenCalled();
+  });
 });
 
 //  — the durable delivery state machine. The provider call sits between a committed
@@ -1034,6 +1048,31 @@ describe("sequence-step worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
     const after = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
     expect(after?.status).toBe("completed"); // advanced past the (skipped) step
+  });
+
+  //  — a conversation with automation paused HOLDS the drip: no send, no cursor advance,
+  // and the step is deferred so it resumes from the same place once un-paused.
+  it("holds (no send, no advance) a sequence step when the conversation is automation-paused", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ is_automation_paused: true }).where(eq(s.conversations.id, CONV));
+    const { enrId } = await seedEnrollment([{ type: "message", content: "hi" }, { type: "message", content: "two" }]);
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+
+    // Nothing sent and the cursor stays on step 0 (active) — the drip is held, not skipped.
+    expect(await jobCount("outgoing-message")).toBe(0);
+    const after = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(after?.current_step_index).toBe(0);
+    expect(after?.status).toBe("active");
+    // A deferred re-check job was enqueued so it resumes after un-pause.
+    expect(await jobCount("sequence-step")).toBe(1);
+
+    // Un-pausing and re-running delivers the step and advances.
+    await db.update(s.conversations).set({ is_automation_paused: false }).where(eq(s.conversations.id, CONV));
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    const resumed = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(resumed?.current_step_index).toBe(1);
   });
 });
 

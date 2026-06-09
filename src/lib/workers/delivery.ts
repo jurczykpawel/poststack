@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, outboundDeliveries, type Platform } from "@/db/schema";
-import { TokenInvalidError } from "@/lib/platforms/errors";
+import { TokenInvalidError, MessagingPolicyError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 
 /** A Drizzle db handle or an open transaction. */
@@ -22,6 +22,7 @@ export interface DeliveryChannel {
 export type DeliveryResult =
   | "sent"
   | "held"
+  | "dropped_policy"
   | "skipped_duplicate"
   | "skipped_unknown"
   | "skipped_terminal";
@@ -185,6 +186,17 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       }
       helpers.logger.info(`channel ${channelId} token invalid on ${taskName} — held + needs_reauth`);
       return "held";
+    }
+    if (e instanceof MessagingPolicyError) {
+      // Policy rejection (e.g. outside the 24h window) — retrying can't fix it. Record a terminal
+      // `expired` with the reason and DO NOT rethrow, so a stale sequence step can't grind every
+      // attempt into the dead-letter queue. The ledger row is the operator-visible record.
+      await db
+        .update(outboundDeliveries)
+        .set({ status: "expired", last_error: e.message, updated_at: new Date() })
+        .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+      helpers.logger.info(`delivery ${deliveryKey} dropped — ${e.message} (not retried)`);
+      return "dropped_policy";
     }
     // Transient: we caught it, so the provider (most likely) did not accept the send.
     // Record `failed` and rethrow so graphile retries; the retry re-claims from `failed`.
