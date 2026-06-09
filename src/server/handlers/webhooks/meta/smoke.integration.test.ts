@@ -243,6 +243,9 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(job.rows[0].task_identifier).toBe("incoming-reaction");
     expect(job.rows[0].payload.reactionType).toBe("love");
     expect(job.rows[0].payload.reactedMid).toBe("MID_REACTED");
+    //  — the persisted timestamp is normalized to seconds (like DM/postback), not raw ms.
+    expect(job.rows[0].payload.timestamp).toBe(1_770_000_000);
+    expect(job.rows[0].payload.timestamp).toBeLessThan(2e9);
   });
 
   it("ignores an unreact event", async () => {

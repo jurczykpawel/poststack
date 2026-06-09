@@ -164,7 +164,11 @@ export async function POST(request: Request) {
         reactedMid: reaction.mid,
         reactionType: reaction.reaction,
         emoji: reaction.emoji,
-        timestamp: messagingEvent.timestamp,      };
+        // Normalize to seconds like the DM/postback events above — Meta sends ms here. The dedup
+        // key is internally consistent either way, but any future code that turns this into a Date
+        // would otherwise be ~3 years off.
+        timestamp: Math.floor(messagingEvent.timestamp / 1000),
+      };
 
       try {
         await addJob("incoming-reaction", job, {
