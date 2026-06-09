@@ -282,9 +282,13 @@ export class InstagramProvider extends SocialProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // `comments` is required for IG media-comment webhooks (comment→DM / comment_keyword);
+        // `feed` only covers Facebook-native feed comments, so without this IG comment
+        // automation silently never fires.
         subscribed_fields: [
           "messages",
           "messaging_postbacks",
+          "comments",
           "feed",
         ].join(","),
         access_token: pageAccessToken,

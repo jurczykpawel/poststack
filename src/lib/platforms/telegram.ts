@@ -5,8 +5,15 @@ import {
   type MessageContent,
   type SentMessage,
 } from "./base";
+import { TokenInvalidError } from "./errors";
 
 const TELEGRAM_API = "https://api.telegram.org";
+
+/** Telegram returns 401 once a bot token is revoked/regenerated via BotFather, and 403 when
+ *  the bot is blocked/kicked — both mean the connection needs operator action, not a retry. */
+function isTelegramAuthFailure(status: number, errorCode?: number): boolean {
+  return status === 401 || status === 403 || errorCode === 401 || errorCode === 403;
+}
 
 /** Narrow shapes of the Telegram Bot API objects we actually read. */
 export interface TelegramUser {
@@ -101,8 +108,11 @@ export class TelegramProvider extends SocialProvider {
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
-    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string };
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string; error_code?: number };
     if (!res.ok || !body.ok) {
+      if (isTelegramAuthFailure(res.status, body.error_code)) {
+        throw new TokenInvalidError(`Telegram bot token rejected: ${body.description ?? res.status}`);
+      }
       throw new Error(`Telegram setWebhook failed: ${body.description ?? res.status}`);
     }
   }
@@ -119,8 +129,14 @@ export class TelegramProvider extends SocialProvider {
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
-    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: { message_id: number }; description?: string };
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: { message_id: number }; description?: string; error_code?: number };
     if (!res.ok || !body.ok || !body.result) {
+      // A revoked/regenerated bot token (401) or a blocked bot (403) is a re-auth case, not a
+      // transient failure — type it so the delivery state machine parks + flags needs_reauth
+      // instead of retrying to the dead-letter queue.
+      if (isTelegramAuthFailure(res.status, body.error_code)) {
+        throw new TokenInvalidError(`Telegram bot token rejected: ${body.description ?? res.status}`);
+      }
       throw new Error(`Telegram send message failed: ${body.description ?? res.status}`);
     }
     return { platformMessageId: String(body.result.message_id) };
