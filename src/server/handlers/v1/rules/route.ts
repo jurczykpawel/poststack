@@ -43,7 +43,9 @@ const buttonSchema = z
   .object({
     title: z.string().min(1).max(20),
     payload: z.string().max(1000).optional(), // postback button
-    url: z.string().url().optional(),         // web_url button
+    // Meta requires https for web_url buttons; .url() alone would accept javascript:/http:/data:,
+    // which Meta rejects at send → the reply dead-letters on every trigger.
+    url: z.string().url().refine((u) => /^https:\/\//i.test(u), "button URL must use https://").optional(),
   })
   .strict()
   .refine((b) => (b.url ? 1 : 0) + (b.payload ? 1 : 0) === 1, {
@@ -120,8 +122,23 @@ export const createRuleSchema = z
     if (data.response_type === "random_text" && (r.messages?.length ?? 0) === 0) {
       ctx.addIssue({ code: "custom", path: ["response_config", "messages"], message: "random_text requires messages" });
     }
-    if (data.response_type === "follow_gate" && (!r.followed || !r.not_followed)) {
-      ctx.addIssue({ code: "custom", path: ["response_config"], message: "follow_gate requires followed and not_followed messages" });
+    if (data.response_type === "follow_gate") {
+      if (!r.followed || !r.not_followed) {
+        ctx.addIssue({ code: "custom", path: ["response_config"], message: "follow_gate requires followed and not_followed messages" });
+      }
+      // Close the follow-to-unlock loop: the re-prompt (not_followed) produces a postback
+      // when tapped, so the gate must live on a postback trigger AND the re-prompt must carry a
+      // button whose payload matches the trigger payload — otherwise tapping "claim" generates a
+      // postback nobody handles and the loop is permanently broken.
+      if (data.trigger_type !== "postback") {
+        ctx.addIssue({ code: "custom", path: ["trigger_type"], message: "follow_gate requires a postback trigger so the re-prompt button can re-run the follow check" });
+      } else {
+        const triggerPayload = t.payload;
+        const buttons = r.not_followed?.buttons ?? [];
+        if (triggerPayload && !buttons.some((b) => b.payload === triggerPayload)) {
+          ctx.addIssue({ code: "custom", path: ["response_config", "not_followed"], message: "follow_gate re-prompt must include a button whose payload matches the trigger payload (to re-run the gate)" });
+        }
+      }
     }
     // Approval gate parks a single PSID-addressed DM, so it only applies to
     // DM-producing responses and not to comment triggers (whose first-touch DM
