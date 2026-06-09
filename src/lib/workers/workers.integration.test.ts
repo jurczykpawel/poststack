@@ -939,20 +939,59 @@ describe("outgoing-comment worker", () => {
 });
 
 describe("sequence-step worker", () => {
-  it("sends a message step and advances / completes", async () => {
-    if (!TEST_DB) return;
+  const seedEnrollment = async (steps: Array<Record<string, unknown>>, over: Record<string, unknown> = {}) => {
     const [seq] = await db.insert(s.sequences).values({
-      workspace_id: WS, name: "Seq", status: "active", steps: [{ type: "message", content: "hi" }],
+      workspace_id: WS, name: "Seq", status: "active", steps,
     }).returning({ id: s.sequences.id });
     const [enr] = await db.insert(s.sequenceEnrollments).values({
       sequence_id: seq.id, contact_id: CONTACT, channel_id: CH, status: "active", current_step_index: 0,
+      steps_snapshot: steps, ...over,
     }).returning({ id: s.sequenceEnrollments.id });
+    return { seqId: seq.id, enrId: enr.id };
+  };
 
-    await w.processSequenceStep({ enrollmentId: enr.id } as never, helpers);
+  it("sends a message step and advances / completes", async () => {
+    if (!TEST_DB) return;
+    const { enrId } = await seedEnrollment([{ type: "message", content: "hi" }]);
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
 
     expect(await jobCount("outgoing-message")).toBe(1);
-    const after = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enr.id) });
+    const after = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
     expect(after?.status).toBe("completed");
+  });
+
+  //  — a re-run of the same step (a retry whose advance didn't stick) must not enqueue a
+  // second outbound or a second next-step: the deterministic per-step job keys dedup.
+  it("re-running the same step does not double-send (idempotent per step)", async () => {
+    if (!TEST_DB) return;
+    const { enrId } = await seedEnrollment([{ type: "message", content: "one" }, { type: "message", content: "two" }]);
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect(await jobCount("sequence-step")).toBe(1);
+
+    // Simulate a retry of step 0 (its advance didn't commit): rewind the cursor and re-run.
+    await db.update(s.sequenceEnrollments).set({ current_step_index: 0, status: "active" }).where(eq(s.sequenceEnrollments.id, enrId));
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+
+    // Still exactly one outbound for step 0 and one next-step job — the job keys deduped.
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect(await jobCount("sequence-step")).toBe(1);
+  });
+
+  //  — an enrollment is driven by the steps snapshot it captured, NOT the live sequence.
+  it("uses the enrollment's pinned snapshot even after the sequence definition is edited", async () => {
+    if (!TEST_DB) return;
+    const { seqId, enrId } = await seedEnrollment([{ type: "message", content: "v1 original" }]);
+    // The sequence definition is edited AFTER enrollment (steps reordered/rewritten).
+    await db.update(s.sequences).set({ steps: [{ type: "message", content: "v2 rewritten" }] }).where(eq(s.sequences.id, seqId));
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+
+    // The worker sent the V1 content from the snapshot, not the edited V2 content.
+    const r = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
+    expect((r.rows[0] as { payload: { content: { text: string } } }).payload.content.text).toBe("v1 original");
   });
 });
 

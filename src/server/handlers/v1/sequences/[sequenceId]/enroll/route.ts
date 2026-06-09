@@ -3,7 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sequences, sequenceEnrollments, contacts, channels, contactChannels } from "@/db/schema";
 import { created, ApiErrors } from "@/lib/api/response";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -74,19 +74,31 @@ export async function POST(
   const firstStep = steps[0];
   const delay = firstStep?.type === "delay" ? (firstStep.delay_minutes ?? 0) * 60 * 1000 : 0;
 
-  const [enrollment] = await db
-    .insert(sequenceEnrollments)
-    .values({
-      sequence_id: sequenceId,
-      contact_id: parsed.data.contact_id,
-      channel_id: parsed.data.channel_id,
-      current_step_index: 0,
-      next_step_at: new Date(Date.now() + delay),
-    })
-    .returning();
-
-  // Schedule the first step
-  await addJob("sequence-step", { enrollmentId: enrollment.id }, { delayMs: delay });
+  // Create the enrollment and schedule its first step in ONE transaction (a transactional
+  // outbox), so a failed enqueue can't leave an active enrollment with no first step queued —
+  // which a retry could never recover, because the unique (sequence, contact) constraint would
+  // reject re-enrolling. The enrollment pins an immutable snapshot of the steps so a
+  // later edit of the sequence definition can't change what this enrollment delivers.
+  const enrollment = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(sequenceEnrollments)
+      .values({
+        sequence_id: sequenceId,
+        contact_id: parsed.data.contact_id,
+        channel_id: parsed.data.channel_id,
+        current_step_index: 0,
+        steps_snapshot: sequence.steps,
+        next_step_at: new Date(Date.now() + delay),
+      })
+      .returning();
+    await addJobTx(
+      tx,
+      "sequence-step",
+      { enrollmentId: row.id },
+      { jobKey: `seq-step:${row.id}:0`, runAt: new Date(Date.now() + delay) },
+    );
+    return row;
+  });
 
   return created(enrollment);
 }

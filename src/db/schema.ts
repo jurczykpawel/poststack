@@ -347,6 +347,10 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
 	current_step_index: integer("current_step_index").default(0).notNull(),
+	// Immutable snapshot of the sequence's steps taken at enrollment time. The worker drives
+	// the enrollment from THIS, so editing/reordering the live sequence definition never makes
+	// an in-flight enrollment skip a step or get a different message.
+	steps_snapshot: jsonb("steps_snapshot").default([]).notNull(),
 	status: sequenceEnrollmentStatus().default('active').notNull(),
 	enrolled_at: timestamp("enrolled_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	next_step_at: timestamp("next_step_at", { precision: 3, mode: 'date' }),
