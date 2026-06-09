@@ -63,3 +63,36 @@ describe("env validation", () => {
     await expect(import("@/lib/env")).rejects.toThrow();
   });
 });
+
+//  — surface a startup warning for security-lax-but-valid production config rather than
+// failing silently: unset ALTCHA_HMAC_KEY (CAPTCHA skipped) and TRUSTED_PROXY (per-IP rate-limit
+// collapse). Dev is unaffected.
+describe("production startup warnings", () => {
+  const warnMessages = () => warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it("warns when ALTCHA_HMAC_KEY and TRUSTED_PROXY are unset in production", async () => {
+    setEnv({ NODE_ENV: "production", ALTCHA_HMAC_KEY: undefined, TRUSTED_PROXY: undefined });
+    await import("@/lib/env");
+    expect(warnMessages()).toMatch(/ALTCHA_HMAC_KEY/);
+    expect(warnMessages()).toMatch(/TRUSTED_PROXY/);
+  });
+
+  it("does not warn when they are set in production", async () => {
+    setEnv({ NODE_ENV: "production", ALTCHA_HMAC_KEY: "k".repeat(32), TRUSTED_PROXY: "cloudflare" });
+    await import("@/lib/env");
+    expect(warnMessages()).not.toMatch(/ALTCHA_HMAC_KEY|TRUSTED_PROXY/);
+  });
+
+  it("does not warn in development even when unset", async () => {
+    setEnv({ NODE_ENV: "development", ALTCHA_HMAC_KEY: undefined, TRUSTED_PROXY: undefined });
+    await import("@/lib/env");
+    expect(warnMessages()).not.toMatch(/ALTCHA_HMAC_KEY|TRUSTED_PROXY/);
+  });
+});

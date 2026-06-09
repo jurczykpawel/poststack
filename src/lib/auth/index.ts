@@ -171,7 +171,10 @@ export async function signSession(
  */
 export async function invalidateSession(token: string): Promise<void> {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    // Verify issuer/audience too (logout is an unauthenticated endpoint, so the caller controls
+    // the token). Otherwise a token merely signed with this JWT_SECRET — e.g. one minted by a
+    // sibling service that shares the secret — could push an arbitrary jti onto the denylist.
+    const { payload } = await jwtVerify(token, JWT_SECRET, { issuer: "replystack", audience: "replystack" });
     const jti = payload.jti;
     const exp = payload.exp;
 

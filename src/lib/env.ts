@@ -72,6 +72,19 @@ function loadEnv() {
     throw new Error("Invalid environment variables. Check your .env file.");
   }
 
+  // Surface a clear startup signal for security-relevant settings that are silently lax in
+  // production: an unset ALTCHA_HMAC_KEY skips CAPTCHA on auth endpoints, and an unset
+  // TRUSTED_PROXY collapses per-IP rate limiting to a single bucket. Documented in the README,
+  // but a warning means a misconfigured deploy isn't quietly unprotected.
+  if (parsed.data.NODE_ENV === "production") {
+    if (!parsed.data.ALTCHA_HMAC_KEY) {
+      console.warn("[env] ALTCHA_HMAC_KEY is unset in production — CAPTCHA verification on login/register is SKIPPED.");
+    }
+    if (!parsed.data.TRUSTED_PROXY) {
+      console.warn("[env] TRUSTED_PROXY is unset in production — per-IP rate limiting may collapse to one bucket if behind a proxy.");
+    }
+  }
+
   return parsed.data;
 }
 
