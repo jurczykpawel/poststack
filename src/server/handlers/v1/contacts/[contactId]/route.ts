@@ -1,4 +1,4 @@
-import { and, eq, like, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contacts, commentLogs, conversations, sequenceEnrollments, processedEvents } from "@/db/schema";
@@ -7,6 +7,11 @@ import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
+
+/** Escape SQL LIKE wildcards so an interpolated value matches literally (paired with ESCAPE '\'). */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
 
 // GET /api/v1/contacts/:id
 export async function GET(
@@ -134,8 +139,11 @@ export async function DELETE(
     // A reaction event-dedup key embeds the reactor's PSID (`reaction:{channelId}:{psid}:...`)
     // and is never reached by a table cascade or the time-based prune, so without this the PSID
     // outlives the contact. Scrub the keys for this contact's (channel, sender) pairs.
-    const reactionKeyClauses = contact.contact_channels.map((cc) =>
-      like(processedEvents.key, `reaction:${cc.channel_id}:${cc.platform_sender_id}:%`),
+    // The sender id is interpolated into a LIKE pattern, so escape its `\ % _` (today's PSIDs are
+    // numeric, but a future platform handle could carry a wildcard and over-delete neighbours) —
+    // ESCAPE '\' makes the escaped chars match literally.
+    const reactionKeyClauses = contact.contact_channels.map(
+      (cc) => sql`${processedEvents.key} like ${`reaction:${cc.channel_id}:${escapeLike(cc.platform_sender_id)}:%`} escape '\\'`,
     );
     if (reactionKeyClauses.length > 0) {
       await tx.delete(processedEvents).where(or(...reactionKeyClauses));

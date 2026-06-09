@@ -440,6 +440,7 @@ CREATE INDEX "rate_limit_counters_window_start_idx" ON "rate_limit_counters" USI
 CREATE INDEX "revoked_tokens_expires_at_idx" ON "revoked_tokens" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "rule_cooldowns_expires_at_idx" ON "rule_cooldowns" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "sequence_enrollments_sequence_id_contact_id_key" ON "sequence_enrollments" USING btree ("sequence_id","contact_id");--> statement-breakpoint
+CREATE INDEX "sequence_enrollments_active_contact_channel_idx" ON "sequence_enrollments" USING btree ("contact_id","channel_id") WHERE status = 'active';--> statement-breakpoint
 CREATE INDEX "sequences_workspace_id_idx" ON "sequences" USING btree ("workspace_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "tags_workspace_id_name_key" ON "tags" USING btree ("workspace_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_email_key" ON "users" USING btree ("email");--> statement-breakpoint

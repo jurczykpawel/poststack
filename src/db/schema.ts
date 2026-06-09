@@ -360,6 +360,10 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 	completed_at: timestamp("completed_at", { precision: 3, mode: 'date' }),
 }, (table) => [
 	uniqueIndex("sequence_enrollments_sequence_id_contact_id_key").using("btree", table.sequence_id.asc().nullsLast(), table.contact_id.asc().nullsLast()),
+	// Supports the retention husk-prune NOT EXISTS guard, which looks up an active
+	// enrollment by (contact_id, channel_id). Partial on active rows — the only ones the guard
+	// (and the worker) care about — so it stays tiny.
+	index("sequence_enrollments_active_contact_channel_idx").using("btree", table.contact_id.asc().nullsLast(), table.channel_id.asc().nullsLast()).where(sql`status = 'active'`),
 	foreignKey({
 			columns: [table.sequence_id],
 			foreignColumns: [sequences.id],

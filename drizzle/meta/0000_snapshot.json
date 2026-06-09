@@ -1,5 +1,5 @@
 {
-  "id": "6bdbf7af-5dba-4298-9084-54e5366d0954",
+  "id": "08b825b5-023f-479d-8970-a53ec55377c7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2977,6 +2977,28 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sequence_enrollments_active_contact_channel_idx": {
+          "name": "sequence_enrollments_active_contact_channel_idx",
+          "columns": [
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "status = 'active'",
           "concurrently": false,
           "method": "btree",
           "with": {}

@@ -233,6 +233,28 @@ describe("contact erase scrubs PSID-bearing processed_events keys (real Postgres
     // Cleanup the surviving control row (no contact owns it).
     await db.delete(processedEvents).where(eq(processedEvents.key, otherKey));
   });
+
+  //  — the sender id is interpolated into a LIKE pattern. A `_`/`%` in it must match
+  // literally (ESCAPE), or the scrub would over-delete a neighbour's keys on the same channel.
+  it("escapes LIKE wildcards in the sender id so it does not over-delete neighbours", async () => {
+    if (!TEST_DB) return;
+    const CH_W = "ffffffff-0000-0000-0000-0000000000a9";
+    const CONTACT_W = "ffffffff-0000-0000-0000-0000000000aa";
+    const PSID_WILD = "user_1"; // `_` is a single-char LIKE wildcard if unescaped
+    await db.insert(channels).values({ id: CH_W, workspace_id: WS_A, platform: "instagram", platform_id: "PG-W", token_encrypted: "e", webhook_secret: "s" });
+    await db.insert(contacts).values({ id: CONTACT_W, workspace_id: WS_A });
+    await db.insert(contactChannels).values({ contact_id: CONTACT_W, channel_id: CH_W, platform_sender_id: PSID_WILD });
+    const mineKey = `reaction:${CH_W}:user_1:mid:love:1`;
+    const neighbourKey = `reaction:${CH_W}:userX1:mid:love:2`; // would match `user_1` if `_` were a wildcard
+    await db.insert(processedEvents).values([{ key: mineKey }, { key: neighbourKey }]);
+
+    const res = await DELETE(reqAsA(), ctx(CONTACT_W));
+    expect(res.status).toBe(204);
+
+    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, mineKey) })).toBeUndefined();
+    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, neighbourKey) })).toBeDefined();
+    await db.delete(processedEvents).where(eq(processedEvents.key, neighbourKey));
+  });
 });
 
 //  — queued/dead-letter graphile jobs carry the contact's PSID + message text in their
