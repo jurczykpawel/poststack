@@ -120,7 +120,15 @@ describe("conversations handlers (real Postgres)", () => {
     expect(okRes.status).toBe(200);
     expect((await okRes.json()).data.assigned_to).toBe(MEMBER);
 
-    // cleanup (users are global, not workspace-cascaded)
+    //  — assigned_to is now readable: the GET detail and the list must project it, not just
+    // accept it on write (it was a write-only field).
+    const got = await (await detail.GET(req(`/${CONV}`), ctx)).json();
+    expect(got.data.assigned_to).toBe(MEMBER);
+    const listed = await (await list.GET(req())).json();
+    expect(listed.data.find((c: { id: string }) => c.id === CONV)?.assigned_to).toBe(MEMBER);
+
+    // cleanup (users are global, not workspace-cascaded); unassign so other tests see a clean row.
+    await db.update(s.conversations).set({ assigned_to: null }).where(eq(s.conversations.id, CONV));
     await db.delete(s.users).where(eq(s.users.id, MEMBER));
     await db.delete(s.users).where(eq(s.users.id, OUTSIDER));
   });

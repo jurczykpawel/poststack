@@ -25,6 +25,8 @@ export async function GET(
       last_message_at: true,
       unread_count: true,
       is_automation_paused: true,
+      // Projected so an API consumer can READ the assignment it set via PATCH.
+      assigned_to: true,
     },
     with: {
       channel: { columns: { id: true, display_name: true, platform: true } },

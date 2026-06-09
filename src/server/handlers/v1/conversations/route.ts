@@ -73,6 +73,7 @@ export async function GET(request: Request) {
       last_message_preview: true,
       unread_count: true,
       is_automation_paused: true,
+      assigned_to: true, // readable, not just writable
     },
     with: {
       channel: { columns: { id: true, display_name: true, platform: true } },
