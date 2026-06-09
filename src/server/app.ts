@@ -5,11 +5,14 @@ import { publicRoutes } from "./routes/public";
 import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
+import { ApiErrors } from "@/lib/api/response";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 const corsMiddleware = cors({
   origin: "*",
   allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization"],
+  // Idempotency-Key lets a client safely retry a manual reply without double-sending.
+  allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
 });
 
 export function buildApp(): Hono {
@@ -18,6 +21,18 @@ export function buildApp(): Hono {
   app.use("*", securityHeaders());
   app.use("/api/v1", corsMiddleware);
   app.use("/api/v1/*", corsMiddleware);
+
+  // Any uncaught error from an API handler (DB/queue/runtime) must still honour the
+  // { data, error } contract — not leak Hono's plain-text 500 — and never expose internals
+  //. HTML page routes keep the framework default.
+  app.onError((e, c) => {
+    if (c.req.path.startsWith("/api/")) {
+      console.error(`Unhandled API error on ${c.req.method} ${sanitizeForLog(c.req.path)}: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
+      return ApiErrors.internal();
+    }
+    console.error(`Unhandled error: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
+    return c.text("Internal Server Error", 500);
+  });
 
   app.route("/", publicRoutes);
   app.route("/", special);

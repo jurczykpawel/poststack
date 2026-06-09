@@ -99,6 +99,16 @@ export async function POST(
     return ApiErrors.badRequest("No platform identity found for this contact");
   }
 
+  // A client that retries after a timeout/lost response must not create a second reply.
+  // When the caller supplies Idempotency-Key, derive a deterministic key (scoped to the
+  // workspace+conversation) and use it as the graphile job key AND the outbound send key —
+  // so a repeat enqueues at most one job and sends at most once. Without a key we
+  // fall back to a fresh uuid (each call is independent).
+  const idemHeader = request.headers.get("Idempotency-Key");
+  const replyKey = idemHeader
+    ? `manual-reply:${auth.workspaceId}:${conversation.id}:${idemHeader}`
+    : randomUUID();
+
   // Clear the manual-attention flag and enqueue the reply in ONE transaction: if
   // the enqueue fails, the flag stays set so the operator still sees the conversation needs
   // a reply, instead of clearing the alert for a message that never went out.
@@ -118,8 +128,8 @@ export async function POST(
       recipientPlatformId: contactChannel.platform_sender_id,
       content: { text: parsed.data.text },
       sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
-      idempotencyKey: randomUUID(),
-    });
+      idempotencyKey: replyKey,
+    }, { jobKey: idemHeader ? replyKey : undefined });
   });
 
   return created({ queued: true });

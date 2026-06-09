@@ -88,4 +88,21 @@ describe("conversations handlers (real Postgres)", () => {
     const jobs = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'`);
     expect(Number((jobs.rows[0] as { n: number }).n)).toBe(1);
   });
+
+  //  — a client retry carrying the same Idempotency-Key must enqueue at most one reply.
+  it("deduplicates a retried manual reply by Idempotency-Key", async () => {
+    if (!TEST_DB) return;
+    const send = () => msgs.POST(
+      req(`/${CONV}/messages`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json", "Idempotency-Key": "client-retry-1" },
+        body: JSON.stringify({ text: "thanks" }),
+      }),
+      ctx,
+    );
+    expect((await send()).status).toBe(201);
+    expect((await send()).status).toBe(201); // retry, same key
+    const jobs = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'`);
+    expect(Number((jobs.rows[0] as { n: number }).n)).toBe(1); // exactly one enqueued
+  });
 });

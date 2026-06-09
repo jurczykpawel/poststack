@@ -76,4 +76,30 @@ describe("contacts list (real Postgres)", () => {
     const { data } = await (await GET(req("?tag=vip"))).json();
     expect(data.map((c: { id: string }) => c.id)).toEqual([ALICE]);
   });
+
+  //  — keyset pagination must return every contact exactly once even when many share a
+  // boundary timestamp and others have NULL activity (no skips, no stuck null cursor).
+  it("paginates over tied and null activity timestamps without skips or duplicates", async () => {
+    if (!TEST_DB) return;
+    const T = new Date("2025-06-01T00:00:00.000Z");
+    await db.insert(s.contacts).values([
+      ...Array.from({ length: 5 }, (_, i) => ({ workspace_id: WS, display_name: `Tie${i}`, last_interaction_at: T })),
+      ...Array.from({ length: 3 }, (_, i) => ({ workspace_id: WS, display_name: `Null${i}`, last_interaction_at: null })),
+    ]);
+    const seen = new Set<string>();
+    let cursor: string | null = null;
+    for (let guard = 0; guard < 50; guard++) {
+      const url: string = cursor ? `?limit=2&cursor=${encodeURIComponent(cursor)}` : "?limit=2";
+      const { data, meta } = await (await GET(req(url))).json();
+      for (const c of data as { id: string }[]) {
+        expect(seen.has(c.id)).toBe(false); // no duplicate across pages
+        seen.add(c.id);
+      }
+      if (!meta.has_more) break;
+      cursor = meta.next_cursor;
+      expect(cursor).not.toBeNull(); // never stuck, even at the NULL group
+    }
+    const all = await db.select().from(s.contacts).where(eq(s.contacts.workspace_id, WS));
+    expect(seen.size).toBe(all.length); // every contact returned exactly once
+  });
 });

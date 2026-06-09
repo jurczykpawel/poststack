@@ -1,4 +1,4 @@
-import { and, or, eq, lt, ilike, like, desc, exists, sql, type SQL } from "drizzle-orm";
+import { and, or, eq, lt, isNull, ilike, like, desc, exists, sql, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contacts, contactChannels, contactTags, tags } from "@/db/schema";
@@ -13,6 +13,23 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.string().optional(),
 });
+
+// Opaque keyset cursor over (last_interaction_at, id). A bare timestamp cursor skipped rows
+// that shared the boundary timestamp and could never page past NULL activity; the id
+// tie-breaker makes the order total and every page reachable.
+function encodeCursor(ts: Date | null, id: string): string {
+  return Buffer.from(JSON.stringify({ t: ts ? ts.toISOString() : null, i: id })).toString("base64url");
+}
+function decodeCursor(c: string): { ts: Date | null; id: string } | null {
+  try {
+    const o = JSON.parse(Buffer.from(c, "base64url").toString("utf8")) as { t: unknown; i: unknown };
+    if (typeof o.i !== "string") return null;
+    if (o.t !== null && (typeof o.t !== "string" || Number.isNaN(Date.parse(o.t)))) return null;
+    return { ts: o.t === null ? null : new Date(o.t as string), id: o.i };
+  } catch {
+    return null;
+  }
+}
 
 // GET /api/v1/contacts
 export async function GET(request: Request) {
@@ -64,11 +81,24 @@ export async function GET(request: Request) {
     );
   }
 
-  if (cursor) conds.push(lt(contacts.last_interaction_at, new Date(cursor)));
+  if (cursor) {
+    const cur = decodeCursor(cursor);
+    if (!cur) return ApiErrors.validationError({ cursor: ["invalid cursor"] });
+    // Rows ordered AFTER the cursor under (last_interaction_at DESC NULLS LAST, id DESC).
+    conds.push(
+      cur.ts !== null
+        ? or(
+            lt(contacts.last_interaction_at, cur.ts),
+            and(eq(contacts.last_interaction_at, cur.ts), lt(contacts.id, cur.id)),
+            isNull(contacts.last_interaction_at), // the NULL group sorts after any timestamp
+          )!
+        : and(isNull(contacts.last_interaction_at), lt(contacts.id, cur.id))!,
+    );
+  }
 
   const rows = await db.query.contacts.findMany({
     where: and(...conds),
-    orderBy: desc(contacts.last_interaction_at),
+    orderBy: [sql`${contacts.last_interaction_at} desc nulls last`, desc(contacts.id)],
     limit: limit + 1,
     columns: {
       id: true,
@@ -93,10 +123,10 @@ export async function GET(request: Request) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor =
-    hasMore && items.length > 0
-      ? (items[items.length - 1].last_interaction_at?.toISOString() ?? null)
-      : null;
+  // Cursor carries the id tie-breaker too, so it is always present (never null) when there
+  // is a next page — even when the boundary row has NULL activity.
+  const last = items[items.length - 1];
+  const nextCursor = hasMore && last ? encodeCursor(last.last_interaction_at ?? null, last.id) : null;
 
   return ok(items, { has_more: hasMore, next_cursor: nextCursor });
 }
