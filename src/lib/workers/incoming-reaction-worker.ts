@@ -4,7 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimOnce } from "@/lib/idempotency";
+import { claimEventOnce } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -60,7 +60,7 @@ export async function processIncomingReaction(
 
   if (isAutomationPaused) {
     // Still terminally claim so a redelivery after unpause doesn't fire on an old reaction.
-    await claimOnce(eventKey);
+    await claimEventOnce(eventKey);
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
     return;
   }

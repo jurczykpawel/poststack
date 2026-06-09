@@ -57,6 +57,13 @@
       "when": 1780907052607,
       "tag": "0007_rename_idempotency_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780999618847,
+      "tag": "0008_silly_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

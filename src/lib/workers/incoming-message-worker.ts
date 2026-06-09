@@ -4,7 +4,7 @@ import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { channels, contactChannels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimOnce } from "@/lib/idempotency";
+import { claimEventOnce } from "@/lib/idempotency";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
@@ -146,7 +146,7 @@ export async function processIncomingMessage(
   //    (claimed in the same transaction as the reply enqueue), and any failure propagates so
   //    the job is retried rather than swallowed and lost to the message dedup.
   if (conversation.is_automation_paused) {
-    await claimOnce(eventKey);
+    await claimEventOnce(eventKey);
     return;
   }
 

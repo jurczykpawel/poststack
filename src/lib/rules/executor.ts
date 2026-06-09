@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals } from "@/db/schema";
 import { acquireCooldown, incrementSendCount, isOnCooldown, isAtCap } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
-import { claimOnce, isClaimed } from "@/lib/idempotency";
+import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
 import { rephrase } from "@/lib/ai/rephrase";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
@@ -128,7 +128,7 @@ export async function evaluateRules(
   // Eligibility precheck (non-mutating): if this event was already handled, do nothing —
   // and never plan a reply (LLM rephrase) for it. The in-transaction claim below is the
   // authority; this just avoids the work on a redelivery.
-  if (eventKey && (await isClaimed(eventKey))) return { outcome: "already", ruleId: null };
+  if (eventKey && (await isEventProcessed(eventKey))) return { outcome: "already", ruleId: null };
 
   for (const rule of rules) {
     const candidate = {
@@ -169,7 +169,7 @@ export async function evaluateRules(
     try {
       await db.transaction(async (tx) => {
         // Event-level dedup: a redelivery of an already-fired event finds the claim.
-        if (eventKey && !(await claimOnce(eventKey, new Date(), tx))) throw new NotFired("already");
+        if (eventKey && !(await claimEventOnce(eventKey, tx))) throw new NotFired("already");
         // Cooldown: atomic acquire prevents concurrent events from firing the same rule.
         if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds, tx))) throw new NotFired("skip");
         // Per-rule lifetime send limit: atomic increment-if-under-cap.
@@ -195,7 +195,7 @@ export async function evaluateRules(
   // new rule is added, or after the conversation is unpaused — does not produce a late
   // reply to an old event. A lost claim race means a concurrent delivery already handled it.
   if (eventKey) {
-    const claimed = await claimOnce(eventKey);
+    const claimed = await claimEventOnce(eventKey);
     return { outcome: claimed ? "no_match" : "already", ruleId: null };
   }
   return { outcome: "no_match", ruleId: null };
