@@ -107,11 +107,18 @@ function renderMessages(messages: Array<{ id: string; direction: string; text: s
   )}`;
 }
 
-function renderThread(conv: ConvName & { id: string; channel: { display_name: string | null; platform: string } }, messages: Array<{ id: string; direction: string; text: string | null }>): Html {
+function renderThread(
+  conv: ConvName & { id: string; channel: { display_name: string | null; platform: string } },
+  messages: Array<{ id: string; direction: string; text: string | null }>,
+  // On a failed send, show the error and keep the operator's typed text instead of clearing it
+  // out as if the message went.
+  opts: { error?: string; draft?: string } = {},
+): Html {
   return html`<div class="thread-head">${contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
+    ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages)}</div>
     <form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
-      <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required></textarea>
+      <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
       <button class="btn btn-primary" type="submit">Send</button>
     </form>`;
 }
@@ -195,6 +202,10 @@ function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>): Htm
 
 // ─── registration ─────────────────────────────────────────────────────────────
 
+/** Sanity ceiling for the message-retention policy (~10 years). Anything beyond is almost
+ *  certainly a fat-fingered value, and "keep forever" is expressed as null, not a huge number. */
+const MAX_RETENTION_DAYS = 3650;
+
 export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
   // Inbox
   app.get("/inbox", guard, async (c) => {
@@ -239,11 +250,23 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
 
   app.post("/inbox/:id/reply", guard, async (c) => {
     const id = c.req.param("id");
-    await conversationMessages.POST(c.req.raw, { params: Promise.resolve({ conversationId: id }) }).catch(() => {});
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const draft = typeof form.text === "string" ? form.text : "";
+    // Inspect the send result instead of swallowing it: a rejected reply (channel needs_reauth,
+    // empty/over-long text, no platform identity) must surface an error and keep the draft, not
+    // clear the box as if it sent.
+    const res = await conversationMessages
+      .POST(jsonReq(c, { text: draft }), { params: Promise.resolve({ conversationId: id }) })
+      .catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
+    if (!res || res.status >= 400) {
+      const errBody = res ? ((await res.json().catch(() => null)) as { error?: { message?: string } } | null) : null;
+      const error = errBody?.error?.message ?? "Could not send the reply. Please try again.";
+      return c.html(renderThread(conv, await loadMessages(id), { error, draft }));
+    }
     return c.html(renderThread(conv, await loadMessages(id)));
   });
 
@@ -432,6 +455,12 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.json().catch(() => ({} as Record<string, unknown>));
     const rawDays = (form as Record<string, unknown>).message_retention_days;
     const days = rawDays === "" || rawDays == null ? null : Number(rawDays);
+    // Validate server-side: the input's min="1" is client-only. A direct POST with 0/negative
+    // makes the prune cutoff `now` (or the future) and the next retention run deletes EVERY
+    // prunable message in the workspace. Require a whole number in a sane range.
+    if (days !== null && (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS)) {
+      return c.html(html`Retention must be a whole number of days between 1 and ${MAX_RETENTION_DAYS}.`);
+    }
     const res = await workspacePatch(c, days);
     return c.html(html`${res ? "Saved." : "Could not save retention policy."}`);
   });
@@ -717,10 +746,14 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
   app.post("/sequences/:id/status", guard, async (c) => {
     const id = c.req.param("id");
     const form = (await c.req.json().catch(() => ({}))) as Record<string, string>;
-    await sequence.PATCH(jsonReqMethod(c, "PATCH", { status: form.status }), { params: Promise.resolve({ sequenceId: id }) }).catch(() => {});
+    const res = await sequence
+      .PATCH(jsonReqMethod(c, "PATCH", { status: form.status }), { params: Promise.resolve({ sequenceId: id }) })
+      .catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderSequences(await loadSequences(a.workspaceId)));
+    // Surface a failed status change instead of silently re-rendering the unchanged list.
+    const error = !res || res.status >= 400 ? "Could not update the sequence status." : undefined;
+    return c.html(renderSequences(await loadSequences(a.workspaceId), error));
   });
 
   app.delete("/sequences/:id", guard, async (c) => {
@@ -912,9 +945,10 @@ async function loadSequences(workspaceId: string) {
   );
 }
 
-function renderSequences(seqs: Awaited<ReturnType<typeof loadSequences>>): Html {
-  if (seqs.length === 0) return html`<p class="muted">No sequences yet.</p>`;
-  return html`<div class="list">${seqs.map((seq) => {
+function renderSequences(seqs: Awaited<ReturnType<typeof loadSequences>>, error?: string): Html {
+  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
+  if (seqs.length === 0) return html`${notice}<p class="muted">No sequences yet.</p>`;
+  return html`${notice}<div class="list">${seqs.map((seq) => {
     const stepCount = Array.isArray(seq.steps) ? seq.steps.length : 0;
     return html`<div class="list-row">
       <div class="grow"><span style="font-weight:600">${seq.name}</span> <span class="muted" style="font-size:.75rem">${seq.status.toUpperCase()} · ${stepCount} steps · ${seq._count.enrollments} enrolled</span></div>
