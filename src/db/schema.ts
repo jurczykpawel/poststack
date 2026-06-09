@@ -14,6 +14,9 @@ export const flowStatus = pgEnum("flow_status", ['draft', 'published', 'archived
 export const messageDirection = pgEnum("message_direction", ['inbound', 'outbound'])
 export const messageStatus = pgEnum("message_status", ['pending', 'sent', 'delivered', 'failed', 'held', 'expired'])
 export const outboundDeliveryStatus = pgEnum("outbound_delivery_status", ['pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown'])
+// `tiktok`/`twitter`/`gmail`/`discord` are reserved enum values with NO provider in the registry —
+// getProvider() throws for them and OAuth/connect only ever writes facebook/instagram/telegram. They
+// are forward-looking placeholders, currently unreachable.
 export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord'])
 export type Platform = (typeof platform.enumValues)[number]
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate'])
@@ -265,6 +268,8 @@ export const messages = pgTable("messages", {
 	postback_payload: text("postback_payload"),
 	platform_message_id: text("platform_message_id"),
 	sent_by_rule_id: uuid("sent_by_rule_id"),
+	// Reserved for a future flow engine — NEVER written today (workers stamp sent_by_rule_id /
+	// sent_by_user_id). Kept as the FK target for when flows ship; currently always NULL.
 	sent_by_flow_id: uuid("sent_by_flow_id"),
 	sent_by_user_id: uuid("sent_by_user_id"),
 	status: messageStatus().default('sent').notNull(),
@@ -506,6 +511,9 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 	trigger_config: jsonb("trigger_config").default({}).notNull(),
 	response_type: response_type("response_type").default('text').notNull(),
 	response_config: jsonb("response_config").default({}).notNull(),
+	// Reserved scaffold for a future side-effect/action engine. The executor fetches it into
+	// RuleCandidate.actions but NOTHING reads it, and PATCH/POST don't accept it — so it's always
+	// the default []. Kept as a placeholder until an action engine exists.
 	actions: jsonb().default([]).notNull(),
 	cooldown_seconds: integer("cooldown_seconds").default(0).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),

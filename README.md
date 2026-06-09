@@ -63,6 +63,7 @@
 - **Single-owner workspaces (no role tiers yet)** — a session/API key authorizes any action in its workspace. There is intentionally only one membership role (`owner`); richer roles (`admin`/`agent`) and per-role authorization (`requireRole()`) are deferred until member invitations exist. Until then, treat any workspace member as having full access — including destructive actions (deleting channels, erasing contacts, managing API keys).
 - **Contact identity across surfaces (Meta ASID vs PSID)** — Meta gives a public *comment* an app-scoped user id and a *direct message* a page-scoped id (PSID); they are different strings with no local mapping. So the same person commenting and then DMing currently resolves to **two separate contacts**. Consequence: send limits/cooldowns aren't shared across the two, and an `unsubscribe` or GDPR erasure applies only to the identity it was performed on. Merging them requires a Graph API lookup and is planned as a dedicated feature; until then, erase/unsubscribe both identities if a contact reached you on more than one surface.
 - **Contact search & non-ASCII case-folding** — the dashboard contact search uses `ILIKE`, whose case-insensitivity for non-ASCII letters (e.g. Polish `Ó`/`ó`) depends on the database locale. The bundled `postgres:alpine` initializes with the `C` locale, where `ILIKE` only case-folds ASCII — so searching `józek` won't match a stored `JÓZEK`. For correct Polish (or any non-ASCII) case-insensitive search, initialize Postgres with a UTF-8/ICU locale (e.g. set `POSTGRES_INITDB_ARGS` to use `--locale-provider=icu --icu-locale=und` on a **fresh** data volume) or add the `unaccent` extension. Keyword/automation matching is unaffected (it folds + NFC-normalizes in the app).
+- **Conversation status `snoozed`** — `snoozed` is currently a manual, permanent state (like `closed`): there is **no auto-reopen timer** (no `snoozed_until` / scheduled un-snooze), and the inbox lists conversations of all statuses, so closed/snoozed threads still appear in the list. Treat snooze as "mark resolved-for-now" rather than "remind me later". A timed snooze + status filtering/tabs in the inbox are planned.
 
 ---
 
@@ -124,6 +125,13 @@ docker compose -f docker-compose.prod.yml up -d
 This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images from GHCR.
 
 > **Images & registry.** By default it pulls `ghcr.io/jurczykpawel/replystack` (and `-worker`). If the packages are private, run `docker login ghcr.io` first. Forks: set `IMAGE_REPO` in `.env` to your own registry path, and `IMAGE_TAG` to pin a version.
+
+> **Rollback.** A release re-pulls `IMAGE_TAG` (default `latest`) and recreates the containers, so if a deploy is bad the previous containers are already gone. To roll back, pin the last good version and bring the stack back up:
+> ```bash
+> echo "IMAGE_TAG=v0.1.0" >> .env   # the previous good tag
+> docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+> ```
+> For zero-surprise rollbacks, pin `IMAGE_TAG` to an explicit version (not `latest`) so each release is an intentional tag bump. Migrations are forward-only — a rollback assumes the schema is compatible (it is within a release line).
 
 ---
 

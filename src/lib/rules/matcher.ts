@@ -70,6 +70,11 @@ export function matchRule(
     // eventType:"message" + isReaction:true, so without the guard a reaction would trigger a DM
     // (unwanted, and a reaction is not a window-opening message). Reactions match only `reaction`
     // rules.
+    //
+    // NOTE: `welcome` is currently a behavioural ALIAS of `default` — both fire on every inbound
+    // message. True first-contact gating (fire only on a contact's first-ever message) needs an
+    // `isNewContact` signal threaded from the worker into the match context; that's deferred, so
+    // until then a `welcome` rule fires like a `default` one.
     case "welcome":
       return ctx.eventType === "message" && ctx.isReaction !== true;
 
