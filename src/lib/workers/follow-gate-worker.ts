@@ -7,7 +7,7 @@ import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { TokenInvalidError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
 
 /**
  * Follow-gate: re-check (live) whether the recipient follows the business, then
@@ -16,9 +16,11 @@ import { addJob } from "@/lib/queue/client";
  * follow-gate job, so the user drives the loop by following and tapping again.
  * Platforms without a follow graph (Facebook) leave the gate open and deliver.
  *
- * When the channel is down (needs_reauth / dead token) the gate is parked on the
- * outbound-delivery ledger with its full payload, so a drain re-dispatches the exact
- * follow-gate operation once the channel recovers rather than dropping it.
+ * The gate's outcome is resolved ONCE and pinned on the delivery ledger in the same
+ * transaction that enqueues the single gated child message: a retry sees the gate
+ * already resolved and re-uses the recorded outcome instead of re-checking live, so a follow
+ * status that flips between attempts can never enqueue both branches. When the channel is
+ * down the gate is parked with its full payload so a drain re-runs it after recovery.
  */
 export async function processFollowGate(
   payload: FollowGateJob,
@@ -27,6 +29,18 @@ export async function processFollowGate(
   const { channelId, conversationId, contactId, recipientPlatformId, followed, notFollowed, sentByRuleId, idempotencyKey } =
     payload;
   const deliveryKey = idempotencyKey ?? `job:${helpers.job.id}`;
+  // One deterministic child key per gate (NOT per outcome), so a retry reuses the same key.
+  const childKey = `${deliveryKey}:fg`;
+
+  const prior = await db.query.outboundDeliveries.findFirst({
+    where: eq(outboundDeliveries.delivery_key, deliveryKey),
+  });
+  if (prior?.status === "sent") {
+    // The gate was already resolved and its child enqueued — replaying would risk a second
+    // branch. Stop.
+    helpers.logger.info(`follow-gate ${deliveryKey} already resolved — skipping`);
+    return;
+  }
 
   // Park this gate on the ledger as `held` so a drain can replay it after recovery.
   const parkHeld = async (workspaceId: string, lastError: string | null) => {
@@ -82,24 +96,42 @@ export async function processFollowGate(
     }
   }
 
-  await addJob("outgoing-message", {
-    channelId,
-    conversationId,
-    contactId,
-    recipientPlatformId,
-    content: follows ? followed : notFollowed,
-    sentByRuleId,
-    // Deterministic per outcome so a retry of this job cannot double-send the
-    // same branch (the outgoing worker claims the key after a successful send).
-    idempotencyKey: idempotencyKey ? `${idempotencyKey}:${follows ? "f" : "nf"}` : undefined,
+  // Resolve the outcome ONCE: pin it on the ledger and enqueue the single gated child in the
+  // same transaction. A retry hits the `sent` short-circuit above and never re-checks live,
+  // so a flipped follow status cannot enqueue the other branch. The child carries a single
+  // deterministic key (a graphile job-key dedup as a second line of defence).
+  await db.transaction(async (tx) => {
+    const resolvedPayload = { ...payload, idempotencyKey: deliveryKey, follows };
+    await tx
+      .insert(outboundDeliveries)
+      .values({
+        delivery_key: deliveryKey,
+        workspace_id: channel.workspace_id,
+        channel_id: channelId,
+        task_name: "follow-gate",
+        payload: resolvedPayload,
+        status: "sent",
+        attempts: 1,
+      })
+      .onConflictDoUpdate({
+        target: outboundDeliveries.delivery_key,
+        set: { status: "sent", payload: resolvedPayload, last_error: null, updated_at: new Date() },
+      });
+    await addJobTx(
+      tx,
+      "outgoing-message",
+      {
+        channelId,
+        conversationId,
+        contactId,
+        recipientPlatformId,
+        content: follows ? followed : notFollowed,
+        sentByRuleId,
+        idempotencyKey: childKey,
+      },
+      { jobKey: childKey },
+    );
   });
 
-  // If this gate was parked and replayed by a drain, close out the held ledger row so a
-  // later drain doesn't re-dispatch it. A no-op for a fresh (never-parked) gate.
-  await db
-    .update(outboundDeliveries)
-    .set({ status: "sent", updated_at: new Date() })
-    .where(eq(outboundDeliveries.delivery_key, deliveryKey));
-
-  helpers.logger.info(`follow-gate: follows=${follows} → enqueued ${follows ? "followed" : "not-followed"} reply`);
+  helpers.logger.info(`follow-gate ${deliveryKey}: follows=${follows} → enqueued ${follows ? "followed" : "not-followed"} reply`);
 }

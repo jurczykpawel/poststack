@@ -1033,4 +1033,25 @@ describe("follow-gate worker", () => {
     expect(health.markChannelNeedsReauth).toHaveBeenCalled();
     expect(await jobCount("outgoing-message")).toBe(0);
   });
+
+  //  — the outcome is resolved once and pinned. A retry after the follow status flips
+  // must replay the SAME branch, never enqueue the other one.
+  it("pins the gate outcome: a retry after the status flips does not enqueue the other branch", async () => {
+    if (!TEST_DB) return;
+    // Attempt 1: the user does NOT follow → the re-prompt branch is enqueued and pinned.
+    provider.checkFollowsBusiness.mockResolvedValueOnce(false);
+    await w.processFollowGate(fgJob() as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect((await lastOutgoingContent()).text).toBe("Please follow first, then tap again");
+
+    // The user now follows and the gate job is retried (same delivery key).
+    provider.checkFollowsBusiness.mockResolvedValue(true);
+    await w.processFollowGate(fgJob() as never, helpers);
+
+    // Still exactly one child, still the originally-resolved branch — and the retry did not
+    // even re-check the live follow status.
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect((await lastOutgoingContent()).text).toBe("Please follow first, then tap again");
+    expect(provider.checkFollowsBusiness).toHaveBeenCalledTimes(1);
+  });
 });
