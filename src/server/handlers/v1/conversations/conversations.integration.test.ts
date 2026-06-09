@@ -65,6 +65,32 @@ describe("conversations handlers (real Postgres)", () => {
     expect(c.contact.contact_channels[0].platform_sender_id).toBe("PSID-CV");
   });
 
+  //  — keyset pagination must page past a NULL last_message_at: a usable next_cursor and
+  // no lost/duplicated rows.
+  it("paginates past a conversation with NULL last_message_at", async () => {
+    if (!TEST_DB) return;
+    const CONTACT2 = "eeeeeeee-0000-4000-8000-0000000000d0";
+    const CONV2 = "eeeeeeee-0000-4000-8000-0000000000d1";
+    await db.insert(s.contacts).values({ id: CONTACT2, workspace_id: WS, display_name: "Null" });
+    await db.insert(s.conversations).values({ id: CONV2, workspace_id: WS, channel_id: CH, contact_id: CONTACT2, platform: "facebook", status: "open", last_message_at: null });
+
+    const p1 = await (await list.GET(req("?limit=1"))).json();
+    expect(p1.data.length).toBe(1);
+    expect(p1.meta.has_more).toBe(true);
+    expect(p1.meta.next_cursor).toBeTruthy(); // usable cursor even though the next row is NULL
+
+    const p2 = await (await list.GET(req(`?limit=1&cursor=${encodeURIComponent(p1.meta.next_cursor)}`))).json();
+    expect(p2.data.length).toBe(1);
+    expect(p2.data[0].id).not.toBe(p1.data[0].id); // no duplicate across pages
+    expect(new Set([p1.data[0].id, p2.data[0].id])).toEqual(new Set([CONV, CONV2])); // both reached
+  });
+
+  it("rejects an invalid conversations cursor (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await list.GET(req("?cursor=not-a-valid-cursor!!"));
+    expect(res.status).toBe(422);
+  });
+
   it("gets a conversation by id (own workspace)", async () => {
     if (!TEST_DB) return;
     const res = await detail.GET(req(`/${CONV}`), ctx);

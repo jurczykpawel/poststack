@@ -80,14 +80,15 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
     const payload = (d.payload ?? {}) as Record<string, unknown>;
     const anchor = await anchorFor(d.task_name, payload, d.created_at);
     if (!anchor || now.getTime() - anchor.getTime() > (DRAIN_POLICY[d.task_name]?.windowMs ?? DAY_MS)) {
-      await db
-        .update(outboundDeliveries)
-        .set({ status: "expired", updated_at: now })
-        .where(eq(outboundDeliveries.id, d.id));
-      // Expire the linked inbox row too, so the held badge clears.
-      if (typeof payload.heldMessageId === "string") {
-        await db.update(messages).set({ status: "expired" }).where(eq(messages.id, payload.heldMessageId));
-      }
+      // Expire the ledger row AND its linked inbox row in one transaction, so a failure can't
+      // leave the delivery `expired` (terminal) while the message stays `held` — which would
+      // peg the channel's held-count badge at a stale non-zero forever.
+      await db.transaction(async (tx) => {
+        if (typeof payload.heldMessageId === "string") {
+          await tx.update(messages).set({ status: "expired" }).where(eq(messages.id, payload.heldMessageId));
+        }
+        await tx.update(outboundDeliveries).set({ status: "expired", updated_at: now }).where(eq(outboundDeliveries.id, d.id));
+      });
       expired++;
       continue;
     }
