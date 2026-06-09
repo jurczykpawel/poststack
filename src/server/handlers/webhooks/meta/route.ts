@@ -130,12 +130,19 @@ export async function POST(request: Request) {
       if (messagingEvent.message) continue; // already handled above
       if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue; // 
 
+      // The button payload is operator-controlled (up to 1000 chars); embedding it raw would
+      // overflow graphile's 512-char job_key cap → the enqueue throws → 503 → Meta retry-storm
+      // for that button forever. Hash it into the synthetic id/key (deterministic → dedup intact);
+      // the full payload is preserved in `postbackPayload` (, sibling of ).
+      const payloadHash = createHash("sha256").update(messagingEvent.postback.payload).digest("hex").slice(0, 16);
+      const postbackKey = `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${payloadHash}`;
+
       const job: IncomingMessageJob = {
         platform,
         pageId: entry.id,
         senderId: messagingEvent.sender.id,
         recipientId: messagingEvent.recipient.id,
-        mid: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
+        mid: postbackKey,
         text: null,
         postbackPayload: messagingEvent.postback.payload,
         timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
@@ -143,7 +150,7 @@ export async function POST(request: Request) {
 
       try {
         await addJob("incoming-message", job, {
-          jobKey: `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${messagingEvent.postback!.payload}`,
+          jobKey: postbackKey,
         });
       } catch (err) {
         failed++;

@@ -145,6 +145,30 @@ describe("Meta webhook input hardening (real Postgres)", () => {
     const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where key = $1", ["msg-no-sender-mid"]);
     expect(n.rows[0].n).toBe(0);
   });
+
+  //  — an operator button payload can be up to 1000 chars; embedding it raw in the graphile
+  // jobKey (512-cap) made the enqueue throw → 503 → Meta retry-storm. The jobKey now hashes the
+  // payload, so even a max-length payload enqueues cleanly (200) and stays dedup-stable.
+  it("enqueues a postback with a 1000-char payload (no 503), preserving the full payload", async () => {
+    if (!TEST_DB) return;
+    const payload = "P".repeat(1000);
+    const evt = () => signed({
+      object: "page",
+      entry: [{ id: PAGE, messaging: [{ sender: { id: PSID }, recipient: { id: PAGE }, timestamp: 1_770_000_000_000, postback: { payload, title: "Click" } }] }],
+    });
+    const res = await POST(evt());
+    expect(res.status).toBe(200);
+    const jobs = await pool.query(
+      "select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'incoming-message'",
+    );
+    expect(jobs.rows.length).toBe(1);
+    expect(jobs.rows[0].payload.postbackPayload).toBe(payload); // full payload preserved in the job
+
+    // Re-delivery of the same postback is deduped by the (hashed) jobKey.
+    await POST(evt());
+    const after = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(Number(after.rows[0].n)).toBe(1);
+  });
 });
 
 describe("webhook ingestion: Instagram comments (real Postgres)", () => {
