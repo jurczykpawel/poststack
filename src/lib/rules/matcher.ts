@@ -52,7 +52,10 @@ export function matchRule(
   if (!rule.is_active) return false;
 
   const { trigger_type, trigger_config } = rule;
-  const normalized = (ctx.text ?? "").toLowerCase().trim();
+  // NFC-normalize before folding: Polish diacritics can arrive decomposed (NFD) while the keyword
+  // is composed (NFC) or vice versa, and toLowerCase() does not normalize — so without this the
+  // comparison silently fails on different code-unit forms of the same text.
+  const normalized = (ctx.text ?? "").normalize("NFC").toLowerCase().trim();
 
   switch (trigger_type) {
     case "keyword":
@@ -145,7 +148,8 @@ function matchKeywords(
   if (!keywords || keywords.length === 0) return false;
 
   return keywords.some((kw) => {
-    const value = kw.value.toLowerCase().trim();
+    // NFC-normalize the keyword too, to match the normalized text it's compared against.
+    const value = kw.value.normalize("NFC").toLowerCase().trim();
     switch (kw.match_type) {
       case "exact":
         return text === value;

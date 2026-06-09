@@ -25,6 +25,27 @@ describe("matchRule — keyword trigger", () => {
     expect(matchRule(rule, "hello world", "message")).toBe(false);
   });
 
+  //  — Polish diacritics can arrive decomposed (NFD: base letter + combining mark) while the
+  // stored keyword is composed (NFC), or vice versa. toLowerCase() does not normalize, so the
+  // matcher must NFC-fold both sides or the comparison silently fails on different code-unit forms.
+  it("matches Polish diacritics across NFC/NFD normalization forms", () => {
+    const nfc = "zrób".normalize("NFC");
+    const nfd = "zrób".normalize("NFD");
+    expect(nfc).not.toBe(nfd); // sanity: the two forms really differ in code units
+
+    const ruleNfc: RuleCandidate = {
+      ...baseRule, trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: nfc, match_type: "exact" }] },
+    };
+    expect(matchRule(ruleNfc, nfd, "message")).toBe(true);
+
+    const ruleNfd: RuleCandidate = {
+      ...baseRule, trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: nfd, match_type: "contains" }] },
+    };
+    expect(matchRule(ruleNfd, `prosze ${nfc} teraz`, "message")).toBe(true);
+  });
+
   it("matches contains keyword", () => {
     const rule: RuleCandidate = {
       ...baseRule,
