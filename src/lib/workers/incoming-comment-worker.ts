@@ -1,5 +1,6 @@
 import type { JobHelpers } from "graphile-worker";
 import type { IncomingCommentJob } from "@/lib/queue/types";
+import { truncateCodePoints } from "@/lib/text";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, commentLogs } from "@/db/schema";
@@ -76,7 +77,7 @@ export async function processIncomingComment(
     channel,
     senderId,
     senderName ?? null,
-    text.slice(0, 255),
+    truncateCodePoints(text, 255),
     // Only a newly-logged comment bumps activity; a redelivery/retry of an old comment
     // resolves identity without reordering the inbox or reopening the conversation.
     { mutateActivity: !!logged },

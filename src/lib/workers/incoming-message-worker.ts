@@ -1,5 +1,6 @@
 import type { JobHelpers } from "graphile-worker";
 import { and, eq, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { truncateCodePoints } from "@/lib/text";
 import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { channels, contactChannels, contacts, conversations, messages } from "@/db/schema";
@@ -76,7 +77,7 @@ export async function processIncomingMessage(
   // 3. Ensure the conversation exists WITHOUT mutating its lifecycle (status/stats); those
   //    change only for a genuinely new, newest message (steps 5/6), so a redelivery can't
   //    reopen a closed conversation or move the inbox backwards.
-  const preview = text ? text.slice(0, 255) : null;
+  const preview = text ? truncateCodePoints(text, 255) : null;
   const conversation = await ensureConversation(channel, contactId, { last_message_at: messageDate, last_message_preview: preview });
 
   // 4. Insert inbound Message — unique on (conversation_id, platform_message_id) dedups a

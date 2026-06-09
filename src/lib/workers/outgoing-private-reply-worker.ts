@@ -1,5 +1,6 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingPrivateReplyJob } from "@/lib/queue/types";
+import { truncateCodePoints } from "@/lib/text";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, conversations } from "@/db/schema";
@@ -70,7 +71,7 @@ export async function processOutgoingPrivateReply(
       }
       await tx
         .update(conversations)
-        .set({ last_message_at: new Date(), last_message_preview: text.slice(0, 255) })
+        .set({ last_message_at: new Date(), last_message_preview: truncateCodePoints(text, 255) })
         .where(eq(conversations.id, conversationId));
     },
   });

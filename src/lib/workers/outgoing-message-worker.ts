@@ -1,5 +1,6 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingMessageJob } from "@/lib/queue/types";
+import { truncateCodePoints } from "@/lib/text";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, messages, conversations } from "@/db/schema";
@@ -89,7 +90,7 @@ export async function processOutgoingMessage(
         .update(conversations)
         .set({
           last_message_at: new Date(),
-          last_message_preview: content.text ? content.text.slice(0, 255) : null,
+          last_message_preview: content.text ? truncateCodePoints(content.text, 255) : null,
         })
         .where(eq(conversations.id, conversationId));
     },
