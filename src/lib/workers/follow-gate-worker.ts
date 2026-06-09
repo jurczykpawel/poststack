@@ -77,6 +77,15 @@ export async function processFollowGate(
     helpers.logger.info(`channel ${channelId} needs_reauth, follow-gate held`);
     return;
   }
+  // A manually paused channel must not even probe the follow graph (a Meta call the pause is
+  // meant to forbid) or pin an outcome early. Park the full gate payload so a drain re-runs the
+  // live follow-check from scratch after resume (; follow-gate has its own status logic
+  // that runDelivery's blockedByPause doesn't cover).
+  if (channel.status === "paused") {
+    await parkHeld(channel.workspace_id, "channel paused");
+    helpers.logger.info(`channel ${channelId} paused, follow-gate held`);
+    return;
+  }
 
   const tokens = decryptTokens(channel.token_encrypted);
   const provider = getProvider(channel.platform);

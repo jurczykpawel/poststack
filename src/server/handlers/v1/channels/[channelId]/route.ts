@@ -4,7 +4,7 @@ import { db, isUniqueViolation } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -77,22 +77,33 @@ export async function PATCH(
 
   let updated;
   try {
-    [updated] = await db
-      .update(channels)
-      .set(data)
-      .where(eq(channels.id, channelId))
-      .returning({
-        id: channels.id,
-        platform: channels.platform,
-        platform_id: channels.platform_id,
-        display_name: channels.display_name,
-        username: channels.username,
-        profile_picture: channels.profile_picture,
-        status: channels.status,
-        last_error: channels.last_error,
-        last_health_at: channels.last_health_at,
-        created_at: channels.created_at,
-      });
+    // Apply the change AND, when this resumes the channel (→ active from paused/needs_reauth),
+    // enqueue the drain that flushes anything parked while it was off — in ONE transaction (a
+    // transactional outbox). A failed enqueue rolls the status flip back, so the next retry
+    // still sees `existing.status !== active` and re-drains, rather than stranding held
+    // messages behind an already-active channel (; same fix as markChannelHealthy/).
+    updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(channels)
+        .set(data)
+        .where(eq(channels.id, channelId))
+        .returning({
+          id: channels.id,
+          platform: channels.platform,
+          platform_id: channels.platform_id,
+          display_name: channels.display_name,
+          username: channels.username,
+          profile_picture: channels.profile_picture,
+          status: channels.status,
+          last_error: channels.last_error,
+          last_health_at: channels.last_health_at,
+          created_at: channels.created_at,
+        });
+      if (row.status === "active" && existing.status !== "active") {
+        await addJobTx(tx, "drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });
+      }
+      return row;
+    });
   } catch (err) {
     // Reactivating an account that is already active in another workspace hits the
     // active-channel uniqueness index. The DB correctly rejects it (one live channel
@@ -101,12 +112,6 @@ export async function PATCH(
       return ApiErrors.conflict("This account is already connected and active in another workspace");
     }
     throw err;
-  }
-
-  // Resuming a channel (→ active from paused/needs_reauth) flushes anything parked while it
-  // was off, so held auto-replies aren't stranded — an explicit, safe resume lifecycle.
-  if (updated.status === "active" && existing.status !== "active") {
-    await addJob("drain-channel", { channelId });
   }
 
   return ok({ ...updated, is_active: updated.status === "active" });

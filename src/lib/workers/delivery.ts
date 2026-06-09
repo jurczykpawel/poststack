@@ -169,9 +169,20 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
     platformMessageId = res.platformMessageId ?? null;
   } catch (e) {
     if (e instanceof TokenInvalidError) {
-      // Dead token — park (held) and open the breaker. Not retried from here.
-      await markHeld(channel.workspace_id, e.message);
-      await markChannelNeedsReauth(channelId, e.message);
+      // Dead token — park (held) and open the breaker. Not retried from here. But the row is
+      // currently committed `sending`; if the park/flag bookkeeping itself fails, demote it to
+      // `failed` (reattemptable) and rethrow so the retry re-sends — otherwise the retry would
+      // see a stuck `sending` and drop the message as an `unknown` crash.
+      try {
+        await markHeld(channel.workspace_id, e.message);
+        await markChannelNeedsReauth(channelId, e.message);
+      } catch (markErr) {
+        await db
+          .update(outboundDeliveries)
+          .set({ status: "failed", last_error: e.message, updated_at: new Date() })
+          .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+        throw markErr;
+      }
       helpers.logger.info(`channel ${channelId} token invalid on ${taskName} — held + needs_reauth`);
       return "held";
     }

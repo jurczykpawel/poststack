@@ -40,12 +40,17 @@ async function anchorFor(taskName: string, payload: Record<string, unknown>, par
   if (policy.anchor === "parked_at") return parkedAt;
   // last_inbound_at: look the conversation up by the payload's conversationId.
   const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : null;
-  if (!conversationId) return null;
-  const conv = await db.query.conversations.findFirst({
-    where: eq(conversations.id, conversationId),
-    columns: { last_inbound_at: true },
-  });
-  return conv?.last_inbound_at ?? null;
+  if (conversationId) {
+    const conv = await db.query.conversations.findFirst({
+      where: eq(conversations.id, conversationId),
+      columns: { last_inbound_at: true },
+    });
+    if (conv?.last_inbound_at) return conv.last_inbound_at;
+  }
+  // No inbound DM on this conversation (e.g. a comment-triggered DM / follow-gate reply, where
+  // resolveContactConversation never sets last_inbound_at). Fall back to when it was parked so
+  // the message isn't wrongly expired the moment it drains for lack of an inbound clock.
+  return parkedAt;
 }
 
 /**

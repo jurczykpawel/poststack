@@ -841,6 +841,31 @@ describe("outbound delivery state machine", () => {
     expect(provider.sendPrivateReply).not.toHaveBeenCalled();
     expect((await delivery("d-pr"))?.status).toBe("unknown");
   });
+
+  //  — if the token-invalid handler's own park bookkeeping fails, the delivery must NOT
+  // be left stuck in `sending` (a retry would drop it as an `unknown` crash). It is demoted to
+  // `failed` (reattemptable) and the error rethrown so the retry re-sends.
+  it("demotes to failed (not stuck sending) when the token-invalid park bookkeeping throws", async () => {
+    if (!TEST_DB) return;
+    const { runDelivery } = await import("./delivery");
+    await expect(
+      runDelivery({
+        deliveryKey: "d-tokfail",
+        channelId: CH,
+        taskName: "outgoing-message",
+        payload: { contactId: CONTACT },
+        helpers,
+        send: async () => {
+          throw new TokenInvalidError("dead");
+        },
+        onSent: async () => {},
+        onHeld: async () => {
+          throw new Error("park failed");
+        },
+      }),
+    ).rejects.toThrow("park failed");
+    expect((await delivery("d-tokfail"))?.status).toBe("failed");
+  });
 });
 
 //  — every outbound type parks the FULL typed operation on the ledger when the channel
@@ -1085,6 +1110,19 @@ describe("follow-gate worker", () => {
     await w.processFollowGate(fgJob() as never, helpers);
     expect(health.markChannelNeedsReauth).toHaveBeenCalled();
     expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
+  //  — a paused channel must not even probe the follow graph or pin an outcome; the gate
+  // is parked so a drain re-runs the live follow-check from scratch after resume.
+  it("parks the gate without a follow-check or send when the channel is paused", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await w.processFollowGate(fgJob() as never, helpers);
+    expect(provider.checkFollowsBusiness).not.toHaveBeenCalled();
+    expect(await jobCount("outgoing-message")).toBe(0);
+    const row = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "idem-fg") });
+    expect(row?.status).toBe("held");
+    expect(row?.task_name).toBe("follow-gate");
   });
 
   //  — the outcome is resolved once and pinned. A retry after the follow status flips

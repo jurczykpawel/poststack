@@ -172,4 +172,26 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     const jobs = await pool.query("select task_identifier from graphile_worker.jobs");
     expect(jobs.rows[0].task_identifier).toBe("follow-gate");
   });
+
+  //  — a comment-triggered DM lives on a conversation with no inbound DM (last_inbound_at
+  // NULL). It must not be expired the instant it drains: the window falls back to parked_at.
+  it("does not expire an outgoing-message when last_inbound_at is NULL (within the parked window)", async () => {
+    if (!TEST_DB) return;
+    await setAnchor(null);
+    await seedHeld({ key: "d-noinb", task: "outgoing-message", payload: msgPayload(), withMessageRow: true });
+
+    const result = await drainChannel(CH); // parked just now → inside the 24h window
+    expect(result).toEqual({ enqueued: 1, expired: 0 });
+    expect((await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "d-noinb") }))?.status).toBe("held");
+  });
+
+  it("expires an outgoing-message with NULL last_inbound_at once 24h past parked_at", async () => {
+    if (!TEST_DB) return;
+    await setAnchor(null);
+    await seedHeld({ key: "d-noinb-old", task: "outgoing-message", payload: msgPayload(), withMessageRow: true });
+
+    const result = await drainChannel(CH, new Date(Date.now() + 25 * 60 * 60 * 1000));
+    expect(result).toEqual({ enqueued: 0, expired: 1 });
+    expect((await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "d-noinb-old") }))?.status).toBe("expired");
+  });
 });

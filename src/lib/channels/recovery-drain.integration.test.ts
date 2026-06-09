@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
 // Mock the queue boundary so we can inject a drain-enqueue failure; the DB is real.
@@ -14,10 +15,12 @@ let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let health: typeof import("./health");
 let upsert: typeof import("./upsert");
+let channelRoute: typeof import("@/server/handlers/v1/channels/[channelId]/route");
 
 const WS = "dddddddd-0000-0000-0000-0000000000a1";
 const CH = "dddddddd-0000-0000-0000-0000000000a2";
 const PAGE = "PG-RD-39";
+const RAW_KEY = "rs_live_recovery_drain_key_abcdef01";
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -30,6 +33,7 @@ beforeAll(async () => {
   s = await import("@/db/schema");
   health = await import("./health");
   upsert = await import("./upsert");
+  channelRoute = await import("@/server/handlers/v1/channels/[channelId]/route");
 });
 
 beforeEach(async () => {
@@ -38,6 +42,9 @@ beforeEach(async () => {
   addJobTx.mockResolvedValue(undefined);
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "RD", slug: `rd-${WS}` });
+  await db.insert(s.apiKeys).values({
+    workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_re",
+  });
 });
 
 afterAll(async () => {
@@ -92,6 +99,38 @@ describe("recovery → drain is atomic", () => {
     expect(after?.status).toBe("active");
     expect(addJobTx).toHaveBeenLastCalledWith(
       expect.anything(), "drain-channel", expect.objectContaining({ channelId: expect.any(String) }), expect.objectContaining({ jobKey: expect.stringContaining("drain-channel:") }),
+    );
+  });
+});
+
+//  — the operator PATCH resume path had the same non-atomic resume→drain as 's
+// other paths. The status flip and the drain enqueue must commit together.
+describe("operator PATCH channel-resume → drain is atomic", () => {
+  const patchReq = (body: unknown) =>
+    new Request("http://x/api/v1/channels/x", {
+      method: "PATCH",
+      headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const ctx = () => ({ params: Promise.resolve({ channelId: CH }) });
+
+  it("a failed drain enqueue rolls back the resume; the retry resumes and drains", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.channels).values({
+      id: CH, workspace_id: WS, platform: "instagram", platform_id: PAGE,
+      token_encrypted: "e", webhook_secret: "s", status: "needs_reauth",
+    });
+
+    addJobTx.mockRejectedValueOnce(new Error("queue unavailable"));
+    await expect(channelRoute.PATCH(patchReq({ status: "active" }), ctx())).rejects.toThrow();
+    // The status flip rolled back with the failed enqueue — not stranded active-without-drain.
+    expect(await statusOf()).toBe("needs_reauth");
+
+    const res = await channelRoute.PATCH(patchReq({ status: "active" }), ctx());
+    expect(res.status).toBe(200);
+    expect(await statusOf()).toBe("active");
+    expect(addJobTx).toHaveBeenLastCalledWith(
+      expect.anything(), "drain-channel", { channelId: CH }, expect.objectContaining({ jobKey: `drain-channel:${CH}` }),
     );
   });
 });
