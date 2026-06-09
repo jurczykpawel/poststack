@@ -1,4 +1,4 @@
-import { and, lt, ne, inArray } from "drizzle-orm";
+import { and, eq, lt, ne, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { ruleCooldowns, revokedTokens, rateLimitCounters, processedEvents, outboundDeliveries, pendingApprovals } from "@/db/schema";
 
@@ -14,6 +14,11 @@ const TERMINAL_LEDGER_TTL_MS = 90 * 86_400_000;
 
 /** Delivery states that are done (no further work). `held`/`pending`/`sending` are live. */
 const TERMINAL_DELIVERY_STATUSES = ["sent", "failed", "expired", "unknown"] as const;
+
+/** A `sending` row is normally transient — the next job attempt reconciles it to `unknown`. But if
+ *  the job both crashed after committing `sending` AND exhausted its retries before the reconcile
+ *  ran, the row is stuck `sending` forever. Sweep such rows well past any retry window. */
+const STUCK_SENDING_TTL_MS = 7 * 86_400_000;
 
 /**
  * Delete time-expired ephemeral rows so the tables don't grow unbounded.
@@ -44,5 +49,14 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   // `lt`, so an un-resolved (`pending`) row is doubly safe — excluded by status AND by timestamp.
   await db.delete(pendingApprovals).where(
     and(ne(pendingApprovals.status, "pending"), lt(pendingApprovals.resolved_at, ledgerCutoff)),
+  );
+
+  // Reap deliveries stuck `sending` (crash + retry-exhaustion before the reconcile) — never a
+  // fresh one still inside its retry window.
+  await db.delete(outboundDeliveries).where(
+    and(
+      eq(outboundDeliveries.status, "sending"),
+      lt(outboundDeliveries.updated_at, new Date(now.getTime() - STUCK_SENDING_TTL_MS)),
+    ),
   );
 }

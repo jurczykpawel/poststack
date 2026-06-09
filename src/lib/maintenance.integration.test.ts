@@ -137,4 +137,18 @@ describe("pruneExpired (real Postgres)", () => {
     const apvs = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
     expect(apvs.map((r) => r.id).sort()).toEqual([APV_PENDING, APV_RECENT].sort());
   });
+
+  //  — a delivery committed `sending` whose job then crashed AND exhausted its retries before
+  // the reconcile ran is stuck `sending` forever (terminal prune skips it). A stuck-sending sweep
+  // (well past the retry window) reaps it; a fresh `sending` row is left alone.
+  it("prunes a delivery stuck 'sending' past the window, keeps a fresh one", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.outboundDeliveries).values([
+      { delivery_key: "dk-sending-stuck", workspace_id: WS, channel_id: CH, task_name: "outgoing-message", status: "sending", payload: {}, updated_at: new Date(NOW.getTime() - 8 * DAY) },
+      { delivery_key: "dk-sending-fresh", workspace_id: WS, channel_id: CH, task_name: "outgoing-message", status: "sending", payload: {}, updated_at: new Date(NOW.getTime() - 3_600_000) },
+    ]);
+    await pruneExpired(NOW);
+    const remaining = await db.select().from(s.outboundDeliveries).where(eq(s.outboundDeliveries.status, "sending"));
+    expect(remaining.map((r) => r.delivery_key)).toEqual(["dk-sending-fresh"]);
+  });
 });
