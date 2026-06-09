@@ -843,6 +843,90 @@ describe("outbound delivery state machine", () => {
   });
 });
 
+//  — every outbound type parks the FULL typed operation on the ledger when the channel
+// is down, so a drain can replay the exact operation (right task, addressing, content) once.
+describe("typed held parking + replay", () => {
+  const heldDelivery = (key: string) =>
+    db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, key) });
+
+  it("parks a comment as a typed held delivery when the breaker is open", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingComment({ channelId: CH, commentId: "CMT-H", text: "ty", idempotencyKey: "h-cmt" } as never, helpers);
+    expect(provider.sendComment).not.toHaveBeenCalled();
+    const row = await heldDelivery("h-cmt");
+    expect(row?.status).toBe("held");
+    expect(row?.task_name).toBe("outgoing-comment");
+    expect((row?.payload as { commentId?: string }).commentId).toBe("CMT-H");
+  });
+
+  it("parks a comment as a typed held delivery on an invalid token", async () => {
+    if (!TEST_DB) return;
+    provider.sendComment.mockRejectedValueOnce(new TokenInvalidError("dead"));
+    await db.insert(s.commentLogs).values({ channel_id: CH, workspace_id: WS, platform_comment_id: "CMT-T", comment_text: "x" });
+    await w.processOutgoingComment({ channelId: CH, commentId: "CMT-T", text: "ty", idempotencyKey: "t-cmt" } as never, helpers);
+    expect(health.markChannelNeedsReauth).toHaveBeenCalled();
+    const row = await heldDelivery("t-cmt");
+    expect(row?.status).toBe("held");
+    expect(row?.task_name).toBe("outgoing-comment");
+  });
+
+  it("parks a private reply (with comment id + linked inbox row) when the breaker is open", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "CMT-PR", text: "via DM", idempotencyKey: "h-pr" } as never, helpers);
+    expect(provider.sendPrivateReply).not.toHaveBeenCalled();
+    const row = await heldDelivery("h-pr");
+    expect(row?.status).toBe("held");
+    expect(row?.task_name).toBe("outgoing-private-reply");
+    const payload = row?.payload as { commentId?: string; heldMessageId?: string };
+    expect(payload.commentId).toBe("CMT-PR");
+    expect(payload.heldMessageId).toBeTruthy(); // points back at the parked inbox row
+  });
+
+  it("parks a follow-gate when the breaker is open", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processFollowGate(
+      { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, followed: { text: "guide" }, notFollowed: { text: "follow first" }, idempotencyKey: "h-fg" } as never,
+      helpers,
+    );
+    expect(await jobCount("outgoing-message")).toBe(0); // nothing dispatched while down
+    const row = await heldDelivery("h-fg");
+    expect(row?.status).toBe("held");
+    expect(row?.task_name).toBe("follow-gate");
+  });
+
+  it("replays a parked private reply as a private reply (not a flattened DM)", async () => {
+    if (!TEST_DB) return;
+    // Park it.
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "CMT-RP", text: "via DM", idempotencyKey: "r-pr" } as never, helpers);
+    const parked = await heldDelivery("r-pr");
+    // Channel recovers; drain re-dispatches the SAME stored payload back to the same worker.
+    await db.update(s.channels).set({ status: "active" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingPrivateReply(parked!.payload as never, helpers);
+    expect(provider.sendPrivateReply).toHaveBeenCalledTimes(1);
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+    expect((await heldDelivery("r-pr"))?.status).toBe("sent");
+    // The parked inbox row was flipped in place — no duplicate sent row.
+    const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
+    expect(sent.length).toBe(1);
+  });
+
+  it("replays a parked comment as a comment, exactly once", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.commentLogs).values({ channel_id: CH, workspace_id: WS, platform_comment_id: "CMT-RC", comment_text: "x" });
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingComment({ channelId: CH, commentId: "CMT-RC", text: "ty", idempotencyKey: "r-cmt" } as never, helpers);
+    const parked = await heldDelivery("r-cmt");
+    await db.update(s.channels).set({ status: "active" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingComment(parked!.payload as never, helpers);
+    expect(provider.sendComment).toHaveBeenCalledTimes(1);
+    expect((await heldDelivery("r-cmt"))?.status).toBe("sent");
+  });
+});
+
 describe("outgoing-comment worker", () => {
   it("posts a reply and marks the comment log reply_sent", async () => {
     if (!TEST_DB) return;

@@ -45,6 +45,8 @@ export interface OutgoingPrivateReplyJob {
   content?: MessageContent;
   sentByRuleId?: string;
   idempotencyKey?: string;
+  /** Set when draining a parked private reply: update this held row in place instead of inserting a new one. */
+  heldMessageId?: string;
 }
 
 export interface IncomingCommentJob {

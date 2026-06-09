@@ -17,17 +17,22 @@ export async function processOutgoingPrivateReply(
   payload: OutgoingPrivateReplyJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, conversationId, commentId, text, content, sentByRuleId, idempotencyKey } = payload;
+  const { channelId, conversationId, commentId, text, content, sentByRuleId, idempotencyKey, heldMessageId } = payload;
   const messageContent = content ?? { text };
 
   const persistHeld = async () => {
-    await db.insert(messages).values({
-      conversation_id: conversationId,
-      direction: "outbound",
-      text,
-      status: "held",
-      sent_by_rule_id: sentByRuleId ?? null,
-    });
+    if (heldMessageId) return { heldMessageId };
+    const [m] = await db
+      .insert(messages)
+      .values({
+        conversation_id: conversationId,
+        direction: "outbound",
+        text,
+        status: "held",
+        sent_by_rule_id: sentByRuleId ?? null,
+      })
+      .returning({ id: messages.id });
+    return { heldMessageId: m.id };
   };
 
   await runDelivery({
@@ -47,14 +52,22 @@ export async function processOutgoingPrivateReply(
       return { platformMessageId: null };
     },
     onSent: async (tx, platformMessageId) => {
-      await tx.insert(messages).values({
-        conversation_id: conversationId,
-        direction: "outbound",
-        text,
-        status: "sent",
-        platform_message_id: platformMessageId,
-        sent_by_rule_id: sentByRuleId ?? null,
-      });
+      if (heldMessageId) {
+        // Drain replay: flip the parked row in place instead of inserting a duplicate.
+        await tx
+          .update(messages)
+          .set({ status: "sent", platform_message_id: platformMessageId })
+          .where(eq(messages.id, heldMessageId));
+      } else {
+        await tx.insert(messages).values({
+          conversation_id: conversationId,
+          direction: "outbound",
+          text,
+          status: "sent",
+          platform_message_id: platformMessageId,
+          sent_by_rule_id: sentByRuleId ?? null,
+        });
+      }
       await tx
         .update(conversations)
         .set({ last_message_at: new Date(), last_message_preview: text.slice(0, 255) })

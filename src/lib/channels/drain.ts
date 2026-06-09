@@ -1,21 +1,31 @@
 import { and, eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, messages, conversations, contactChannels } from "@/db/schema";
+import { channels, messages, conversations, outboundDeliveries } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
+import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
 
-/**
- * Standard platform messaging window. Outbound to a user is only allowed within
- * this window measured from their last inbound message. Held messages older than
- * this are expired rather than sent, to avoid a policy violation.
- *
- * NOTE: some message types qualify for a longer window (e.g. a human-agent reply
- * extends to 7 days via the HUMAN_AGENT tag). v1 applies the conservative 24h
- * window to every held message — expiring is always safe; sending late is not.
- */
-const STANDARD_WINDOW_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 /** Spacing between re-enqueued sends, to drain the backlog without a burst. */
 const DRAIN_STAGGER_MS = 250;
+
+/**
+ * Per-operation delivery policy. A held operation is only replayed inside its window;
+ * past it the operation is expired rather than sent, to avoid a policy violation.
+ *
+ * The standard 24h messaging window is anchored on the recipient's last inbound message
+ * (`conversations.last_inbound_at`). Operations that window doesn't describe — a public
+ * comment, a comment-to-DM private reply, a follow-gate re-check — use a window anchored on
+ * when the operation was parked instead.
+ */
+type WindowAnchor = "last_inbound_at" | "parked_at";
+const DRAIN_POLICY: Record<string, { windowMs: number; anchor: WindowAnchor }> = {
+  "outgoing-message": { windowMs: DAY_MS, anchor: "last_inbound_at" },
+  "outgoing-private-reply": { windowMs: 7 * DAY_MS, anchor: "parked_at" },
+  "outgoing-comment": { windowMs: 7 * DAY_MS, anchor: "parked_at" },
+  "follow-gate": { windowMs: DAY_MS, anchor: "parked_at" },
+};
 
 export interface DrainResult {
   enqueued: number;
@@ -23,11 +33,26 @@ export interface DrainResult {
   skipped?: string;
 }
 
+/** Resolve the window anchor timestamp for a held delivery, or null when undeterminable. */
+async function anchorFor(taskName: string, payload: Record<string, unknown>, parkedAt: Date): Promise<Date | null> {
+  const policy = DRAIN_POLICY[taskName];
+  if (!policy) return null;
+  if (policy.anchor === "parked_at") return parkedAt;
+  // last_inbound_at: look the conversation up by the payload's conversationId.
+  const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : null;
+  if (!conversationId) return null;
+  const conv = await db.query.conversations.findFirst({
+    where: eq(conversations.id, conversationId),
+    columns: { last_inbound_at: true },
+  });
+  return conv?.last_inbound_at ?? null;
+}
+
 /**
- * Replay outbound messages that were parked `held` while a channel was down.
- * Only runs on a recovered (active) channel. Each held message is either
- * re-enqueued for sending (still inside the messaging window) or marked
- * `expired` (window elapsed). Sends are staggered to avoid a backlog burst.
+ * Replay outbound operations parked `held` while a channel was down. Only runs on a
+ * recovered (active) channel. Each held delivery is either re-dispatched as its ORIGINAL
+ * task with its ORIGINAL payload — preserving operation kind, addressing and content — or
+ * marked `expired` (window elapsed). Sends are staggered to avoid a backlog burst.
  */
 export async function drainChannel(channelId: string, now: Date = new Date()): Promise<DrainResult> {
   const channel = await db.query.channels.findFirst({
@@ -38,53 +63,37 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
   if (channel.status !== "active") return { enqueued: 0, expired: 0, skipped: channel.status };
 
   const held = await db
-    .select({
-      id: messages.id,
-      text: messages.text,
-      sent_by_rule_id: messages.sent_by_rule_id,
-      conv_id: conversations.id,
-      contact_id: conversations.contact_id,
-      last_inbound_at: conversations.last_inbound_at,
-    })
-    .from(messages)
-    .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
-    .where(and(eq(messages.status, "held"), eq(conversations.channel_id, channelId)))
-    .orderBy(asc(messages.created_at));
+    .select()
+    .from(outboundDeliveries)
+    .where(and(eq(outboundDeliveries.status, "held"), eq(outboundDeliveries.channel_id, channelId)))
+    .orderBy(asc(outboundDeliveries.created_at));
 
   let enqueued = 0;
   let expired = 0;
 
-  for (const msg of held) {
-    const anchor = msg.last_inbound_at;
-    if (!anchor || now.getTime() - anchor.getTime() > STANDARD_WINDOW_MS) {
-      await db.update(messages).set({ status: "expired" }).where(eq(messages.id, msg.id));
+  for (const d of held) {
+    const payload = (d.payload ?? {}) as Record<string, unknown>;
+    const anchor = await anchorFor(d.task_name, payload, d.created_at);
+    if (!anchor || now.getTime() - anchor.getTime() > (DRAIN_POLICY[d.task_name]?.windowMs ?? DAY_MS)) {
+      await db
+        .update(outboundDeliveries)
+        .set({ status: "expired", updated_at: now })
+        .where(eq(outboundDeliveries.id, d.id));
+      // Expire the linked inbox row too, so the held badge clears.
+      if (typeof payload.heldMessageId === "string") {
+        await db.update(messages).set({ status: "expired" }).where(eq(messages.id, payload.heldMessageId));
+      }
       expired++;
       continue;
     }
 
-    const cc = await db.query.contactChannels.findFirst({
-      where: and(eq(contactChannels.channel_id, channelId), eq(contactChannels.contact_id, msg.contact_id)),
-      columns: { platform_sender_id: true },
-    });
-    if (!cc) {
-      // No way to address this contact on the channel — cannot deliver.
-      await db.update(messages).set({ status: "failed" }).where(eq(messages.id, msg.id));
-      continue;
-    }
-
+    // Re-dispatch the EXACT original operation. The stored payload pins `idempotencyKey` to
+    // this delivery key, so the replay reuses this very ledger row (held → sending → sent)
+    // and cannot double-send.
     await addJob(
-      "outgoing-message",
-      {
-        channelId,
-        conversationId: msg.conv_id,
-        contactId: msg.contact_id,
-        recipientPlatformId: cc.platform_sender_id,
-        content: { text: msg.text ?? undefined },
-        sentByRuleId: msg.sent_by_rule_id ?? undefined,
-        heldMessageId: msg.id,
-        idempotencyKey: `held:${msg.id}`,
-      },
-      { jobKey: `drain-msg:${msg.id}`, delayMs: enqueued * DRAIN_STAGGER_MS },
+      d.task_name as TaskName,
+      payload as unknown as TaskPayloadMap[TaskName],
+      { jobKey: `drain:${d.delivery_key}`, delayMs: enqueued * DRAIN_STAGGER_MS },
     );
     enqueued++;
   }

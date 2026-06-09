@@ -21,16 +21,21 @@ export async function processOutgoingMessage(
     payload;
 
   // Park the outbound as `held` (REL5) — awaiting drain, NOT `failed`. On drain
-  // (heldMessageId set) the row already exists, so re-parking is a no-op.
+  // (heldMessageId set) the row already exists, so re-parking is a no-op; return the
+  // existing/created row id so the ledger can point a drain replay back at it.
   const persistHeld = async () => {
-    if (heldMessageId) return;
-    await db.insert(messages).values({
-      conversation_id: conversationId,
-      direction: "outbound",
-      text: content.text ?? null,
-      status: "held",
-      sent_by_rule_id: sentByRuleId ?? null,
-    });
+    if (heldMessageId) return { heldMessageId };
+    const [m] = await db
+      .insert(messages)
+      .values({
+        conversation_id: conversationId,
+        direction: "outbound",
+        text: content.text ?? null,
+        status: "held",
+        sent_by_rule_id: sentByRuleId ?? null,
+      })
+      .returning({ id: messages.id });
+    return { heldMessageId: m.id };
   };
 
   await runDelivery({

@@ -40,8 +40,12 @@ export interface RunDeliveryArgs {
   send: (channel: DeliveryChannel) => Promise<{ platformMessageId?: string | null }>;
   /** Persist local sent-state in the SAME transaction that marks the delivery `sent` (closes the claim↔persist window). */
   onSent: (tx: Executor, platformMessageId: string | null) => Promise<void>;
-  /** Park local state (e.g. an inbox `held` message row) when the channel is down. Optional. */
-  onHeld?: () => Promise<void>;
+  /**
+   * Park local state (e.g. an inbox `held` message row) when the channel is down. Optional.
+   * Return the parked message row id so the held ledger payload can point a drain replay back
+   * at the same row.
+   */
+  onHeld?: () => Promise<{ heldMessageId?: string } | void>;
 }
 
 /** A delivery in one of these states may be (re)attempted; others are terminal. */
@@ -62,6 +66,35 @@ const REATTEMPTABLE: ReadonlySet<string> = new Set(["pending", "failed", "held"]
  */
 export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult> {
   const { deliveryKey, channelId, taskName, payload, helpers, allowWhenPaused, send, onSent, onHeld } = args;
+
+  // Park the send durably: record the FULL typed payload + original task on the ledger so a
+  // drain can re-dispatch the exact operation later, and run the worker's local park
+  // (e.g. an inbox `held` row). The stored payload pins `idempotencyKey` to this delivery key
+  // (so the replay reuses this very row) and points back at the parked local row.
+  const markHeld = async (workspaceId: string, lastError: string | null) => {
+    const held = await onHeld?.();
+    const heldPayload = {
+      ...payload,
+      idempotencyKey: deliveryKey,
+      ...(held && held.heldMessageId ? { heldMessageId: held.heldMessageId } : {}),
+    };
+    await db
+      .insert(outboundDeliveries)
+      .values({
+        delivery_key: deliveryKey,
+        workspace_id: workspaceId,
+        channel_id: channelId,
+        task_name: taskName,
+        payload: heldPayload,
+        status: "held",
+        last_error: lastError,
+        attempts: 1,
+      })
+      .onConflictDoUpdate({
+        target: outboundDeliveries.delivery_key,
+        set: { status: "held", payload: heldPayload, last_error: lastError, updated_at: new Date() },
+      });
+  };
 
   // 1. Reconcile any prior delivery for this key before doing any work.
   const prior = await db.query.outboundDeliveries.findFirst({
@@ -101,7 +134,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
   }
   const blockedByPause = channel.status === "paused" && !allowWhenPaused;
   if (channel.status === "needs_reauth" || blockedByPause) {
-    await onHeld?.();
+    await markHeld(channel.workspace_id, null);
     helpers.logger.info(`channel ${channelId} ${channel.status} — delivery ${deliveryKey} held`);
     return "held";
   }
@@ -132,11 +165,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
   } catch (e) {
     if (e instanceof TokenInvalidError) {
       // Dead token — park (held) and open the breaker. Not retried from here.
-      await db
-        .update(outboundDeliveries)
-        .set({ status: "held", last_error: e.message, updated_at: new Date() })
-        .where(eq(outboundDeliveries.delivery_key, deliveryKey));
-      await onHeld?.();
+      await markHeld(channel.workspace_id, e.message);
       await markChannelNeedsReauth(channelId, e.message);
       helpers.logger.info(`channel ${channelId} token invalid on ${taskName} — held + needs_reauth`);
       return "held";
