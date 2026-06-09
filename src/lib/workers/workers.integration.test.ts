@@ -506,6 +506,23 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
+  //  — a reaction is a low-signal event; it must NOT resurface a conversation the operator
+  // deliberately closed (which would return it to the inbox with no unread/attention signal).
+  it("does not reopen a closed conversation on a reaction", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule();
+    const SENDER = "REACTOR-CLOSED";
+    const [c] = await db.insert(s.contacts).values({ workspace_id: WS }).returning({ id: s.contacts.id });
+    await db.insert(s.contactChannels).values({ contact_id: c.id, channel_id: CH, platform_sender_id: SENDER });
+    await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: c.id, platform: "facebook", status: "closed" });
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: SENDER, reactedMid: "m-closed", reactionType: "love", emoji: "❤️", timestamp: ts() }, helpers);
+    const conv = await db.query.conversations.findFirst({
+      where: and(eq(s.conversations.channel_id, CH), eq(s.conversations.contact_id, c.id)),
+      columns: { status: true },
+    });
+    expect(conv?.status).toBe("closed");
+  });
+
   it("respects a reactions filter (only the listed type fires)", async () => {
     if (!TEST_DB) return;
     await seedReactionRule({ trigger_config: { reactions: ["love"] } });
@@ -526,22 +543,25 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
-  it("retries a reaction whose first evaluation failed, replying exactly once (no permanent drop)", async () => {
+  it("retries a reaction whose first fire-tx failed, replying exactly once (no permanent drop)", async () => {
     if (!TEST_DB) return;
     await seedReactionRule();
-    const executor = await import("@/lib/rules/executor");
-    const spy = vi.spyOn(executor, "evaluateRules").mockRejectedValueOnce(new Error("transient downstream failure"));
+    // Inject the failure at the enqueue boundary (consistent with the DM/comment retry tests) so
+    // the REAL executor runs and the claim is genuinely taken inside the fire-tx — then rolled
+    // back when the enqueue throws. Mocking evaluateRules itself would skip the claim path.
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValueOnce(new Error("transient enqueue failure"));
     try {
       const evt = { platform: "facebook", pageId: PAGE, senderId: "REACTOR-RETRY", reactedMid: "m-retry", reactionType: "love", emoji: "❤️", timestamp: 1_770_000_222 };
 
-      // First delivery: the claim is taken, then evaluation throws. The worker must
-      // surface the error so the job is retried — not swallow it behind the claim,
-      // which would drop the reply for good.
+      // First delivery: the claim is taken in the fire-tx, then the enqueue throws → the whole tx
+      // rolls back (claim released) and the worker surfaces the error so the job is retried — not
+      // swallowed, which would drop the reply for good.
       await expect(w.processIncomingReaction(evt, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
 
-      // Retry of the same reaction (graphile reschedule): the released claim lets it
-      // run, and the rule fires exactly once.
+      // Retry of the same reaction (graphile reschedule): the released claim lets it run, and the
+      // rule fires exactly once.
       await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
 
@@ -695,9 +715,11 @@ describe("incoming-reaction worker", () => {
 });
 
 describe("outgoing-private-reply worker", () => {
+  // contactId is required on the job — supplying it (no `as never`) keeps the GDPR-cascade column
+  // exercised: runDelivery stamps it on the ledger so an erasure reaches private replies.
   it("sends a private reply and records a sent outbound message", async () => {
     if (!TEST_DB) return;
-    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "cmt-pr", text: "hi via DM" } as never, helpers);
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, contactId: CONTACT, commentId: "cmt-pr", text: "hi via DM" }, helpers);
     expect(provider.sendPrivateReply).toHaveBeenCalled();
     const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
     expect(sent.length).toBe(1);
@@ -707,7 +729,7 @@ describe("outgoing-private-reply worker", () => {
   it("holds (not fails) when the channel breaker is open", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
-    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "cmt-pr2", text: "x" } as never, helpers);
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, contactId: CONTACT, commentId: "cmt-pr2", text: "x" }, helpers);
     expect(provider.sendPrivateReply).not.toHaveBeenCalled();
     const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
     expect(held.length).toBe(1);
@@ -716,10 +738,24 @@ describe("outgoing-private-reply worker", () => {
   it("holds + flags needs_reauth when the token is invalid", async () => {
     if (!TEST_DB) return;
     provider.sendPrivateReply.mockRejectedValueOnce(new TokenInvalidError("dead"));
-    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, commentId: "cmt-pr3", text: "x" } as never, helpers);
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, contactId: CONTACT, commentId: "cmt-pr3", text: "x" }, helpers);
     expect(health.markChannelNeedsReauth).toHaveBeenCalled();
     const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
     expect(held.length).toBe(1);
+  });
+
+  // / — a private reply stamps contact_id on the delivery ledger, so erasing the
+  // contact cascades the row away (PII in the parked payload can't outlive the contact).
+  it("stamps contact_id so a contact erasure cascades to its private-reply deliveries", async () => {
+    if (!TEST_DB) return;
+    const [c] = await db.insert(s.contacts).values({ workspace_id: WS }).returning({ id: s.contacts.id });
+    const [conv] = await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: c.id, platform: "facebook" }).returning({ id: s.conversations.id });
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: conv.id, contactId: c.id, commentId: "cmt-cascade", text: "hi" }, helpers);
+    const before = await db.select().from(s.outboundDeliveries).where(eq(s.outboundDeliveries.contact_id, c.id));
+    expect(before.length).toBe(1);
+    await db.delete(s.contacts).where(eq(s.contacts.id, c.id));
+    const after = await db.select().from(s.outboundDeliveries).where(eq(s.outboundDeliveries.contact_id, c.id));
+    expect(after.length).toBe(0);
   });
 });
 

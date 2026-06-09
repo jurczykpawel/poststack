@@ -48,15 +48,26 @@ export async function ensureConversation(
  * row already existed) so a duplicate of an old event cannot reorder the inbox
  * or reopen a closed/snoozed conversation; identity is still resolved so
  * a retry can finish a previously-failed rule evaluation on the existing rows.
+ *
+ * `reopenClosed` (default true) controls whether a fresh activity bump also flips a
+ * closed/snoozed conversation back to `open`. Pass false for a LOW-signal event (a reaction):
+ * it bumps activity but must not silently resurface a conversation the operator deliberately
+ * closed — that would return it to the inbox with no unread/attention signal.
+ *
+ * NOTE on ASID vs PSID: a comment carries an app-scoped user id while a later DM from the same
+ * human carries a page-scoped PSID — different strings, so they resolve to two separate contacts.
+ * Linking them requires a Graph API lookup (a separate effort); until then a contact's
+ * unsubscribe / erasure is per-identity. See the README "Known limitations".
  */
 export async function resolveContactConversation(
   channel: { id: string; workspace_id: string; platform: Platform },
   senderId: string,
   senderName: string | null,
   preview: string | null,
-  opts: { mutateActivity?: boolean } = {},
+  opts: { mutateActivity?: boolean; reopenClosed?: boolean } = {},
 ): Promise<{ contactId: string; conversationId: string; isAutomationPaused: boolean }> {
   const mutateActivity = opts.mutateActivity ?? true;
+  const reopenClosed = opts.reopenClosed ?? true;
 
   const existingCC = await db.query.contactChannels.findFirst({
     where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
@@ -97,7 +108,9 @@ export async function resolveContactConversation(
       })
       .onConflictDoUpdate({
         target: [conversations.channel_id, conversations.contact_id],
-        set: { status: "open", last_message_at: new Date() },
+        // A low-signal event (reaction) bumps activity but leaves a deliberately closed/snoozed
+        // conversation as-is — only higher-signal events reopen it.
+        set: reopenClosed ? { status: "open", last_message_at: new Date() } : { last_message_at: new Date() },
       })
       .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
     return { contactId, conversationId: conversation.id, isAutomationPaused: conversation.is_automation_paused };

@@ -60,6 +60,8 @@ export async function processIncomingReaction(
     senderId,
     null,
     reactionType ? `Reacted: ${reactionType}` : "Reacted",
+    // A reaction is low-signal: it must not resurface a conversation the operator closed.
+    { reopenClosed: false },
   );
 
   if (isAutomationPaused || channel.status === "paused") {
