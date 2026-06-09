@@ -53,4 +53,16 @@ describe("notifyChannelDown", () => {
 
     await expect(notifyChannelDown(alert)).resolves.toBeUndefined();
   });
+
+  //  — a private/link-local target must not be fetched even if it slipped past env
+  // validation (e.g. set directly at runtime); the call is skipped, not attempted.
+  it("does not fetch a private/link-local target (e.g. cloud metadata)", async () => {
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "http://169.254.169.254/latest/meta-data/";
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch as typeof fetch;
+
+    await notifyChannelDown(alert);
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });

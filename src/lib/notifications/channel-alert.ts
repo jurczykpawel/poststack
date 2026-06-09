@@ -1,3 +1,5 @@
+import { isSafeAlertWebhookUrl } from "./webhook-url";
+
 export interface ChannelDownAlert {
   workspaceId: string;
   channelId: string;
@@ -14,6 +16,13 @@ export interface ChannelDownAlert {
 export async function notifyChannelDown(alert: ChannelDownAlert): Promise<void> {
   const url = process.env.CHANNEL_ALERT_WEBHOOK_URL;
   if (!url) return;
+  // Defense-in-depth before the fetch: refuse a private/link-local target (e.g. cloud metadata)
+  // even though env validation already rejects one at boot. This also covers paths that set the
+  // value directly at runtime.
+  if (!isSafeAlertWebhookUrl(url)) {
+    console.warn("CHANNEL_ALERT_WEBHOOK_URL points at a disallowed (private/link-local) host — skipping alert");
+    return;
+  }
 
   const appUrl = process.env.APP_URL;
   try {

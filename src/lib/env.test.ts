@@ -49,4 +49,17 @@ describe("env validation", () => {
       delete process.env.NEXT_PHASE;
     }
   });
+
+  //  — the optional channel-alert webhook is validated at boot so a private/link-local
+  // target can't be configured and then fetched at runtime.
+  it("accepts a public https CHANNEL_ALERT_WEBHOOK_URL", async () => {
+    setEnv({ CHANNEL_ALERT_WEBHOOK_URL: "https://hooks.example.com/alert" });
+    const { env } = await import("@/lib/env");
+    expect(env.CHANNEL_ALERT_WEBHOOK_URL).toBe("https://hooks.example.com/alert");
+  });
+
+  it("rejects a private/link-local CHANNEL_ALERT_WEBHOOK_URL at startup", async () => {
+    setEnv({ CHANNEL_ALERT_WEBHOOK_URL: "http://169.254.169.254/latest/meta-data/" });
+    await expect(import("@/lib/env")).rejects.toThrow();
+  });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSafeAlertWebhookUrl } from "@/lib/notifications/webhook-url";
 
 const envSchema = z.object({
   // Database
@@ -37,6 +38,15 @@ const envSchema = z.object({
   META_APP_ID: z.string().default(""),
   META_APP_SECRET: z.string().default(""),
   META_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
+
+  // Optional outbound webhook fired when a channel needs re-auth. Validated up front so a
+  // private/link-local target (e.g. the cloud metadata endpoint) is rejected at boot rather
+  // than fetched at runtime. https anywhere, or http to a hostname / loopback; a
+  // private-IP *literal* is refused.
+  CHANNEL_ALERT_WEBHOOK_URL: z
+    .string()
+    .refine(isSafeAlertWebhookUrl, "must be an http(s) URL to a public or loopback host (no private/link-local IP literals)")
+    .optional(),
 
   // Cron
   CRON_SECRET: z.string().min(32),
