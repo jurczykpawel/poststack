@@ -97,6 +97,22 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(0);
   });
 
+  //  — an unsubscribed contact receives no automated reply (and no AI is spent, because
+  // the gate returns before any rule is planned). Re-subscribing restores delivery.
+  it("does not fire any rule for an unsubscribed contact", async () => {
+    if (!TEST_DB) return;
+    await seedRule();
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    const res = await evaluateRules(baseInput);
+    expect(res.outcome).toBe("no_match");
+    expect(res.ruleId).toBeNull();
+    expect(await outgoingJobCount()).toBe(0);
+
+    await db.update(s.contacts).set({ is_subscribed: true }).where(eq(s.contacts.id, CONTACT));
+    expect((await evaluateRules(baseInput)).ruleId).not.toBeNull();
+    expect(await outgoingJobCount()).toBe(1);
+  });
+
   it("respects the cooldown: a second identical event does not re-fire", async () => {
     if (!TEST_DB) return;
     await seedRule({ cooldown_seconds: 3600 });

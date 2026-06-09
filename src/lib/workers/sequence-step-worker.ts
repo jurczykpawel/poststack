@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import { and, eq } from "drizzle-orm";
 import type { SequenceStepJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
-import { sequenceEnrollments, conversations, contactChannels } from "@/db/schema";
+import { sequenceEnrollments, conversations, contactChannels, contacts } from "@/db/schema";
 import { addJobTx } from "@/lib/queue/client";
 
 interface SequenceStep {
@@ -58,20 +58,30 @@ export async function processSequenceStep(
 
   // A message step needs a conversation + the contact's identity on the channel to address the
   // send. Resolve them up front (read-only); a missing pair just advances without sending.
+  // Consent gate: an unsubscribed contact is not sent the step — the enrollment still advances
+  // so it resumes naturally if they re-subscribe before a later step.
   let outgoing: { conversationId: string; recipientPlatformId: string } | null = null;
   if (isMessage) {
-    const conversation = await db.query.conversations.findFirst({
-      where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
-      columns: { id: true },
+    const contact = await db.query.contacts.findFirst({
+      where: eq(contacts.id, enrollment.contact_id),
+      columns: { is_subscribed: true },
     });
-    const cc = await db.query.contactChannels.findFirst({
-      where: and(eq(contactChannels.contact_id, enrollment.contact_id), eq(contactChannels.channel_id, enrollment.channel_id)),
-      columns: { platform_sender_id: true },
-    });
-    if (conversation && cc) {
-      outgoing = { conversationId: conversation.id, recipientPlatformId: cc.platform_sender_id };
+    if (!contact?.is_subscribed) {
+      helpers.logger.info(`Contact ${enrollment.contact_id} is unsubscribed, advancing sequence without sending`);
     } else {
-      helpers.logger.info(`No conversation/contactChannel for enrollment ${enrollmentId}, advancing without sending`);
+      const conversation = await db.query.conversations.findFirst({
+        where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
+        columns: { id: true },
+      });
+      const cc = await db.query.contactChannels.findFirst({
+        where: and(eq(contactChannels.contact_id, enrollment.contact_id), eq(contactChannels.channel_id, enrollment.channel_id)),
+        columns: { platform_sender_id: true },
+      });
+      if (conversation && cc) {
+        outgoing = { conversationId: conversation.id, recipientPlatformId: cc.platform_sender_id };
+      } else {
+        helpers.logger.info(`No conversation/contactChannel for enrollment ${enrollmentId}, advancing without sending`);
+      }
     }
   }
 

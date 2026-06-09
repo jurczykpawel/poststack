@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { autoReplyRules, pendingApprovals } from "@/db/schema";
+import { autoReplyRules, pendingApprovals, contacts } from "@/db/schema";
 import { acquireCooldown, incrementSendCount, isOnCooldown, isAtCap } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
@@ -129,6 +129,23 @@ export async function evaluateRules(
   // and never plan a reply (LLM rephrase) for it. The in-transaction claim below is the
   // authority; this just avoids the work on a redelivery.
   if (eventKey && (await isEventProcessed(eventKey))) return { outcome: "already", ruleId: null };
+
+  // Consent gate: an unsubscribed contact gets NO automated reply — no rule, no comment→DM,
+  // no follow-gate (which is enqueued from here). This runs before any rule is planned, so no
+  // paid AI is spent on an opted-out contact. Operator manual replies are exempt: they
+  // go through POST /conversations/:id/messages, not this path. The event is terminally claimed
+  // as a no-match so a redelivery can't reply late, and the conversation is flagged for a human.
+  const contact = await db.query.contacts.findFirst({
+    where: eq(contacts.id, contactId),
+    columns: { is_subscribed: true },
+  });
+  if (contact && !contact.is_subscribed) {
+    if (eventKey) {
+      const claimed = await claimEventOnce(eventKey);
+      return { outcome: claimed ? "no_match" : "already", ruleId: null };
+    }
+    return { outcome: "no_match", ruleId: null };
+  }
 
   for (const rule of rules) {
     const candidate = {

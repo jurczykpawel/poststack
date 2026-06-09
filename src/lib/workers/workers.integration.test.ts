@@ -993,6 +993,20 @@ describe("sequence-step worker", () => {
     const r = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-message'`);
     expect((r.rows[0] as { payload: { content: { text: string } } }).payload.content.text).toBe("v1 original");
   });
+
+  //  — an unsubscribed contact is not sent a sequence step, but the enrollment still
+  // advances (so it resumes naturally if they re-subscribe before a later step).
+  it("does not send a sequence step to an unsubscribed contact, but advances", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    const { enrId } = await seedEnrollment([{ type: "message", content: "hi" }]);
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+
+    expect(await jobCount("outgoing-message")).toBe(0);
+    const after = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(after?.status).toBe("completed"); // advanced past the (skipped) step
+  });
 });
 
 describe("token-refresh worker", () => {
