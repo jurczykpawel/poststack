@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { TelegramProvider } from "./telegram";
-import { TokenInvalidError } from "./errors";
+import { TokenInvalidError, MessagingPolicyError } from "./errors";
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 const realFetch = globalThis.fetch;
@@ -71,18 +71,23 @@ describe("TelegramProvider", () => {
     expect(String(err)).toMatch(/Telegram send message failed/);
   });
 
-  //  — a revoked/regenerated bot token (401) or blocked bot (403) is a re-auth case, so the
-  // delivery state machine parks + flags needs_reauth instead of retrying to the dead-letter queue.
+  // / — a 401 means the bot token itself was revoked/regenerated: a real re-auth case,
+  // so the delivery state machine parks + flags the whole channel needs_reauth.
   it("sendMessage throws TokenInvalidError on 401 (revoked token)", async () => {
     mockFetch(() => ({ status: 401, body: { ok: false, error_code: 401, description: "Unauthorized" } }));
     const tg = new TelegramProvider();
     await expect(tg.sendMessage({ access_token: "dead" }, "1", { text: "x" })).rejects.toBeInstanceOf(TokenInvalidError);
   });
 
-  it("sendMessage throws TokenInvalidError on 403 (bot blocked/kicked)", async () => {
+  //  — a 403 is per-chat (the bot was blocked/kicked by THIS user, or the user is deactivated);
+  // the token is still valid for every other chat. It must drop only this delivery (terminal), not
+  // flag the whole channel for re-auth — otherwise one user blocking the bot takes the channel down.
+  it("sendMessage throws MessagingPolicyError (not TokenInvalidError) on 403 (bot blocked by this user)", async () => {
     mockFetch(() => ({ status: 403, body: { ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" } }));
     const tg = new TelegramProvider();
-    await expect(tg.sendMessage({ access_token: "t" }, "1", { text: "x" })).rejects.toBeInstanceOf(TokenInvalidError);
+    const err = await tg.sendMessage({ access_token: "t" }, "1", { text: "x" }).catch((e) => e);
+    expect(err).toBeInstanceOf(MessagingPolicyError);
+    expect(err).not.toBeInstanceOf(TokenInvalidError);
   });
 
   it("does not support OAuth or comments", () => {

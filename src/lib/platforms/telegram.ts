@@ -5,14 +5,22 @@ import {
   type MessageContent,
   type SentMessage,
 } from "./base";
-import { TokenInvalidError } from "./errors";
+import { TokenInvalidError, MessagingPolicyError } from "./errors";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
-/** Telegram returns 401 once a bot token is revoked/regenerated via BotFather, and 403 when
- *  the bot is blocked/kicked — both mean the connection needs operator action, not a retry. */
+/** A 401 means the bot token itself was revoked/regenerated via BotFather — the connection is
+ *  dead for every chat and needs operator re-auth. (403 is NOT here: it's per-chat — see
+ *  isTelegramChatUnavailable — and must not flag the whole channel, .) */
 function isTelegramAuthFailure(status: number, errorCode?: number): boolean {
-  return status === 401 || status === 403 || errorCode === 401 || errorCode === 403;
+  return status === 401 || errorCode === 401;
+}
+
+/** A 403 is per-chat, not per-token: "bot was blocked by the user", "bot was kicked", "user is
+ *  deactivated". The token is still valid for every other chat, so this delivery is dropped
+ *  terminally (like a Meta policy block) instead of parking the whole channel for re-auth. */
+function isTelegramChatUnavailable(status: number, errorCode?: number): boolean {
+  return status === 403 || errorCode === 403;
 }
 
 /** Narrow shapes of the Telegram Bot API objects we actually read. */
@@ -131,11 +139,16 @@ export class TelegramProvider extends SocialProvider {
     });
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: { message_id: number }; description?: string; error_code?: number };
     if (!res.ok || !body.ok || !body.result) {
-      // A revoked/regenerated bot token (401) or a blocked bot (403) is a re-auth case, not a
-      // transient failure — type it so the delivery state machine parks + flags needs_reauth
-      // instead of retrying to the dead-letter queue.
+      // A revoked/regenerated bot token (401) is a re-auth case — type it so the delivery state
+      // machine parks + flags the channel needs_reauth instead of retrying to dead-letter.
       if (isTelegramAuthFailure(res.status, body.error_code)) {
         throw new TokenInvalidError(`Telegram bot token rejected: ${body.description ?? res.status}`);
+      }
+      // A 403 is per-chat (this user blocked/kicked the bot, or is deactivated): the token still
+      // works for everyone else. Drop just this delivery terminally instead of taking the whole
+      // channel offline. The delivery state machine records it `expired`, no retry.
+      if (isTelegramChatUnavailable(res.status, body.error_code)) {
+        throw new MessagingPolicyError(`Telegram chat unavailable: ${body.description ?? res.status}`);
       }
       throw new Error(`Telegram send message failed: ${body.description ?? res.status}`);
     }
