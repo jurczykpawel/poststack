@@ -60,6 +60,7 @@
 - **Meta `appsecret_proof`** — not sent by default. If you enable *Require app secret* in your Meta App, add it to the Graph API calls (`HMAC-SHA256(page_token, META_APP_SECRET)`).
 - **Channel uniqueness** — each connected account belongs to exactly one workspace: a partial unique index allows at most one active channel per `(platform, platform_id)` instance-wide, so incoming events route to a single owner. Connecting an account already live in another workspace is refused. The migration that adds this index automatically disables any pre-existing cross-workspace duplicate (keeping the earliest-connected), so upgrades never fail.
 - **First-run admin bootstrap** — registration is closed by default (`REGISTRATION_ENABLED` unset/`false`), but the **first** account on an empty instance can always register, to bootstrap the owner. This means whoever reaches `/register` first on a fresh deploy becomes the admin. Register immediately after deploying (or keep the instance network-restricted until you have), then leave `REGISTRATION_ENABLED` off so no further self-signups are possible.
+- **Workspace members have full access** — a session/API key authorizes any action in its workspace; the `owner`/`admin`/`agent` role on a membership is **not** yet enforced (no per-role permission matrix). This is intentional for the current single-owner-per-workspace model — only invite a member you trust with destructive actions (deleting channels, erasing contacts, managing API keys). Role-based authorization will be added when member invitations become a feature.
 
 ---
 
