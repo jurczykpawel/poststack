@@ -39,7 +39,7 @@ const CONTACT = "eeeeeeee-0000-0000-0000-0000000000f3";
 const CONV = "eeeeeeee-0000-0000-0000-0000000000f4";
 const PAGE = "PAGE-W";
 const PSID = "PSID-W";
-const helpers = { logger: { info: () => {} } } as never;
+const helpers = { logger: { info: () => {} }, job: { id: "job-test" } } as never;
 
 async function jobCount(task: string) {
   const r = await db.execute(sql`select count(*)::int as n from graphile_worker.jobs where task_identifier = ${task}`);
@@ -749,6 +749,97 @@ describe("outgoing-message worker", () => {
     expect(health.markChannelNeedsReauth).toHaveBeenCalled();
     const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
     expect(held.length).toBe(1);
+  });
+});
+
+//  — the durable delivery state machine. The provider call sits between a committed
+// `sending` claim and an atomic `sent`+persist, so neither crash window (after the provider
+// accepted but before we recorded it; after recording but before local persist) produces a
+// silent duplicate or loses local state.
+describe("outbound delivery state machine", () => {
+  const delivery = (key: string) =>
+    db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, key) });
+  const seedDelivery = (key: string, task: string, status: string) =>
+    db.insert(s.outboundDeliveries).values({
+      delivery_key: key, workspace_id: WS, channel_id: CH, task_name: task, payload: {}, status: status as never, attempts: 1,
+    });
+
+  it("records sent + platform id and persists the local message in one shot", async () => {
+    if (!TEST_DB) return;
+    await w.processOutgoingMessage(
+      { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "d-ok" } as never,
+      helpers,
+    );
+    const row = await delivery("d-ok");
+    expect(row?.status).toBe("sent");
+    expect(row?.platform_message_id).toBe("PMID-1");
+    const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
+    expect(sent.length).toBe(1);
+  });
+
+  // A crash after the provider accepted but before we recorded the result leaves a `sending`
+  // row. The retry must NOT re-send (that would duplicate to a real recipient) — it records
+  // the ambiguity as `unknown` instead.
+  it("does not re-send a message whose prior attempt was interrupted mid-send", async () => {
+    if (!TEST_DB) return;
+    await seedDelivery("d-crash", "outgoing-message", "sending");
+    await w.processOutgoingMessage(
+      { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "d-crash" } as never,
+      helpers,
+    );
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+    expect((await delivery("d-crash"))?.status).toBe("unknown");
+  });
+
+  it("does not re-send a message whose delivery is already sent (retry after the persist window)", async () => {
+    if (!TEST_DB) return;
+    await seedDelivery("d-done", "outgoing-message", "sent");
+    await w.processOutgoingMessage(
+      { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "d-done" } as never,
+      helpers,
+    );
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+    const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
+    expect(sent.length).toBe(0);
+  });
+
+  it("marks failed and rethrows on a transient error, then re-sends on retry", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValueOnce(new Error("network blip"));
+    await expect(
+      w.processOutgoingMessage(
+        { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "d-retry" } as never,
+        helpers,
+      ),
+    ).rejects.toThrow("network blip");
+    expect((await delivery("d-retry"))?.status).toBe("failed");
+
+    await w.processOutgoingMessage(
+      { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "d-retry" } as never,
+      helpers,
+    );
+    expect((await delivery("d-retry"))?.status).toBe("sent");
+    expect(provider.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not re-post a comment whose prior attempt was interrupted mid-send", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.commentLogs).values({ channel_id: CH, workspace_id: WS, platform_comment_id: "cmt-crash", comment_text: "x" });
+    await seedDelivery("d-cmt", "outgoing-comment", "sending");
+    await w.processOutgoingComment({ channelId: CH, commentId: "cmt-crash", text: "r", idempotencyKey: "d-cmt" } as never, helpers);
+    expect(provider.sendComment).not.toHaveBeenCalled();
+    expect((await delivery("d-cmt"))?.status).toBe("unknown");
+  });
+
+  it("does not re-send a private reply whose prior attempt was interrupted mid-send", async () => {
+    if (!TEST_DB) return;
+    await seedDelivery("d-pr", "outgoing-private-reply", "sending");
+    await w.processOutgoingPrivateReply(
+      { channelId: CH, conversationId: CONV, commentId: "cmt-pr-crash", text: "x", idempotencyKey: "d-pr" } as never,
+      helpers,
+    );
+    expect(provider.sendPrivateReply).not.toHaveBeenCalled();
+    expect((await delivery("d-pr"))?.status).toBe("unknown");
   });
 });
 

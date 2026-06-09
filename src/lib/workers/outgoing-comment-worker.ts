@@ -1,17 +1,15 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingCommentJob } from "@/lib/queue/types";
 import { and, eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { channels, commentLogs } from "@/db/schema";
-import { isClaimed, claim } from "@/lib/idempotency";
+import { commentLogs } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
-import { TokenInvalidError } from "@/lib/platforms/errors";
-import { markChannelNeedsReauth } from "@/lib/channels/health";
+import { runDelivery, type DeliveryChannel } from "./delivery";
 
 /**
- * Post a public reply to a comment via the platform API.
- * Idempotency key claimed AFTER successful send (allows retry on failure).
+ * Post a public reply to a comment via the platform API, through the durable delivery
+ * state machine (see {@link runDelivery}) so a crash cannot silently double-post or lose
+ * the `reply_sent` record.
  */
 export async function processOutgoingComment(
   payload: OutgoingCommentJob,
@@ -19,54 +17,28 @@ export async function processOutgoingComment(
 ): Promise<void> {
   const { channelId, commentId, text, sentByRuleId, idempotencyKey } = payload;
 
-  // Check idempotency (already successfully sent?)
-  if (idempotencyKey && (await isClaimed(idempotencyKey))) {
-    helpers.logger.info(`Idempotency key already claimed, skipping`);
-    return;
-  }
-
-  const channel = await db.query.channels.findFirst({
-    where: eq(channels.id, channelId),
-    columns: { id: true, platform: true, token_encrypted: true, status: true },
+  await runDelivery({
+    deliveryKey: idempotencyKey ?? `job:${helpers.job.id}`,
+    channelId,
+    taskName: "outgoing-comment",
+    payload: payload as unknown as Record<string, unknown>,
+    helpers,
+    send: async (channel: DeliveryChannel) => {
+      const tokens = decryptTokens(channel.token_encrypted);
+      const provider = getProvider(channel.platform);
+      if (!provider.sendComment) {
+        throw new Error(`Platform ${channel.platform} does not support comments`);
+      }
+      await provider.sendComment(tokens, commentId, text);
+      return { platformMessageId: null };
+    },
+    onSent: async (tx) => {
+      await tx
+        .update(commentLogs)
+        .set({ reply_sent: true, matched_rule_id: sentByRuleId ?? null })
+        .where(and(eq(commentLogs.platform_comment_id, commentId), eq(commentLogs.channel_id, channelId)));
+    },
   });
 
-  if (!channel || channel.status === "disabled") {
-    throw new Error(`Channel ${channelId} not found or disabled`);
-  }
-
-  // Breaker open: token is known-bad, don't attempt.
-  if (channel.status === "needs_reauth") {
-    helpers.logger.info(`Channel ${channelId} needs_reauth, not replying to comment`);
-    return;
-  }
-
-  const tokens = decryptTokens(channel.token_encrypted);
-  const provider = getProvider(channel.platform);
-  if (!provider.sendComment) {
-    throw new Error(`Platform ${channel.platform} does not support comments`);
-  }
-
-  // Send first, claim idempotency after
-  try {
-    await provider.sendComment(tokens, commentId, text);
-  } catch (e) {
-    if (e instanceof TokenInvalidError) {
-      await markChannelNeedsReauth(channelId, e.message);
-      helpers.logger.info(`Channel ${channelId} token invalid on comment, flagged needs_reauth`);
-      return;
-    }
-    throw e; // transient — allow retry
-  }
-
-  // Claim idempotency key AFTER successful send
-  if (idempotencyKey) {
-    await claim(idempotencyKey);
-  }
-
-  await db
-    .update(commentLogs)
-    .set({ reply_sent: true, matched_rule_id: sentByRuleId ?? null })
-    .where(and(eq(commentLogs.platform_comment_id, commentId), eq(commentLogs.channel_id, channelId)));
-
-  helpers.logger.info(`Public reply sent to comment=${commentId}`);
+  helpers.logger.info(`public reply processed for comment=${commentId}`);
 }

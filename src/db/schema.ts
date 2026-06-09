@@ -13,6 +13,7 @@ export const flowSessionStatus = pgEnum("flow_session_status", ['active', 'compl
 export const flowStatus = pgEnum("flow_status", ['draft', 'published', 'archived'])
 export const messageDirection = pgEnum("message_direction", ['inbound', 'outbound'])
 export const messageStatus = pgEnum("message_status", ['pending', 'sent', 'delivered', 'failed', 'held', 'expired'])
+export const outboundDeliveryStatus = pgEnum("outbound_delivery_status", ['pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown'])
 export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord'])
 export type Platform = (typeof platform.enumValues)[number]
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate'])
@@ -532,6 +533,41 @@ export const processedEvents = pgTable("processed_events", {
 	key: text().primaryKey().notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
 });
+
+// Durable ledger for every outbound send. One row per logical send, keyed by a
+// deterministic `delivery_key`, with an explicit state machine
+// (pending→sending→sent / failed / held / expired / unknown). The provider call is
+// sandwiched between a committed `sending` claim and an atomic `sent`+local-persist,
+// so a crash mid-send leaves a recoverable `sending`→`unknown` record rather than a
+// silent duplicate or lost local state. The full typed `payload` + `task_name`
+// let a drain re-dispatch the exact original operation when a parked channel recovers.
+export const outboundDeliveries = pgTable("outbound_deliveries", {
+	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	delivery_key: text("delivery_key").notNull(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	task_name: text("task_name").notNull(),
+	status: outboundDeliveryStatus().default('pending').notNull(),
+	payload: jsonb().notNull(),
+	platform_message_id: text("platform_message_id"),
+	last_error: text("last_error"),
+	attempts: integer().default(0).notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("outbound_deliveries_delivery_key_key").using("btree", table.delivery_key.asc().nullsLast()),
+	index("outbound_deliveries_channel_id_status_idx").using("btree", table.channel_id.asc().nullsLast(), table.status.asc().nullsLast()),
+	foreignKey({
+			columns: [table.workspace_id],
+			foreignColumns: [workspaces.id],
+			name: "outbound_deliveries_workspace_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.channel_id],
+			foreignColumns: [channels.id],
+			name: "outbound_deliveries_channel_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+]);
 
 export const pendingApprovals = pgTable("pending_approvals", {
 	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),

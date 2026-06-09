@@ -1,0 +1,164 @@
+import type { JobHelpers } from "graphile-worker";
+import { eq, sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { channels, outboundDeliveries, type Platform } from "@/db/schema";
+import { TokenInvalidError } from "@/lib/platforms/errors";
+import { markChannelNeedsReauth } from "@/lib/channels/health";
+
+/** A Drizzle db handle or an open transaction. */
+type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export type DeliveryTaskName = "outgoing-message" | "outgoing-comment" | "outgoing-private-reply";
+
+/** The channel fields the delivery state machine needs. */
+export interface DeliveryChannel {
+  id: string;
+  workspace_id: string;
+  platform: Platform;
+  token_encrypted: string;
+  status: "active" | "needs_reauth" | "paused" | "disabled";
+}
+
+export type DeliveryResult =
+  | "sent"
+  | "held"
+  | "skipped_duplicate"
+  | "skipped_unknown"
+  | "skipped_terminal";
+
+export interface RunDeliveryArgs {
+  /** Deterministic per logical send, stable across retries of the same job. */
+  deliveryKey: string;
+  channelId: string;
+  taskName: DeliveryTaskName;
+  /** Full typed job payload, persisted so a drain can re-dispatch the exact operation. */
+  payload: Record<string, unknown>;
+  helpers: JobHelpers;
+  /** A human's own manual reply still sends while the channel is paused. */
+  allowWhenPaused?: boolean;
+  /** Perform the provider send. Throw `TokenInvalidError` for a dead token, any other error for a transient failure. */
+  send: (channel: DeliveryChannel) => Promise<{ platformMessageId?: string | null }>;
+  /** Persist local sent-state in the SAME transaction that marks the delivery `sent` (closes the claim↔persist window). */
+  onSent: (tx: Executor, platformMessageId: string | null) => Promise<void>;
+  /** Park local state (e.g. an inbox `held` message row) when the channel is down. Optional. */
+  onHeld?: () => Promise<void>;
+}
+
+/** A delivery in one of these states may be (re)attempted; others are terminal. */
+const REATTEMPTABLE: ReadonlySet<string> = new Set(["pending", "failed", "held"]);
+
+/**
+ * Drive one outbound send through a durable, crash-safe state machine.
+ *
+ * `pending → sending → sent` is the happy path; the provider call is committed-between a
+ * `sending` claim and an atomic `sent`+local-persist. Two crash windows are closed:
+ *  - A crash AFTER the provider accepted but BEFORE we recorded it leaves `sending`; the
+ *    retry sees `sending` and refuses to re-send (→ `unknown`), so a real recipient is never
+ *    sent a silent duplicate. We do not claim exactly-once across the provider boundary.
+ *  - The success write and the local-state write share one transaction, so we can never end
+ *    up `sent` without local state or vice-versa.
+ *
+ * A caught transient error records `failed` and rethrows, so graphile retries cleanly.
+ */
+export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult> {
+  const { deliveryKey, channelId, taskName, payload, helpers, allowWhenPaused, send, onSent, onHeld } = args;
+
+  // 1. Reconcile any prior delivery for this key before doing any work.
+  const prior = await db.query.outboundDeliveries.findFirst({
+    where: eq(outboundDeliveries.delivery_key, deliveryKey),
+  });
+  if (prior) {
+    if (prior.status === "sent") {
+      helpers.logger.info(`delivery ${deliveryKey} already sent — skipping duplicate`);
+      return "skipped_duplicate";
+    }
+    if (prior.status === "sending") {
+      // A previous attempt committed `sending` then died before recording the outcome.
+      // We cannot tell whether the provider accepted it; re-sending risks a duplicate to a
+      // real recipient. Record the ambiguity and stop (at-most-once across the boundary).
+      await db
+        .update(outboundDeliveries)
+        .set({ status: "unknown", last_error: "interrupted after dispatch", updated_at: new Date() })
+        .where(eq(outboundDeliveries.id, prior.id));
+      helpers.logger.info(`delivery ${deliveryKey} interrupted mid-send — marked unknown, not re-sending`);
+      return "skipped_unknown";
+    }
+    if (!REATTEMPTABLE.has(prior.status)) {
+      // unknown / expired — terminal, do not resurrect.
+      helpers.logger.info(`delivery ${deliveryKey} terminal (${prior.status}) — skipping`);
+      return "skipped_terminal";
+    }
+    // pending / failed / held → fall through and (re)attempt.
+  }
+
+  // 2. Load the channel and gate on its health.
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
+  });
+  if (!channel || channel.status === "disabled") {
+    throw new Error(`Channel ${channelId} not found or disabled`);
+  }
+  const blockedByPause = channel.status === "paused" && !allowWhenPaused;
+  if (channel.status === "needs_reauth" || blockedByPause) {
+    await onHeld?.();
+    helpers.logger.info(`channel ${channelId} ${channel.status} — delivery ${deliveryKey} held`);
+    return "held";
+  }
+
+  // 3. Claim the work: commit `sending` BEFORE the provider call so a crash leaves a
+  //    recoverable record (the reconcile in step 1 catches it on retry).
+  await db
+    .insert(outboundDeliveries)
+    .values({
+      delivery_key: deliveryKey,
+      workspace_id: channel.workspace_id,
+      channel_id: channelId,
+      task_name: taskName,
+      payload,
+      status: "sending",
+      attempts: 1,
+    })
+    .onConflictDoUpdate({
+      target: outboundDeliveries.delivery_key,
+      set: { status: "sending", attempts: sql`${outboundDeliveries.attempts} + 1`, payload, updated_at: new Date() },
+    });
+
+  // 4. Send via the provider.
+  let platformMessageId: string | null = null;
+  try {
+    const res = await send(channel);
+    platformMessageId = res.platformMessageId ?? null;
+  } catch (e) {
+    if (e instanceof TokenInvalidError) {
+      // Dead token — park (held) and open the breaker. Not retried from here.
+      await db
+        .update(outboundDeliveries)
+        .set({ status: "held", last_error: e.message, updated_at: new Date() })
+        .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+      await onHeld?.();
+      await markChannelNeedsReauth(channelId, e.message);
+      helpers.logger.info(`channel ${channelId} token invalid on ${taskName} — held + needs_reauth`);
+      return "held";
+    }
+    // Transient: we caught it, so the provider (most likely) did not accept the send.
+    // Record `failed` and rethrow so graphile retries; the retry re-claims from `failed`.
+    await db
+      .update(outboundDeliveries)
+      .set({ status: "failed", last_error: e instanceof Error ? e.message : String(e), updated_at: new Date() })
+      .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+    throw e;
+  }
+
+  // 5. Record success and local state atomically (closes the claim↔persist window).
+  await db.transaction(async (tx) => {
+    await tx
+      .update(outboundDeliveries)
+      .set({ status: "sent", platform_message_id: platformMessageId, last_error: null, updated_at: new Date() })
+      .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+    await onSent(tx, platformMessageId);
+  });
+
+  helpers.logger.info(`delivery ${deliveryKey} sent platformMessageId=${platformMessageId}`);
+  return "sent";
+}
