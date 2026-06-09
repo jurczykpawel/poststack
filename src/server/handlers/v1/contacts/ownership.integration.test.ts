@@ -8,6 +8,7 @@ const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
 
 let db: typeof import("@/lib/db").db;
 let GET: typeof import("./[contactId]/route").GET;
+let PATCH: typeof import("./[contactId]/route").PATCH;
 let DELETE: typeof import("./[contactId]/route").DELETE;
 
 const WS_A = "ffffffff-0000-0000-0000-00000000000a";
@@ -24,7 +25,7 @@ beforeAll(async () => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 
   ({ db } = await import("@/lib/db"));
-  ({ GET, DELETE } = await import("./[contactId]/route"));
+  ({ GET, PATCH, DELETE } = await import("./[contactId]/route"));
 });
 
 beforeEach(async () => {
@@ -75,6 +76,23 @@ describe("ownership scoping via Bearer API key (real Postgres)", () => {
       ctx(CONTACT_A),
     );
     expect(res.status).toBe(401);
+  });
+
+  //  — the PATCH/DELETE WHERE carries workspace_id alongside the PK, so a cross-workspace
+  // id can never mutate another tenant's row. Black-box behaviour is unchanged (404, untouched).
+  it("cannot patch a contact in another workspace (404, unchanged)", async () => {
+    if (!TEST_DB) return;
+    const res = await PATCH(
+      new Request("http://x/api/v1/contacts/x", {
+        method: "PATCH",
+        headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" },
+        body: JSON.stringify({ is_subscribed: false }),
+      }),
+      ctx(CONTACT_B),
+    );
+    expect(res.status).toBe(404);
+    const row = await db.query.contacts.findFirst({ where: and(eq(contacts.id, CONTACT_B), eq(contacts.workspace_id, WS_B)) });
+    expect(row?.is_subscribed).toBe(true);
   });
 });
 

@@ -219,7 +219,8 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const id = c.req.param("id");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
-    await db.update(conversations).set({ unread_count: 0 }).where(eq(conversations.id, id)).catch(() => {});
+    // workspace_id alongside the PK keeps the unread reset tenant-scoped.
+    await db.update(conversations).set({ unread_count: 0 }).where(and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId))).catch(() => {});
     const msgs = await loadMessages(id);
     return c.html(renderThread(conv, msgs));
   });

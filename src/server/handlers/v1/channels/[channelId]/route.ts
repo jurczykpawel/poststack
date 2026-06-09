@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { db, isUniqueViolation } from "@/lib/db";
+import { db, isUniqueViolation, isForeignKeyViolation } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
@@ -86,7 +86,8 @@ export async function PATCH(
       const [row] = await tx
         .update(channels)
         .set(data)
-        .where(eq(channels.id, channelId))
+        // workspace_id alongside the PK keeps the update tenant-scoped.
+        .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)))
         .returning({
           id: channels.id,
           platform: channels.platform,
@@ -126,9 +127,22 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  const result = await db
-    .delete(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)));
+  let result;
+  try {
+    result = await db
+      .delete(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)));
+  } catch (err) {
+    // sequence_enrollments.channel_id is ON DELETE RESTRICT and enrollment rows linger after
+    // completion, so a channel that ever had an enrollment can't be deleted. Surface that as a
+    // clean conflict the operator can act on, not an unhandled 500.
+    if (isForeignKeyViolation(err)) {
+      return ApiErrors.conflict(
+        "Cannot disconnect a channel with sequence enrollments — cancel or complete them first",
+      );
+    }
+    throw err;
+  }
   if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
 
   await recordAudit({

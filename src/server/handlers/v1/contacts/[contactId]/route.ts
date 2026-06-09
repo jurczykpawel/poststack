@@ -78,7 +78,9 @@ export async function PATCH(
   const [updated] = await db
     .update(contacts)
     .set(parsed.data)
-    .where(eq(contacts.id, contactId))
+    // workspace_id alongside the PK: defense-in-depth so the update stays tenant-scoped even if
+    // it ever drifts from the ownership precheck above.
+    .where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)))
     .returning({
       id: contacts.id,
       display_name: contacts.display_name,
@@ -131,7 +133,8 @@ export async function DELETE(
     );
     // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
     // approvals, broadcast recipients and outbound_deliveries ( +  foreign keys).
-    await tx.delete(contacts).where(eq(contacts.id, contactId));
+    // workspace_id alongside the PK keeps the erase tenant-scoped.
+    await tx.delete(contacts).where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)));
   });
 
   await recordAudit({

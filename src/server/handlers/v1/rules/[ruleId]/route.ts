@@ -115,7 +115,9 @@ export async function PATCH(
   const [updated] = await db
     .update(autoReplyRules)
     .set(parsed.data)
-    .where(eq(autoReplyRules.id, ruleId))
+    // workspace_id alongside the PK: defense-in-depth so the mutation stays tenant-scoped even
+    // if it ever drifts from the ownership precheck above.
+    .where(and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)))
     .returning({
       id: autoReplyRules.id,
       name: autoReplyRules.name,

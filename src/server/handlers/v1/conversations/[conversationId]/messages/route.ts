@@ -120,7 +120,8 @@ export async function POST(
   await db.transaction(async (tx) => {
     await tx.update(conversations)
       .set({ needs_manual_reply: false, last_message_at: sql`GREATEST(${conversations.last_message_at}, now())` })
-      .where(eq(conversations.id, conversation.id));
+      // workspace_id alongside the PK keeps the update tenant-scoped.
+      .where(and(eq(conversations.id, conversation.id), eq(conversations.workspace_id, auth.workspaceId)));
     await addJobTx(tx, "outgoing-message", {
       channelId: conversation.channel_id,
       conversationId: conversation.id,
