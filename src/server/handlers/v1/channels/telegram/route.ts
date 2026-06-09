@@ -76,7 +76,9 @@ export async function POST(request: Request) {
   const drained: string[] = [];
   try {
     for (const channelId of recoveredChannelIds) {
-      await addJob("drain-channel", { channelId });
+      // Deterministic jobKey (matches health.ts / upsert.ts / the PATCH route) so a double-click
+      // reconnect coalesces to a single drain instead of two uncoordinated ones.
+      await addJob("drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });
       drained.push(channelId);
     }
   } catch {

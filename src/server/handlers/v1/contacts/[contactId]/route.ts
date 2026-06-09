@@ -1,6 +1,6 @@
 import { and, eq, or, inArray, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, isForeignKeyViolation } from "@/lib/db";
 import { contacts, commentLogs, conversations, sequenceEnrollments, processedEvents, tags, contactTags } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
@@ -93,44 +93,55 @@ export async function PATCH(
 
   // Scalar field update + tag-set sync in ONE transaction so a partial update can't leave the
   // contact and its tags inconsistent.
-  const updated = await db.transaction(async (tx) => {
-    let row;
-    if (Object.keys(fields).length > 0) {
-      // workspace_id alongside the PK: defense-in-depth so the update stays tenant-scoped even if
-      // it ever drifts from the ownership precheck above.
-      [row] = await tx
-        .update(contacts)
-        .set(fields)
-        .where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)))
-        .returning(returnCols);
-    } else {
-      // tag_ids-only PATCH: nothing to update on the row itself, just read it back for the response.
-      row = await tx.query.contacts.findFirst({
-        where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
-        columns: { id: true, display_name: true, email: true, is_subscribed: true },
-      });
-    }
-
-    if (tag_ids) {
-      // Only tags that belong to THIS workspace are assignable — a foreign-workspace id is dropped,
-      // never assigned cross-tenant. The select also distinct-ifies, so the insert can't hit the PK.
-      const validIds = tag_ids.length
-        ? (
-            await tx
-              .select({ id: tags.id })
-              .from(tags)
-              .where(and(inArray(tags.id, tag_ids), eq(tags.workspace_id, auth.workspaceId)))
-          ).map((t) => t.id)
-        : [];
-      await tx.delete(contactTags).where(eq(contactTags.contact_id, contactId));
-      if (validIds.length > 0) {
-        await tx.insert(contactTags).values(validIds.map((tag_id) => ({ contact_id: contactId, tag_id })));
+  let updated;
+  try {
+    updated = await db.transaction(async (tx) => {
+      let row;
+      if (Object.keys(fields).length > 0) {
+        // workspace_id alongside the PK: defense-in-depth so the update stays tenant-scoped even
+        // if it ever drifts from the ownership precheck above.
+        [row] = await tx
+          .update(contacts)
+          .set(fields)
+          .where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)))
+          .returning(returnCols);
+      } else {
+        // tag_ids-only PATCH: nothing to update on the row, just read it back for the response.
+        row = await tx.query.contacts.findFirst({
+          where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
+          columns: { id: true, display_name: true, email: true, is_subscribed: true },
+        });
       }
-    }
 
-    return row;
-  });
+      if (tag_ids) {
+        // Only tags that belong to THIS workspace are assignable — a foreign-workspace id is
+        // dropped, never assigned cross-tenant. The select distinct-ifies, so insert can't hit PK.
+        const validIds = tag_ids.length
+          ? (
+              await tx
+                .select({ id: tags.id })
+                .from(tags)
+                .where(and(inArray(tags.id, tag_ids), eq(tags.workspace_id, auth.workspaceId)))
+            ).map((t) => t.id)
+          : [];
+        await tx.delete(contactTags).where(eq(contactTags.contact_id, contactId));
+        if (validIds.length > 0) {
+          await tx.insert(contactTags).values(validIds.map((tag_id) => ({ contact_id: contactId, tag_id })));
+        }
+      }
 
+      return row;
+    });
+  } catch (err) {
+    // The ownership precheck runs outside this transaction, so a concurrent erasure of the contact
+    // (GDPR) between the check and the contactTags insert surfaces as an FK violation. Map it to a
+    // clean 404 rather than an uncaught 500.
+    if (isForeignKeyViolation(err)) return ApiErrors.notFound();
+    throw err;
+  }
+
+  // The row vanished between the precheck and the (field-less) read inside the tx → 404.
+  if (!updated) return ApiErrors.notFound();
   return ok(updated);
 }
 
