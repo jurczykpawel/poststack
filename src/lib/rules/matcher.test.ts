@@ -139,6 +139,17 @@ describe("matchRule — default trigger", () => {
     };
     expect(matchRule(rule, "anything", "comment")).toBe(false);
   });
+
+  //  — a reaction arrives as eventType:"message" + isReaction:true; welcome/default
+  // catch-all rules must NOT fire a DM in response to an emoji reaction.
+  it("does NOT match an emoji reaction (isReaction)", () => {
+    for (const trigger_type of ["default", "welcome"]) {
+      const rule: RuleCandidate = { ...baseRule, trigger_type, trigger_config: {} };
+      expect(matchRule(rule, { text: null, eventType: "message", isReaction: true })).toBe(false);
+      // A normal message still matches.
+      expect(matchRule(rule, { text: "hi", eventType: "message" })).toBe(true);
+    }
+  });
 });
 
 describe("matchRule — welcome trigger", () => {

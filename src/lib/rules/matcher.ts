@@ -63,11 +63,15 @@ export function matchRule(
       if (ctx.eventType !== "comment") return false;
       return matchCommentKeyword(normalized, trigger_config, ctx.postId);
 
+    // welcome / default are catch-all rules for inbound MESSAGES. An emoji reaction arrives as
+    // eventType:"message" + isReaction:true, so without the guard a reaction would trigger a DM
+    // (unwanted, and a reaction is not a window-opening message). Reactions match only `reaction`
+    // rules.
     case "welcome":
-      return ctx.eventType === "message";
+      return ctx.eventType === "message" && ctx.isReaction !== true;
 
     case "default":
-      return ctx.eventType === "message";
+      return ctx.eventType === "message" && ctx.isReaction !== true;
 
     case "postback": {
       if (ctx.eventType !== "message") return false;
