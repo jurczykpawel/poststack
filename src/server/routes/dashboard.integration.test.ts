@@ -106,3 +106,31 @@ describe("dashboard /settings/retention — validates days", () => {
     expect(await retentionDays()).toBe(30);
   });
 });
+
+describe("dashboard action error surfacing", () => {
+  it("shows an error notice when an approval action fails (instead of silently re-rendering)", async () => {
+    if (!TEST_DB) return;
+    // A non-existent approval id → the delegated approve returns 404 → the dashboard must surface it.
+    const res = await app.request("/approvals/dddddddd-0000-4000-8000-00000000aa01/approve", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+    });
+    expect(res.status).toBe(200); // htmx swap renders the list
+    expect(await res.text()).toContain("notice-err");
+  });
+});
+
+describe("dashboard rule builder", () => {
+  it("ignores a stale hidden postback payload when the trigger is not postback", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "K-", trigger_type: "keyword", keywords: "hi", payload: "STALE_PAYLOAD", text: "hello" }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.name, "K-") });
+    expect(rule).toBeTruthy();
+    expect((rule!.trigger_config as Record<string, unknown>).payload).toBeUndefined();
+  });
+});

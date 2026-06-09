@@ -183,9 +183,10 @@ async function loadChannels(workspaceId: string) {
   );
 }
 
-function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>): Html {
-  if (channels.length === 0) return html`<p class="muted">No channels connected yet.</p>`;
-  return html`<div class="list">${channels.map(
+function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, error?: string): Html {
+  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
+  if (channels.length === 0) return html`${notice}<p class="muted">No channels connected yet.</p>`;
+  return html`${notice}<div class="list">${channels.map(
     (ch) => html`<div class="list-row">
       ${ch.profile_picture ? html`<img class="avatar" src="${ch.profile_picture}" alt="" />` : html``}
       <div class="grow">
@@ -205,6 +206,18 @@ function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>): Htm
 /** Sanity ceiling for the message-retention policy (~10 years). Anything beyond is almost
  *  certainly a fat-fingered value, and "keep forever" is expressed as null, not a huge number. */
 const MAX_RETENTION_DAYS = 3650;
+
+/**
+ * Turn a delegated API response into an error notice (or undefined on success). A swallowed `null`
+ * (the delegated call threw) and any >=400 both surface a message — preferring the API's own error
+ * text — so a destructive/approval action that failed isn't silently re-rendered as if it worked.
+ */
+async function noticeFrom(res: Response | null, fallback: string): Promise<string | undefined> {
+  if (res && res.status < 400) return undefined;
+  if (!res) return fallback;
+  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+  return body?.error?.message ?? fallback;
+}
 
 export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
   // Inbox
@@ -318,18 +331,18 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
 
   app.delete("/channels/:id", guard, async (c) => {
     const id = c.req.param("id");
-    await channel.DELETE(c.req.raw, { params: Promise.resolve({ channelId: id }) }).catch(() => {});
+    const res = await channel.DELETE(c.req.raw, { params: Promise.resolve({ channelId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderChannels(await loadChannels(a.workspaceId)));
+    return c.html(renderChannels(await loadChannels(a.workspaceId), await noticeFrom(res, "Could not disconnect the channel.")));
   });
 
   app.post("/channels/:id/drain", guard, async (c) => {
     const id = c.req.param("id");
-    await channelDrain.POST(c.req.raw, { params: Promise.resolve({ channelId: id }) }).catch(() => {});
+    const res = await channelDrain.POST(c.req.raw, { params: Promise.resolve({ channelId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderChannels(await loadChannels(a.workspaceId)));
+    return c.html(renderChannels(await loadChannels(a.workspaceId), await noticeFrom(res, "Could not retry held messages.")));
   });
 
   app.post("/channels/connect-token", guard, async (c) => {
@@ -444,11 +457,11 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
 
   app.delete("/settings/api-keys/:id", guard, async (c) => {
     const id = c.req.param("id");
-    await apiKey.DELETE(c.req.raw, { params: Promise.resolve({ keyId: id }) }).catch(() => {});
+    const res = await apiKey.DELETE(c.req.raw, { params: Promise.resolve({ keyId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const keys = await loadKeys(a.workspaceId);
-    return c.html(renderKeys(keys));
+    return c.html(renderKeys(keys, await noticeFrom(res, "Could not revoke the API key.")));
   });
 
   app.post("/settings/retention", guard, async (c) => {
@@ -595,7 +608,10 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
       .map((value) => ({ value, match_type: "contains" }));
     const triggerType = ["comment_keyword", "postback"].includes(form.trigger_type) ? form.trigger_type : "keyword";
     const postId = (form.post_id ?? "").trim();
-    const payloadValue = (form.payload ?? "").trim();
+    // The postback payload input is hidden (x-show) for other triggers but json-enc still serializes
+    // it, so a value typed under "postback" then switched away would leak in as a stale payload (and
+    // into the follow-gate claim button below). Only honour it when the trigger is actually postback.
+    const payloadValue = triggerType === "postback" ? (form.payload ?? "").trim() : "";
     const commentReply = (form.comment_reply_text ?? "").trim();
     const followGate = form.response_mode === "follow_gate";
 
@@ -651,18 +667,19 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const existing = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, a.workspaceId)), columns: { is_active: true } });
+    let res: Response | null = null;
     if (existing) {
-      await rule.PATCH(jsonReqMethod(c, "PATCH", { is_active: !existing.is_active }), { params: Promise.resolve({ ruleId: id }) }).catch(() => {});
+      res = await rule.PATCH(jsonReqMethod(c, "PATCH", { is_active: !existing.is_active }), { params: Promise.resolve({ ruleId: id }) }).catch(() => null);
     }
-    return c.html(renderRules(await loadRules(a.workspaceId)));
+    return c.html(renderRules(await loadRules(a.workspaceId), await noticeFrom(res, "Could not update the rule.")));
   });
 
   app.delete("/rules/:id", guard, async (c) => {
     const id = c.req.param("id");
-    await rule.DELETE(c.req.raw, { params: Promise.resolve({ ruleId: id }) }).catch(() => {});
+    const res = await rule.DELETE(c.req.raw, { params: Promise.resolve({ ruleId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderRules(await loadRules(a.workspaceId)));
+    return c.html(renderRules(await loadRules(a.workspaceId), await noticeFrom(res, "Could not delete the rule.")));
   });
 
   // Approvals (human-in-the-loop review queue)
@@ -684,18 +701,20 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
 
   app.post("/approvals/:id/approve", guard, async (c) => {
     const id = c.req.param("id");
-    await approvalApprove.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => {});
+    const res = await approvalApprove.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderApprovals(await loadApprovals(a.workspaceId)));
+    // Most impactful swallow: if the enqueue tx failed the approval stays pending and nothing was
+    // sent — the operator must see that, not a silent re-render.
+    return c.html(renderApprovals(await loadApprovals(a.workspaceId), await noticeFrom(res, "Could not approve — the reply was not sent.")));
   });
 
   app.post("/approvals/:id/reject", guard, async (c) => {
     const id = c.req.param("id");
-    await approvalReject.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => {});
+    const res = await approvalReject.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderApprovals(await loadApprovals(a.workspaceId)));
+    return c.html(renderApprovals(await loadApprovals(a.workspaceId), await noticeFrom(res, "Could not reject the reply.")));
   });
 
   // Sequences
@@ -758,10 +777,10 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
 
   app.delete("/sequences/:id", guard, async (c) => {
     const id = c.req.param("id");
-    await sequence.DELETE(c.req.raw, { params: Promise.resolve({ sequenceId: id }) }).catch(() => {});
+    const res = await sequence.DELETE(c.req.raw, { params: Promise.resolve({ sequenceId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderSequences(await loadSequences(a.workspaceId)));
+    return c.html(renderSequences(await loadSequences(a.workspaceId), await noticeFrom(res, "Could not delete the sequence.")));
   });
 }
 
@@ -849,9 +868,10 @@ function loadKeys(workspaceId: string) {
   });
 }
 
-function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; last_used_at: Date | null; expires_at: Date | null }>): Html {
-  if (keys.length === 0) return html`<p class="muted">No API keys yet.</p>`;
-  return html`<table><thead><tr><th>Name</th><th>Last used</th><th>Expiry</th><th></th></tr></thead><tbody>
+function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; last_used_at: Date | null; expires_at: Date | null }>, error?: string): Html {
+  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
+  if (keys.length === 0) return html`${notice}<p class="muted">No API keys yet.</p>`;
+  return html`${notice}<table><thead><tr><th>Name</th><th>Last used</th><th>Expiry</th><th></th></tr></thead><tbody>
     ${keys.map(
       (k) => html`<tr>
         <td>${k.name}<div class="muted mono" style="font-size:.75rem">${k.key_prefix}...</div></td>
@@ -883,9 +903,10 @@ function loadRules(workspaceId: string) {
   });
 }
 
-function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>): Html {
-  if (rulesList.length === 0) return html`<p class="muted">No rules yet.</p>`;
-  return html`<div class="list">${rulesList.map(
+function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: string): Html {
+  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
+  if (rulesList.length === 0) return html`${notice}<p class="muted">No rules yet.</p>`;
+  return html`${notice}<div class="list">${rulesList.map(
     (r) => html`<div class="list-row">
       <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type}${r.is_active ? "" : " · inactive"}</span></div>
       <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
@@ -910,9 +931,10 @@ function loadApprovals(workspaceId: string) {
     .limit(100);
 }
 
-function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>): Html {
-  if (list.length === 0) return html`<p class="muted">Nothing waiting for approval.</p>`;
-  return html`<div class="list">${list.map((a) => {
+function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?: string): Html {
+  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
+  if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>`;
+  return html`${notice}<div class="list">${list.map((a) => {
     const content = ((a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } } | null)?.content) ?? {};
     const preview = content.text ?? "(no text)";
     const extras = [
