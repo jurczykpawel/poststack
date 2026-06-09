@@ -79,4 +79,12 @@ describe("channel health (real Postgres)", () => {
     const jobs = await db.execute(sql`select 1 from graphile_worker.jobs where task_identifier = 'drain-channel'`);
     expect(jobs.rows.length).toBe(0);
   });
+
+  //  — a successful health check / refresh must not undo a manual pause.
+  it("does not un-pause a manually paused channel", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await health.markChannelHealthy(CH);
+    expect((await status())?.status).toBe("paused");
+  });
 });

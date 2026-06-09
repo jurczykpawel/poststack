@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
-import { workspaces, channels, contacts, conversations, messages } from "@/db/schema";
+import { workspaces, channels, contacts, conversations, messages, autoReplyRules, pendingApprovals } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const DAY = 86_400_000;
@@ -72,6 +72,30 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect(await db.query.messages.findFirst({ where: eq(messages.id, recentSent) })).toBeDefined(); // recent survives
     expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_KEEP) })).toBeDefined();
     expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_EMPTY) })).toBeUndefined();
+  });
+
+  //  — message retention must not destroy live workflow state. A conversation whose
+  // only message is prunable but which still has a PENDING approval is not a husk.
+  it("does not prune a conversation with a still-pending approval", async () => {
+    if (!TEST_DB) return;
+    const CONTACT3 = "cccccccc-0000-0000-0000-000000000007";
+    const CONV_APPR = "cccccccc-0000-0000-0000-000000000008";
+    await db.insert(contacts).values({ id: CONTACT3, workspace_id: WS });
+    await db.insert(conversations).values({ id: CONV_APPR, workspace_id: WS, channel_id: CH, contact_id: CONTACT3, platform: "facebook", last_message_at: old });
+    const [rule] = await db.insert(autoReplyRules)
+      .values({ workspace_id: WS, name: "ApprRule", trigger_type: "keyword", trigger_config: {}, response_type: "text", response_config: { text: "x" } })
+      .returning({ id: autoReplyRules.id });
+    await db.insert(pendingApprovals).values({
+      workspace_id: WS, rule_id: rule.id, conversation_id: CONV_APPR, contact_id: CONTACT3, channel_id: CH,
+      recipient_platform_id: "PSID-X", proposed_content: { content: { text: "hi" } },
+    });
+    await seedMessage(CONV_APPR, "sent", old); // its only message is prunable
+
+    await pruneWorkspaceMessages(WS, 30, now);
+
+    // The old message is pruned, but the conversation + pending approval survive (not a husk).
+    expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_APPR) })).toBeDefined();
+    expect((await db.select().from(pendingApprovals).where(eq(pendingApprovals.conversation_id, CONV_APPR))).length).toBe(1);
   });
 
   it("pruneOldMessages applies each workspace's own retention policy", async () => {

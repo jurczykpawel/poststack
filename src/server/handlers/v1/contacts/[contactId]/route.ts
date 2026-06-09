@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contacts, commentLogs, conversations, sequenceEnrollments } from "@/db/schema";
@@ -101,22 +101,26 @@ export async function DELETE(
   const contact = await db.query.contacts.findFirst({
     where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
     columns: { id: true },
-    with: { contact_channels: { columns: { platform_sender_id: true } } },
+    with: { contact_channels: { columns: { channel_id: true, platform_sender_id: true } } },
   });
   if (!contact) return ApiErrors.notFound("Contact");
 
-  // CommentLog isn't FK-linked to Contact (author_id is a platform id), so the
-  // cascade doesn't reach it — erase it explicitly, workspace-scoped.
-  const senderIds = contact.contact_channels.map((cc) => cc.platform_sender_id);
-  if (senderIds.length > 0) {
-    await db
-      .delete(commentLogs)
-      .where(and(eq(commentLogs.workspace_id, auth.workspaceId), inArray(commentLogs.author_id, senderIds)));
-  }
-
-  // Cascade removes ContactChannel, Conversations + Messages, enrollments,
-  // pending approvals and broadcast recipients ( foreign keys).
-  await db.delete(contacts).where(eq(contacts.id, contactId));
+  // Erase atomically: the comment-log delete and the cascading contact delete commit
+  // together. CommentLog isn't FK-linked to Contact (author_id is a platform id), so the
+  // cascade doesn't reach it — erase it explicitly, matching the SAME (channel, sender)
+  // pairs as this contact. A platform sender id is NOT globally unique across channels, so
+  // matching on the id alone would wipe another contact's logs on a different channel.
+  await db.transaction(async (tx) => {
+    const pairs = contact.contact_channels.map((cc) =>
+      and(eq(commentLogs.channel_id, cc.channel_id), eq(commentLogs.author_id, cc.platform_sender_id)),
+    );
+    if (pairs.length > 0) {
+      await tx.delete(commentLogs).where(and(eq(commentLogs.workspace_id, auth.workspaceId), or(...pairs)));
+    }
+    // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
+    // approvals and broadcast recipients ( foreign keys).
+    await tx.delete(contacts).where(eq(contacts.id, contactId));
+  });
 
   await recordAudit({
     workspaceId: auth.workspaceId,

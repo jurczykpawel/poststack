@@ -348,6 +348,18 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(await jobCount("outgoing-message")).toBe(0); // paused → no auto-reply
     expect(await convFlag("")).toBe(true); // but surfaced for a human
   });
+
+  //  — a manually paused CHANNEL ingests to the inbox but runs no automation.
+  it("a manually paused channel ingests a DM but runs no automation", async () => {
+    if (!TEST_DB) return;
+    await seedDefaultDmRule();
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-40", text: "hello", timestamp: ts(), raw: {} } as never, helpers);
+    const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, "m-40"));
+    expect(msgs.length).toBe(1); // still ingested to the inbox
+    expect(await jobCount("outgoing-message")).toBe(0); // but no auto-reply
+    expect(await convFlag("")).toBe(true); // surfaced for a human
+  });
 });
 
 describe("incoming-comment worker", () => {

@@ -4,6 +4,7 @@ import { db, isUniqueViolation } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
+import { addJob } from "@/lib/queue/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -65,7 +66,7 @@ export async function PATCH(
 
   const existing = await db.query.channels.findFirst({
     where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
-    columns: { id: true },
+    columns: { id: true, status: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -100,6 +101,12 @@ export async function PATCH(
       return ApiErrors.conflict("This account is already connected and active in another workspace");
     }
     throw err;
+  }
+
+  // Resuming a channel (→ active from paused/needs_reauth) flushes anything parked while it
+  // was off, so held auto-replies aren't stranded — an explicit, safe resume lifecycle.
+  if (updated.status === "active" && existing.status !== "active") {
+    await addJob("drain-channel", { channelId });
   }
 
   return ok({ ...updated, is_active: updated.status === "active" });

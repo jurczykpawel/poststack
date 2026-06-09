@@ -35,7 +35,7 @@ export async function processIncomingReaction(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true },
   });
 
   if (!channel) {
@@ -62,8 +62,9 @@ export async function processIncomingReaction(
     reactionType ? `Reacted: ${reactionType}` : "Reacted",
   );
 
-  if (isAutomationPaused) {
-    // Still terminally claim so a redelivery after unpause doesn't fire on an old reaction.
+  if (isAutomationPaused || channel.status === "paused") {
+    // Paused conversation OR manually paused channel: no automation, but still terminally
+    // claim so a redelivery after unpause doesn't fire on an old reaction.
     await claimEventOnce(eventKey);
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
     return;

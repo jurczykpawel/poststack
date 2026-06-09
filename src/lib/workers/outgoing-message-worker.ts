@@ -19,7 +19,7 @@ export async function processOutgoingMessage(
   payload: OutgoingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, idempotencyKey, heldMessageId } =
+  const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, sentByUserId, idempotencyKey, heldMessageId } =
     payload;
 
   // Park the outbound while the channel is down: a `held` message awaits drain
@@ -71,6 +71,14 @@ export async function processOutgoingMessage(
   if (channel.status === "needs_reauth") {
     await persistHeld();
     helpers.logger.info(`Channel ${channelId} needs_reauth, message held`);
+    return;
+  }
+
+  // Manual pause stops AUTO outbound (rule replies are held until the operator unpauses and
+  // the channel drains), but a human's own manual reply still goes out.
+  if (channel.status === "paused" && !sentByUserId) {
+    await persistHeld();
+    helpers.logger.info(`Channel ${channelId} paused, auto message held`);
     return;
   }
 

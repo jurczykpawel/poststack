@@ -40,7 +40,7 @@ export async function processIncomingMessage(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true },
   });
 
   if (!channel) {
@@ -134,7 +134,9 @@ export async function processIncomingMessage(
   //    inbound during the pause is surfaced for a human. Otherwise always evaluate,
   //    even on a redelivery/retry: the event key makes the rule fire at most once, and any
   //    failure propagates so the job retries rather than being lost to the dedup.
-  if (conversation.is_automation_paused) {
+  // A manually paused channel still ingests to the inbox but runs no automation —
+  // same handling as a per-conversation pause: surface a new DM for a human, don't auto-reply.
+  if (conversation.is_automation_paused || channel.status === "paused") {
     await claimEventOnce(eventKey);
     if (isNewMessage) await ifLatest({ needs_manual_reply: true });
     return;

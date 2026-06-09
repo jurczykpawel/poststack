@@ -57,6 +57,13 @@ export async function markChannelHealthy(
     columns: { status: true },
   });
 
+  // A manual pause is operator intent and must outlive a successful health check / refresh:
+  // record that the check passed, but do NOT flip status back to active.
+  if (channel?.status === "paused") {
+    await db.update(channels).set({ last_error: null, last_health_at: now }).where(eq(channels.id, channelId));
+    return;
+  }
+
   await db
     .update(channels)
     .set({ status: "active", last_error: null, last_health_at: now })

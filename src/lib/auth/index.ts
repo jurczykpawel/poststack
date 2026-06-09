@@ -1,8 +1,8 @@
 import { jwtVerify } from "jose";
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { apiKeys, revokedTokens, users } from "@/db/schema";
+import { apiKeys, revokedTokens, workspaceMembers } from "@/db/schema";
 import { env } from "@/lib/env";
 
 export interface AuthContext {
@@ -131,12 +131,14 @@ async function authenticateSession(
       if (revoked && revoked.expires_at > new Date()) return null;
     }
 
-    // Verify user still exists (handles deleted/suspended accounts)
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-      columns: { id: true },
+    // Verify the user is STILL an active member of the workspace named in the token — not
+    // just that the user row exists. Otherwise a JWT keeps full workspace access after the
+    // membership is removed, until expiry. The FK also implies the user exists.
+    const membership = await db.query.workspaceMembers.findFirst({
+      where: and(eq(workspaceMembers.user_id, userId), eq(workspaceMembers.workspace_id, workspaceId)),
+      columns: { user_id: true },
     });
-    if (!user) return null;
+    if (!membership) return null;
 
     return { userId, workspaceId, authMethod: "session", scopes: [] };
   } catch {

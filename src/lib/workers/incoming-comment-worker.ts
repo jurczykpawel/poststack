@@ -36,7 +36,7 @@ export async function processIncomingComment(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true },
   });
 
   if (!channel) {
@@ -84,9 +84,9 @@ export async function processIncomingComment(
 
   const eventKey = `comment:${channel.id}:${commentId}`;
 
-  if (isAutomationPaused) {
-    // Still terminally claim the event so a redelivery after unpause doesn't reply to an
-    // old comment.
+  if (isAutomationPaused || channel.status === "paused") {
+    // A paused conversation OR a manually paused channel runs no automation, but the event
+    // is still terminally claimed so a redelivery after unpause doesn't reply late.
     await claimEventOnce(eventKey);
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying`);
     return;

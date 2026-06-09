@@ -1,6 +1,6 @@
 import { and, eq, lt, inArray, isNotNull, notExists } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages, commentLogs, conversations, workspaces } from "@/db/schema";
+import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions } from "@/db/schema";
 
 const BATCH_SIZE = 1000;
 const DAY_MS = 86_400_000;
@@ -61,12 +61,25 @@ export async function pruneWorkspaceMessages(
     async (ids) => (await db.delete(commentLogs).where(inArray(commentLogs.id, ids))).rowCount ?? 0,
   );
 
-  // Conversations whose messages were all pruned are stale husks — remove them.
+  // Conversations whose messages were all pruned are stale husks — remove them. But message
+  // retention must not destroy LIVE workflow state: pending_approvals / flow_sessions cascade
+  // ON DELETE, so a conversation with a still-pending approval or an active flow session is
+  // not a husk and must be kept. Closed/terminal dependents don't block the prune.
   const emptied = await db.delete(conversations).where(
     and(
       eq(conversations.workspace_id, workspaceId),
       lt(conversations.last_message_at, cutoff),
       notExists(db.select().from(messages).where(eq(messages.conversation_id, conversations.id))),
+      notExists(
+        db.select().from(pendingApprovals).where(
+          and(eq(pendingApprovals.conversation_id, conversations.id), eq(pendingApprovals.status, "pending")),
+        ),
+      ),
+      notExists(
+        db.select().from(flowSessions).where(
+          and(eq(flowSessions.conversation_id, conversations.id), eq(flowSessions.status, "active")),
+        ),
+      ),
     ),
   );
 

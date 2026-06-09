@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -33,6 +33,7 @@ beforeEach(async () => {
   await db.delete(s.revokedTokens).where(eq(s.revokedTokens.jti, "auth-int-jti"));
   await db.insert(s.workspaces).values({ id: WS, name: "Auth", slug: `auth-${WS}` });
   await db.insert(s.users).values({ id: USER, email: EMAIL });
+  await db.insert(s.workspaceMembers).values({ workspace_id: WS, user_id: USER });
   await db.insert(s.apiKeys).values({
     workspace_id: WS, name: "k", key_hash: KEY_HASH, key_prefix: "rs_live_auth", scopes: ["channels:read", "contacts:read"],
   });
@@ -66,6 +67,16 @@ describe("authenticate — session (real Postgres)", () => {
     if (!TEST_DB) return;
     const token = await auth.signSession(USER, WS);
     await db.delete(s.users).where(eq(s.users.id, USER));
+    expect(await auth.authenticate(sessionReq(token))).toBeNull();
+  });
+
+  //  — a session must stop authorizing once the user is no longer a member of the
+  // workspace named in the token, even though the user still exists.
+  it("returns null after the user's workspace membership is removed", async () => {
+    if (!TEST_DB) return;
+    const token = await auth.signSession(USER, WS);
+    expect(await auth.authenticate(sessionReq(token))).not.toBeNull();
+    await db.delete(s.workspaceMembers).where(and(eq(s.workspaceMembers.user_id, USER), eq(s.workspaceMembers.workspace_id, WS)));
     expect(await auth.authenticate(sessionReq(token))).toBeNull();
   });
 
