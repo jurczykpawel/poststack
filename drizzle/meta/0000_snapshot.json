@@ -1,5 +1,5 @@
 {
-  "id": "38fb374d-8321-47e8-bed6-bf1615165ee6",
+  "id": "cc2dbc14-b8ef-47d1-b646-7a2831658247",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -62,7 +62,7 @@
           "type": "text[]",
           "primaryKey": false,
           "notNull": false,
-          "default": "'{\"RAY\"}'"
+          "default": "'{}'"
         }
       },
       "indexes": {
@@ -789,11 +789,17 @@
           "method": "btree",
           "with": {}
         },
-        "channels_workspace_id_platform_id_key": {
-          "name": "channels_workspace_id_platform_id_key",
+        "channels_workspace_id_platform_platform_id_key": {
+          "name": "channels_workspace_id_platform_platform_id_key",
           "columns": [
             {
               "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -806,6 +812,28 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "channels_active_platform_platform_id_key": {
+          "name": "channels_active_platform_platform_id_key",
+          "columns": [
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status <> 'disabled'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2167,9 +2195,15 @@
           "method": "btree",
           "with": {}
         },
-        "messages_platform_message_id_key": {
-          "name": "messages_platform_message_id_key",
+        "messages_conversation_id_platform_message_id_key": {
+          "name": "messages_conversation_id_platform_message_id_key",
           "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "platform_message_id",
               "isExpression": false,
@@ -2243,29 +2277,115 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.outbound_idempotency": {
-      "name": "outbound_idempotency",
+    "public.outbound_deliveries": {
+      "name": "outbound_deliveries",
       "schema": "",
       "columns": {
-        "key": {
-          "name": "key",
-          "type": "text",
+        "id": {
+          "name": "id",
+          "type": "uuid",
           "primaryKey": true,
           "notNull": true
         },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp (3)",
+        "delivery_key": {
+          "name": "delivery_key",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_name": {
+          "name": "task_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "outbound_delivery_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform_message_id": {
+          "name": "platform_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
-        "outbound_idempotency_expires_at_idx": {
-          "name": "outbound_idempotency_expires_at_idx",
+        "outbound_deliveries_delivery_key_key": {
+          "name": "outbound_deliveries_delivery_key_key",
           "columns": [
             {
-              "expression": "expires_at",
+              "expression": "delivery_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outbound_deliveries_channel_id_status_idx": {
+          "name": "outbound_deliveries_channel_id_status_idx",
+          "columns": [
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2277,7 +2397,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "outbound_deliveries_workspace_id_fkey": {
+          "name": "outbound_deliveries_workspace_id_fkey",
+          "tableFrom": "outbound_deliveries",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "outbound_deliveries_channel_id_fkey": {
+          "name": "outbound_deliveries_channel_id_fkey",
+          "tableFrom": "outbound_deliveries",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "channel_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2454,6 +2601,32 @@
           "onUpdate": "cascade"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.processed_events": {
+      "name": "processed_events",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2677,6 +2850,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "steps_snapshot": {
+          "name": "steps_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "status": {
           "name": "status",
@@ -3288,6 +3468,19 @@
         "expired"
       ]
     },
+    "public.outbound_delivery_status": {
+      "name": "outbound_delivery_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "sending",
+        "sent",
+        "failed",
+        "held",
+        "expired",
+        "unknown"
+      ]
+    },
     "public.platform": {
       "name": "platform",
       "schema": "public",
@@ -3309,7 +3502,8 @@
         "random_text",
         "sequence",
         "none",
-        "ai_rephrase"
+        "ai_rephrase",
+        "follow_gate"
       ]
     },
     "public.sequence_enrollment_status": {
@@ -3341,7 +3535,8 @@
         "welcome",
         "default",
         "story_reply",
-        "story_mention"
+        "story_mention",
+        "reaction"
       ]
     },
     "public.workspace_member_role": {

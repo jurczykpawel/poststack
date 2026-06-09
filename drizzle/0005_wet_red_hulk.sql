@@ -1,2 +1,0 @@
-DROP INDEX "messages_platform_message_id_key";--> statement-breakpoint
-CREATE UNIQUE INDEX "messages_conversation_id_platform_message_id_key" ON "messages" USING btree ("conversation_id","platform_message_id");

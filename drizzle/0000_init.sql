@@ -9,11 +9,12 @@ CREATE TYPE "public"."flow_session_status" AS ENUM('active', 'completed', 'expir
 CREATE TYPE "public"."flow_status" AS ENUM('draft', 'published', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."message_direction" AS ENUM('inbound', 'outbound');--> statement-breakpoint
 CREATE TYPE "public"."message_status" AS ENUM('pending', 'sent', 'delivered', 'failed', 'held', 'expired');--> statement-breakpoint
+CREATE TYPE "public"."outbound_delivery_status" AS ENUM('pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown');--> statement-breakpoint
 CREATE TYPE "public"."platform" AS ENUM('facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord');--> statement-breakpoint
-CREATE TYPE "public"."response_type" AS ENUM('text', 'random_text', 'sequence', 'none', 'ai_rephrase');--> statement-breakpoint
+CREATE TYPE "public"."response_type" AS ENUM('text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate');--> statement-breakpoint
 CREATE TYPE "public"."sequence_enrollment_status" AS ENUM('active', 'paused', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."sequence_status" AS ENUM('draft', 'active', 'archived');--> statement-breakpoint
-CREATE TYPE "public"."trigger_type" AS ENUM('keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention');--> statement-breakpoint
+CREATE TYPE "public"."trigger_type" AS ENUM('keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction');--> statement-breakpoint
 CREATE TYPE "public"."workspace_member_role" AS ENUM('owner', 'admin', 'agent');--> statement-breakpoint
 CREATE TABLE "api_keys" (
 	"id" uuid PRIMARY KEY NOT NULL,
@@ -24,7 +25,7 @@ CREATE TABLE "api_keys" (
 	"last_used_at" timestamp (3),
 	"expires_at" timestamp (3),
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"scopes" text[] DEFAULT '{"RAY"}'
+	"scopes" text[] DEFAULT '{}'
 );
 --> statement-breakpoint
 CREATE TABLE "audit_logs" (
@@ -236,9 +237,19 @@ CREATE TABLE "messages" (
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "outbound_idempotency" (
-	"key" text PRIMARY KEY NOT NULL,
-	"expires_at" timestamp (3) NOT NULL
+CREATE TABLE "outbound_deliveries" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"delivery_key" text NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"task_name" text NOT NULL,
+	"status" "outbound_delivery_status" DEFAULT 'pending' NOT NULL,
+	"payload" jsonb NOT NULL,
+	"platform_message_id" text,
+	"last_error" text,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"created_at" timestamp (3) DEFAULT now() NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "pending_approvals" (
@@ -254,6 +265,11 @@ CREATE TABLE "pending_approvals" (
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"resolved_at" timestamp (3),
 	"resolved_by" uuid
+);
+--> statement-breakpoint
+CREATE TABLE "processed_events" (
+	"key" text PRIMARY KEY NOT NULL,
+	"created_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "rate_limit_counters" (
@@ -287,6 +303,7 @@ CREATE TABLE "sequence_enrollments" (
 	"contact_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
 	"current_step_index" integer DEFAULT 0 NOT NULL,
+	"steps_snapshot" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"status" "sequence_enrollment_status" DEFAULT 'active' NOT NULL,
 	"enrolled_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"next_step_at" timestamp (3),
@@ -369,6 +386,8 @@ ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_id_fkey" FOREIGN KE
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_user_id_fkey" FOREIGN KEY ("sent_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_rule_id_fkey" FOREIGN KEY ("sent_by_rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_flow_id_fkey" FOREIGN KEY ("sent_by_flow_id") REFERENCES "public"."flows"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "outbound_deliveries" ADD CONSTRAINT "outbound_deliveries_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "outbound_deliveries" ADD CONSTRAINT "outbound_deliveries_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -389,7 +408,8 @@ CREATE INDEX "auto_reply_rules_workspace_id_is_active_idx" ON "auto_reply_rules"
 CREATE INDEX "broadcast_recipients_broadcast_id_status_idx" ON "broadcast_recipients" USING btree ("broadcast_id","status");--> statement-breakpoint
 CREATE INDEX "channels_status_idx" ON "channels" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "channels_workspace_id_idx" ON "channels" USING btree ("workspace_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "channels_workspace_id_platform_id_key" ON "channels" USING btree ("workspace_id","platform_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "channels_workspace_id_platform_platform_id_key" ON "channels" USING btree ("workspace_id","platform","platform_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "channels_active_platform_platform_id_key" ON "channels" USING btree ("platform","platform_id") WHERE status <> 'disabled';--> statement-breakpoint
 CREATE INDEX "comment_logs_channel_id_idx" ON "comment_logs" USING btree ("channel_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "comment_logs_channel_id_platform_comment_id_key" ON "comment_logs" USING btree ("channel_id","platform_comment_id");--> statement-breakpoint
 CREATE INDEX "comment_logs_workspace_id_idx" ON "comment_logs" USING btree ("workspace_id");--> statement-breakpoint
@@ -406,8 +426,9 @@ CREATE INDEX "flow_versions_flow_id_version_idx" ON "flow_versions" USING btree 
 CREATE UNIQUE INDEX "flow_versions_flow_id_version_key" ON "flow_versions" USING btree ("flow_id","version");--> statement-breakpoint
 CREATE INDEX "flows_workspace_id_status_idx" ON "flows" USING btree ("workspace_id","status");--> statement-breakpoint
 CREATE INDEX "messages_conversation_id_created_at_idx" ON "messages" USING btree ("conversation_id","created_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "messages_platform_message_id_key" ON "messages" USING btree ("platform_message_id");--> statement-breakpoint
-CREATE INDEX "outbound_idempotency_expires_at_idx" ON "outbound_idempotency" USING btree ("expires_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "messages_conversation_id_platform_message_id_key" ON "messages" USING btree ("conversation_id","platform_message_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "outbound_deliveries_delivery_key_key" ON "outbound_deliveries" USING btree ("delivery_key");--> statement-breakpoint
+CREATE INDEX "outbound_deliveries_channel_id_status_idx" ON "outbound_deliveries" USING btree ("channel_id","status");--> statement-breakpoint
 CREATE INDEX "pending_approvals_workspace_id_status_idx" ON "pending_approvals" USING btree ("workspace_id","status");--> statement-breakpoint
 CREATE INDEX "rate_limit_counters_window_start_idx" ON "rate_limit_counters" USING btree ("window_start");--> statement-breakpoint
 CREATE INDEX "revoked_tokens_expires_at_idx" ON "revoked_tokens" USING btree ("expires_at");--> statement-breakpoint

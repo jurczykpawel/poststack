@@ -1,1 +1,0 @@
-ALTER TYPE "public"."response_type" ADD VALUE 'follow_gate';

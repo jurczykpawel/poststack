@@ -1,1 +1,0 @@
-ALTER TABLE "api_keys" ALTER COLUMN "scopes" SET DEFAULT '{}';

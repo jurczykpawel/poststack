@@ -5,85 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1780751673939,
+      "when": 1781010820518,
       "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1780762890493,
-      "tag": "0001_add_reaction_trigger",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1780841233431,
-      "tag": "0002_majestic_spacker_dave",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1780842370904,
-      "tag": "0003_material_red_hulk",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1780851755015,
-      "tag": "0004_hot_norrin_radd",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1780865640572,
-      "tag": "0005_wet_red_hulk",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1780866781140,
-      "tag": "0006_oval_justice",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1780907052607,
-      "tag": "0007_rename_idempotency_keys",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1780999618847,
-      "tag": "0008_silly_roland_deschain",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1781005054503,
-      "tag": "0009_outbound_deliveries",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1781006441889,
-      "tag": "0010_retire_idempotency_keys",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1781006820644,
-      "tag": "0011_sequence_steps_snapshot",
       "breakpoints": true
     }
   ]
