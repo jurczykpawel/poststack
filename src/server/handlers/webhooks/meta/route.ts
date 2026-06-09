@@ -22,8 +22,18 @@ export async function GET(request: Request) {
   return new Response("Forbidden", { status: 403 });
 }
 
+/** Hard cap on the webhook body before we buffer it. Meta events are tiny; this just stops
+ *  an unauthenticated client forcing a huge body into memory ahead of the HMAC check.
+ *  The reverse proxy (Caddy/nginx) should also set a request-body limit as defence-in-depth. */
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024; // 1 MiB
+
 // ─── Webhook Events (POST) ────────────────────────────────────────────────
 export async function POST(request: Request) {
+  const declaredLength = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_WEBHOOK_BODY_BYTES) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
+
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256") ?? "";
 
@@ -62,6 +72,10 @@ export async function POST(request: Request) {
     // Messaging events (DMs)
     for (const messagingEvent of entry.messaging ?? []) {
       if (!messagingEvent.message?.mid) continue;
+      // Defensive: `sender`/`recipient` are non-optional in the Meta contract but only via a
+      // cast, not runtime validation — guard before dereferencing so an odd payload shape is a
+      // skip, not a TypeError that 500s the whole batch into a Meta retry storm.
+      if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue;
 
       // Skip echo messages (our own outbound messages echoed back by Meta)
       if (messagingEvent.message.is_echo) continue;
@@ -99,6 +113,7 @@ export async function POST(request: Request) {
     for (const messagingEvent of entry.messaging ?? []) {
       if (!messagingEvent.postback?.payload) continue;
       if (messagingEvent.message) continue; // already handled above
+      if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue; // 
 
       const job: IncomingMessageJob = {
         platform,
@@ -125,6 +140,7 @@ export async function POST(request: Request) {
     for (const messagingEvent of entry.messaging ?? []) {
       const reaction = messagingEvent.reaction;
       if (!reaction || reaction.action !== "react") continue;
+      if (!messagingEvent.sender?.id) continue; //  — guard before dereferencing sender
 
       const job: IncomingReactionJob = {
         platform,

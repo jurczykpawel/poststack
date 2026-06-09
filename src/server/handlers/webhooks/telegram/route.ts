@@ -17,9 +17,16 @@ export const runtime = "nodejs";
  * retried instead of silently dropped; the per-update jobKey keeps retries
  * idempotent.
  */
+// A Telegram update is tiny; cap the body before buffering it (post-auth, so lower risk than
+// the Meta webhook, but still unbounded otherwise). Oversized → 200 (ignored, not retried).
+const MAX_TELEGRAM_BODY_BYTES = 256 * 1024;
+
 export async function POST(request: Request): Promise<Response> {
   const ok = () => new Response("ok", { status: 200 });
   const retry = () => new Response("error", { status: 500 });
+
+  const declaredLength = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_TELEGRAM_BODY_BYTES) return ok();
 
   const secret = request.headers.get("x-telegram-bot-api-secret-token");
   if (!secret) return ok();
@@ -40,6 +47,9 @@ export async function POST(request: Request): Promise<Response> {
   const msg = update?.message;
   // MVP: only plain text messages. edited_message / callback_query / etc. are ignored.
   if (!update || !msg || !msg.text) return ok();
+  // Guard `chat` before building the identity from `msg.chat.id`: a text message without a
+  // `chat` (odd service/business update) would otherwise TypeError → 500 → ~1h retry.
+  if (!msg.chat?.id) return ok();
 
   // message_id is unique only per chat, so identity must include bot + chat to
   // avoid cross-chat dedup collisions dropping messages.

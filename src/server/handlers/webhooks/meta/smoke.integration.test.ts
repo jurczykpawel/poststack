@@ -110,6 +110,31 @@ function signed(payload: unknown) {
   });
 }
 
+describe("Meta webhook input hardening (real Postgres)", () => {
+  //  — an oversized body is rejected before it is buffered or the HMAC runs.
+  it("rejects an oversized body with 413 before buffering", async () => {
+    if (!TEST_DB) return;
+    const bigReq = {
+      headers: { get: (k: string) => (k.toLowerCase() === "content-length" ? "2000000" : null) },
+      text: async () => "",
+    } as unknown as Request;
+    const res = await POST(bigReq);
+    expect(res.status).toBe(413);
+  });
+
+  //  — a signed event missing `sender` is skipped (200, no enqueue), not a 500 retry storm.
+  it("skips a messaging event with no sender (200, no job)", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "page",
+      entry: [{ id: "FB_PAGE", messaging: [{ message: { mid: "no-sender-mid" }, timestamp: 1_770_000_000_000 }] }],
+    }));
+    expect(res.status).toBe(200);
+    const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where key = $1", ["msg-no-sender-mid"]);
+    expect(n.rows[0].n).toBe(0);
+  });
+});
+
 describe("webhook ingestion: Instagram comments (real Postgres)", () => {
   it("ingests a Facebook page comment (field=feed) and enqueues incoming-comment", async () => {
     if (!TEST_DB) return;
@@ -554,6 +579,32 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(res.status).toBe(200);
     const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
     expect(n.rows[0].n).toBe(0);
+  });
+
+  //  — a text message without a `chat` must be ignored (200, no job), not 500 into a retry loop.
+  it("ignores a text update missing chat (no 500, no job)", async () => {
+    if (!TEST_DB) return;
+    await seedTgChannel();
+    const req = new Request("http://x/api/webhooks/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": TG_SECRET },
+      body: JSON.stringify({ update_id: 1, message: { message_id: 1, date: 0, text: "hi" } }),
+    });
+    const res = await telegramWebhookPost(req);
+    expect(res.status).toBe(200);
+    const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(n.rows[0].n).toBe(0);
+  });
+
+  //  — an oversized body is rejected (200, ignored) before it is buffered/parsed.
+  it("ignores an oversized body before buffering", async () => {
+    if (!TEST_DB) return;
+    const bigReq = {
+      headers: { get: (k: string) => (k.toLowerCase() === "content-length" ? "300000" : k.toLowerCase() === "x-telegram-bot-api-secret-token" ? TG_SECRET : null) },
+      json: async () => ({}),
+    } as unknown as Request;
+    const res = await telegramWebhookPost(bigReq);
+    expect(res.status).toBe(200);
   });
 
   it("ingests a text message, fires the keyword rule, and sends a Telegram reply", async () => {
