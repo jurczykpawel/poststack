@@ -10,10 +10,11 @@ export class TokenInvalidError extends Error {
 }
 
 /**
- * The platform refused the send for a messaging-policy reason that retrying cannot fix —
- * most notably a message sent outside the 24h customer-service window without an eligible
- * message tag. Distinct from a transient failure: the delivery is terminal (dropped), not
- * retried, so a stale sequence step can't grind every attempt to the dead-letter queue.
+ * The platform refused the send for a per-delivery reason that retrying cannot fix — e.g. a Meta
+ * message sent outside the 24h customer-service window without an eligible tag, or a
+ * Telegram chat where the bot was blocked/kicked by that user. The token/channel itself
+ * is fine; only THIS delivery is terminal (dropped), not retried, so a stale step can't grind
+ * every attempt into the dead-letter queue — and the channel is never parked for it.
  */
 export class MessagingPolicyError extends Error {
   constructor(message: string) {
@@ -23,16 +24,26 @@ export class MessagingPolicyError extends Error {
 }
 
 /**
- * Detect Meta's "outside the 24-hour window" rejection. Messenger/IG return
+ * Known terminal Meta messaging-policy subcodes — retrying cannot fix any of these, so the
+ * delivery is dropped rather than ground through the retry budget to the dead-letter queue. Kept
+ * to a documented allowlist so a genuinely transient failure (unknown subcode) stays retryable.
+ *  - 2018278: message sent outside the 24h customer-service window (no eligible tag)
+ *  - 2018109: message tag used outside its allowed policy
+ *  - 2042002: messaging blocked by a policy condition the send cannot satisfy
+ */
+const TERMINAL_META_POLICY_SUBCODES = new Set([2018278, 2018109, 2042002]);
+
+/**
+ * Detect Meta's terminal messaging-policy rejections. Messenger/IG return e.g.
  * `{ error: { code: 10, error_subcode: 2018278, message: "This message is sent outside of
- * allowed window." } }` (and a few tag-related codes) — a policy block, not a transient error.
- * Keyed narrowly (subcode + the documented message text) so a genuinely transient failure is
- * never mis-classified as terminal.
+ * allowed window." } }` — a policy block, not a transient error. Keyed on a narrow subcode
+ * allowlist (plus the documented window message text) so a genuinely transient failure is never
+ * mis-classified as terminal.
  */
 export function isMetaWindowError(body: string): boolean {
   try {
     const err = (JSON.parse(body) as { error?: { code?: number; error_subcode?: number } }).error;
-    if (err && err.error_subcode === 2018278) return true;
+    if (err && typeof err.error_subcode === "number" && TERMINAL_META_POLICY_SUBCODES.has(err.error_subcode)) return true;
   } catch {
     // not JSON — fall through to the text heuristic
   }

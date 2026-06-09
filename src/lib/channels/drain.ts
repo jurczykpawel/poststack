@@ -87,7 +87,8 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
         if (typeof payload.heldMessageId === "string") {
           await tx.update(messages).set({ status: "expired" }).where(eq(messages.id, payload.heldMessageId));
         }
-        await tx.update(outboundDeliveries).set({ status: "expired", updated_at: now }).where(eq(outboundDeliveries.id, d.id));
+        // updated_at is stamped by the column's $onUpdate, like the messages update above.
+        await tx.update(outboundDeliveries).set({ status: "expired" }).where(eq(outboundDeliveries.id, d.id));
       });
       expired++;
       continue;

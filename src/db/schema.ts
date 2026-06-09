@@ -559,7 +559,9 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 	last_error: text("last_error"),
 	attempts: integer().default(0).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+	// $onUpdate keeps this fresh on every update without each call site having to pass it — the
+	// only updated_at column that lacked it, so a future update path can't silently stale it.
+	updated_at: timestamp("updated_at", { precision: 3, mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	uniqueIndex("outbound_deliveries_delivery_key_key").using("btree", table.delivery_key.asc().nullsLast()),
 	index("outbound_deliveries_channel_id_status_idx").using("btree", table.channel_id.asc().nullsLast(), table.status.asc().nullsLast()),

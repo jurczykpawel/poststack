@@ -30,9 +30,18 @@ describe("isMetaWindowError", () => {
     expect(isMetaWindowError("(#10) This message is sent outside of allowed window.")).toBe(true);
   });
 
+  //  — other terminal messaging-policy subcodes (tag-related, policy family) must also be
+  // classified terminal, so they drop the delivery instead of grinding retries to dead-letter.
+  it("is true for other known terminal policy subcodes (tag / policy family)", () => {
+    expect(isMetaWindowError('{"error":{"code":10,"error_subcode":2018109}}')).toBe(true);
+    expect(isMetaWindowError('{"error":{"code":10,"error_subcode":2042002}}')).toBe(true);
+  });
+
   it("is false for token errors and ordinary failures", () => {
     expect(isMetaWindowError('{"error":{"code":190}}')).toBe(false);
     expect(isMetaWindowError('{"error":{"code":100,"message":"bad param"}}')).toBe(false);
+    // An unknown subcode is NOT assumed terminal — it stays transient (retryable).
+    expect(isMetaWindowError('{"error":{"code":10,"error_subcode":1234567}}')).toBe(false);
   });
 });
 

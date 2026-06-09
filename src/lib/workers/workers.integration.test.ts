@@ -1072,7 +1072,31 @@ describe("sequence-step worker", () => {
     await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
     const resumed = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+
     expect(resumed?.current_step_index).toBe(1);
+  });
+
+  //  — the pause must freeze a DELAY step too. Previously the is_automation_paused check sat
+  // inside the message branch, so a delay step "counted down" during the pause and advanced the
+  // cursor. A paused conversation holds every step type, then resumes from the same place.
+  it("holds a delay step (no advance) when the conversation is automation-paused", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ is_automation_paused: true }).where(eq(s.conversations.id, CONV));
+    const { enrId } = await seedEnrollment([{ type: "delay", delay_minutes: 60 }, { type: "message", content: "after" }]);
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+
+    // The cursor stays on the delay step (0), active — it did not count down during the pause.
+    const held = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(held?.current_step_index).toBe(0);
+    expect(held?.status).toBe("active");
+    expect(await jobCount("sequence-step")).toBe(1); // deferred re-check only
+
+    // Un-pausing and re-running advances past the delay to the next step.
+    await db.update(s.conversations).set({ is_automation_paused: false }).where(eq(s.conversations.id, CONV));
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+    const resumedDelay = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(resumedDelay?.current_step_index).toBe(1);
   });
 });
 
@@ -1090,7 +1114,9 @@ describe("token-refresh worker", () => {
     provider.refreshToken.mockResolvedValueOnce({ access_token: "new" });
     await w.processTokenRefresh({ channelId: CH } as never, helpers);
     expect(provider.refreshToken).toHaveBeenCalled();
-    expect(health.markChannelHealthy).toHaveBeenCalledWith(CH);
+    // The token write + health flip now share a transaction, so the flip is called with the tx
+    // executor (CH, now, tx) rather than just the id.
+    expect(health.markChannelHealthy).toHaveBeenCalledWith(CH, expect.any(Date), expect.anything());
   });
 });
 

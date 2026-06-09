@@ -59,8 +59,13 @@ export async function processTokenRefresh(
     throw err; // transient — allow retry
   }
 
-  await db.update(channels).set({ token_encrypted: encryptTokens(refreshedTokens) }).where(eq(channels.id, channelId));
-  await markChannelHealthy(channelId);
+  // Persist the new token AND flip the channel healthy in ONE transaction. A crash/failure
+  // between them previously left the new token saved but the status stuck needs_reauth with no
+  // drain enqueued — held messages would strand behind a token that had actually recovered.
+  await db.transaction(async (tx) => {
+    await tx.update(channels).set({ token_encrypted: encryptTokens(refreshedTokens) }).where(eq(channels.id, channelId));
+    await markChannelHealthy(channelId, new Date(), tx);
+  });
 
   helpers.logger.info(`Token refreshed for channel=${channelId}`);
 }

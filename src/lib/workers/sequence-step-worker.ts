@@ -60,10 +60,30 @@ export async function processSequenceStep(
   const nextStepIndex = stepIndex + 1;
   const isLast = nextStepIndex >= steps.length;
 
+  // Per-conversation kill switch — applies to EVERY step type. If an operator paused
+  // automation (e.g. a human took over), HOLD the enrollment: don't send AND don't advance the
+  // cursor, for a `delay` step just as much as a `message` step — otherwise the delay "counts down"
+  // during the pause and the enrollment marches on. Re-check later so it resumes from the same step
+  // once un-paused. The lookup runs for every step type, so this check sits before the message
+  // branch (a delay step has no conversation only if none exists yet — then it isn't paused).
+  const conversation = await db.query.conversations.findFirst({
+    where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
+    columns: { id: true, is_automation_paused: true },
+  });
+  if (conversation?.is_automation_paused) {
+    await addJob(
+      "sequence-step",
+      { enrollmentId },
+      { jobKey: `seq-step-paused:${enrollmentId}:${stepIndex}`, delayMs: PAUSE_RECHECK_MS },
+    );
+    helpers.logger.info(`Automation paused for enrollment ${enrollmentId}, deferring step ${stepIndex}`);
+    return;
+  }
+
   // A message step needs a conversation + the contact's identity on the channel to address the
-  // send. Resolve them up front (read-only); a missing pair just advances without sending.
-  // Consent gate: an unsubscribed contact is not sent the step — the enrollment still advances
-  // so it resumes naturally if they re-subscribe before a later step.
+  // send. A missing pair just advances without sending. Consent gate: an unsubscribed contact is
+  // not sent the step — the enrollment still advances so it resumes naturally if they re-subscribe
+  // before a later step.
   let outgoing: { conversationId: string; recipientPlatformId: string } | null = null;
   if (isMessage) {
     const contact = await db.query.contacts.findFirst({
@@ -73,22 +93,6 @@ export async function processSequenceStep(
     if (!contact?.is_subscribed) {
       helpers.logger.info(`Contact ${enrollment.contact_id} is unsubscribed, advancing sequence without sending`);
     } else {
-      const conversation = await db.query.conversations.findFirst({
-        where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
-        columns: { id: true, is_automation_paused: true },
-      });
-      // Per-conversation kill switch: if an operator paused automation (e.g. a human took over),
-      // HOLD the drip — don't send and don't advance the cursor. Re-check later so the sequence
-      // resumes from the same step once un-paused, instead of silently skipping it.
-      if (conversation?.is_automation_paused) {
-        await addJob(
-          "sequence-step",
-          { enrollmentId },
-          { jobKey: `seq-step-paused:${enrollmentId}:${stepIndex}`, delayMs: PAUSE_RECHECK_MS },
-        );
-        helpers.logger.info(`Automation paused for enrollment ${enrollmentId}, deferring step ${stepIndex}`);
-        return;
-      }
       const cc = await db.query.contactChannels.findFirst({
         where: and(eq(contactChannels.contact_id, enrollment.contact_id), eq(contactChannels.channel_id, enrollment.channel_id)),
         columns: { platform_sender_id: true },

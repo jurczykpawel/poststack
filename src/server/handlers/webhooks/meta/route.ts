@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "crypto";
 import { env } from "@/lib/env";
 import { verifyMetaSignature } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
@@ -8,6 +9,14 @@ export const runtime = "nodejs";
 
 const VALID_PLATFORMS = new Set(["facebook", "instagram", "page"]);
 
+/** Constant-time string compare via fixed-length SHA-256 digests (matches the CRON/HMAC checks),
+ *  so the verify-token compare doesn't leak length/prefix through timing. */
+function verifyTokenMatches(provided: string | null): boolean {
+  if (!env.META_WEBHOOK_VERIFY_TOKEN || provided == null) return false;
+  const digest = (v: string) => createHash("sha256").update(v).digest();
+  return timingSafeEqual(digest(provided), digest(env.META_WEBHOOK_VERIFY_TOKEN));
+}
+
 // ─── Hub Verification (GET) ────────────────────────────────────────────────
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -15,7 +24,7 @@ export async function GET(request: Request) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode === "subscribe" && env.META_WEBHOOK_VERIFY_TOKEN && token === env.META_WEBHOOK_VERIFY_TOKEN) {
+  if (mode === "subscribe" && verifyTokenMatches(token)) {
     return new Response(challenge, { status: 200 });
   }
 

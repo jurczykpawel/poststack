@@ -116,7 +116,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       // real recipient. Record the ambiguity and stop (at-most-once across the boundary).
       await db
         .update(outboundDeliveries)
-        .set({ status: "unknown", last_error: "interrupted after dispatch", updated_at: new Date() })
+        .set({ status: "unknown", last_error: "interrupted after dispatch" })
         .where(eq(outboundDeliveries.id, prior.id));
       helpers.logger.info(`delivery ${deliveryKey} interrupted mid-send — marked unknown, not re-sending`);
       return "skipped_unknown";
@@ -180,7 +180,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       } catch (markErr) {
         await db
           .update(outboundDeliveries)
-          .set({ status: "failed", last_error: e.message, updated_at: new Date() })
+          .set({ status: "failed", last_error: e.message })
           .where(eq(outboundDeliveries.delivery_key, deliveryKey));
         throw markErr;
       }
@@ -193,7 +193,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       // attempt into the dead-letter queue. The ledger row is the operator-visible record.
       await db
         .update(outboundDeliveries)
-        .set({ status: "expired", last_error: e.message, updated_at: new Date() })
+        .set({ status: "expired", last_error: e.message })
         .where(eq(outboundDeliveries.delivery_key, deliveryKey));
       helpers.logger.info(`delivery ${deliveryKey} dropped — ${e.message} (not retried)`);
       return "dropped_policy";
@@ -202,7 +202,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
     // Record `failed` and rethrow so graphile retries; the retry re-claims from `failed`.
     await db
       .update(outboundDeliveries)
-      .set({ status: "failed", last_error: e instanceof Error ? e.message : String(e), updated_at: new Date() })
+      .set({ status: "failed", last_error: e instanceof Error ? e.message : String(e) })
       .where(eq(outboundDeliveries.delivery_key, deliveryKey));
     throw e;
   }
@@ -211,7 +211,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
   await db.transaction(async (tx) => {
     await tx
       .update(outboundDeliveries)
-      .set({ status: "sent", platform_message_id: platformMessageId, last_error: null, updated_at: new Date() })
+      .set({ status: "sent", platform_message_id: platformMessageId, last_error: null })
       .where(eq(outboundDeliveries.delivery_key, deliveryKey));
     await onSent(tx, platformMessageId);
   });
