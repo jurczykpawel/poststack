@@ -1,4 +1,4 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contacts, commentLogs, conversations, sequenceEnrollments } from "@/db/schema";
@@ -117,8 +117,20 @@ export async function DELETE(
     if (pairs.length > 0) {
       await tx.delete(commentLogs).where(and(eq(commentLogs.workspace_id, auth.workspaceId), or(...pairs)));
     }
+    // Queued/dead-letter graphile jobs carry the contact's PSID + message text in their
+    // payload and aren't reached by any table cascade or TTL prune — scrub them by the
+    // contact id (outbound jobs) and platform sender id(s) (inbound jobs) so erasure is
+    // complete in the queue too.
+    const psids = contact.contact_channels.map((cc) => cc.platform_sender_id);
+    const senderClause =
+      psids.length > 0
+        ? sql`payload->>'senderId' in (${sql.join(psids.map((p) => sql`${p}`), sql`, `)})`
+        : sql`false`;
+    await tx.execute(
+      sql`delete from graphile_worker._private_jobs where payload->>'contactId' = ${contactId} or ${senderClause}`,
+    );
     // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
-    // approvals and broadcast recipients ( foreign keys).
+    // approvals, broadcast recipients and outbound_deliveries ( +  foreign keys).
     await tx.delete(contacts).where(eq(contacts.id, contactId));
   });
 

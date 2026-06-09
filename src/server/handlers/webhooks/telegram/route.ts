@@ -57,7 +57,6 @@ export async function POST(request: Request): Promise<Response> {
         text: msg.text,
         // seconds — the worker converts to a Date (×1000); do NOT pre-multiply.
         timestamp: msg.date ?? Math.floor(Date.now() / 1000),
-        raw: update as unknown as Record<string, unknown>,
       },
       { jobKey: `tg-${identity}` },
     );

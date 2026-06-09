@@ -83,7 +83,6 @@ export async function POST(request: Request) {
         isStoryMention: isStoryMention ? true : undefined,
         storyId: replyToStory?.id,
         timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
-        raw: messagingEvent as unknown as Record<string, unknown>,
       };
 
       try {
@@ -110,7 +109,6 @@ export async function POST(request: Request) {
         text: null,
         postbackPayload: messagingEvent.postback.payload,
         timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
-        raw: messagingEvent as unknown as Record<string, unknown>,
       };
 
       try {
@@ -135,9 +133,7 @@ export async function POST(request: Request) {
         reactedMid: reaction.mid,
         reactionType: reaction.reaction,
         emoji: reaction.emoji,
-        timestamp: messagingEvent.timestamp,
-        raw: messagingEvent as unknown as Record<string, unknown>,
-      };
+        timestamp: messagingEvent.timestamp,      };
 
       try {
         await addJob("incoming-reaction", job, {
@@ -163,7 +159,6 @@ export async function POST(request: Request) {
         senderName: comment.senderName,
         text: comment.text,
         timestamp: comment.timestamp,
-        raw: change.value as Record<string, unknown>,
       };
 
       try {

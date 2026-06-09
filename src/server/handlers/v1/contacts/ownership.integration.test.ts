@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -165,5 +165,34 @@ describe("contact erase cascades rule_send_counts (real Postgres)", () => {
     expect(res.status).toBe(204);
 
     expect((await db.select().from(ruleSendCounts).where(eq(ruleSendCounts.contact_id, ERASE2))).length).toBe(0);
+  });
+});
+
+//  — queued/dead-letter graphile jobs carry the contact's PSID + message text in their
+// payload and are reached by no table cascade; erasure scrubs them by sender id / contact id.
+describe("contact erase scrubs queued graphile jobs (real Postgres)", () => {
+  const CH_J = "ffffffff-0000-0000-0000-000000000091";
+  const CONTACT_J = "ffffffff-0000-0000-0000-000000000092";
+  const PSID_J = "psid-scrub-aud57";
+
+  const countForPsid = async () => {
+    const r = await db.execute(sql`select count(*)::int as n from graphile_worker._private_jobs where payload->>'senderId' = ${PSID_J}`);
+    return Number((r.rows[0] as { n: number }).n);
+  };
+
+  it("removes queued jobs whose payload carries the erased contact's sender id", async () => {
+    if (!TEST_DB) return;
+    await db.insert(channels).values({ id: CH_J, workspace_id: WS_A, platform: "instagram", platform_id: "PG-J", token_encrypted: "e", webhook_secret: "s" });
+    await db.insert(contacts).values({ id: CONTACT_J, workspace_id: WS_A });
+    await db.insert(contactChannels).values({ contact_id: CONTACT_J, channel_id: CH_J, platform_sender_id: PSID_J });
+    // A queued incoming-message job carrying this contact's PSID (and message text) in payload.
+    const payload = { platform: "instagram", pageId: "PG-J", senderId: PSID_J, recipientId: "PG-J", mid: "m-scrub", text: "private text", timestamp: 0 };
+    await db.execute(sql`select graphile_worker.add_job('incoming-message', ${JSON.stringify(payload)}::json)`);
+    expect(await countForPsid()).toBe(1);
+
+    const res = await DELETE(reqAsA(), ctx(CONTACT_J));
+    expect(res.status).toBe(204);
+
+    expect(await countForPsid()).toBe(0);
   });
 });

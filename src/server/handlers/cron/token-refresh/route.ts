@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { addJob } from "@/lib/queue/client";
 import { getProvider } from "@/lib/platforms/registry";
 import { decryptTokens } from "@/lib/crypto";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 export const runtime = "nodejs";
 
@@ -30,23 +31,30 @@ export async function GET(request: Request) {
   let enqueued = 0;
 
   for (const channel of rows) {
-    const provider = getProvider(channel.platform);
-    if (!provider.requiresTokenRefresh()) continue;
+    // Isolate each channel: a single undecryptable/corrupt token (e.g. after a key rotation)
+    // must not abort the whole scan and starve every other channel of its refresh job — which
+    // would silently cascade into mass token expiry. Best-effort: log and continue.
+    try {
+      const provider = getProvider(channel.platform);
+      if (!provider.requiresTokenRefresh()) continue;
 
-    const tokens = decryptTokens(channel.token_encrypted);
-    const expiresAt = tokens.expires_at as number | undefined;
-    if (!expiresAt) continue;
+      const tokens = decryptTokens(channel.token_encrypted);
+      const expiresAt = tokens.expires_at as number | undefined;
+      if (!expiresAt) continue;
 
-    const bufferSeconds = provider.refreshBufferSeconds();
-    const refreshThreshold = expiresAt - bufferSeconds;
+      const bufferSeconds = provider.refreshBufferSeconds();
+      const refreshThreshold = expiresAt - bufferSeconds;
 
-    if (Date.now() / 1000 >= refreshThreshold) {
-      await addJob(
-        "token-refresh",
-        { channelId: channel.id },
-        { jobKey: `token-refresh-${channel.id}` }
-      );
-      enqueued++;
+      if (Date.now() / 1000 >= refreshThreshold) {
+        await addJob(
+          "token-refresh",
+          { channelId: channel.id },
+          { jobKey: `token-refresh-${channel.id}` }
+        );
+        enqueued++;
+      }
+    } catch (err) {
+      console.error(`[cron/token-refresh] channel ${channel.id} skipped: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`);
     }
   }
 

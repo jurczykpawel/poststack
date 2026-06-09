@@ -160,6 +160,8 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(p.text).toBe("info please");
     expect(p.senderId).toBe("IGSID1");
     expect(p.senderName).toBe("jane");
+    //  — the unused full-event `raw` field is no longer serialized into the queue.
+    expect(p.raw).toBeUndefined();
   });
 
   it("flags a story reply (message.reply_to.story) on the incoming-message job", async () => {

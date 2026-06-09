@@ -22,8 +22,6 @@ export interface IncomingMessageJob {
   /** Story being replied to (when isStoryReply) */
   storyId?: string;
   timestamp: number;
-  /** Full raw messaging event object from Meta */
-  raw: Record<string, unknown>;
 }
 
 export interface OutgoingCommentJob {
@@ -60,7 +58,6 @@ export interface IncomingCommentJob {
   senderName: string | undefined;
   text: string | undefined;
   timestamp: number | undefined;
-  raw: Record<string, unknown>;
 }
 
 /** Emoji reaction to one of our messages (Messenger/IG `reaction` event). */
@@ -75,7 +72,6 @@ export interface IncomingReactionJob {
   reactionType: string | undefined;
   emoji: string | undefined;
   timestamp: number | undefined;
-  raw: Record<string, unknown>;
 }
 
 export interface OutgoingMessageJob {
