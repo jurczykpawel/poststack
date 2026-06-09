@@ -35,6 +35,12 @@ export async function POST(request: Request) {
   }
 
   const rawBody = await request.text();
+  // Enforce the cap on the ACTUAL bytes too, not just the declared Content-Length: a chunked /
+  // header-less request bypasses the check above, so re-check after reading and reject before
+  // the HMAC/parse. nginx's client_max_body_size is the prod-level guard.
+  if (Buffer.byteLength(rawBody) > MAX_WEBHOOK_BODY_BYTES) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
   const signature = request.headers.get("x-hub-signature-256") ?? "";
 
   if (!env.META_APP_SECRET) {

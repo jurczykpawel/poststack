@@ -36,6 +36,9 @@ export interface OutgoingCommentJob {
 export interface OutgoingPrivateReplyJob {
   channelId: string;
   conversationId: string;
+  /** The addressed contact — stamped on the delivery ledger so erasure cascades + the queue
+   *  PII scrub reaches private-reply jobs too. */
+  contactId: string;
   commentId: string;
   /** Plain-text preview, persisted to the message row. */
   text: string;

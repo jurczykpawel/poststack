@@ -1112,6 +1112,16 @@ describe("follow-gate worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
+  //  — a contact that unsubscribed after the gate was enqueued is not delivered to; the
+  // worker re-checks is_subscribed and drops without probing the follow graph (closes  TOCTOU).
+  it("drops the gate without a follow-check or send when the contact is unsubscribed", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    await w.processFollowGate(fgJob() as never, helpers);
+    expect(provider.checkFollowsBusiness).not.toHaveBeenCalled();
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
   //  — a paused channel must not even probe the follow graph or pin an outcome; the gate
   // is parked so a drain re-runs the live follow-check from scratch after resume.
   it("parks the gate without a follow-check or send when the channel is paused", async () => {

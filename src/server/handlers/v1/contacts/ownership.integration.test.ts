@@ -147,6 +147,27 @@ describe("contact erase cascades outbound_deliveries (real Postgres)", () => {
     expect(await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "dk-erase") })).toBeUndefined();
     expect(await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "dk-keep") })).toBeDefined();
   });
+
+  //  — private-reply deliveries now carry contact_id, so erasure reaches them too (the
+  // row cascades and the queued job is scrubbed by contactId) — closing the / gap.
+  it("erases private-reply deliveries and queued jobs (contact_id now stamped)", async () => {
+    if (!TEST_DB) return;
+    const ERASE_PR = "ffffffff-0000-4000-8000-0000000000fa";
+    await db.insert(channels).values({ id: CH_X, workspace_id: WS_A, platform: "instagram", platform_id: "PG-X", token_encrypted: "e", webhook_secret: "s" });
+    await db.insert(contacts).values({ id: ERASE_PR, workspace_id: WS_A });
+    await db.insert(outboundDeliveries).values({
+      delivery_key: "pr-erase", workspace_id: WS_A, channel_id: CH_X, contact_id: ERASE_PR,
+      task_name: "outgoing-private-reply", status: "sent", payload: { contactId: ERASE_PR, commentId: "cmt-x", text: "private text" },
+    });
+    await db.execute(sql`select graphile_worker.add_job('outgoing-private-reply', ${JSON.stringify({ channelId: CH_X, conversationId: "x", contactId: ERASE_PR, commentId: "cmt-x", text: "private text" })}::json)`);
+
+    const res = await DELETE(reqAsA(), ctx(ERASE_PR));
+    expect(res.status).toBe(204);
+
+    expect(await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "pr-erase") })).toBeUndefined();
+    const jobs = await db.execute(sql`select count(*)::int as n from graphile_worker._private_jobs where payload->>'contactId' = ${ERASE_PR}`);
+    expect(Number((jobs.rows[0] as { n: number }).n)).toBe(0);
+  });
 });
 
 //  — erasing a contact must take its rule_send_counts rows with it (lifetime counters

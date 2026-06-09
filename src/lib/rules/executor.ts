@@ -349,6 +349,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
         await addJobTx(tx, "outgoing-private-reply", {
           channelId,
           conversationId,
+          contactId,
           commentId,
           text: dmText!,
           ...(hasInteractive ? { content: { text: dmText!, ...interactive } } : {}),

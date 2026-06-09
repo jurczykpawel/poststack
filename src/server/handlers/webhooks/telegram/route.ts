@@ -43,7 +43,16 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!channel) return ok();
 
-  const update = (await request.json().catch(() => null)) as TelegramUpdate | null;
+  // Read the body with the cap enforced on ACTUAL bytes, not just the declared Content-Length
+  // (a chunked/header-less request bypasses the early check). Oversized → 200 ignored.
+  const rawBody = await request.text().catch(() => "");
+  if (Buffer.byteLength(rawBody) > MAX_TELEGRAM_BODY_BYTES) return ok();
+  let update: TelegramUpdate | null = null;
+  try {
+    update = rawBody ? (JSON.parse(rawBody) as TelegramUpdate) : null;
+  } catch {
+    update = null;
+  }
   const msg = update?.message;
   // MVP: only plain text messages. edited_message / callback_query / etc. are ignored.
   if (!update || !msg || !msg.text) return ok();

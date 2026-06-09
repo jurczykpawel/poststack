@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import type { FollowGateJob } from "@/lib/queue/types";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, outboundDeliveries } from "@/db/schema";
+import { channels, contacts, outboundDeliveries } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { TokenInvalidError } from "@/lib/platforms/errors";
@@ -84,6 +84,17 @@ export async function processFollowGate(
   if (channel.status === "paused") {
     await parkHeld(channel.workspace_id, "channel paused");
     helpers.logger.info(`channel ${channelId} paused, follow-gate held`);
+    return;
+  }
+  // Consent re-check at delivery time: if the contact unsubscribed after the gate was enqueued,
+  // don't probe the follow graph or deliver the unlock ( — closes the  enqueue→execute
+  // TOCTOU; the sequence worker already re-checks). Dropped (not parked): we must not deliver.
+  const contact = await db.query.contacts.findFirst({
+    where: eq(contacts.id, contactId),
+    columns: { is_subscribed: true },
+  });
+  if (contact && !contact.is_subscribed) {
+    helpers.logger.info(`contact ${contactId} unsubscribed, follow-gate ${deliveryKey} dropped`);
     return;
   }
 

@@ -122,6 +122,18 @@ describe("Meta webhook input hardening (real Postgres)", () => {
     expect(res.status).toBe(413);
   });
 
+  //  — the cap is enforced on actual bytes too, so a chunked/header-less oversized body
+  // (no Content-Length) is still rejected with 413 before the HMAC.
+  it("rejects an oversized body with no Content-Length (413, before HMAC)", async () => {
+    if (!TEST_DB) return;
+    const bigReq = {
+      headers: { get: () => null }, // no content-length, no signature
+      text: async () => "x".repeat(2_000_000),
+    } as unknown as Request;
+    const res = await POST(bigReq);
+    expect(res.status).toBe(413);
+  });
+
   //  — a signed event missing `sender` is skipped (200, no enqueue), not a 500 retry storm.
   it("skips a messaging event with no sender (200, no job)", async () => {
     if (!TEST_DB) return;
@@ -596,7 +608,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(n.rows[0].n).toBe(0);
   });
 
-  //  — an oversized body is rejected (200, ignored) before it is buffered/parsed.
+  //  — an oversized body (declared Content-Length) is rejected (200, ignored) before parse.
   it("ignores an oversized body before buffering", async () => {
     if (!TEST_DB) return;
     const bigReq = {
@@ -605,6 +617,21 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     } as unknown as Request;
     const res = await telegramWebhookPost(bigReq);
     expect(res.status).toBe(200);
+  });
+
+  //  — actual-bytes cap: an oversized body with NO Content-Length (chunked) is still
+  // ignored (200), not parsed.
+  it("ignores an oversized chunked body (no Content-Length) before parsing", async () => {
+    if (!TEST_DB) return;
+    await seedTgChannel();
+    const bigReq = {
+      headers: { get: (k: string) => (k.toLowerCase() === "x-telegram-bot-api-secret-token" ? TG_SECRET : null) },
+      text: async () => "x".repeat(400_000),
+    } as unknown as Request;
+    const res = await telegramWebhookPost(bigReq);
+    expect(res.status).toBe(200);
+    const n = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(n.rows[0].n).toBe(0);
   });
 
   it("ingests a text message, fires the keyword rule, and sends a Telegram reply", async () => {
