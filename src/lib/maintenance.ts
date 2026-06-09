@@ -1,10 +1,19 @@
-import { lt } from "drizzle-orm";
+import { and, lt, ne, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { ruleCooldowns, revokedTokens, rateLimitCounters, processedEvents } from "@/db/schema";
+import { ruleCooldowns, revokedTokens, rateLimitCounters, processedEvents, outboundDeliveries, pendingApprovals } from "@/db/schema";
 
 /** Event-dedup rows are kept well past any platform's redelivery window, then dropped. Meta
  *  and Telegram retry webhooks for hours, not weeks — 60 days is a wide safety margin. */
 const PROCESSED_EVENT_TTL_MS = 60 * 86_400_000;
+
+/** Terminal delivery-ledger rows and resolved approvals are operator history: keep them long
+ *  enough to investigate a send, then drop so these append-only tables stay bounded (the ledger
+ *  is the busiest table by row count). Live state — `held` deliveries, `pending` approvals — is
+ *  NEVER pruned here, only the terminal/resolved rows. Same class as the processed_events TTL. */
+const TERMINAL_LEDGER_TTL_MS = 90 * 86_400_000;
+
+/** Delivery states that are done (no further work). `held`/`pending`/`sending` are live. */
+const TERMINAL_DELIVERY_STATUSES = ["sent", "failed", "expired", "unknown"] as const;
 
 /**
  * Delete time-expired ephemeral rows so the tables don't grow unbounded.
@@ -21,4 +30,19 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   // dead weight that also outlives a contact erasure (a reaction key embeds the PSID). Prune
   // the old ones so the table stays bounded and PSIDs don't linger forever.
   await db.delete(processedEvents).where(lt(processedEvents.created_at, new Date(now.getTime() - PROCESSED_EVENT_TTL_MS)));
+
+  // Terminal delivery-ledger rows older than the window — but never a `held` row, which is still
+  // awaiting a drain.
+  const ledgerCutoff = new Date(now.getTime() - TERMINAL_LEDGER_TTL_MS);
+  await db.delete(outboundDeliveries).where(
+    and(
+      inArray(outboundDeliveries.status, [...TERMINAL_DELIVERY_STATUSES]),
+      lt(outboundDeliveries.updated_at, ledgerCutoff),
+    ),
+  );
+  // Resolved approvals (approved/rejected) older than the window. A NULL resolved_at never matches
+  // `lt`, so an un-resolved (`pending`) row is doubly safe — excluded by status AND by timestamp.
+  await db.delete(pendingApprovals).where(
+    and(ne(pendingApprovals.status, "pending"), lt(pendingApprovals.resolved_at, ledgerCutoff)),
+  );
 }

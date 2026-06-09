@@ -10,6 +10,11 @@ const WS = "aaaaaaaa-0000-0000-0000-0000000000f0";
 const RULE = "aaaaaaaa-0000-0000-0000-0000000000f1";
 const CONTACT_OLD = "aaaaaaaa-0000-0000-0000-0000000000f2";
 const CONTACT_NEW = "aaaaaaaa-0000-0000-0000-0000000000f3";
+const CH = "aaaaaaaa-0000-0000-0000-0000000000f4";
+const CONV = "aaaaaaaa-0000-0000-0000-0000000000f5";
+const APV_OLD = "aaaaaaaa-0000-0000-0000-0000000000f6";
+const APV_PENDING = "aaaaaaaa-0000-0000-0000-0000000000f7";
+const APV_RECENT = "aaaaaaaa-0000-0000-0000-0000000000f8";
 const JTI_OLD = "maint-int-jti-old";
 const JTI_NEW = "maint-int-jti-new";
 const RL_OLD = "maint-int-rl-old";
@@ -62,6 +67,23 @@ beforeEach(async () => {
     { key: PE_OLD, created_at: new Date(NOW.getTime() - 61 * DAY) },
     { key: PE_NEW, created_at: new Date(NOW.getTime() - 1 * DAY) },
   ]);
+
+  //  fixtures: terminal delivery rows + resolved approvals (history that should age out),
+  // alongside a held delivery + a pending approval (live state that must never be pruned).
+  await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-MNT", token_encrypted: "x", webhook_secret: "s" });
+  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT_NEW, platform: "facebook" });
+  const OLD_TS = new Date(NOW.getTime() - 91 * DAY);
+  const RECENT_TS = new Date(NOW.getTime() - 1 * DAY);
+  await db.insert(s.outboundDeliveries).values([
+    { delivery_key: "dk-term-old", workspace_id: WS, channel_id: CH, task_name: "outgoing-message", status: "sent", payload: {}, updated_at: OLD_TS },
+    { delivery_key: "dk-held-old", workspace_id: WS, channel_id: CH, task_name: "outgoing-message", status: "held", payload: {}, updated_at: OLD_TS },
+    { delivery_key: "dk-term-recent", workspace_id: WS, channel_id: CH, task_name: "outgoing-message", status: "failed", payload: {}, updated_at: RECENT_TS },
+  ]);
+  await db.insert(s.pendingApprovals).values([
+    { id: APV_OLD, workspace_id: WS, rule_id: RULE, conversation_id: CONV, contact_id: CONTACT_NEW, channel_id: CH, recipient_platform_id: "PSID", proposed_content: {}, status: "approved", resolved_at: OLD_TS },
+    { id: APV_PENDING, workspace_id: WS, rule_id: RULE, conversation_id: CONV, contact_id: CONTACT_NEW, channel_id: CH, recipient_platform_id: "PSID", proposed_content: {}, status: "pending", created_at: OLD_TS },
+    { id: APV_RECENT, workspace_id: WS, rule_id: RULE, conversation_id: CONV, contact_id: CONTACT_NEW, channel_id: CH, recipient_platform_id: "PSID", proposed_content: {}, status: "rejected", resolved_at: RECENT_TS },
+  ]);
 });
 
 afterAll(async () => {
@@ -95,5 +117,24 @@ describe("pruneExpired (real Postgres)", () => {
     await pruneExpired(NOW);
     const evs = await db.select().from(s.processedEvents).where(inArray(s.processedEvents.key, [PE_OLD, PE_NEW]));
     expect(evs.map((r) => r.key)).toEqual([PE_NEW]);
+  });
+
+  //  — the delivery ledger is the busiest table by row count; its terminal rows (sent/failed/
+  // expired/unknown) are history and must age out, but a `held` row is live (awaiting drain) and
+  // must survive regardless of age.
+  it("prunes terminal deliveries past the window, keeps held + recent", async () => {
+    if (!TEST_DB) return;
+    await pruneExpired(NOW);
+    const dels = await db.select().from(s.outboundDeliveries).where(eq(s.outboundDeliveries.channel_id, CH));
+    expect(dels.map((r) => r.delivery_key).sort()).toEqual(["dk-held-old", "dk-term-recent"]);
+  });
+
+  //  — resolved approvals (approved/rejected) are history; a `pending` approval is live work
+  // and must never be pruned, no matter how old.
+  it("prunes resolved approvals past the window, keeps pending + recent", async () => {
+    if (!TEST_DB) return;
+    await pruneExpired(NOW);
+    const apvs = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
+    expect(apvs.map((r) => r.id).sort()).toEqual([APV_PENDING, APV_RECENT].sort());
   });
 });
