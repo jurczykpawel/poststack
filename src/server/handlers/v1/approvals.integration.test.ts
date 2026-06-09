@@ -196,4 +196,23 @@ describe("approval workflow (real Postgres)", () => {
     expect((await res.json()).data.queued).toBe(false);
     expect(await outgoingCount()).toBe(0);
   });
+
+  //  — a contact can unsubscribe AFTER a reply is parked (the approval can sit for an
+  // unbounded time). The approve path must re-check consent like the sequence/follow-gate workers:
+  // the human's decision is still recorded (approved), but nothing goes out to an unsubscribed
+  // contact, and the rule's limits are not charged for a send that never happened.
+  it("does not send on approve when the contact unsubscribed after parking", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.autoReplyRules).set({ max_sends_per_contact: 5 }).where(eq(s.autoReplyRules.id, RULE));
+    const id = await seedApproval();
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    const res = await approve.POST(post({}), ctx(id));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toMatchObject({ status: "approved", queued: false });
+    expect(await outgoingCount()).toBe(0);
+    const row = await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) });
+    expect(row?.status).toBe("approved"); // human acted; just nothing sent
+    const counts = await db.select().from(s.ruleSendCounts).where(and(eq(s.ruleSendCounts.rule_id, RULE), eq(s.ruleSendCounts.contact_id, CONTACT)));
+    expect(counts.reduce((n, r) => n + r.count, 0)).toBe(0); // limits not charged
+  });
 });

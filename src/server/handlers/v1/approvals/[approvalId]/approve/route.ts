@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { pendingApprovals, autoReplyRules } from "@/db/schema";
+import { pendingApprovals, autoReplyRules, contacts } from "@/db/schema";
 import { acquireCooldown, incrementSendCount } from "@/lib/rules/limits";
 import { TASK_MAX_ATTEMPTS } from "@/lib/queue/spec";
 import { ok, ApiErrors } from "@/lib/api/response";
@@ -56,7 +56,18 @@ export async function POST(
     const content = (row.proposed_content as { content?: MessageContent | null }).content ?? null;
     const hasSomething = !!content && (!!content.text || !!content.buttons?.length || !!content.quick_replies?.length);
 
-    if (hasSomething) {
+    // Consent gate at the actual send: the contact may have unsubscribed AFTER the reply
+    // was parked — and an approval can sit pending for an unbounded time, a wider window than a
+    // normal auto-reply. Re-check like the sequence + follow-gate workers: the
+    // human's approve is still recorded, but nothing goes out to an unsubscribed contact and the
+    // rule's limits are not charged for a send that never happens.
+    const contact = await tx.query.contacts.findFirst({
+      where: eq(contacts.id, row.contact_id),
+      columns: { is_subscribed: true },
+    });
+    const consented = !!contact?.is_subscribed;
+
+    if (hasSomething && consented) {
       // Charge the rule's limits NOW — at the actual send — not when the proposal was
       // parked, so a rejected/abandoned approval costs nothing. The cooldown starts
       // and the lifetime send-count counts this one delivery; a human approve is a deliberate
@@ -95,7 +106,7 @@ export async function POST(
       `);
     }
 
-    return { kind: "ok", queued: hasSomething };
+    return { kind: "ok", queued: hasSomething && consented };
   });
 
   if (outcome.kind === "notfound") return ApiErrors.notFound("Approval");
