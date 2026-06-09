@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { sequences, sequenceEnrollments, contacts, channels, contactChannels } from "@/db/schema";
 import { created, ApiErrors } from "@/lib/api/response";
 import { addJobTx } from "@/lib/queue/client";
@@ -57,17 +57,20 @@ export async function POST(
     return ApiErrors.badRequest("Contact has no platform identity on this channel");
   }
 
-  // Create enrollment (skip if already enrolled and active)
+  // The unique index on (sequence_id, contact_id) is unconditional, so a contact can be
+  // enrolled in a sequence at most ONCE ever — including after it completed/was cancelled.
+  // Match ANY prior enrollment (not just active) and reject with a clean 409, rather than
+  // letting a re-enroll of a completed contact hit the unique constraint as an unhandled
+  // 500. Re-running a sequence would be a separate feature (partial-unique index).
   const existing = await db.query.sequenceEnrollments.findFirst({
     where: and(
       eq(sequenceEnrollments.sequence_id, sequenceId),
       eq(sequenceEnrollments.contact_id, parsed.data.contact_id),
-      eq(sequenceEnrollments.status, "active"),
     ),
     columns: { id: true },
   });
   if (existing) {
-    return ApiErrors.conflict("Contact is already enrolled in this sequence");
+    return ApiErrors.conflict("Contact has already been enrolled in this sequence");
   }
 
   const steps = (sequence.steps ?? []) as Array<{ type: string; delay_minutes?: number }>;
@@ -79,26 +82,34 @@ export async function POST(
   // which a retry could never recover, because the unique (sequence, contact) constraint would
   // reject re-enrolling. The enrollment pins an immutable snapshot of the steps so a
   // later edit of the sequence definition can't change what this enrollment delivers.
-  const enrollment = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(sequenceEnrollments)
-      .values({
-        sequence_id: sequenceId,
-        contact_id: parsed.data.contact_id,
-        channel_id: parsed.data.channel_id,
-        current_step_index: 0,
-        steps_snapshot: sequence.steps,
-        next_step_at: new Date(Date.now() + delay),
-      })
-      .returning();
-    await addJobTx(
-      tx,
-      "sequence-step",
-      { enrollmentId: row.id },
-      { jobKey: `seq-step:${row.id}:0`, runAt: new Date(Date.now() + delay) },
-    );
-    return row;
-  });
+  let enrollment;
+  try {
+    enrollment = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(sequenceEnrollments)
+        .values({
+          sequence_id: sequenceId,
+          contact_id: parsed.data.contact_id,
+          channel_id: parsed.data.channel_id,
+          current_step_index: 0,
+          steps_snapshot: sequence.steps,
+          next_step_at: new Date(Date.now() + delay),
+        })
+        .returning();
+      await addJobTx(
+        tx,
+        "sequence-step",
+        { enrollmentId: row.id },
+        { jobKey: `seq-step:${row.id}:0`, runAt: new Date(Date.now() + delay) },
+      );
+      return row;
+    });
+  } catch (err) {
+    // A concurrent enroll for the same (sequence, contact) lost the race to the unique index —
+    // surface it as the same clean 409, not a 500.
+    if (isUniqueViolation(err)) return ApiErrors.conflict("Contact has already been enrolled in this sequence");
+    throw err;
+  }
 
   return created(enrollment);
 }

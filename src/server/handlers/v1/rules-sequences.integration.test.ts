@@ -447,4 +447,20 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     const del = await seq.DELETE(get() as never, ctx);
     expect(del.status).toBe(204);
   });
+
+  //  — re-enrolling a contact that already COMPLETED the sequence must return a clean 409,
+  // not an unhandled 500 from the unconditional (sequence, contact) unique index.
+  it("re-enrolling a completed contact returns 409, never a 500", async () => {
+    if (!TEST_DB) return;
+    const id = (await (await seqs.POST(post({ name: "S2", steps: [{ type: "message", content: "hi" }] }))).json()).data.id;
+    const ctx = { params: Promise.resolve({ sequenceId: id }) };
+    await seq.PATCH(post({ status: "active" }), ctx);
+
+    expect((await enroll.POST(post({ contact_id: CONTACT, channel_id: CH }), ctx)).status).toBe(201);
+    // The worker would flip the enrollment to completed.
+    await db.update(s.sequenceEnrollments).set({ status: "completed" }).where(eq(s.sequenceEnrollments.sequence_id, id));
+
+    const reenroll = await enroll.POST(post({ contact_id: CONTACT, channel_id: CH }), ctx);
+    expect(reenroll.status).toBe(409);
+  });
 });
