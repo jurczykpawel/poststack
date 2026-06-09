@@ -1,6 +1,6 @@
 import { and, eq, lt, inArray, isNotNull, notExists } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions } from "@/db/schema";
+import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions, sequenceEnrollments } from "@/db/schema";
 
 const BATCH_SIZE = 1000;
 const DAY_MS = 86_400_000;
@@ -64,7 +64,11 @@ export async function pruneWorkspaceMessages(
   // Conversations whose messages were all pruned are stale husks — remove them. But message
   // retention must not destroy LIVE workflow state: pending_approvals / flow_sessions cascade
   // ON DELETE, so a conversation with a still-pending approval or an active flow session is
-  // not a husk and must be kept. Closed/terminal dependents don't block the prune.
+  // not a husk and must be kept. An ACTIVE sequence enrollment is the same hazard:
+  // enrollments have no conversation_id (the worker locates the conversation by the contact +
+  // channel pair), so deleting the conversation would leave a slow-drip enrollment silently
+  // unable to send while it advances to completed. Guard it by the same (contact_id, channel_id)
+  // join the worker uses. Closed/terminal dependents don't block the prune.
   const emptied = await db.delete(conversations).where(
     and(
       eq(conversations.workspace_id, workspaceId),
@@ -78,6 +82,15 @@ export async function pruneWorkspaceMessages(
       notExists(
         db.select().from(flowSessions).where(
           and(eq(flowSessions.conversation_id, conversations.id), eq(flowSessions.status, "active")),
+        ),
+      ),
+      notExists(
+        db.select().from(sequenceEnrollments).where(
+          and(
+            eq(sequenceEnrollments.contact_id, conversations.contact_id),
+            eq(sequenceEnrollments.channel_id, conversations.channel_id),
+            eq(sequenceEnrollments.status, "active"),
+          ),
         ),
       ),
     ),

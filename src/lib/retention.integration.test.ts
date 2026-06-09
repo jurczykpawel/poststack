@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
-import { workspaces, channels, contacts, conversations, messages, autoReplyRules, pendingApprovals } from "@/db/schema";
+import { workspaces, channels, contacts, conversations, messages, autoReplyRules, pendingApprovals, sequences, sequenceEnrollments } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const DAY = 86_400_000;
@@ -29,6 +29,9 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  // sequence_enrollments.channel_id is RESTRICT, so the workspace cascade can't drop the
+  // channel while an enrollment lingers — clear those first.
+  await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.channel_id, CH));
   await db.delete(workspaces).where(eq(workspaces.id, WS));
   await db.insert(workspaces).values({ id: WS, name: "Retention", slug: `ret-${WS}`, message_retention_days: 30 });
   await db.insert(channels).values({ id: CH, workspace_id: WS, platform: "instagram", platform_id: "PG-R", token_encrypted: "e", webhook_secret: "s" });
@@ -41,6 +44,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (!TEST_DB) return;
+  await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.channel_id, CH));
   await db.delete(workspaces).where(eq(workspaces.id, WS));
   await db.$client.end();
 });
@@ -96,6 +100,31 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     // The old message is pruned, but the conversation + pending approval survive (not a husk).
     expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_APPR) })).toBeDefined();
     expect((await db.select().from(pendingApprovals).where(eq(pendingApprovals.conversation_id, CONV_APPR))).length).toBe(1);
+  });
+
+  //  — a contact in an ACTIVE sequence enrollment whose conversation went quiet past the
+  // cutoff must keep its conversation: the worker locates it by (contact_id, channel_id), so
+  // pruning it would silently strand the drip. Once the enrollment is no longer active, the
+  // conversation prunes normally.
+  it("does not prune a conversation backing an active sequence enrollment, but prunes it once inactive", async () => {
+    if (!TEST_DB) return;
+    const [seq] = await db.insert(sequences)
+      .values({ workspace_id: WS, name: "Drip" })
+      .returning({ id: sequences.id });
+    // Enrollment is for (CONTACT2, CH) — the same pair as CONV_EMPTY.
+    const [enr] = await db.insert(sequenceEnrollments)
+      .values({ sequence_id: seq.id, contact_id: CONTACT2, channel_id: CH, status: "active" })
+      .returning({ id: sequenceEnrollments.id });
+    await seedMessage(CONV_EMPTY, "sent", old); // its only message is prunable
+
+    await pruneWorkspaceMessages(WS, 30, now);
+    // Active enrollment → conversation survives even though it's an otherwise-empty husk.
+    expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_EMPTY) })).toBeDefined();
+
+    // Complete the enrollment → the conversation is now a husk and prunes.
+    await db.update(sequenceEnrollments).set({ status: "completed" }).where(eq(sequenceEnrollments.id, enr.id));
+    await pruneWorkspaceMessages(WS, 30, now);
+    expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_EMPTY) })).toBeUndefined();
   });
 
   it("pruneOldMessages applies each workspace's own retention policy", async () => {

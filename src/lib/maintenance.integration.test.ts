@@ -14,16 +14,20 @@ const JTI_OLD = "maint-int-jti-old";
 const JTI_NEW = "maint-int-jti-new";
 const RL_OLD = "maint-int-rl-old";
 const RL_NEW = "maint-int-rl-new";
+const PE_OLD = "reaction:maint-int-pe-old";
+const PE_NEW = "reaction:maint-int-pe-new";
 
 const NOW = new Date();
 const PAST = new Date(NOW.getTime() - 60_000);
 const FUTURE = new Date(NOW.getTime() + 3_600_000);
+const DAY = 86_400_000;
 
 async function cleanup() {
   // rule_cooldowns FK to rules + contacts; deleting the workspace cascades all three.
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.delete(s.revokedTokens).where(inArray(s.revokedTokens.jti, [JTI_OLD, JTI_NEW]));
   await db.delete(s.rateLimitCounters).where(inArray(s.rateLimitCounters.key, [RL_OLD, RL_NEW]));
+  await db.delete(s.processedEvents).where(inArray(s.processedEvents.key, [PE_OLD, PE_NEW]));
 }
 
 beforeAll(async () => {
@@ -54,6 +58,10 @@ beforeEach(async () => {
     { key: RL_OLD, count: 1, window_start: new Date(NOW.getTime() - 7_200_000) },
     { key: RL_NEW, count: 1, window_start: NOW },
   ]);
+  await db.insert(s.processedEvents).values([
+    { key: PE_OLD, created_at: new Date(NOW.getTime() - 61 * DAY) },
+    { key: PE_NEW, created_at: new Date(NOW.getTime() - 1 * DAY) },
+  ]);
 });
 
 afterAll(async () => {
@@ -77,5 +85,15 @@ describe("pruneExpired (real Postgres)", () => {
     await pruneExpired(NOW);
     const rls = await db.select().from(s.rateLimitCounters).where(inArray(s.rateLimitCounters.key, [RL_OLD, RL_NEW]));
     expect(rls.map((r) => r.key)).toEqual([RL_NEW]);
+  });
+
+  //  — event-dedup keys are pruned past the platform redelivery window so the table stays
+  // bounded (and PSID-bearing reaction keys don't linger forever); recent keys stay so dedup
+  // still works inside the window.
+  it("prunes processed_events past the retention window, keeps recent", async () => {
+    if (!TEST_DB) return;
+    await pruneExpired(NOW);
+    const evs = await db.select().from(s.processedEvents).where(inArray(s.processedEvents.key, [PE_OLD, PE_NEW]));
+    expect(evs.map((r) => r.key)).toEqual([PE_NEW]);
   });
 });

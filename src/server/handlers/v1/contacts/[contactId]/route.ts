@@ -1,7 +1,7 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, like, or, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { contacts, commentLogs, conversations, sequenceEnrollments } from "@/db/schema";
+import { contacts, commentLogs, conversations, sequenceEnrollments, processedEvents } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
@@ -131,6 +131,15 @@ export async function DELETE(
     await tx.execute(
       sql`delete from graphile_worker._private_jobs where payload->>'contactId' = ${contactId} or ${senderClause}`,
     );
+    // A reaction event-dedup key embeds the reactor's PSID (`reaction:{channelId}:{psid}:...`)
+    // and is never reached by a table cascade or the time-based prune, so without this the PSID
+    // outlives the contact. Scrub the keys for this contact's (channel, sender) pairs.
+    const reactionKeyClauses = contact.contact_channels.map((cc) =>
+      like(processedEvents.key, `reaction:${cc.channel_id}:${cc.platform_sender_id}:%`),
+    );
+    if (reactionKeyClauses.length > 0) {
+      await tx.delete(processedEvents).where(or(...reactionKeyClauses));
+    }
     // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
     // approvals, broadcast recipients and outbound_deliveries ( +  foreign keys).
     // workspace_id alongside the PK keeps the erase tenant-scoped.

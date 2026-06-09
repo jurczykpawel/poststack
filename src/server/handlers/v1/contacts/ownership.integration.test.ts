@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts } from "@/db/schema";
+import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, processedEvents } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
@@ -204,6 +204,34 @@ describe("contact erase cascades rule_send_counts (real Postgres)", () => {
     expect(res.status).toBe(204);
 
     expect((await db.select().from(ruleSendCounts).where(eq(ruleSendCounts.contact_id, ERASE2))).length).toBe(0);
+  });
+});
+
+//  — a reaction event-dedup key embeds the reactor's PSID and is reached by no table
+// cascade; erasure scrubs the keys for the contact's (channel, sender) pairs so the PSID does
+// not outlive the contact. A key for a different PSID on the same channel survives.
+describe("contact erase scrubs PSID-bearing processed_events keys (real Postgres)", () => {
+  const CH_P = "ffffffff-0000-0000-0000-0000000000a7";
+  const CONTACT_P = "ffffffff-0000-0000-0000-0000000000a8";
+  const PSID_P = "psid-reaction-aud66";
+  const PSID_OTHER = "psid-reaction-other";
+
+  it("removes processed_events keyed by the erased contact's PSID, keeps another PSID's", async () => {
+    if (!TEST_DB) return;
+    await db.insert(channels).values({ id: CH_P, workspace_id: WS_A, platform: "instagram", platform_id: "PG-P", token_encrypted: "e", webhook_secret: "s" });
+    await db.insert(contacts).values({ id: CONTACT_P, workspace_id: WS_A });
+    await db.insert(contactChannels).values({ contact_id: CONTACT_P, channel_id: CH_P, platform_sender_id: PSID_P });
+    const mineKey = `reaction:${CH_P}:${PSID_P}:mid-1:love:123`;
+    const otherKey = `reaction:${CH_P}:${PSID_OTHER}:mid-2:love:456`;
+    await db.insert(processedEvents).values([{ key: mineKey }, { key: otherKey }]);
+
+    const res = await DELETE(reqAsA(), ctx(CONTACT_P));
+    expect(res.status).toBe(204);
+
+    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, mineKey) })).toBeUndefined();
+    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, otherKey) })).toBeDefined();
+    // Cleanup the surviving control row (no contact owns it).
+    await db.delete(processedEvents).where(eq(processedEvents.key, otherKey));
   });
 });
 
