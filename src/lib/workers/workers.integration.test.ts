@@ -1122,6 +1122,19 @@ describe("follow-gate worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
+  //  — a contact erased mid-flight (the contactId no longer resolves) is treated the same
+  // as unsubscribed: drop without probing the follow graph or enqueuing a child. Matches the
+  // sequence worker's `!contact?.is_subscribed` guard.
+  it("drops the gate without a follow-check or send when the contact no longer exists", async () => {
+    if (!TEST_DB) return;
+    await w.processFollowGate(
+      fgJob({ contactId: "11111111-0000-4000-8000-000000000099", idempotencyKey: "fg-absent" }) as never,
+      helpers,
+    );
+    expect(provider.checkFollowsBusiness).not.toHaveBeenCalled();
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
   //  — a paused channel must not even probe the follow graph or pin an outcome; the gate
   // is parked so a drain re-runs the live follow-check from scratch after resume.
   it("parks the gate without a follow-check or send when the channel is paused", async () => {

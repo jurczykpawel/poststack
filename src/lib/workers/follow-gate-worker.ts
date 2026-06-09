@@ -93,8 +93,10 @@ export async function processFollowGate(
     where: eq(contacts.id, contactId),
     columns: { is_subscribed: true },
   });
-  if (contact && !contact.is_subscribed) {
-    helpers.logger.info(`contact ${contactId} unsubscribed, follow-gate ${deliveryKey} dropped`);
+  // A missing contact (erased mid-flight) is treated as "do not send", matching the sequence
+  // worker — never probe the follow graph or deliver for a contact we can no longer see.
+  if (!contact?.is_subscribed) {
+    helpers.logger.info(`contact ${contactId} unsubscribed/absent, follow-gate ${deliveryKey} dropped`);
     return;
   }
 

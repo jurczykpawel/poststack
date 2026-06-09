@@ -139,7 +139,9 @@ export async function evaluateRules(
     where: eq(contacts.id, contactId),
     columns: { is_subscribed: true },
   });
-  if (contact && !contact.is_subscribed) {
+  // A missing contact (erased mid-flight) is treated as "do not send", matching the sequence
+  // worker — never fire to a contact we can no longer see.
+  if (!contact?.is_subscribed) {
     if (eventKey) {
       const claimed = await claimEventOnce(eventKey);
       return { outcome: claimed ? "no_match" : "already", ruleId: null };
@@ -335,6 +337,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
       const key = idemKey("comment");
       await addJobTx(tx, "outgoing-comment", {
         channelId,
+        contactId,
         commentId,
         text: commentReplyText!,
         sentByRuleId: rule.id,

@@ -26,6 +26,9 @@ export interface IncomingMessageJob {
 
 export interface OutgoingCommentJob {
   channelId: string;
+  /** The addressed contact — stamped on the delivery ledger so erasure cascades + the queue
+   *  PII scrub reach the (personalized) public-reply text too (, sibling of ). */
+  contactId: string;
   commentId: string;
   text: string;
   sentByRuleId?: string;

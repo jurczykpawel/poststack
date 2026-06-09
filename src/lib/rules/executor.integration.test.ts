@@ -113,6 +113,32 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(1);
   });
 
+  //  — a contactId that no longer resolves (contact erased mid-flight) is treated as
+  // "do not send": no rule fires and nothing is enqueued (consistent with the sequence worker).
+  it("does not fire when the contactId no longer resolves to a contact", async () => {
+    if (!TEST_DB) return;
+    await seedRule();
+    const res = await evaluateRules({ ...baseInput, contactId: "eeeeeeee-0000-4000-8000-000000000099" });
+    expect(res.outcome).toBe("no_match");
+    expect(res.ruleId).toBeNull();
+    expect(await outgoingJobCount()).toBe(0);
+  });
+
+  //  — the public comment reply carries the contact id so the delivery ledger row (and the
+  // queue PII scrub) can reach the personalized reply text on erasure (sibling of ).
+  it("stamps contactId on the outgoing-comment job", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "CmtPublic", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "see your DMs", reply_mode: "comment" },
+    });
+    const fired = await evaluateRules({ ...baseInput, text: "info here", eventType: "comment", commentId: "CMT-67" });
+    expect(fired.ruleId).not.toBeNull();
+    const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-comment'`);
+    expect((job.rows[0] as { payload: { contactId: string } }).payload.contactId).toBe(CONTACT);
+  });
+
   it("respects the cooldown: a second identical event does not re-fire", async () => {
     if (!TEST_DB) return;
     await seedRule({ cooldown_seconds: 3600 });
