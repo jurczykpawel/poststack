@@ -64,7 +64,8 @@ export async function PATCH(
   const [updated] = await db
     .update(sequences)
     .set(parsed.data)
-    .where(eq(sequences.id, sequenceId))
+    // Scope the write by workspace too (consistent with DELETE), not just the prior findFirst.
+    .where(and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, auth.workspaceId)))
     .returning();
   return ok(updated);
 }

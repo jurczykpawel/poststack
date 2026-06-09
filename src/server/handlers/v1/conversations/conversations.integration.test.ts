@@ -71,6 +71,34 @@ describe("conversations handlers (real Postgres)", () => {
     expect(res.status).toBe(200);
   });
 
+  //  — assigning a conversation is restricted to members of its workspace.
+  it("rejects assigning to a non-member (422), accepts a workspace member (200)", async () => {
+    if (!TEST_DB) return;
+    // Valid v4 UUIDs (version nibble 4, variant 8) — assigned_to is zod .uuid()-validated.
+    const MEMBER = "eeeeeeee-0000-4000-8000-0000000000c1";
+    const OUTSIDER = "eeeeeeee-0000-4000-8000-0000000000c2";
+    // Users are global (not workspace-cascaded) — clear any leftovers first so the test is idempotent.
+    await db.delete(s.users).where(eq(s.users.id, MEMBER));
+    await db.delete(s.users).where(eq(s.users.id, OUTSIDER));
+    await db.insert(s.users).values([{ id: MEMBER, email: `m-${MEMBER}@x.test` }, { id: OUTSIDER, email: `o-${OUTSIDER}@x.test` }]);
+    await db.insert(s.workspaceMembers).values({ workspace_id: WS, user_id: MEMBER });
+
+    const patch = (assigned_to: string) =>
+      detail.PATCH(
+        req(`/${CONV}`, { method: "PATCH", headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" }, body: JSON.stringify({ assigned_to }) }),
+        ctx,
+      );
+
+    expect((await patch(OUTSIDER)).status).toBe(422);
+    const okRes = await patch(MEMBER);
+    expect(okRes.status).toBe(200);
+    expect((await okRes.json()).data.assigned_to).toBe(MEMBER);
+
+    // cleanup (users are global, not workspace-cascaded)
+    await db.delete(s.users).where(eq(s.users.id, MEMBER));
+    await db.delete(s.users).where(eq(s.users.id, OUTSIDER));
+  });
+
   it("lists messages chronologically", async () => {
     if (!TEST_DB) return;
     const { data } = await (await msgs.GET(req(`/${CONV}/messages`), ctx)).json();

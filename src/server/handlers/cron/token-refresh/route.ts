@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
@@ -17,8 +17,10 @@ export const runtime = "nodejs";
  */
 export async function GET(request: Request) {
   const secret = request.headers.get("x-cron-secret") ?? "";
-  if (!env.CRON_SECRET || secret.length !== env.CRON_SECRET.length ||
-      !timingSafeEqual(Buffer.from(secret), Buffer.from(env.CRON_SECRET))) {
+  // Compare SHA-256 digests (always equal length) so the check is constant-time and does not
+  // short-circuit on a length mismatch, which would leak CRON_SECRET's length.
+  const digest = (v: string) => createHash("sha256").update(v).digest();
+  if (!env.CRON_SECRET || !timingSafeEqual(digest(secret), digest(env.CRON_SECRET))) {
     return new Response("Forbidden", { status: 403 });
   }
 

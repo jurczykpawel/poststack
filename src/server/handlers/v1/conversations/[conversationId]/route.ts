@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { conversations } from "@/db/schema";
+import { conversations, workspaceMembers } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
 
@@ -67,10 +67,21 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
 
+  // assigned_to references users globally; only allow assigning to a member of THIS workspace
+  // (a cross-workspace user id would be a misleading dangling reference).
+  if (parsed.data.assigned_to) {
+    const member = await db.query.workspaceMembers.findFirst({
+      where: and(eq(workspaceMembers.workspace_id, auth.workspaceId), eq(workspaceMembers.user_id, parsed.data.assigned_to)),
+      columns: { user_id: true },
+    });
+    if (!member) return ApiErrors.validationError({ assigned_to: ["User is not a member of this workspace"] });
+  }
+
   const [updated] = await db
     .update(conversations)
     .set(parsed.data)
-    .where(eq(conversations.id, conversationId))
+    // Scope the write by workspace too (consistent with DELETE), not just the prior findFirst.
+    .where(and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)))
     .returning({
       id: conversations.id,
       status: conversations.status,

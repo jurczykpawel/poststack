@@ -11,10 +11,13 @@ const envSchema = z.object({
   // always register to bootstrap; after that, set "true" to allow more.
   REGISTRATION_ENABLED: z.string().default("false"),
 
-  // Encryption - must be 32-byte hex (64 chars)
+  // Encryption - must be 32-byte hex (64 chars). The hex regex catches a 64-char NON-hex value
+  // at startup; otherwise Buffer.from(key,"hex") yields a 0-byte key and the failure surfaces
+  // only on the first encryptTokens (e.g. a channel connect), not at boot.
   TOKEN_ENCRYPTION_KEY: z
     .string()
-    .length(64, "TOKEN_ENCRYPTION_KEY must be a 32-byte hex string (64 chars). Generate: openssl rand -hex 32"),
+    .length(64, "TOKEN_ENCRYPTION_KEY must be a 32-byte hex string (64 chars). Generate: openssl rand -hex 32")
+    .regex(/^[0-9a-f]{64}$/i, "TOKEN_ENCRYPTION_KEY must be hex (0-9a-f). Generate: openssl rand -hex 32"),
 
   // App
   APP_URL: z.string().url(),
@@ -45,11 +48,6 @@ const envSchema = z.object({
 });
 
 function loadEnv() {
-  // Skip validation during next build prerendering (no runtime env available)
-  if (process.env.NEXT_PHASE === "phase-production-build") {
-    return process.env as unknown as z.infer<typeof envSchema>;
-  }
-
   const parsed = envSchema.safeParse(process.env);
 
   if (!parsed.success) {
