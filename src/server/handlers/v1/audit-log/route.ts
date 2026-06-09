@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
+const MAX_OFFSET = 10_000;
 
 // GET /api/v1/audit-log — workspace-scoped audit trail, newest first (AUDIT1).
 export async function GET(request: Request) {
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
+  // Cap the offset so a huge value can't force an expensive deep seek.
+  const offset = Math.min(Math.max(Number(url.searchParams.get("offset")) || 0, 0), MAX_OFFSET);
 
   const logs = await db.query.auditLogs.findMany({
     where: eq(auditLogs.workspace_id, auth.workspaceId),

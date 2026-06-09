@@ -33,10 +33,11 @@ const patchSchema = z.object({
     .array(
       z.union([
         z.object({ type: z.literal("message"), content: z.string().min(1).max(2000) }),
-        z.object({ type: z.literal("delay"), delay_minutes: z.number().int().min(1) }),
+        z.object({ type: z.literal("delay"), delay_minutes: z.number().int().min(1).max(20160) }),
       ])
     )
     .min(1)
+    .max(50)
     .optional(),
 });
 

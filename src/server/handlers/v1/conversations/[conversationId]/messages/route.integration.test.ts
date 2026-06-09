@@ -79,6 +79,20 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
     expect(await flag()).toBe(false);
   });
 
+  //  — an over-long Idempotency-Key would overflow graphile's 512-char job_key cap and
+  // surface as a 500; bound it to a clean 400.
+  it("rejects an over-long Idempotency-Key with 400 (not 500)", async () => {
+    if (!TEST_DB) return;
+    const req = new Request(`http://x/api/v1/conversations/${CONV}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json", "Idempotency-Key": "k".repeat(1000) },
+      body: JSON.stringify({ text: "thanks!" }),
+    });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    expect(addJobTx).not.toHaveBeenCalled();
+  });
+
   //  — clearing the flag must advance last_message_at NOW (the resolution marker), so a
   // stale old-inbound final-retry can't re-raise the flag before the outgoing job runs.
   it("advances last_message_at on manual reply so a later stale retry cannot re-raise the flag", async () => {

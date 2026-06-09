@@ -105,6 +105,11 @@ export async function POST(
   // so a repeat enqueues at most one job and sends at most once. Without a key we
   // fall back to a fresh uuid (each call is independent).
   const idemHeader = request.headers.get("Idempotency-Key");
+  // graphile-worker hard-caps job_key at 512 chars; the key embeds two UUIDs + a prefix, so an
+  // unbounded header would overflow it and surface as a 500. Bound it well under the limit.
+  if (idemHeader && idemHeader.length > 200) {
+    return ApiErrors.badRequest("Idempotency-Key must be at most 200 characters");
+  }
   const replyKey = idemHeader
     ? `manual-reply:${auth.workspaceId}:${conversation.id}:${idemHeader}`
     : randomUUID();

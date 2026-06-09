@@ -8,16 +8,17 @@ import { z } from "zod";
 export const runtime = "nodejs";
 
 const keywordSchema = z.object({
-  value: z.string().min(1),
+  // Bounded: the value is matched with ilike on every inbound message.
+  value: z.string().min(1).max(500),
   match_type: z.enum(["exact", "contains", "starts_with"]),
 });
 
 const triggerConfigSchema = z
   .object({
-    keywords: z.array(keywordSchema).min(1).optional(),
+    keywords: z.array(keywordSchema).min(1).max(100).optional(),
     post_id: z.string().min(1).max(255).optional(), // comment_keyword: scope to one post/media
     payload: z.string().min(1).max(255).optional(), // postback
-    reactions: z.array(z.string().min(1)).optional(), // reaction: filter by reaction type (empty = any)
+    reactions: z.array(z.string().min(1).max(50)).max(20).optional(), // reaction: filter by reaction type (empty = any)
   })
   .strict();
 
@@ -61,7 +62,7 @@ const gatedMessageSchema = z
 const responseConfigSchema = z
   .object({
     text: z.string().min(1).max(2000).optional(),            // text / ai_rephrase base
-    messages: z.array(z.string().min(1)).min(1).optional(),  // random_text pool
+    messages: z.array(z.string().min(1).max(2000)).min(1).max(50).optional(),  // random_text pool
     tone: z.string().max(100).optional(),                    // ai_rephrase
     custom_prompt: z.string().max(2000).optional(),          // ai_rephrase
     ai_rephrase: z.boolean().optional(),                     // post-process any source through the LLM

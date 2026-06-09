@@ -8,8 +8,8 @@ import { z } from "zod";
 export const runtime = "nodejs";
 
 const querySchema = z.object({
-  q: z.string().optional(),
-  tag: z.string().optional(),
+  q: z.string().max(200).optional(),
+  tag: z.string().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.string().optional(),
 });

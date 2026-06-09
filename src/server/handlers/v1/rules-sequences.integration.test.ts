@@ -107,6 +107,39 @@ describe("rules CRUD (real Postgres)", () => {
       expect(res.status).toBe(422);
     }
   });
+
+  //  — input bounds: oversized fields are rejected (422), not persisted as unbounded
+  // JSONB / heavy ilike patterns.
+  it("rejects out-of-bounds rule + sequence inputs (422)", async () => {
+    if (!TEST_DB) return;
+    // keyword value over 500 chars
+    const longKw = await rules.POST(post({
+      name: "LongKw", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "x".repeat(501), match_type: "contains" }] },
+      response_type: "text", response_config: { text: "yo" },
+    }));
+    expect(longKw.status).toBe(422);
+
+    // reaction filter array over 20 items
+    const manyReactions = await rules.POST(post({
+      name: "ManyRx", trigger_type: "reaction",
+      trigger_config: { reactions: Array.from({ length: 21 }, (_, i) => `r${i}`) },
+      response_type: "text", response_config: { text: "yo" },
+    }));
+    expect(manyReactions.status).toBe(422);
+
+    // sequence delay over the 2-week cap
+    const longDelay = await seqs.POST(post({ name: "S", steps: [{ type: "delay", delay_minutes: 999999 }, { type: "message", content: "hi" }] }));
+    expect(longDelay.status).toBe(422);
+
+    // sequence with too many steps
+    const manySteps = await seqs.POST(post({ name: "S2", steps: Array.from({ length: 51 }, () => ({ type: "message", content: "hi" })) }));
+    expect(manySteps.status).toBe(422);
+
+    // in-bounds values still succeed
+    const ok = await seqs.POST(post({ name: "S3", steps: [{ type: "delay", delay_minutes: 60 }, { type: "message", content: "hi" }] }));
+    expect(ok.status).toBe(201);
+  });
 });
 
 describe("rule config exposure: post scoping + reply mode + AI prompt (real Postgres)", () => {

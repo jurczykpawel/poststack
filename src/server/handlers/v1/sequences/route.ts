@@ -14,14 +14,15 @@ const stepSchema = z.union([
   }),
   z.object({
     type: z.literal("delay"),
-    delay_minutes: z.number().int().min(1),
+    // Capped at 2 weeks: an unbounded delay parks next_step_at effectively forever.
+    delay_minutes: z.number().int().min(1).max(20160),
   }),
 ]);
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
-  steps: z.array(stepSchema).min(1),
+  steps: z.array(stepSchema).min(1).max(50),
 });
 
 // GET /api/v1/sequences
