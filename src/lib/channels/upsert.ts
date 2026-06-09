@@ -2,7 +2,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, platform as platformEnum, channelConnectionMode as connModeEnum } from "@/db/schema";
 import { encryptTokens } from "@/lib/crypto";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
 
@@ -105,20 +105,22 @@ export async function upsertChannels(
         })
         .returning({ id: channels.id });
 
-      out.push({ channelId: channel.id, recovered: live?.status === "needs_reauth" });
+      const recovered = live?.status === "needs_reauth";
+      out.push({ channelId: channel.id, recovered });
+
+      // Reconnecting a broken channel recovers it — drain anything parked while it was down
+      // (REL5). Enqueue the drain in the SAME transaction as the recovery (a transactional
+      // outbox), so a failed enqueue rolls the recovery back and the next reconnect re-drains
+      // instead of stranding held messages behind an already-active channel. Callers
+      // that must confirm the channel works first (e.g. Telegram waits for setWebhook) pass
+      // deferDrain and enqueue the drain themselves once confirmed.
+      if (recovered && !opts.deferDrain) {
+        await addJobTx(tx, "drain-channel", { channelId: channel.id }, { jobKey: `drain-channel:${channel.id}` });
+      }
     }
     return out;
   });
 
-  // Reconnecting a broken channel recovers it — drain anything parked while it was
-  // down (REL5). Enqueue after commit so a rollback can't leave a stray job. Callers
-  // that must confirm the channel actually works first (e.g. Telegram waits for
-  // setWebhook) pass deferDrain and enqueue the drain themselves once confirmed.
   const recoveredChannelIds = results.filter((r) => r.recovered).map((r) => r.channelId);
-  if (!opts.deferDrain) {
-    for (const channelId of recoveredChannelIds) {
-      await addJob("drain-channel", { channelId });
-    }
-  }
   return { recoveredChannelIds };
 }

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { notifyChannelDown } from "@/lib/notifications/channel-alert";
-import { addJob } from "@/lib/queue/client";
+import { addJobTx } from "@/lib/queue/client";
 
 const MAX_ERROR_LEN = 500;
 
@@ -64,12 +64,17 @@ export async function markChannelHealthy(
     return;
   }
 
-  await db
-    .update(channels)
-    .set({ status: "active", last_error: null, last_health_at: now })
-    .where(eq(channels.id, channelId));
-
-  if (channel?.status === "needs_reauth") {
-    await addJob("drain-channel", { channelId });
-  }
+  // Flip to active and enqueue the recovery drain in ONE transaction (a transactional
+  // outbox): if the drain enqueue fails the status flip rolls back too, so the channel stays
+  // needs_reauth and the next retry re-detects the transition and re-drains. Held messages
+  // can never strand behind a channel that recovered to `active` without a drain.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(channels)
+      .set({ status: "active", last_error: null, last_health_at: now })
+      .where(eq(channels.id, channelId));
+    if (channel?.status === "needs_reauth") {
+      await addJobTx(tx, "drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });
+    }
+  });
 }
