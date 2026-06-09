@@ -6,6 +6,7 @@ let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let pruneExpired: typeof import("./maintenance").pruneExpired;
 
+const WS = "aaaaaaaa-0000-0000-0000-0000000000f0";
 const RULE = "aaaaaaaa-0000-0000-0000-0000000000f1";
 const CONTACT_OLD = "aaaaaaaa-0000-0000-0000-0000000000f2";
 const CONTACT_NEW = "aaaaaaaa-0000-0000-0000-0000000000f3";
@@ -19,7 +20,8 @@ const PAST = new Date(NOW.getTime() - 60_000);
 const FUTURE = new Date(NOW.getTime() + 3_600_000);
 
 async function cleanup() {
-  await db.delete(s.ruleCooldowns).where(eq(s.ruleCooldowns.rule_id, RULE));
+  // rule_cooldowns FK to rules + contacts; deleting the workspace cascades all three.
+  await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.delete(s.revokedTokens).where(inArray(s.revokedTokens.jti, [JTI_OLD, JTI_NEW]));
   await db.delete(s.rateLimitCounters).where(inArray(s.rateLimitCounters.key, [RL_OLD, RL_NEW]));
 }
@@ -35,6 +37,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await cleanup();
+  await db.insert(s.workspaces).values({ id: WS, name: "M", slug: `m-${WS}` });
+  await db.insert(s.autoReplyRules).values({
+    id: RULE, workspace_id: WS, name: "R", trigger_type: "keyword", trigger_config: {}, response_type: "text", response_config: { text: "x" },
+  });
+  await db.insert(s.contacts).values([{ id: CONTACT_OLD, workspace_id: WS }, { id: CONTACT_NEW, workspace_id: WS }]);
   await db.insert(s.ruleCooldowns).values([
     { rule_id: RULE, contact_id: CONTACT_OLD, expires_at: PAST },
     { rule_id: RULE, contact_id: CONTACT_NEW, expires_at: FUTURE },

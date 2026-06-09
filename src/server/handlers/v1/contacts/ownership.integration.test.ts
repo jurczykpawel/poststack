@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs } from "@/db/schema";
+import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
@@ -122,5 +122,48 @@ describe("contact erase scopes comment-log deletion per (channel, sender) (real 
     expect(await db.query.commentLogs.findFirst({ where: eq(commentLogs.id, COMMENT_2) })).toBeDefined();
     // D2 itself is untouched.
     expect(await db.query.contacts.findFirst({ where: and(eq(contacts.id, CONTACT_D2), eq(contacts.workspace_id, WS_A)) })).toBeDefined();
+  });
+});
+
+//  — erasing a contact must take its outbound-delivery rows with it (they carry the
+// recipient PSID + message text in payload). The contact_id FK cascade does this.
+describe("contact erase cascades outbound_deliveries (real Postgres)", () => {
+  const CH_X = "ffffffff-0000-0000-0000-0000000000f1";
+  const KEEP = "ffffffff-0000-0000-0000-0000000000f2";
+  const ERASE = "ffffffff-0000-0000-0000-0000000000f3";
+
+  it("removes the erased contact's delivery rows (PSID + text) but keeps another contact's", async () => {
+    if (!TEST_DB) return;
+    await db.insert(channels).values({ id: CH_X, workspace_id: WS_A, platform: "instagram", platform_id: "PG-X", token_encrypted: "e", webhook_secret: "s" });
+    await db.insert(contacts).values([{ id: KEEP, workspace_id: WS_A }, { id: ERASE, workspace_id: WS_A }]);
+    await db.insert(outboundDeliveries).values([
+      { delivery_key: "dk-erase", workspace_id: WS_A, channel_id: CH_X, contact_id: ERASE, task_name: "outgoing-message", status: "sent", payload: { contactId: ERASE, recipientPlatformId: "PSID-ERASE", content: { text: "secret dm" } } },
+      { delivery_key: "dk-keep", workspace_id: WS_A, channel_id: CH_X, contact_id: KEEP, task_name: "outgoing-message", status: "sent", payload: { contactId: KEEP, recipientPlatformId: "PSID-KEEP", content: { text: "other dm" } } },
+    ]);
+
+    const res = await DELETE(reqAsA(), ctx(ERASE));
+    expect(res.status).toBe(204);
+
+    expect(await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "dk-erase") })).toBeUndefined();
+    expect(await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "dk-keep") })).toBeDefined();
+  });
+});
+
+//  — erasing a contact must take its rule_send_counts rows with it (lifetime counters
+// are never TTL-pruned; without the FK they'd linger after erasure).
+describe("contact erase cascades rule_send_counts (real Postgres)", () => {
+  const RULE = "ffffffff-0000-0000-0000-0000000000e1";
+  const ERASE2 = "ffffffff-0000-0000-0000-0000000000e2";
+
+  it("removes the erased contact's send-count rows", async () => {
+    if (!TEST_DB) return;
+    await db.insert(autoReplyRules).values({ id: RULE, workspace_id: WS_A, name: "R", trigger_type: "keyword", trigger_config: {}, response_type: "text", response_config: { text: "x" } });
+    await db.insert(contacts).values({ id: ERASE2, workspace_id: WS_A });
+    await db.insert(ruleSendCounts).values({ rule_id: RULE, contact_id: ERASE2, count: 3 });
+
+    const res = await DELETE(reqAsA(), ctx(ERASE2));
+    expect(res.status).toBe(204);
+
+    expect((await db.select().from(ruleSendCounts).where(eq(ruleSendCounts.contact_id, ERASE2))).length).toBe(0);
   });
 });

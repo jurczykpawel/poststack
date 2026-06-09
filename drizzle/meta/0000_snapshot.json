@@ -1,5 +1,5 @@
 {
-  "id": "cc2dbc14-b8ef-47d1-b646-7a2831658247",
+  "id": "b8aedca1-48b7-4257-901f-044b790d56ba",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2305,6 +2305,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "task_name": {
           "name": "task_name",
           "type": "text",
@@ -2417,6 +2423,19 @@
           "tableTo": "channels",
           "columnsFrom": [
             "channel_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "outbound_deliveries_contact_id_fkey": {
+          "name": "outbound_deliveries_contact_id_fkey",
+          "tableFrom": "outbound_deliveries",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
           ],
           "columnsTo": [
             "id"
@@ -2761,7 +2780,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "rule_cooldowns_rule_id_fkey": {
+          "name": "rule_cooldowns_rule_id_fkey",
+          "tableFrom": "rule_cooldowns",
+          "tableTo": "auto_reply_rules",
+          "columnsFrom": [
+            "rule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "rule_cooldowns_contact_id_fkey": {
+          "name": "rule_cooldowns_contact_id_fkey",
+          "tableFrom": "rule_cooldowns",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
       "compositePrimaryKeys": {
         "rule_cooldowns_pkey": {
           "name": "rule_cooldowns_pkey",
@@ -2801,7 +2847,34 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "rule_send_counts_rule_id_fkey": {
+          "name": "rule_send_counts_rule_id_fkey",
+          "tableFrom": "rule_send_counts",
+          "tableTo": "auto_reply_rules",
+          "columnsFrom": [
+            "rule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "rule_send_counts_contact_id_fkey": {
+          "name": "rule_send_counts_contact_id_fkey",
+          "tableFrom": "rule_send_counts",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
       "compositePrimaryKeys": {
         "rule_send_counts_pkey": {
           "name": "rule_send_counts_pkey",

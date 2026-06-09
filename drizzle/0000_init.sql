@@ -242,6 +242,7 @@ CREATE TABLE "outbound_deliveries" (
 	"delivery_key" text NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
+	"contact_id" uuid,
 	"task_name" text NOT NULL,
 	"status" "outbound_delivery_status" DEFAULT 'pending' NOT NULL,
 	"payload" jsonb NOT NULL,
@@ -388,11 +389,16 @@ ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_rule_id_fkey" FOREIGN KE
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_flow_id_fkey" FOREIGN KEY ("sent_by_flow_id") REFERENCES "public"."flows"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "outbound_deliveries" ADD CONSTRAINT "outbound_deliveries_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "outbound_deliveries" ADD CONSTRAINT "outbound_deliveries_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "outbound_deliveries" ADD CONSTRAINT "outbound_deliveries_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "rule_cooldowns" ADD CONSTRAINT "rule_cooldowns_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "rule_cooldowns" ADD CONSTRAINT "rule_cooldowns_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "rule_send_counts" ADD CONSTRAINT "rule_send_counts_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "rule_send_counts" ADD CONSTRAINT "rule_send_counts_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "sequence_enrollments" ADD CONSTRAINT "sequence_enrollments_sequence_id_fkey" FOREIGN KEY ("sequence_id") REFERENCES "public"."sequences"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "sequence_enrollments" ADD CONSTRAINT "sequence_enrollments_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "sequence_enrollments" ADD CONSTRAINT "sequence_enrollments_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint

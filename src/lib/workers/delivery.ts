@@ -66,6 +66,9 @@ const REATTEMPTABLE: ReadonlySet<string> = new Set(["pending", "failed", "held"]
  */
 export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult> {
   const { deliveryKey, channelId, taskName, payload, helpers, allowWhenPaused, send, onSent, onHeld } = args;
+  // The addressed contact (DM / follow-gate carry it; public comments don't). Stamping it on
+  // the ledger row gives the FK that makes a contact erasure cascade here.
+  const contactId = typeof payload.contactId === "string" ? payload.contactId : null;
 
   // Park the send durably: record the FULL typed payload + original task on the ledger so a
   // drain can re-dispatch the exact operation later, and run the worker's local park
@@ -84,6 +87,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
         delivery_key: deliveryKey,
         workspace_id: workspaceId,
         channel_id: channelId,
+        contact_id: contactId,
         task_name: taskName,
         payload: heldPayload,
         status: "held",
@@ -147,6 +151,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       delivery_key: deliveryKey,
       workspace_id: channel.workspace_id,
       channel_id: channelId,
+      contact_id: contactId,
       task_name: taskName,
       payload,
       status: "sending",

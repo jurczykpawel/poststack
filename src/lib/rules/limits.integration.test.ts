@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
 let db: typeof import("@/lib/db").db;
+let s: typeof import("@/db/schema");
 let acquireCooldown: typeof import("./limits").acquireCooldown;
 let incrementSendCount: typeof import("./limits").incrementSendCount;
 
+const WS = "11111111-1111-1111-1111-1111111111f0";
 const RULE = "11111111-1111-1111-1111-111111111111";
 const CONTACT = "22222222-2222-2222-2222-222222222222";
 
@@ -14,15 +16,26 @@ beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
   ({ db } = await import("@/lib/db"));
+  s = await import("@/db/schema");
   ({ acquireCooldown, incrementSendCount } = await import("./limits"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql.raw("truncate table rule_cooldowns, rule_send_counts"));
+  // rule_cooldowns / rule_send_counts now FK to auto_reply_rules + contacts, so the
+  // referenced rows must exist. Recreate them for each test (workspace delete cascades).
+  await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  await db.insert(s.workspaces).values({ id: WS, name: "L", slug: `l-${WS}` });
+  await db.insert(s.autoReplyRules).values({
+    id: RULE, workspace_id: WS, name: "R", trigger_type: "keyword", trigger_config: {}, response_type: "text", response_config: { text: "x" },
+  });
+  await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
 });
 
 afterAll(async () => {
+  if (!TEST_DB) return;
+  await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   if (db) await db.$client.end();
 });
 

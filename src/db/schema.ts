@@ -541,6 +541,10 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 	delivery_key: text("delivery_key").notNull(),
 	workspace_id: uuid("workspace_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
+	// The contact this delivery addresses, when known (DM / follow-gate). Public comment
+	// replies have none. Carries the FK that makes a contact erasure cascade here, so the
+	// payload's PSID + message text can't survive the contact.
+	contact_id: uuid("contact_id"),
 	task_name: text("task_name").notNull(),
 	status: outboundDeliveryStatus().default('pending').notNull(),
 	payload: jsonb().notNull(),
@@ -561,6 +565,11 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 			columns: [table.channel_id],
 			foreignColumns: [channels.id],
 			name: "outbound_deliveries_channel_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.contact_id],
+			foreignColumns: [contacts.id],
+			name: "outbound_deliveries_contact_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
@@ -646,6 +655,16 @@ export const ruleCooldowns = pgTable("rule_cooldowns", {
 }, (table) => [
 	index("rule_cooldowns_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
 	primaryKey({ columns: [table.rule_id, table.contact_id], name: "rule_cooldowns_pkey"}),
+	foreignKey({
+			columns: [table.rule_id],
+			foreignColumns: [autoReplyRules.id],
+			name: "rule_cooldowns_rule_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.contact_id],
+			foreignColumns: [contacts.id],
+			name: "rule_cooldowns_contact_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
 export const ruleSendCounts = pgTable("rule_send_counts", {
@@ -654,6 +673,18 @@ export const ruleSendCounts = pgTable("rule_send_counts", {
 	count: integer().default(0).notNull(),
 }, (table) => [
 	primaryKey({ columns: [table.rule_id, table.contact_id], name: "rule_send_counts_pkey"}),
+	// Lifetime counters aren't pruned by TTL — without these FKs an erased contact's (or a
+	// deleted rule's) rows would linger forever. Cascade keeps erasure complete.
+	foreignKey({
+			columns: [table.rule_id],
+			foreignColumns: [autoReplyRules.id],
+			name: "rule_send_counts_rule_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.contact_id],
+			foreignColumns: [contacts.id],
+			name: "rule_send_counts_contact_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
 export const workspaceMembers = pgTable("workspace_members", {
