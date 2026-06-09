@@ -516,15 +516,6 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
-// Ephemeral key → expires_at store (TTL, pruned by pruneExpired). Backs outgoing-send
-// idempotency (claim/isClaimed): a short-lived guard so a retried send is a no-op.
-export const idempotencyKeys = pgTable("idempotency_keys", {
-	key: text().primaryKey().notNull(),
-	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }).notNull(),
-}, (table) => [
-	index("idempotency_keys_expires_at_idx").using("btree", table.expires_at.asc().nullsLast()),
-]);
-
 // DURABLE terminal-outcome dedup for inbound events that have no natural unique row
 // (reactions; and the per-event fire claim for DMs/comments). A processed event must stay
 // deduped for as long as the source could be redelivered — so unlike idempotency_keys this

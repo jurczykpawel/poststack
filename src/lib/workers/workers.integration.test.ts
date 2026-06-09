@@ -77,9 +77,9 @@ beforeEach(async () => {
   provider.sendMessage.mockResolvedValue({ platformMessageId: "PMID-1" });
   provider.refreshToken.mockImplementation(async (t: unknown) => t);
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
-  // Idempotency/event claims are shared, un-workspace-scoped stores; clear both so
-  // reaction-dedup / event keys don't survive into a re-run of this suite.
-  await db.delete(s.idempotencyKeys);
+  // Durable event claims are a shared, un-workspace-scoped store; clear it so reaction-dedup
+  // / event keys don't survive into a re-run of this suite. (Outbound delivery rows are
+  // cleared by the workspace cascade below.)
   await db.delete(s.processedEvents);
   // sequence_enrollments.channel_id has no cascade — remove before the workspace.
   await db.delete(s.sequenceEnrollments).where(eq(s.sequenceEnrollments.channel_id, CH));
@@ -290,18 +290,18 @@ describe("incoming-message worker (real Postgres)", () => {
     }
   });
 
-  //  — the durable event claim must outlive the ephemeral idempotency-keys prune,
-  // so an old webhook redelivery can't fire a second/late reply after maintenance runs.
-  it("a processed event stays deduped after the operational TTL store is pruned", async () => {
+  //  — the durable event claim must outlive the ephemeral TTL prune (cooldowns,
+  // rate-limit windows, the token denylist), so an old webhook redelivery can't fire a
+  // second/late reply after maintenance runs.
+  it("a processed event stays deduped after the operational TTL stores are pruned", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     const { pruneExpired } = await import("@/lib/maintenance");
     const job = { platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "mid-22", text: "hello", timestamp: ts(), raw: {} };
     await w.processIncomingMessage(job as never, helpers); // fires + durably records the event
     expect(await jobCount("outgoing-message")).toBe(1);
-    // Maintenance prunes the ephemeral idempotency_keys store (and any TTL'd row).
+    // Maintenance prunes the ephemeral TTL stores, far in the future.
     await pruneExpired(new Date(Date.now() + 100 * 86_400_000));
-    expect((await db.select().from(s.idempotencyKeys)).length).toBe(0);
     expect((await db.select().from(s.processedEvents)).length).toBeGreaterThan(0); // event claim survives
     // Redelivery after the prune must not reply again.
     await w.processIncomingMessage(job as never, helpers);

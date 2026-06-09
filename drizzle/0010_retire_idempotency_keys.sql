@@ -1,0 +1,1 @@
+DROP TABLE "idempotency_keys" CASCADE;

@@ -72,7 +72,7 @@ beforeEach(async () => {
   provider.sendMessage.mockResolvedValue({ platformMessageId: "PMID" });
   provider.requiresTokenRefresh.mockReturnValue(false);
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
-  await db.delete(s.idempotencyKeys); // ephemeral claim store — clear so re-runs are deterministic
+  await db.delete(s.outboundDeliveries); // delivery ledger (outbound dedup) — clear so re-runs are deterministic
   await db.delete(s.processedEvents); // durable event dedup — clear so re-runs re-process events
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "Q", slug: `q-${WS}` });

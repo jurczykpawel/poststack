@@ -1,29 +1,13 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { idempotencyKeys, processedEvents } from "@/db/schema";
+import { processedEvents } from "@/db/schema";
 
 /** A Drizzle db or an open transaction — anything that can run `.insert`. */
 type Executor = Pick<typeof db, "insert">;
 
-// Outbound-send claims live for a fixed TTL; expired claims are ignored and pruned (DATA1).
-const TTL_MS = 86_400_000; // 24h
-
-/** Has this outbound-send key already been claimed (and not yet expired)? */
-export async function isClaimed(key: string, now: Date = new Date()): Promise<boolean> {
-  const row = await db.query.idempotencyKeys.findFirst({
-    where: eq(idempotencyKeys.key, key),
-  });
-  return row != null && row.expires_at > now;
-}
-
-/** Claim an outbound-send key AFTER a successful send so retries become no-ops. */
-export async function claim(key: string, now: Date = new Date()): Promise<void> {
-  const expires_at = new Date(now.getTime() + TTL_MS);
-  await db
-    .insert(idempotencyKeys)
-    .values({ key, expires_at })
-    .onConflictDoUpdate({ target: idempotencyKeys.key, set: { expires_at } });
-}
+// NOTE: outbound-send dedup no longer lives here. It moved onto the durable
+// `outbound_deliveries` ledger (a delivery_key with a pending→sending→sent state machine);
+// see `src/lib/workers/delivery.ts`. This module now only backs durable inbound-event dedup.
 
 /**
  * Has this inbound event already been terminally processed? Durable (no TTL) — see
