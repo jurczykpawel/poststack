@@ -11,8 +11,7 @@
 
 import { run } from "graphile-worker";
 import { createTaskList } from "../src/lib/queue/tasks";
-import { pruneExpired } from "../src/lib/maintenance";
-import { pruneOldMessages } from "../src/lib/retention";
+import { cronTaskList, CRONTAB } from "../src/lib/workers/cron";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
@@ -20,25 +19,14 @@ if (!connectionString) throw new Error("DATABASE_URL is required");
 async function main() {
   const taskList = {
     ...createTaskList(),
-    // Cron-only maintenance tasks (not enqueued via addJob).
-    "prune-expired": async () => {
-      await pruneExpired();
-    },
-    "prune-old-messages": async () => {
-      await pruneOldMessages();
-    },
+    ...cronTaskList,
   };
 
   const runner = await run({
     connectionString,
     concurrency: 10,
     taskList,
-    crontab: [
-      // Hourly cleanup of expired ephemeral rows (denylist, cooldowns, idempotency).
-      "0 * * * * prune-expired",
-      // Daily message retention prune (workspaces with a retention policy).
-      "30 3 * * * prune-old-messages",
-    ].join("\n"),
+    crontab: CRONTAB,
   });
 
   console.log(
