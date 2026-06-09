@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, processedEvents } from "@/db/schema";
+import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, processedEvents, tags, contactTags } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
@@ -93,6 +93,41 @@ describe("ownership scoping via Bearer API key (real Postgres)", () => {
     expect(res.status).toBe(404);
     const row = await db.query.contacts.findFirst({ where: and(eq(contacts.id, CONTACT_B), eq(contacts.workspace_id, WS_B)) });
     expect(row?.is_subscribed).toBe(true);
+  });
+
+  //  — PATCH tag_ids actually syncs the contact's tags (the OpenAPI spec advertised the
+  // field; the handler used to silently drop it → a no-op 200). A tag from another workspace is
+  // ignored, never assigned cross-tenant.
+  it("syncs tag_ids on PATCH and ignores foreign-workspace tags", async () => {
+    if (!TEST_DB) return;
+    const patchTags = (tag_ids: string[]) =>
+      PATCH(
+        new Request("http://x/api/v1/contacts/x", {
+          method: "PATCH",
+          headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" },
+          body: JSON.stringify({ tag_ids }),
+        }),
+        ctx(CONTACT_A),
+      );
+    const [t1] = await db.insert(tags).values({ workspace_id: WS_A, name: "vip" }).returning({ id: tags.id });
+    const [t2] = await db.insert(tags).values({ workspace_id: WS_A, name: "lead" }).returning({ id: tags.id });
+    const [foreign] = await db.insert(tags).values({ workspace_id: WS_B, name: "other" }).returning({ id: tags.id });
+
+    // Assign t1 + a foreign-workspace tag → only t1 sticks.
+    const res = await patchTags([t1.id, foreign.id]);
+    expect(res.status).toBe(200);
+    const after1 = await db.select().from(contactTags).where(eq(contactTags.contact_id, CONTACT_A));
+    expect(after1.map((r) => r.tag_id)).toEqual([t1.id]);
+
+    // Re-PATCH with [t2] → the set is replaced (t1 removed, t2 added).
+    await patchTags([t2.id]);
+    const after2 = await db.select().from(contactTags).where(eq(contactTags.contact_id, CONTACT_A));
+    expect(after2.map((r) => r.tag_id)).toEqual([t2.id]);
+
+    // Empty array clears all tags.
+    await patchTags([]);
+    const after3 = await db.select().from(contactTags).where(eq(contactTags.contact_id, CONTACT_A));
+    expect(after3.length).toBe(0);
   });
 });
 
