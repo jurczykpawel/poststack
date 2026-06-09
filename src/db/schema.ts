@@ -20,7 +20,10 @@ export const response_type = pgEnum("response_type", ['text', 'random_text', 'se
 export const sequenceEnrollmentStatus = pgEnum("sequence_enrollment_status", ['active', 'paused', 'completed', 'cancelled'])
 export const sequenceStatus = pgEnum("sequence_status", ['draft', 'active', 'archived'])
 export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction'])
-export const workspaceMemberRole = pgEnum("workspace_member_role", ['owner', 'admin', 'agent'])
+// Only `owner` for now: role-based authorization isn't enforced yet, and `admin`/`agent`
+// would be misleading dead values. Re-add richer roles together with member invitations +
+// `requireRole()` enforcement (, parked).
+export const workspaceMemberRole = pgEnum("workspace_member_role", ['owner'])
 
 
 export const conversations = pgTable("conversations", {

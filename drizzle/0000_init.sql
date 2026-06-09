@@ -15,7 +15,7 @@ CREATE TYPE "public"."response_type" AS ENUM('text', 'random_text', 'sequence', 
 CREATE TYPE "public"."sequence_enrollment_status" AS ENUM('active', 'paused', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."sequence_status" AS ENUM('draft', 'active', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."trigger_type" AS ENUM('keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction');--> statement-breakpoint
-CREATE TYPE "public"."workspace_member_role" AS ENUM('owner', 'admin', 'agent');--> statement-breakpoint
+CREATE TYPE "public"."workspace_member_role" AS ENUM('owner');--> statement-breakpoint
 CREATE TABLE "api_keys" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"workspace_id" uuid NOT NULL,

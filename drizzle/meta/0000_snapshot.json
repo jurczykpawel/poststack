@@ -1,5 +1,5 @@
 {
-  "id": "b8aedca1-48b7-4257-901f-044b790d56ba",
+  "id": "6bdbf7af-5dba-4298-9084-54e5366d0954",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -3616,9 +3616,7 @@
       "name": "workspace_member_role",
       "schema": "public",
       "values": [
-        "owner",
-        "admin",
-        "agent"
+        "owner"
       ]
     }
   },
