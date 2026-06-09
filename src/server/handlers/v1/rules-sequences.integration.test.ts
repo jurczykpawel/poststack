@@ -77,6 +77,36 @@ describe("rules CRUD (real Postgres)", () => {
     const gone = await rule.GET(get(), ctx);
     expect(gone.status).toBe(404);
   });
+
+  //  — `sequence` has no implemented effect; the write API must reject it (not silently
+  // create a no-op rule that consumes limits).
+  it("rejects response_type=sequence on create (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await rules.POST(post({ name: "Seq", trigger_type: "keyword", trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] }, response_type: "sequence", response_config: {} }));
+    expect(res.status).toBe(422);
+  });
+
+  //  — max_sends_per_contact round-trips through create + patch (incl. clear) and
+  // rejects non-positive values, instead of being silently stripped by Zod.
+  it("round-trips and validates max_sends_per_contact in create and patch", async () => {
+    if (!TEST_DB) return;
+    const base = { name: "Cap", trigger_type: "keyword", trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] }, response_type: "text", response_config: { text: "yo" } };
+    const createRes = await rules.POST(post({ ...base, max_sends_per_contact: 3 }));
+    expect(createRes.status).toBe(201);
+    const id = (await createRes.json()).data.id;
+    expect((await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, id) }))?.max_sends_per_contact).toBe(3);
+
+    const ctx = { params: Promise.resolve({ ruleId: id }) };
+    await rule.PATCH(post({ max_sends_per_contact: 7 }), ctx);
+    expect((await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, id) }))?.max_sends_per_contact).toBe(7);
+    await rule.PATCH(post({ max_sends_per_contact: null }), ctx); // clear the cap
+    expect((await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, id) }))?.max_sends_per_contact).toBeNull();
+
+    for (const bad of [0, -1, 1.5]) {
+      const res = await rules.POST(post({ ...base, name: `Bad${bad}`, max_sends_per_contact: bad }));
+      expect(res.status).toBe(422);
+    }
+  });
 });
 
 describe("rule config exposure: post scoping + reply mode + AI prompt (real Postgres)", () => {

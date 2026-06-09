@@ -162,6 +162,21 @@ describe("approval workflow (real Postgres)", () => {
     expect(await outgoingCount()).toBe(1);
   });
 
+  //  — the lifetime send-count is charged on the actual send (approve), not when the
+  // proposal is parked, so a reject costs nothing and approve counts exactly once.
+  it("reject consumes no send-count; approve counts the send once", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.autoReplyRules).set({ max_sends_per_contact: 5 }).where(eq(s.autoReplyRules.id, RULE));
+    const sentCount = async () => {
+      const rows = await db.select().from(s.ruleSendCounts).where(and(eq(s.ruleSendCounts.rule_id, RULE), eq(s.ruleSendCounts.contact_id, CONTACT)));
+      return rows.reduce((n, r) => n + r.count, 0);
+    };
+    await reject.POST(post({}), ctx(await seedApproval()));
+    expect(await sentCount()).toBe(0);
+    await approve.POST(post({}), ctx(await seedApproval()));
+    expect(await sentCount()).toBe(1);
+  });
+
   it("cannot approve another workspace's approval (404)", async () => {
     if (!TEST_DB) return;
     const [a] = await db.insert(s.pendingApprovals).values({

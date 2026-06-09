@@ -90,9 +90,13 @@ export const createRuleSchema = z
       "reaction",
     ]),
     trigger_config: triggerConfigSchema,
-    response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none", "follow_gate"]),
+    // `sequence` is rejected here until rule-driven enrollment is actually implemented —
+    // accepting it created a no-op rule that still consumed limits and blocked others.
+    response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate"]),
     response_config: responseConfigSchema,
     cooldown_seconds: z.number().int().min(0).default(0),
+    // null = no cap; a positive integer caps lifetime auto-sends per contact.
+    max_sends_per_contact: z.number().int().min(1).max(1_000_000).nullable().optional(),
     requires_approval: z.boolean().default(false), // hold for human review before sending
   })
   .superRefine((data, ctx) => {
@@ -195,6 +199,7 @@ export async function POST(request: Request) {
       response_type: parsed.data.response_type,
       response_config: parsed.data.response_config,
       cooldown_seconds: parsed.data.cooldown_seconds,
+      max_sends_per_contact: parsed.data.max_sends_per_contact ?? null,
       requires_approval: parsed.data.requires_approval,
     })
     .returning();

@@ -1,7 +1,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { pendingApprovals } from "@/db/schema";
+import { pendingApprovals, autoReplyRules } from "@/db/schema";
+import { acquireCooldown, incrementSendCount } from "@/lib/rules/limits";
 import { TASK_MAX_ATTEMPTS } from "@/lib/queue/spec";
 import { ok, ApiErrors } from "@/lib/api/response";
 import type { MessageContent } from "@/lib/platforms/base";
@@ -56,6 +57,23 @@ export async function POST(
     const hasSomething = !!content && (!!content.text || !!content.buttons?.length || !!content.quick_replies?.length);
 
     if (hasSomething) {
+      // Charge the rule's limits NOW — at the actual send — not when the proposal was
+      // parked, so a rejected/abandoned approval costs nothing. The cooldown starts
+      // and the lifetime send-count counts this one delivery; a human approve is a deliberate
+      // send, so an at-cap counter is left as-is rather than blocking.
+      const rule = row.rule_id
+        ? await tx.query.autoReplyRules.findFirst({
+            where: eq(autoReplyRules.id, row.rule_id),
+            columns: { cooldown_seconds: true, max_sends_per_contact: true },
+          })
+        : null;
+      if (rule) {
+        await acquireCooldown(row.rule_id!, row.contact_id, rule.cooldown_seconds, tx);
+        if (rule.max_sends_per_contact != null) {
+          await incrementSendCount(row.rule_id!, row.contact_id, rule.max_sends_per_contact, tx);
+        }
+      }
+
       const job: OutgoingMessageJob = {
         channelId: row.channel_id,
         conversationId: row.conversation_id,

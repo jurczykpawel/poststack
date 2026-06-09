@@ -50,9 +50,10 @@ const patchSchema = z.object({
     .enum(["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention", "reaction"])
     .optional(),
   trigger_config: z.record(z.string(), z.unknown()).optional(),
-  response_type: z.enum(["text", "random_text", "ai_rephrase", "sequence", "none", "follow_gate"]).optional(),
+  response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate"]).optional(),
   response_config: z.record(z.string(), z.unknown()).optional(),
   cooldown_seconds: z.number().int().min(0).optional(),
+  max_sends_per_contact: z.number().int().min(1).max(1_000_000).nullable().optional(),
   requires_approval: z.boolean().optional(),
 });
 
@@ -77,6 +78,7 @@ export async function PATCH(
       response_type: true,
       response_config: true,
       cooldown_seconds: true,
+      max_sends_per_contact: true,
       requires_approval: true,
     },
   });
@@ -102,6 +104,7 @@ export async function PATCH(
     response_type: parsed.data.response_type ?? existing.response_type,
     response_config: parsed.data.response_config ?? existing.response_config,
     cooldown_seconds: parsed.data.cooldown_seconds ?? existing.cooldown_seconds,
+    max_sends_per_contact: parsed.data.max_sends_per_contact !== undefined ? parsed.data.max_sends_per_contact : existing.max_sends_per_contact,
     requires_approval: parsed.data.requires_approval ?? existing.requires_approval,
   };
   const validated = createRuleSchema.safeParse(merged);

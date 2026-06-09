@@ -140,6 +140,11 @@ export async function evaluateRules(
 
     if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType })) continue;
 
+    // `sequence` has no implemented effect yet, so it must not consume the event/limits or
+    // block a lower-priority rule that could actually answer — fall through. The
+    // write API also rejects creating new `sequence` rules.
+    if (rule.response_type === "sequence") continue;
+
     // Eligibility precheck (non-mutating): skip planning the reply for a rule that is
     // cooling down or at its cap, so it neither calls the AI nor blocks fallthrough to a
     // lower-priority rule that should answer. The transactional acquire below stays the
@@ -170,14 +175,19 @@ export async function evaluateRules(
       await db.transaction(async (tx) => {
         // Event-level dedup: a redelivery of an already-fired event finds the claim.
         if (eventKey && !(await claimEventOnce(eventKey, tx))) throw new NotFired("already");
-        // Cooldown: atomic acquire prevents concurrent events from firing the same rule.
-        if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds, tx))) throw new NotFired("skip");
-        // Per-rule lifetime send limit: atomic increment-if-under-cap.
-        if (
-          rule.max_sends_per_contact != null &&
-          !(await incrementSendCount(rule.id, contactId, rule.max_sends_per_contact, tx))
-        ) {
-          throw new NotFired("skip");
+        // Limits are spent on an actual send. An approval only PARKS a proposal — its
+        // cooldown / send-count are charged when it is approved (so a reject/abandon costs
+        // nothing and doesn't block the next event); parking just claims + stores it.
+        if (!rule.requires_approval) {
+          // Cooldown: atomic acquire prevents concurrent events from firing the same rule.
+          if (!(await acquireCooldown(rule.id, contactId, rule.cooldown_seconds, tx))) throw new NotFired("skip");
+          // Per-rule lifetime send limit: atomic increment-if-under-cap.
+          if (
+            rule.max_sends_per_contact != null &&
+            !(await incrementSendCount(rule.id, contactId, rule.max_sends_per_contact, tx))
+          ) {
+            throw new NotFired("skip");
+          }
         }
         await commit(tx);
       });

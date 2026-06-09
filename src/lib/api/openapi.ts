@@ -132,7 +132,7 @@ export const openApiSpec = {
             enum: ["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention", "reaction"],
           },
           trigger_config: { type: "object" },
-          response_type: { type: "string", enum: ["text", "random_text", "sequence", "none", "ai_rephrase", "follow_gate"] },
+          response_type: { type: "string", enum: ["text", "random_text", "none", "ai_rephrase", "follow_gate"] },
           response_config: { type: "object" },
           cooldown_seconds: { type: "integer" },
           max_sends_per_contact: { type: "integer", nullable: true },
