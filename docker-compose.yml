@@ -51,6 +51,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # web migrates the DB in its entrypoint before serving; gate the worker on web being healthy
+      # so it never pulls a job against a not-yet-migrated schema on a rolling restart.
+      web:
+        condition: service_healthy
     restart: unless-stopped
 
   # Optional: NocoDB spreadsheet view of your data

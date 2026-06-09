@@ -1,5 +1,4 @@
-const DEFAULT_MODEL = "gpt-4o-mini";
-const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+import { env } from "@/lib/env";
 
 export interface RephraseOptions {
   /** Full system prompt override. Takes precedence over `tone`. */
@@ -16,11 +15,11 @@ export interface RephraseOptions {
  * free of any provider-specific code.
  */
 export async function rephrase(baseText: string, opts: RephraseOptions = {}): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = env.OPENAI_API_KEY;
   if (!apiKey) return baseText;
 
-  const model = process.env.AI_REPHRASE_MODEL || DEFAULT_MODEL;
-  const baseUrl = process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
+  const model = env.AI_REPHRASE_MODEL;
+  const baseUrl = env.OPENAI_BASE_URL;
   const tone = opts.tone ?? "friendly and professional";
   const systemContent = opts.customPrompt
     ? opts.customPrompt

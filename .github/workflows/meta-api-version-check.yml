@@ -126,7 +126,6 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
           DATABASE_URL: postgresql://localhost:5432/dummy
-          REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-jwt-secret-not-real-but-must-be-32chars
           TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           APP_URL: http://localhost:3000

@@ -31,8 +31,12 @@ const envSchema = z.object({
   // Altcha CAPTCHA (optional -- login/register skip verification without key)
   ALTCHA_HMAC_KEY: z.string().default(""),
 
-  // AI rephrase (optional -- rule type "ai_rephrase" falls back to original text without key)
+  // AI rephrase (optional -- rule type "ai_rephrase" falls back to original text without key).
+  // Declared here (not read ad-hoc from process.env) so the model + endpoint are a single typed
+  // source with defaults, and a malformed base URL fails at boot instead of silently.
   OPENAI_API_KEY: z.string().default(""),
+  AI_REPHRASE_MODEL: z.string().default("gpt-4o-mini"),
+  OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
 
   // Meta (optional — app starts without them, OAuth won't work until configured)
   META_APP_ID: z.string().default(""),

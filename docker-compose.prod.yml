@@ -43,6 +43,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # web runs migrations in its entrypoint before it serves, so gating on web being healthy
+      # guarantees the schema exists before the worker starts pulling jobs. Without this the worker
+      # can process a pending job against a not-yet-migrated DB on a rolling restart.
+      web:
+        condition: service_healthy
     restart: always
 
   postgres:
