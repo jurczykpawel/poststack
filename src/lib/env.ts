@@ -37,6 +37,11 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().default(""),
   AI_REPHRASE_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  // Per-workspace LLM-call budget over a rolling 24h window. An ai_rephrase rule on a broad trigger
+  // (welcome/default) fires one paid LLM call per inbound across ALL contacts, so an inbound flood
+  // would otherwise run up an unbounded OpenAI bill; over this cap rephrase fails soft to the
+  // operator's base text. Generous default for normal use; tune down for a tight budget.
+  AI_REPHRASE_DAILY_LIMIT: z.coerce.number().int().positive().default(1000),
 
   // Meta (optional — app starts without them, OAuth won't work until configured)
   META_APP_ID: z.string().default(""),

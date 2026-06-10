@@ -6,6 +6,9 @@ import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
 import { rephrase } from "@/lib/ai/rephrase";
+import { rateLimit } from "@/lib/api/rate-limit";
+import { truncateCodePoints } from "@/lib/text";
+import { env } from "@/lib/env";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent } from "./response";
@@ -40,21 +43,42 @@ class NotFired extends Error {
   }
 }
 
+/** Same bound the write-side enforces on operator reply text (rules/route.ts). A rephrase completion
+ *  bypasses that bound, so clamp the resolved text to it before it can reach an outbound job. */
+const MAX_OUTBOUND_TEXT = 2000;
+
+/** Defence-in-depth on LLM output: strip C0 control chars (keep tab/newline/CR) and bound the length
+ *  to the write-side max, so an overlong or control-char-laden rephrase completion can't slip past
+ *  the operator-text bounds and dead-letter a send. Operator base text is already bounded on
+ *  write, so this only ever trims a misbehaving model. */
+function clampOutboundText(text: string): string {
+  const stripped = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+  return truncateCodePoints(stripped, MAX_OUTBOUND_TEXT);
+}
+
 /**
  * Resolve a rule's reply text: pick the base (single or random from a pool),
  * then optionally rephrase it through the LLM. Shared by the live send path
  * and the approval-park path so both produce identical wording.
  */
 async function resolveDmText(
+  workspaceId: string,
   responseType: string,
   responseConfig: Record<string, unknown>,
 ): Promise<string | null> {
   const { baseText, aiEnabled } = selectResponse(responseType, responseConfig);
   if (aiEnabled && baseText) {
-    return rephrase(baseText, {
+    // Per-workspace LLM budget: an ai_rephrase rule on a broad trigger fires one paid call per
+    // inbound across ALL contacts (the per-(rule,contact) cooldown/cap don't bound breadth), so an
+    // inbound flood could run up an unbounded OpenAI bill. Over the rolling-24h cap, fail soft to the
+    // operator's base text — the same safe fallback rephrase() already returns on error.
+    const { allowed } = await rateLimit(`rl:llm:${workspaceId}`, env.AI_REPHRASE_DAILY_LIMIT, 86_400);
+    if (!allowed) return baseText;
+    const rephrased = await rephrase(baseText, {
       customPrompt: responseConfig.custom_prompt as string | undefined,
       tone: responseConfig.tone as string | undefined,
     });
+    return clampOutboundText(rephrased);
   }
   return baseText;
 }
@@ -65,10 +89,11 @@ async function resolveDmText(
  * ready-to-send message so the human approves exactly what goes out.
  */
 export async function resolveReplyContent(
+  workspaceId: string,
   responseType: string,
   responseConfig: Record<string, unknown>,
 ): Promise<MessageContent | null> {
-  const text = await resolveDmText(responseType, responseConfig);
+  const text = await resolveDmText(workspaceId, responseType, responseConfig);
   if (!text) return null;
   return { text, ...buildInteractiveContent(responseConfig) };
 }
@@ -202,7 +227,7 @@ export async function evaluateRules(
     const keyBase = eventKey ? `${eventKey}:${rule.id}` : null;
     const commit: CommitFn = rule.requires_approval
       ? await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId })
-      : await planResponse({ rule: candidate, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase });
+      : await planResponse({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase });
 
     // Commit the rule's side effects as one unit: the event claim, the cooldown and
     // send-count mutations, and the outbound enqueue (or the parked approval) all
@@ -271,7 +296,7 @@ async function planApproval(input: {
   recipientPlatformId: string;
 }): Promise<CommitFn> {
   const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId } = input;
-  const content = await resolveReplyContent(rule.response_type, rule.response_config);
+  const content = await resolveReplyContent(workspaceId, rule.response_type, rule.response_config);
   return async (tx) => {
     await tx.insert(pendingApprovals).values({
       workspace_id: workspaceId,
@@ -292,6 +317,7 @@ interface PlanResponseInput {
     response_config: Record<string, unknown>;
     actions: unknown[];
   };
+  workspaceId: string;
   channelId: string;
   conversationId: string;
   contactId: string;
@@ -315,7 +341,7 @@ function gatedContent(branch: unknown) {
  * a redelivery cannot send a duplicate even if it is re-evaluated.
  */
 async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
-  const { rule, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase } = input;
+  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase } = input;
   // Deterministic per-job key when we have an event identity; a fresh uuid otherwise.
   const idemKey = (discriminator: string) => (keyBase ? `${keyBase}:${discriminator}` : randomUUID());
   // Dedup the queued job too when the key is deterministic (extra guard on top of the
@@ -343,7 +369,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
   const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
 
   // Resolve the text to send (single or random pick, optionally LLM-rephrased).
-  const dmText = await resolveDmText(rule.response_type, rule.response_config);
+  const dmText = await resolveDmText(workspaceId, rule.response_type, rule.response_config);
 
   // Public comment reply (reply_mode: "comment" or "both")
   const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
