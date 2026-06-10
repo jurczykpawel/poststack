@@ -525,6 +525,31 @@ describe("incoming-comment worker", () => {
     expect(await jobCount("outgoing-private-reply")).toBe(0);
   });
 
+  //  — the page's OWN public reply is redelivered by Meta as a fresh comment with
+  // from.id === page id. Without a from-is-page guard it re-logs, re-matches a post_id-only rule
+  // (which matches every comment on the post), and posts yet another reply → unbounded self-loop.
+  // It must be dropped: zero log, zero match, zero reply enqueue. A real fan's comment on the same
+  // post is still processed.
+  it("drops a comment authored by the page itself (self-loop guard), but still processes a fan's", async () => {
+    if (!TEST_DB) return;
+    // The unconditional-loop config: a rule scoped to the post with NO keywords matches EVERY comment.
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "PostLoop", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { post_id: "p-loop" },
+      response_type: "text", response_config: { text: "x", reply_mode: "comment", comment_reply_text: "auto!" },
+    });
+    // The page's own reply, redelivered as a fresh comment (senderId === channel.platform_id === PAGE).
+    const selfJob = { platform: "facebook", pageId: PAGE, commentId: "cmt-self", postId: "p-loop", senderId: PAGE, senderName: "Our Page", text: "auto!", timestamp: ts() };
+    await w.processIncomingComment(selfJob, helpers);
+    expect((await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "cmt-self"))).length).toBe(0);
+    expect(await jobCount("outgoing-comment")).toBe(0);
+    // A genuine fan's comment on the same post IS processed: logged + public reply enqueued.
+    const fanJob = { platform: "facebook", pageId: PAGE, commentId: "cmt-fan", postId: "p-loop", senderId: "FAN-1", senderName: "Fan", text: "anything", timestamp: ts() };
+    await w.processIncomingComment(fanJob, helpers);
+    expect((await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "cmt-fan"))).length).toBe(1);
+    expect(await jobCount("outgoing-comment")).toBe(1);
+  });
+
   //  — a redelivered comment resolves identity but must not bump activity/status.
   it("a redelivered comment does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;

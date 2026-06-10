@@ -37,11 +37,23 @@ export async function processIncomingComment(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true, status: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true, platform_id: true },
   });
 
   if (!channel) {
     helpers.logger.info(`No active channel for pageId=${sanitizeForLog(pageId)}, skipping`);
+    return;
+  }
+
+  // Drop the page's OWN comment — the comment-path analog of the DM path's `is_echo` skip
+  // (webhooks/meta/route.ts). When a rule posts a public reply, Meta redelivers that reply as a
+  // fresh `feed`/`comments` change with a NEW comment_id and `from.id === page id`. Without this
+  // guard it logs as a new comment, re-matches the rule (a post_id-only rule matches EVERY comment
+  // on the post), and posts yet another reply — an unbounded comment-bot self-loop that cooldown/cap
+  // only slow, never stop. `platform_id` is NOT NULL, so this only ever matches a real page id
+  //.
+  if (senderId === channel.platform_id) {
+    helpers.logger.info(`Comment from own page (commentId=${sanitizeForLog(commentId)}), skipping — self-loop guard`);
     return;
   }
 
