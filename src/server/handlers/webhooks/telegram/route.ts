@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "crypto";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
@@ -33,10 +34,18 @@ export async function POST(request: Request): Promise<Response> {
 
   let channel: { id: string; platform_id: string } | undefined;
   try {
-    channel = await db.query.channels.findFirst({
-      where: and(eq(channels.webhook_secret, secret), eq(channels.platform, "telegram"), ne(channels.status, "disabled")),
-      columns: { id: true, platform_id: true },
+    // Identify the channel by the per-channel secret, but compare it constant-time in Node rather
+    // than via SQL `eq` (Postgres `text =` is not guaranteed constant-time). The secret is 256-bit
+    // server-minted so a timing oracle is infeasible — this keeps the compare consistent with the
+    // other three secret checks (Meta sig/verify-token, CRON), all timingSafeEqual. The
+    // candidate set is operator-sized (Telegram channels in this self-host), so the scan is cheap.
+    const digest = (v: string) => createHash("sha256").update(v).digest();
+    const provided = digest(secret);
+    const candidates = await db.query.channels.findMany({
+      where: and(eq(channels.platform, "telegram"), ne(channels.status, "disabled")),
+      columns: { id: true, platform_id: true, webhook_secret: true },
     });
+    channel = candidates.find((c) => timingSafeEqual(provided, digest(c.webhook_secret)));
   } catch (err) {
     console.error("[telegram webhook] channel lookup failed:", err);
     return retry(); // transient — let Telegram redeliver
