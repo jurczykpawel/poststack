@@ -120,6 +120,30 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(msgs[0].direction).toBe("inbound");
   });
 
+  //  — a new inbound message's counters (unread_count, last_inbound_at, status:open) now commit
+  // ATOMICALLY with the message insert, so a crash between can't permanently skip them. Here we verify
+  // they're applied for a new DM (last_inbound_at is the drain's 24h-window anchor) and that a
+  // redelivery doesn't double-count ( preserved — the insert conflicts inside the tx).
+  it("applies unread_count + last_inbound_at atomically for a new DM; a redelivery doesn't double them", async () => {
+    if (!TEST_DB) return;
+    const job = { platform: "facebook", pageId: PAGE, senderId: "-SENDER", recipientId: PAGE, mid: "mid-167", text: "hi", timestamp: ts() };
+    await w.processIncomingMessage(job, helpers);
+    const cc = await db.query.contactChannels.findFirst({
+      where: and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "-SENDER")),
+      columns: { contact_id: true },
+    });
+    const conv = () => db.query.conversations.findFirst({
+      where: and(eq(s.conversations.channel_id, CH), eq(s.conversations.contact_id, cc!.contact_id)),
+      columns: { unread_count: true, last_inbound_at: true, status: true },
+    });
+    const c1 = await conv();
+    expect(c1?.unread_count).toBe(1);
+    expect(c1?.last_inbound_at).not.toBeNull(); // drain 24h-window anchor — must not be skipped
+    expect(c1?.status).toBe("open");
+    await w.processIncomingMessage(job, helpers); // redelivery
+    expect((await conv())?.unread_count).toBe(1);
+  });
+
   it("deduplicates per conversation, not globally — the same id in two conversations is stored once each", async () => {
     if (!TEST_DB) return;
     // Two different senders on the same page resolve to two different
@@ -1030,6 +1054,7 @@ describe("outgoing-message worker", () => {
     await w.processOutgoingMessage(job({ idempotencyKey: "d-manual", sentByUserId: "operator-1" }) as never, helpers);
     expect(provider.sendMessage).toHaveBeenCalled();
   });
+
 });
 
 //  — the durable delivery state machine. The provider call sits between a committed

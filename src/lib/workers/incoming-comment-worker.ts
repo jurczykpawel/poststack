@@ -3,7 +3,7 @@ import type { IncomingCommentJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, commentLogs, conversations } from "@/db/schema";
+import { channels, commentLogs, contacts, conversations } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEventOnce } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
@@ -57,56 +57,71 @@ export async function processIncomingComment(
     return;
   }
 
-  // 2. Log the comment for the inbox — unique constraint dedups a redelivery
-  //    idempotently. Logging is just storage; it does NOT gate the rule evaluation
-  //    below, so a retry after a failed reply still re-evaluates.
-  const [logged] = await db
-    .insert(commentLogs)
-    .values({
-      channel_id: channel.id,
-      workspace_id: channel.workspace_id,
-      post_id: postId ?? null,
-      platform_comment_id: commentId,
-      author_id: senderId ?? null,
-      author_name: senderName ?? null,
-      comment_text: text,
-    })
-    .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
-    .returning({ id: commentLogs.id });
+  // 2. The comment-log row values, shared by the no-sender quick-log path and the atomic path below.
+  const logValues = {
+    channel_id: channel.id,
+    workspace_id: channel.workspace_id,
+    post_id: postId ?? null,
+    platform_comment_id: commentId,
+    author_id: senderId ?? null,
+    author_name: senderName ?? null,
+    comment_text: text,
+  };
+  // Log the internal comment-log row id, NOT the commenter's platform author-id: the author-id is
+  // contact PII (PSID-class) that the rest of the system treats as erasable (GDPR contact.erased even
+  // prunes PSID-bearing dedup keys), but application logs sit outside that erasure boundary — so
+  // logging it would leave an erased contact's id in rotated log files.
+  const logLine = (id: string | null) =>
+    id
+      ? `Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} log=${id}`
+      : `commentId=${sanitizeForLog(commentId)} already logged — re-evaluating (idempotent via event key)`;
 
-  helpers.logger.info(
-    // Log the internal comment-log row id, NOT the commenter's platform author-id: the author-id is
-    // contact PII (PSID-class) that the rest of the system treats as erasable (GDPR contact.erased
-    // even prunes PSID-bearing dedup keys), but application logs sit outside that erasure boundary —
-    // so logging it would leave an erased contact's id in rotated log files.
-    logged
-      ? `Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} log=${logged.id}`
-      : `commentId=${sanitizeForLog(commentId)} already logged — re-evaluating (idempotent via event key)`,
-  );
+  // A comment with no commenter id can't resolve a contact/conversation. Still log it for the inbox
+  // (unique constraint dedups a redelivery) and stop — there's nothing to count unread against.
+  if (!senderId) {
+    const [logged] = await db
+      .insert(commentLogs).values(logValues)
+      .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
+      .returning({ id: commentLogs.id });
+    helpers.logger.info(logLine(logged?.id ?? null));
+    return;
+  }
 
-  // 3. Upsert the commenter as a contact + conversation, then evaluate rules.
-  //    The commenter is keyed by their comment author id. A DM reply is sent via
-  //    private_replies (comment_id), so no prior messaging PSID is required.
-  if (!senderId) return;
-
+  // 3. Resolve the commenter's identity WITHOUT mutating activity — the fresh-comment activity bump
+  //    (reorder/reopen) is applied atomically with the log insert below, so a redelivery
+  //    that finds the comment already logged neither reorders the inbox nor reopens it.
   const { contactId, conversationId, isAutomationPaused } = await resolveContactConversation(
     channel,
     senderId,
     senderName ?? null,
     truncateCodePoints(text, 255),
-    // Only a newly-logged comment bumps activity; a redelivery/retry of an old comment
-    // resolves identity without reordering the inbox or reopening the conversation.
-    { mutateActivity: !!logged },
+    { mutateActivity: false },
   );
 
-  // A newly-logged comment is unread work for the operator (a fresh comment on a brand-new
-  // conversation would otherwise show 0 unread). Bump the badge, mirroring the DM worker; a
-  // redelivery (already logged) does not re-count.
-  if (logged) {
-    await db.update(conversations)
+  // 4. Log the comment AND its activity/unread counters in ONE transaction: a crash between
+  //    the log insert and the counter updates would otherwise leave the comment logged but the
+  //    counters permanently skipped (the retry sees the insert conflict, treats it as a duplicate —
+  //    `logged=null` — and never re-applies them). A newly-logged comment is unread work + newest
+  //    activity; a redelivery (insert conflict → no row) skips both. The bump here
+  //    replicates what resolveContactConversation(mutateActivity:true) used to do for a fresh comment.
+  const loggedId = await db.transaction(async (tx) => {
+    const [logged] = await tx
+      .insert(commentLogs).values(logValues)
+      .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
+      .returning({ id: commentLogs.id });
+    if (!logged) return null;
+    await tx.update(conversations)
+      .set({ last_message_at: new Date(), status: "open" })
+      .where(eq(conversations.id, conversationId));
+    await tx.update(contacts)
+      .set({ last_interaction_at: new Date() })
+      .where(eq(contacts.id, contactId));
+    await tx.update(conversations)
       .set({ unread_count: sql`${conversations.unread_count} + 1` })
       .where(eq(conversations.id, conversationId));
-  }
+    return logged.id;
+  });
+  helpers.logger.info(logLine(loggedId));
 
   const eventKey = `comment:${channel.id}:${commentId}`;
 

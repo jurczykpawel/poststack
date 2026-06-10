@@ -63,29 +63,47 @@ export async function processIncomingMessage(
   const preview = text ? truncateCodePoints(text, 255) : null;
   const conversation = await ensureConversation(channel, contactId, { last_message_at: messageDate, last_message_preview: preview });
 
-  // 4. Insert inbound Message — unique on (conversation_id, platform_message_id) dedups a
-  //    redelivery and a concurrent race; a no-op conflict means it was already ingested.
-  const [inserted] = await db
-    .insert(messages)
-    .values({
-      conversation_id: conversation.id,
-      direction: "inbound",
-      text: text ?? null,
-      quick_reply_payload: quickReplyPayload ?? null,
-      postback_payload: postbackPayload ?? null,
-      platform_message_id: mid,
-    })
-    .onConflictDoNothing({ target: [messages.conversation_id, messages.platform_message_id] })
-    .returning({ id: messages.id });
-
-  const isNewMessage = !!inserted;
   const eventKey = `message:${conversation.id}:${mid}`;
 
-  // Apply `set` only when THIS message is (still) the conversation's newest activity:
-  // `last_message_at <= messageDate` (or no activity yet). Guards preview/status/attention
-  // against an out-of-order or stale event moving state backwards. Uses the
-  // typed messageDate binding consistently (no raw-SQL Date), so the comparison matches how
-  // last_message_at is written.
+  // 4+5. Insert the inbound message AND its counter updates in ONE transaction: a crash
+  //      between the insert and the counters would otherwise leave the message committed but the
+  //      counters permanently skipped — the retry sees the insert conflict, treats it as a duplicate
+  //      (isNewMessage=false) and never re-applies them, leaving unread under-counted and
+  //      last_inbound_at NULL (which mis-anchors the drain's 24h messaging window). Inside the tx a
+  //      genuine duplicate's insert returns no row → counters correctly skipped ( preserved).
+  //      unique on (conversation_id, platform_message_id) dedups a redelivery and a concurrent race.
+  const isNewMessage = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(messages)
+      .values({
+        conversation_id: conversation.id,
+        direction: "inbound",
+        text: text ?? null,
+        quick_reply_payload: quickReplyPayload ?? null,
+        postback_payload: postbackPayload ?? null,
+        platform_message_id: mid,
+      })
+      .onConflictDoNothing({ target: [messages.conversation_id, messages.platform_message_id] })
+      .returning({ id: messages.id });
+    if (!inserted) return false;
+    // unread always increments — it's a new message regardless of arrival order.
+    await tx.update(conversations)
+      .set({ unread_count: sql`${conversations.unread_count} + 1` })
+      .where(eq(conversations.id, conversation.id));
+    // Timestamps, preview and reopen only when this message is the newest activity, so an
+    // out-of-order older message can't move the inbox/preview backwards or reopen it.
+    await tx.update(conversations)
+      .set({ last_message_at: messageDate, last_inbound_at: messageDate, last_message_preview: preview, status: "open" })
+      .where(and(eq(conversations.id, conversation.id), or(lte(conversations.last_message_at, messageDate), isNull(conversations.last_message_at))));
+    await tx.update(contacts)
+      .set({ last_interaction_at: messageDate })
+      .where(and(eq(contacts.id, contactId), or(lt(contacts.last_interaction_at, messageDate), isNull(contacts.last_interaction_at))));
+    return true;
+  });
+
+  // `ifLatest` (db-scoped) is used by the attention-flag mutations in step 6 — a separate concern
+  // from the ingest counters above, deliberately outside the ingest transaction. Applies `set` only
+  // while THIS message is still the newest activity, using the typed messageDate.
   const ifLatest = (set: Partial<typeof conversations.$inferInsert>) =>
     db.update(conversations)
       .set(set)
@@ -94,18 +112,7 @@ export async function processIncomingMessage(
         or(lte(conversations.last_message_at, messageDate), isNull(conversations.last_message_at)),
       ));
 
-  // 5. New message → advance activity monotonically (never backwards), exactly once.
   if (isNewMessage) {
-    // unread always increments — it's a new message regardless of arrival order.
-    await db.update(conversations)
-      .set({ unread_count: sql`${conversations.unread_count} + 1` })
-      .where(eq(conversations.id, conversation.id));
-    // Timestamps, preview and reopen only when this message is the newest activity, so an
-    // out-of-order older message can't move the inbox/preview backwards or reopen it.
-    await ifLatest({ last_message_at: messageDate, last_inbound_at: messageDate, last_message_preview: preview, status: "open" });
-    await db.update(contacts)
-      .set({ last_interaction_at: messageDate })
-      .where(and(eq(contacts.id, contactId), or(lt(contacts.last_interaction_at, messageDate), isNull(contacts.last_interaction_at))));
     helpers.logger.info(
       `channel=${channel.id} contact=${contactId} conversation=${conversation.id} mid=${sanitizeForLog(mid)}`
     );
