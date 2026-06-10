@@ -105,7 +105,7 @@ export async function processIncomingComment(
   // Always evaluate (even on a redelivery): the event key makes the rule fire at most once
   // — claimed in the same transaction as the reply enqueue — and any failure propagates so
   // the job retries instead of being swallowed and lost to the comment-log dedup.
-  const { ruleId } = await evaluateRules({
+  const { outcome, ruleId } = await evaluateRules({
     workspaceId: channel.workspace_id,
     channelId: channel.id,
     conversationId,
@@ -117,6 +117,16 @@ export async function processIncomingComment(
     commentId,
     eventKey,
   });
+  // An unmatched comment is unhandled work for the operator — raise the attention badge, mirroring
+  // the DM worker. Only for an outcome THIS call decided (`no_match`): a redelivery returns
+  // `already` and leaves the flag untouched, so it can't re-raise a flag a human just cleared. A
+  // reaction is deliberately NOT flagged — it's a low-signal acknowledgement, not awaiting a reply
+  // (same rationale as 's reopen-suppression).
+  if (outcome === "no_match") {
+    await db.update(conversations)
+      .set({ needs_manual_reply: true })
+      .where(eq(conversations.id, conversationId));
+  }
   if (ruleId) {
     helpers.logger.info(`Comment rule fired: ${ruleId}`);
   }

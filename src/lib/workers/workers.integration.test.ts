@@ -447,6 +447,34 @@ describe("incoming-comment worker", () => {
     expect(await jobCount("outgoing-private-reply")).toBe(1);
   });
 
+  //  — an unmatched comment is unhandled work: raise the attention badge, mirroring the DM worker.
+  it("flags needs_manual_reply on a comment that matches no rule", async () => {
+    if (!TEST_DB) return;
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-nomatch", postId: "p1", senderId: "NOMATCH-C", senderName: "Z", text: "totally unrelated", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
+    const cc = await db.query.contactChannels.findFirst({
+      where: and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "NOMATCH-C")),
+      columns: { contact_id: true },
+    });
+    const conv = await db.query.conversations.findFirst({ where: eq(s.conversations.contact_id, cc!.contact_id) });
+    expect(conv?.needs_manual_reply).toBe(true);
+  });
+
+  //  — two concurrent first events from the same new sender converge on ONE contact without a
+  // unique-violation failing a job (the loser's link insert is a no-op, not a thrown 23505).
+  it("two concurrent first events from a new sender create exactly one contact, no failure", async () => {
+    if (!TEST_DB) return;
+    const { resolveContactConversation } = await import("./resolve-contact");
+    const ch = { id: CH, workspace_id: WS, platform: "facebook" as const };
+    const [a, b] = await Promise.all([
+      resolveContactConversation(ch, "RACE-SENDER", "A", "hi"),
+      resolveContactConversation(ch, "RACE-SENDER", "A", "hi"),
+    ]);
+    expect(a.contactId).toBe(b.contactId);
+    const links = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "RACE-SENDER")));
+    expect(links.length).toBe(1);
+  });
+
   it("retries a comment rule whose first reply enqueue failed — not lost to the comment-log dedup", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "DM!", reply_mode: "dm" });
@@ -843,6 +871,26 @@ describe("outgoing-message worker", () => {
     expect((jobs.rows[0] as { key: string }).key).toBe("ratelimit:d-rl");
     expect((jobs.rows[0] as { future: boolean }).future).toBe(true);
   });
+
+  //  — an automated send re-checks consent at delivery time: a contact who unsubscribed in the
+  // window between enqueue and send is not messaged.
+  it("skips an automated outgoing message to a contact unsubscribed after enqueue", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-unsub" }) as never, helpers);
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+    const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
+    expect(sent.length).toBe(0);
+  });
+
+  // A human's OWN manual reply (sentByUserId) is exempt — unsubscribe governs automation, not a
+  // human agent answering a live conversation.
+  it("still sends a human's manual reply to an unsubscribed contact", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-manual", sentByUserId: "operator-1" }) as never, helpers);
+    expect(provider.sendMessage).toHaveBeenCalled();
+  });
 });
 
 //  — the durable delivery state machine. The provider call sits between a committed
@@ -1173,6 +1221,27 @@ describe("sequence-step worker", () => {
     await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
     const resumedDelay = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
     expect(resumedDelay?.current_step_index).toBe(1);
+  });
+
+  //  — a paused CHANNEL holds the drip just like a paused conversation: no send, no advance,
+  // deferred re-check. Otherwise the step's message parks `held` and can expire during a long pause.
+  it("holds (no send, no advance) a sequence step when the channel is paused", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    const { enrId } = await seedEnrollment([{ type: "message", content: "hi" }, { type: "message", content: "two" }]);
+
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+
+    expect(await jobCount("outgoing-message")).toBe(0);
+    const after = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(after?.current_step_index).toBe(0);
+    expect(after?.status).toBe("active");
+    expect(await jobCount("sequence-step")).toBe(1); // deferred re-check only
+
+    // Un-pausing the channel resumes and delivers the step.
+    await db.update(s.channels).set({ status: "active" }).where(eq(s.channels.id, CH));
+    await w.processSequenceStep({ enrollmentId: enrId } as never, helpers);
+    expect(await jobCount("outgoing-message")).toBe(1);
   });
 });
 

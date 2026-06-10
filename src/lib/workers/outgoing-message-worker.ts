@@ -3,7 +3,7 @@ import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, messages, conversations } from "@/db/schema";
+import { channels, messages, conversations, contacts } from "@/db/schema";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { runDelivery, type DeliveryChannel } from "./delivery";
@@ -18,8 +18,23 @@ export async function processOutgoingMessage(
   payload: OutgoingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, conversationId, recipientPlatformId, content, sentByRuleId, sentByUserId, idempotencyKey, heldMessageId } =
+  const { channelId, conversationId, contactId, recipientPlatformId, content, sentByRuleId, sentByUserId, idempotencyKey, heldMessageId } =
     payload;
+
+  // Consent re-check at delivery time: the contact may have unsubscribed in the window
+  // between enqueue and send, so re-read it here — the other DM-producing paths (sequence-step,
+  // follow-gate) already do. A human's OWN manual reply (`sentByUserId`) is exempt: unsubscribe
+  // governs automated messaging, not a human agent answering a live conversation.
+  if (!sentByUserId) {
+    const contact = await db.query.contacts.findFirst({
+      where: eq(contacts.id, contactId),
+      columns: { is_subscribed: true },
+    });
+    if (!contact?.is_subscribed) {
+      helpers.logger.info(`Contact ${contactId} unsubscribed — skipping automated outgoing message`);
+      return;
+    }
+  }
 
   // Park the outbound as `held` (REL5) — awaiting drain, NOT `failed`. On drain
   // (heldMessageId set) the row already exists, so re-parking is a no-op; return the

@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import { and, eq } from "drizzle-orm";
 import type { SequenceStepJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
-import { sequenceEnrollments, conversations, contactChannels, contacts } from "@/db/schema";
+import { sequenceEnrollments, conversations, contactChannels, contacts, channels } from "@/db/schema";
 import { addJob, addJobTx } from "@/lib/queue/client";
 
 interface SequenceStep {
@@ -70,13 +70,21 @@ export async function processSequenceStep(
     where: and(eq(conversations.contact_id, enrollment.contact_id), eq(conversations.channel_id, enrollment.channel_id)),
     columns: { id: true, is_automation_paused: true },
   });
-  if (conversation?.is_automation_paused) {
+  // A manually paused CHANNEL holds the enrollment exactly like a paused conversation: if
+  // the cursor advanced during a channel pause, the step's message would be parked `held` and — for
+  // a pause longer than the drain window — silently expire (lost step). Defer instead, so it resumes
+  // from the same step once the channel is un-paused, matching the conversation-pause behaviour.
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, enrollment.channel_id),
+    columns: { status: true },
+  });
+  if (conversation?.is_automation_paused || channel?.status === "paused") {
     await addJob(
       "sequence-step",
       { enrollmentId },
       { jobKey: `seq-step-paused:${enrollmentId}:${stepIndex}`, delayMs: PAUSE_RECHECK_MS },
     );
-    helpers.logger.info(`Automation paused for enrollment ${enrollmentId}, deferring step ${stepIndex}`);
+    helpers.logger.info(`Automation paused (conversation or channel) for enrollment ${enrollmentId}, deferring step ${stepIndex}`);
     return;
   }
 
