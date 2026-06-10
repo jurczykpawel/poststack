@@ -133,9 +133,11 @@ export const createRuleSchema = z
       if (data.trigger_type !== "postback") {
         ctx.addIssue({ code: "custom", path: ["trigger_type"], message: "follow_gate requires a postback trigger so the re-prompt button can re-run the follow check" });
       } else {
-        const triggerPayload = t.payload;
+        // Compare payloads case-insensitively — the runtime postback matcher lowercases both sides,
+        // so "CLAIM" + "claim" DO match at runtime and must not be rejected here.
+        const triggerPayload = t.payload?.toLowerCase();
         const buttons = r.not_followed?.buttons ?? [];
-        if (triggerPayload && !buttons.some((b) => b.payload === triggerPayload)) {
+        if (triggerPayload && !buttons.some((b) => b.payload?.toLowerCase() === triggerPayload)) {
           ctx.addIssue({ code: "custom", path: ["response_config", "not_followed"], message: "follow_gate re-prompt must include a button whose payload matches the trigger payload (to re-run the gate)" });
         }
       }

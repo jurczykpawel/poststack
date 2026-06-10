@@ -8,6 +8,7 @@ const KEY = "rs_live_rules_validation_key_abcdef01";
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let rules: typeof import("./route");
+let rule: typeof import("./[ruleId]/route");
 
 const WS = "bbbbbbbb-0000-4000-8000-0000000000d1";
 
@@ -21,6 +22,7 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   rules = await import("./route");
+  rule = await import("./[ruleId]/route");
 });
 
 beforeEach(async () => {
@@ -90,5 +92,42 @@ describe("rules validation — button URL scheme", () => {
   it("accepts an https button URL", async () => {
     if (!TEST_DB) return;
     expect((await post(withButton("https://example.com/claim"))).status).toBe(201);
+  });
+});
+
+describe("rules PATCH — grandfathering + case", () => {
+  const patch = (id: string, body: unknown) =>
+    rule.PATCH(
+      new Request("http://x", { method: "PATCH", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: JSON.stringify(body) }),
+      { params: Promise.resolve({ ruleId: id }) },
+    );
+
+  it("lets a grandfathered rule (legacy http:// button) be toggled despite the stricter https refine", async () => {
+    if (!TEST_DB) return;
+    // Seed a rule with an http:// button DIRECTLY (bypassing the create validation), as if it was
+    // created before the https-only refine landed.
+    const [r] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Legacy", trigger_type: "keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi", buttons: [{ title: "Open", url: "http://legacy.example.com" }] },
+    }).returning({ id: s.autoReplyRules.id });
+
+    // A patch that does NOT touch the offending button config must still go through.
+    const res = await patch(r.id, { is_active: false });
+    expect(res.status).toBe(200);
+
+    // But genuinely setting a NEW invalid value is still rejected.
+    const bad = await patch(r.id, { response_config: { text: "hi", buttons: [{ title: "X", url: "http://still-bad.example.com" }] } });
+    expect(bad.status).toBe(422);
+  });
+
+  it("accepts a follow_gate whose button payload differs only in case from the trigger payload", async () => {
+    if (!TEST_DB) return;
+    const res = await post({
+      name: "GateCase", trigger_type: "postback", trigger_config: { payload: "CLAIM_LM" },
+      response_type: "follow_gate",
+      response_config: { followed: { text: "ok" }, not_followed: { text: "follow", buttons: [{ title: "Claim", payload: "claim_lm" }] } },
+    });
+    expect(res.status).toBe(201);
   });
 });

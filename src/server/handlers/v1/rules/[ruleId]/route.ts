@@ -95,21 +95,53 @@ export async function PATCH(
   // create path uses. This catches a PATCH that would leave the rule incomplete
   // (e.g. emptying response_config of a text rule, or switching trigger_type to one
   // whose required config is now missing) instead of silently persisting it.
+  const shape = (r: typeof existing) => ({
+    name: r.name,
+    channel_id: r.channel_id,
+    priority: r.priority,
+    trigger_type: r.trigger_type,
+    trigger_config: r.trigger_config,
+    response_type: r.response_type,
+    response_config: r.response_config,
+    cooldown_seconds: r.cooldown_seconds,
+    max_sends_per_contact: r.max_sends_per_contact,
+    requires_approval: r.requires_approval,
+  });
   const merged = {
-    name: parsed.data.name ?? existing.name,
-    channel_id: existing.channel_id,
-    priority: parsed.data.priority ?? existing.priority,
-    trigger_type: parsed.data.trigger_type ?? existing.trigger_type,
-    trigger_config: parsed.data.trigger_config ?? existing.trigger_config,
-    response_type: parsed.data.response_type ?? existing.response_type,
-    response_config: parsed.data.response_config ?? existing.response_config,
-    cooldown_seconds: parsed.data.cooldown_seconds ?? existing.cooldown_seconds,
-    max_sends_per_contact: parsed.data.max_sends_per_contact !== undefined ? parsed.data.max_sends_per_contact : existing.max_sends_per_contact,
-    requires_approval: parsed.data.requires_approval ?? existing.requires_approval,
+    ...shape(existing),
+    ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+    ...(parsed.data.priority !== undefined ? { priority: parsed.data.priority } : {}),
+    ...(parsed.data.trigger_type !== undefined ? { trigger_type: parsed.data.trigger_type } : {}),
+    ...(parsed.data.trigger_config !== undefined ? { trigger_config: parsed.data.trigger_config } : {}),
+    ...(parsed.data.response_type !== undefined ? { response_type: parsed.data.response_type } : {}),
+    ...(parsed.data.response_config !== undefined ? { response_config: parsed.data.response_config } : {}),
+    ...(parsed.data.cooldown_seconds !== undefined ? { cooldown_seconds: parsed.data.cooldown_seconds } : {}),
+    ...(parsed.data.max_sends_per_contact !== undefined ? { max_sends_per_contact: parsed.data.max_sends_per_contact } : {}),
+    ...(parsed.data.requires_approval !== undefined ? { requires_approval: parsed.data.requires_approval } : {}),
   };
   const validated = createRuleSchema.safeParse(merged);
   if (!validated.success) {
-    return ApiErrors.validationError(validated.error.flatten().fieldErrors);
+    // Grandfathering: a rule created under an older, looser schema (e.g. an http:// button
+    // before the https-only refine) must stay editable. An issue is grandfathered (ignored) only if
+    // it ALREADY existed on the pre-patch rule AND lives in a field this PATCH does not touch — so a
+    // toggle/rename goes through, but actively re-setting that field to an invalid value still fails.
+    const prior = createRuleSchema.safeParse(shape(existing));
+    const issueKey = (iss: { path: PropertyKey[]; message: string }) => `${iss.path.join(".")}|${iss.message}`;
+    const priorIssues = new Set(prior.success ? [] : prior.error.issues.map(issueKey));
+    const patchedKeys = new Set(Object.keys(parsed.data));
+    const introduced = validated.error.issues.filter((iss) => {
+      const preexisting = priorIssues.has(issueKey(iss));
+      const fieldTouched = iss.path.length > 0 && patchedKeys.has(String(iss.path[0]));
+      return !preexisting || fieldTouched;
+    });
+    if (introduced.length > 0) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const iss of introduced) {
+        const key = iss.path.length ? String(iss.path[0]) : "_errors";
+        (fieldErrors[key] ??= []).push(iss.message);
+      }
+      return ApiErrors.validationError(fieldErrors);
+    }
   }
 
   const [updated] = await db
