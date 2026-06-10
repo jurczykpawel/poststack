@@ -1055,6 +1055,29 @@ describe("outgoing-message worker", () => {
     expect(provider.sendMessage).toHaveBeenCalled();
   });
 
+  //  — an API-key manual reply nulls sentByUserId (it's a users.id FK), so the human-agent
+  // exemption must key on the explicit isManual flag, not sentByUserId. Both the consent re-check
+  // and the send-while-paused exemption must honour it.
+  it("sends an isManual reply (no sentByUserId) to an unsubscribed contact", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-manual-api", isManual: true }) as never, helpers);
+    expect(provider.sendMessage).toHaveBeenCalled();
+  });
+
+  it("sends an isManual reply while the channel is paused", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-manual-paused", isManual: true }) as never, helpers);
+    expect(provider.sendMessage).toHaveBeenCalled();
+  });
+
+  it("an automated send (no isManual, no sentByUserId) to an unsubscribed contact is still dropped", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-auto" }) as never, helpers);
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 //  — the durable delivery state machine. The provider call sits between a committed

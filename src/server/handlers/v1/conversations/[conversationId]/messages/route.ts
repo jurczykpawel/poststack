@@ -136,7 +136,11 @@ export async function POST(
       contactId: conversation.contact_id,
       recipientPlatformId: contactChannel.platform_sender_id,
       content: { text: parsed.data.text },
+      // sentByUserId is null for api-key auth (it's a users.id FK), but this IS a human reply —
+      // carry that explicitly so the worker's human-agent exemption (consent skip + send-while-paused)
+      // doesn't silently drop/hold an operator's reply sent via the API (the primary interface).
       sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
+      isManual: true,
       idempotencyKey: replyKey,
     }, { jobKey: idemHeader ? replyKey : undefined });
   });

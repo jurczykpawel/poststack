@@ -89,6 +89,10 @@ export interface OutgoingMessageJob {
   content: MessageContent;
   sentByRuleId?: string;
   sentByUserId?: string;
+  /** True for a human operator's manual reply. The human-agent exemption (consent re-check skip +
+   *  send-while-paused) keys on THIS, not sentByUserId — because an API-key reply nulls sentByUserId
+   *  (it's a users.id FK and "api-key:<id>" isn't a UUID) yet is still a human action. */
+  isManual?: boolean;
   /** Unique key to prevent duplicate sends on retry. Generated at enqueue time. */
   idempotencyKey?: string;
   /** Set when draining a parked message: update this held row in place instead of inserting a new one (REL5). */

@@ -19,14 +19,19 @@ export async function processOutgoingMessage(
   payload: OutgoingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { channelId, conversationId, contactId, recipientPlatformId, content, sentByRuleId, sentByUserId, idempotencyKey, heldMessageId } =
+  const { channelId, conversationId, contactId, recipientPlatformId, content, sentByRuleId, sentByUserId, isManual, idempotencyKey, heldMessageId } =
     payload;
+
+  // A human operator's manual reply is exempt from the automation gates below. Key on `isManual`
+  // (set by the manual-reply endpoint) OR `sentByUserId` — an API-key reply nulls sentByUserId yet
+  // is still a human action, so sentByUserId alone would wrongly gate it.
+  const isHumanReply = !!isManual || !!sentByUserId;
 
   // Consent re-check at delivery time: the contact may have unsubscribed in the window
   // between enqueue and send, so re-read it here — the other DM-producing paths (sequence-step,
-  // follow-gate) already do. A human's OWN manual reply (`sentByUserId`) is exempt: unsubscribe
-  // governs automated messaging, not a human agent answering a live conversation.
-  if (!sentByUserId) {
+  // follow-gate) already do. A human's OWN manual reply is exempt: unsubscribe governs automated
+  // messaging, not a human agent answering a live conversation.
+  if (!isHumanReply) {
     const contact = await db.query.contacts.findFirst({
       where: eq(contacts.id, contactId),
       columns: { is_subscribed: true },
@@ -62,7 +67,7 @@ export async function processOutgoingMessage(
     payload: payload as unknown as Record<string, unknown>,
     helpers,
     // A human's own manual reply still goes out while the channel is paused.
-    allowWhenPaused: !!sentByUserId,
+    allowWhenPaused: isHumanReply,
     onHeld: persistHeld,
     send: async (channel: DeliveryChannel) => {
       let tokens = decryptChannelToken(channel.token_encrypted);
