@@ -123,16 +123,32 @@ export async function PATCH(
   if (!validated.success) {
     // Grandfathering: a rule created under an older, looser schema (e.g. an http:// button
     // before the https-only refine) must stay editable. An issue is grandfathered (ignored) only if
-    // it ALREADY existed on the pre-patch rule AND lives in a field this PATCH does not touch — so a
-    // toggle/rename goes through, but actively re-setting that field to an invalid value still fails.
+    // it ALREADY existed on the pre-patch rule AND this PATCH leaves the exact offending value
+    // untouched — so a toggle/rename goes through, but actively re-setting that value to an invalid
+    // one still fails.
     const prior = createRuleSchema.safeParse(shape(existing));
     const issueKey = (iss: { path: PropertyKey[]; message: string }) => `${iss.path.join(".")}|${iss.message}`;
     const priorIssues = new Set(prior.success ? [] : prior.error.issues.map(issueKey));
-    const patchedKeys = new Set(Object.keys(parsed.data));
+    // Walk an object along a Zod issue path to the exact value the issue is about.
+    const valueAtPath = (root: unknown, path: PropertyKey[]): unknown => {
+      let cur: unknown = root;
+      for (const key of path) {
+        if (cur === null || typeof cur !== "object") return undefined;
+        cur = (cur as Record<PropertyKey, unknown>)[key as keyof typeof cur];
+      }
+      return cur;
+    };
+    const unchangedAtPath = (path: PropertyKey[]) =>
+      JSON.stringify(valueAtPath(shape(existing), path) ?? null) === JSON.stringify(valueAtPath(merged, path) ?? null);
     const introduced = validated.error.issues.filter((iss) => {
-      const preexisting = priorIssues.has(issueKey(iss));
-      const fieldTouched = iss.path.length > 0 && patchedKeys.has(String(iss.path[0]));
-      return !preexisting || fieldTouched;
+      // A violation absent from the pre-patch rule is genuinely new → always report it.
+      if (!priorIssues.has(issueKey(iss))) return true;
+      // A pre-existing violation is grandfathered ONLY while THIS patch leaves the exact offending
+      // value untouched. Keying on the FULL issue path (not just the top-level field) lets a client
+      // round-trip an unchanged legacy value inside a wholesale-replaced object — e.g. resend the
+      // whole response_config to edit only `text`, carrying an untouched legacy http:// button —
+      // while still failing if that button itself is set to a new invalid value.
+      return !unchangedAtPath(iss.path);
     });
     if (introduced.length > 0) {
       const fieldErrors: Record<string, string[]> = {};

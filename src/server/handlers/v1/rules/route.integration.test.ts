@@ -121,6 +121,26 @@ describe("rules PATCH — grandfathering + case", () => {
     expect(bad.status).toBe(422);
   });
 
+  it("lets an untouched legacy button round-trip when editing only the text inside response_config", async () => {
+    if (!TEST_DB) return;
+    const [r] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Legacy2", trigger_type: "keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "old", buttons: [{ title: "Open", url: "http://legacy.example.com" }] },
+    }).returning({ id: s.autoReplyRules.id });
+
+    // response_config is replaced wholesale, so changing only the text means resending the WHOLE
+    // object including the unchanged legacy button. That untouched button must not re-trip the refine.
+    const ok = await patch(r.id, { response_config: { text: "new copy", buttons: [{ title: "Open", url: "http://legacy.example.com" }] } });
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as { data: { response_config: { text: string } } };
+    expect(body.data.response_config.text).toBe("new copy");
+
+    // Changing the button itself to a new http:// value is still rejected.
+    const bad = await patch(r.id, { response_config: { text: "new copy", buttons: [{ title: "Open", url: "http://changed.example.com" }] } });
+    expect(bad.status).toBe(422);
+  });
+
   it("accepts a follow_gate whose button payload differs only in case from the trigger payload", async () => {
     if (!TEST_DB) return;
     const res = await post({
