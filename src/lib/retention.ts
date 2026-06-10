@@ -36,9 +36,10 @@ export async function pruneWorkspaceMessages(
   // `created_at` is written by the DB clock (CURRENT_TIMESTAMP) and stored UTC-naive, but a JS Date
   // param is serialized to a `timestamp without time zone` column in the PROCESS timezone — so on a
   // non-UTC host the cutoff lands hours off and silently over-deletes in-window rows (, proven
-  // on Europe/Warsaw). Compare against the cutoff's UTC wall-clock instead, which matches how
-  // created_at is stored regardless of process TZ. (The conversation husk-prune below stays on the JS
-  // Date: last_message_at is written app-clock, same domain, and TZ=UTC is now pinned in the images.)
+  // on Europe/Warsaw). Compare against the cutoff's UTC wall-clock instead, which matches how the
+  // column is stored regardless of process TZ. The husk-prune below uses the same UTC cutoff:
+  // last_message_at is mixed-domain (the worker writes it app-clock, a manual reply writes it
+  // DB-clock via GREATEST(..., now())), so a UTC cutoff is the correct shared form.
   const cutoffUtc = sql`${cutoff.toISOString()}::timestamp`;
 
   const deletedMessages = await deleteInBatches(
@@ -79,7 +80,7 @@ export async function pruneWorkspaceMessages(
   const emptied = await db.delete(conversations).where(
     and(
       eq(conversations.workspace_id, workspaceId),
-      lt(conversations.last_message_at, cutoff),
+      lt(conversations.last_message_at, cutoffUtc),
       notExists(db.select().from(messages).where(eq(messages.conversation_id, conversations.id))),
       notExists(
         db.select().from(pendingApprovals).where(

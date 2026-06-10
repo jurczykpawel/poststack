@@ -1,6 +1,12 @@
-import { and, eq, lt, ne, inArray } from "drizzle-orm";
+import { and, eq, lt, ne, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { ruleCooldowns, revokedTokens, rateLimitCounters, processedEvents, outboundDeliveries, pendingApprovals } from "@/db/schema";
+
+/** A JS Date rendered as its UTC wall-clock, for comparing against a DB-clock (CURRENT_TIMESTAMP /
+ *  now() / DEFAULT now()) `timestamp without time zone` column independent of the process timezone —
+ *  the same TZ-safety fix as the retention cutoff. App-clock columns (expires_at,
+ *  resolved_at — written by JS `new Date()`) keep the plain Date, since that's their domain. */
+const utcCutoff = (d: Date) => sql`${d.toISOString()}::timestamp`;
 
 /** Event-dedup rows are kept well past any platform's redelivery window, then dropped. Meta
  *  and Telegram retry webhooks for hours, not weeks — 60 days is a wide safety margin. */
@@ -29,20 +35,23 @@ const STUCK_SENDING_TTL_MS = 7 * 86_400_000;
 export async function pruneExpired(now: Date = new Date()): Promise<void> {
   await db.delete(ruleCooldowns).where(lt(ruleCooldowns.expires_at, now));
   await db.delete(revokedTokens).where(lt(revokedTokens.expires_at, now));
-  // Rate-limit counters age by window_start, not expires_at; drop stale windows.
-  await db.delete(rateLimitCounters).where(lt(rateLimitCounters.window_start, new Date(now.getTime() - 3_600_000)));
+  // Rate-limit counters age by window_start (DB-clock now()), not expires_at; drop stale windows.
+  await db.delete(rateLimitCounters).where(lt(rateLimitCounters.window_start, utcCutoff(new Date(now.getTime() - 3_600_000))));
   // Event-dedup keys are durable (no TTL) only within the redelivery window; past it they're
   // dead weight that also outlives a contact erasure (a reaction key embeds the PSID). Prune
-  // the old ones so the table stays bounded and PSIDs don't linger forever.
-  await db.delete(processedEvents).where(lt(processedEvents.created_at, new Date(now.getTime() - PROCESSED_EVENT_TTL_MS)));
+  // the old ones so the table stays bounded and PSIDs don't linger forever. created_at is
+  // DB-clock, so use a UTC cutoff.
+  await db.delete(processedEvents).where(lt(processedEvents.created_at, utcCutoff(new Date(now.getTime() - PROCESSED_EVENT_TTL_MS))));
 
   // Terminal delivery-ledger rows older than the window — but never a `held` row, which is still
   // awaiting a drain.
   const ledgerCutoff = new Date(now.getTime() - TERMINAL_LEDGER_TTL_MS);
+  // updated_at can be DB-clock (DEFAULT now() on insert) as well as app-clock ($onUpdate), so compare
+  // it with a UTC cutoff.
   await db.delete(outboundDeliveries).where(
     and(
       inArray(outboundDeliveries.status, [...TERMINAL_DELIVERY_STATUSES]),
-      lt(outboundDeliveries.updated_at, ledgerCutoff),
+      lt(outboundDeliveries.updated_at, utcCutoff(ledgerCutoff)),
     ),
   );
   // Resolved approvals (approved/rejected) older than the window. A NULL resolved_at never matches
@@ -56,7 +65,7 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   await db.delete(outboundDeliveries).where(
     and(
       eq(outboundDeliveries.status, "sending"),
-      lt(outboundDeliveries.updated_at, new Date(now.getTime() - STUCK_SENDING_TTL_MS)),
+      lt(outboundDeliveries.updated_at, utcCutoff(new Date(now.getTime() - STUCK_SENDING_TTL_MS))),
     ),
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -150,5 +150,25 @@ describe("pruneExpired (real Postgres)", () => {
     await pruneExpired(NOW);
     const remaining = await db.select().from(s.outboundDeliveries).where(eq(s.outboundDeliveries.status, "sending"));
     expect(remaining.map((r) => r.delivery_key)).toEqual(["dk-sending-fresh"]);
+  });
+
+  //  — DB-clock columns (created_at here) must use a UTC cutoff so a non-UTC host doesn't
+  // shift the boundary and prune a row that's still inside its TTL.
+  describe("timezone safety", () => {
+    const ORIGINAL_TZ = process.env.TZ;
+    beforeAll(() => { process.env.TZ = "Europe/Warsaw"; });
+    afterAll(() => { process.env.TZ = ORIGINAL_TZ; });
+
+    it("keeps a DB-clock processed_event 90 min inside its 60-day TTL on a non-UTC host", async () => {
+      if (!TEST_DB) return;
+      const KEY = "reaction:maint-int-tz-boundary";
+      await db.delete(s.processedEvents).where(eq(s.processedEvents.key, KEY));
+      await db.execute(sql`insert into processed_events (key, created_at) values (${KEY}, now() - interval '60 days' + interval '90 minutes')`);
+
+      await pruneExpired(new Date());
+
+      expect(await db.query.processedEvents.findFirst({ where: eq(s.processedEvents.key, KEY) })).toBeDefined();
+      await db.delete(s.processedEvents).where(eq(s.processedEvents.key, KEY));
+    });
   });
 });

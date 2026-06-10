@@ -155,5 +155,22 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
       // 23h < 24h cutoff → must survive (was wrongly deleted under the app-clock cutoff on +TZ).
       expect(await db.query.messages.findFirst({ where: eq(messages.id, id) })).toBeDefined();
     });
+
+    //  — the conversation husk-prune is the same class: last_message_at can be DB-clock (a
+    // manual reply writes it via GREATEST(..., now())), so it must use the UTC cutoff too.
+    it("keeps an empty 23h-old conversation under a 1-day policy on a non-UTC host", async () => {
+      if (!TEST_DB) return;
+      const CONTACT_H = "cccccccc-0000-0000-0000-00000000009b";
+      const CONV_HUSK = "cccccccc-0000-0000-0000-00000000009a";
+      await db.insert(contacts).values({ id: CONTACT_H, workspace_id: WS });
+      await db.insert(conversations).values({ id: CONV_HUSK, workspace_id: WS, channel_id: CH, contact_id: CONTACT_H, platform: "facebook", last_message_at: recent });
+      // Pin last_message_at to a DB-clock value 23h old (the manual-reply / mixed-domain case).
+      await db.update(conversations).set({ last_message_at: sql`now() - interval '23 hours'` }).where(eq(conversations.id, CONV_HUSK));
+
+      await pruneWorkspaceMessages(WS, 1, new Date());
+
+      // Empty + 23h < 24h cutoff → must survive (was wrongly pruned under the app-clock cutoff on +TZ).
+      expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_HUSK) })).toBeDefined();
+    });
   });
 });
