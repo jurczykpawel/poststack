@@ -75,10 +75,14 @@ export async function POST(request: Request) {
   // Rate limit webhook ingress PER PAGE (1000 events/minute — well above Meta's normal rate). A
   // single instance-wide counter let one viral page's burst exhaust the shared budget and starve
   // every other page's events; a per-page key isolates them. Done after HMAC verification, so only
-  // Meta-signed traffic can mint these keys.
+  // Meta-signed traffic can mint these keys. A payload with no usable page id falls back to
+  // one instance-wide bucket so every signed request stays bounded (no rate-limit bypass — ).
+  // (A multi-page batch redelivered after one page tripped its limit re-counts the under-limit pages;
+  // accepted given the generous ceiling, the hourly counter prune, and idempotent job keys.)
   const pageIds = [...new Set((payload.entry ?? []).map((e) => e.id).filter((id): id is string => typeof id === "string"))];
-  for (const pageId of pageIds) {
-    const rl = await rateLimit(`rl:webhook:meta:${pageId}`, 1000, 60);
+  const rlKeys = pageIds.length > 0 ? pageIds.map((id) => `rl:webhook:meta:${id}`) : ["rl:webhook:meta"];
+  for (const key of rlKeys) {
+    const rl = await rateLimit(key, 1000, 60);
     if (!rl.allowed) {
       return new Response("Too Many Requests", { status: 429 });
     }

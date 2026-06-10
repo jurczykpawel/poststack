@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vites
 import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations, runOnce } from "graphile-worker";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { workspaces, channels, autoReplyRules, messages, commentLogs, contactChannels, contacts } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -721,5 +721,28 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     await telegramWebhookPost(tgUpdate("hi", { messageId: 7, chatId: "111" }));
     const n2 = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
     expect(n2.rows[0].n).toBe(2);
+  });
+});
+
+//  — a signed payload with no usable page id must still be rate-limited (one instance-wide
+// fallback bucket), not bypass rate limiting entirely.
+describe("webhook per-page rate-limit — no-page fallback", () => {
+  const signEmpty = () => {
+    const body = JSON.stringify({ object: "page", entry: [] });
+    const signature = `sha256=${createHmac("sha256", APP_SECRET).update(body, "utf8").digest("hex")}`;
+    return new Request("http://x/api/webhooks/meta", {
+      method: "POST",
+      headers: { "x-hub-signature-256": signature, "content-type": "application/json" },
+      body,
+    });
+  };
+
+  it("rate-limits an entry-less signed payload via the instance-wide bucket", async () => {
+    if (!TEST_DB) return;
+    await db.execute(sql`delete from rate_limit_counters where key = 'rl:webhook:meta'`);
+    const res = await POST(signEmpty());
+    expect(res.status).toBe(200); // processed (no entries → nothing enqueued), not bypassed
+    const r = await db.execute(sql`select count(*)::int as n from rate_limit_counters where key = 'rl:webhook:meta'`);
+    expect(Number((r.rows[0] as { n: number }).n)).toBe(1);
   });
 });
