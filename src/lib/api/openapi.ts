@@ -138,8 +138,10 @@ export const openApiSpec = {
           trigger_config: { type: "object" },
           response_type: {
             type: "string",
-            enum: ["text", "random_text", "sequence", "none", "ai_rephrase", "follow_gate"],
-            description: "`sequence` is read-only: a rule read may return it, but creating/updating a rule with it is rejected until rule-driven enrollment ships",
+            // Mirrors the writable zod enum on create/patch (no `sequence`): rule-driven enrollment
+            // isn't shipped, so the API rejects `sequence` — advertising it here produced a docs/API
+            // mismatch where a client POSTing it (per Scalar) got a 400.
+            enum: ["text", "random_text", "none", "ai_rephrase", "follow_gate"],
           },
           response_config: { type: "object" },
           cooldown_seconds: { type: "integer" },

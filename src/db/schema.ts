@@ -2,6 +2,9 @@ import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid
 import { sql } from "drizzle-orm"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
+// `system` is reserved/forward-looking: actorFromAuth only ever emits user/api_key, and no
+// cron/worker/maintenance path audits yet, so it's currently unreachable. Kept for when system
+// actions (token-refresh / maintenance) start writing audit rows (, parked like /).
 export const auditActorType = pgEnum("audit_actor_type", ['user', 'api_key', 'system'])
 export const broadcastRecipientStatus = pgEnum("broadcast_recipient_status", ['pending', 'sent', 'delivered', 'failed'])
 export const broadcastStatus = pgEnum("broadcast_status", ['draft', 'scheduled', 'sending', 'completed', 'cancelled'])
@@ -11,6 +14,9 @@ export const conversationStatus = pgEnum("conversation_status", ['open', 'closed
 export const flowSessionStatus = pgEnum("flow_session_status", ['active', 'completed', 'expired', 'cancelled'])
 export const flowStatus = pgEnum("flow_status", ['draft', 'published', 'archived'])
 export const messageDirection = pgEnum("message_direction", ['inbound', 'outbound'])
+// `pending` + `delivered` are reserved/forward-looking: inbound rows default `sent` and there is no
+// delivery-receipt path that would write `delivered`, so neither is reachable today (only referenced
+// defensively in retention PRUNABLE_STATUSES). Kept for a future send-state / read-receipt path.
 export const messageStatus = pgEnum("message_status", ['pending', 'sent', 'delivered', 'failed', 'held', 'expired'])
 export const outboundDeliveryStatus = pgEnum("outbound_delivery_status", ['pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown'])
 // `tiktok`/`twitter`/`gmail`/`discord` are reserved enum values with NO provider in the registry —
@@ -19,6 +25,10 @@ export const outboundDeliveryStatus = pgEnum("outbound_delivery_status", ['pendi
 export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord'])
 export type Platform = (typeof platform.enumValues)[number]
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate'])
+// `paused` is reserved/forward-looking: pausing happens at the channel/conversation level
+// (`is_automation_paused`, `channel.status='paused'`) and the worker DEFERS a step via a delayed job
+// rather than flipping the enrollment to `paused`, so nothing writes it. Kept for a future
+// per-enrollment pause (; confirms the  hint).
 export const sequenceEnrollmentStatus = pgEnum("sequence_enrollment_status", ['active', 'paused', 'completed', 'cancelled'])
 export const sequenceStatus = pgEnum("sequence_status", ['draft', 'active', 'archived'])
 export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction'])
@@ -83,6 +93,9 @@ export const channels = pgTable("channels", {
 	profile_picture: text("profile_picture"),
 	token_encrypted: text("token_encrypted").notNull(),
 	webhook_secret: text("webhook_secret").notNull(),
+	// Reserved/forward-looking: never written or read today (the comment poller doesn't persist a
+	// cursor). Kept for a future incremental comment-poll that resumes from the last seen comment
+	// instead of re-scanning (, parked rather than dropped to avoid a baseline-regen migration).
 	last_comment_cursor: text("last_comment_cursor"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
