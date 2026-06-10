@@ -4,7 +4,8 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Email: [your-security-email@example.com]
+Please report privately using GitHub's **"Report a vulnerability"** button under this
+repository's **Security → Advisories** tab (GitHub Private Vulnerability Reporting).
 
 Include:
 - Description of the vulnerability
@@ -12,7 +13,8 @@ Include:
 - Potential impact
 - Suggested fix (optional)
 
-You will receive a response within 72 hours. Please allow time to patch before public disclosure.
+This is a solo-maintained open-source project: responses are best-effort, with no fixed SLA.
+Please allow time to patch before public disclosure.
 
 ## Supported Versions
 
