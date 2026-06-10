@@ -134,3 +134,49 @@ describe("dashboard rule builder", () => {
     expect((rule!.trigger_config as Record<string, unknown>).payload).toBeUndefined();
   });
 });
+
+describe("dashboard inbox conversation controls", () => {
+  it("pauses automation from the inbox via the control route", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request(`/inbox/${CONV}/conversation`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ is_automation_paused: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Resume automation");
+    const conv = await db.query.conversations.findFirst({ where: eq(s.conversations.id, CONV), columns: { is_automation_paused: true } });
+    expect(conv?.is_automation_paused).toBe(true);
+  });
+});
+
+describe("dashboard sequence builder", () => {
+  it("creates a sequence with a typed delay step from steps_json", async () => {
+    if (!TEST_DB) return;
+    const stepsJson = JSON.stringify([{ type: "message", content: "Hi" }, { type: "delay", delay_minutes: 120 }, { type: "message", content: "Bye" }]);
+    const res = await app.request("/sequences", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Drip-", steps_json: stepsJson }),
+    });
+    expect(res.status).toBe(200);
+    const seq = await db.query.sequences.findFirst({ where: eq(s.sequences.name, "Drip-"), columns: { steps: true } });
+    const steps = seq!.steps as Array<{ type: string; delay_minutes?: number }>;
+    expect(steps.map((x) => x.type)).toEqual(["message", "delay", "message"]);
+    expect(steps[1].delay_minutes).toBe(120);
+  });
+});
+
+describe("dashboard API key scopes", () => {
+  it("creates a scoped key (not full-access) from the selected scopes", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/settings/api-keys", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Scoped-", scopes_json: JSON.stringify(["contacts:read", "conversations:read"]) }),
+    });
+    expect(res.status).toBe(200);
+    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Scoped-"), columns: { scopes: true } });
+    expect(key?.scopes).toEqual(["contacts:read", "conversations:read"]);
+  });
+});

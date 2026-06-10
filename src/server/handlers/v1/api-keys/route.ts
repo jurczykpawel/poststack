@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   return ok(keys);
 }
 
-const VALID_SCOPES = [
+export const VALID_SCOPES = [
   "channels:read", "channels:write",
   "conversations:read", "conversations:write",
   "contacts:read", "contacts:write",

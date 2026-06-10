@@ -1,7 +1,7 @@
 import type { Hono, MiddlewareHandler, Context } from "hono";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, asc, desc, ilike, like, exists, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, channels, contacts, contactChannels,
@@ -15,6 +15,7 @@ import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/r
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
+import * as conversation from "@/server/handlers/v1/conversations/[conversationId]/route";
 import * as rules from "@/server/handlers/v1/rules/route";
 import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
 import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
@@ -73,6 +74,8 @@ const CONV_QUERY = {
   columns: {
     id: true, platform: true, status: true, last_message_at: true,
     last_message_preview: true, unread_count: true,
+    // Surfaced as inbox controls / indicators.
+    is_automation_paused: true, needs_manual_reply: true, assigned_to: true,
   },
   with: {
     channel: { columns: { id: true, display_name: true, platform: true } },
@@ -107,14 +110,32 @@ function renderMessages(messages: Array<{ id: string; direction: string; text: s
   )}`;
 }
 
+type ConvControls = { id: string; status: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; channel: { display_name: string | null; platform: string } };
+
+/** The conversation control bar: status + close/snooze/reopen, automation pause toggle, and the
+ *  attention/assignment indicators — all wired to PATCH /conversations/:id. */
+function renderConvControls(conv: ConvControls): Html {
+  const statusBtn = (label: string, status: string) =>
+    html`<button class="btn btn-sm" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"status":"${status}"}`}' hx-target="#thread" hx-swap="innerHTML">${label}</button>`;
+  return html`<div class="thread-controls" style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:.8rem;margin:.25rem 0">
+    <span class="badge">${conv.status}</span>
+    ${conv.needs_manual_reply ? html`<span class="badge" style="background:#b91c1c">⚠ Needs reply</span>` : html``}
+    ${conv.is_automation_paused ? html`<span class="badge" style="background:#b45309">⏸ Automation paused</span>` : html``}
+    ${conv.assigned_to ? html`<span class="muted">assigned</span>` : html``}
+    ${conv.status === "open" ? html`${statusBtn("Close", "closed")}${statusBtn("Snooze", "snoozed")}` : statusBtn("Reopen", "open")}
+    <button class="btn btn-sm" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"is_automation_paused":${conv.is_automation_paused ? "false" : "true"}}`}' hx-target="#thread" hx-swap="innerHTML">${conv.is_automation_paused ? "Resume automation" : "Pause automation"}</button>
+  </div>`;
+}
+
 function renderThread(
-  conv: ConvName & { id: string; channel: { display_name: string | null; platform: string } },
+  conv: ConvName & ConvControls,
   messages: Array<{ id: string; direction: string; text: string | null }>,
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
   // out as if the message went.
   opts: { error?: string; draft?: string } = {},
 ): Html {
   return html`<div class="thread-head">${contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
+    ${renderConvControls(conv)}
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages)}</div>
     <form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
@@ -171,16 +192,19 @@ async function loadChannels(workspaceId: string) {
       profile_picture: true, status: true, connection_mode: true,
     },
   });
-  return Promise.all(
-    rows.map(async (ch) => {
-      const [{ n }] = await db
-        .select({ n: count() })
+  // One grouped query for the held-message count of every channel, instead of a COUNT per channel
+  // (N+1 on each /channels load + after every action) — join in memory.
+  const ids = rows.map((r) => r.id);
+  const heldCounts = ids.length
+    ? await db
+        .select({ channel_id: conversations.channel_id, n: count() })
         .from(messages)
         .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
-        .where(and(eq(messages.status, "held"), eq(conversations.channel_id, ch.id)));
-      return { ...ch, held_count: Number(n) };
-    }),
-  );
+        .where(and(eq(messages.status, "held"), inArray(conversations.channel_id, ids)))
+        .groupBy(conversations.channel_id)
+    : [];
+  const heldByChannel = new Map(heldCounts.map((h) => [h.channel_id, Number(h.n)]));
+  return rows.map((ch) => ({ ...ch, held_count: heldByChannel.get(ch.id) ?? 0 }));
 }
 
 function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, error?: string): Html {
@@ -281,6 +305,25 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
       return c.html(renderThread(conv, await loadMessages(id), { error, draft }));
     }
     return c.html(renderThread(conv, await loadMessages(id)));
+  });
+
+  // Conversation controls: status (close/snooze/reopen) + automation pause toggle, delegated to the
+  // PATCH /conversations/:id API and re-rendering the thread.
+  app.post("/inbox/:id/conversation", guard, async (c) => {
+    const id = c.req.param("id");
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    if (typeof form.status === "string") patch.status = form.status;
+    if (typeof form.is_automation_paused === "boolean") patch.is_automation_paused = form.is_automation_paused;
+    const res = await conversation
+      .PATCH(jsonReqMethod(c, "PATCH", patch), { params: Promise.resolve({ conversationId: id }) })
+      .catch(() => null);
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const conv = await loadConversation(id, a.workspaceId);
+    if (!conv) return c.notFound();
+    const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
+    return c.html(renderThread(conv, await loadMessages(id), { error }));
   });
 
   // Channels
@@ -392,7 +435,9 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const q = c.req.query("q") ?? "";
-    return c.html(renderContacts(await loadContacts(a.workspaceId, q), q));
+    // "Load more" grows the page (capped) so a workspace with >50 contacts is browsable.
+    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 50), 1000);
+    return c.html(renderContacts(await loadContacts(a.workspaceId, q, limit), q, limit));
   });
 
   // Settings
@@ -413,9 +458,22 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
           <section class="section">
             <h2>API Keys</h2>
             <p class="muted" style="margin-bottom:1rem">Keys are shown once on creation — store them securely.</p>
-            <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="row" style="margin-bottom:1rem">
-              <input class="input" name="name" placeholder="Key name (e.g. Production webhook)" required />
-              <button class="btn btn-primary" type="submit">Create</button>
+            <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
+              x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
+              <div class="row">
+                <input class="input" name="name" placeholder="Key name (e.g. Production webhook)" required />
+                <button class="btn btn-primary" type="submit">Create</button>
+              </div>
+              <details class="card" style="font-size:.8rem">
+                <summary style="cursor:pointer">Scopes (all selected = full access)</summary>
+                <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem">
+                  ${apiKeys.VALID_SCOPES.map(
+                    (sc) => html`<label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" value="${sc}" checked
+                      @change="$event.target.checked ? scopes.push('${sc}') : (scopes = scopes.filter(s => s !== '${sc}'))" />${sc}</label>`,
+                  )}
+                </div>
+              </details>
+              <input type="hidden" name="scopes_json" :value="scopesJson()" />
             </form>
             <div id="keys-area">${renderKeys(keys)}</div>
           </section>
@@ -441,7 +499,11 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
   });
 
   app.post("/settings/api-keys", guard, async (c) => {
-    const res = await apiKeys.POST(c.req.raw);
+    // Transform the form (name + the scope checkboxes serialized to scopes_json) into the API's
+    // JSON shape, so a dashboard key can be scoped instead of always full-access.
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const scopes = parseJsonArray(typeof form.scopes_json === "string" ? form.scopes_json : "").filter((s): s is string => typeof s === "string");
+    const res = await apiKeys.POST(jsonReq(c, { name: form.name ?? "", scopes }));
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const body = await res.json().catch(() => ({}));
@@ -730,10 +792,34 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
           <p class="muted">Automated drip message sequences. Each line below becomes a message step.</p>
           <details class="card" style="margin:1rem 0">
             <summary style="cursor:pointer;font-weight:600">+ New sequence</summary>
-            <form hx-post="/sequences" hx-ext="json-enc" hx-target="#sequences-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem">
+            <form hx-post="/sequences" hx-ext="json-enc" hx-target="#sequences-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem"
+              x-data="{
+                steps: [{ type: 'message', content: '', delay_minutes: 60 }],
+                stepsJson() {
+                  return JSON.stringify(this.steps
+                    .filter(s => s.type === 'delay' ? Number(s.delay_minutes) > 0 : (s.content && s.content.trim()))
+                    .map(s => s.type === 'delay'
+                      ? { type: 'delay', delay_minutes: Number(s.delay_minutes) }
+                      : { type: 'message', content: s.content.trim() }));
+                }
+              }">
               <div><label class="label">Name</label><input class="input" name="name" required /></div>
               <div><label class="label">Description</label><input class="input" name="description" /></div>
-              <div><label class="label">Message steps (one per line)</label><textarea class="textarea" name="steps" rows="4" required></textarea></div>
+              <div><label class="label">Steps</label>
+                <template x-for="(s, i) in steps" :key="i">
+                  <div class="row" style="margin-bottom:.4rem">
+                    <select class="input" x-model="s.type" style="max-width:160px">
+                      <option value="message">Message</option>
+                      <option value="delay">Delay (minutes)</option>
+                    </select>
+                    <input class="input" placeholder="Message text" x-model="s.content" x-show="s.type === 'message'" />
+                    <input class="input" type="number" min="1" max="20160" placeholder="Minutes" x-model="s.delay_minutes" x-show="s.type === 'delay'" style="max-width:140px" />
+                    <button class="btn btn-sm btn-danger" type="button" @click="steps.splice(i, 1)" x-show="steps.length > 1">×</button>
+                  </div>
+                </template>
+                <button class="btn btn-sm" type="button" @click="steps.push({ type: 'message', content: '', delay_minutes: 60 })" x-show="steps.length < 50">+ step</button>
+              </div>
+              <input type="hidden" name="steps_json" :value="stepsJson()" />
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create sequence</button>
             </form>
           </details>
@@ -745,11 +831,20 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
 
   app.post("/sequences", guard, async (c) => {
     const form = (await c.req.json().catch(() => ({}))) as Record<string, string>;
-    const steps = (form.steps ?? "")
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((content) => ({ type: "message", content }));
+    // The builder serializes typed steps (message OR delay) to steps_json; fall back to the legacy
+    // one-line-per-message textarea if JS is off. The API validates delay_minutes etc.
+    type SeqStep = { type: "message"; content: string } | { type: "delay"; delay_minutes: number };
+    const fromJson = parseJsonArray(form.steps_json)
+      .map((raw): SeqStep | null => {
+        const o = raw as Record<string, unknown>;
+        if (o.type === "delay") return { type: "delay", delay_minutes: Number(o.delay_minutes) };
+        if (typeof o.content === "string" && o.content.trim()) return { type: "message", content: o.content.trim() };
+        return null;
+      })
+      .filter((s): s is SeqStep => s !== null);
+    const steps = fromJson.length
+      ? fromJson
+      : (form.steps ?? "").split("\n").map((s) => s.trim()).filter(Boolean).map((content) => ({ type: "message", content }));
     const payload = { name: form.name ?? "", description: form.description || undefined, steps };
     const res = await sequences.POST(jsonReq(c, payload));
     const a = await auth(c);
@@ -807,7 +902,7 @@ async function workspacePatch(c: Context, days: number | null): Promise<boolean>
 
 // ─── contacts/keys/rules/sequences renderers ──────────────────────────────────
 
-function loadContacts(workspaceId: string, q: string) {
+function loadContacts(workspaceId: string, q: string, limit = 50) {
   const safeQ = q ? q.replace(/[%_\\]/g, "\\$&") : "";
   const conds: SQL[] = [eq(contacts.workspace_id, workspaceId)];
   if (safeQ) {
@@ -833,7 +928,7 @@ function loadContacts(workspaceId: string, q: string) {
   return db.query.contacts.findMany({
     where: and(...conds),
     orderBy: desc(contacts.last_interaction_at),
-    limit: 50,
+    limit,
     columns: { id: true, display_name: true, email: true, is_subscribed: true, last_interaction_at: true },
     with: {
       contact_channels: {
@@ -845,10 +940,15 @@ function loadContacts(workspaceId: string, q: string) {
   });
 }
 
-function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = ""): Html {
+function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = "", limit = 50): Html {
   if (contacts.length === 0) {
     return html`<p class="muted">${q ? "No contacts match your search." : "No contacts yet. Connect a channel and start receiving messages."}</p>`;
   }
+  // A full page likely has more — offer to load the next batch by re-rendering with a larger limit
+  // (the list was previously capped at 50 with no way to browse the rest).
+  const more = contacts.length >= limit
+    ? html`<button class="btn btn-sm" style="margin-top:.5rem" hx-get="/contacts/list?q=${encodeURIComponent(q)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button>`
+    : html``;
   return html`<table><thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th></tr></thead><tbody>
     ${contacts.map(
       (ct) => html`<tr>
@@ -857,7 +957,7 @@ function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = 
         <td class="muted">${timeAgo(ct.last_interaction_at)}</td>
       </tr>`,
     )}
-  </tbody></table>`;
+  </tbody></table>${more}`;
 }
 
 function loadKeys(workspaceId: string) {
@@ -959,12 +1059,17 @@ async function loadSequences(workspaceId: string) {
     orderBy: desc(sequencesTbl.created_at),
     columns: { id: true, name: true, status: true, steps: true },
   });
-  return Promise.all(
-    rows.map(async (seq) => ({
-      ...seq,
-      _count: { enrollments: await db.$count(sequenceEnrollments, eq(sequenceEnrollments.sequence_id, seq.id)) },
-    })),
-  );
+  // One grouped enrollment count for all sequences instead of a $count per sequence.
+  const ids = rows.map((r) => r.id);
+  const counts = ids.length
+    ? await db
+        .select({ sequence_id: sequenceEnrollments.sequence_id, n: count() })
+        .from(sequenceEnrollments)
+        .where(inArray(sequenceEnrollments.sequence_id, ids))
+        .groupBy(sequenceEnrollments.sequence_id)
+    : [];
+  const bySeq = new Map(counts.map((c) => [c.sequence_id, Number(c.n)]));
+  return rows.map((seq) => ({ ...seq, _count: { enrollments: bySeq.get(seq.id) ?? 0 } }));
 }
 
 function renderSequences(seqs: Awaited<ReturnType<typeof loadSequences>>, error?: string): Html {
@@ -976,6 +1081,7 @@ function renderSequences(seqs: Awaited<ReturnType<typeof loadSequences>>, error?
       <div class="grow"><span style="font-weight:600">${seq.name}</span> <span class="muted" style="font-size:.75rem">${seq.status.toUpperCase()} · ${stepCount} steps · ${seq._count.enrollments} enrolled</span></div>
       ${seq.status === "draft" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"active"}' hx-target="#sequences-list" hx-swap="innerHTML">Activate</button>` : html``}
       ${seq.status === "active" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"archived"}' hx-target="#sequences-list" hx-swap="innerHTML">Archive</button>` : html``}
+      ${seq.status === "archived" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"active"}' hx-target="#sequences-list" hx-swap="innerHTML">Restore</button>` : html``}
       <button class="btn btn-sm btn-danger" hx-delete="/sequences/${seq.id}" hx-target="#sequences-list" hx-swap="innerHTML" hx-confirm="Delete this sequence?">Delete</button>
     </div>`;
   })}</div>`;
