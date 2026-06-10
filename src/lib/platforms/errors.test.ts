@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TokenInvalidError, MessagingPolicyError, isMetaTokenError, isMetaWindowError, assertMetaOk } from "./errors";
+import { TokenInvalidError, MessagingPolicyError, RateLimitError, isMetaTokenError, isMetaWindowError, isMetaRateLimitError, parseRetryAfterMs, assertMetaOk } from "./errors";
 
 describe("isMetaTokenError", () => {
   it("is true for Meta code 190 (invalid/expired token)", () => {
@@ -45,6 +45,37 @@ describe("isMetaWindowError", () => {
   });
 });
 
+//  — a 429 / throttle code is retryable, but only after the provider's Retry-After window.
+describe("isMetaRateLimitError", () => {
+  it("is true for Meta throttling codes (4 / 17 / 32 / 613)", () => {
+    expect(isMetaRateLimitError('{"error":{"code":4,"message":"Application request limit reached"}}')).toBe(true);
+    expect(isMetaRateLimitError('{"error":{"code":613,"message":"Calls to this api have exceeded the rate limit"}}')).toBe(true);
+  });
+  it("is false for non-throttle errors", () => {
+    expect(isMetaRateLimitError('{"error":{"code":190}}')).toBe(false);
+    expect(isMetaRateLimitError('{"error":{"code":100}}')).toBe(false);
+    expect(isMetaRateLimitError("not json")).toBe(false);
+  });
+});
+
+describe("parseRetryAfterMs", () => {
+  const headers = (v?: string) => new Headers(v != null ? { "retry-after": v } : {});
+  it("reads a delta-seconds value", () => {
+    expect(parseRetryAfterMs(headers("30"))).toBe(30_000);
+  });
+  it("reads an HTTP-date value relative to now", () => {
+    const now = Date.now();
+    expect(parseRetryAfterMs(headers(new Date(now + 45_000).toUTCString()), now)).toBeGreaterThanOrEqual(44_000);
+  });
+  it("falls back to a default when absent or unparseable", () => {
+    expect(parseRetryAfterMs(headers())).toBe(60_000);
+    expect(parseRetryAfterMs(headers("soon"))).toBe(60_000);
+  });
+  it("clamps an absurd value to the ceiling", () => {
+    expect(parseRetryAfterMs(headers("999999"))).toBe(60 * 60_000);
+  });
+});
+
 describe("assertMetaOk", () => {
   it("does nothing for an ok response", async () => {
     await expect(assertMetaOk(new Response("{}", { status: 200 }), "ctx")).resolves.toBeUndefined();
@@ -58,6 +89,16 @@ describe("assertMetaOk", () => {
   it("throws MessagingPolicyError for an outside-window body", async () => {
     const res = new Response('{"error":{"code":10,"error_subcode":2018278,"message":"This message is sent outside of allowed window."}}', { status: 400 });
     await expect(assertMetaOk(res, "Facebook send message")).rejects.toBeInstanceOf(MessagingPolicyError);
+  });
+
+  it("throws RateLimitError carrying Retry-After for a 429", async () => {
+    const res = new Response('{"error":{"code":4}}', { status: 429, headers: { "retry-after": "120" } });
+    await expect(assertMetaOk(res, "Facebook send message")).rejects.toMatchObject({ name: "RateLimitError", retryAfterMs: 120_000 });
+  });
+
+  it("throws RateLimitError for a throttle code even on a non-429 status", async () => {
+    const res = new Response('{"error":{"code":613,"message":"rate limit"}}', { status: 400 });
+    await expect(assertMetaOk(res, "x")).rejects.toBeInstanceOf(RateLimitError);
   });
 
   it("throws a generic Error (not TokenInvalidError) for other failures", async () => {

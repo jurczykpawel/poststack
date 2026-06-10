@@ -2,8 +2,14 @@ import type { JobHelpers } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, outboundDeliveries, type Platform } from "@/db/schema";
-import { TokenInvalidError, MessagingPolicyError } from "@/lib/platforms/errors";
+import { TokenInvalidError, MessagingPolicyError, RateLimitError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
+import { addJob } from "@/lib/queue/client";
+import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
+
+/** Stop re-enqueueing a perpetually rate-limited delivery once the ledger has counted this many
+ *  attempts, so it fails (dead-letters) rather than rescheduling forever. */
+const RATE_LIMIT_MAX_REQUEUE = 10;
 
 /** A Drizzle db handle or an open transaction. */
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -23,6 +29,7 @@ export type DeliveryResult =
   | "sent"
   | "held"
   | "dropped_policy"
+  | "rate_limited"
   | "skipped_duplicate"
   | "skipped_unknown"
   | "skipped_terminal";
@@ -197,6 +204,30 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
         .where(eq(outboundDeliveries.delivery_key, deliveryKey));
       helpers.logger.info(`delivery ${deliveryKey} dropped — ${e.message} (not retried)`);
       return "dropped_policy";
+    }
+    if (e instanceof RateLimitError) {
+      // The platform is throttling us. Record `failed` (reattemptable) and re-enqueue THIS exact
+      // delivery at the provider's Retry-After, instead of letting graphile's short exponential
+      // backoff burn the retry budget against a window that may be minutes long and dead-letter a
+      // message that would otherwise go through. The stored idempotency-key makes the
+      // replay reuse this very ledger row, and a deterministic jobKey collapses repeats into one
+      // pending retry. Bounded by the ledger attempt count so a permanent throttle still gives up.
+      await db
+        .update(outboundDeliveries)
+        .set({ status: "failed", last_error: e.message })
+        .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+      const attempts = (prior?.attempts ?? 0) + 1;
+      if (attempts < RATE_LIMIT_MAX_REQUEUE) {
+        await addJob(
+          taskName as TaskName,
+          payload as unknown as TaskPayloadMap[TaskName],
+          { jobKey: `ratelimit:${deliveryKey}`, delayMs: e.retryAfterMs },
+        );
+        helpers.logger.info(`delivery ${deliveryKey} rate-limited — retry in ${Math.round(e.retryAfterMs / 1000)}s (attempt ${attempts})`);
+        return "rate_limited";
+      }
+      helpers.logger.info(`delivery ${deliveryKey} rate-limited past retry budget — failing`);
+      throw e;
     }
     // Transient: we caught it, so the provider (most likely) did not accept the send.
     // Record `failed` and rethrow so graphile retries; the retry re-claims from `failed`.

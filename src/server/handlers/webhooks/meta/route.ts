@@ -60,12 +60,6 @@ export async function POST(request: Request) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  // Rate limit webhook ingress (1000 events/minute -- well above Meta's normal rate)
-  const rl = await rateLimit("rl:webhook:meta", 1000, 60);
-  if (!rl.allowed) {
-    return new Response("Too Many Requests", { status: 429 });
-  }
-
   let payload: MetaWebhookPayload;
   try {
     payload = JSON.parse(rawBody) as MetaWebhookPayload;
@@ -76,6 +70,18 @@ export async function POST(request: Request) {
   // Validate platform - Meta sends "page" for FB page webhooks, "instagram" for IG
   if (!VALID_PLATFORMS.has(payload.object)) {
     return Response.json({ status: "ignored", reason: "unsupported object type" });
+  }
+
+  // Rate limit webhook ingress PER PAGE (1000 events/minute — well above Meta's normal rate). A
+  // single instance-wide counter let one viral page's burst exhaust the shared budget and starve
+  // every other page's events; a per-page key isolates them. Done after HMAC verification, so only
+  // Meta-signed traffic can mint these keys.
+  const pageIds = [...new Set((payload.entry ?? []).map((e) => e.id).filter((id): id is string => typeof id === "string"))];
+  for (const pageId of pageIds) {
+    const rl = await rateLimit(`rl:webhook:meta:${pageId}`, 1000, 60);
+    if (!rl.allowed) {
+      return new Response("Too Many Requests", { status: 429 });
+    }
   }
 
   // Normalize: Meta sends "page" for Facebook pages

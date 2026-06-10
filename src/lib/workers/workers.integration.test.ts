@@ -32,6 +32,7 @@ let w: {
 };
 let TokenInvalidError: typeof import("@/lib/platforms/errors").TokenInvalidError;
 let MessagingPolicyError: typeof import("@/lib/platforms/errors").MessagingPolicyError;
+let RateLimitError: typeof import("@/lib/platforms/errors").RateLimitError;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-0000000000f1";
@@ -67,7 +68,7 @@ beforeAll(async () => {
     processSequenceStep: (await import("./sequence-step-worker")).processSequenceStep,
     processTokenRefresh: (await import("./token-refresh-worker")).processTokenRefresh,
   };
-  ({ TokenInvalidError, MessagingPolicyError } = await import("@/lib/platforms/errors"));
+  ({ TokenInvalidError, MessagingPolicyError, RateLimitError } = await import("@/lib/platforms/errors"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -822,6 +823,25 @@ describe("outgoing-message worker", () => {
     const row = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-policy") });
     expect(row?.status).toBe("expired");
     expect(health.markChannelNeedsReauth).not.toHaveBeenCalled();
+  });
+
+  //  — a platform rate-limit (429) is retryable, but only after its Retry-After window. The
+  // delivery is recorded `failed` (reattemptable) and re-enqueued at that delay under a deterministic
+  // per-delivery key, instead of being rethrown to burn graphile's short backoff budget and dead-letter.
+  it("re-enqueues at Retry-After (without rethrow) on a rate-limit rejection", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValueOnce(new RateLimitError("rate limited", 120_000));
+    await expect(
+      w.processOutgoingMessage(job({ idempotencyKey: "d-rl" }) as never, helpers),
+    ).resolves.toBeUndefined(); // not rethrown → graphile does not also retry the current job
+    const row = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-rl") });
+    expect(row?.status).toBe("failed");
+    const jobs = await db.execute(
+      sql`select key, run_at > now() as future from graphile_worker.jobs where task_identifier = 'outgoing-message'`,
+    );
+    expect(jobs.rows.length).toBe(1);
+    expect((jobs.rows[0] as { key: string }).key).toBe("ratelimit:d-rl");
+    expect((jobs.rows[0] as { future: boolean }).future).toBe(true);
   });
 });
 

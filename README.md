@@ -133,6 +133,36 @@ This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL w
 > ```
 > For zero-surprise rollbacks, pin `IMAGE_TAG` to an explicit version (not `latest`) so each release is an intentional tag bump. Migrations are forward-only — a rollback assumes the schema is compatible (it is within a release line).
 
+### Database connection sizing
+
+The app sizes its connection budget from `DB_POOL_MAX` (default **10** per process). Add it up against the
+bundled Postgres' `max_connections` (default **100**): `(web replicas + worker replicas) × DB_POOL_MAX`
+plus graphile-worker's own pool (worker `concurrency`, default 10, + a listener). The single-host default
+stack (1 web + 1 worker) uses well under 100; raise Postgres' `max_connections` before scaling replicas, or
+lower `DB_POOL_MAX`. Two safety timeouts are on by default so a stalled query/transaction can't pin a pooled
+connection forever: `DB_STATEMENT_TIMEOUT_MS` (30s) and `DB_IDLE_TX_TIMEOUT_MS` (60s); set either to `0` to disable.
+
+### Backups
+
+All state lives in Postgres (the `postgres_data` volume) — there is no other store. Back it up regularly:
+
+```bash
+# Logical dump (portable, restore with psql/pg_restore)
+docker compose -f docker-compose.prod.yml exec postgres \
+  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > replystack-$(date +%F).sql.gz
+```
+
+Or snapshot the `postgres_data` volume at the filesystem level while the stack is stopped. Test a restore
+before you need one.
+
+### Rotating `TOKEN_ENCRYPTION_KEY`
+
+Channel OAuth tokens are encrypted at rest with `TOKEN_ENCRYPTION_KEY`. **Swapping the key without
+re-encrypting first makes every channel undecryptable** — decryption throws, so all sends and refreshes fail
+and every channel must be reconnected. To rotate safely: with the **old** key still in place, decrypt and
+re-encrypt every `channels.token_encrypted` under the new key (in a maintenance step that holds both keys),
+**then** swap `TOKEN_ENCRYPTION_KEY` to the new value and restart. Always take a backup (above) first.
+
 ---
 
 ## Meta App Setup

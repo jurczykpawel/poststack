@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals,
+  pendingApprovals, outboundDeliveries,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
@@ -192,19 +192,33 @@ async function loadChannels(workspaceId: string) {
       profile_picture: true, status: true, connection_mode: true,
     },
   });
-  // One grouped query for the held-message count of every channel, instead of a COUNT per channel
-  // (N+1 on each /channels load + after every action) — join in memory.
+  // Grouped counts for every channel in one query each, instead of a COUNT per channel (N+1 on each
+  // /channels load + after every action) — joined in memory. `unknown` deliveries are sends
+  // interrupted after dispatch (maybe-delivered): they were previously only visible in psql, so
+  // surface a per-channel count next to `held` for the operator to reconcile.
   const ids = rows.map((r) => r.id);
-  const heldCounts = ids.length
-    ? await db
-        .select({ channel_id: conversations.channel_id, n: count() })
-        .from(messages)
-        .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
-        .where(and(eq(messages.status, "held"), inArray(conversations.channel_id, ids)))
-        .groupBy(conversations.channel_id)
-    : [];
+  const [heldCounts, unknownCounts] = ids.length
+    ? await Promise.all([
+        db
+          .select({ channel_id: conversations.channel_id, n: count() })
+          .from(messages)
+          .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
+          .where(and(eq(messages.status, "held"), inArray(conversations.channel_id, ids)))
+          .groupBy(conversations.channel_id),
+        db
+          .select({ channel_id: outboundDeliveries.channel_id, n: count() })
+          .from(outboundDeliveries)
+          .where(and(eq(outboundDeliveries.status, "unknown"), inArray(outboundDeliveries.channel_id, ids)))
+          .groupBy(outboundDeliveries.channel_id),
+      ])
+    : [[], []];
   const heldByChannel = new Map(heldCounts.map((h) => [h.channel_id, Number(h.n)]));
-  return rows.map((ch) => ({ ...ch, held_count: heldByChannel.get(ch.id) ?? 0 }));
+  const unknownByChannel = new Map(unknownCounts.map((u) => [u.channel_id, Number(u.n)]));
+  return rows.map((ch) => ({
+    ...ch,
+    held_count: heldByChannel.get(ch.id) ?? 0,
+    unknown_count: unknownByChannel.get(ch.id) ?? 0,
+  }));
 }
 
 function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, error?: string): Html {
@@ -216,7 +230,7 @@ function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, erro
       <div class="grow">
         <div style="font-weight:600">${ch.display_name ?? ch.username ?? ch.platform_id}</div>
         <div class="muted" style="font-size:.75rem">
-          ${PLATFORM_LABELS[ch.platform] ?? ch.platform}${ch.username ? ` · @${ch.username}` : ""}${ch.status === "needs_reauth" ? " · ⚠ Needs reconnect" : ""}${ch.status === "paused" ? " · Paused" : ""}${ch.status === "disabled" ? " · Disabled" : ""}${ch.connection_mode === "manual_token" ? " · 🔑 Long-lived token" : ""}${ch.held_count > 0 ? ` · ${ch.held_count} held` : ""}
+          ${PLATFORM_LABELS[ch.platform] ?? ch.platform}${ch.username ? ` · @${ch.username}` : ""}${ch.status === "needs_reauth" ? " · ⚠ Needs reconnect" : ""}${ch.status === "paused" ? " · Paused" : ""}${ch.status === "disabled" ? " · Disabled" : ""}${ch.connection_mode === "manual_token" ? " · 🔑 Long-lived token" : ""}${ch.held_count > 0 ? ` · ${ch.held_count} held` : ""}${ch.unknown_count > 0 ? ` · ⚠ ${ch.unknown_count} unknown` : ""}
         </div>
       </div>
       ${ch.held_count > 0 ? html`<button class="btn btn-sm" hx-post="/channels/${ch.id}/drain" hx-target="#channels-list" hx-swap="innerHTML">↻ Retry held</button>` : html``}
