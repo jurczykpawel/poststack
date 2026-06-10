@@ -43,7 +43,12 @@ async function main() {
   );
 
   const noteActivity = () => { lastActivityMs = Date.now(); };
-  runner.events.on("worker:getJob:start", noteActivity); // every poll, even when idle
+  // Tick only on evidence the worker SUCCESSFULLY reached the DB, never on a poll attempt:
+  // `worker:getJob:empty` fires after a poll query that found no work (healthy idle), and a job
+  // completing proves a round-trip too. `worker:getJob:start` fires BEFORE the query, so a dead pool
+  // (start → query throws → error → reschedule → start …) would keep ticking and falsely read healthy
+  // — the exact failure mode this probe must catch.
+  runner.events.on("worker:getJob:empty", noteActivity); // poll reached the DB, no work
   runner.events.on("job:success", noteActivity);
   runner.events.on("job:failed", noteActivity);
   // Flush the LAST-polled timestamp (not "now"): if graphile stops polling, the file freezes even
