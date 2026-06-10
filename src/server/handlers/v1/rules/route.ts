@@ -100,9 +100,9 @@ export const createRuleSchema = z
     // accepting it created a no-op rule that still consumed limits and blocked others.
     response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate"]),
     response_config: responseConfigSchema,
-    // Bounded at 1 year (symmetric with the sequence delay cap): an extreme value pushes the
-    // cooldown's `now() + N seconds` past Postgres's max timestamp → "timestamp out of range" when
-    // the rule fires, dead-lettering that message's job.
+    // Bounded at a sane 1-year ceiling, well under Postgres's timestamp range: an extreme value
+    // pushes the cooldown's `now() + N seconds` past Postgres's max timestamp → "timestamp out of
+    // range" when the rule fires, dead-lettering that message's job.
     cooldown_seconds: z.number().int().min(0).max(31_536_000).default(0),
     // null = no cap; a positive integer caps lifetime auto-sends per contact.
     max_sends_per_contact: z.number().int().min(1).max(1_000_000).nullable().optional(),
