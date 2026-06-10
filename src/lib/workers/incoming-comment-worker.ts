@@ -63,8 +63,12 @@ export async function processIncomingComment(
     .returning({ id: commentLogs.id });
 
   helpers.logger.info(
+    // Log the internal comment-log row id, NOT the commenter's platform author-id: the author-id is
+    // contact PII (PSID-class) that the rest of the system treats as erasable (GDPR contact.erased
+    // even prunes PSID-bearing dedup keys), but application logs sit outside that erasure boundary —
+    // so logging it would leave an erased contact's id in rotated log files.
     logged
-      ? `Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} author=${sanitizeForLog(senderId ?? "")}`
+      ? `Logged comment=${sanitizeForLog(commentId)} post=${sanitizeForLog(postId ?? "")} log=${logged.id}`
       : `commentId=${sanitizeForLog(commentId)} already logged — re-evaluating (idempotent via event key)`,
   );
 

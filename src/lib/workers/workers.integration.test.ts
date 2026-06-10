@@ -479,6 +479,22 @@ describe("incoming-comment worker", () => {
     expect(links.length).toBe(1);
   });
 
+  //  — the new-comment log must not contain the commenter's raw platform author-id (PSID-class
+  // PII that sits outside the GDPR erasure boundary); it logs the internal comment-log id instead.
+  it("does not log the raw commenter author-id", async () => {
+    if (!TEST_DB) return;
+    const lines: string[] = [];
+    const spyHelpers = { logger: { info: (m: string) => lines.push(m) }, job: { id: "job-test" } } as never;
+    const SENDER = "PSID-SECRET-";
+    await w.processIncomingComment(
+      { platform: "facebook", pageId: PAGE, commentId: "cmt-pii", postId: "p1", senderId: SENDER, senderName: "Z", text: "hi", timestamp: ts() },
+      spyHelpers,
+    );
+    const loggedLine = lines.find((m) => m.includes("Logged comment="));
+    expect(loggedLine).toBeDefined();
+    expect(loggedLine).not.toContain(SENDER);
+  });
+
   it("retries a comment rule whose first reply enqueue failed — not lost to the comment-log dedup", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "DM!", reply_mode: "dm" });
