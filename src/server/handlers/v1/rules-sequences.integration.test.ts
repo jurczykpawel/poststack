@@ -483,6 +483,21 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     expect(del.status).toBe(409);
   });
 
+  //  — the list endpoint's enrollment count is now a single grouped query joined by a Map
+  // (not a $count per row). Verify the join maps each count to the RIGHT sequence and isn't
+  // cross-contaminated: an enrolled sequence reports 1, a sibling with none reports 0.
+  it("reports per-sequence enrollment counts correctly (grouped count, no cross-contamination)", async () => {
+    if (!TEST_DB) return;
+    const enrolledId = (await (await seqs.POST(post({ name: "Enrolled", steps: [{ type: "message", content: "hi" }] }))).json()).data.id;
+    const emptyId = (await (await seqs.POST(post({ name: "Empty", steps: [{ type: "message", content: "hi" }] }))).json()).data.id;
+    await seq.PATCH(post({ status: "active" }), { params: Promise.resolve({ sequenceId: enrolledId }) });
+    await enroll.POST(post({ contact_id: CONTACT, channel_id: CH }), { params: Promise.resolve({ sequenceId: enrolledId }) });
+
+    const listed = (await (await seqs.GET(get())).json()).data as Array<{ id: string; _count: { enrollments: number } }>;
+    expect(listed.find((x) => x.id === enrolledId)!._count.enrollments).toBe(1);
+    expect(listed.find((x) => x.id === emptyId)!._count.enrollments).toBe(0);
+  });
+
   //  — re-enrolling a contact that already COMPLETED the sequence must return a clean 409,
   // not an unhandled 500 from the unconditional (sequence, contact) unique index.
   it("re-enrolling a completed contact returns 409, never a 500", async () => {

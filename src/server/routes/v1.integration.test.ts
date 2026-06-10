@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { inArray, eq } from "drizzle-orm";
-import { workspaces, channels, contacts, apiKeys, tags } from "@/db/schema";
+import { workspaces, channels, contacts, apiKeys, tags, conversations, messages } from "@/db/schema";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -69,6 +69,22 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.data.map((c: { id: string }) => c.id)).toContain(CH_A);
     expect(body.data[0]).toHaveProperty("is_active", true);
+  });
+
+  //  — held_count is now a single grouped count joined by a Map (not a join-count per
+  // channel). Verify it maps the count to the right channel: a channel with held messages reports
+  // them, while one without reports 0.
+  it("reports held_count per channel via the grouped count", async () => {
+    if (!TEST_DB) return;
+    const [conv] = await db.insert(conversations).values({ workspace_id: WS_A, channel_id: CH_A, contact_id: CONTACT_A, platform: "facebook", status: "open" }).returning({ id: conversations.id });
+    await db.insert(messages).values([
+      { conversation_id: conv.id, direction: "outbound", status: "held", text: "a" },
+      { conversation_id: conv.id, direction: "outbound", status: "held", text: "b" },
+      { conversation_id: conv.id, direction: "outbound", status: "sent", text: "c" },
+    ]);
+    const body = await (await app.request("/api/v1/channels", { headers: authHeaders })).json();
+    const ch = (body.data as Array<{ id: string; held_count: number }>).find((c) => c.id === CH_A);
+    expect(ch!.held_count).toBe(2); // only the two held, not the sent one
   });
 
   it("reads an own-workspace contact (param passed through)", async () => {

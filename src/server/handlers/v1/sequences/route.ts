@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sequences, sequenceEnrollments } from "@/db/schema";
@@ -36,12 +36,18 @@ export async function GET(request: Request) {
     columns: { id: true, name: true, description: true, status: true, steps: true, created_at: true },
   });
 
-  const withCounts = await Promise.all(
-    rows.map(async (seq) => ({
-      ...seq,
-      _count: { enrollments: await db.$count(sequenceEnrollments, eq(sequenceEnrollments.sequence_id, seq.id)) },
-    })),
-  );
+  // One grouped enrollment count for all sequences instead of a $count per sequence (N+1) — mirrors
+  // the dashboard's loadSequences.
+  const ids = rows.map((r) => r.id);
+  const counts = ids.length
+    ? await db
+        .select({ sequence_id: sequenceEnrollments.sequence_id, n: count() })
+        .from(sequenceEnrollments)
+        .where(inArray(sequenceEnrollments.sequence_id, ids))
+        .groupBy(sequenceEnrollments.sequence_id)
+    : [];
+  const bySeq = new Map(counts.map((c) => [c.sequence_id, Number(c.n)]));
+  const withCounts = rows.map((seq) => ({ ...seq, _count: { enrollments: bySeq.get(seq.id) ?? 0 } }));
 
   return ok(withCounts);
 }

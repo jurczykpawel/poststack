@@ -1,4 +1,4 @@
-import { and, eq, asc, count } from "drizzle-orm";
+import { and, eq, asc, count, inArray } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels, messages, conversations } from "@/db/schema";
@@ -30,16 +30,19 @@ export async function GET(request: Request) {
   });
 
   // `is_active` kept as a computed alias for backward compatibility.
-  // `held_count` surfaces outbound parked while the channel was down (REL5).
-  const withHeld = await Promise.all(
-    rows.map(async (c) => {
-      const [{ n }] = await db
-        .select({ n: count() })
+  // `held_count` surfaces outbound parked while the channel was down (REL5). One grouped count for
+  // all channels instead of a join-count per channel (N+1) — mirrors the dashboard's loadChannels
+  //.
+  const ids = rows.map((r) => r.id);
+  const heldCounts = ids.length
+    ? await db
+        .select({ channel_id: conversations.channel_id, n: count() })
         .from(messages)
         .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
-        .where(and(eq(messages.status, "held"), eq(conversations.channel_id, c.id)));
-      return { ...c, is_active: c.status === "active", held_count: Number(n) };
-    }),
-  );
+        .where(and(eq(messages.status, "held"), inArray(conversations.channel_id, ids)))
+        .groupBy(conversations.channel_id)
+    : [];
+  const heldByChannel = new Map(heldCounts.map((h) => [h.channel_id, Number(h.n)]));
+  const withHeld = rows.map((c) => ({ ...c, is_active: c.status === "active", held_count: heldByChannel.get(c.id) ?? 0 }));
   return ok(withHeld);
 }
