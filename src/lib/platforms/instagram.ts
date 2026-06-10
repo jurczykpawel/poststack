@@ -195,8 +195,10 @@ export class InstagramProvider extends SocialProvider {
 
     await assertMetaOk(res, "Instagram send message");
 
-    const data = (await res.json()) as { message_id: string };
-    return { platformMessageId: data.message_id };
+    // 2xx → accepted. Parse defensively so an empty/non-JSON 2xx body from a proxy doesn't throw
+    // after acceptance and trigger a retry/double-send; treat it as sent, id unknown.
+    const data = (await res.json().catch(() => ({}))) as { message_id?: string };
+    return { platformMessageId: data.message_id ?? null };
   }
 
   async sendComment(

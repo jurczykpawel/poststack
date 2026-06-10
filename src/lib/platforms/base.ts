@@ -42,7 +42,8 @@ export interface MessageContent {
 }
 
 export interface SentMessage {
-  platformMessageId: string;
+  /** null when the provider returned 2xx but no parseable message id. */
+  platformMessageId: string | null;
 }
 
 /**

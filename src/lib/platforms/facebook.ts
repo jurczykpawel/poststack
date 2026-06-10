@@ -139,8 +139,11 @@ export class FacebookProvider extends SocialProvider {
 
     await assertMetaOk(res, "Facebook send message");
 
-    const data = (await res.json()) as { message_id: string };
-    return { platformMessageId: data.message_id };
+    // assertMetaOk passed (2xx) → the send was accepted. A proxy/CDN can still return an empty or
+    // non-JSON 2xx body; parse defensively so we don't throw AFTER acceptance (which would retry and
+    // double-send), treating an unparseable body as sent with an unknown message id.
+    const data = (await res.json().catch(() => ({}))) as { message_id?: string };
+    return { platformMessageId: data.message_id ?? null };
   }
 
   async sendComment(

@@ -346,6 +346,24 @@ describe("Meta Graph API Contract Tests", () => {
         );
       }
     });
+  });
+
+  //  — a 2xx send with an empty/non-JSON body (proxy/CDN) must be treated as sent, not throw
+  // after acceptance (which would retry and double-send the DM).
+  describe("non-JSON 2xx body", () => {
+    it("Facebook sendMessage: empty 2xx body → sent with null id, no throw", async () => {
+      const { FacebookProvider } = await import("./facebook");
+      globalThis.fetch = vi.fn(async () => new Response("", { status: 200 })) as typeof fetch;
+      const res = await new FacebookProvider().sendMessage({ access_token: "tok" }, "u1", { text: "hi" });
+      expect(res.platformMessageId).toBeNull();
+    });
+
+    it("Instagram sendMessage: HTML 2xx body → sent with null id, no throw", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      globalThis.fetch = vi.fn(async () => new Response("<html>ok</html>", { status: 200, headers: { "content-type": "text/html" } })) as typeof fetch;
+      const res = await new InstagramProvider().sendMessage({ access_token: "tok" }, "u1", { text: "hi" });
+      expect(res.platformMessageId).toBeNull();
+    });
 
     it("OAuth dialog URL uses META_OAUTH_BASE", async () => {
       const { FacebookProvider } = await import("./facebook");
