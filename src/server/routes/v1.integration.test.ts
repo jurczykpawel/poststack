@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { inArray, eq } from "drizzle-orm";
-import { workspaces, channels, contacts, apiKeys } from "@/db/schema";
+import { workspaces, channels, contacts, apiKeys, tags } from "@/db/schema";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -231,5 +231,23 @@ describe("api-key management is session-only + scope catalog (real Postgres)", (
     });
     const res = await app.request("/api/v1/sequences", { headers: { authorization: `Bearer ${SEQ_KEY}` } });
     expect(res.status).toBe(200);
+  });
+
+  //  — two concurrent same-name POST /tags must not 500: the loser of the read-then-write
+  // race gets a clean 409 (conflict-aware insert on the (workspace_id, name) unique index), not an
+  // uncaught 23505. Exactly one tag is created.
+  it("two concurrent same-name POST /tags yield one 201 + one 409 (no 500)", async () => {
+    if (!TEST_DB) return;
+    const mk = () =>
+      app.request("/api/v1/tags", {
+        method: "POST",
+        headers: { ...authHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ name: "race-tag" }),
+      });
+    const [a, b] = await Promise.all([mk(), mk()]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([201, 409]);
+    const rows = await db.query.tags.findMany({ where: eq(tags.workspace_id, WS_A) });
+    expect(rows.filter((t) => t.name === "race-tag").length).toBe(1);
   });
 });

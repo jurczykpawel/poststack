@@ -59,10 +59,15 @@ export async function POST(request: Request) {
   });
   if (existing) return ApiErrors.conflict("Tag with this name already exists");
 
+  // Conflict-aware insert closes the read-then-write race: two concurrent same-name POSTs both miss
+  // the read above, so let the (workspace_id, name) unique index arbitrate — the loser's insert is a
+  // no-op and returns a clean 409 instead of an uncaught 23505 → 500.
   const [tag] = await db
     .insert(tags)
     .values({ workspace_id: auth.workspaceId, name: parsed.data.name, color: parsed.data.color })
+    .onConflictDoNothing({ target: [tags.workspace_id, tags.name] })
     .returning();
+  if (!tag) return ApiErrors.conflict("Tag with this name already exists");
 
   return created(tag);
 }
