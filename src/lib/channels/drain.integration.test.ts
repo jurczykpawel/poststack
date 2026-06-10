@@ -9,6 +9,7 @@ const TEST_DB = process.env.TEST_DATABASE_URL;
 let pool: Pool;
 let db: typeof import("@/lib/db").db;
 let drainChannel: typeof import("./drain").drainChannel;
+let DRAIN_BATCH_SIZE: number;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -22,7 +23,7 @@ beforeAll(async () => {
   pool = new Pool({ connectionString: TEST_DB });
   await runMigrations({ connectionString: TEST_DB });
   ({ db } = await import("@/lib/db"));
-  ({ drainChannel } = await import("./drain"));
+  ({ drainChannel, DRAIN_BATCH_SIZE } = await import("./drain"));
   ({ closeQueue } = await import("@/lib/queue/client"));
 
   await db.delete(workspaces).where(eq(workspaces.id, WS));
@@ -193,5 +194,26 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     const result = await drainChannel(CH, new Date(Date.now() + 25 * 60 * 60 * 1000));
     expect(result).toEqual({ enqueued: 0, expired: 1 });
     expect((await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "d-noinb-old") }))?.status).toBe("expired");
+  });
+
+  //  — a backlog larger than one page must be drained completely, in keyset batches, without
+  // re-reading the rows it re-enqueues (which stay `held`) or skipping any.
+  it("drains a backlog larger than one batch, accounting for every held row exactly once", async () => {
+    if (!TEST_DB) return;
+    const total = DRAIN_BATCH_SIZE + 25; // spills past one page → at least two rounds
+    // outgoing-comment uses a parked_at / 7-day window, so all freshly-parked rows are in-window.
+    await db.insert(outboundDeliveries).values(
+      Array.from({ length: total }, (_, i) => ({
+        delivery_key: `bulk-${i}`, workspace_id: WS, channel_id: CH, task_name: "outgoing-comment" as const,
+        payload: { channelId: CH, commentId: `C-${i}`, text: "ty", idempotencyKey: `bulk-${i}` },
+        status: "held" as const, attempts: 1,
+      })),
+    );
+
+    const result = await drainChannel(CH);
+
+    expect(result).toEqual({ enqueued: total, expired: 0 });
+    const jobs = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-comment'");
+    expect(jobs.rows[0].n).toBe(total);
   });
 });
