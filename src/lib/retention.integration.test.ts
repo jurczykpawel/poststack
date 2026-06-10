@@ -156,21 +156,23 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
       expect(await db.query.messages.findFirst({ where: eq(messages.id, id) })).toBeDefined();
     });
 
-    //  — the conversation husk-prune is the same class: last_message_at can be DB-clock (a
-    // manual reply writes it via GREATEST(..., now())), so it must use the UTC cutoff too.
-    it("keeps an empty 23h-old conversation under a 1-day policy on a non-UTC host", async () => {
+    //  — last_message_at is PREDOMINANTLY app-clock (the worker writes it with `new Date()`),
+    // so the husk-prune stays on the plain Date cutoff: an app-clock husk past the window is pruned
+    // correctly off-pin. (A UTC cutoff here over-retained the dominant app-clock case.)
+    it("prunes an empty app-clock husk past the window on a non-UTC host", async () => {
       if (!TEST_DB) return;
       const CONTACT_H = "cccccccc-0000-0000-0000-00000000009b";
       const CONV_HUSK = "cccccccc-0000-0000-0000-00000000009a";
       await db.insert(contacts).values({ id: CONTACT_H, workspace_id: WS });
-      await db.insert(conversations).values({ id: CONV_HUSK, workspace_id: WS, channel_id: CH, contact_id: CONTACT_H, platform: "facebook", last_message_at: recent });
-      // Pin last_message_at to a DB-clock value 23h old (the manual-reply / mixed-domain case).
-      await db.update(conversations).set({ last_message_at: sql`now() - interval '23 hours'` }).where(eq(conversations.id, CONV_HUSK));
+      // App-clock last_message_at (how the worker writes it), 25h old → past the 1-day window. With
+      // the plain Date cutoff this is compared in the same (process-TZ) domain → correctly pruned.
+      const appClock25hAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      await db.insert(conversations).values({ id: CONV_HUSK, workspace_id: WS, channel_id: CH, contact_id: CONTACT_H, platform: "facebook", last_message_at: appClock25hAgo });
 
       await pruneWorkspaceMessages(WS, 1, new Date());
 
-      // Empty + 23h < 24h cutoff → must survive (was wrongly pruned under the app-clock cutoff on +TZ).
-      expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_HUSK) })).toBeDefined();
+      // Empty + 25h > 24h cutoff → pruned (a UTC cutoff would have over-retained it on +TZ).
+      expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_HUSK) })).toBeUndefined();
     });
   });
 });

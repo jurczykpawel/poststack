@@ -170,5 +170,23 @@ describe("pruneExpired (real Postgres)", () => {
       expect(await db.query.processedEvents.findFirst({ where: eq(s.processedEvents.key, KEY) })).toBeDefined();
       await db.delete(s.processedEvents).where(eq(s.processedEvents.key, KEY));
     });
+
+    //  — outbound_deliveries.updated_at is app-clock (terminal transitions write it via
+    // $onUpdate(new Date())), so its prune stays on the plain Date cutoff: an app-clock terminal row
+    // past the 90-day window is pruned even on a non-UTC host (a UTC cutoff over-retained it there).
+    it("prunes an app-clock terminal delivery past its 90-day window on a non-UTC host", async () => {
+      if (!TEST_DB) return;
+      const KEY = "dk-tz-appclock-term";
+      await db.delete(s.outboundDeliveries).where(eq(s.outboundDeliveries.delivery_key, KEY));
+      // App-clock updated_at (JS Date), 90 days + 1h old → past the window.
+      const appClockOld = new Date(NOW.getTime() - (90 * DAY + 3_600_000));
+      await db.insert(s.outboundDeliveries).values({
+        delivery_key: KEY, workspace_id: WS, channel_id: CH, task_name: "outgoing-message", status: "sent", payload: {}, updated_at: appClockOld,
+      });
+
+      await pruneExpired(new Date());
+
+      expect(await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, KEY) })).toBeUndefined();
+    });
   });
 });

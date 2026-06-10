@@ -2,10 +2,14 @@ import { and, eq, lt, ne, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { ruleCooldowns, revokedTokens, rateLimitCounters, processedEvents, outboundDeliveries, pendingApprovals } from "@/db/schema";
 
-/** A JS Date rendered as its UTC wall-clock, for comparing against a DB-clock (CURRENT_TIMESTAMP /
- *  now() / DEFAULT now()) `timestamp without time zone` column independent of the process timezone —
- *  the same TZ-safety fix as the retention cutoff. App-clock columns (expires_at,
- *  resolved_at — written by JS `new Date()`) keep the plain Date, since that's their domain. */
+/** A JS Date rendered as its UTC wall-clock, for comparing against a genuinely DB-clock
+ *  `timestamp without time zone` column (CURRENT_TIMESTAMP / now()) independent of the process
+ *  timezone — the same TZ-safety fix as the retention cutoff. Use it ONLY for columns
+ *  actually written by the DB clock: `processed_events.created_at` and `rate_limit_counters.window_start`
+ *  here. Predominantly app-clock columns (written by JS `new Date()`, e.g. `outbound_deliveries.updated_at`
+ *  via $onUpdate, `revoked_tokens.expires_at`) keep the plain Date — a UTC cutoff would invert the skew
+ *  off-pin. NB `rule_cooldowns.expires_at` IS DB-clock (`now() + interval`), but its prune is a
+ *  benign bounded cleanup whose authoritative gate is the DB-clock `expires_at < now()` in limits.ts. */
 const utcCutoff = (d: Date) => sql`${d.toISOString()}::timestamp`;
 
 /** Event-dedup rows are kept well past any platform's redelivery window, then dropped. Meta
@@ -46,12 +50,13 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   // Terminal delivery-ledger rows older than the window — but never a `held` row, which is still
   // awaiting a drain.
   const ledgerCutoff = new Date(now.getTime() - TERMINAL_LEDGER_TTL_MS);
-  // updated_at can be DB-clock (DEFAULT now() on insert) as well as app-clock ($onUpdate), so compare
-  // it with a UTC cutoff.
+  // updated_at on a terminal row is app-clock: every status transition goes through `.set({status})`
+  // → $onUpdate(() => new Date()), so the DB-clock insert default never survives to a terminal row.
+  // Use the plain Date ( — a UTC cutoff here over-retained off-pin).
   await db.delete(outboundDeliveries).where(
     and(
       inArray(outboundDeliveries.status, [...TERMINAL_DELIVERY_STATUSES]),
-      lt(outboundDeliveries.updated_at, utcCutoff(ledgerCutoff)),
+      lt(outboundDeliveries.updated_at, ledgerCutoff),
     ),
   );
   // Resolved approvals (approved/rejected) older than the window. A NULL resolved_at never matches
@@ -65,7 +70,7 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   await db.delete(outboundDeliveries).where(
     and(
       eq(outboundDeliveries.status, "sending"),
-      lt(outboundDeliveries.updated_at, utcCutoff(new Date(now.getTime() - STUCK_SENDING_TTL_MS))),
+      lt(outboundDeliveries.updated_at, new Date(now.getTime() - STUCK_SENDING_TTL_MS)),
     ),
   );
 }
