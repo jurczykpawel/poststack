@@ -80,6 +80,24 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId } = await params;
+  const existing = await db.query.sequences.findFirst({
+    where: and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, auth.workspaceId)),
+    columns: { id: true },
+  });
+  if (!existing) return ApiErrors.notFound();
+
+  // sequence_enrollments.sequence_id is ON DELETE cascade, so a bare delete would silently destroy
+  // in-flight drips with no confirmation — asymmetric with channel-delete, which RESTRICTs with a
+  // 409. Block it the same way; the operator archives the sequence (keeps definition + enrollments)
+  // or cancels the enrollments first (, complements the cancel route in ).
+  const activeEnrollment = await db.query.sequenceEnrollments.findFirst({
+    where: and(eq(sequenceEnrollments.sequence_id, sequenceId), eq(sequenceEnrollments.status, "active")),
+    columns: { id: true },
+  });
+  if (activeEnrollment) {
+    return ApiErrors.conflict("Sequence has active enrollments — archive it or cancel the enrollments first");
+  }
+
   const result = await db
     .delete(sequences)
     .where(and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, auth.workspaceId)));

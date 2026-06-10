@@ -16,6 +16,8 @@ const KEY = "rs_live_enroll_atomic_key_abcdef01";
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let enroll: typeof import("./[sequenceId]/enroll/route");
+let sequence: typeof import("./[sequenceId]/route");
+let enrollmentCancel: typeof import("./[sequenceId]/enrollments/[enrollmentId]/route");
 
 const WS = "eeeeeeee-0000-4000-8000-0000000000e1";
 const CH = "eeeeeeee-0000-4000-8000-0000000000e2";
@@ -32,6 +34,8 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   enroll = await import("./[sequenceId]/enroll/route");
+  sequence = await import("./[sequenceId]/route");
+  enrollmentCancel = await import("./[sequenceId]/enrollments/[enrollmentId]/route");
 });
 
 beforeEach(async () => {
@@ -84,5 +88,39 @@ describe("enroll is atomic with the first-step enqueue", () => {
     expect(addJobTx).toHaveBeenLastCalledWith(
       expect.anything(), "sequence-step", { enrollmentId: enr!.id }, expect.objectContaining({ jobKey: `seq-step:${enr!.id}:0` }),
     );
+  });
+});
+
+const seedEnrollment = async () => {
+  const [enr] = await db.insert(s.sequenceEnrollments).values({
+    sequence_id: seqId, contact_id: CONTACT, channel_id: CH, status: "active", current_step_index: 0,
+    steps_snapshot: [{ type: "message", content: "hi" }],
+  }).returning({ id: s.sequenceEnrollments.id });
+  return enr.id;
+};
+const authedReq = () => new Request("http://x", { method: "DELETE", headers: { authorization: `Bearer ${KEY}` } });
+
+//  — an in-flight enrollment can be cancelled (the only prior "stop" was deleting the sequence).
+describe("cancel enrollment", () => {
+  it("flips an active enrollment to cancelled", async () => {
+    if (!TEST_DB) return;
+    const enrId = await seedEnrollment();
+    const res = await enrollmentCancel.DELETE(authedReq(), { params: Promise.resolve({ sequenceId: seqId, enrollmentId: enrId }) });
+    expect(res.status).toBe(200);
+    const row = await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.id, enrId) });
+    expect(row?.status).toBe("cancelled");
+  });
+});
+
+//  — deleting a sequence with active enrollments is blocked with a 409 (symmetric with
+// channel-delete); once the enrollment is no longer active, the delete goes through.
+describe("sequence DELETE guards active enrollments", () => {
+  it("returns 409 with an active enrollment, 204 after it's cancelled", async () => {
+    if (!TEST_DB) return;
+    const enrId = await seedEnrollment();
+    expect((await sequence.DELETE(authedReq(), ctx())).status).toBe(409);
+
+    await db.update(s.sequenceEnrollments).set({ status: "cancelled" }).where(eq(s.sequenceEnrollments.id, enrId));
+    expect((await sequence.DELETE(authedReq(), ctx())).status).toBe(204);
   });
 });

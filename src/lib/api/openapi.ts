@@ -671,6 +671,21 @@ export const openApiSpec = {
         },
       },
     },
+    "/sequences/{sequenceId}/enrollments/{enrollmentId}": {
+      delete: {
+        tags: ["Sequences"],
+        summary: "Cancel an in-flight sequence enrollment",
+        parameters: [
+          { name: "sequenceId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "enrollmentId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": { description: "Enrollment cancelled (or already terminal)" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
 
     // ─── API keys ─────────────────────────────────────────────────────────────
     "/api-keys": {

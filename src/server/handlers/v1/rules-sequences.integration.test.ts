@@ -477,8 +477,10 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     const e2 = await enroll.POST(post({ contact_id: CONTACT, channel_id: CH }), ctx);
     expect(e2.status).toBe(409);
 
+    // Deleting a sequence with an active enrollment is now blocked with a 409; the
+    // delete-after-cancel 204 path is covered in enroll-atomicity.integration.test.ts.
     const del = await seq.DELETE(get() as never, ctx);
-    expect(del.status).toBe(204);
+    expect(del.status).toBe(409);
   });
 
   //  — re-enrolling a contact that already COMPLETED the sequence must return a clean 409,

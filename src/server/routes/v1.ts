@@ -15,6 +15,7 @@ import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
 import * as sequences from "@/server/handlers/v1/sequences/route";
 import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
 import * as sequenceEnroll from "@/server/handlers/v1/sequences/[sequenceId]/enroll/route";
+import * as sequenceEnrollment from "@/server/handlers/v1/sequences/[sequenceId]/enrollments/[enrollmentId]/route";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import * as auditLog from "@/server/handlers/v1/audit-log/route";
@@ -101,6 +102,11 @@ v1.delete("/sequences/:sequenceId", (c) =>
 );
 v1.post("/sequences/:sequenceId/enroll", (c) =>
   sequenceEnroll.POST(c.req.raw, { params: Promise.resolve({ sequenceId: c.req.param("sequenceId") }) }),
+);
+v1.delete("/sequences/:sequenceId/enrollments/:enrollmentId", (c) =>
+  sequenceEnrollment.DELETE(c.req.raw, {
+    params: Promise.resolve({ sequenceId: c.req.param("sequenceId"), enrollmentId: c.req.param("enrollmentId") }),
+  }),
 );
 
 // Approvals (human-in-the-loop before send)
