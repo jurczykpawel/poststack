@@ -24,7 +24,9 @@ export const requireSession: MiddlewareHandler = async (c, next) => {
   const token = sessionToken(c.req.header("cookie"));
   if (!token) return c.redirect("/login");
   try {
-    await jwtVerify(token, secret, { issuer: "replystack", audience: "replystack" });
+    // Pin the verify algorithm to HS256 (what signSession uses) — defense-in-depth against a future
+    // asymmetric-key refactor re-opening alg-confusion.
+    await jwtVerify(token, secret, { issuer: "replystack", audience: "replystack", algorithms: ["HS256"] });
     return next();
   } catch {
     c.header("set-cookie", "rs_session=; Path=/; Max-Age=0");

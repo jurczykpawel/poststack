@@ -117,6 +117,11 @@ async function authenticateSession(
     const { payload } = await jwtVerify(token, JWT_SECRET, {
       issuer: "replystack",
       audience: "replystack",
+      // Pin the verify algorithm to what signSession signs with (HS256). The symmetric Uint8Array
+      // key already makes jose reject asymmetric (RS*/ES*) and `none` algs, so this is
+      // defense-in-depth against a future refactor swapping the secret for a KeyObject/JWKS that
+      // would otherwise re-open alg-confusion.
+      algorithms: ["HS256"],
     });
     const userId = payload.sub as string;
     const workspaceId = payload.wid as string;
@@ -174,7 +179,7 @@ export async function invalidateSession(token: string): Promise<void> {
     // Verify issuer/audience too (logout is an unauthenticated endpoint, so the caller controls
     // the token). Otherwise a token merely signed with this JWT_SECRET — e.g. one minted by a
     // sibling service that shares the secret — could push an arbitrary jti onto the denylist.
-    const { payload } = await jwtVerify(token, JWT_SECRET, { issuer: "replystack", audience: "replystack" });
+    const { payload } = await jwtVerify(token, JWT_SECRET, { issuer: "replystack", audience: "replystack", algorithms: ["HS256"] });
     const jti = payload.jti;
     const exp = payload.exp;
 
