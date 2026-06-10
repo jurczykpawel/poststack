@@ -1,7 +1,7 @@
 import { and, eq, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { autoReplyRules } from "@/db/schema";
+import { autoReplyRules, pendingApprovals } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
 import { z } from "zod";
@@ -231,6 +231,21 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
+  // Block deleting a rule that still has un-actioned approvals: pending_approvals.rule_id is
+  // ON DELETE CASCADE, so a bare delete would silently destroy the human-review queue entries
+  // waiting on a decision — leaving those contacts with no reply and no signal. Make the operator
+  // resolve (approve/reject) them first, symmetric with the guarded sequence-delete and
+  // channel-delete — the in-flight-state DELETE-guard class.
+  const pending = await db.query.pendingApprovals.findFirst({
+    where: and(
+      eq(pendingApprovals.rule_id, ruleId),
+      eq(pendingApprovals.workspace_id, auth.workspaceId),
+      eq(pendingApprovals.status, "pending"),
+    ),
+    columns: { id: true },
+  });
+  if (pending) return ApiErrors.conflict("Rule has pending approvals — resolve (approve or reject) them first");
+
   const result = await db
     .delete(autoReplyRules)
     .where(and(eq(autoReplyRules.id, ruleId), eq(autoReplyRules.workspace_id, auth.workspaceId)));

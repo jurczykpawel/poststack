@@ -11,6 +11,7 @@ let approvals: typeof import("./approvals/route");
 let approve: typeof import("./approvals/[approvalId]/approve/route");
 let reject: typeof import("./approvals/[approvalId]/reject/route");
 let rules: typeof import("./rules/route");
+let ruleById: typeof import("./rules/[ruleId]/route");
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-4000-8000-0000000000e1";
@@ -33,6 +34,7 @@ beforeAll(async () => {
   approve = await import("./approvals/[approvalId]/approve/route");
   reject = await import("./approvals/[approvalId]/reject/route");
   rules = await import("./rules/route");
+  ruleById = await import("./rules/[ruleId]/route");
   ({ closeQueue } = await import("@/lib/queue/client"));
 });
 
@@ -186,6 +188,24 @@ describe("approval workflow (real Postgres)", () => {
     const res = await approve.POST(post({}), ctx(a.id));
     expect(res.status).toBe(404);
     expect(await outgoingCount()).toBe(0);
+  });
+
+  //  — deleting a rule that still has a `pending` approval would CASCADE-destroy the
+  // human-review entry. Block it with a 409 (symmetric with sequence/channel delete guards); once
+  // the approval is resolved, the delete goes through.
+  it("DELETE a rule with a pending approval is blocked (409); succeeds once resolved", async () => {
+    if (!TEST_DB) return;
+    const approvalId = await seedApproval();
+    const del = () =>
+      ruleById.DELETE(new Request("http://x", { method: "DELETE", headers: { authorization: `Bearer ${KEY}` } }), {
+        params: Promise.resolve({ ruleId: RULE }),
+      });
+    expect((await del()).status).toBe(409);
+    // The pending approval survived — not silently cascade-destroyed.
+    expect(await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, approvalId) })).toBeTruthy();
+    // Resolve it, then the rule can be deleted.
+    await reject.POST(post({}), ctx(approvalId));
+    expect((await del()).status).toBe(204);
   });
 
   it("approve with empty content resolves without enqueueing", async () => {
