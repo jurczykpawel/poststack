@@ -25,7 +25,7 @@ describe("matchRule — keyword trigger", () => {
     expect(matchRule(rule, "hello world", "message")).toBe(false);
   });
 
-  //  — Polish diacritics can arrive decomposed (NFD: base letter + combining mark) while the
+  // Polish diacritics can arrive decomposed (NFD: base letter + combining mark) while the
   // stored keyword is composed (NFC), or vice versa. toLowerCase() does not normalize, so the
   // matcher must NFC-fold both sides or the comparison silently fails on different code-unit forms.
   it("matches Polish diacritics across NFC/NFD normalization forms", () => {
@@ -161,7 +161,7 @@ describe("matchRule — default trigger", () => {
     expect(matchRule(rule, "anything", "comment")).toBe(false);
   });
 
-  //  — a reaction arrives as eventType:"message" + isReaction:true; welcome/default
+  // a reaction arrives as eventType:"message" + isReaction:true; welcome/default
   // catch-all rules must NOT fire a DM in response to an emoji reaction.
   it("does NOT match an emoji reaction (isReaction)", () => {
     for (const trigger_type of ["default", "welcome"]) {

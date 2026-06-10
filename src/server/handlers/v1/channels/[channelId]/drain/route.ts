@@ -8,7 +8,7 @@ import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
-// POST /api/v1/channels/:channelId/drain — force a replay of held messages (REL5)
+// POST /api/v1/channels/:channelId/drain — force a replay of held messages
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ channelId: string }> }

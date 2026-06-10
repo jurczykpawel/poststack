@@ -54,7 +54,7 @@ describe("requireSession — JWT algorithm pin", () => {
   it("rejects a token signed with a non-pinned algorithm (HS512) and redirects to /login", async () => {
     const { requireSession } = await import("./page-auth");
     // Same symmetric secret, only the header alg differs — without the ["HS256"] pin jose would
-    // accept this; with the pin it must be rejected (the exact future-refactor footgun  closes).
+    // accept this; with the pin it must be rejected (the exact future-refactor footgun this pin closes).
     const token = await signWith("HS512");
     const { c, redirects } = fakeContext(`rs_session=${token}`);
     const next = vi.fn(async () => {});

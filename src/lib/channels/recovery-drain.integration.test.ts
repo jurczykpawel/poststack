@@ -103,7 +103,7 @@ describe("recovery → drain is atomic", () => {
   });
 });
 
-//  — the operator PATCH resume path had the same non-atomic resume→drain as 's
+// the operator PATCH resume path had the same non-atomic resume→drain as the
 // other paths. The status flip and the drain enqueue must commit together.
 describe("operator PATCH channel-resume → drain is atomic", () => {
   const patchReq = (body: unknown) =>

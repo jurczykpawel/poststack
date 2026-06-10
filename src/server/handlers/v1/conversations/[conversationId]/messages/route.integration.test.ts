@@ -80,7 +80,7 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
     expect(await flag()).toBe(false);
   });
 
-  //  — an over-long Idempotency-Key would overflow graphile's 512-char job_key cap and
+  // an over-long Idempotency-Key would overflow graphile's 512-char job_key cap and
   // surface as a 500; bound it to a clean 400.
   it("rejects an over-long Idempotency-Key with 400 (not 500)", async () => {
     if (!TEST_DB) return;
@@ -94,7 +94,7 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
     expect(addJobTx).not.toHaveBeenCalled();
   });
 
-  //  — clearing the flag must advance last_message_at NOW (the resolution marker), so a
+  // clearing the flag must advance last_message_at NOW (the resolution marker), so a
   // stale old-inbound final-retry can't re-raise the flag before the outgoing job runs.
   it("advances last_message_at on manual reply so a later stale retry cannot re-raise the flag", async () => {
     if (!TEST_DB) return;
@@ -108,7 +108,7 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
   });
 });
 
-//  — a non-ISO cursor is a client error (400), not an Invalid Date that throws when the query
+// a non-ISO cursor is a client error (400), not an Invalid Date that throws when the query
 // param is serialized (which surfaced as a 500).
 describe("messages GET — cursor validation", () => {
   const getReq = (qs: string) =>

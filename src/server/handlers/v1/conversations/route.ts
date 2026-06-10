@@ -16,7 +16,7 @@ const querySchema = z.object({
 
 // Keyset cursor over (last_message_at DESC NULLS LAST, id DESC). Carrying the id tie-breaker
 // means a next page is always reachable — even when the boundary row's last_message_at is NULL,
-// which a bare-timestamp cursor could never page past (same class as  for contacts).
+// which a bare-timestamp cursor could never page past (same class as the contacts cursor).
 function encodeCursor(ts: Date | null, id: string): string {
   return Buffer.from(JSON.stringify({ t: ts ? ts.toISOString() : null, i: id })).toString("base64url");
 }

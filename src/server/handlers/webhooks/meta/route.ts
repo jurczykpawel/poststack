@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   // single instance-wide counter let one viral page's burst exhaust the shared budget and starve
   // every other page's events; a per-page key isolates them. Done after HMAC verification, so only
   // Meta-signed traffic can mint these keys. A payload with no usable page id falls back to
-  // one instance-wide bucket so every signed request stays bounded (no rate-limit bypass — ).
+  // one instance-wide bucket so every signed request stays bounded (no rate-limit bypass).
   // (A multi-page batch redelivered after one page tripped its limit re-counts the under-limit pages;
   // accepted given the generous ceiling, the hourly counter prune, and idempotent job keys.)
   const pageIds = [...new Set((payload.entry ?? []).map((e) => e.id).filter((id): id is string => typeof id === "string"))];
@@ -138,12 +138,12 @@ export async function POST(request: Request) {
     for (const messagingEvent of entry.messaging ?? []) {
       if (!messagingEvent.postback?.payload) continue;
       if (messagingEvent.message) continue; // already handled above
-      if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue; // 
+      if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue;
 
       // The button payload is operator-controlled (up to 1000 chars); embedding it raw would
       // overflow graphile's 512-char job_key cap → the enqueue throws → 503 → Meta retry-storm
       // for that button forever. Hash it into the synthetic id/key (deterministic → dedup intact);
-      // the full payload is preserved in `postbackPayload` (, sibling of ).
+      // the full payload is preserved in `postbackPayload`.
       const payloadHash = createHash("sha256").update(messagingEvent.postback.payload).digest("hex").slice(0, 16);
       const postbackKey = `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${payloadHash}`;
 
@@ -172,7 +172,7 @@ export async function POST(request: Request) {
     for (const messagingEvent of entry.messaging ?? []) {
       const reaction = messagingEvent.reaction;
       if (!reaction || reaction.action !== "react") continue;
-      if (!messagingEvent.sender?.id) continue; //  — guard before dereferencing sender
+      if (!messagingEvent.sender?.id) continue; // guard before dereferencing sender
 
       const job: IncomingReactionJob = {
         platform,

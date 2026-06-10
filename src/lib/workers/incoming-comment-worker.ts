@@ -152,7 +152,7 @@ export async function processIncomingComment(
   // the DM worker. Only for an outcome THIS call decided (`no_match`): a redelivery returns
   // `already` and leaves the flag untouched, so it can't re-raise a flag a human just cleared. A
   // reaction is deliberately NOT flagged — it's a low-signal acknowledgement, not awaiting a reply
-  // (same rationale as 's reopen-suppression).
+  // (same rationale as the reopen-suppression).
   if (outcome === "no_match") {
     await db.update(conversations)
       .set({ needs_manual_reply: true })

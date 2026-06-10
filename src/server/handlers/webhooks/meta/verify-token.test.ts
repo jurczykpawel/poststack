@@ -21,7 +21,7 @@ const req = (token?: string) => {
   return new Request(u);
 };
 
-// #2 — the verify-token compare must be constant-time (timingSafeEqual over SHA-256 digests),
+// the verify-token compare must be constant-time (timingSafeEqual over SHA-256 digests),
 // like the CRON/HMAC checks. These assert the functional contract; equal-length and wrong-length
 // tokens both reject without short-circuiting or throwing.
 describe("Meta webhook hub verification", () => {

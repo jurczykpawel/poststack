@@ -5,7 +5,7 @@ import type { TaskName } from "./types";
  * Per-task retry count. Every task type retries transient failures with
  * graphile-worker's exponential backoff. Permanent failures (e.g. an invalid
  * token) are classified by the workers and returned without throwing, so they
- * do not consume retries (see REL2). A job that exhausts these attempts is
+ * do not consume retries. A job that exhausts these attempts is
  * retained by graphile as a permanently-failed (dead-letter) row.
  */
 export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {

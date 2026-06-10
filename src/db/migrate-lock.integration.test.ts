@@ -15,7 +15,7 @@ afterAll(async () => {
   if (pool) await pool.end();
 });
 
-//  — migrate.ts sets `lock_timeout` before pg_advisory_lock so a replica whose lock-holder
+// migrate.ts sets `lock_timeout` before pg_advisory_lock so a replica whose lock-holder
 // hangs mid-migration turns waiters into a fast, VISIBLE error (entrypoint crash-loop) rather than an
 // indefinite silent hang. This guards the mechanism: a contended advisory lock with lock_timeout set
 // must reject quickly, not block forever.

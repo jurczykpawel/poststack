@@ -78,7 +78,7 @@ describe("ownership scoping via Bearer API key (real Postgres)", () => {
     expect(res.status).toBe(401);
   });
 
-  //  — the PATCH/DELETE WHERE carries workspace_id alongside the PK, so a cross-workspace
+  // the PATCH/DELETE WHERE carries workspace_id alongside the PK, so a cross-workspace
   // id can never mutate another tenant's row. Black-box behaviour is unchanged (404, untouched).
   it("cannot patch a contact in another workspace (404, unchanged)", async () => {
     if (!TEST_DB) return;
@@ -95,7 +95,7 @@ describe("ownership scoping via Bearer API key (real Postgres)", () => {
     expect(row?.is_subscribed).toBe(true);
   });
 
-  //  — PATCH tag_ids actually syncs the contact's tags (the OpenAPI spec advertised the
+  // PATCH tag_ids actually syncs the contact's tags (the OpenAPI spec advertised the
   // field; the handler used to silently drop it → a no-op 200). A tag from another workspace is
   // ignored, never assigned cross-tenant.
   it("syncs tag_ids on PATCH and ignores foreign-workspace tags", async () => {
@@ -131,7 +131,7 @@ describe("ownership scoping via Bearer API key (real Postgres)", () => {
   });
 });
 
-//  — erasing a contact (GDPR) must only delete the comment logs that belong to THAT
+// erasing a contact (GDPR) must only delete the comment logs that belong to THAT
 // contact. A platform sender id is unique only per channel, so two contacts on different
 // channels can share the same sender id. Matching comment logs by sender id alone would
 // wipe the other contact's logs.
@@ -178,7 +178,7 @@ describe("contact erase scopes comment-log deletion per (channel, sender) (real 
   });
 });
 
-//  — erasing a contact must take its outbound-delivery rows with it (they carry the
+// erasing a contact must take its outbound-delivery rows with it (they carry the
 // recipient PSID + message text in payload). The contact_id FK cascade does this.
 describe("contact erase cascades outbound_deliveries (real Postgres)", () => {
   const CH_X = "ffffffff-0000-0000-0000-0000000000f1";
@@ -201,8 +201,8 @@ describe("contact erase cascades outbound_deliveries (real Postgres)", () => {
     expect(await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "dk-keep") })).toBeDefined();
   });
 
-  //  — private-reply deliveries now carry contact_id, so erasure reaches them too (the
-  // row cascades and the queued job is scrubbed by contactId) — closing the / gap.
+  // private-reply deliveries now carry contact_id, so erasure reaches them too (the
+  // row cascades and the queued job is scrubbed by contactId) — closing the gap.
   it("erases private-reply deliveries and queued jobs (contact_id now stamped)", async () => {
     if (!TEST_DB) return;
     const ERASE_PR = "ffffffff-0000-4000-8000-0000000000fa";
@@ -223,7 +223,7 @@ describe("contact erase cascades outbound_deliveries (real Postgres)", () => {
   });
 });
 
-//  — erasing a contact must take its rule_send_counts rows with it (lifetime counters
+// erasing a contact must take its rule_send_counts rows with it (lifetime counters
 // are never TTL-pruned; without the FK they'd linger after erasure).
 describe("contact erase cascades rule_send_counts (real Postgres)", () => {
   const RULE = "ffffffff-0000-0000-0000-0000000000e1";
@@ -242,7 +242,7 @@ describe("contact erase cascades rule_send_counts (real Postgres)", () => {
   });
 });
 
-//  — a reaction event-dedup key embeds the reactor's PSID and is reached by no table
+// a reaction event-dedup key embeds the reactor's PSID and is reached by no table
 // cascade; erasure scrubs the keys for the contact's (channel, sender) pairs so the PSID does
 // not outlive the contact. A key for a different PSID on the same channel survives.
 describe("contact erase scrubs PSID-bearing processed_events keys (real Postgres)", () => {
@@ -269,7 +269,7 @@ describe("contact erase scrubs PSID-bearing processed_events keys (real Postgres
     await db.delete(processedEvents).where(eq(processedEvents.key, otherKey));
   });
 
-  //  — the sender id is interpolated into a LIKE pattern. A `_`/`%` in it must match
+  // the sender id is interpolated into a LIKE pattern. A `_`/`%` in it must match
   // literally (ESCAPE), or the scrub would over-delete a neighbour's keys on the same channel.
   it("escapes LIKE wildcards in the sender id so it does not over-delete neighbours", async () => {
     if (!TEST_DB) return;
@@ -292,7 +292,7 @@ describe("contact erase scrubs PSID-bearing processed_events keys (real Postgres
   });
 });
 
-//  — queued/dead-letter graphile jobs carry the contact's PSID + message text in their
+// queued/dead-letter graphile jobs carry the contact's PSID + message text in their
 // payload and are reached by no table cascade; erasure scrubs them by sender id / contact id.
 describe("contact erase scrubs queued graphile jobs (real Postgres)", () => {
   const CH_J = "ffffffff-0000-0000-0000-000000000091";

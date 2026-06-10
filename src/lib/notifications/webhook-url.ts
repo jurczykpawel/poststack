@@ -1,6 +1,6 @@
 /**
  * Conservative allow-list check for an operator-configured outbound webhook URL (the channel
- * alert hook, ). Guards against pointing it at a private/link-local address — most
+ * alert hook). Guards against pointing it at a private/link-local address — most
  * importantly the cloud metadata endpoint (169.254.169.254) on managed hosting.
  *
  * Allowed: http or https to a hostname (localhost, a docker-compose service name, a public

@@ -29,7 +29,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  // Clear enrollments for this channel up front (now ON DELETE cascade,  — kept explicit so a
+  // Clear enrollments for this channel up front (now ON DELETE cascade — kept explicit so a
   // failed prior run leaves a clean slate).
   await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.channel_id, CH));
   await db.delete(workspaces).where(eq(workspaces.id, WS));
@@ -78,7 +78,7 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect(await db.query.conversations.findFirst({ where: eq(conversations.id, CONV_EMPTY) })).toBeUndefined();
   });
 
-  //  — message retention must not destroy live workflow state. A conversation whose
+  // message retention must not destroy live workflow state. A conversation whose
   // only message is prunable but which still has a PENDING approval is not a husk.
   it("does not prune a conversation with a still-pending approval", async () => {
     if (!TEST_DB) return;
@@ -102,7 +102,7 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect((await db.select().from(pendingApprovals).where(eq(pendingApprovals.conversation_id, CONV_APPR))).length).toBe(1);
   });
 
-  //  — a contact in an ACTIVE sequence enrollment whose conversation went quiet past the
+  // a contact in an ACTIVE sequence enrollment whose conversation went quiet past the
   // cutoff must keep its conversation: the worker locates it by (contact_id, channel_id), so
   // pruning it would silently strand the drip. Once the enrollment is no longer active, the
   // conversation prunes normally.
@@ -137,7 +137,7 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect(await db.query.messages.findFirst({ where: eq(messages.id, oldSent) })).toBeUndefined();
   });
 
-  //  — one workspace with a pathological retention value (huge → out-of-range cutoff Date →
+  // one workspace with a pathological retention value (huge → out-of-range cutoff Date →
   // toISOString() throws) must NOT abort the cron sweep for every other tenant. The per-workspace
   // try/catch isolates it.
   it("isolates a workspace whose prune throws so other tenants are still pruned (cross-tenant)", async () => {
@@ -158,7 +158,7 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     }
   });
 
-  //  — created_at is DB-clock (UTC-naive); the cutoff must be compared in UTC regardless of the
+  // created_at is DB-clock (UTC-naive); the cutoff must be compared in UTC regardless of the
   // process timezone. On a UTC-ahead host the old app-clock cutoff over-deleted in-window rows.
   describe("timezone safety", () => {
     const ORIGINAL_TZ = process.env.TZ;
@@ -177,7 +177,7 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
       expect(await db.query.messages.findFirst({ where: eq(messages.id, id) })).toBeDefined();
     });
 
-    //  — last_message_at is PREDOMINANTLY app-clock (the worker writes it with `new Date()`),
+    // last_message_at is PREDOMINANTLY app-clock (the worker writes it with `new Date()`),
     // so the husk-prune stays on the plain Date cutoff: an app-clock husk past the window is pruned
     // correctly off-pin. (A UTC cutoff here over-retained the dominant app-clock case.)
     it("prunes an empty app-clock husk past the window on a non-UTC host", async () => {

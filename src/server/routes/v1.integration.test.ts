@@ -71,7 +71,7 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(body.data[0]).toHaveProperty("is_active", true);
   });
 
-  //  — held_count is now a single grouped count joined by a Map (not a join-count per
+  // held_count is now a single grouped count joined by a Map (not a join-count per
   // channel). Verify it maps the count to the right channel: a channel with held messages reports
   // them, while one without reports 0.
   it("reports held_count per channel via the grouped count", async () => {
@@ -196,7 +196,7 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect((await res.json()).data.message_retention_days).toBe(30);
   });
 
-  //  — an unbounded retention value would push the cron's cutoff Date out of range and throw,
+  // an unbounded retention value would push the cron's cutoff Date out of range and throw,
   // taking down retention for every tenant; the bound rejects it as a 422 before persisting.
   it("rejects an over-max retention value (422), not persisting a cron-poisoning value", async () => {
     if (!TEST_DB) return;
@@ -208,7 +208,7 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(res.status).toBe(422);
   });
 
-  //  — the manual prune's older_than_days is bounded the same way (else RangeError → 500).
+  // the manual prune's older_than_days is bounded the same way (else RangeError → 500).
   it("rejects an over-max older_than_days on prune (422)", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api/v1/messages/prune", {
@@ -272,7 +272,7 @@ describe("api-key management is session-only + scope catalog (real Postgres)", (
     expect(res.status).toBe(200);
   });
 
-  //  — two concurrent same-name POST /tags must not 500: the loser of the read-then-write
+  // two concurrent same-name POST /tags must not 500: the loser of the read-then-write
   // race gets a clean 409 (conflict-aware insert on the (workspace_id, name) unique index), not an
   // uncaught 23505. Exactly one tag is created.
   it("two concurrent same-name POST /tags yield one 201 + one 409 (no 500)", async () => {

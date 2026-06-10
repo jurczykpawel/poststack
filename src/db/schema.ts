@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm"
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
 // `system` is reserved/forward-looking: actorFromAuth only ever emits user/api_key, and no
 // cron/worker/maintenance path audits yet, so it's currently unreachable. Kept for when system
-// actions (token-refresh / maintenance) start writing audit rows (, parked like /).
+// actions (token-refresh / maintenance) start writing audit rows.
 export const auditActorType = pgEnum("audit_actor_type", ['user', 'api_key', 'system'])
 export const broadcastRecipientStatus = pgEnum("broadcast_recipient_status", ['pending', 'sent', 'delivered', 'failed'])
 export const broadcastStatus = pgEnum("broadcast_status", ['draft', 'scheduled', 'sending', 'completed', 'cancelled'])
@@ -28,13 +28,13 @@ export const response_type = pgEnum("response_type", ['text', 'random_text', 'se
 // `paused` is reserved/forward-looking: pausing happens at the channel/conversation level
 // (`is_automation_paused`, `channel.status='paused'`) and the worker DEFERS a step via a delayed job
 // rather than flipping the enrollment to `paused`, so nothing writes it. Kept for a future
-// per-enrollment pause (; confirms the  hint).
+// per-enrollment pause (confirms the hint).
 export const sequenceEnrollmentStatus = pgEnum("sequence_enrollment_status", ['active', 'paused', 'completed', 'cancelled'])
 export const sequenceStatus = pgEnum("sequence_status", ['draft', 'active', 'archived'])
 export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction'])
 // Only `owner` for now: role-based authorization isn't enforced yet, and `admin`/`agent`
 // would be misleading dead values. Re-add richer roles together with member invitations +
-// `requireRole()` enforcement (, parked).
+// `requireRole()` enforcement.
 export const workspaceMemberRole = pgEnum("workspace_member_role", ['owner'])
 
 
@@ -95,7 +95,7 @@ export const channels = pgTable("channels", {
 	webhook_secret: text("webhook_secret").notNull(),
 	// Reserved/forward-looking: never written or read today (the comment poller doesn't persist a
 	// cursor). Kept for a future incremental comment-poll that resumes from the last seen comment
-	// instead of re-scanning (, parked rather than dropped to avoid a baseline-regen migration).
+	// instead of re-scanning (parked rather than dropped to avoid a baseline-regen migration).
 	last_comment_cursor: text("last_comment_cursor"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
@@ -397,7 +397,7 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 			columns: [table.channel_id],
 			foreignColumns: [channels.id],
 			name: "sequence_enrollments_channel_id_fkey"
-			// Deliberately RESTRICT ( reviewed, NOT changed to cascade): this is what makes the
+			// Deliberately RESTRICT (reviewed, NOT changed to cascade): this is what makes the
 			// channel-disconnect handler return a clean 409 instead of silently cascade-deleting an
 			// in-flight enrollment — there is no separate app-level guard, the FK IS the guard. A future
 			// workspace-delete / GDPR-erasure handler must therefore delete sequences/enrollments BEFORE

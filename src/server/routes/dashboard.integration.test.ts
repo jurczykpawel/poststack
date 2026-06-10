@@ -126,10 +126,10 @@ describe("dashboard rule builder", () => {
     const res = await app.request("/rules", {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ name: "K-", trigger_type: "keyword", keywords: "hi", payload: "STALE_PAYLOAD", text: "hello" }),
+      body: JSON.stringify({ name: "K-106", trigger_type: "keyword", keywords: "hi", payload: "STALE_PAYLOAD", text: "hello" }),
     });
     expect(res.status).toBe(200);
-    const rule = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.name, "K-") });
+    const rule = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.name, "K-106") });
     expect(rule).toBeTruthy();
     expect((rule!.trigger_config as Record<string, unknown>).payload).toBeUndefined();
   });
@@ -157,10 +157,10 @@ describe("dashboard sequence builder", () => {
     const res = await app.request("/sequences", {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Drip-", steps_json: stepsJson }),
+      body: JSON.stringify({ name: "Drip-114", steps_json: stepsJson }),
     });
     expect(res.status).toBe(200);
-    const seq = await db.query.sequences.findFirst({ where: eq(s.sequences.name, "Drip-"), columns: { steps: true } });
+    const seq = await db.query.sequences.findFirst({ where: eq(s.sequences.name, "Drip-114"), columns: { steps: true } });
     const steps = seq!.steps as Array<{ type: string; delay_minutes?: number }>;
     expect(steps.map((x) => x.type)).toEqual(["message", "delay", "message"]);
     expect(steps[1].delay_minutes).toBe(120);
@@ -173,23 +173,23 @@ describe("dashboard API key scopes", () => {
     const res = await app.request("/settings/api-keys", {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Scoped-", scopes_json: JSON.stringify(["contacts:read", "conversations:read"]) }),
+      body: JSON.stringify({ name: "Scoped-117", scopes_json: JSON.stringify(["contacts:read", "conversations:read"]) }),
     });
     expect(res.status).toBe(200);
-    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Scoped-"), columns: { scopes: true } });
+    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Scoped-117"), columns: { scopes: true } });
     expect(key?.scopes).toEqual(["contacts:read", "conversations:read"]);
   });
 
-  //  — deselecting every scope must NOT mint a full-access key (empty = full-access sentinel).
+  // deselecting every scope must NOT mint a full-access key (empty = full-access sentinel).
   it("rejects an all-deselected (empty) scope set instead of creating a full-access key", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/settings/api-keys", {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Empty-", scopes_json: JSON.stringify([]) }),
+      body: JSON.stringify({ name: "Empty-130", scopes_json: JSON.stringify([]) }),
     });
     expect(res.status).toBe(200); // re-renders the form area with a notice, no key created
-    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Empty-"), columns: { id: true } });
+    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Empty-130"), columns: { id: true } });
     expect(key).toBeUndefined();
   });
 });

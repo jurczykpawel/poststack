@@ -68,7 +68,7 @@ beforeEach(async () => {
     { key: PE_NEW, created_at: new Date(NOW.getTime() - 1 * DAY) },
   ]);
 
-  //  fixtures: terminal delivery rows + resolved approvals (history that should age out),
+  // fixtures: terminal delivery rows + resolved approvals (history that should age out),
   // alongside a held delivery + a pending approval (live state that must never be pruned).
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-MNT", token_encrypted: "x", webhook_secret: "s" });
   await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT_NEW, platform: "facebook" });
@@ -109,7 +109,7 @@ describe("pruneExpired (real Postgres)", () => {
     expect(rls.map((r) => r.key)).toEqual([RL_NEW]);
   });
 
-  //  — event-dedup keys are pruned past the platform redelivery window so the table stays
+  // event-dedup keys are pruned past the platform redelivery window so the table stays
   // bounded (and PSID-bearing reaction keys don't linger forever); recent keys stay so dedup
   // still works inside the window.
   it("prunes processed_events past the retention window, keeps recent", async () => {
@@ -119,7 +119,7 @@ describe("pruneExpired (real Postgres)", () => {
     expect(evs.map((r) => r.key)).toEqual([PE_NEW]);
   });
 
-  //  — the delivery ledger is the busiest table by row count; its terminal rows (sent/failed/
+  // the delivery ledger is the busiest table by row count; its terminal rows (sent/failed/
   // expired/unknown) are history and must age out, but a `held` row is live (awaiting drain) and
   // must survive regardless of age.
   it("prunes terminal deliveries past the window, keeps held + recent", async () => {
@@ -129,7 +129,7 @@ describe("pruneExpired (real Postgres)", () => {
     expect(dels.map((r) => r.delivery_key).sort()).toEqual(["dk-held-old", "dk-term-recent"]);
   });
 
-  //  — resolved approvals (approved/rejected) are history; a `pending` approval is live work
+  // resolved approvals (approved/rejected) are history; a `pending` approval is live work
   // and must never be pruned, no matter how old.
   it("prunes resolved approvals past the window, keeps pending + recent", async () => {
     if (!TEST_DB) return;
@@ -138,7 +138,7 @@ describe("pruneExpired (real Postgres)", () => {
     expect(apvs.map((r) => r.id).sort()).toEqual([APV_PENDING, APV_RECENT].sort());
   });
 
-  //  — a delivery committed `sending` whose job then crashed AND exhausted its retries before
+  // a delivery committed `sending` whose job then crashed AND exhausted its retries before
   // the reconcile ran is stuck `sending` forever (terminal prune skips it). A stuck-sending sweep
   // (well past the retry window) reaps it; a fresh `sending` row is left alone.
   it("prunes a delivery stuck 'sending' past the window, keeps a fresh one", async () => {
@@ -152,7 +152,7 @@ describe("pruneExpired (real Postgres)", () => {
     expect(remaining.map((r) => r.delivery_key)).toEqual(["dk-sending-fresh"]);
   });
 
-  //  — DB-clock columns (created_at here) must use a UTC cutoff so a non-UTC host doesn't
+  // DB-clock columns (created_at here) must use a UTC cutoff so a non-UTC host doesn't
   // shift the boundary and prune a row that's still inside its TTL.
   describe("timezone safety", () => {
     const ORIGINAL_TZ = process.env.TZ;
@@ -171,7 +171,7 @@ describe("pruneExpired (real Postgres)", () => {
       await db.delete(s.processedEvents).where(eq(s.processedEvents.key, KEY));
     });
 
-    //  — outbound_deliveries.updated_at is app-clock (terminal transitions write it via
+    // outbound_deliveries.updated_at is app-clock (terminal transitions write it via
     // $onUpdate(new Date())), so its prune stays on the plain Date cutoff: an app-clock terminal row
     // past the 90-day window is pruned even on a non-UTC host (a UTC cutoff over-retained it there).
     it("prunes an app-clock terminal delivery past its 90-day window on a non-UTC host", async () => {
@@ -189,7 +189,7 @@ describe("pruneExpired (real Postgres)", () => {
       expect(await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, KEY) })).toBeUndefined();
     });
 
-    //  — a follow-gate fresh-`sent` row now writes updated_at app-clock (not the DB-clock
+    // a follow-gate fresh-`sent` row now writes updated_at app-clock (not the DB-clock
     // DEFAULT), so an in-window terminal follow-gate row is NOT over-pruned by the plain-Date ledger
     // cutoff on a non-UTC host.
     it("keeps an in-window app-clock follow-gate terminal row on a non-UTC host", async () => {

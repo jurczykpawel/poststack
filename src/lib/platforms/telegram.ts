@@ -11,7 +11,7 @@ const TELEGRAM_API = "https://api.telegram.org";
 
 /** A 401 means the bot token itself was revoked/regenerated via BotFather — the connection is
  *  dead for every chat and needs operator re-auth. (403 is NOT here: it's per-chat — see
- *  isTelegramChatUnavailable — and must not flag the whole channel, .) */
+ *  isTelegramChatUnavailable — and must not flag the whole channel.) */
 function isTelegramAuthFailure(status: number, errorCode?: number): boolean {
   return status === 401 || errorCode === 401;
 }
@@ -26,7 +26,7 @@ function isTelegramChatUnavailable(status: number, errorCode?: number): boolean 
 /** A 400 carrying one of these descriptions is a PERMANENT per-chat failure: retrying the identical
  *  send can never succeed. Drop just this delivery terminally (like a 403) instead of dead-lettering
  *  every attempt — per-chat, NOT per-token, so the channel is never flagged for re-auth (symmetric
- *  with isTelegramChatUnavailable,  ). Matched as lowercase substrings of body.description.
+ *  with isTelegramChatUnavailable). Matched as lowercase substrings of body.description.
  *  Deliberately EXCLUDES content bugs ("message is too long", "can't parse entities") — those signal
  *  OUR payload, not a policy drop, and silently dropping them would mask a real bug — and any unknown
  *  400 (left transient/retryable). */

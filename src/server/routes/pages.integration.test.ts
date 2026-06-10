@@ -301,7 +301,7 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(ch?.username).toBe("reply_bot");
   });
 
-  it("marks the channel unhealthy when Telegram webhook registration fails (FIXR6)", async () => {
+  it("marks the channel unhealthy when Telegram webhook registration fails", async () => {
     if (!TEST_DB) return;
     const realFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {

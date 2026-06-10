@@ -104,7 +104,7 @@ describe("telegram connect — held-message drain is retryable", () => {
     const drainCalls = addJob.mock.calls.filter((c) => c[0] === "drain-channel");
     expect(drainCalls.length).toBe(2); // attempted twice
     expect(drainCalls[1][1]).toEqual({ channelId: CH });
-    //  — a deterministic jobKey coalesces concurrent reconnect drains.
+    // a deterministic jobKey coalesces concurrent reconnect drains.
     expect(drainCalls[1][2]).toEqual({ jobKey: `drain-channel:${CH}` });
   });
 });

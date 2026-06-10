@@ -198,7 +198,7 @@ export async function DELETE(
       await tx.delete(processedEvents).where(or(...reactionKeyClauses));
     }
     // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
-    // approvals, broadcast recipients and outbound_deliveries ( +  foreign keys).
+    // approvals, broadcast recipients and outbound_deliveries (via foreign keys).
     // workspace_id alongside the PK keeps the erase tenant-scoped.
     await tx.delete(contacts).where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)));
   });

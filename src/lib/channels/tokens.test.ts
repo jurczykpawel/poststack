@@ -11,7 +11,7 @@ beforeAll(() => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 });
 
-//  — on a send/refresh path a decrypt FAILURE (corrupt token / rotated TOKEN_ENCRYPTION_KEY)
+// on a send/refresh path a decrypt FAILURE (corrupt token / rotated TOKEN_ENCRYPTION_KEY)
 // must surface as a re-auth case, not a generic throw that crash-loops to the dead-letter queue
 // without ever flagging the channel needs_reauth.
 describe("decryptChannelToken", () => {

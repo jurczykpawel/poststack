@@ -71,7 +71,7 @@ describe("cron route", () => {
     expect(res.status).toBe(403);
   });
 
-  //  — a wrong secret of a DIFFERENT length is still 403 (the hash-compare doesn't
+  // a wrong secret of a DIFFERENT length is still 403 (the hash-compare doesn't
   // short-circuit on length, so it leaks no length oracle).
   it("rejects a wrong secret of a different length (403)", async () => {
     for (const bad of ["x", "x".repeat(8), "x".repeat(200)]) {

@@ -63,7 +63,7 @@ describe("TelegramProvider", () => {
   });
 
   // A non-auth, non-permanent failure (unknown 400 / transient) stays a generic retryable error.
-  // (Was "chat not found" — now classified permanent, see the  test below.)
+  // (Was "chat not found" — now classified permanent, see the test below.)
   it("sendMessage throws a generic (transient) error on an unknown non-auth Telegram failure", async () => {
     mockFetch(() => ({ status: 400, body: { ok: false, description: "Bad Request: an unexpected transient glitch" } }));
     const tg = new TelegramProvider();
@@ -74,7 +74,7 @@ describe("TelegramProvider", () => {
     expect(String(err)).toMatch(/Telegram send message failed/);
   });
 
-  //   — a 400 with a known permanent description (chat not found, no rights /
+  // a 400 with a known permanent description (chat not found, no rights /
   // CHAT_WRITE_FORBIDDEN, group upgraded, reply not found) is a per-chat terminal: drop it
   // (MessagingPolicyError, like a 403), don't retry to dead-letter and don't flag the whole channel.
   it("sendMessage throws MessagingPolicyError on a known permanent 400 (chat not found)", async () => {
@@ -92,7 +92,7 @@ describe("TelegramProvider", () => {
     }
   });
 
-  //   — content bugs ("message is too long" / parse errors) are NOT a policy drop: they
+  // content bugs ("message is too long" / parse errors) are NOT a policy drop: they
   // signal OUR payload, so they stay a generic error (surfaced, not silently dropped).
   it("sendMessage keeps content-bug 400s (too long / parse) as generic errors, not policy drops", async () => {
     for (const description of ["Bad Request: message is too long", "Bad Request: can't parse entities"]) {
@@ -103,7 +103,7 @@ describe("TelegramProvider", () => {
     }
   });
 
-  // / — a 401 means the bot token itself was revoked/regenerated: a real re-auth case,
+  // a 401 means the bot token itself was revoked/regenerated: a real re-auth case,
   // so the delivery state machine parks + flags the whole channel needs_reauth.
   it("sendMessage throws TokenInvalidError on 401 (revoked token)", async () => {
     mockFetch(() => ({ status: 401, body: { ok: false, error_code: 401, description: "Unauthorized" } }));
@@ -111,7 +111,7 @@ describe("TelegramProvider", () => {
     await expect(tg.sendMessage({ access_token: "dead" }, "1", { text: "x" })).rejects.toBeInstanceOf(TokenInvalidError);
   });
 
-  //  — a 403 is per-chat (the bot was blocked/kicked by THIS user, or the user is deactivated);
+  // a 403 is per-chat (the bot was blocked/kicked by THIS user, or the user is deactivated);
   // the token is still valid for every other chat. It must drop only this delivery (terminal), not
   // flag the whole channel for re-auth — otherwise one user blocking the bot takes the channel down.
   it("sendMessage throws MessagingPolicyError (not TokenInvalidError) on 403 (bot blocked by this user)", async () => {

@@ -21,7 +21,7 @@ afterAll(async () => {
   await db.execute(sql`delete from workspaces where slug like 'raw-aud136-%'`);
 });
 
-//  — id / updated_at carry SQL-level DEFAULTs, so a non-ORM writer (NocoDB bulk insert, raw
+// id / updated_at carry SQL-level DEFAULTs, so a non-ORM writer (NocoDB bulk insert, raw
 // SQL, backfill) that omits them does not hit a NOT NULL violation.
 describe("SQL-level defaults for non-ORM inserts", () => {
   it("a raw INSERT omitting id and updated_at succeeds (DB fills them)", async () => {

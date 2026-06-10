@@ -30,7 +30,7 @@ describe("TASK_MAX_ATTEMPTS — retry parity with former BullMQ config", () => {
     expect(TASK_MAX_ATTEMPTS["sequence-step"]).toBe(3);
   });
 
-  it("retries every task type on transient failure (REL1: incoming/token-refresh no longer single-attempt)", () => {
+  it("retries every task type on transient failure (: incoming/token-refresh no longer single-attempt)", () => {
     expect(TASK_MAX_ATTEMPTS["incoming-message"]).toBe(3);
     expect(TASK_MAX_ATTEMPTS["incoming-comment"]).toBe(3);
     expect(TASK_MAX_ATTEMPTS["token-refresh"]).toBe(3);

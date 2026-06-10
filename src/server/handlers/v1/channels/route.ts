@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   });
 
   // `is_active` kept as a computed alias for backward compatibility.
-  // `held_count` surfaces outbound parked while the channel was down (REL5). One grouped count for
+  // `held_count` surfaces outbound parked while the channel was down. One grouped count for
   // all channels instead of a join-count per channel (N+1) — mirrors the dashboard's loadChannels
   //.
   const ids = rows.map((r) => r.id);

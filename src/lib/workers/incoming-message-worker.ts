@@ -50,7 +50,7 @@ export async function processIncomingMessage(
   }
 
   // 2. Resolve the contact identity (find or create) via the shared, race-hardened helper.
-  //    Previously this path had its OWN inline find-or-create that never received 's
+  //    Previously this path had its OWN inline find-or-create that never received the
   //    onConflictDoNothing + orphan-rollback, so two concurrent first-DMs from a new sender
   //    dead-lettered the loser on a 23505. Activity (last_interaction_at) is bumped later,
   //    only for a newly-ingested newest message, so a redelivery doesn't move it — hence the
@@ -70,7 +70,7 @@ export async function processIncomingMessage(
   //      counters permanently skipped — the retry sees the insert conflict, treats it as a duplicate
   //      (isNewMessage=false) and never re-applies them, leaving unread under-counted and
   //      last_inbound_at NULL (which mis-anchors the drain's 24h messaging window). Inside the tx a
-  //      genuine duplicate's insert returns no row → counters correctly skipped ( preserved).
+  //      genuine duplicate's insert returns no row → counters correctly skipped (preserved).
   //      unique on (conversation_id, platform_message_id) dedups a redelivery and a concurrent race.
   const isNewMessage = await db.transaction(async (tx) => {
     const [inserted] = await tx

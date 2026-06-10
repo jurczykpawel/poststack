@@ -20,7 +20,7 @@ describe("isMetaTokenError", () => {
   });
 });
 
-//  — out-of-window rejections are a policy block (retry can't fix), not a token error.
+// out-of-window rejections are a policy block (retry can't fix), not a token error.
 describe("isMetaWindowError", () => {
   it("is true for error_subcode 2018278 (outside allowed window)", () => {
     expect(isMetaWindowError('{"error":{"code":10,"error_subcode":2018278,"message":"This message is sent outside of allowed window."}}')).toBe(true);
@@ -30,7 +30,7 @@ describe("isMetaWindowError", () => {
     expect(isMetaWindowError("(#10) This message is sent outside of allowed window.")).toBe(true);
   });
 
-  //  — other terminal messaging-policy subcodes (tag-related, policy family) must also be
+  // other terminal messaging-policy subcodes (tag-related, policy family) must also be
   // classified terminal, so they drop the delivery instead of grinding retries to dead-letter.
   it("is true for other known terminal policy subcodes (tag / policy family)", () => {
     expect(isMetaWindowError('{"error":{"code":10,"error_subcode":2018109}}')).toBe(true);
@@ -45,7 +45,7 @@ describe("isMetaWindowError", () => {
   });
 });
 
-//  — a 429 / throttle code is retryable, but only after the provider's Retry-After window.
+// a 429 / throttle code is retryable, but only after the provider's Retry-After window.
 describe("isMetaRateLimitError", () => {
   it("is true for Meta throttling codes (4 / 17 / 32 / 613)", () => {
     expect(isMetaRateLimitError('{"error":{"code":4,"message":"Application request limit reached"}}')).toBe(true);
@@ -58,7 +58,7 @@ describe("isMetaRateLimitError", () => {
   });
 });
 
-//  — private-reply rejections (comment too old / already replied / ineligible) surface as
+// private-reply rejections (comment too old / already replied / ineligible) surface as
 // application/permission/parameter error codes outside the 24h-window subcode allowlist; they're
 // terminal, so they must drop (not dead-letter). Transient codes (1/2) and unparseable bodies stay
 // retryable.
@@ -77,7 +77,7 @@ describe("isMetaPrivateReplyPolicyError", () => {
   });
 });
 
-//   — a stale/unreachable recipient (subcode 2018001) is permanent; drop, never retry.
+// a stale/unreachable recipient (subcode 2018001) is permanent; drop, never retry.
 // Subcode-keyed so it's safe in any send context (unlike a bare overloaded code).
 describe("isMetaUnreachableRecipientError", () => {
   it("is true for subcode 2018001 (no matching user / dead recipient)", () => {
@@ -92,7 +92,7 @@ describe("isMetaUnreachableRecipientError", () => {
   });
 });
 
-//   — code 10 on a sendComment = commenting disabled / post blocked = terminal. Only
+// code 10 on a sendComment = commenting disabled / post blocked = terminal. Only
 // code 10 (bare-100 overloaded, 200 channel-wide → both stay transient here).
 describe("isMetaCommentPolicyError", () => {
   it("is true for code 10 (action not allowed on this comment/post)", () => {
@@ -154,7 +154,7 @@ describe("assertMetaOk", () => {
     await expect(assertMetaOk(new Response('{"error":{"code":100}}', { status: 400 }), "x")).rejects.not.toBeInstanceOf(TokenInvalidError);
   });
 
-  //  — a private-reply policy rejection (terminal code outside the window subcode set) drops,
+  // a private-reply policy rejection (terminal code outside the window subcode set) drops,
   // but ONLY for a private-reply context, and only for terminal codes.
   it("throws MessagingPolicyError for a private-reply policy rejection (code 10) on a private-reply context", async () => {
     const res = new Response('{"error":{"code":10,"message":"(#10) cannot privately reply to this comment"}}', { status: 400 });
@@ -174,14 +174,14 @@ describe("assertMetaOk", () => {
     await expect(assertMetaOk(new Response('{"error":{"code":2}}', { status: 500 }), "Facebook private reply")).rejects.not.toBeInstanceOf(MessagingPolicyError);
   });
 
-  //   — a 2018001 (dead recipient) drops in ANY send context (subcode-keyed).
+  // a 2018001 (dead recipient) drops in ANY send context (subcode-keyed).
   it("throws MessagingPolicyError for an unreachable-recipient subcode (2018001) on a normal send", async () => {
     const res = new Response('{"error":{"code":100,"error_subcode":2018001,"message":"No matching user found"}}', { status: 400 });
     await expect(assertMetaOk(res, "Facebook send message")).rejects.toBeInstanceOf(MessagingPolicyError);
     await expect(assertMetaOk(new Response('{"error":{"code":100,"error_subcode":2018001}}', { status: 400 }), "Instagram send message")).rejects.toBeInstanceOf(MessagingPolicyError);
   });
 
-  //   — code 10 drops on a comment send, but a bare code-100 on the same context, and
+  // code 10 drops on a comment send, but a bare code-100 on the same context, and
   // a code-10 on a normal DM, both stay retryable (anti-regression).
   it("throws MessagingPolicyError for code 10 on a send-comment context", async () => {
     await expect(assertMetaOk(new Response('{"error":{"code":10,"message":"commenting disabled"}}', { status: 400 }), "Facebook send comment")).rejects.toBeInstanceOf(MessagingPolicyError);

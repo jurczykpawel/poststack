@@ -70,7 +70,7 @@ describe("authenticate — session (real Postgres)", () => {
     expect(await auth.authenticate(sessionReq(token))).toBeNull();
   });
 
-  //  — a session must stop authorizing once the user is no longer a member of the
+  // a session must stop authorizing once the user is no longer a member of the
   // workspace named in the token, even though the user still exists.
   it("returns null after the user's workspace membership is removed", async () => {
     if (!TEST_DB) return;
@@ -125,7 +125,7 @@ describe("invalidateSession (real Postgres)", () => {
     expect(recent.length).toBeGreaterThan(0);
   });
 
-  //  — logout is unauthenticated, so the caller controls the token. A token merely signed
+  // logout is unauthenticated, so the caller controls the token. A token merely signed
   // with this JWT_SECRET but with a foreign issuer/audience (e.g. minted by a sibling service that
   // shares the secret) must NOT be able to push an arbitrary jti onto the denylist.
   it("ignores a token with a foreign issuer/audience (jti not denylisted)", async () => {

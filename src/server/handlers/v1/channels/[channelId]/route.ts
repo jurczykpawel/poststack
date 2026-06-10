@@ -81,7 +81,7 @@ export async function PATCH(
     // enqueue the drain that flushes anything parked while it was off — in ONE transaction (a
     // transactional outbox). A failed enqueue rolls the status flip back, so the next retry
     // still sees `existing.status !== active` and re-drains, rather than stranding held
-    // messages behind an already-active channel (; same fix as markChannelHealthy/).
+    // messages behind an already-active channel (same fix as markChannelHealthy).
     updated = await db.transaction(async (tx) => {
       const [row] = await tx
         .update(channels)

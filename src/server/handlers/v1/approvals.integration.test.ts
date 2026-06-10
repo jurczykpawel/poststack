@@ -138,7 +138,7 @@ describe("approval workflow (real Postgres)", () => {
     const payload = (job.rows[0] as { payload: { content: { text: string; buttons: unknown }; recipientPlatformId: string; idempotencyKey: string } }).payload;
     expect(payload.content.text).toBe("Approved msg");
     expect(payload.recipientPlatformId).toBe("PSID-A");
-    expect(payload.idempotencyKey).toBe(`approval:${id}`); // deterministic → retry-safe (FIXR4)
+    expect(payload.idempotencyKey).toBe(`approval:${id}`); // deterministic → retry-safe
     const row = await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) });
     expect(row?.status).toBe("approved");
     expect(row?.resolved_at).toBeTruthy();
@@ -164,7 +164,7 @@ describe("approval workflow (real Postgres)", () => {
     expect(await outgoingCount()).toBe(1);
   });
 
-  //  — the lifetime send-count is charged on the actual send (approve), not when the
+  // the lifetime send-count is charged on the actual send (approve), not when the
   // proposal is parked, so a reject costs nothing and approve counts exactly once.
   it("reject consumes no send-count; approve counts the send once", async () => {
     if (!TEST_DB) return;
@@ -190,7 +190,7 @@ describe("approval workflow (real Postgres)", () => {
     expect(await outgoingCount()).toBe(0);
   });
 
-  //  — deleting a rule that still has a `pending` approval would CASCADE-destroy the
+  // deleting a rule that still has a `pending` approval would CASCADE-destroy the
   // human-review entry. Block it with a 409 (symmetric with sequence/channel delete guards); once
   // the approval is resolved, the delete goes through.
   it("DELETE a rule with a pending approval is blocked (409); succeeds once resolved", async () => {
@@ -217,7 +217,7 @@ describe("approval workflow (real Postgres)", () => {
     expect(await outgoingCount()).toBe(0);
   });
 
-  //  — a contact can unsubscribe AFTER a reply is parked (the approval can sit for an
+  // a contact can unsubscribe AFTER a reply is parked (the approval can sit for an
   // unbounded time). The approve path must re-check consent like the sequence/follow-gate workers:
   // the human's decision is still recorded (approved), but nothing goes out to an unsubscribed
   // contact, and the rule's limits are not charged for a send that never happened.

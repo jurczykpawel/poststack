@@ -11,7 +11,7 @@ const MAX_ERROR_LEN = 500;
 
 /**
  * Flag a channel as needing re-authentication after a token failure. This opens
- * the breaker: the channel stops auto-sending until reconnected (see REL5).
+ * the breaker: the channel stops auto-sending until reconnected.
  * Fires a notification once, only on the ok→down transition (no alert storm).
  */
 export async function markChannelNeedsReauth(
@@ -49,7 +49,7 @@ export async function markChannelNeedsReauth(
 /**
  * Mark a channel healthy (after a successful refresh or reconnect). When this
  * closes an open breaker (needs_reauth → active), enqueue a drain to replay any
- * outbound parked while the channel was down (REL5).
+ * outbound parked while the channel was down.
  *
  * Accepts an optional executor so a caller can fold the flip into a larger transaction — e.g. the
  * token-refresh worker commits the new token AND this flip together, so a failed drain enqueue
@@ -61,7 +61,7 @@ export async function markChannelHealthy(
   tx?: Tx,
 ): Promise<void> {
   // No transaction supplied → open one and recurse, so the body below always runs against a real
-  // transaction (and a caller-supplied one folds this flip into its own atomic unit, ).
+  // transaction (and a caller-supplied one folds this flip into its own atomic unit).
   if (!tx) {
     await db.transaction((t) => markChannelHealthy(channelId, now, t));
     return;

@@ -81,7 +81,7 @@ export abstract class SocialProvider {
    * Connect using a pasted long-lived / System User token instead of OAuth.
    * Validates the token by resolving the accounts it manages; the returned
    * tokens are non-expiring (no expires_at), so the refresh worker leaves them
-   * alone (REL4). Optional — only platforms that support it implement this.
+   * alone. Optional — only platforms that support it implement this.
    */
   connectWithToken?(token: string): Promise<ConnectedAccount[]>;
 

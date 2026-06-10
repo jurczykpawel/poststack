@@ -158,7 +158,7 @@ function matchKeywords(
     // unguarded throw here propagates up the hot path and decapitates auto-reply for the whole
     // workspace. NFC-normalize the keyword too, to match the normalized text. A value empty
     // after trimming is also a non-match (it would otherwise make contains/starts_with match
-    // everything — the matcher half of ).
+    // everything — the matcher half).
     const raw = kw?.value;
     if (typeof raw !== "string") return false;
     const value = raw.normalize("NFC").toLowerCase().trim();

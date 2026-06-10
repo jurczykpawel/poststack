@@ -10,7 +10,7 @@ beforeAll(() => {
 });
 
 describe("worker cron schedule", () => {
-  //  — the token-refresh scan used to live only behind an HTTP endpoint, so a self-hoster who
+  // the token-refresh scan used to live only behind an HTTP endpoint, so a self-hoster who
   // never wired an external cron would have every OAuth channel silently expire in ~60 days. It
   // must be scheduled in-process alongside the other maintenance tasks.
   it("schedules the token-refresh scan in-process (not just the HTTP trigger)", async () => {

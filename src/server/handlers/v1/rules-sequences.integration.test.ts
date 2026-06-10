@@ -78,7 +78,7 @@ describe("rules CRUD (real Postgres)", () => {
     expect(gone.status).toBe(404);
   });
 
-  //  — `sequence` has no implemented effect; the write API must reject it (not silently
+  // `sequence` has no implemented effect; the write API must reject it (not silently
   // create a no-op rule that consumes limits).
   it("rejects response_type=sequence on create (422)", async () => {
     if (!TEST_DB) return;
@@ -86,7 +86,7 @@ describe("rules CRUD (real Postgres)", () => {
     expect(res.status).toBe(422);
   });
 
-  //  — max_sends_per_contact round-trips through create + patch (incl. clear) and
+  // max_sends_per_contact round-trips through create + patch (incl. clear) and
   // rejects non-positive values, instead of being silently stripped by Zod.
   it("round-trips and validates max_sends_per_contact in create and patch", async () => {
     if (!TEST_DB) return;
@@ -108,7 +108,7 @@ describe("rules CRUD (real Postgres)", () => {
     }
   });
 
-  //  — input bounds: oversized fields are rejected (422), not persisted as unbounded
+  // input bounds: oversized fields are rejected (422), not persisted as unbounded
   // JSONB / heavy ilike patterns.
   it("rejects out-of-bounds rule + sequence inputs (422)", async () => {
     if (!TEST_DB) return;
@@ -483,7 +483,7 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     expect(del.status).toBe(409);
   });
 
-  //  — the list endpoint's enrollment count is now a single grouped query joined by a Map
+  // the list endpoint's enrollment count is now a single grouped query joined by a Map
   // (not a $count per row). Verify the join maps each count to the RIGHT sequence and isn't
   // cross-contaminated: an enrolled sequence reports 1, a sibling with none reports 0.
   it("reports per-sequence enrollment counts correctly (grouped count, no cross-contamination)", async () => {
@@ -498,7 +498,7 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     expect(listed.find((x) => x.id === emptyId)!._count.enrollments).toBe(0);
   });
 
-  //  — an empty PATCH body must be a clean validation error (422), not a 500 from `.set({})`.
+  // an empty PATCH body must be a clean validation error (422), not a 500 from `.set({})`.
   const emptyPatch = () => new Request("http://x", { method: "PATCH", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: "{}" });
   it("sequence PATCH with an empty body returns a validation error, not 500", async () => {
     if (!TEST_DB) return;
@@ -513,7 +513,7 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     expect(res.status).toBe(422);
   });
 
-  //  — re-enrolling a contact that already COMPLETED the sequence must return a clean 409,
+  // re-enrolling a contact that already COMPLETED the sequence must return a clean 409,
   // not an unhandled 500 from the unconditional (sequence, contact) unique index.
   it("re-enrolling a completed contact returns 409, never a 500", async () => {
     if (!TEST_DB) return;

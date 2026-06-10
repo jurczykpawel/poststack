@@ -54,7 +54,7 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     expect(msg.properties.status.enum).toEqual(expect.arrayContaining(["held", "expired"]));
   });
 
-  //  — the AutoReplyRule schema is the create/patch REQUEST contract (and the read response).
+  // the AutoReplyRule schema is the create/patch REQUEST contract (and the read response).
   // It must mirror the writable zod enum: `sequence` is rejected on create/patch and no code path
   // ever writes it, so advertising it made the docs promise a value that always 400s. (The prior
   // "reads may return sequence" case is purely theoretical — only a manual out-of-band insert could

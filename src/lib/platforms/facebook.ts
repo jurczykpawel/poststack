@@ -79,7 +79,7 @@ export class FacebookProvider extends SocialProvider {
   }
 
   /**
-   * Connect a channel with a pasted long-lived / System User token (REL4).
+   * Connect a channel with a pasted long-lived / System User token.
    * The token itself resolves the managed Pages; page tokens are non-expiring.
    */
   override async connectWithToken(token: string): Promise<ConnectedAccount[]> {

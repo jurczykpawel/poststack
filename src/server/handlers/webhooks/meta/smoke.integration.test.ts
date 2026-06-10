@@ -111,7 +111,7 @@ function signed(payload: unknown) {
 }
 
 describe("Meta webhook input hardening (real Postgres)", () => {
-  //  — an oversized body is rejected before it is buffered or the HMAC runs.
+  // an oversized body is rejected before it is buffered or the HMAC runs.
   it("rejects an oversized body with 413 before buffering", async () => {
     if (!TEST_DB) return;
     const bigReq = {
@@ -122,7 +122,7 @@ describe("Meta webhook input hardening (real Postgres)", () => {
     expect(res.status).toBe(413);
   });
 
-  //  — the cap is enforced on actual bytes too, so a chunked/header-less oversized body
+  // the cap is enforced on actual bytes too, so a chunked/header-less oversized body
   // (no Content-Length) is still rejected with 413 before the HMAC.
   it("rejects an oversized body with no Content-Length (413, before HMAC)", async () => {
     if (!TEST_DB) return;
@@ -134,7 +134,7 @@ describe("Meta webhook input hardening (real Postgres)", () => {
     expect(res.status).toBe(413);
   });
 
-  //  — a signed event missing `sender` is skipped (200, no enqueue), not a 500 retry storm.
+  // a signed event missing `sender` is skipped (200, no enqueue), not a 500 retry storm.
   it("skips a messaging event with no sender (200, no job)", async () => {
     if (!TEST_DB) return;
     const res = await POST(signed({
@@ -146,7 +146,7 @@ describe("Meta webhook input hardening (real Postgres)", () => {
     expect(n.rows[0].n).toBe(0);
   });
 
-  //  — an operator button payload can be up to 1000 chars; embedding it raw in the graphile
+  // an operator button payload can be up to 1000 chars; embedding it raw in the graphile
   // jobKey (512-cap) made the enqueue throw → 503 → Meta retry-storm. The jobKey now hashes the
   // payload, so even a max-length payload enqueues cleanly (200) and stays dedup-stable.
   it("enqueues a postback with a 1000-char payload (no 503), preserving the full payload", async () => {
@@ -221,7 +221,7 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(p.text).toBe("info please");
     expect(p.senderId).toBe("IGSID1");
     expect(p.senderName).toBe("jane");
-    //  — the unused full-event `raw` field is no longer serialized into the queue.
+    // the unused full-event `raw` field is no longer serialized into the queue.
     expect(p.raw).toBeUndefined();
   });
 
@@ -267,7 +267,7 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(job.rows[0].task_identifier).toBe("incoming-reaction");
     expect(job.rows[0].payload.reactionType).toBe("love");
     expect(job.rows[0].payload.reactedMid).toBe("MID_REACTED");
-    //  — the persisted timestamp is normalized to seconds (like DM/postback), not raw ms.
+    // the persisted timestamp is normalized to seconds (like DM/postback), not raw ms.
     expect(job.rows[0].payload.timestamp).toBe(1_770_000_000);
     expect(job.rows[0].payload.timestamp).toBeLessThan(2e9);
   });
@@ -620,7 +620,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(n.rows[0].n).toBe(0);
   });
 
-  //  — a text message without a `chat` must be ignored (200, no job), not 500 into a retry loop.
+  // a text message without a `chat` must be ignored (200, no job), not 500 into a retry loop.
   it("ignores a text update missing chat (no 500, no job)", async () => {
     if (!TEST_DB) return;
     await seedTgChannel();
@@ -635,7 +635,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(n.rows[0].n).toBe(0);
   });
 
-  //  — an oversized body (declared Content-Length) is rejected (200, ignored) before parse.
+  // an oversized body (declared Content-Length) is rejected (200, ignored) before parse.
   it("ignores an oversized body before buffering", async () => {
     if (!TEST_DB) return;
     const bigReq = {
@@ -646,7 +646,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(res.status).toBe(200);
   });
 
-  //  — actual-bytes cap: an oversized body with NO Content-Length (chunked) is still
+  // actual-bytes cap: an oversized body with NO Content-Length (chunked) is still
   // ignored (200), not parsed.
   it("ignores an oversized chunked body (no Content-Length) before parsing", async () => {
     if (!TEST_DB) return;
@@ -667,7 +667,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     // beforeEach seeded "Hello rule" (keyword "hello", channel_id null) — applies to Telegram too.
     const res = await telegramWebhookPost(tgUpdate("hello there"));
     expect(res.status).toBe(200);
-    // jobKey + payload identity include bot + chat + message (FIXR2/FIXR3/FIXR7).
+    // jobKey + payload identity include bot + chat + message.
     const enq = await pool.query(
       "select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
       [`tg-${BOT}-${CHAT}-99`],
@@ -684,7 +684,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     });
     expect((await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'")).rows[0].n).toBe(1);
 
-    // FIXR7: contact's last interaction reflects the event time, not processing time.
+    // contact's last interaction reflects the event time, not processing time.
     const contact = await db.query.contacts.findFirst({ where: eq(contacts.workspace_id, WS), columns: { last_interaction_at: true } });
     expect(contact?.last_interaction_at?.getTime()).toBe(1_770_000_000_000);
 
@@ -710,7 +710,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect(send!.body.text).toBe("Auto reply!");
   });
 
-  it("does not dedup the same message_id across different chats (FIXR3)", async () => {
+  it("does not dedup the same message_id across different chats", async () => {
     if (!TEST_DB) return;
     await seedTgChannel();
     await telegramWebhookPost(tgUpdate("hi", { messageId: 7, chatId: "111" }));
@@ -724,7 +724,7 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
   });
 });
 
-//  — a signed payload with no usable page id must still be rate-limited (one instance-wide
+// a signed payload with no usable page id must still be rate-limited (one instance-wide
 // fallback bucket), not bypass rate limiting entirely.
 describe("webhook per-page rate-limit — no-page fallback", () => {
   const signEmpty = () => {

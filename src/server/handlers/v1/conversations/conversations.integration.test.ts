@@ -65,7 +65,7 @@ describe("conversations handlers (real Postgres)", () => {
     expect(c.contact.contact_channels[0].platform_sender_id).toBe("PSID-CV");
   });
 
-  //  — keyset pagination must page past a NULL last_message_at: a usable next_cursor and
+  // keyset pagination must page past a NULL last_message_at: a usable next_cursor and
   // no lost/duplicated rows.
   it("paginates past a conversation with NULL last_message_at", async () => {
     if (!TEST_DB) return;
@@ -97,7 +97,7 @@ describe("conversations handlers (real Postgres)", () => {
     expect(res.status).toBe(200);
   });
 
-  //  — assigning a conversation is restricted to members of its workspace.
+  // assigning a conversation is restricted to members of its workspace.
   it("rejects assigning to a non-member (422), accepts a workspace member (200)", async () => {
     if (!TEST_DB) return;
     // Valid v4 UUIDs (version nibble 4, variant 8) — assigned_to is zod .uuid()-validated.
@@ -120,7 +120,7 @@ describe("conversations handlers (real Postgres)", () => {
     expect(okRes.status).toBe(200);
     expect((await okRes.json()).data.assigned_to).toBe(MEMBER);
 
-    //  — assigned_to is now readable: the GET detail and the list must project it, not just
+    // assigned_to is now readable: the GET detail and the list must project it, not just
     // accept it on write (it was a write-only field).
     const got = await (await detail.GET(req(`/${CONV}`), ctx)).json();
     expect(got.data.assigned_to).toBe(MEMBER);
@@ -133,7 +133,7 @@ describe("conversations handlers (real Postgres)", () => {
     await db.delete(s.users).where(eq(s.users.id, OUTSIDER));
   });
 
-  //  — an empty PATCH body (or unknown-keys-only, stripped to {}) must be a clean client
+  // an empty PATCH body (or unknown-keys-only, stripped to {}) must be a clean client
   // validation error (422, like any other bad body on this endpoint), not a 500 from Drizzle's
   // `.set({})` ("No values to set").
   it("rejects an empty PATCH body with a validation error, not 500", async () => {
@@ -163,7 +163,7 @@ describe("conversations handlers (real Postgres)", () => {
     expect(Number((jobs.rows[0] as { n: number }).n)).toBe(1);
   });
 
-  //  — a client retry carrying the same Idempotency-Key must enqueue at most one reply.
+  // a client retry carrying the same Idempotency-Key must enqueue at most one reply.
   it("deduplicates a retried manual reply by Idempotency-Key", async () => {
     if (!TEST_DB) return;
     const send = () => msgs.POST(

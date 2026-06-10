@@ -42,7 +42,7 @@ export async function processOutgoingMessage(
     }
   }
 
-  // Park the outbound as `held` (REL5) — awaiting drain, NOT `failed`. On drain
+  // Park the outbound as `held` — awaiting drain, NOT `failed`. On drain
   // (heldMessageId set) the row already exists, so re-parking is a no-op; return the
   // existing/created row id so the ledger can point a drain replay back at it.
   const persistHeld = async () => {

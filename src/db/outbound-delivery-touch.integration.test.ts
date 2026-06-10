@@ -24,7 +24,7 @@ afterAll(async () => {
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
 });
 
-// #3 — outbound_deliveries.updated_at carries $onUpdate, so a plain update that omits the
+// outbound_deliveries.updated_at carries $onUpdate, so a plain update that omits the
 // column still advances the timestamp (the only updated_at column that previously lacked this).
 describe("outbound_deliveries.updated_at $onUpdate", () => {
   it("advances updated_at on an update that does not set it", async () => {

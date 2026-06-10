@@ -67,7 +67,7 @@ const storedToken = async () => {
   return { access_token: crypto.decryptTokens(c!.token_encrypted).access_token, status: c!.status };
 };
 
-// #1 — the refreshed-token write and the markChannelHealthy status flip + drain enqueue must
+// the refreshed-token write and the markChannelHealthy status flip + drain enqueue must
 // commit together. Otherwise a crash/failure between them leaves the new token persisted but the
 // channel stuck needs_reauth with no drain — held messages strand behind a "recovered" token.
 describe("token refresh is atomic with the health flip", () => {
@@ -90,7 +90,7 @@ describe("token refresh is atomic with the health flip", () => {
   });
 });
 
-//  — a stored token that can't be decrypted (corruption / a rotated TOKEN_ENCRYPTION_KEY
+// a stored token that can't be decrypted (corruption / a rotated TOKEN_ENCRYPTION_KEY
 // without re-encrypt) must flag the channel needs_reauth and stop, exactly like a token the
 // provider rejects — not throw out of the worker and dead-letter the refresh job with no signal.
 describe("token refresh on an undecryptable token", () => {

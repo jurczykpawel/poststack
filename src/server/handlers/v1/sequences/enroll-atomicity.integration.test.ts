@@ -100,7 +100,7 @@ const seedEnrollment = async () => {
 };
 const authedReq = () => new Request("http://x", { method: "DELETE", headers: { authorization: `Bearer ${KEY}` } });
 
-//  — an in-flight enrollment can be cancelled (the only prior "stop" was deleting the sequence).
+// an in-flight enrollment can be cancelled (the only prior "stop" was deleting the sequence).
 describe("cancel enrollment", () => {
   it("flips an active enrollment to cancelled", async () => {
     if (!TEST_DB) return;
@@ -112,7 +112,7 @@ describe("cancel enrollment", () => {
   });
 });
 
-//  — deleting a sequence with active enrollments is blocked with a 409 (symmetric with
+// deleting a sequence with active enrollments is blocked with a 409 (symmetric with
 // channel-delete); once the enrollment is no longer active, the delete goes through.
 describe("sequence DELETE guards active enrollments", () => {
   it("returns 409 with an active enrollment, 204 after it's cancelled", async () => {

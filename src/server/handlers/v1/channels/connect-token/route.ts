@@ -13,7 +13,7 @@ const schema = z.object({
 });
 
 // POST /api/v1/channels/connect-token — connect a channel with a pasted
-// long-lived / System User token instead of OAuth (REL4).
+// long-lived / System User token instead of OAuth.
 export async function POST(request: Request) {
   const auth = await authenticateWithScope(request, "channels:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();

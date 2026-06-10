@@ -348,7 +348,7 @@ describe("Meta Graph API Contract Tests", () => {
     });
   });
 
-  //  — a 2xx send with an empty/non-JSON body (proxy/CDN) must be treated as sent, not throw
+  // a 2xx send with an empty/non-JSON body (proxy/CDN) must be treated as sent, not throw
   // after acceptance (which would retry and double-send the DM).
   describe("non-JSON 2xx body", () => {
     it("Facebook sendMessage: empty 2xx body → sent with null id, no throw", async () => {
@@ -943,7 +943,7 @@ describe("Meta Graph API Contract Tests", () => {
     it("throws on send message failure with error body", async () => {
       // A generic (non-terminal) send failure → generic throw. NOTE: do NOT reuse FIXTURES.apiError
       // here — it carries error_subcode 2018001 ("no matching user"), which is now correctly
-      // classified as a terminal MessagingPolicyError (recipient unreachable,  ); that
+      // classified as a terminal MessagingPolicyError (recipient unreachable); that
       // path is covered in errors.test.ts. This test exercises the generic-retry path, so it uses a
       // body with no terminal subcode.
       globalThis.fetch = vi.fn(async () =>

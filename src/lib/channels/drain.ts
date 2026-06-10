@@ -42,7 +42,7 @@ export interface DrainResult {
 }
 
 /** Resolve the window anchor timestamp for a held delivery, or null when undeterminable.
- *  `last_inbound_at` is read from a pre-loaded map (batched once per drain, not per held row — ). */
+ *  `last_inbound_at` is read from a pre-loaded map (batched once per drain, not per held row). */
 function anchorFor(
   taskName: string,
   payload: Record<string, unknown>,

@@ -120,16 +120,16 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(msgs[0].direction).toBe("inbound");
   });
 
-  //  — a new inbound message's counters (unread_count, last_inbound_at, status:open) now commit
+  // a new inbound message's counters (unread_count, last_inbound_at, status:open) now commit
   // ATOMICALLY with the message insert, so a crash between can't permanently skip them. Here we verify
   // they're applied for a new DM (last_inbound_at is the drain's 24h-window anchor) and that a
-  // redelivery doesn't double-count ( preserved — the insert conflicts inside the tx).
+  // redelivery doesn't double-count (preserved — the insert conflicts inside the tx).
   it("applies unread_count + last_inbound_at atomically for a new DM; a redelivery doesn't double them", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-SENDER", recipientId: PAGE, mid: "mid-167", text: "hi", timestamp: ts() };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "t167-SENDER", recipientId: PAGE, mid: "mid-167", text: "hi", timestamp: ts() };
     await w.processIncomingMessage(job, helpers);
     const cc = await db.query.contactChannels.findFirst({
-      where: and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "-SENDER")),
+      where: and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "t167-SENDER")),
       columns: { contact_id: true },
     });
     const conv = () => db.query.conversations.findFirst({
@@ -163,7 +163,7 @@ describe("incoming-message worker (real Postgres)", () => {
     ).resolves.toBeUndefined();
   });
 
-  //  — the DM path's contact find-or-create must be race-hardened like the shared resolver
+  // the DM path's contact find-or-create must be race-hardened like the shared resolver
   //: two parallel first DMs from a NEW sender converge on ONE contact, with neither job
   // failing on a 23505 (which previously dead-lettered the loser + forced a retry).
   it("two concurrent first DMs from a new sender create exactly one contact, no failure", async () => {
@@ -207,7 +207,7 @@ describe("incoming-message worker (real Postgres)", () => {
     }
   });
 
-  //  — a permanently-lost DM auto-reply must surface to the operator.
+  // a permanently-lost DM auto-reply must surface to the operator.
   const helpersJob = (attempts: number, max_attempts: number) =>
     ({ logger: { info: () => {} }, job: { attempts, max_attempts } } as never);
   async function convFlag(sender: string) {
@@ -266,11 +266,11 @@ describe("incoming-message worker (real Postgres)", () => {
     }
   });
 
-  //  — a no-match / paused event is terminally claimed, so a later redelivery
+  // a no-match / paused event is terminally claimed, so a later redelivery
   // (after a rule is added or after unpause) does not produce a late reply to an old event.
   it("a no-match DM is terminally claimed — adding a rule then redelivering does not reply late", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-NM", recipientId: PAGE, mid: "mid-nm", text: "hello", timestamp: ts() };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "t17-NM", recipientId: PAGE, mid: "mid-nm", text: "hello", timestamp: ts() };
     await w.processIncomingMessage(job, helpers); // no rule yet → no-match, claimed
     expect(await jobCount("outgoing-message")).toBe(0);
     await seedDefaultDmRule(); // operator adds a matching rule
@@ -283,9 +283,9 @@ describe("incoming-message worker (real Postgres)", () => {
     await seedDefaultDmRule();
     const CONTACT_P = "eeeeeeee-0000-0000-0000-0000000aa001";
     await db.insert(s.contacts).values({ id: CONTACT_P, workspace_id: WS });
-    await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "-PAUSE" });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "t17-PAUSE" });
     await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_P, platform: "facebook", is_automation_paused: true });
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-PAUSE", recipientId: PAGE, mid: "mid-pause", text: "hello", timestamp: ts() };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "t17-PAUSE", recipientId: PAGE, mid: "mid-pause", text: "hello", timestamp: ts() };
     await w.processIncomingMessage(job, helpers); // paused → claim + skip
     expect(await jobCount("outgoing-message")).toBe(0);
     await db.update(s.conversations).set({ is_automation_paused: false }).where(eq(s.conversations.contact_id, CONTACT_P));
@@ -293,7 +293,7 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
-  //  — two parallel deliveries of the same new DM: the worker that loses the claim
+  // two parallel deliveries of the same new DM: the worker that loses the claim
   // race must read "already handled" (not no-match) and not flag a conversation the winner
   // just auto-replied to.
   it("two parallel deliveries of the same DM → exactly one reply and needs_manual_reply stays false", async () => {
@@ -302,23 +302,23 @@ describe("incoming-message worker (real Postgres)", () => {
     const CONTACT_R = "eeeeeeee-0000-0000-0000-0000000aa002";
     // Pre-seed identity so both deliveries race only on the message/claim, not contact creation.
     await db.insert(s.contacts).values({ id: CONTACT_R, workspace_id: WS });
-    await db.insert(s.contactChannels).values({ contact_id: CONTACT_R, channel_id: CH, platform_sender_id: "-RACE" });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT_R, channel_id: CH, platform_sender_id: "t18-RACE" });
     await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_R, platform: "facebook" });
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-RACE", recipientId: PAGE, mid: "mid-race", text: "hello", timestamp: ts() };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "t18-RACE", recipientId: PAGE, mid: "mid-race", text: "hello", timestamp: ts() };
     await Promise.all([
       w.processIncomingMessage(job, helpers),
       w.processIncomingMessage(job, helpers),
     ]);
     expect(await jobCount("outgoing-message")).toBe(1);
-    expect(await convFlag("-RACE")).toBe(false);
+    expect(await convFlag("t18-RACE")).toBe(false);
   });
 
-  //  — a stale final-failure of an old message must not re-raise the flag on a
+  // a stale final-failure of an old message must not re-raise the flag on a
   // conversation a newer message already resolved.
   it("an old DM's final-failure does not overwrite a conversation a newer message resolved", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
-    const SENDER = "";
+    const SENDER = "t19";
     const OLD_TS = 1_770_000_900;
     const NEW_TS = 1_770_001_000;
     const qc = await import("@/lib/queue/client");
@@ -339,16 +339,16 @@ describe("incoming-message worker (real Postgres)", () => {
     }
   });
 
-  //  — the durable event claim must outlive the ephemeral TTL prune (cooldowns,
+  // the durable event claim must outlive the ephemeral TTL prune (cooldowns,
   // rate-limit windows, the token denylist), so an old webhook redelivery can't fire a
   // second/late reply after maintenance runs. The claim is kept for the full platform
-  // redelivery window; it is only pruned far past it (60 days, ), so a prune run two
+  // redelivery window; it is only pruned far past it (60 days), so a prune run two
   // days out clears the short-lived stores while the claim — and thus dedup — survives.
   it("a processed event stays deduped after the operational TTL stores are pruned", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     const { pruneExpired } = await import("@/lib/maintenance");
-    const job = { platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "mid-22", text: "hello", timestamp: ts() };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "t22", recipientId: PAGE, mid: "mid-22", text: "hello", timestamp: ts() };
     await w.processIncomingMessage(job, helpers); // fires + durably records the event
     expect(await jobCount("outgoing-message")).toBe(1);
     // Maintenance prunes the ephemeral TTL stores (seconds-to-hours lived); two days out is
@@ -360,26 +360,26 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
-  //  — an out-of-order older message must not move conversation activity backwards.
+  // an out-of-order older message must not move conversation activity backwards.
   it("an out-of-order older message does not move conversation activity backwards", async () => {
     if (!TEST_DB) return;
     const T2 = ts();
     const T1 = T2 - 3600; // an hour older, but ingested second
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t2", text: "newer", timestamp: T2 }, helpers);
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-t1", text: "older", timestamp: T1 }, helpers);
-    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, ""));
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "t23", recipientId: PAGE, mid: "m-t2", text: "newer", timestamp: T2 }, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "t23", recipientId: PAGE, mid: "m-t1", text: "older", timestamp: T1 }, helpers);
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "t23"));
     const [conv] = await db.select().from(s.conversations).where(eq(s.conversations.contact_id, cc.contact_id));
     expect(conv.last_message_at?.getTime()).toBe(T2 * 1000);
     expect(conv.last_inbound_at?.getTime()).toBe(T2 * 1000);
     expect(conv.last_message_preview).toBe("newer");
   });
 
-  //  — a duplicate DM must dedup before mutating lifecycle (no reopen / no reorder).
+  // a duplicate DM must dedup before mutating lifecycle (no reopen / no reorder).
   it("a duplicate DM does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;
-    const job = { platform: "facebook", pageId: PAGE, senderId: "-DM", recipientId: PAGE, mid: "m-dup", text: "hi", timestamp: ts() };
+    const job = { platform: "facebook", pageId: PAGE, senderId: "t24-DM", recipientId: PAGE, mid: "m-dup", text: "hi", timestamp: ts() };
     await w.processIncomingMessage(job, helpers); // creates conversation
-    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "-DM"));
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "t24-DM"));
     const past = new Date("2020-01-01T00:00:00.000Z");
     await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
     await w.processIncomingMessage(job, helpers); // redelivery of the SAME message
@@ -388,29 +388,29 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(conv.last_message_at?.getTime()).toBe(past.getTime());
   });
 
-  //  — a new DM that arrives while automation is paused must surface for a human.
+  // a new DM that arrives while automation is paused must surface for a human.
   it("a new DM on a paused conversation flags it for manual attention", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     const CONTACT_P = "eeeeeeee-0000-0000-0000-0000000aa026";
     await db.insert(s.contacts).values({ id: CONTACT_P, workspace_id: WS });
-    await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "" });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT_P, channel_id: CH, platform_sender_id: "t26" });
     await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT_P, platform: "facebook", is_automation_paused: true });
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-26", text: "hello", timestamp: ts() }, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "t26", recipientId: PAGE, mid: "m-26", text: "hello", timestamp: ts() }, helpers);
     expect(await jobCount("outgoing-message")).toBe(0); // paused → no auto-reply
-    expect(await convFlag("")).toBe(true); // but surfaced for a human
+    expect(await convFlag("t26")).toBe(true); // but surfaced for a human
   });
 
-  //  — a manually paused CHANNEL ingests to the inbox but runs no automation.
+  // a manually paused CHANNEL ingests to the inbox but runs no automation.
   it("a manually paused channel ingests a DM but runs no automation", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
-    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "", recipientId: PAGE, mid: "m-40", text: "hello", timestamp: ts() }, helpers);
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "t40", recipientId: PAGE, mid: "m-40", text: "hello", timestamp: ts() }, helpers);
     const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, "m-40"));
     expect(msgs.length).toBe(1); // still ingested to the inbox
     expect(await jobCount("outgoing-message")).toBe(0); // but no auto-reply
-    expect(await convFlag("")).toBe(true); // surfaced for a human
+    expect(await convFlag("t40")).toBe(true); // surfaced for a human
   });
 });
 
@@ -424,7 +424,7 @@ describe("incoming-comment worker", () => {
     expect(logs.length).toBe(1);
   });
 
-  //  — a comment on a fresh conversation is unread work for the operator; the inbox badge
+  // a comment on a fresh conversation is unread work for the operator; the inbox badge
   // must reflect it. A redelivery of the same comment must not double-count.
   it("increments unread_count for a new comment, not on redelivery", async () => {
     if (!TEST_DB) return;
@@ -494,7 +494,7 @@ describe("incoming-comment worker", () => {
     expect(await jobCount("outgoing-private-reply")).toBe(1);
   });
 
-  //  — an unmatched comment is unhandled work: raise the attention badge, mirroring the DM worker.
+  // an unmatched comment is unhandled work: raise the attention badge, mirroring the DM worker.
   it("flags needs_manual_reply on a comment that matches no rule", async () => {
     if (!TEST_DB) return;
     const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-nomatch", postId: "p1", senderId: "NOMATCH-C", senderName: "Z", text: "totally unrelated", timestamp: ts() };
@@ -507,7 +507,7 @@ describe("incoming-comment worker", () => {
     expect(conv?.needs_manual_reply).toBe(true);
   });
 
-  //  — two concurrent first events from the same new sender converge on ONE contact without a
+  // two concurrent first events from the same new sender converge on ONE contact without a
   // unique-violation failing a job (the loser's link insert is a no-op, not a thrown 23505).
   it("two concurrent first events from a new sender create exactly one contact, no failure", async () => {
     if (!TEST_DB) return;
@@ -522,13 +522,13 @@ describe("incoming-comment worker", () => {
     expect(links.length).toBe(1);
   });
 
-  //  — the new-comment log must not contain the commenter's raw platform author-id (PSID-class
+  // the new-comment log must not contain the commenter's raw platform author-id (PSID-class
   // PII that sits outside the GDPR erasure boundary); it logs the internal comment-log id instead.
   it("does not log the raw commenter author-id", async () => {
     if (!TEST_DB) return;
     const lines: string[] = [];
     const spyHelpers = { logger: { info: (m: string) => lines.push(m) }, job: { id: "job-test" } } as never;
-    const SENDER = "PSID-SECRET-";
+    const SENDER = "PSID-142";
     await w.processIncomingComment(
       { platform: "facebook", pageId: PAGE, commentId: "cmt-pii", postId: "p1", senderId: SENDER, senderName: "Z", text: "hi", timestamp: ts() },
       spyHelpers,
@@ -568,7 +568,7 @@ describe("incoming-comment worker", () => {
     expect(await jobCount("outgoing-private-reply")).toBe(0);
   });
 
-  //  — the page's OWN public reply is redelivered by Meta as a fresh comment with
+  // the page's OWN public reply is redelivered by Meta as a fresh comment with
   // from.id === page id. Without a from-is-page guard it re-logs, re-matches a post_id-only rule
   // (which matches every comment on the post), and posts yet another reply → unbounded self-loop.
   // It must be dropped: zero log, zero match, zero reply enqueue. A real fan's comment on the same
@@ -593,7 +593,7 @@ describe("incoming-comment worker", () => {
     expect(await jobCount("outgoing-comment")).toBe(1);
   });
 
-  //  — a redelivered comment resolves identity but must not bump activity/status.
+  // a redelivered comment resolves identity but must not bump activity/status.
   it("a redelivered comment does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;
     await seedCommentRule({ text: "x", reply_mode: "dm" });
@@ -643,7 +643,7 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
-  //  — a reaction whose sender is the page itself (senderId === channel.platform_id) must be
+  // a reaction whose sender is the page itself (senderId === channel.platform_id) must be
   // dropped: it would otherwise materialise the page as a self-contact (before rule eval, so
   // unconditionally) and fire a doomed self-DM. The reaction-path analog of the comment self-guard
   // / the DM is_echo skip.
@@ -656,7 +656,7 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
-  //  — a reaction is a low-signal event; it must NOT resurface a conversation the operator
+  // a reaction is a low-signal event; it must NOT resurface a conversation the operator
   // deliberately closed (which would return it to the inbox with no unread/attention signal).
   it("does not reopen a closed conversation on a reaction", async () => {
     if (!TEST_DB) return;
@@ -796,7 +796,7 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(2);
   });
 
-  //  — eligibility precheck must gate the (paid/slow) AI before planning a reply.
+  // eligibility precheck must gate the (paid/slow) AI before planning a reply.
   it("does not call the AI for a redelivered, already-handled reaction", async () => {
     if (!TEST_DB) return;
     await seedReactionRule({ response_config: { text: "thanks!", ai_rephrase: true } });
@@ -846,14 +846,14 @@ describe("incoming-reaction worker", () => {
     }
   });
 
-  //  — a redelivered reaction is deduped BEFORE resolving/mutating the conversation.
+  // a redelivered reaction is deduped BEFORE resolving/mutating the conversation.
   it("a duplicate reaction does not reopen or reorder a closed conversation", async () => {
     if (!TEST_DB) return;
     await seedReactionRule();
-    const evt = { platform: "facebook", pageId: PAGE, senderId: "-RX", reactedMid: "m-rx", reactionType: "love", emoji: "❤️", timestamp: 1_770_002_001 };
+    const evt = { platform: "facebook", pageId: PAGE, senderId: "t24-RX", reactedMid: "m-rx", reactionType: "love", emoji: "❤️", timestamp: 1_770_002_001 };
     await w.processIncomingReaction(evt, helpers); // fires + claims, materialises conversation
     expect(await jobCount("outgoing-message")).toBe(1);
-    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "-RX"));
+    const [cc] = await db.select().from(s.contactChannels).where(eq(s.contactChannels.platform_sender_id, "t24-RX"));
     const past = new Date("2020-01-01T00:00:00.000Z");
     await db.update(s.conversations).set({ status: "closed", last_message_at: past }).where(eq(s.conversations.contact_id, cc.contact_id));
     await w.processIncomingReaction(evt, helpers); // redelivery
@@ -876,7 +876,7 @@ describe("outgoing-private-reply worker", () => {
     expect(sent[0].text).toBe("hi via DM");
   });
 
-  //  — a comment→DM flips the comment-log's dm_sent (mirrors the public worker's reply_sent),
+  // a comment→DM flips the comment-log's dm_sent (mirrors the public worker's reply_sent),
   // scoped by (commentId, channelId), so "did this comment get a DM?" is queryable.
   it("flips comment_logs.dm_sent for the (comment, channel) once the private reply is sent", async () => {
     if (!TEST_DB) return;
@@ -907,7 +907,7 @@ describe("outgoing-private-reply worker", () => {
     expect(held.length).toBe(1);
   });
 
-  // / — a private reply stamps contact_id on the delivery ledger, so erasing the
+  // a private reply stamps contact_id on the delivery ledger, so erasing the
   // contact cascades the row away (PII in the parked payload can't outlive the contact).
   it("stamps contact_id so a contact erasure cascades to its private-reply deliveries", async () => {
     if (!TEST_DB) return;
@@ -954,7 +954,7 @@ describe("outgoing-message worker", () => {
     expect(held.length).toBe(1);
   });
 
-  //  — an undecryptable stored token (corrupt token / rotated TOKEN_ENCRYPTION_KEY) must
+  // an undecryptable stored token (corrupt token / rotated TOKEN_ENCRYPTION_KEY) must
   // degrade exactly like a dead token: hold + needs_reauth + alert, NOT crash-loop to dead-letter
   // with no operator signal. The send callback never even reaches the provider.
   it("holds + flags needs_reauth when the stored token cannot be decrypted", async () => {
@@ -971,7 +971,7 @@ describe("outgoing-message worker", () => {
     expect(row?.status).toBe("held"); // parked, not failed/dead-lettered
   });
 
-  //  — a messaging-policy rejection (e.g. outside the 24h window) is terminal: the delivery
+  // a messaging-policy rejection (e.g. outside the 24h window) is terminal: the delivery
   // is dropped (expired) and NOT rethrown, so a stale step can't grind every retry to dead-letter.
   it("drops (expired, no rethrow) on a messaging-policy rejection", async () => {
     if (!TEST_DB) return;
@@ -984,7 +984,7 @@ describe("outgoing-message worker", () => {
     expect(health.markChannelNeedsReauth).not.toHaveBeenCalled();
   });
 
-  //  — a platform rate-limit (429) is retryable, but only after its Retry-After window. The
+  // a platform rate-limit (429) is retryable, but only after its Retry-After window. The
   // delivery is recorded `failed` (reattemptable) and re-enqueued at that delay under a deterministic
   // per-delivery key, instead of being rethrown to burn graphile's short backoff budget and dead-letter.
   it("re-enqueues at Retry-After (without rethrow) on a rate-limit rejection", async () => {
@@ -1003,7 +1003,7 @@ describe("outgoing-message worker", () => {
     expect((jobs.rows[0] as { future: boolean }).future).toBe(true);
   });
 
-  //  — the rate-limit retry adds a random spread on top of Retry-After, so a throttled burst
+  // the rate-limit retry adds a random spread on top of Retry-After, so a throttled burst
   // that all got the same value doesn't re-collide the instant the window opens. With a stubbed RNG
   // the delay is Retry-After + floor(rng * min(Retry-After, 30s)) = 10s + 5s = ~15s, not the bare 10s.
   it("adds jitter on top of Retry-After when re-enqueueing a rate-limited delivery", async () => {
@@ -1021,7 +1021,7 @@ describe("outgoing-message worker", () => {
     }
   });
 
-  //  — a Retry-After of exactly 0 still gets non-zero jitter (no re-collision at delay 0).
+  // a Retry-After of exactly 0 still gets non-zero jitter (no re-collision at delay 0).
   it("still jitters a rate-limit retry when Retry-After is 0", async () => {
     if (!TEST_DB) return;
     const rng = vi.spyOn(Math, "random").mockReturnValue(0.99);
@@ -1035,7 +1035,7 @@ describe("outgoing-message worker", () => {
     }
   });
 
-  //  — an automated send re-checks consent at delivery time: a contact who unsubscribed in the
+  // an automated send re-checks consent at delivery time: a contact who unsubscribed in the
   // window between enqueue and send is not messaged.
   it("skips an automated outgoing message to a contact unsubscribed after enqueue", async () => {
     if (!TEST_DB) return;
@@ -1055,7 +1055,7 @@ describe("outgoing-message worker", () => {
     expect(provider.sendMessage).toHaveBeenCalled();
   });
 
-  //  — an API-key manual reply nulls sentByUserId (it's a users.id FK), so the human-agent
+  // an API-key manual reply nulls sentByUserId (it's a users.id FK), so the human-agent
   // exemption must key on the explicit isManual flag, not sentByUserId. Both the consent re-check
   // and the send-while-paused exemption must honour it.
   it("sends an isManual reply (no sentByUserId) to an unsubscribed contact", async () => {
@@ -1080,7 +1080,7 @@ describe("outgoing-message worker", () => {
   });
 });
 
-//  — the durable delivery state machine. The provider call sits between a committed
+// the durable delivery state machine. The provider call sits between a committed
 // `sending` claim and an atomic `sent`+persist, so neither crash window (after the provider
 // accepted but before we recorded it; after recording but before local persist) produces a
 // silent duplicate or loses local state.
@@ -1170,7 +1170,7 @@ describe("outbound delivery state machine", () => {
     expect((await delivery("d-pr"))?.status).toBe("unknown");
   });
 
-  //  — if the token-invalid handler's own park bookkeeping fails, the delivery must NOT
+  // if the token-invalid handler's own park bookkeeping fails, the delivery must NOT
   // be left stuck in `sending` (a retry would drop it as an `unknown` crash). It is demoted to
   // `failed` (reattemptable) and the error rethrown so the retry re-sends.
   it("demotes to failed (not stuck sending) when the token-invalid park bookkeeping throws", async () => {
@@ -1196,7 +1196,7 @@ describe("outbound delivery state machine", () => {
   });
 });
 
-//  — every outbound type parks the FULL typed operation on the ledger when the channel
+// every outbound type parks the FULL typed operation on the ledger when the channel
 // is down, so a drain can replay the exact operation (right task, addressing, content) once.
 describe("typed held parking + replay", () => {
   const heldDelivery = (key: string) =>
@@ -1314,7 +1314,7 @@ describe("sequence-step worker", () => {
     expect(after?.status).toBe("completed");
   });
 
-  //  — a re-run of the same step (a retry whose advance didn't stick) must not enqueue a
+  // a re-run of the same step (a retry whose advance didn't stick) must not enqueue a
   // second outbound or a second next-step: the deterministic per-step job keys dedup.
   it("re-running the same step does not double-send (idempotent per step)", async () => {
     if (!TEST_DB) return;
@@ -1333,7 +1333,7 @@ describe("sequence-step worker", () => {
     expect(await jobCount("sequence-step")).toBe(1);
   });
 
-  //  — an enrollment is driven by the steps snapshot it captured, NOT the live sequence.
+  // an enrollment is driven by the steps snapshot it captured, NOT the live sequence.
   it("uses the enrollment's pinned snapshot even after the sequence definition is edited", async () => {
     if (!TEST_DB) return;
     const { seqId, enrId } = await seedEnrollment([{ type: "message", content: "v1 original" }]);
@@ -1347,7 +1347,7 @@ describe("sequence-step worker", () => {
     expect((r.rows[0] as { payload: { content: { text: string } } }).payload.content.text).toBe("v1 original");
   });
 
-  //  — an unsubscribed contact is not sent a sequence step, but the enrollment still
+  // an unsubscribed contact is not sent a sequence step, but the enrollment still
   // advances (so it resumes naturally if they re-subscribe before a later step).
   it("does not send a sequence step to an unsubscribed contact, but advances", async () => {
     if (!TEST_DB) return;
@@ -1361,7 +1361,7 @@ describe("sequence-step worker", () => {
     expect(after?.status).toBe("completed"); // advanced past the (skipped) step
   });
 
-  //  — a conversation with automation paused HOLDS the drip: no send, no cursor advance,
+  // a conversation with automation paused HOLDS the drip: no send, no cursor advance,
   // and the step is deferred so it resumes from the same place once un-paused.
   it("holds (no send, no advance) a sequence step when the conversation is automation-paused", async () => {
     if (!TEST_DB) return;
@@ -1387,7 +1387,7 @@ describe("sequence-step worker", () => {
     expect(resumed?.current_step_index).toBe(1);
   });
 
-  //  — the pause must freeze a DELAY step too. Previously the is_automation_paused check sat
+  // the pause must freeze a DELAY step too. Previously the is_automation_paused check sat
   // inside the message branch, so a delay step "counted down" during the pause and advanced the
   // cursor. A paused conversation holds every step type, then resumes from the same place.
   it("holds a delay step (no advance) when the conversation is automation-paused", async () => {
@@ -1410,7 +1410,7 @@ describe("sequence-step worker", () => {
     expect(resumedDelay?.current_step_index).toBe(1);
   });
 
-  //  — a paused CHANNEL holds the drip just like a paused conversation: no send, no advance,
+  // a paused CHANNEL holds the drip just like a paused conversation: no send, no advance,
   // deferred re-check. Otherwise the step's message parks `held` and can expire during a long pause.
   it("holds (no send, no advance) a sequence step when the channel is paused", async () => {
     if (!TEST_DB) return;
@@ -1512,7 +1512,7 @@ describe("follow-gate worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
-  //   — a per-recipient PERMANENT failure on the live follow-check (e.g. the user
+  // a per-recipient PERMANENT failure on the live follow-check (e.g. the user
   // deleted their account → MessagingPolicyError) drops the gate terminally: no child enqueued,
   // no channel re-auth, no retry/dead-letter. The ledger records it `expired`.
   it("drops the gate terminally when the follow check hits a permanent policy error", async () => {
@@ -1525,8 +1525,8 @@ describe("follow-gate worker", () => {
     expect(row.status).toBe("expired");
   });
 
-  //  — a contact that unsubscribed after the gate was enqueued is not delivered to; the
-  // worker re-checks is_subscribed and drops without probing the follow graph (closes  TOCTOU).
+  // a contact that unsubscribed after the gate was enqueued is not delivered to; the
+  // worker re-checks is_subscribed and drops without probing the follow graph (closes the gap).
   it("drops the gate without a follow-check or send when the contact is unsubscribed", async () => {
     if (!TEST_DB) return;
     await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
@@ -1535,7 +1535,7 @@ describe("follow-gate worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
-  //  — a contact erased mid-flight (the contactId no longer resolves) is treated the same
+  // a contact erased mid-flight (the contactId no longer resolves) is treated the same
   // as unsubscribed: drop without probing the follow graph or enqueuing a child. Matches the
   // sequence worker's `!contact?.is_subscribed` guard.
   it("drops the gate without a follow-check or send when the contact no longer exists", async () => {
@@ -1548,7 +1548,7 @@ describe("follow-gate worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
-  //  — a paused channel must not even probe the follow graph or pin an outcome; the gate
+  // a paused channel must not even probe the follow graph or pin an outcome; the gate
   // is parked so a drain re-runs the live follow-check from scratch after resume.
   it("parks the gate without a follow-check or send when the channel is paused", async () => {
     if (!TEST_DB) return;
@@ -1561,7 +1561,7 @@ describe("follow-gate worker", () => {
     expect(row?.task_name).toBe("follow-gate");
   });
 
-  //  — the outcome is resolved once and pinned. A retry after the follow status flips
+  // the outcome is resolved once and pinned. A retry after the follow status flips
   // must replay the SAME branch, never enqueue the other one.
   it("pins the gate outcome: a retry after the status flips does not enqueue the other branch", async () => {
     if (!TEST_DB) return;

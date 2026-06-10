@@ -45,7 +45,7 @@ describe("telegram webhook delivery", () => {
     expect(res.status).toBe(200);
   });
 
-  //  — a group/supergroup chat collapses every member to one contact (chat.id is the group,
+  // a group/supergroup chat collapses every member to one contact (chat.id is the group,
   // not the member) and aims replies at the group. ReplyStack is a DM inbox: ignore non-private
   // chats (200, not retried) and do NOT enqueue.
   it("ignores a non-private (group) chat without enqueuing", async () => {
@@ -56,7 +56,7 @@ describe("telegram webhook delivery", () => {
     expect(addJob).not.toHaveBeenCalled();
   });
 
-  //  — the secret is matched constant-time against every live Telegram channel, so among
+  // the secret is matched constant-time against every live Telegram channel, so among
   // multiple candidates the update is routed to the channel whose secret actually matches (and a
   // non-matching secret enqueues nothing).
   it("routes to the channel whose secret matches among multiple candidates", async () => {

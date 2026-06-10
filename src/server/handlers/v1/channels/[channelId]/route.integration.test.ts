@@ -69,7 +69,7 @@ const reqAsA = (method: string, body?: unknown) =>
   });
 const ctx = (channelId: string) => ({ params: Promise.resolve({ channelId }) });
 
-//  — sequence_enrollments.channel_id is ON DELETE RESTRICT and enrollment rows linger
+// sequence_enrollments.channel_id is ON DELETE RESTRICT and enrollment rows linger
 // after completion. Deleting a channel that ever had an enrollment must surface a clean 409,
 // not an unhandled FK-violation 500.
 describe("channel DELETE with a sequence enrollment (real Postgres)", () => {
@@ -108,7 +108,7 @@ describe("channel DELETE with a sequence enrollment (real Postgres)", () => {
   });
 });
 
-//  — defense-in-depth: the mutation WHERE carries workspace_id alongside the PK, so a
+// defense-in-depth: the mutation WHERE carries workspace_id alongside the PK, so a
 // cross-workspace id can never alter another tenant's row even if the ownership precheck and
 // the mutation ever diverge. Black-box behaviour is unchanged (404, row untouched).
 describe("channel PATCH/DELETE is workspace-scoped (real Postgres)", () => {

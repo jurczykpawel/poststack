@@ -79,7 +79,7 @@ export async function processFollowGate(
   }
   // A manually paused channel must not even probe the follow graph (a Meta call the pause is
   // meant to forbid) or pin an outcome early. Park the full gate payload so a drain re-runs the
-  // live follow-check from scratch after resume (; follow-gate has its own status logic
+  // live follow-check from scratch after resume (follow-gate has its own status logic
   // that runDelivery's blockedByPause doesn't cover).
   if (channel.status === "paused") {
     await parkHeld(channel.workspace_id, "channel paused");
@@ -87,8 +87,8 @@ export async function processFollowGate(
     return;
   }
   // Consent re-check at delivery time: if the contact unsubscribed after the gate was enqueued,
-  // don't probe the follow graph or deliver the unlock ( — closes the  enqueue→execute
-  // TOCTOU; the sequence worker already re-checks). Dropped (not parked): we must not deliver.
+  // don't probe the follow graph or deliver the unlock (closes the enqueue→execute
+  // gap; the sequence worker already re-checks). Dropped (not parked): we must not deliver.
   const contact = await db.query.contacts.findFirst({
     where: eq(contacts.id, contactId),
     columns: { is_subscribed: true },
@@ -121,7 +121,7 @@ export async function processFollowGate(
     }
     if (e instanceof MessagingPolicyError) {
       // The live follow-check hit a per-recipient PERMANENT failure (e.g. the user deleted their
-      // account → subcode 2018001, now classified terminal by  ): we can neither resolve
+      // account → subcode 2018001, now classified terminal): we can neither resolve
       // the gate nor ever deliver to this recipient, and a retry can't change that. Record the gate
       // terminally dropped (no child enqueued, no retry) instead of dead-lettering every attempt
       //.

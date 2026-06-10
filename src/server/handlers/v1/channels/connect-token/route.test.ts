@@ -26,7 +26,7 @@ function post(body: unknown) {
   });
 }
 
-describe("POST /api/v1/channels/connect-token — manual token (REL4)", () => {
+describe("POST /api/v1/channels/connect-token — manual token", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ workspaceId: "ws-1" });

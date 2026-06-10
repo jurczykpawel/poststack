@@ -33,7 +33,7 @@ export async function processTokenRefresh(
     return;
   }
 
-  // Manual long-lived / System User tokens are not on a refresh cycle (REL4).
+  // Manual long-lived / System User tokens are not on a refresh cycle.
   if (channel.connection_mode === "manual_token") {
     helpers.logger.info(`Channel ${channelId} uses a manual long-lived token, skipping refresh`);
     return;

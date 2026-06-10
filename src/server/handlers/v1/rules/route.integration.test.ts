@@ -221,7 +221,7 @@ describe("rules active-rule cap", () => {
     expect(res.status).toBe(422);
   });
 
-  //  — the cap is also enforced on a PATCH is_active false→true, so it can't be toggle-bypassed.
+  // the cap is also enforced on a PATCH is_active false→true, so it can't be toggle-bypassed.
   it("rejects re-activating a rule via PATCH once the workspace is at the active-rule cap", async () => {
     if (!TEST_DB) return;
     const { MAX_ACTIVE_RULES } = await import("@/lib/rules/executor");

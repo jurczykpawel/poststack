@@ -125,7 +125,7 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     expect((await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "d-down") }))?.status).toBe("held");
   });
 
-  //  — the drain re-dispatches each parked operation as its ORIGINAL task type with its
+  // the drain re-dispatches each parked operation as its ORIGINAL task type with its
   // ORIGINAL payload, so a comment is replayed as a comment (not flattened to a DM), a private
   // reply keeps its comment id, and a follow-gate re-runs the gate.
   it("re-dispatches a parked comment as outgoing-comment with its full payload", async () => {
@@ -174,7 +174,7 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     expect(jobs.rows[0].task_identifier).toBe("follow-gate");
   });
 
-  //  — a comment-triggered DM lives on a conversation with no inbound DM (last_inbound_at
+  // a comment-triggered DM lives on a conversation with no inbound DM (last_inbound_at
   // NULL). It must not be expired the instant it drains: the window falls back to parked_at.
   it("does not expire an outgoing-message when last_inbound_at is NULL (within the parked window)", async () => {
     if (!TEST_DB) return;
@@ -196,7 +196,7 @@ describe("drainChannel (real Postgres) — park + drain end to end", () => {
     expect((await db.query.outboundDeliveries.findFirst({ where: eq(outboundDeliveries.delivery_key, "d-noinb-old") }))?.status).toBe("expired");
   });
 
-  //  — a backlog larger than one page must be drained completely, in keyset batches, without
+  // a backlog larger than one page must be drained completely, in keyset batches, without
   // re-reading the rows it re-enqueues (which stay `held`) or skipping any.
   it("drains a backlog larger than one batch, accounting for every held row exactly once", async () => {
     if (!TEST_DB) return;

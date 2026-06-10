@@ -11,13 +11,13 @@ import { sanitizeForLog } from "@/lib/api/safe-log";
  * provider's refresh buffer. Shared by the hourly worker cron and the manual
  * `GET /api/cron/token-refresh` trigger, so both paths behave identically.
  *
- * manual_token channels carry a long-lived/System User token and are never refreshed (REL4).
+ * manual_token channels carry a long-lived/System User token and are never refreshed.
  * Each channel is isolated: a single undecryptable/corrupt token (e.g. after a key rotation) is
  * logged and skipped, never aborting the whole scan and starving every other channel of its
  * refresh job — which would silently cascade into mass token expiry.
  */
 export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
-  // NOTE (perf, ): this decrypts every active OAuth token hourly just to read expires_at.
+  // NOTE (perf): this decrypts every active OAuth token hourly just to read expires_at.
   // Fine at a handful of channels; at managed-hosting scale add a plaintext channels.token_expires_at
   // column (written wherever the token is stored) and filter DB-side (WHERE token_expires_at < now()
   // + buffer), decrypting only the near-expiry rows. Deferred until the channel count makes it matter.

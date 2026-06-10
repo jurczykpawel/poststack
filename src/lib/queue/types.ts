@@ -27,7 +27,7 @@ export interface IncomingMessageJob {
 export interface OutgoingCommentJob {
   channelId: string;
   /** The addressed contact — stamped on the delivery ledger so erasure cascades + the queue
-   *  PII scrub reach the (personalized) public-reply text too (, sibling of ). */
+   *  PII scrub reach the (personalized) public-reply text too. */
   contactId: string;
   commentId: string;
   text: string;
@@ -95,7 +95,7 @@ export interface OutgoingMessageJob {
   isManual?: boolean;
   /** Unique key to prevent duplicate sends on retry. Generated at enqueue time. */
   idempotencyKey?: string;
-  /** Set when draining a parked message: update this held row in place instead of inserting a new one (REL5). */
+  /** Set when draining a parked message: update this held row in place instead of inserting a new one. */
   heldMessageId?: string;
 }
 

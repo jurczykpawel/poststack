@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-//  — env/secret validation hardening. loadEnv() runs at module import, so each case
+// env/secret validation hardening. loadEnv() runs at module import, so each case
 // resets the module registry and re-imports with a tailored process.env.
 
 const GOOD: Record<string, string> = {
@@ -50,7 +50,7 @@ describe("env validation", () => {
     }
   });
 
-  //  — the optional channel-alert webhook is validated at boot so a private/link-local
+  // the optional channel-alert webhook is validated at boot so a private/link-local
   // target can't be configured and then fetched at runtime.
   it("accepts a public https CHANNEL_ALERT_WEBHOOK_URL", async () => {
     setEnv({ CHANNEL_ALERT_WEBHOOK_URL: "https://hooks.example.com/alert" });
@@ -64,7 +64,7 @@ describe("env validation", () => {
   });
 });
 
-//  — surface a startup warning for security-lax-but-valid production config rather than
+// surface a startup warning for security-lax-but-valid production config rather than
 // failing silently: unset ALTCHA_HMAC_KEY (CAPTCHA skipped) and TRUSTED_PROXY (per-IP rate-limit
 // collapse). Dev is unaffected.
 describe("production startup warnings", () => {

@@ -11,7 +11,7 @@ const DAY_MS = 86_400_000;
 export const MAX_RETENTION_DAYS = 3650;
 
 /** Terminal message states that are safe to prune. Never held (waiting on the
- * breaker, REL5) or pending (in flight). */
+ * breaker) or pending (in flight). */
 const PRUNABLE_STATUSES = ["sent", "delivered", "failed", "expired"] as const;
 
 export interface RetentionResult {
@@ -40,7 +40,7 @@ export async function pruneWorkspaceMessages(
   const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
   // `created_at` is written by the DB clock (CURRENT_TIMESTAMP) and stored UTC-naive, but a JS Date
   // param is serialized to a `timestamp without time zone` column in the PROCESS timezone — so on a
-  // non-UTC host the cutoff lands hours off and silently over-deletes in-window rows (, proven
+  // non-UTC host the cutoff lands hours off and silently over-deletes in-window rows (proven
   // on Europe/Warsaw). Compare against the cutoff's UTC wall-clock instead, which matches how the
   // column is stored regardless of process TZ — used ONLY for the genuinely DB-clock created_at
   // columns below. The husk-prune stays on the plain Date `cutoff`: last_message_at is predominantly

@@ -65,7 +65,7 @@ export const openApiSpec = {
           username: { type: "string", nullable: true },
           profile_picture: { type: "string", format: "uri", nullable: true },
           status: { type: "string", enum: ["active", "needs_reauth", "paused", "disabled"] },
-          connection_mode: { type: "string", enum: ["oauth", "manual_token"], description: "manual_token = pasted long-lived/System User token, not auto-refreshed (REL4)" },
+          connection_mode: { type: "string", enum: ["oauth", "manual_token"], description: "manual_token = pasted long-lived/System User token, not auto-refreshed" },
           last_error: { type: "string", nullable: true },
           last_health_at: { type: "string", format: "date-time", nullable: true },
           is_active: { type: "boolean", description: "Computed alias for status === 'active'" },
@@ -119,7 +119,7 @@ export const openApiSpec = {
           status: {
             type: "string",
             enum: ["pending", "sent", "delivered", "failed", "held", "expired"],
-            description: "held = parked while the channel was down (REL5); expired = dropped (e.g. outside the messaging window)",
+            description: "held = parked while the channel was down; expired = dropped (e.g. outside the messaging window)",
           },
           created_at: { type: "string", format: "date-time" },
         },

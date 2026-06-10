@@ -94,7 +94,7 @@ export async function DELETE(
   // sequence_enrollments.sequence_id is ON DELETE cascade, so a bare delete would silently destroy
   // in-flight drips with no confirmation — asymmetric with channel-delete, which RESTRICTs with a
   // 409. Block it the same way; the operator archives the sequence (keeps definition + enrollments)
-  // or cancels the enrollments first (, complements the cancel route in ).
+  // or cancels the enrollments first (complements the cancel route).
   const activeEnrollment = await db.query.sequenceEnrollments.findFirst({
     where: and(eq(sequenceEnrollments.sequence_id, sequenceId), eq(sequenceEnrollments.status, "active")),
     columns: { id: true },

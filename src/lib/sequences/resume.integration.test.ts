@@ -58,7 +58,7 @@ async function resumeJobKeys(): Promise<string[]> {
   return (r.rows as Array<{ key: string }>).map((row) => row.key);
 }
 
-//  — un-pause resumes only enrollments whose step is already DUE (deferred by the pause),
+// un-pause resumes only enrollments whose step is already DUE (deferred by the pause),
 // never one that's merely scheduled for the future (which would process it early).
 describe("resumeDueEnrollments", () => {
   it("enqueues an immediate sequence-step for a due active enrollment", async () => {
@@ -83,7 +83,7 @@ describe("resumeDueEnrollments", () => {
   });
 });
 
-//  — channel-wide resume runs in the background, keyset-paged, NOT a fan-out inside the
+// channel-wide resume runs in the background, keyset-paged, NOT a fan-out inside the
 // unpause transaction. It resumes every DUE active enrollment on the channel exactly once and is
 // idempotent (the deterministic seq-resume: jobKey collapses repeats).
 describe("resumeChannelEnrollments", () => {

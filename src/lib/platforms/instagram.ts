@@ -101,7 +101,7 @@ export class InstagramProvider extends SocialProvider {
   }
 
   /**
-   * Connect a channel with a pasted long-lived / System User token (REL4).
+   * Connect a channel with a pasted long-lived / System User token.
    * The token resolves the linked IG business accounts; tokens are stored
    * without an expiry so the refresh worker skips them.
    */
@@ -249,7 +249,7 @@ export class InstagramProvider extends SocialProvider {
    * Drives the follow-gate.
    *
    * NOTE: the exact field/permission must be confirmed against a live IG
-   * Business account before relying on it in production (see FG1).
+   * Business account before relying on it in production.
    */
   override async checkFollowsBusiness(tokens: TokenData, userId: string): Promise<boolean> {
     const res = await fetch(

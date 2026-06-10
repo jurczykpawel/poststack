@@ -109,7 +109,7 @@ export async function upsertChannels(
       out.push({ channelId: channel.id, recovered });
 
       // Reconnecting a broken channel recovers it — drain anything parked while it was down
-      // (REL5). Enqueue the drain in the SAME transaction as the recovery (a transactional
+      //. Enqueue the drain in the SAME transaction as the recovery (a transactional
       // outbox), so a failed enqueue rolls the recovery back and the next reconnect re-drains
       // instead of stranding held messages behind an already-active channel. Callers
       // that must confirm the channel works first (e.g. Telegram waits for setWebhook) pass

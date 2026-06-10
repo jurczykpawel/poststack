@@ -89,7 +89,7 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(1);
   });
 
-  //  — a malformed HIGH-priority rule (e.g. an out-of-band keyword row missing `value`) must
+  // a malformed HIGH-priority rule (e.g. an out-of-band keyword row missing `value`) must
   // not throw and decapitate matching for the whole workspace: it's skipped and a valid lower-priority
   // rule still fires.
   it("skips a malformed high-priority rule and still fires a valid lower-priority one", async () => {
@@ -115,7 +115,7 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(0);
   });
 
-  //  — an unsubscribed contact receives no automated reply (and no AI is spent, because
+  // an unsubscribed contact receives no automated reply (and no AI is spent, because
   // the gate returns before any rule is planned). Re-subscribing restores delivery.
   it("does not fire any rule for an unsubscribed contact", async () => {
     if (!TEST_DB) return;
@@ -131,7 +131,7 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(1);
   });
 
-  //  — a contactId that no longer resolves (contact erased mid-flight) is treated as
+  // a contactId that no longer resolves (contact erased mid-flight) is treated as
   // "do not send": no rule fires and nothing is enqueued (consistent with the sequence worker).
   it("does not fire when the contactId no longer resolves to a contact", async () => {
     if (!TEST_DB) return;
@@ -142,8 +142,8 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(0);
   });
 
-  //  — the public comment reply carries the contact id so the delivery ledger row (and the
-  // queue PII scrub) can reach the personalized reply text on erasure (sibling of ).
+  // the public comment reply carries the contact id so the delivery ledger row (and the
+  // queue PII scrub) can reach the personalized reply text on erasure.
   it("stamps contactId on the outgoing-comment job", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({

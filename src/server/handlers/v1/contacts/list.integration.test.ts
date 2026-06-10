@@ -77,7 +77,7 @@ describe("contacts list (real Postgres)", () => {
     expect(data.map((c: { id: string }) => c.id)).toEqual([ALICE]);
   });
 
-  //  — keyset pagination must return every contact exactly once even when many share a
+  // keyset pagination must return every contact exactly once even when many share a
   // boundary timestamp and others have NULL activity (no skips, no stuck null cursor).
   it("paginates over tied and null activity timestamps without skips or duplicates", async () => {
     if (!TEST_DB) return;

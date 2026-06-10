@@ -84,7 +84,7 @@ describe("rephrase — AI adapter", () => {
     expect(lastBody!.messages[1]).toEqual({ role: "user", content: "Base" });
   });
 
-  //  — the configured model + endpoint are honored (read through env.ts, not ignored).
+  // the configured model + endpoint are honored (read through env.ts, not ignored).
   it("honors AI_REPHRASE_MODEL and OPENAI_BASE_URL overrides", async () => {
     process.env.AI_REPHRASE_MODEL = "gpt-4o";
     process.env.OPENAI_BASE_URL = "https://proxy.test/v1";
