@@ -135,12 +135,19 @@ This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL w
 
 ### Database connection sizing
 
-The app sizes its connection budget from `DB_POOL_MAX` (default **10** per process). Add it up against the
-bundled Postgres' `max_connections` (default **100**): `(web replicas + worker replicas) × DB_POOL_MAX`
-plus graphile-worker's own pool (worker `concurrency`, default 10, + a listener). The single-host default
-stack (1 web + 1 worker) uses well under 100; raise Postgres' `max_connections` before scaling replicas, or
-lower `DB_POOL_MAX`. Two safety timeouts are on by default so a stalled query/transaction can't pin a pooled
-connection forever: `DB_STATEMENT_TIMEOUT_MS` (30s) and `DB_IDLE_TX_TIMEOUT_MS` (60s); set either to `0` to disable.
+Each process opens **more than one** pg pool, so budget against the bundled Postgres' `max_connections`
+(default **100**) accordingly:
+
+- **web** = its app pool (`DB_POOL_MAX`, default 10) **+** a graphile-worker client pool used to enqueue
+  jobs on webhook/connect (default ~10) → **~20 per web replica**.
+- **worker** = its app pool (`DB_POOL_MAX`) **+** the graphile-worker runner pool (≈ `concurrency`, default 10)
+  **+** a graphile-worker client pool used for in-job enqueue/drain re-dispatch (~10) → **~30 per worker replica**.
+
+So roughly `web × (DB_POOL_MAX + 10) + worker × (DB_POOL_MAX + concurrency + 10)`. The single-host default
+stack (1 web + 1 worker ≈ 50) sits well under 100, but scaling out adds ~20/web and ~30/worker — e.g. 4 web +
+4 worker ≈ 200, which exceeds the default `max_connections`. Raise Postgres' `max_connections` before scaling
+replicas, or lower `DB_POOL_MAX`. Two safety timeouts are on by default so a stalled query/transaction can't pin
+a pooled connection forever: `DB_STATEMENT_TIMEOUT_MS` (30s) and `DB_IDLE_TX_TIMEOUT_MS` (60s); set either to `0` to disable.
 
 ### Backups
 

@@ -11,7 +11,10 @@ export const runtime = "nodejs";
 
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: z.string().optional(),
+  // The cursor is an ISO timestamp (the previous page's `next_cursor`). Validate it as such so a
+  // garbage value is a clean 400 instead of an Invalid Date that throws when Drizzle serializes the
+  // query param → 500. Matches what `next_cursor` emits via Date.toISOString().
+  cursor: z.string().datetime().optional(),
 });
 
 // GET /api/v1/conversations/:id/messages

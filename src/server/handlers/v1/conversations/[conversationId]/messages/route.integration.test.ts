@@ -15,6 +15,7 @@ const RAW_KEY = "rs_live_aud21_manual_reply_key_0123456";
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let POST: typeof import("./route").POST;
+let GET: typeof import("./route").GET;
 
 const WS = "cccccccc-0000-0000-0000-0000000000e1";
 const CH = "cccccccc-0000-0000-0000-0000000000e2";
@@ -30,7 +31,7 @@ beforeAll(async () => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
-  ({ POST } = await import("./route"));
+  ({ POST, GET } = await import("./route"));
 });
 
 beforeEach(async () => {
@@ -104,5 +105,24 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
     const [c] = await db.select().from(s.conversations).where(eq(s.conversations.id, CONV));
     expect(c.needs_manual_reply).toBe(false);
     expect(c.last_message_at!.getTime()).toBeGreaterThan(past.getTime());
+  });
+});
+
+//  — a non-ISO cursor is a client error (400), not an Invalid Date that throws when the query
+// param is serialized (which surfaced as a 500).
+describe("messages GET — cursor validation", () => {
+  const getReq = (qs: string) =>
+    new Request(`http://x/api/v1/conversations/${CONV}/messages${qs}`, { headers: { authorization: `Bearer ${RAW_KEY}` } });
+
+  it("returns a validation error for a non-ISO cursor (not a 500)", async () => {
+    if (!TEST_DB) return;
+    const res = await GET(getReq("?cursor=garbage"), ctx);
+    expect(res.status).toBe(422); // ApiErrors.validationError — a clean client error, not Invalid-Date 500
+  });
+
+  it("accepts a valid ISO cursor", async () => {
+    if (!TEST_DB) return;
+    const res = await GET(getReq(`?cursor=${encodeURIComponent(new Date().toISOString())}`), ctx);
+    expect(res.status).toBe(200);
   });
 });
