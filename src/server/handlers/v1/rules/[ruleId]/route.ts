@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { autoReplyRules } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
+import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
 import { z } from "zod";
 import { createRuleSchema } from "../route";
 
@@ -90,6 +91,7 @@ export async function PATCH(
       id: true,
       name: true,
       channel_id: true,
+      is_active: true,
       priority: true,
       trigger_type: true,
       trigger_config: true,
@@ -106,6 +108,19 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  }
+
+  // Re-apply the active-rule cap on a re-activation: the cap is enforced at create, but
+  // toggling is_active false→true would otherwise let a workspace exceed it. (The non-atomic
+  // create-race is accepted — the executor's bounded fetch caps the hot path regardless.)
+  if (parsed.data.is_active === true && existing.is_active === false) {
+    const [{ n: activeRuleCount }] = await db
+      .select({ n: count() })
+      .from(autoReplyRules)
+      .where(and(eq(autoReplyRules.workspace_id, auth.workspaceId), eq(autoReplyRules.is_active, true)));
+    if (activeRuleCount >= MAX_ACTIVE_RULES) {
+      return ApiErrors.validationError({ _errors: [`Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules`] });
+    }
   }
 
   // PATCH replaces whole columns (no deep merge), so validate the EFFECTIVE rule —

@@ -209,4 +209,28 @@ describe("rules active-rule cap", () => {
     const res = await post(keywordRule("one-too-many"));
     expect(res.status).toBe(422);
   });
+
+  //  — the cap is also enforced on a PATCH is_active false→true, so it can't be toggle-bypassed.
+  it("rejects re-activating a rule via PATCH once the workspace is at the active-rule cap", async () => {
+    if (!TEST_DB) return;
+    const { MAX_ACTIVE_RULES } = await import("@/lib/rules/executor");
+    await db.insert(s.autoReplyRules).values(
+      Array.from({ length: MAX_ACTIVE_RULES }, (_, i) => ({
+        workspace_id: WS, name: `cap-${i}`, trigger_type: "keyword" as const,
+        trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+        response_type: "text" as const, response_config: { text: "hi" },
+      })),
+    );
+    const [inactive] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "inactive", trigger_type: "keyword", is_active: false,
+      trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" },
+    }).returning({ id: s.autoReplyRules.id });
+
+    const res = await rule.PATCH(
+      new Request("http://x", { method: "PATCH", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: JSON.stringify({ is_active: true }) }),
+      { params: Promise.resolve({ ruleId: inactive.id }) },
+    );
+    expect(res.status).toBe(422);
+  });
 });
