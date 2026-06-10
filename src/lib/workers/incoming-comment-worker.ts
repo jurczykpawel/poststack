@@ -1,9 +1,9 @@
 import type { JobHelpers } from "graphile-worker";
 import type { IncomingCommentJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, commentLogs } from "@/db/schema";
+import { channels, commentLogs, conversations } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEventOnce } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
@@ -82,6 +82,15 @@ export async function processIncomingComment(
     // resolves identity without reordering the inbox or reopening the conversation.
     { mutateActivity: !!logged },
   );
+
+  // A newly-logged comment is unread work for the operator (a fresh comment on a brand-new
+  // conversation would otherwise show 0 unread). Bump the badge, mirroring the DM worker; a
+  // redelivery (already logged) does not re-count.
+  if (logged) {
+    await db.update(conversations)
+      .set({ unread_count: sql`${conversations.unread_count} + 1` })
+      .where(eq(conversations.id, conversationId));
+  }
 
   const eventKey = `comment:${channel.id}:${commentId}`;
 

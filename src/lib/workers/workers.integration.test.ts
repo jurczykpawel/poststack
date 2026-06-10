@@ -376,6 +376,26 @@ describe("incoming-comment worker", () => {
     expect(logs.length).toBe(1);
   });
 
+  //  — a comment on a fresh conversation is unread work for the operator; the inbox badge
+  // must reflect it. A redelivery of the same comment must not double-count.
+  it("increments unread_count for a new comment, not on redelivery", async () => {
+    if (!TEST_DB) return;
+    const job = { platform: "facebook", pageId: PAGE, commentId: "cmt-unread", postId: "p1", senderId: "UNREAD-COMMENTER", senderName: "U", text: "hello", timestamp: ts() };
+    await w.processIncomingComment(job, helpers);
+    const cc = await db.query.contactChannels.findFirst({
+      where: and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "UNREAD-COMMENTER")),
+      columns: { contact_id: true },
+    });
+    const unread = async () =>
+      (await db.query.conversations.findFirst({
+        where: and(eq(s.conversations.channel_id, CH), eq(s.conversations.contact_id, cc!.contact_id)),
+        columns: { unread_count: true },
+      }))?.unread_count;
+    expect(await unread()).toBe(1);
+    await w.processIncomingComment(job, helpers); // redelivery
+    expect(await unread()).toBe(1);
+  });
+
   it("routes to the channel matching the event platform, not a same-id channel on another platform", async () => {
     if (!TEST_DB) return;
     const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fc";
