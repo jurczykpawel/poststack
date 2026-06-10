@@ -59,6 +59,11 @@ export async function POST(request: Request): Promise<Response> {
   // Guard `chat` before building the identity from `msg.chat.id`: a text message without a
   // `chat` (odd service/business update) would otherwise TypeError → 500 → ~1h retry.
   if (!msg.chat?.id) return ok();
+  // Only private (1:1) chats: in a group/supergroup/channel, chat.id is the GROUP, not a member,
+  // so using it as the sender identity would collapse every member into one contact and aim
+  // replies at the whole group. ReplyStack is a DM inbox — non-private chats are out of scope, so
+  // ignore them (200, not retried).
+  if (msg.chat.type !== "private") return ok();
 
   // message_id is unique only per chat, so identity must include bot + chat to
   // avoid cross-chat dedup collisions dropping messages.
