@@ -141,6 +141,27 @@ describe("rules PATCH — grandfathering + case", () => {
     expect(bad.status).toBe(422);
   });
 
+  it("round-trips an unchanged OBJECT-valued legacy violation when editing a sibling", async () => {
+    if (!TEST_DB) return;
+    // Button with BOTH url and payload → a pre-existing "exactly one of" violation whose Zod issue
+    // path is the whole button OBJECT (a valid https url, so only that refine trips). jsonb stores
+    // the button's keys canonically (url, title, payload); the client body uses its own order — the
+    // grandfather compare must be key-order-insensitive or it falsely re-rejects.
+    const [r] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "ObjLegacy", trigger_type: "keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "old", buttons: [{ title: "Open", url: "https://x.example.com", payload: "claim" }] },
+    }).returning({ id: s.autoReplyRules.id });
+
+    // Edit only the text; resend the SAME button with keys in a different order than jsonb stores them.
+    const ok = await patch(r.id, { response_config: { text: "new", buttons: [{ payload: "claim", title: "Open", url: "https://x.example.com" }] } });
+    expect(ok.status).toBe(200);
+
+    // Actually changing the button (still both url+payload, new url) is still rejected.
+    const bad = await patch(r.id, { response_config: { text: "new", buttons: [{ title: "Open", url: "https://y.example.com", payload: "claim" }] } });
+    expect(bad.status).toBe(422);
+  });
+
   it("accepts a follow_gate whose button payload differs only in case from the trigger payload", async () => {
     if (!TEST_DB) return;
     const res = await post({

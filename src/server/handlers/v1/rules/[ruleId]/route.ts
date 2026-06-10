@@ -42,6 +42,24 @@ export async function GET(
   return ok(rule);
 }
 
+/** Order-insensitive structural equality. Used to compare a rule value pulled from a Postgres
+ *  `jsonb` column (which canonicalizes object key order) against the same value carried in a
+ *  request body (client key order) — a plain JSON.stringify would falsely differ on key order and
+ *  wrongly flag an unchanged object-valued field as edited. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const ak = Object.keys(ao);
+  if (ak.length !== Object.keys(bo).length) return false;
+  return ak.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]));
+}
+
 const patchSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   is_active: z.boolean().optional(),
@@ -138,8 +156,11 @@ export async function PATCH(
       }
       return cur;
     };
+    // Order-insensitive: object-valued issue paths (a whole button / a follow_gate branch)
+    // compare a jsonb-canonicalized existing value against client-ordered keys — a stringify compare
+    // would falsely differ and re-reject an unchanged legacy object.
     const unchangedAtPath = (path: PropertyKey[]) =>
-      JSON.stringify(valueAtPath(shape(existing), path) ?? null) === JSON.stringify(valueAtPath(merged, path) ?? null);
+      deepEqual(valueAtPath(shape(existing), path), valueAtPath(merged, path));
     const introduced = validated.error.issues.filter((iss) => {
       // A violation absent from the pre-patch rule is genuinely new → always report it.
       if (!priorIssues.has(issueKey(iss))) return true;
