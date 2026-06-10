@@ -1,9 +1,9 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingPrivateReplyJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages, conversations } from "@/db/schema";
+import { messages, conversations, commentLogs } from "@/db/schema";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { runDelivery, type DeliveryChannel } from "./delivery";
@@ -73,6 +73,13 @@ export async function processOutgoingPrivateReply(
         .update(conversations)
         .set({ last_message_at: new Date(), last_message_preview: truncateCodePoints(text, 255) })
         .where(eq(conversations.id, conversationId));
+      // Flip the comment-log's `dm_sent` so a comment that triggered a DM is queryable as such,
+      // mirroring how the public-reply worker sets `reply_sent` — scoped by (commentId, channelId).
+      // In the same transaction as the sent-ledger write so a crash can't leave it half-set.
+      await tx
+        .update(commentLogs)
+        .set({ dm_sent: true })
+        .where(and(eq(commentLogs.platform_comment_id, commentId), eq(commentLogs.channel_id, channelId)));
     },
   });
 

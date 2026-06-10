@@ -820,6 +820,19 @@ describe("outgoing-private-reply worker", () => {
     expect(sent[0].text).toBe("hi via DM");
   });
 
+  //  — a comment→DM flips the comment-log's dm_sent (mirrors the public worker's reply_sent),
+  // scoped by (commentId, channelId), so "did this comment get a DM?" is queryable.
+  it("flips comment_logs.dm_sent for the (comment, channel) once the private reply is sent", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.commentLogs).values({
+      channel_id: CH, workspace_id: WS, post_id: "p-dm", platform_comment_id: "cmt-dmsent",
+      author_id: "FAN-DM", comment_text: "info",
+    });
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, contactId: CONTACT, commentId: "cmt-dmsent", text: "hi via DM" }, helpers);
+    const [log] = await db.select().from(s.commentLogs).where(and(eq(s.commentLogs.channel_id, CH), eq(s.commentLogs.platform_comment_id, "cmt-dmsent")));
+    expect(log.dm_sent).toBe(true);
+  });
+
   it("holds (not fails) when the channel breaker is open", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
