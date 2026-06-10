@@ -964,10 +964,11 @@ describe("Meta Graph API Contract Tests", () => {
 
       const { FacebookProvider } = await import("./facebook");
       const fb = new FacebookProvider();
-      // Should NOT throw — webhook sub is best-effort
+      // Should NOT throw — webhook sub is best-effort — but now reports failure (false) so the
+      // caller can flag the silently-no-inbound channel instead of leaving it invisible.
       await expect(
         fb.subscribePageWebhooks("page1", "tok")
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
     });
   });
 

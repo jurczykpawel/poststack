@@ -7,6 +7,7 @@ import {
   type SentMessage,
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
+import { assertMetaTokenBelongsToApp } from "./meta-token";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
 
@@ -82,6 +83,9 @@ export class FacebookProvider extends SocialProvider {
    * The token itself resolves the managed Pages; page tokens are non-expiring.
    */
   override async connectWithToken(token: string): Promise<ConnectedAccount[]> {
+    // Reject a token minted by a different app (or already invalid/expired) up front, with a clear
+    // message, instead of storing it and dead-lettering every send later.
+    await assertMetaTokenBelongsToApp(token);
     return this.fetchPageAccounts(token);
   }
 
@@ -220,7 +224,7 @@ export class FacebookProvider extends SocialProvider {
   async subscribePageWebhooks(
     pageId: string,
     pageAccessToken: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const res = await fetch(`${GRAPH_API}/${pageId}/subscribed_apps`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -240,7 +244,10 @@ export class FacebookProvider extends SocialProvider {
     if (!res.ok) {
       const body = await res.text();
       console.error(`[facebook] Webhook subscription failed for page ${pageId}:`, body);
-      // Non-fatal — channel is still usable, webhooks can be set up manually
+      // Non-fatal — channel is still usable, webhooks can be set up manually. The caller flags the
+      // channel so the failed subscribe (no inbound) is visible, not silent.
+      return false;
     }
+    return true;
   }
 }

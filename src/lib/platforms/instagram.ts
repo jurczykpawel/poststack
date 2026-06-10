@@ -7,6 +7,7 @@ import {
   type SentMessage,
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
+import { assertMetaTokenBelongsToApp } from "./meta-token";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
 
@@ -105,6 +106,8 @@ export class InstagramProvider extends SocialProvider {
    * without an expiry so the refresh worker skips them.
    */
   override async connectWithToken(token: string): Promise<ConnectedAccount[]> {
+    // Reject a foreign-app / invalid token up front with a clear message.
+    await assertMetaTokenBelongsToApp(token);
     return this.fetchIgAccounts(token);
   }
 
@@ -279,7 +282,7 @@ export class InstagramProvider extends SocialProvider {
   async subscribePageWebhooks(
     pageId: string,
     pageAccessToken: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const res = await fetch(`${GRAPH_API}/${pageId}/subscribed_apps`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -302,6 +305,8 @@ export class InstagramProvider extends SocialProvider {
     if (!res.ok) {
       const body = await res.text();
       console.error(`[instagram] Webhook subscription failed for page ${pageId}:`, body);
+      return false; // caller flags the channel so a silent no-inbound state is visible
     }
+    return true;
   }
 }

@@ -146,12 +146,14 @@ export abstract class SocialProvider {
   /**
    * Subscribe a page/account to webhook events after OAuth.
    * Saves users from manually configuring webhooks in the platform's developer console.
-   * Optional — not all platforms support this.
+   * Optional — not all platforms support this. Returns whether the subscription succeeded, so the
+   * caller can surface a failed subscribe (an active channel that silently receives no inbound)
+   * instead of leaving it invisible.
    */
   subscribePageWebhooks?(
     pageId: string,
     pageAccessToken: string
-  ): Promise<void>;
+  ): Promise<boolean>;
 
   /**
    * How many seconds before expiry to refresh (used by token refresh worker).
