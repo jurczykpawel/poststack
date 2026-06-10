@@ -483,7 +483,7 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
                 <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem">
                   ${apiKeys.VALID_SCOPES.map(
                     (sc) => html`<label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" value="${sc}" checked
-                      @change="$event.target.checked ? scopes.push('${sc}') : (scopes = scopes.filter(s => s !== '${sc}'))" />${sc}</label>`,
+                      @change="$event.target.checked ? (scopes = [...new Set([...scopes, '${sc}'])]) : (scopes = scopes.filter(s => s !== '${sc}'))" />${sc}</label>`,
                   )}
                 </div>
               </details>

@@ -81,18 +81,34 @@ export async function resolveContactConversation(
       await db.update(contacts).set({ last_interaction_at: new Date() }).where(eq(contacts.id, contactId));
     }
   } else {
-    contactId = await db.transaction(async (tx) => {
-      const [contact] = await tx
-        .insert(contacts)
-        .values({ workspace_id: channel.workspace_id, display_name: senderName, last_interaction_at: new Date() })
-        .returning({ id: contacts.id });
-      await tx.insert(contactChannels).values({
-        contact_id: contact.id,
-        channel_id: channel.id,
-        platform_sender_id: senderId,
+    // Two concurrent first events from the same NEW sender both miss the read above and race to
+    // create the contact. Let the unique index on (channel_id, platform_sender_id) arbitrate via
+    // onConflictDoNothing instead of letting the loser throw a 23505 that fails the job and forces a
+    // retry (correct but noisy + delays the first reply by a backoff). The winner inserts both rows;
+    // the loser's link insert is a no-op → we roll back its orphan contact and read the winner's id.
+    const LOST_RACE = Symbol("contact-channel-race");
+    try {
+      contactId = await db.transaction(async (tx) => {
+        const [contact] = await tx
+          .insert(contacts)
+          .values({ workspace_id: channel.workspace_id, display_name: senderName, last_interaction_at: new Date() })
+          .returning({ id: contacts.id });
+        const [link] = await tx
+          .insert(contactChannels)
+          .values({ contact_id: contact.id, channel_id: channel.id, platform_sender_id: senderId })
+          .onConflictDoNothing({ target: [contactChannels.channel_id, contactChannels.platform_sender_id] })
+          .returning({ contact_id: contactChannels.contact_id });
+        if (!link) throw LOST_RACE; // roll back the orphan contact; resolve the winner below
+        return link.contact_id;
       });
-      return contact.id;
-    });
+    } catch (err) {
+      if (err !== LOST_RACE) throw err;
+      const winner = await db.query.contactChannels.findFirst({
+        where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
+        columns: { contact_id: true },
+      });
+      contactId = winner!.contact_id;
+    }
   }
 
   if (mutateActivity) {
