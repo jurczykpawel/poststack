@@ -1,4 +1,5 @@
 import type { Hono, MiddlewareHandler, Context } from "hono";
+import { every } from "hono/combine";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { and, or, eq, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
@@ -26,6 +27,7 @@ import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { dashboardDoc } from "../ui/layout";
+import { requireSameOrigin } from "../middleware/same-origin";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -254,7 +256,10 @@ async function noticeFrom(res: Response | null, fallback: string): Promise<strin
   return body?.error?.message ?? fallback;
 }
 
-export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
+export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): void {
+  // Every dashboard route runs the first-party origin check (a no-op on safe methods) before the
+  // session check, so a cross-site write is refused even before auth runs.
+  const guard = every(requireSameOrigin, sessionGuard);
   // Inbox
   app.get("/inbox", guard, async (c) => {
     const a = await auth(c);
