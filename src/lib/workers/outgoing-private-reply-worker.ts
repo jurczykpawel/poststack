@@ -4,7 +4,7 @@ import { truncateCodePoints } from "@/lib/text";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, conversations } from "@/db/schema";
-import { decryptTokens } from "@/lib/crypto";
+import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 
@@ -44,7 +44,7 @@ export async function processOutgoingPrivateReply(
     helpers,
     onHeld: persistHeld,
     send: async (channel: DeliveryChannel) => {
-      const tokens = decryptTokens(channel.token_encrypted);
+      const tokens = decryptChannelToken(channel.token_encrypted);
       const provider = getProvider(channel.platform);
       if (!provider.sendPrivateReply) {
         throw new Error(`Platform ${channel.platform} does not support private replies`);

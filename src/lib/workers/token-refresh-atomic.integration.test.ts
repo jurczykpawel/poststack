@@ -89,3 +89,22 @@ describe("token refresh is atomic with the health flip", () => {
     );
   });
 });
+
+//  — a stored token that can't be decrypted (corruption / a rotated TOKEN_ENCRYPTION_KEY
+// without re-encrypt) must flag the channel needs_reauth and stop, exactly like a token the
+// provider rejects — not throw out of the worker and dead-letter the refresh job with no signal.
+describe("token refresh on an undecryptable token", () => {
+  it("flags needs_reauth and does not refresh when the stored token cannot be decrypted", async () => {
+    if (!TEST_DB) return;
+    // Overwrite with ciphertext that won't authenticate under the active key (corrupt body).
+    const corrupt = crypto.encryptTokens({ access_token: "old" }).split(":");
+    corrupt[2] = "deadbeef";
+    await db.update(s.channels).set({ token_encrypted: corrupt.join(":"), status: "active" }).where(eq(s.channels.id, CH));
+
+    await processTokenRefresh({ channelId: CH }, helpers);
+
+    expect(refreshToken).not.toHaveBeenCalled(); // never reached the provider
+    const c = await db.query.channels.findFirst({ where: eq(s.channels.id, CH), columns: { status: true } });
+    expect(c?.status).toBe("needs_reauth");
+  });
+});

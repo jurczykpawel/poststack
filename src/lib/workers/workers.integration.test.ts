@@ -12,7 +12,10 @@ const provider = {
   refreshToken: vi.fn(async (t: unknown) => t),
 };
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
-vi.mock("@/lib/crypto", () => ({ decryptTokens: () => ({ access_token: "x" }), encryptTokens: () => "enc" }));
+// decryptTokens is a vi.fn so a test can make it throw (a corrupt token / rotated key); the
+// channel-token wrapper that the workers use is NOT mocked, so it maps that throw to a re-auth.
+const decryptTokens = vi.fn(() => ({ access_token: "x" }));
+vi.mock("@/lib/crypto", () => ({ decryptTokens, encryptTokens: () => "enc" }));
 const health = { markChannelNeedsReauth: vi.fn(async () => {}), markChannelHealthy: vi.fn(async () => {}) };
 vi.mock("@/lib/channels/health", () => health);
 
@@ -75,6 +78,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   vi.clearAllMocks();
+  decryptTokens.mockReturnValue({ access_token: "x" });
   provider.requiresTokenRefresh.mockReturnValue(false);
   provider.sendMessage.mockResolvedValue({ platformMessageId: "PMID-1" });
   provider.refreshToken.mockImplementation(async (t: unknown) => t);
@@ -838,6 +842,23 @@ describe("outgoing-message worker", () => {
     expect(health.markChannelNeedsReauth).toHaveBeenCalled();
     const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
     expect(held.length).toBe(1);
+  });
+
+  //  — an undecryptable stored token (corrupt token / rotated TOKEN_ENCRYPTION_KEY) must
+  // degrade exactly like a dead token: hold + needs_reauth + alert, NOT crash-loop to dead-letter
+  // with no operator signal. The send callback never even reaches the provider.
+  it("holds + flags needs_reauth when the stored token cannot be decrypted", async () => {
+    if (!TEST_DB) return;
+    decryptTokens.mockImplementationOnce(() => {
+      throw new Error("Unsupported state or unable to authenticate data");
+    });
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-decfail" }) as never, helpers);
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+    expect(health.markChannelNeedsReauth).toHaveBeenCalled();
+    const held = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "held")));
+    expect(held.length).toBe(1);
+    const row = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-decfail") });
+    expect(row?.status).toBe("held"); // parked, not failed/dead-lettered
   });
 
   //  — a messaging-policy rejection (e.g. outside the 24h window) is terminal: the delivery

@@ -3,7 +3,8 @@ import type { TokenRefreshJob } from "@/lib/queue/types";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
-import { decryptTokens, encryptTokens } from "@/lib/crypto";
+import { encryptTokens } from "@/lib/crypto";
+import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { TokenInvalidError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth, markChannelHealthy } from "@/lib/channels/health";
@@ -44,14 +45,16 @@ export async function processTokenRefresh(
     return;
   }
 
-  const currentTokens = decryptTokens(channel.token_encrypted);
-
   let refreshedTokens;
   try {
+    // Decrypt INSIDE the catch: an undecryptable stored token (corrupt / rotated key) throws
+    // TokenInvalidError and is flagged for re-auth here, exactly like a dead token the provider
+    // rejects — not left to escape and dead-letter the refresh job per-channel with no flag.
+    const currentTokens = decryptChannelToken(channel.token_encrypted);
     refreshedTokens = await provider.refreshToken(currentTokens);
   } catch (err) {
     if (err instanceof TokenInvalidError) {
-      // Dead token — flag for re-auth and stop. Retrying won't help.
+      // Dead/undecryptable token — flag for re-auth and stop. Retrying won't help.
       await markChannelNeedsReauth(channelId, err.message);
       helpers.logger.info(`Channel ${channelId} token invalid, flagged needs_reauth`);
       return;

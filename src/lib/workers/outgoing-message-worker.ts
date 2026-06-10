@@ -4,7 +4,8 @@ import { truncateCodePoints } from "@/lib/text";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, messages, conversations, contacts } from "@/db/schema";
-import { decryptTokens, encryptTokens } from "@/lib/crypto";
+import { encryptTokens } from "@/lib/crypto";
+import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 
@@ -64,7 +65,7 @@ export async function processOutgoingMessage(
     allowWhenPaused: !!sentByUserId,
     onHeld: persistHeld,
     send: async (channel: DeliveryChannel) => {
-      let tokens = decryptTokens(channel.token_encrypted);
+      let tokens = decryptChannelToken(channel.token_encrypted);
       const provider = getProvider(channel.platform);
 
       // On-demand token refresh if near expiry.

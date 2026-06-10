@@ -3,7 +3,7 @@ import type { FollowGateJob } from "@/lib/queue/types";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, contacts, outboundDeliveries } from "@/db/schema";
-import { decryptTokens } from "@/lib/crypto";
+import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { TokenInvalidError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
@@ -100,23 +100,26 @@ export async function processFollowGate(
     return;
   }
 
-  const tokens = decryptTokens(channel.token_encrypted);
   const provider = getProvider(channel.platform);
 
   // No follow graph on this platform → gate open, deliver the followed content.
   let follows = true;
-  if (provider.checkFollowsBusiness) {
-    try {
+  try {
+    // Decrypt INSIDE the catch: an undecryptable token (corrupt / rotated key) throws
+    // TokenInvalidError and is handled here as re-auth, exactly like a live token rejection —
+    // not left to escape as a generic transient and crash-loop to dead-letter.
+    const tokens = decryptChannelToken(channel.token_encrypted);
+    if (provider.checkFollowsBusiness) {
       follows = await provider.checkFollowsBusiness(tokens, recipientPlatformId);
-    } catch (e) {
-      if (e instanceof TokenInvalidError) {
-        await parkHeld(channel.workspace_id, e.message);
-        await markChannelNeedsReauth(channelId, e.message);
-        helpers.logger.info(`channel ${channelId} token invalid on follow check, gate held`);
-        return;
-      }
-      throw e; // transient — let graphile retry
     }
+  } catch (e) {
+    if (e instanceof TokenInvalidError) {
+      await parkHeld(channel.workspace_id, e.message);
+      await markChannelNeedsReauth(channelId, e.message);
+      helpers.logger.info(`channel ${channelId} token invalid on follow check, gate held`);
+      return;
+    }
+    throw e; // transient — let graphile retry
   }
 
   // Resolve the outcome ONCE: pin it on the ledger and enqueue the single gated child in the

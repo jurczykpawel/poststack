@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import type { OutgoingCommentJob } from "@/lib/queue/types";
 import { and, eq } from "drizzle-orm";
 import { commentLogs } from "@/db/schema";
-import { decryptTokens } from "@/lib/crypto";
+import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 
@@ -24,7 +24,7 @@ export async function processOutgoingComment(
     payload: payload as unknown as Record<string, unknown>,
     helpers,
     send: async (channel: DeliveryChannel) => {
-      const tokens = decryptTokens(channel.token_encrypted);
+      const tokens = decryptChannelToken(channel.token_encrypted);
       const provider = getProvider(channel.platform);
       if (!provider.sendComment) {
         throw new Error(`Platform ${channel.platform} does not support comments`);
