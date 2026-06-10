@@ -309,14 +309,29 @@ describe("matchRule — null and edge case text", () => {
     expect(matchRule(rule, { text: null, eventType: "message" })).toBe(false);
   });
 
-  it("empty keyword value matches everything with contains (potential bug)", () => {
-    const rule: RuleCandidate = {
-      ...baseRule,
-      trigger_type: "keyword",
-      trigger_config: { keywords: [{ value: "", match_type: "contains" }] },
-    };
-    // This documents current behavior -- empty string .includes("") is always true
-    expect(matchRule(rule, { text: "anything", eventType: "message" })).toBe(true);
+  it("a whitespace/empty keyword value is a non-match, not a catch-all", () => {
+    // A value that trims to "" must NOT make contains/starts_with match everything.
+    for (const value of ["", "   ", "\t\n"]) {
+      const rule: RuleCandidate = {
+        ...baseRule,
+        trigger_type: "keyword",
+        trigger_config: { keywords: [{ value, match_type: "contains" }] },
+      };
+      expect(matchRule(rule, { text: "anything", eventType: "message" })).toBe(false);
+    }
+  });
+
+  it("a malformed keyword (missing/null value) is a non-match, not a throw", () => {
+    for (const keywords of [[{ match_type: "contains" }], [{ value: null, match_type: "contains" }]]) {
+      const rule: RuleCandidate = {
+        ...baseRule,
+        trigger_type: "keyword",
+        trigger_config: { keywords } as Record<string, unknown>,
+      };
+      // Must not throw on the hot path (an out-of-band/legacy row could be shaped like this).
+      expect(() => matchRule(rule, { text: "anything", eventType: "message" })).not.toThrow();
+      expect(matchRule(rule, { text: "anything", eventType: "message" })).toBe(false);
+    }
   });
 
   it("whitespace-only text is trimmed to empty string", () => {

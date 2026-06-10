@@ -89,6 +89,24 @@ describe("evaluateRules (real Postgres)", () => {
     expect(await outgoingJobCount()).toBe(1);
   });
 
+  //  — a malformed HIGH-priority rule (e.g. an out-of-band keyword row missing `value`) must
+  // not throw and decapitate matching for the whole workspace: it's skipped and a valid lower-priority
+  // rule still fires.
+  it("skips a malformed high-priority rule and still fires a valid lower-priority one", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Bad", trigger_type: "keyword", priority: 100, is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ match_type: "contains" }] }, // missing `value`
+      response_type: "text", response_config: { text: "x" },
+    });
+    const goodId = await seedRule({ priority: 0 });
+
+    const fired = await evaluateRules(baseInput);
+
+    expect(fired.ruleId).toBe(goodId); // bad rule skipped (no throw), good rule fired
+    expect(await outgoingJobCount()).toBe(1);
+  });
+
   it("returns null and enqueues nothing when no rule matches", async () => {
     if (!TEST_DB) return;
     await seedRule();

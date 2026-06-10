@@ -172,3 +172,41 @@ describe("rules PATCH — grandfathering + case", () => {
     expect(res.status).toBe(201);
   });
 });
+
+const keywordRule = (value: string) => ({
+  name: "K", trigger_type: "keyword",
+  trigger_config: { keywords: [{ value, match_type: "contains" }] },
+  response_type: "text", response_config: { text: "hi" },
+});
+
+describe("rules validation — keyword whitespace", () => {
+  it("rejects a whitespace-only keyword (would collapse to a catch-all)", async () => {
+    if (!TEST_DB) return;
+    expect((await post(keywordRule(" "))).status).toBe(422);
+    expect((await post(keywordRule("\t\n"))).status).toBe(422);
+  });
+
+  it("trims surrounding whitespace and stores the trimmed value", async () => {
+    if (!TEST_DB) return;
+    const res = await post(keywordRule("hi "));
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { trigger_config: { keywords: { value: string }[] } } };
+    expect(body.data.trigger_config.keywords[0].value).toBe("hi");
+  });
+});
+
+describe("rules active-rule cap", () => {
+  it("rejects creating a rule once the workspace is at the active-rule cap", async () => {
+    if (!TEST_DB) return;
+    const { MAX_ACTIVE_RULES } = await import("@/lib/rules/executor");
+    await db.insert(s.autoReplyRules).values(
+      Array.from({ length: MAX_ACTIVE_RULES }, (_, i) => ({
+        workspace_id: WS, name: `bulk-${i}`, trigger_type: "keyword" as const,
+        trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+        response_type: "text" as const, response_config: { text: "hi" },
+      })),
+    );
+    const res = await post(keywordRule("one-too-many"));
+    expect(res.status).toBe(422);
+  });
+});

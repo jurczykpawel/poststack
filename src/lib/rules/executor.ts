@@ -10,6 +10,13 @@ import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent } from "./response";
 import type { MessageContent } from "@/lib/platforms/base";
+import { sanitizeForLog } from "@/lib/api/safe-log";
+
+/** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
+ *  and as a defensive `limit` on the per-message executor fetch, so neither the sanctioned API nor an
+ *  out-of-band writer can make the hot match-path unbounded (a tenant self-DoS ceiling).
+ *  Far above any realistic configuration (the dashboard lists at most 200). */
+export const MAX_ACTIVE_RULES = 1000;
 
 /** The transaction handle passed to db.transaction's callback. */
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -109,7 +116,10 @@ export async function evaluateRules(
       eq(autoReplyRules.is_active, true),
       or(eq(autoReplyRules.channel_id, channelId), isNull(autoReplyRules.channel_id)),
     ),
-    orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
+    // `id` is the final, stable tiebreak so two same-priority rules created in the same millisecond
+    // fire in a deterministic, run-to-run consistent order.
+    orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at), asc(autoReplyRules.id)],
+    limit: MAX_ACTIVE_RULES,
     columns: {
       id: true,
       is_active: true,
@@ -162,7 +172,17 @@ export async function evaluateRules(
       actions: rule.actions as unknown[],
     };
 
-    if (!matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType })) continue;
+    // Guard the match itself: a single malformed rule (e.g. an out-of-band keyword row
+    // missing `value`) must not throw and abort the whole loop — which, since rules iterate priority
+    // DESC, would decapitate auto-reply for every message in the workspace. Log and skip to the next.
+    let matched: boolean;
+    try {
+      matched = matchRule(candidate, { text, eventType, postId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType });
+    } catch (err) {
+      console.error(`[executor] rule ${candidate.id} match threw — skipping: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`);
+      continue;
+    }
+    if (!matched) continue;
 
     // `sequence` has no implemented effect yet, so it must not consume the event/limits or
     // block a lower-priority rule that could actually answer — fall through. The

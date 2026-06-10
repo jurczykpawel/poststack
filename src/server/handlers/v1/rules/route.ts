@@ -1,15 +1,18 @@
-import { and, eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { autoReplyRules, channels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
+import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 const keywordSchema = z.object({
-  // Bounded: the value is matched with ilike on every inbound message.
-  value: z.string().min(1).max(500),
+  // Bounded: the value is matched on every inbound message. Trim BEFORE the length check
+  //: the matcher trims the keyword, so a whitespace-only value would collapse to "" and
+  // make contains/starts_with match every message — a silent catch-all. Reject it at write instead.
+  value: z.string().trim().min(1).max(500),
   match_type: z.enum(["exact", "contains", "starts_with"]),
 });
 
@@ -205,6 +208,16 @@ export async function POST(request: Request) {
       columns: { id: true },
     });
     if (!channel) return ApiErrors.notFound("Channel");
+  }
+
+  // Cap active rules per workspace so the per-message match path stays bounded — a tenant can't
+  // (accidentally or maliciously) accumulate enough rules to slow its own processing.
+  const [{ n: activeRuleCount }] = await db
+    .select({ n: count() })
+    .from(autoReplyRules)
+    .where(and(eq(autoReplyRules.workspace_id, auth.workspaceId), eq(autoReplyRules.is_active, true)));
+  if (activeRuleCount >= MAX_ACTIVE_RULES) {
+    return ApiErrors.validationError({ _errors: [`Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules`] });
   }
 
   const [rule] = await db

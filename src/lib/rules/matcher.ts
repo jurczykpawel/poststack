@@ -153,8 +153,16 @@ function matchKeywords(
   if (!keywords || keywords.length === 0) return false;
 
   return keywords.some((kw) => {
-    // NFC-normalize the keyword too, to match the normalized text it's compared against.
-    const value = kw.value.normalize("NFC").toLowerCase().trim();
+    // Defensive: a keyword row written out-of-band (NocoDB bulk-edit, a legacy/partial row)
+    // may be missing `value`; treat it as a non-match instead of throwing on `.normalize` — an
+    // unguarded throw here propagates up the hot path and decapitates auto-reply for the whole
+    // workspace. NFC-normalize the keyword too, to match the normalized text. A value empty
+    // after trimming is also a non-match (it would otherwise make contains/starts_with match
+    // everything — the matcher half of ).
+    const raw = kw?.value;
+    if (typeof raw !== "string") return false;
+    const value = raw.normalize("NFC").toLowerCase().trim();
+    if (value.length === 0) return false;
     switch (kw.match_type) {
       case "exact":
         return text === value;
