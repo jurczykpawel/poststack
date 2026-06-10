@@ -911,6 +911,20 @@ describe("outgoing-message worker", () => {
     }
   });
 
+  //  — a Retry-After of exactly 0 still gets non-zero jitter (no re-collision at delay 0).
+  it("still jitters a rate-limit retry when Retry-After is 0", async () => {
+    if (!TEST_DB) return;
+    const rng = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    try {
+      provider.sendMessage.mockRejectedValueOnce(new RateLimitError("rate limited", 0));
+      await w.processOutgoingMessage(job({ idempotencyKey: "d-jit0" }) as never, helpers);
+      const r = await db.execute(sql`select extract(epoch from (run_at - now())) as secs from graphile_worker.jobs where key = 'ratelimit:d-jit0'`);
+      expect(Number((r.rows[0] as { secs: number }).secs)).toBeGreaterThan(0); // floored window → non-zero delay
+    } finally {
+      rng.mockRestore();
+    }
+  });
+
   //  — an automated send re-checks consent at delivery time: a contact who unsubscribed in the
   // window between enqueue and send is not messaged.
   it("skips an automated outgoing message to a contact unsubscribed after enqueue", async () => {

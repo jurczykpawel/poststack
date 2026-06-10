@@ -223,8 +223,11 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       const attempts = (prior?.attempts ?? 0) + 1;
       if (attempts < RATE_LIMIT_MAX_REQUEUE) {
         // Wait AT LEAST the provider's Retry-After, plus a random spread so a throttled burst that
-        // all got the same value doesn't re-collide the instant the window opens.
-        const delayMs = e.retryAfterMs + Math.floor(Math.random() * Math.min(e.retryAfterMs, RATE_LIMIT_JITTER_CAP_MS));
+        // all got the same value doesn't re-collide the instant the window opens. Floor the
+        // spread window so a Retry-After of exactly 0 (misconfigured proxy, or a past HTTP-date under
+        // clock skew) still gets non-zero jitter rather than re-colliding at delay 0.
+        const jitterWindow = Math.min(Math.max(e.retryAfterMs, 1_000), RATE_LIMIT_JITTER_CAP_MS);
+        const delayMs = e.retryAfterMs + Math.floor(Math.random() * jitterWindow);
         await addJob(
           taskName as TaskName,
           payload as unknown as TaskPayloadMap[TaskName],
