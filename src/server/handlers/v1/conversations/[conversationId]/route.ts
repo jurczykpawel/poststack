@@ -70,7 +70,11 @@ export async function PATCH(
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
   // An empty body (or unknown-keys-only, which zod strips to {}) would reach `.set({})` →
-  // Drizzle "No values to set" → 500. Reject it as a 400 (mirrors the contacts-PATCH guard).
+  // Drizzle "No values to set" → 500. Return a 422 validation error (ApiErrors.validationError),
+  // consistent with how this endpoint already reports a bad body. NOTE: the contacts
+  // PATCH deliberately differs — it 200-no-ops on an empty body because a tag-ids-only PATCH is a
+  // legitimate no-row-change; these endpoints have no such secondary field, so an empty body is a
+  // genuine client error.
   if (Object.keys(parsed.data).length === 0) {
     return ApiErrors.validationError({ _errors: ["No fields to update"] });
   }
