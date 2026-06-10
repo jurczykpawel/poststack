@@ -4,7 +4,10 @@ const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ authenticateWithScope: (...a: unknown[]) => mockAuth(...a) }));
 
 const mockPrune = vi.fn();
-vi.mock("@/lib/retention", () => ({ pruneWorkspaceMessages: (...a: unknown[]) => mockPrune(...a) }));
+// MAX_RETENTION_DAYS must be mirrored here: route.ts reads it at import time to bound the
+// older_than_days schema (z.number().max(MAX_RETENTION_DAYS)); a missing export → undefined → throw
+// on module load.
+vi.mock("@/lib/retention", () => ({ pruneWorkspaceMessages: (...a: unknown[]) => mockPrune(...a), MAX_RETENTION_DAYS: 3650 }));
 
 const mockAudit = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/audit", () => ({

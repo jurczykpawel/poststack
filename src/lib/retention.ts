@@ -5,6 +5,11 @@ import { messages, commentLogs, conversations, workspaces, pendingApprovals, flo
 const BATCH_SIZE = 1000;
 const DAY_MS = 86_400_000;
 
+/** Upper bound on a retention window (~10 years). Bounds the API-settable retention day-count so a
+ *  huge value can't push the cutoff Date out of range and throw on toISOString() in the cron.
+ *  Single source of truth — the dashboard and the v1 settings/prune handlers all enforce it. */
+export const MAX_RETENTION_DAYS = 3650;
+
 /** Terminal message states that are safe to prune. Never held (waiting on the
  * breaker, REL5) or pending (in flight). */
 const PRUNABLE_STATUSES = ["sent", "delivered", "failed", "expired"] as const;
@@ -128,10 +133,17 @@ export async function pruneOldMessages(now: Date = new Date()): Promise<Retentio
   };
 
   for (const ws of wss) {
-    const ws_result = await pruneWorkspaceMessages(ws.id, ws.message_retention_days as number, now);
-    result.deletedMessages += ws_result.deletedMessages;
-    result.deletedComments += ws_result.deletedComments;
-    result.deletedConversations += ws_result.deletedConversations;
+    // Isolate each workspace: one tenant's prune failing (e.g. a pathological retention value that
+    // throws while building the cutoff) must NOT abort the sweep for every other tenant — a
+    // cross-tenant cron DoS. Log and continue; the next run retries this workspace.
+    try {
+      const ws_result = await pruneWorkspaceMessages(ws.id, ws.message_retention_days as number, now);
+      result.deletedMessages += ws_result.deletedMessages;
+      result.deletedComments += ws_result.deletedComments;
+      result.deletedConversations += ws_result.deletedConversations;
+    } catch (err) {
+      console.error(`[retention] prune failed for workspace ${ws.id}, skipping:`, err);
+    }
   }
 
   return result;

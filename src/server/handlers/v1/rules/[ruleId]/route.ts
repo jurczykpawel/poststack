@@ -71,7 +71,7 @@ const patchSchema = z.object({
   trigger_config: z.record(z.string(), z.unknown()).optional(),
   response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate"]).optional(),
   response_config: z.record(z.string(), z.unknown()).optional(),
-  cooldown_seconds: z.number().int().min(0).optional(),
+  cooldown_seconds: z.number().int().min(0).max(31_536_000).optional(), // 1y cap — see create
   max_sends_per_contact: z.number().int().min(1).max(1_000_000).nullable().optional(),
   requires_approval: z.boolean().optional(),
 });

@@ -9,6 +9,7 @@ import {
   pendingApprovals, outboundDeliveries,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
+import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
@@ -240,10 +241,6 @@ function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, erro
 }
 
 // ─── registration ─────────────────────────────────────────────────────────────
-
-/** Sanity ceiling for the message-retention policy (~10 years). Anything beyond is almost
- *  certainly a fat-fingered value, and "keep forever" is expressed as null, not a huge number. */
-const MAX_RETENTION_DAYS = 3650;
 
 /**
  * Turn a delegated API response into an error notice (or undefined on success). A swallowed `null`

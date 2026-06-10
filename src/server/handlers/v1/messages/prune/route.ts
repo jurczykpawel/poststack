@@ -1,13 +1,15 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
-import { pruneWorkspaceMessages } from "@/lib/retention";
+import { pruneWorkspaceMessages, MAX_RETENTION_DAYS } from "@/lib/retention";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 const schema = z.object({
-  older_than_days: z.number().int().min(1),
+  // Bounded like the workspace retention setting: an unbounded value pushes the prune cutoff Date
+  // out of range and throws RangeError on toISOString() → 500.
+  older_than_days: z.number().int().min(1).max(MAX_RETENTION_DAYS),
 });
 
 // POST /api/v1/messages/prune — manually delete this workspace's messages

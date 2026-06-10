@@ -196,6 +196,29 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect((await res.json()).data.message_retention_days).toBe(30);
   });
 
+  //  — an unbounded retention value would push the cron's cutoff Date out of range and throw,
+  // taking down retention for every tenant; the bound rejects it as a 422 before persisting.
+  it("rejects an over-max retention value (422), not persisting a cron-poisoning value", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api/v1/workspace", {
+      method: "PATCH",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ message_retention_days: 1_000_000_000_000 }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  //  — the manual prune's older_than_days is bounded the same way (else RangeError → 500).
+  it("rejects an over-max older_than_days on prune (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api/v1/messages/prune", {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ older_than_days: 1_000_000_000_000 }),
+    });
+    expect(res.status).toBe(422);
+  });
+
   it("force-drains a channel (200)", async () => {
     if (!TEST_DB) return;
     const res = await app.request(`/api/v1/channels/${CH_A}/drain`, { method: "POST", headers: authHeaders });

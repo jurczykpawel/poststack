@@ -179,6 +179,17 @@ const keywordRule = (value: string) => ({
   response_type: "text", response_config: { text: "hi" },
 });
 
+describe("rules validation — cooldown bound", () => {
+  it("rejects an over-max cooldown_seconds (would push the cooldown timestamp out of range)", async () => {
+    if (!TEST_DB) return;
+    expect((await post({ ...keywordRule("hi"), cooldown_seconds: 9_000_000_000_000_000 })).status).toBe(422);
+  });
+  it("accepts a cooldown within the 1-year bound", async () => {
+    if (!TEST_DB) return;
+    expect((await post({ ...keywordRule("yo"), cooldown_seconds: 3600 })).status).toBe(201);
+  });
+});
+
 describe("rules validation — keyword whitespace", () => {
   it("rejects a whitespace-only keyword (would collapse to a catch-all)", async () => {
     if (!TEST_DB) return;

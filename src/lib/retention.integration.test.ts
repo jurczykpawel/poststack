@@ -137,6 +137,27 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
     expect(await db.query.messages.findFirst({ where: eq(messages.id, oldSent) })).toBeUndefined();
   });
 
+  //  — one workspace with a pathological retention value (huge → out-of-range cutoff Date →
+  // toISOString() throws) must NOT abort the cron sweep for every other tenant. The per-workspace
+  // try/catch isolates it.
+  it("isolates a workspace whose prune throws so other tenants are still pruned (cross-tenant)", async () => {
+    if (!TEST_DB) return;
+    const POISON = "cccccccc-0000-0000-0000-0000000000f0";
+    await db.delete(workspaces).where(eq(workspaces.id, POISON));
+    // Direct insert bypasses the API bound — a near-int4-max retention pushes the cutoff Date out of
+    // range, the exact cron-poisoning scenario the bound now prevents at the API.
+    await db.insert(workspaces).values({ id: POISON, name: "Poison", slug: `poison-${POISON}`, message_retention_days: 2_000_000_000 });
+    const oldSent = await seedMessage(CONV_KEEP, "sent", old);
+    try {
+      // Without the per-workspace try/catch this would throw RangeError and abort the whole sweep.
+      await expect(pruneOldMessages(now)).resolves.toBeDefined();
+      // The healthy workspace's old message was still pruned despite the poisoned tenant.
+      expect(await db.query.messages.findFirst({ where: eq(messages.id, oldSent) })).toBeUndefined();
+    } finally {
+      await db.delete(workspaces).where(eq(workspaces.id, POISON));
+    }
+  });
+
   //  — created_at is DB-clock (UTC-naive); the cutoff must be compared in UTC regardless of the
   // process timezone. On a UTC-ahead host the old app-clock cutoff over-deleted in-window rows.
   describe("timezone safety", () => {

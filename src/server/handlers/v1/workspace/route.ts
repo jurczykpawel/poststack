@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { workspaces } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -21,8 +22,10 @@ export async function GET(request: Request) {
 }
 
 const patchSchema = z.object({
-  // null = keep messages forever (retention off).
-  message_retention_days: z.number().int().min(1).nullable(),
+  // null = keep messages forever (retention off). Bounded (the dashboard enforces the same ceiling):
+  // an unbounded value would push the retention cron's cutoff Date out of range and throw, and the
+  // cron loops every workspace — so a huge value here would DoS retention for all tenants.
+  message_retention_days: z.number().int().min(1).max(MAX_RETENTION_DAYS).nullable(),
 });
 
 // PATCH /api/v1/workspace — update workspace settings (DATA1: retention policy).
