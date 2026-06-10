@@ -10,6 +10,7 @@ vi.mock("@/lib/workers/follow-gate-worker", () => ({ processFollowGate: vi.fn() 
 vi.mock("@/lib/workers/token-refresh-worker", () => ({ processTokenRefresh: vi.fn() }));
 vi.mock("@/lib/workers/sequence-step-worker", () => ({ processSequenceStep: vi.fn() }));
 vi.mock("@/lib/channels/drain", () => ({ drainChannel: vi.fn() }));
+vi.mock("@/lib/sequences/resume", () => ({ resumeChannelEnrollments: vi.fn() }));
 
 import { createTaskList } from "./tasks";
 
@@ -24,6 +25,7 @@ const EXPECTED_TASKS = [
   "token-refresh",
   "sequence-step",
   "drain-channel",
+  "resume-channel-enrollments",
 ];
 
 describe("createTaskList", () => {

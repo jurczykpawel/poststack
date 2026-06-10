@@ -107,6 +107,13 @@ export interface DrainChannelJob {
   channelId: string;
 }
 
+/** Resume every active+due drip enrollment on a channel after it's un-paused — runs in the
+ *  background (keyset-paged) so the unpause request doesn't fan out an add_job per enrollment
+ *  inside its own transaction at scale. */
+export interface ResumeChannelEnrollmentsJob {
+  channelId: string;
+}
+
 /**
  * Follow-gate: on a tap, re-check whether the user follows the business and
  * send the gated content accordingly (the lead magnet when they follow, a
@@ -137,6 +144,7 @@ export type TaskPayloadMap = {
   "token-refresh": TokenRefreshJob;
   "sequence-step": SequenceStepJob;
   "drain-channel": DrainChannelJob;
+  "resume-channel-enrollments": ResumeChannelEnrollmentsJob;
 };
 
 export type TaskName = keyof TaskPayloadMap;

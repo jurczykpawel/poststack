@@ -9,6 +9,7 @@ import { processFollowGate } from "@/lib/workers/follow-gate-worker";
 import { processTokenRefresh } from "@/lib/workers/token-refresh-worker";
 import { processSequenceStep } from "@/lib/workers/sequence-step-worker";
 import { drainChannel } from "@/lib/channels/drain";
+import { resumeChannelEnrollments } from "@/lib/sequences/resume";
 import type { TaskPayloadMap } from "./types";
 
 /**
@@ -37,5 +38,7 @@ export function createTaskList(): TaskList {
       processSequenceStep(p as TaskPayloadMap["sequence-step"], h),
     "drain-channel": (p) =>
       drainChannel((p as TaskPayloadMap["drain-channel"]).channelId).then(() => undefined),
+    "resume-channel-enrollments": (p) =>
+      resumeChannelEnrollments((p as TaskPayloadMap["resume-channel-enrollments"]).channelId).then(() => undefined),
   };
 }

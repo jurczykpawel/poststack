@@ -13,6 +13,7 @@ const ALL_TASKS: TaskName[] = [
   "token-refresh",
   "sequence-step",
   "drain-channel",
+  "resume-channel-enrollments",
 ];
 
 describe("TASK_MAX_ATTEMPTS — retry parity with former BullMQ config", () => {

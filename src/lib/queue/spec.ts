@@ -19,6 +19,7 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   "token-refresh": 3,
   "sequence-step": 3,
   "drain-channel": 3,
+  "resume-channel-enrollments": 3,
 };
 
 export interface AddJobOptions {
