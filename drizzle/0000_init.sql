@@ -17,7 +17,7 @@ CREATE TYPE "public"."sequence_status" AS ENUM('draft', 'active', 'archived');--
 CREATE TYPE "public"."trigger_type" AS ENUM('keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction');--> statement-breakpoint
 CREATE TYPE "public"."workspace_member_role" AS ENUM('owner');--> statement-breakpoint
 CREATE TABLE "api_keys" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"key_hash" text NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE "api_keys" (
 );
 --> statement-breakpoint
 CREATE TABLE "audit_logs" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"actor_type" "audit_actor_type" NOT NULL,
 	"actor_id" text,
@@ -41,7 +41,7 @@ CREATE TABLE "audit_logs" (
 );
 --> statement-breakpoint
 CREATE TABLE "auto_reply_rules" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"channel_id" uuid,
 	"name" text NOT NULL,
@@ -54,13 +54,13 @@ CREATE TABLE "auto_reply_rules" (
 	"actions" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"cooldown_seconds" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	"max_sends_per_contact" integer,
 	"requires_approval" boolean DEFAULT false NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "broadcast_recipients" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"broadcast_id" uuid NOT NULL,
 	"contact_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
@@ -70,7 +70,7 @@ CREATE TABLE "broadcast_recipients" (
 );
 --> statement-breakpoint
 CREATE TABLE "broadcasts" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"status" "broadcast_status" DEFAULT 'draft' NOT NULL,
@@ -82,11 +82,11 @@ CREATE TABLE "broadcasts" (
 	"delivered" integer DEFAULT 0 NOT NULL,
 	"failed" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "channels" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"platform" "platform" NOT NULL,
 	"platform_id" text NOT NULL,
@@ -97,7 +97,7 @@ CREATE TABLE "channels" (
 	"webhook_secret" text NOT NULL,
 	"last_comment_cursor" text,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	"last_error" text,
 	"last_health_at" timestamp (3),
 	"status" "channel_status" DEFAULT 'active' NOT NULL,
@@ -105,7 +105,7 @@ CREATE TABLE "channels" (
 );
 --> statement-breakpoint
 CREATE TABLE "comment_logs" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"channel_id" uuid NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"post_id" text,
@@ -121,7 +121,7 @@ CREATE TABLE "comment_logs" (
 );
 --> statement-breakpoint
 CREATE TABLE "contact_channels" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"contact_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
 	"platform_sender_id" text NOT NULL,
@@ -137,7 +137,7 @@ CREATE TABLE "contact_tags" (
 );
 --> statement-breakpoint
 CREATE TABLE "contacts" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"display_name" text,
 	"email" text,
@@ -146,11 +146,11 @@ CREATE TABLE "contacts" (
 	"last_interaction_at" timestamp (3),
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "conversations" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
 	"contact_id" uuid NOT NULL,
@@ -163,13 +163,13 @@ CREATE TABLE "conversations" (
 	"unread_count" integer DEFAULT 0 NOT NULL,
 	"is_automation_paused" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	"needs_manual_reply" boolean DEFAULT false NOT NULL,
 	"last_inbound_at" timestamp (3)
 );
 --> statement-breakpoint
 CREATE TABLE "flow_sessions" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"contact_id" uuid NOT NULL,
 	"flow_id" uuid NOT NULL,
 	"conversation_id" uuid NOT NULL,
@@ -180,11 +180,11 @@ CREATE TABLE "flow_sessions" (
 	"waiting_for_input" boolean DEFAULT false NOT NULL,
 	"human_takeover_at" timestamp (3),
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "flow_triggers" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"flow_id" uuid NOT NULL,
 	"channel_id" uuid,
 	"type" "trigger_type" NOT NULL,
@@ -195,7 +195,7 @@ CREATE TABLE "flow_triggers" (
 );
 --> statement-breakpoint
 CREATE TABLE "flow_versions" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"flow_id" uuid NOT NULL,
 	"version" integer NOT NULL,
 	"nodes" jsonb NOT NULL,
@@ -207,7 +207,7 @@ CREATE TABLE "flow_versions" (
 );
 --> statement-breakpoint
 CREATE TABLE "flows" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"description" text,
@@ -218,11 +218,11 @@ CREATE TABLE "flows" (
 	"version" integer DEFAULT 1 NOT NULL,
 	"published_at" timestamp (3),
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "messages" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"conversation_id" uuid NOT NULL,
 	"direction" "message_direction" NOT NULL,
 	"text" text,
@@ -238,7 +238,7 @@ CREATE TABLE "messages" (
 );
 --> statement-breakpoint
 CREATE TABLE "outbound_deliveries" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"delivery_key" text NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
@@ -254,7 +254,7 @@ CREATE TABLE "outbound_deliveries" (
 );
 --> statement-breakpoint
 CREATE TABLE "pending_approvals" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"rule_id" uuid NOT NULL,
 	"conversation_id" uuid NOT NULL,
@@ -299,7 +299,7 @@ CREATE TABLE "rule_send_counts" (
 );
 --> statement-breakpoint
 CREATE TABLE "sequence_enrollments" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sequence_id" uuid NOT NULL,
 	"contact_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
@@ -312,18 +312,18 @@ CREATE TABLE "sequence_enrollments" (
 );
 --> statement-breakpoint
 CREATE TABLE "sequences" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"description" text,
 	"status" "sequence_status" DEFAULT 'draft' NOT NULL,
 	"steps" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "tags" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"color" text DEFAULT '#6366f1' NOT NULL,
@@ -331,13 +331,13 @@ CREATE TABLE "tags" (
 );
 --> statement-breakpoint
 CREATE TABLE "users" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"email" text NOT NULL,
 	"password_hash" text,
 	"name" text,
 	"avatar_url" text,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "workspace_members" (
@@ -349,11 +349,11 @@ CREATE TABLE "workspace_members" (
 );
 --> statement-breakpoint
 CREATE TABLE "workspaces" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" text NOT NULL,
 	"slug" text NOT NULL,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	"updated_at" timestamp (3) NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	"message_retention_days" integer
 );
 --> statement-breakpoint

@@ -1,6 +1,5 @@
 import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
-import { randomUUID } from "crypto"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
 export const auditActorType = pgEnum("audit_actor_type", ['user', 'api_key', 'system'])
@@ -30,7 +29,7 @@ export const workspaceMemberRole = pgEnum("workspace_member_role", ['owner'])
 
 
 export const conversations = pgTable("conversations", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
@@ -43,7 +42,7 @@ export const conversations = pgTable("conversations", {
 	unread_count: integer("unread_count").default(0).notNull(),
 	is_automation_paused: boolean("is_automation_paused").default(false).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	needs_manual_reply: boolean("needs_manual_reply").default(false).notNull(),
 	last_inbound_at: timestamp("last_inbound_at", { precision: 3, mode: 'date' }),
 }, (table) => [
@@ -75,7 +74,7 @@ export const conversations = pgTable("conversations", {
 ]);
 
 export const channels = pgTable("channels", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	platform: platform().notNull(),
 	platform_id: text("platform_id").notNull(),
@@ -86,7 +85,7 @@ export const channels = pgTable("channels", {
 	webhook_secret: text("webhook_secret").notNull(),
 	last_comment_cursor: text("last_comment_cursor"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	last_error: text("last_error"),
 	last_health_at: timestamp("last_health_at", { precision: 3, mode: 'date' }),
 	status: channelStatus().default('active').notNull(),
@@ -116,30 +115,30 @@ export const channels = pgTable("channels", {
 ]);
 
 export const workspaces = pgTable("workspaces", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	name: text().notNull(),
 	slug: text().notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	message_retention_days: integer("message_retention_days"),
 }, (table) => [
 	uniqueIndex("workspaces_slug_key").using("btree", table.slug.asc().nullsLast()),
 ]);
 
 export const users = pgTable("users", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	email: text().notNull(),
 	password_hash: text("password_hash"),
 	name: text(),
 	avatar_url: text("avatar_url"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	uniqueIndex("users_email_key").using("btree", table.email.asc().nullsLast()),
 ]);
 
 export const contacts = pgTable("contacts", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	display_name: text("display_name"),
 	email: text(),
@@ -148,7 +147,7 @@ export const contacts = pgTable("contacts", {
 	last_interaction_at: timestamp("last_interaction_at", { precision: 3, mode: 'date' }),
 	metadata: jsonb().default({}).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	index("contacts_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	index("contacts_workspace_id_last_interaction_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.last_interaction_at.desc().nullsFirst()),
@@ -160,7 +159,7 @@ export const contacts = pgTable("contacts", {
 ]);
 
 export const contactChannels = pgTable("contact_channels", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
 	platform_sender_id: text("platform_sender_id").notNull(),
@@ -182,7 +181,7 @@ export const contactChannels = pgTable("contact_channels", {
 ]);
 
 export const tags = pgTable("tags", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	color: text().default('#6366f1').notNull(),
@@ -197,7 +196,7 @@ export const tags = pgTable("tags", {
 ]);
 
 export const auditLogs = pgTable("audit_logs", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	actor_type: auditActorType("actor_type").notNull(),
 	actor_id: text("actor_id"),
@@ -216,7 +215,7 @@ export const auditLogs = pgTable("audit_logs", {
 ]);
 
 export const flows = pgTable("flows", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	description: text(),
@@ -227,7 +226,7 @@ export const flows = pgTable("flows", {
 	version: integer().default(1).notNull(),
 	published_at: timestamp("published_at", { precision: 3, mode: 'date' }),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	index("flows_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
@@ -238,7 +237,7 @@ export const flows = pgTable("flows", {
 ]);
 
 export const flowTriggers = pgTable("flow_triggers", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	flow_id: uuid("flow_id").notNull(),
 	channel_id: uuid("channel_id"),
 	type: trigger_type().notNull(),
@@ -261,7 +260,7 @@ export const flowTriggers = pgTable("flow_triggers", {
 ]);
 
 export const messages = pgTable("messages", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	conversation_id: uuid("conversation_id").notNull(),
 	direction: messageDirection().notNull(),
 	text: text(),
@@ -302,7 +301,7 @@ export const messages = pgTable("messages", {
 ]);
 
 export const flowSessions = pgTable("flow_sessions", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	contact_id: uuid("contact_id").notNull(),
 	flow_id: uuid("flow_id").notNull(),
 	conversation_id: uuid("conversation_id").notNull(),
@@ -313,7 +312,7 @@ export const flowSessions = pgTable("flow_sessions", {
 	waiting_for_input: boolean("waiting_for_input").default(false).notNull(),
 	human_takeover_at: timestamp("human_takeover_at", { precision: 3, mode: 'date' }),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	index("flow_sessions_contact_id_status_idx").using("btree", table.contact_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
@@ -334,14 +333,14 @@ export const flowSessions = pgTable("flow_sessions", {
 ]);
 
 export const sequences = pgTable("sequences", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	description: text(),
 	status: sequenceStatus().default('draft').notNull(),
 	steps: jsonb().default([]).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	index("sequences_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	foreignKey({
@@ -352,7 +351,7 @@ export const sequences = pgTable("sequences", {
 ]);
 
 export const sequenceEnrollments = pgTable("sequence_enrollments", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	sequence_id: uuid("sequence_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
@@ -385,11 +384,16 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 			columns: [table.channel_id],
 			foreignColumns: [channels.id],
 			name: "sequence_enrollments_channel_id_fkey"
+			// Deliberately RESTRICT ( reviewed, NOT changed to cascade): this is what makes the
+			// channel-disconnect handler return a clean 409 instead of silently cascade-deleting an
+			// in-flight enrollment — there is no separate app-level guard, the FK IS the guard. A future
+			// workspace-delete / GDPR-erasure handler must therefore delete sequences/enrollments BEFORE
+			// channels (or add its own app-level guard) rather than relying on a single cascade statement.
 		}).onUpdate("cascade").onDelete("restrict"),
 ]);
 
 export const broadcasts = pgTable("broadcasts", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	status: broadcastStatus().default('draft').notNull(),
@@ -401,7 +405,7 @@ export const broadcasts = pgTable("broadcasts", {
 	delivered: integer().default(0).notNull(),
 	failed: integer().default(0).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	foreignKey({
 			columns: [table.workspace_id],
@@ -411,7 +415,7 @@ export const broadcasts = pgTable("broadcasts", {
 ]);
 
 export const broadcastRecipients = pgTable("broadcast_recipients", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	broadcast_id: uuid("broadcast_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
@@ -438,7 +442,7 @@ export const broadcastRecipients = pgTable("broadcast_recipients", {
 ]);
 
 export const commentLogs = pgTable("comment_logs", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	channel_id: uuid("channel_id").notNull(),
 	workspace_id: uuid("workspace_id").notNull(),
 	post_id: text("post_id"),
@@ -463,7 +467,7 @@ export const commentLogs = pgTable("comment_logs", {
 ]);
 
 export const flowVersions = pgTable("flow_versions", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	flow_id: uuid("flow_id").notNull(),
 	version: integer().notNull(),
 	nodes: jsonb().notNull(),
@@ -483,7 +487,7 @@ export const flowVersions = pgTable("flow_versions", {
 ]);
 
 export const apiKeys = pgTable("api_keys", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	name: text().notNull(),
 	key_hash: text("key_hash").notNull(),
@@ -503,7 +507,7 @@ export const apiKeys = pgTable("api_keys", {
 ]);
 
 export const autoReplyRules = pgTable("auto_reply_rules", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	channel_id: uuid("channel_id"),
 	name: text().notNull(),
@@ -519,7 +523,7 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 	actions: jsonb().default([]).notNull(),
 	cooldown_seconds: integer("cooldown_seconds").default(0).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).$defaultFn(() => new Date()).$onUpdate(() => new Date()).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	max_sends_per_contact: integer("max_sends_per_contact"),
 	requires_approval: boolean("requires_approval").default(false).notNull(),
 }, (table) => [
@@ -558,7 +562,7 @@ export const processedEvents = pgTable("processed_events", {
 // silent duplicate or lost local state. The full typed `payload` + `task_name`
 // let a drain re-dispatch the exact original operation when a parked channel recovers.
 export const outboundDeliveries = pgTable("outbound_deliveries", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	delivery_key: text("delivery_key").notNull(),
 	workspace_id: uuid("workspace_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),
@@ -599,7 +603,7 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 ]);
 
 export const pendingApprovals = pgTable("pending_approvals", {
-	id: uuid().primaryKey().notNull().$defaultFn(() => randomUUID()),
+	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	rule_id: uuid("rule_id").notNull(),
 	conversation_id: uuid("conversation_id").notNull(),

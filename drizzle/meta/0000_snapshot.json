@@ -1,5 +1,5 @@
 {
-  "id": "27c69b12-493c-4f41-ade8-b5db1ed4c090",
+  "id": "a14ebde0-587c-4c1b-9427-b4f258330730",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -12,7 +12,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -126,7 +127,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -231,7 +233,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -319,7 +322,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         },
         "max_sends_per_contact": {
           "name": "max_sends_per_contact",
@@ -427,7 +431,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "broadcast_id": {
           "name": "broadcast_id",
@@ -546,7 +551,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -626,7 +632,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {},
@@ -659,7 +666,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -727,7 +735,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         },
         "last_error": {
           "name": "last_error",
@@ -868,7 +877,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "channel_id": {
           "name": "channel_id",
@@ -1028,7 +1038,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "contact_id": {
           "name": "contact_id",
@@ -1225,7 +1236,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -1282,7 +1294,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -1352,7 +1365,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -1436,7 +1450,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         },
         "needs_manual_reply": {
           "name": "needs_manual_reply",
@@ -1612,7 +1627,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "contact_id": {
           "name": "contact_id",
@@ -1683,7 +1699,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -1764,7 +1781,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "flow_id": {
           "name": "flow_id",
@@ -1885,7 +1903,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "flow_id": {
           "name": "flow_id",
@@ -2010,7 +2029,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -2082,7 +2102,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -2137,7 +2158,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "conversation_id": {
           "name": "conversation_id",
@@ -2328,7 +2350,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "delivery_key": {
           "name": "delivery_key",
@@ -2522,7 +2545,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -2977,7 +3001,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "sequence_id": {
           "name": "sequence_id",
@@ -3139,7 +3164,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -3185,7 +3211,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -3234,7 +3261,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -3315,7 +3343,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "email": {
           "name": "email",
@@ -3352,7 +3381,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -3478,7 +3508,8 @@
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "name": {
           "name": "name",
@@ -3503,7 +3534,8 @@
           "name": "updated_at",
           "type": "timestamp (3)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "now()"
         },
         "message_retention_days": {
           "name": "message_retention_days",
