@@ -18,6 +18,8 @@ COPY --from=deps --chown=worker:nodejs /app/node_modules ./node_modules
 COPY --chown=worker:nodejs tsconfig.json package.json ./
 COPY --chown=worker:nodejs src ./src
 COPY --chown=worker:nodejs worker ./worker
+# Liveness probe read by the container healthcheck.
+COPY --chown=worker:nodejs docker/worker-healthcheck.sh ./docker/worker-healthcheck.sh
 
 USER worker
 

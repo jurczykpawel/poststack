@@ -9,12 +9,21 @@
  * graceful shutdown.
  */
 
+import { writeFileSync } from "fs";
 import { run } from "graphile-worker";
 import { createTaskList } from "../src/lib/queue/tasks";
 import { cronTaskList, CRONTAB } from "../src/lib/workers/cron";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
+
+// Liveness heartbeat. `restart: always` recovers a CRASHED worker, but a HUNG one (blocked
+// event loop, dead pool) stays "running" and invisible — Docker, the operator and alerting see
+// nothing. graphile fires worker:getJob:* on every poll, even while idle, so we advance an in-memory
+// timestamp on those events ("the worker loop is alive and polling") and a separate timer flushes it
+// to a file the container healthcheck reads. If polling stops, the file stops advancing → unhealthy.
+const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? "/tmp/replystack-worker.heartbeat";
+let lastActivityMs = Date.now();
 
 async function main() {
   const taskList = {
@@ -32,6 +41,22 @@ async function main() {
   console.log(
     `[worker] ReplyStack worker started. Tasks: ${Object.keys(taskList).join(", ")}`
   );
+
+  const noteActivity = () => { lastActivityMs = Date.now(); };
+  runner.events.on("worker:getJob:start", noteActivity); // every poll, even when idle
+  runner.events.on("job:success", noteActivity);
+  runner.events.on("job:failed", noteActivity);
+  // Flush the LAST-polled timestamp (not "now"): if graphile stops polling, the file freezes even
+  // though this timer keeps running, so `now - heartbeat` grows and the healthcheck trips.
+  const flushHeartbeat = () => {
+    try {
+      writeFileSync(HEARTBEAT_FILE, String(Math.floor(lastActivityMs / 1000)));
+    } catch {
+      /* best effort — a missing heartbeat file simply reads as stale → unhealthy */
+    }
+  };
+  flushHeartbeat();
+  setInterval(flushHeartbeat, 10_000).unref();
 
   // Dead-letter visibility: a job that exhausts all attempts is retained by
   // graphile (queryable) — surface it in logs instead of failing silently.

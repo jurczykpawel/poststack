@@ -56,6 +56,13 @@ services:
       web:
         condition: service_healthy
     restart: unless-stopped
+    # A hung worker stays "running" but stops polling; the heartbeat probe makes that visible.
+    healthcheck:
+      test: ["CMD", "sh", "/app/docker/worker-healthcheck.sh"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
 
   # Optional: NocoDB spreadsheet view of your data
   # Access at http://localhost:8080

@@ -32,6 +32,10 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
+      # Cold start runs migrations before serving; without a grace window the first ~30s of failing
+      # probes would mark web unhealthy, and the worker (gated on web healthy, below) would never
+      # start without a restart loop.
+      start_period: 60s
       retries: 3
 
   worker:
@@ -49,6 +53,13 @@ services:
       web:
         condition: service_healthy
     restart: always
+    # A hung worker stays "running" but stops polling; the heartbeat probe makes that visible.
+    healthcheck:
+      test: ["CMD", "sh", "/app/docker/worker-healthcheck.sh"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
 
   postgres:
     image: postgres:16-alpine
