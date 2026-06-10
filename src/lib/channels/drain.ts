@@ -1,4 +1,4 @@
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, messages, conversations, outboundDeliveries } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
@@ -33,19 +33,21 @@ export interface DrainResult {
   skipped?: string;
 }
 
-/** Resolve the window anchor timestamp for a held delivery, or null when undeterminable. */
-async function anchorFor(taskName: string, payload: Record<string, unknown>, parkedAt: Date): Promise<Date | null> {
+/** Resolve the window anchor timestamp for a held delivery, or null when undeterminable.
+ *  `last_inbound_at` is read from a pre-loaded map (batched once per drain, not per held row — ). */
+function anchorFor(
+  taskName: string,
+  payload: Record<string, unknown>,
+  parkedAt: Date,
+  lastInboundByConv: Map<string, Date | null>,
+): Date | null {
   const policy = DRAIN_POLICY[taskName];
   if (!policy) return null;
   if (policy.anchor === "parked_at") return parkedAt;
-  // last_inbound_at: look the conversation up by the payload's conversationId.
   const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : null;
   if (conversationId) {
-    const conv = await db.query.conversations.findFirst({
-      where: eq(conversations.id, conversationId),
-      columns: { last_inbound_at: true },
-    });
-    if (conv?.last_inbound_at) return conv.last_inbound_at;
+    const lastInbound = lastInboundByConv.get(conversationId);
+    if (lastInbound) return lastInbound;
   }
   // No inbound DM on this conversation (e.g. a comment-triggered DM / follow-gate reply, where
   // resolveContactConversation never sets last_inbound_at). Fall back to when it was parked so
@@ -73,12 +75,27 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
     .where(and(eq(outboundDeliveries.status, "held"), eq(outboundDeliveries.channel_id, channelId)))
     .orderBy(asc(outboundDeliveries.created_at));
 
+  // Batch-load last_inbound_at for every conversation a window-anchored held row references, instead
+  // of a findFirst per held delivery (200 held = 200 serial lookups holding the drain).
+  const convIds = [
+    ...new Set(
+      held
+        .filter((d) => DRAIN_POLICY[d.task_name]?.anchor === "last_inbound_at")
+        .map((d) => (d.payload as Record<string, unknown> | null)?.conversationId)
+        .filter((id): id is string => typeof id === "string"),
+    ),
+  ];
+  const convRows = convIds.length
+    ? await db.select({ id: conversations.id, last_inbound_at: conversations.last_inbound_at }).from(conversations).where(inArray(conversations.id, convIds))
+    : [];
+  const lastInboundByConv = new Map(convRows.map((c) => [c.id, c.last_inbound_at]));
+
   let enqueued = 0;
   let expired = 0;
 
   for (const d of held) {
     const payload = (d.payload ?? {}) as Record<string, unknown>;
-    const anchor = await anchorFor(d.task_name, payload, d.created_at);
+    const anchor = anchorFor(d.task_name, payload, d.created_at, lastInboundByConv);
     if (!anchor || now.getTime() - anchor.getTime() > (DRAIN_POLICY[d.task_name]?.windowMs ?? DAY_MS)) {
       // Expire the ledger row AND its linked inbox row in one transaction, so a failure can't
       // leave the delivery `expired` (terminal) while the message stays `held` — which would

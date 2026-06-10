@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { sql, and, eq, gt, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { ruleCooldowns, ruleSendCounts } from "@/db/schema";
 
 /** A Drizzle db or an open transaction — anything that can run `.execute`. */
 type Executor = Pick<typeof db, "execute">;
@@ -88,4 +89,31 @@ export async function isAtCap(
     SELECT 1 FROM rule_send_counts
     WHERE rule_id = ${ruleId}::uuid AND contact_id = ${contactId}::uuid AND count >= ${maxSends}`);
   return result.rows.length > 0;
+}
+
+/**
+ * Batch the two precheck reads for a whole candidate set + contact into two queries instead of
+ * two-per-rule on the hot inbound path. Returns the set of rules currently cooling down
+ * and a rule_id→count map; the caller checks these in memory. Still advisory — the transactional
+ * `acquireCooldown`/`incrementSendCount` remain the concurrency authority.
+ */
+export async function loadRuleLimits(
+  ruleIds: string[],
+  contactId: string,
+): Promise<{ coolingDown: Set<string>; sendCounts: Map<string, number> }> {
+  if (ruleIds.length === 0) return { coolingDown: new Set(), sendCounts: new Map() };
+  const [cools, counts] = await Promise.all([
+    db
+      .select({ rule_id: ruleCooldowns.rule_id })
+      .from(ruleCooldowns)
+      .where(and(inArray(ruleCooldowns.rule_id, ruleIds), eq(ruleCooldowns.contact_id, contactId), gt(ruleCooldowns.expires_at, new Date()))),
+    db
+      .select({ rule_id: ruleSendCounts.rule_id, count: ruleSendCounts.count })
+      .from(ruleSendCounts)
+      .where(and(inArray(ruleSendCounts.rule_id, ruleIds), eq(ruleSendCounts.contact_id, contactId))),
+  ]);
+  return {
+    coolingDown: new Set(cools.map((c) => c.rule_id)),
+    sendCounts: new Map(counts.map((c) => [c.rule_id, c.count])),
+  };
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals, contacts } from "@/db/schema";
-import { acquireCooldown, incrementSendCount, isOnCooldown, isAtCap } from "./limits";
+import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
 import { rephrase } from "@/lib/ai/rephrase";
@@ -149,6 +149,11 @@ export async function evaluateRules(
     return { outcome: "no_match", ruleId: null };
   }
 
+  // Batch the cooldown + send-count prechecks for ALL candidate rules into two queries up front,
+  // instead of two queries per rule inside the loop (2N on the hot inbound path). The
+  // in-transaction acquire below stays the concurrency authority — this is only an advisory peek.
+  const { coolingDown, sendCounts } = await loadRuleLimits(rules.map((r) => r.id), contactId);
+
   for (const rule of rules) {
     const candidate = {
       ...rule,
@@ -168,8 +173,8 @@ export async function evaluateRules(
     // cooling down or at its cap, so it neither calls the AI nor blocks fallthrough to a
     // lower-priority rule that should answer. The transactional acquire below stays the
     // concurrency authority (a peek can race), but it only runs for plausibly-firing rules.
-    if (await isOnCooldown(rule.id, contactId, rule.cooldown_seconds)) continue;
-    if (rule.max_sends_per_contact != null && (await isAtCap(rule.id, contactId, rule.max_sends_per_contact))) continue;
+    if (rule.cooldown_seconds > 0 && coolingDown.has(rule.id)) continue;
+    if (rule.max_sends_per_contact != null && (sendCounts.get(rule.id) ?? 0) >= rule.max_sends_per_contact) continue;
 
     // Resolve everything that can fail on the network (LLM rephrase) BEFORE we touch
     // any durable state. A failure here spends no cooldown/send-count and writes no

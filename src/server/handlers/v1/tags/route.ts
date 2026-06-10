@@ -1,4 +1,4 @@
-import { and, eq, asc, sql } from "drizzle-orm";
+import { and, eq, asc, sql, inArray, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tags, contactTags } from "@/db/schema";
@@ -19,12 +19,17 @@ export async function GET(request: Request) {
     columns: { id: true, name: true, color: true },
   });
 
-  const withCounts = await Promise.all(
-    rows.map(async (t) => ({
-      ...t,
-      _count: { contacts: await db.$count(contactTags, eq(contactTags.tag_id, t.id)) },
-    })),
-  );
+  // One grouped count for all tags instead of a $count per tag (up to 500 → N+1).
+  const ids = rows.map((r) => r.id);
+  const counts = ids.length
+    ? await db
+        .select({ tag_id: contactTags.tag_id, n: count() })
+        .from(contactTags)
+        .where(inArray(contactTags.tag_id, ids))
+        .groupBy(contactTags.tag_id)
+    : [];
+  const byTag = new Map(counts.map((c) => [c.tag_id, Number(c.n)]));
+  const withCounts = rows.map((t) => ({ ...t, _count: { contacts: byTag.get(t.id) ?? 0 } }));
 
   return ok(withCounts);
 }
