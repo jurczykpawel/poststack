@@ -421,11 +421,13 @@ CREATE UNIQUE INDEX "comment_logs_channel_id_platform_comment_id_key" ON "commen
 CREATE INDEX "comment_logs_workspace_id_idx" ON "comment_logs" USING btree ("workspace_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "contact_channels_channel_id_platform_sender_id_key" ON "contact_channels" USING btree ("channel_id","platform_sender_id");--> statement-breakpoint
 CREATE INDEX "contact_channels_contact_id_idx" ON "contact_channels" USING btree ("contact_id");--> statement-breakpoint
+CREATE INDEX "contact_tags_tag_id_idx" ON "contact_tags" USING btree ("tag_id");--> statement-breakpoint
 CREATE INDEX "contacts_workspace_id_idx" ON "contacts" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "contacts_workspace_id_last_interaction_at_idx" ON "contacts" USING btree ("workspace_id","last_interaction_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE UNIQUE INDEX "conversations_channel_id_contact_id_key" ON "conversations" USING btree ("channel_id","contact_id");--> statement-breakpoint
 CREATE INDEX "conversations_workspace_id_last_message_at_idx" ON "conversations" USING btree ("workspace_id","last_message_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "conversations_workspace_id_status_idx" ON "conversations" USING btree ("workspace_id","status");--> statement-breakpoint
+CREATE INDEX "conversations_ws_channel_last_message_at_idx" ON "conversations" USING btree ("workspace_id","channel_id","last_message_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "flow_sessions_contact_id_status_idx" ON "flow_sessions" USING btree ("contact_id","status");--> statement-breakpoint
 CREATE INDEX "flow_triggers_channel_id_type_is_active_idx" ON "flow_triggers" USING btree ("channel_id","type","is_active");--> statement-breakpoint
 CREATE INDEX "flow_versions_flow_id_version_idx" ON "flow_versions" USING btree ("flow_id","version" DESC NULLS FIRST);--> statement-breakpoint
@@ -435,7 +437,9 @@ CREATE INDEX "messages_conversation_id_created_at_idx" ON "messages" USING btree
 CREATE UNIQUE INDEX "messages_conversation_id_platform_message_id_key" ON "messages" USING btree ("conversation_id","platform_message_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "outbound_deliveries_delivery_key_key" ON "outbound_deliveries" USING btree ("delivery_key");--> statement-breakpoint
 CREATE INDEX "outbound_deliveries_channel_id_status_idx" ON "outbound_deliveries" USING btree ("channel_id","status");--> statement-breakpoint
+CREATE INDEX "outbound_deliveries_status_updated_at_idx" ON "outbound_deliveries" USING btree ("status","updated_at");--> statement-breakpoint
 CREATE INDEX "pending_approvals_workspace_id_status_idx" ON "pending_approvals" USING btree ("workspace_id","status");--> statement-breakpoint
+CREATE INDEX "processed_events_created_at_idx" ON "processed_events" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "rate_limit_counters_window_start_idx" ON "rate_limit_counters" USING btree ("window_start");--> statement-breakpoint
 CREATE INDEX "revoked_tokens_expires_at_idx" ON "revoked_tokens" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "rule_cooldowns_expires_at_idx" ON "rule_cooldowns" USING btree ("expires_at");--> statement-breakpoint

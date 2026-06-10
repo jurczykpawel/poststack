@@ -50,6 +50,8 @@ export const conversations = pgTable("conversations", {
 	uniqueIndex("conversations_channel_id_contact_id_key").using("btree", table.channel_id.asc().nullsLast(), table.contact_id.asc().nullsLast()),
 	index("conversations_workspace_id_last_message_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.last_message_at.desc().nullsFirst()),
 	index("conversations_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast()),
+	// Channel-filtered inbox list ordered by recency (GET /conversations?channel_id=…).
+	index("conversations_ws_channel_last_message_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.channel_id.asc().nullsLast(), table.last_message_at.desc().nullsFirst()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -542,7 +544,11 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 export const processedEvents = pgTable("processed_events", {
 	key: text().primaryKey().notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
-});
+}, (table) => [
+	// The maintenance prune scans by created_at < cutoff; this table grows to millions, so
+	// without this index that prune is a full scan.
+	index("processed_events_created_at_idx").using("btree", table.created_at.asc().nullsLast()),
+]);
 
 // Durable ledger for every outbound send. One row per logical send, keyed by a
 // deterministic `delivery_key`, with an explicit state machine
@@ -573,6 +579,8 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 }, (table) => [
 	uniqueIndex("outbound_deliveries_delivery_key_key").using("btree", table.delivery_key.asc().nullsLast()),
 	index("outbound_deliveries_channel_id_status_idx").using("btree", table.channel_id.asc().nullsLast(), table.status.asc().nullsLast()),
+	// Maintenance prunes scan by (status, updated_at) on the busiest table.
+	index("outbound_deliveries_status_updated_at_idx").using("btree", table.status.asc().nullsLast(), table.updated_at.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -663,6 +671,8 @@ export const contactTags = pgTable("contact_tags", {
 			name: "contact_tags_tag_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
 	primaryKey({ columns: [table.contact_id, table.tag_id], name: "contact_tags_pkey"}),
+	// Reverse lookup: count/find contacts by tag (the PK is (contact_id, tag_id), useless for tag_id).
+	index("contact_tags_tag_id_idx").using("btree", table.tag_id.asc().nullsLast()),
 ]);
 
 export const ruleCooldowns = pgTable("rule_cooldowns", {
