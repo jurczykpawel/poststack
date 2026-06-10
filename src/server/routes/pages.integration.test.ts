@@ -178,7 +178,9 @@ describe("authenticated dashboard (real Postgres)", () => {
     const res = await app.request("/settings/api-keys", {
       method: "POST",
       headers: withCookie({ "content-type": "application/json" }),
-      body: JSON.stringify({ name: "CI key" }),
+      // The form always serializes the scope checkboxes; an explicit non-empty set is required
+      // since deselecting them all is rejected rather than minting full access.
+      body: JSON.stringify({ name: "CI key", scopes_json: JSON.stringify(["contacts:read"]) }),
     });
     expect(res.status).toBe(200);
     const body = await res.text();

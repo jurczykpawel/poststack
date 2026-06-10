@@ -179,4 +179,17 @@ describe("dashboard API key scopes", () => {
     const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Scoped-"), columns: { scopes: true } });
     expect(key?.scopes).toEqual(["contacts:read", "conversations:read"]);
   });
+
+  //  — deselecting every scope must NOT mint a full-access key (empty = full-access sentinel).
+  it("rejects an all-deselected (empty) scope set instead of creating a full-access key", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/settings/api-keys", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Empty-", scopes_json: JSON.stringify([]) }),
+    });
+    expect(res.status).toBe(200); // re-renders the form area with a notice, no key created
+    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Empty-"), columns: { id: true } });
+    expect(key).toBeUndefined();
+  });
 });

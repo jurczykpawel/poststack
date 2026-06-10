@@ -517,6 +517,14 @@ export function registerDashboard(app: Hono, guard: MiddlewareHandler): void {
     // JSON shape, so a dashboard key can be scoped instead of always full-access.
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const scopes = parseJsonArray(typeof form.scopes_json === "string" ? form.scopes_json : "").filter((s): s is string => typeof s === "string");
+    // An empty scopes array is the "full access" sentinel for programmatic keys (hasScope), but in
+    // THIS form every checkbox starts checked, so deselecting them all means the user wants a
+    // RESTRICTED key — minting full access would invert that intent. Require at least one.
+    if (scopes.length === 0) {
+      const a = await auth(c);
+      if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+      return c.html(renderKeys(await loadKeys(a.workspaceId), "Select at least one scope (leaving every box checked grants full access)."));
+    }
     const res = await apiKeys.POST(jsonReq(c, { name: form.name ?? "", scopes }));
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
