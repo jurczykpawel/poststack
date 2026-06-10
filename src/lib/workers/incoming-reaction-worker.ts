@@ -35,11 +35,23 @@ export async function processIncomingReaction(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true, status: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true, platform_id: true },
   });
 
   if (!channel) {
     helpers.logger.info(`No active channel for pageId=${sanitizeForLog(pageId)}, skipping reaction`);
+    return;
+  }
+
+  // Drop a reaction authored by the page itself — the reaction-path analog of the DM path's
+  // is_echo skip (webhooks/meta/route.ts) and the comment path's from-is-page guard.
+  // Without it a page-sender reaction would materialize the page as a self-contact (this runs
+  // before rule eval, so unconditionally — even with no reaction rule) and any reaction rule would
+  // fire a doomed self-DM. Bounded (a DM generates no further reaction → no loop), but a correct
+  // defense-in-depth guard regardless: reactions were the last self-trigger event type without one.
+  // platform_id is NOT NULL, so this only ever matches a real page id.
+  if (senderId === channel.platform_id) {
+    helpers.logger.info(`Reaction from own page (pageId=${sanitizeForLog(pageId)}), skipping — self-guard`);
     return;
   }
 

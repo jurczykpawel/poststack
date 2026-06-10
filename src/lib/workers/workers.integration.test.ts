@@ -600,6 +600,19 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
+  //  — a reaction whose sender is the page itself (senderId === channel.platform_id) must be
+  // dropped: it would otherwise materialise the page as a self-contact (before rule eval, so
+  // unconditionally) and fire a doomed self-DM. The reaction-path analog of the comment self-guard
+  // / the DM is_echo skip.
+  it("drops a reaction authored by the page itself (no self-contact, no self-DM)", async () => {
+    if (!TEST_DB) return;
+    await seedReactionRule();
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: PAGE, reactedMid: "m-self", reactionType: "love", emoji: "❤️", timestamp: ts() }, helpers);
+    const self = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, PAGE)));
+    expect(self.length).toBe(0);
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
   //  — a reaction is a low-signal event; it must NOT resurface a conversation the operator
   // deliberately closed (which would return it to the inbox with no unread/attention signal).
   it("does not reopen a closed conversation on a reaction", async () => {
