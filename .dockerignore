@@ -11,7 +11,9 @@ CONTRIBUTING.md
 CHANGELOG.md
 SECURITY.md
 .github/
-docker/
+docker/*
+# …but the worker image COPYs its liveness probe from here, so re-include just that file.
+!docker/worker-healthcheck.sh
 *.md
 coverage/
 .turbo/
