@@ -50,9 +50,10 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   // Terminal delivery-ledger rows older than the window — but never a `held` row, which is still
   // awaiting a drain.
   const ledgerCutoff = new Date(now.getTime() - TERMINAL_LEDGER_TTL_MS);
-  // updated_at on a terminal row is app-clock: every status transition goes through `.set({status})`
-  // → $onUpdate(() => new Date()), so the DB-clock insert default never survives to a terminal row.
-  // Use the plain Date ( — a UTC cutoff here over-retained off-pin).
+  // updated_at on a terminal row is app-clock: status transitions go through `.set({status})` →
+  // $onUpdate(() => new Date()), and the one path that INSERTs a fresh terminal row (follow-gate)
+  // writes updated_at explicitly too, so the DB-clock insert DEFAULT never reaches a terminal
+  // row. Use the plain Date ( — a UTC cutoff here over-retained off-pin).
   await db.delete(outboundDeliveries).where(
     and(
       inArray(outboundDeliveries.status, [...TERMINAL_DELIVERY_STATUSES]),

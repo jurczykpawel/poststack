@@ -139,6 +139,10 @@ export async function processFollowGate(
         payload: resolvedPayload,
         status: "sent",
         attempts: 1,
+        // Write updated_at app-clock on this fresh terminal INSERT too: without it the column
+        // takes its DB-clock DEFAULT now(), which would be the one terminal row whose updated_at is
+        // NOT app-clock — making the retention sweep's plain-Date cutoff over-prune it off-pin.
+        updated_at: new Date(),
       })
       .onConflictDoUpdate({
         target: outboundDeliveries.delivery_key,

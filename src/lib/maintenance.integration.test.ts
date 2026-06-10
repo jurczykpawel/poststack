@@ -188,5 +188,22 @@ describe("pruneExpired (real Postgres)", () => {
 
       expect(await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, KEY) })).toBeUndefined();
     });
+
+    //  — a follow-gate fresh-`sent` row now writes updated_at app-clock (not the DB-clock
+    // DEFAULT), so an in-window terminal follow-gate row is NOT over-pruned by the plain-Date ledger
+    // cutoff on a non-UTC host.
+    it("keeps an in-window app-clock follow-gate terminal row on a non-UTC host", async () => {
+      if (!TEST_DB) return;
+      const KEY = "dk-tz-followgate-inwindow";
+      await db.delete(s.outboundDeliveries).where(eq(s.outboundDeliveries.delivery_key, KEY));
+      // App-clock updated_at (JS Date), 89 days old → INSIDE the 90-day window.
+      await db.insert(s.outboundDeliveries).values({
+        delivery_key: KEY, workspace_id: WS, channel_id: CH, task_name: "follow-gate", status: "sent", payload: {}, updated_at: new Date(NOW.getTime() - 89 * DAY),
+      });
+
+      await pruneExpired(new Date());
+
+      expect(await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, KEY) })).toBeDefined();
+    });
   });
 });
