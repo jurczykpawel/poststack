@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { conversations, workspaceMembers } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { resumeDueEnrollments } from "@/lib/sequences/resume";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -59,7 +60,7 @@ export async function PATCH(
   const { conversationId } = await params;
   const existing = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
-    columns: { id: true },
+    columns: { id: true, is_automation_paused: true, contact_id: true, channel_id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -79,18 +80,26 @@ export async function PATCH(
     if (!member) return ApiErrors.validationError({ assigned_to: ["User is not a member of this workspace"] });
   }
 
-  const [updated] = await db
-    .update(conversations)
-    .set(parsed.data)
-    // Scope the write by workspace too (consistent with DELETE), not just the prior findFirst.
-    .where(and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)))
-    .returning({
-      id: conversations.id,
-      status: conversations.status,
-      unread_count: conversations.unread_count,
-      is_automation_paused: conversations.is_automation_paused,
-      assigned_to: conversations.assigned_to,
-    });
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(conversations)
+      .set(parsed.data)
+      // Scope the write by workspace too (consistent with DELETE), not just the prior findFirst.
+      .where(and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)))
+      .returning({
+        id: conversations.id,
+        status: conversations.status,
+        unread_count: conversations.unread_count,
+        is_automation_paused: conversations.is_automation_paused,
+        assigned_to: conversations.assigned_to,
+      });
+    // Un-pausing automation resumes any drip step that was deferred while this conversation was
+    // paused, in the same transaction, instead of waiting for the 30-min poll.
+    if (parsed.data.is_automation_paused === false && existing.is_automation_paused === true) {
+      await resumeDueEnrollments(tx, { channelId: existing.channel_id, contactId: existing.contact_id });
+    }
+    return row;
+  });
 
   return ok(updated);
 }

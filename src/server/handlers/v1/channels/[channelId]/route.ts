@@ -5,6 +5,7 @@ import { channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { addJobTx } from "@/lib/queue/client";
+import { resumeDueEnrollments } from "@/lib/sequences/resume";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -102,6 +103,12 @@ export async function PATCH(
         });
       if (row.status === "active" && existing.status !== "active") {
         await addJobTx(tx, "drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });
+        // Resuming a PAUSED channel also resumes any drip steps deferred by the pause, at once,
+        // instead of waiting for the 30-min poll. (needs_reauth deferral goes via held/drain,
+        // not the pause path, so only `paused` is relevant here.)
+        if (existing.status === "paused") {
+          await resumeDueEnrollments(tx, { channelId });
+        }
       }
       return row;
     });
