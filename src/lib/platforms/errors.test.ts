@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TokenInvalidError, MessagingPolicyError, RateLimitError, isMetaTokenError, isMetaWindowError, isMetaRateLimitError, parseRetryAfterMs, assertMetaOk } from "./errors";
+import { TokenInvalidError, MessagingPolicyError, RateLimitError, isMetaTokenError, isMetaWindowError, isMetaRateLimitError, isMetaPrivateReplyPolicyError, parseRetryAfterMs, assertMetaOk } from "./errors";
 
 describe("isMetaTokenError", () => {
   it("is true for Meta code 190 (invalid/expired token)", () => {
@@ -58,6 +58,25 @@ describe("isMetaRateLimitError", () => {
   });
 });
 
+//  — private-reply rejections (comment too old / already replied / ineligible) surface as
+// application/permission/parameter error codes outside the 24h-window subcode allowlist; they're
+// terminal, so they must drop (not dead-letter). Transient codes (1/2) and unparseable bodies stay
+// retryable.
+describe("isMetaPrivateReplyPolicyError", () => {
+  it("is true for terminal application/permission/parameter codes (10 / 100 / 200)", () => {
+    expect(isMetaPrivateReplyPolicyError('{"error":{"code":10,"message":"(#10) Application does not have permission for this action"}}')).toBe(true);
+    expect(isMetaPrivateReplyPolicyError('{"error":{"code":100,"message":"(#100) Invalid parameter"}}')).toBe(true);
+    expect(isMetaPrivateReplyPolicyError('{"error":{"code":200,"message":"Permissions error"}}')).toBe(true);
+  });
+  it("is false for transient codes (1 unknown / 2 service unavailable) — those stay retryable", () => {
+    expect(isMetaPrivateReplyPolicyError('{"error":{"code":1,"message":"An unknown error occurred"}}')).toBe(false);
+    expect(isMetaPrivateReplyPolicyError('{"error":{"code":2,"message":"Service temporarily unavailable"}}')).toBe(false);
+  });
+  it("is false for an unparseable body (e.g. a 5xx HTML page)", () => {
+    expect(isMetaPrivateReplyPolicyError("upstream connect error or disconnect")).toBe(false);
+  });
+});
+
 describe("parseRetryAfterMs", () => {
   const headers = (v?: string) => new Headers(v != null ? { "retry-after": v } : {});
   it("reads a delta-seconds value", () => {
@@ -105,5 +124,25 @@ describe("assertMetaOk", () => {
     const res = new Response('{"error":{"code":100,"message":"bad param"}}', { status: 400 });
     await expect(assertMetaOk(res, "Facebook send message")).rejects.toThrow(/failed/);
     await expect(assertMetaOk(new Response('{"error":{"code":100}}', { status: 400 }), "x")).rejects.not.toBeInstanceOf(TokenInvalidError);
+  });
+
+  //  — a private-reply policy rejection (terminal code outside the window subcode set) drops,
+  // but ONLY for a private-reply context, and only for terminal codes.
+  it("throws MessagingPolicyError for a private-reply policy rejection (code 10) on a private-reply context", async () => {
+    const res = new Response('{"error":{"code":10,"message":"(#10) cannot privately reply to this comment"}}', { status: 400 });
+    await expect(assertMetaOk(res, "Facebook private reply")).rejects.toBeInstanceOf(MessagingPolicyError);
+    await expect(assertMetaOk(new Response('{"error":{"code":100}}', { status: 400 }), "Instagram private reply")).rejects.toBeInstanceOf(MessagingPolicyError);
+  });
+
+  it("does NOT widen terminal classification for a normal send — the same code-10 body stays a retryable generic Error", async () => {
+    const res = new Response('{"error":{"code":10,"message":"(#10) policy"}}', { status: 400 });
+    await expect(assertMetaOk(res, "Facebook send message")).rejects.toThrow(/failed/);
+    await expect(assertMetaOk(new Response('{"error":{"code":10}}', { status: 400 }), "Facebook send message")).rejects.not.toBeInstanceOf(MessagingPolicyError);
+  });
+
+  it("keeps a transient error retryable even on a private-reply context (code 2 → generic Error, not dropped)", async () => {
+    const res = new Response('{"error":{"code":2,"message":"Service temporarily unavailable"}}', { status: 500 });
+    await expect(assertMetaOk(res, "Facebook private reply")).rejects.toThrow(/failed/);
+    await expect(assertMetaOk(new Response('{"error":{"code":2}}', { status: 500 }), "Facebook private reply")).rejects.not.toBeInstanceOf(MessagingPolicyError);
   });
 });

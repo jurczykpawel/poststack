@@ -102,6 +102,37 @@ export function isMetaWindowError(body: string): boolean {
 }
 
 /**
+ * Meta error CODES that are terminal specifically for a comment private-reply. Private replies obey
+ * a policy domain distinct from the 24h messaging window: one reply per comment, only within the
+ * comment's eligibility window (~7 days), and the recipient must be able to receive it. Those
+ * rejections surface as application / permission / parameter errors — none of which a retry can fix:
+ *  - 10  : application does not have permission for this action / policy block (comment too old,
+ *          already privately replied, recipient cannot receive)
+ *  - 100 : invalid parameter (e.g. the comment no longer exists / is not eligible)
+ *  - 200 : permissions error
+ * Deliberately EXCLUDES the transient codes (1 = unknown, 2 = service temporarily unavailable) and
+ * the rate-limit codes (handled earlier), so a genuinely retryable failure is never dropped. The
+ * narrow 24h-window subcodes stay handled globally by {@link isMetaWindowError}; this covers the
+ * private-reply rejections that fall OUTSIDE that subcode set.
+ *
+ * Confidence caveat: the exact private-reply subcodes are Meta-specific and could not be confirmed
+ * against a live error. This keys on the error-code CLASS instead, and is scoped to the private-reply
+ * call site (see {@link assertMetaOk}) so it can never widen the terminal classification of a normal
+ * DM/comment send. An unparseable body (e.g. a 5xx HTML page) stays transient.
+ */
+const TERMINAL_PRIVATE_REPLY_ERROR_CODES = new Set([10, 100, 200]);
+
+export function isMetaPrivateReplyPolicyError(body: string): boolean {
+  try {
+    const err = (JSON.parse(body) as { error?: { code?: number } }).error;
+    if (err && typeof err.code === "number") return TERMINAL_PRIVATE_REPLY_ERROR_CODES.has(err.code);
+  } catch {
+    // not JSON (e.g. a 5xx HTML body) — treat as transient, let it retry
+  }
+  return false;
+}
+
+/**
  * Detect Meta Graph "invalid/expired access token" errors. Meta returns
  * `{ error: { type: "OAuthException", code: 190, ... } }` for invalid/expired/
  * revoked tokens. Code 190 is token-specific; other OAuthException codes
@@ -129,6 +160,14 @@ export async function assertMetaOk(res: Response, context: string): Promise<void
   }
   if (isMetaWindowError(body)) {
     throw new MessagingPolicyError(`${context}: outside the allowed messaging window`);
+  }
+  // Private-reply policy rejections (comment too old, already replied, ineligible) are terminal too,
+  // but use Meta error CODES outside the messaging-window subcode allowlist. Scope this broader
+  // classification to the private-reply call site via `context` so it can never affect a normal DM
+  // or public-comment send. Token / rate-limit / window were already handled above; transient API
+  // codes (1/2) and unparseable bodies fall through to the retryable generic error.
+  if (/private reply/i.test(context) && isMetaPrivateReplyPolicyError(body)) {
+    throw new MessagingPolicyError(`${context}: rejected by platform private-reply policy`);
   }
   throw new Error(`${context} failed: ${body}`);
 }
