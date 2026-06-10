@@ -3,10 +3,10 @@ import { and, eq, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { truncateCodePoints } from "@/lib/text";
 import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
-import { channels, contactChannels, contacts, conversations, messages } from "@/db/schema";
+import { channels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEventOnce } from "@/lib/idempotency";
-import { ensureConversation } from "./resolve-contact";
+import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
@@ -49,30 +49,13 @@ export async function processIncomingMessage(
     return;
   }
 
-  // 2. Resolve the contact identity (find or create). Activity (last_interaction_at) is
-  //    bumped later, only for a newly-ingested message, so a redelivery doesn't move it.
-  const existingCC = await db.query.contactChannels.findFirst({
-    where: and(eq(contactChannels.channel_id, channel.id), eq(contactChannels.platform_sender_id, senderId)),
-    columns: { contact_id: true },
-  });
-
-  let contactId: string;
-  if (existingCC) {
-    contactId = existingCC.contact_id;
-  } else {
-    contactId = await db.transaction(async (tx) => {
-      const [contact] = await tx
-        .insert(contacts)
-        .values({ workspace_id: channel.workspace_id, last_interaction_at: messageDate })
-        .returning({ id: contacts.id });
-      await tx.insert(contactChannels).values({
-        contact_id: contact.id,
-        channel_id: channel.id,
-        platform_sender_id: senderId,
-      });
-      return contact.id;
-    });
-  }
+  // 2. Resolve the contact identity (find or create) via the shared, race-hardened helper.
+  //    Previously this path had its OWN inline find-or-create that never received 's
+  //    onConflictDoNothing + orphan-rollback, so two concurrent first-DMs from a new sender
+  //    dead-lettered the loser on a 23505. Activity (last_interaction_at) is bumped later,
+  //    only for a newly-ingested newest message, so a redelivery doesn't move it — hence the
+  //    contact is created with messageDate and NOT bumped here.
+  const { contactId } = await resolveContactId(channel, senderId, { lastInteractionAt: messageDate });
 
   // 3. Ensure the conversation exists WITHOUT mutating its lifecycle (status/stats); those
   //    change only for a genuinely new, newest message (steps 5/6), so a redelivery can't

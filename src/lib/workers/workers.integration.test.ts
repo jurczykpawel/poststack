@@ -139,6 +139,25 @@ describe("incoming-message worker (real Postgres)", () => {
     ).resolves.toBeUndefined();
   });
 
+  //  — the DM path's contact find-or-create must be race-hardened like the shared resolver
+  //: two parallel first DMs from a NEW sender converge on ONE contact, with neither job
+  // failing on a 23505 (which previously dead-lettered the loser + forced a retry).
+  it("two concurrent first DMs from a new sender create exactly one contact, no failure", async () => {
+    if (!TEST_DB) return;
+    const SENDER = "DM-RACE-SENDER";
+    await Promise.all([
+      w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: SENDER, recipientId: PAGE, mid: "dm-race-1", text: "hi", timestamp: ts() }, helpers),
+      w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: SENDER, recipientId: PAGE, mid: "dm-race-2", text: "yo", timestamp: ts() }, helpers),
+    ]);
+    const links = await db.select().from(s.contactChannels).where(and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, SENDER)));
+    expect(links.length).toBe(1);
+    // Both messages still landed (different mids), proving neither job aborted on the race.
+    const msgs = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, "dm-race-1"));
+    const msgs2 = await db.select().from(s.messages).where(eq(s.messages.platform_message_id, "dm-race-2"));
+    expect(msgs.length).toBe(1);
+    expect(msgs2.length).toBe(1);
+  });
+
   it("retries a DM rule whose first reply enqueue failed — not lost to the message dedup", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({
