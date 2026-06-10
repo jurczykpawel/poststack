@@ -498,6 +498,21 @@ describe("sequences CRUD + enroll (real Postgres)", () => {
     expect(listed.find((x) => x.id === emptyId)!._count.enrollments).toBe(0);
   });
 
+  //  — an empty PATCH body must be a clean validation error (422), not a 500 from `.set({})`.
+  const emptyPatch = () => new Request("http://x", { method: "PATCH", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: "{}" });
+  it("sequence PATCH with an empty body returns a validation error, not 500", async () => {
+    if (!TEST_DB) return;
+    const id = (await (await seqs.POST(post({ name: "EmptyPatch", steps: [{ type: "message", content: "hi" }] }))).json()).data.id;
+    const res = await seq.PATCH(emptyPatch(), { params: Promise.resolve({ sequenceId: id }) });
+    expect(res.status).toBe(422);
+  });
+  it("rule PATCH with an empty body returns a validation error, not 500", async () => {
+    if (!TEST_DB) return;
+    const id = (await (await rules.POST(post({ name: "EmptyPatchRule", trigger_type: "keyword", trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] }, response_type: "text", response_config: { text: "hi" } }))).json()).data.id;
+    const res = await rule.PATCH(emptyPatch(), { params: Promise.resolve({ ruleId: id }) });
+    expect(res.status).toBe(422);
+  });
+
   //  — re-enrolling a contact that already COMPLETED the sequence must return a clean 409,
   // not an unhandled 500 from the unconditional (sequence, contact) unique index.
   it("re-enrolling a completed contact returns 409, never a 500", async () => {

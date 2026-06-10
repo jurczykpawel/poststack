@@ -69,6 +69,11 @@ export async function PATCH(
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
+  // An empty body (or unknown-keys-only, which zod strips to {}) would reach `.set({})` →
+  // Drizzle "No values to set" → 500. Reject it as a 400 (mirrors the contacts-PATCH guard).
+  if (Object.keys(parsed.data).length === 0) {
+    return ApiErrors.validationError({ _errors: ["No fields to update"] });
+  }
 
   // assigned_to references users globally; only allow assigning to a member of THIS workspace
   // (a cross-workspace user id would be a misleading dangling reference).

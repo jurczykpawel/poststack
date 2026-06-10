@@ -530,7 +530,7 @@ export const openApiSpec = {
       patch: {
         tags: ["Conversations"],
         summary: "Update a conversation (status, automation pause, unread)",
-        requestBody: { content: { "application/json": { schema: { type: "object", properties: { status: { type: "string", enum: ["open", "closed", "snoozed"] }, is_automation_paused: { type: "boolean" } } } } } },
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { status: { type: "string", enum: ["open", "closed", "snoozed"] }, is_automation_paused: { type: "boolean" }, assigned_to: { type: "string", format: "uuid", nullable: true }, unread_count: { type: "integer", enum: [0] } } } } } },
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },

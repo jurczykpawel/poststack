@@ -61,6 +61,10 @@ export async function PATCH(
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
+  // An empty body would reach `.set({})` → Drizzle "No values to set" → 500; reject as 400.
+  if (Object.keys(parsed.data).length === 0) {
+    return ApiErrors.validationError({ _errors: ["No fields to update"] });
+  }
 
   const [updated] = await db
     .update(sequences)

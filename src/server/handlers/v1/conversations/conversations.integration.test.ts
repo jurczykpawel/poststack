@@ -133,6 +133,18 @@ describe("conversations handlers (real Postgres)", () => {
     await db.delete(s.users).where(eq(s.users.id, OUTSIDER));
   });
 
+  //  — an empty PATCH body (or unknown-keys-only, stripped to {}) must be a clean client
+  // validation error (422, like any other bad body on this endpoint), not a 500 from Drizzle's
+  // `.set({})` ("No values to set").
+  it("rejects an empty PATCH body with a validation error, not 500", async () => {
+    if (!TEST_DB) return;
+    const res = await detail.PATCH(
+      req(`/${CONV}`, { method: "PATCH", headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" }, body: "{}" }),
+      ctx,
+    );
+    expect(res.status).toBe(422);
+  });
+
   it("lists messages chronologically", async () => {
     if (!TEST_DB) return;
     const { data } = await (await msgs.GET(req(`/${CONV}/messages`), ctx)).json();

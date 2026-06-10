@@ -109,6 +109,10 @@ export async function PATCH(
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
   }
+  // An empty body would reach `.set({})` → Drizzle "No values to set" → 500; reject as 400.
+  if (Object.keys(parsed.data).length === 0) {
+    return ApiErrors.validationError({ _errors: ["No fields to update"] });
+  }
 
   // Re-apply the active-rule cap on a re-activation: the cap is enforced at create, but
   // toggling is_active false→true would otherwise let a workspace exceed it. (The non-atomic
