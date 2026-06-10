@@ -1,4 +1,4 @@
-import { and, eq, lt, inArray, isNotNull, notExists } from "drizzle-orm";
+import { and, eq, lt, inArray, isNotNull, notExists, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions, sequenceEnrollments } from "@/db/schema";
 
@@ -33,6 +33,13 @@ export async function pruneWorkspaceMessages(
   now: Date = new Date(),
 ): Promise<WorkspacePruneResult> {
   const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
+  // `created_at` is written by the DB clock (CURRENT_TIMESTAMP) and stored UTC-naive, but a JS Date
+  // param is serialized to a `timestamp without time zone` column in the PROCESS timezone — so on a
+  // non-UTC host the cutoff lands hours off and silently over-deletes in-window rows (, proven
+  // on Europe/Warsaw). Compare against the cutoff's UTC wall-clock instead, which matches how
+  // created_at is stored regardless of process TZ. (The conversation husk-prune below stays on the JS
+  // Date: last_message_at is written app-clock, same domain, and TZ=UTC is now pinned in the images.)
+  const cutoffUtc = sql`${cutoff.toISOString()}::timestamp`;
 
   const deletedMessages = await deleteInBatches(
     () =>
@@ -42,7 +49,7 @@ export async function pruneWorkspaceMessages(
         .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
         .where(
           and(
-            lt(messages.created_at, cutoff),
+            lt(messages.created_at, cutoffUtc),
             inArray(messages.status, [...PRUNABLE_STATUSES]),
             eq(conversations.workspace_id, workspaceId),
           ),
@@ -56,7 +63,7 @@ export async function pruneWorkspaceMessages(
       db
         .select({ id: commentLogs.id })
         .from(commentLogs)
-        .where(and(lt(commentLogs.created_at, cutoff), eq(commentLogs.workspace_id, workspaceId)))
+        .where(and(lt(commentLogs.created_at, cutoffUtc), eq(commentLogs.workspace_id, workspaceId)))
         .limit(BATCH_SIZE),
     async (ids) => (await db.delete(commentLogs).where(inArray(commentLogs.id, ids))).rowCount ?? 0,
   );

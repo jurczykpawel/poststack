@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { workspaces, channels, contacts, conversations, messages, autoReplyRules, pendingApprovals, sequences, sequenceEnrollments } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -29,8 +29,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
-  // sequence_enrollments.channel_id is RESTRICT, so the workspace cascade can't drop the
-  // channel while an enrollment lingers — clear those first.
+  // Clear enrollments for this channel up front (now ON DELETE cascade,  — kept explicit so a
+  // failed prior run leaves a clean slate).
   await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.channel_id, CH));
   await db.delete(workspaces).where(eq(workspaces.id, WS));
   await db.insert(workspaces).values({ id: WS, name: "Retention", slug: `ret-${WS}`, message_retention_days: 30 });
@@ -135,5 +135,25 @@ describe("pruneWorkspaceMessages (real Postgres)", () => {
 
     expect(result.workspaces).toBeGreaterThanOrEqual(1);
     expect(await db.query.messages.findFirst({ where: eq(messages.id, oldSent) })).toBeUndefined();
+  });
+
+  //  — created_at is DB-clock (UTC-naive); the cutoff must be compared in UTC regardless of the
+  // process timezone. On a UTC-ahead host the old app-clock cutoff over-deleted in-window rows.
+  describe("timezone safety", () => {
+    const ORIGINAL_TZ = process.env.TZ;
+    beforeAll(() => { process.env.TZ = "Europe/Warsaw"; }); // simulate a +2 host (the owner's TZ)
+    afterAll(() => { process.env.TZ = ORIGINAL_TZ; });
+
+    it("keeps a 23h-old message under a 1-day policy on a non-UTC host", async () => {
+      if (!TEST_DB) return;
+      const id = await seedMessage(CONV_KEEP, "sent", recent);
+      // Pin created_at to a DB-clock (UTC-naive) value 23h old, exactly as production writes it.
+      await db.update(messages).set({ created_at: sql`now() - interval '23 hours'` }).where(eq(messages.id, id));
+
+      await pruneWorkspaceMessages(WS, 1, new Date());
+
+      // 23h < 24h cutoff → must survive (was wrongly deleted under the app-clock cutoff on +TZ).
+      expect(await db.query.messages.findFirst({ where: eq(messages.id, id) })).toBeDefined();
+    });
   });
 });

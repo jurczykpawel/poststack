@@ -11,6 +11,9 @@ RUN npm ci --omit=dev
 # Production runner — Bun runs the TypeScript entrypoint directly (no build step).
 FROM base AS runner
 ENV NODE_ENV=production
+# Pin the process clock to UTC so app-clock writes/reads share the DB session's UTC domain — a
+# non-UTC host skews the retention cutoff and silently over-deletes in-window messages.
+ENV TZ=UTC
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 app
