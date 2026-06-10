@@ -872,6 +872,24 @@ describe("outgoing-message worker", () => {
     expect((jobs.rows[0] as { future: boolean }).future).toBe(true);
   });
 
+  //  — the rate-limit retry adds a random spread on top of Retry-After, so a throttled burst
+  // that all got the same value doesn't re-collide the instant the window opens. With a stubbed RNG
+  // the delay is Retry-After + floor(rng * min(Retry-After, 30s)) = 10s + 5s = ~15s, not the bare 10s.
+  it("adds jitter on top of Retry-After when re-enqueueing a rate-limited delivery", async () => {
+    if (!TEST_DB) return;
+    const rng = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      provider.sendMessage.mockRejectedValueOnce(new RateLimitError("rate limited", 10_000));
+      await w.processOutgoingMessage(job({ idempotencyKey: "d-jit" }) as never, helpers);
+      const r = await db.execute(sql`select extract(epoch from (run_at - now())) as secs from graphile_worker.jobs where key = 'ratelimit:d-jit'`);
+      const secs = Number((r.rows[0] as { secs: number }).secs);
+      expect(secs).toBeGreaterThan(12); // jittered well past the bare 10s
+      expect(secs).toBeLessThan(17);
+    } finally {
+      rng.mockRestore();
+    }
+  });
+
   //  — an automated send re-checks consent at delivery time: a contact who unsubscribed in the
   // window between enqueue and send is not messaged.
   it("skips an automated outgoing message to a contact unsubscribed after enqueue", async () => {

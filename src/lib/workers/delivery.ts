@@ -11,6 +11,10 @@ import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
  *  attempts, so it fails (dead-letters) rather than rescheduling forever. */
 const RATE_LIMIT_MAX_REQUEUE = 10;
 
+/** Upper bound on the random spread added to a rate-limit retry, so a burst that all received the
+ *  same Retry-After doesn't wake as a synchronized herd and immediately re-throttle. */
+const RATE_LIMIT_JITTER_CAP_MS = 30_000;
+
 /** A Drizzle db handle or an open transaction. */
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -218,12 +222,15 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
         .where(eq(outboundDeliveries.delivery_key, deliveryKey));
       const attempts = (prior?.attempts ?? 0) + 1;
       if (attempts < RATE_LIMIT_MAX_REQUEUE) {
+        // Wait AT LEAST the provider's Retry-After, plus a random spread so a throttled burst that
+        // all got the same value doesn't re-collide the instant the window opens.
+        const delayMs = e.retryAfterMs + Math.floor(Math.random() * Math.min(e.retryAfterMs, RATE_LIMIT_JITTER_CAP_MS));
         await addJob(
           taskName as TaskName,
           payload as unknown as TaskPayloadMap[TaskName],
-          { jobKey: `ratelimit:${deliveryKey}`, delayMs: e.retryAfterMs },
+          { jobKey: `ratelimit:${deliveryKey}`, delayMs },
         );
-        helpers.logger.info(`delivery ${deliveryKey} rate-limited — retry in ${Math.round(e.retryAfterMs / 1000)}s (attempt ${attempts})`);
+        helpers.logger.info(`delivery ${deliveryKey} rate-limited — retry in ~${Math.round(delayMs / 1000)}s (attempt ${attempts})`);
         return "rate_limited";
       }
       helpers.logger.info(`delivery ${deliveryKey} rate-limited past retry budget — failing`);
