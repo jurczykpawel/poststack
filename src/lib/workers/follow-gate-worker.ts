@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { channels, contacts, outboundDeliveries } from "@/db/schema";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
-import { TokenInvalidError } from "@/lib/platforms/errors";
+import { TokenInvalidError, MessagingPolicyError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { addJobTx } from "@/lib/queue/client";
 
@@ -117,6 +117,33 @@ export async function processFollowGate(
       await parkHeld(channel.workspace_id, e.message);
       await markChannelNeedsReauth(channelId, e.message);
       helpers.logger.info(`channel ${channelId} token invalid on follow check, gate held`);
+      return;
+    }
+    if (e instanceof MessagingPolicyError) {
+      // The live follow-check hit a per-recipient PERMANENT failure (e.g. the user deleted their
+      // account → subcode 2018001, now classified terminal by  ): we can neither resolve
+      // the gate nor ever deliver to this recipient, and a retry can't change that. Record the gate
+      // terminally dropped (no child enqueued, no retry) instead of dead-lettering every attempt
+      //.
+      await db
+        .insert(outboundDeliveries)
+        .values({
+          delivery_key: deliveryKey,
+          workspace_id: channel.workspace_id,
+          channel_id: channelId,
+          contact_id: contactId,
+          task_name: "follow-gate",
+          payload: { ...payload, idempotencyKey: deliveryKey },
+          status: "expired",
+          last_error: e.message,
+          attempts: 1,
+          updated_at: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: outboundDeliveries.delivery_key,
+          set: { status: "expired", last_error: e.message, updated_at: new Date() },
+        });
+      helpers.logger.info(`follow-gate ${deliveryKey} dropped — ${e.message} (recipient unreachable)`);
       return;
     }
     throw e; // transient — let graphile retry

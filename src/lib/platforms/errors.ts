@@ -133,6 +133,47 @@ export function isMetaPrivateReplyPolicyError(body: string): boolean {
 }
 
 /**
+ * Meta SEND-level terminal subcodes — a per-recipient PERMANENT failure that no retry can fix, so
+ * the delivery drops instead of dead-lettering every attempt. Distinct from the 24h-window policy
+ * subcodes ({@link TERMINAL_META_POLICY_SUBCODES}): these are recipient-reachability terminals.
+ *  - 2018001: "No matching user found" — the PSID/IGSID is stale (the recipient deleted their
+ *    account or is otherwise permanently unreachable). Documented permanent; without this it recurs
+ *    on every DM / drip step to that contact, dead-lettering each one.
+ * Keyed on the SUBCODE (never a bare overloaded code like 100), so a transient failure is never
+ * mis-classified — applies in any send context safely, the same way {@link isMetaWindowError} does
+ *.
+ */
+const TERMINAL_META_SEND_SUBCODES = new Set([2018001]);
+
+export function isMetaUnreachableRecipientError(body: string): boolean {
+  try {
+    const err = (JSON.parse(body) as { error?: { error_subcode?: number } }).error;
+    if (err && typeof err.error_subcode === "number") return TERMINAL_META_SEND_SUBCODES.has(err.error_subcode);
+  } catch {
+    // not JSON — transient
+  }
+  return false;
+}
+
+/**
+ * Meta error CODE that is terminal for a public-comment send (sendComment). Code 10 = "application
+ * does not have permission for this action" — on a comment that means commenting is disabled on the
+ * post or the post is blocked: a per-target policy block no retry can fix. Scoped to the
+ * "send comment" call site (see {@link assertMetaOk}) so it can't widen a DM. Deliberately code-10
+ * ONLY: bare code-100 is overloaded (often transient) and code-200 (permissions) is a channel-wide
+ * capability loss, not a per-comment terminal — both stay retryable here.
+ */
+export function isMetaCommentPolicyError(body: string): boolean {
+  try {
+    const err = (JSON.parse(body) as { error?: { code?: number } }).error;
+    if (err && typeof err.code === "number") return err.code === 10;
+  } catch {
+    // not JSON — transient
+  }
+  return false;
+}
+
+/**
  * Detect Meta Graph "invalid/expired access token" errors. Meta returns
  * `{ error: { type: "OAuthException", code: 190, ... } }` for invalid/expired/
  * revoked tokens. Code 190 is token-specific; other OAuthException codes
@@ -161,6 +202,13 @@ export async function assertMetaOk(res: Response, context: string): Promise<void
   if (isMetaWindowError(body)) {
     throw new MessagingPolicyError(`${context}: outside the allowed messaging window`);
   }
+  // A per-recipient PERMANENT failure (e.g. a stale PSID whose account was deleted — subcode
+  // 2018001): no retry can fix it, so drop this delivery instead of dead-lettering every attempt.
+  // Subcode-keyed, so it applies safely in any send context without widening a transient error
+  //.
+  if (isMetaUnreachableRecipientError(body)) {
+    throw new MessagingPolicyError(`${context}: recipient is permanently unreachable`);
+  }
   // Private-reply policy rejections (comment too old, already replied, ineligible) are terminal too,
   // but use Meta error CODES outside the messaging-window subcode allowlist. Scope this broader
   // classification to the private-reply call site via `context` so it can never affect a normal DM
@@ -168,6 +216,12 @@ export async function assertMetaOk(res: Response, context: string): Promise<void
   // codes (1/2) and unparseable bodies fall through to the retryable generic error.
   if (/private reply/i.test(context) && isMetaPrivateReplyPolicyError(body)) {
     throw new MessagingPolicyError(`${context}: rejected by platform private-reply policy`);
+  }
+  // Public-comment terminal: code 10 on a sendComment = commenting disabled / post blocked. Scoped
+  // to the "send comment" call site so it can't widen a DM, and code-10-only so bare-100 (overloaded)
+  // and code-200 (channel-wide capability loss) stay retryable.
+  if (/send comment/i.test(context) && isMetaCommentPolicyError(body)) {
+    throw new MessagingPolicyError(`${context}: rejected by platform comment policy`);
   }
   throw new Error(`${context} failed: ${body}`);
 }

@@ -941,8 +941,13 @@ describe("Meta Graph API Contract Tests", () => {
     });
 
     it("throws on send message failure with error body", async () => {
+      // A generic (non-terminal) send failure → generic throw. NOTE: do NOT reuse FIXTURES.apiError
+      // here — it carries error_subcode 2018001 ("no matching user"), which is now correctly
+      // classified as a terminal MessagingPolicyError (recipient unreachable,  ); that
+      // path is covered in errors.test.ts. This test exercises the generic-retry path, so it uses a
+      // body with no terminal subcode.
       globalThis.fetch = vi.fn(async () =>
-        new Response(JSON.stringify(FIXTURES.apiError), { status: 400 })
+        new Response(JSON.stringify({ error: { message: "(#100) Invalid parameter", type: "OAuthException", code: 100 } }), { status: 400 })
       ) as typeof fetch;
 
       const { FacebookProvider } = await import("./facebook");

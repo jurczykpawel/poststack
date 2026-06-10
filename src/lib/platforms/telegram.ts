@@ -23,6 +23,26 @@ function isTelegramChatUnavailable(status: number, errorCode?: number): boolean 
   return status === 403 || errorCode === 403;
 }
 
+/** A 400 carrying one of these descriptions is a PERMANENT per-chat failure: retrying the identical
+ *  send can never succeed. Drop just this delivery terminally (like a 403) instead of dead-lettering
+ *  every attempt — per-chat, NOT per-token, so the channel is never flagged for re-auth (symmetric
+ *  with isTelegramChatUnavailable,  ). Matched as lowercase substrings of body.description.
+ *  Deliberately EXCLUDES content bugs ("message is too long", "can't parse entities") — those signal
+ *  OUR payload, not a policy drop, and silently dropping them would mask a real bug — and any unknown
+ *  400 (left transient/retryable). */
+const TELEGRAM_PERMANENT_400_MARKERS = [
+  "chat not found",
+  "have no rights to send",
+  "chat_write_forbidden",
+  "group chat was upgraded to a supergroup",
+  "reply message not found",
+];
+function isTelegramPermanentBadRequest(status: number, description?: string): boolean {
+  if (status !== 400 || !description) return false;
+  const d = description.toLowerCase();
+  return TELEGRAM_PERMANENT_400_MARKERS.some((m) => d.includes(m));
+}
+
 /** Narrow shapes of the Telegram Bot API objects we actually read. */
 export interface TelegramUser {
   id: number;
@@ -149,6 +169,13 @@ export class TelegramProvider extends SocialProvider {
       // channel offline. The delivery state machine records it `expired`, no retry.
       if (isTelegramChatUnavailable(res.status, body.error_code)) {
         throw new MessagingPolicyError(`Telegram chat unavailable: ${body.description ?? res.status}`);
+      }
+      // A 400 with a known permanent description (chat not found, no rights / CHAT_WRITE_FORBIDDEN,
+      // group upgraded to supergroup, reply message not found) is a per-chat terminal — retrying the
+      // identical send can't fix it. Drop it (like a 403), don't park the whole channel. Unknown 400s
+      // and content bugs (too long / parse) fall through to the retryable generic error.
+      if (isTelegramPermanentBadRequest(res.status, body.description)) {
+        throw new MessagingPolicyError(`Telegram chat unavailable (permanent): ${body.description ?? res.status}`);
       }
       throw new Error(`Telegram send message failed: ${body.description ?? res.status}`);
     }

@@ -62,13 +62,45 @@ describe("TelegramProvider", () => {
     expect(sent.platformMessageId).toBe("42");
   });
 
-  it("sendMessage throws a generic (transient) error on a non-auth Telegram failure", async () => {
-    mockFetch(() => ({ status: 400, body: { ok: false, description: "chat not found" } }));
+  // A non-auth, non-permanent failure (unknown 400 / transient) stays a generic retryable error.
+  // (Was "chat not found" — now classified permanent, see the  test below.)
+  it("sendMessage throws a generic (transient) error on an unknown non-auth Telegram failure", async () => {
+    mockFetch(() => ({ status: 400, body: { ok: false, description: "Bad Request: an unexpected transient glitch" } }));
     const tg = new TelegramProvider();
     const err = await tg.sendMessage({ access_token: "t" }, "1", { text: "x" }).catch((e) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(TokenInvalidError);
+    expect(err).not.toBeInstanceOf(MessagingPolicyError);
     expect(String(err)).toMatch(/Telegram send message failed/);
+  });
+
+  //   — a 400 with a known permanent description (chat not found, no rights /
+  // CHAT_WRITE_FORBIDDEN, group upgraded, reply not found) is a per-chat terminal: drop it
+  // (MessagingPolicyError, like a 403), don't retry to dead-letter and don't flag the whole channel.
+  it("sendMessage throws MessagingPolicyError on a known permanent 400 (chat not found)", async () => {
+    for (const description of [
+      "Bad Request: chat not found",
+      "Bad Request: CHAT_WRITE_FORBIDDEN",
+      "Bad Request: have no rights to send a message",
+      "Bad Request: group chat was upgraded to a supergroup chat",
+      "Bad Request: reply message not found",
+    ]) {
+      mockFetch(() => ({ status: 400, body: { ok: false, description } }));
+      const err = await new TelegramProvider().sendMessage({ access_token: "t" }, "1", { text: "x" }).catch((e) => e);
+      expect(err, description).toBeInstanceOf(MessagingPolicyError);
+      expect(err, description).not.toBeInstanceOf(TokenInvalidError);
+    }
+  });
+
+  //   — content bugs ("message is too long" / parse errors) are NOT a policy drop: they
+  // signal OUR payload, so they stay a generic error (surfaced, not silently dropped).
+  it("sendMessage keeps content-bug 400s (too long / parse) as generic errors, not policy drops", async () => {
+    for (const description of ["Bad Request: message is too long", "Bad Request: can't parse entities"]) {
+      mockFetch(() => ({ status: 400, body: { ok: false, description } }));
+      const err = await new TelegramProvider().sendMessage({ access_token: "t" }, "1", { text: "x" }).catch((e) => e);
+      expect(err, description).not.toBeInstanceOf(MessagingPolicyError);
+      expect(String(err), description).toMatch(/Telegram send message failed/);
+    }
   });
 
   // / — a 401 means the bot token itself was revoked/regenerated: a real re-auth case,

@@ -1464,6 +1464,19 @@ describe("follow-gate worker", () => {
     expect(await jobCount("outgoing-message")).toBe(0);
   });
 
+  //   — a per-recipient PERMANENT failure on the live follow-check (e.g. the user
+  // deleted their account → MessagingPolicyError) drops the gate terminally: no child enqueued,
+  // no channel re-auth, no retry/dead-letter. The ledger records it `expired`.
+  it("drops the gate terminally when the follow check hits a permanent policy error", async () => {
+    if (!TEST_DB) return;
+    provider.checkFollowsBusiness.mockRejectedValueOnce(new MessagingPolicyError("recipient is permanently unreachable"));
+    await w.processFollowGate(fgJob({ idempotencyKey: "fg-policy-drop" }) as never, helpers);
+    expect(health.markChannelNeedsReauth).not.toHaveBeenCalled();
+    expect(await jobCount("outgoing-message")).toBe(0);
+    const [row] = await db.select().from(s.outboundDeliveries).where(eq(s.outboundDeliveries.delivery_key, "fg-policy-drop"));
+    expect(row.status).toBe("expired");
+  });
+
   //  — a contact that unsubscribed after the gate was enqueued is not delivered to; the
   // worker re-checks is_subscribed and drops without probing the follow graph (closes  TOCTOU).
   it("drops the gate without a follow-check or send when the contact is unsubscribed", async () => {

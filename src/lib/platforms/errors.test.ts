@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TokenInvalidError, MessagingPolicyError, RateLimitError, isMetaTokenError, isMetaWindowError, isMetaRateLimitError, isMetaPrivateReplyPolicyError, parseRetryAfterMs, assertMetaOk } from "./errors";
+import { TokenInvalidError, MessagingPolicyError, RateLimitError, isMetaTokenError, isMetaWindowError, isMetaRateLimitError, isMetaPrivateReplyPolicyError, isMetaUnreachableRecipientError, isMetaCommentPolicyError, parseRetryAfterMs, assertMetaOk } from "./errors";
 
 describe("isMetaTokenError", () => {
   it("is true for Meta code 190 (invalid/expired token)", () => {
@@ -77,6 +77,34 @@ describe("isMetaPrivateReplyPolicyError", () => {
   });
 });
 
+//   — a stale/unreachable recipient (subcode 2018001) is permanent; drop, never retry.
+// Subcode-keyed so it's safe in any send context (unlike a bare overloaded code).
+describe("isMetaUnreachableRecipientError", () => {
+  it("is true for subcode 2018001 (no matching user / dead recipient)", () => {
+    expect(isMetaUnreachableRecipientError('{"error":{"code":100,"error_subcode":2018001,"message":"No matching user found"}}')).toBe(true);
+  });
+  it("is false for a bare code-100 with no subcode (overloaded → transient)", () => {
+    expect(isMetaUnreachableRecipientError('{"error":{"code":100,"message":"(#100) Invalid parameter"}}')).toBe(false);
+  });
+  it("is false for an unknown subcode and for an unparseable body", () => {
+    expect(isMetaUnreachableRecipientError('{"error":{"error_subcode":9999999}}')).toBe(false);
+    expect(isMetaUnreachableRecipientError("upstream connect error")).toBe(false);
+  });
+});
+
+//   — code 10 on a sendComment = commenting disabled / post blocked = terminal. Only
+// code 10 (bare-100 overloaded, 200 channel-wide → both stay transient here).
+describe("isMetaCommentPolicyError", () => {
+  it("is true for code 10 (action not allowed on this comment/post)", () => {
+    expect(isMetaCommentPolicyError('{"error":{"code":10,"message":"(#10) commenting disabled"}}')).toBe(true);
+  });
+  it("is false for code 100 / 200 (overloaded / channel-wide) and unparseable bodies", () => {
+    expect(isMetaCommentPolicyError('{"error":{"code":100}}')).toBe(false);
+    expect(isMetaCommentPolicyError('{"error":{"code":200}}')).toBe(false);
+    expect(isMetaCommentPolicyError("not json")).toBe(false);
+  });
+});
+
 describe("parseRetryAfterMs", () => {
   const headers = (v?: string) => new Headers(v != null ? { "retry-after": v } : {});
   it("reads a delta-seconds value", () => {
@@ -144,5 +172,22 @@ describe("assertMetaOk", () => {
     const res = new Response('{"error":{"code":2,"message":"Service temporarily unavailable"}}', { status: 500 });
     await expect(assertMetaOk(res, "Facebook private reply")).rejects.toThrow(/failed/);
     await expect(assertMetaOk(new Response('{"error":{"code":2}}', { status: 500 }), "Facebook private reply")).rejects.not.toBeInstanceOf(MessagingPolicyError);
+  });
+
+  //   — a 2018001 (dead recipient) drops in ANY send context (subcode-keyed).
+  it("throws MessagingPolicyError for an unreachable-recipient subcode (2018001) on a normal send", async () => {
+    const res = new Response('{"error":{"code":100,"error_subcode":2018001,"message":"No matching user found"}}', { status: 400 });
+    await expect(assertMetaOk(res, "Facebook send message")).rejects.toBeInstanceOf(MessagingPolicyError);
+    await expect(assertMetaOk(new Response('{"error":{"code":100,"error_subcode":2018001}}', { status: 400 }), "Instagram send message")).rejects.toBeInstanceOf(MessagingPolicyError);
+  });
+
+  //   — code 10 drops on a comment send, but a bare code-100 on the same context, and
+  // a code-10 on a normal DM, both stay retryable (anti-regression).
+  it("throws MessagingPolicyError for code 10 on a send-comment context", async () => {
+    await expect(assertMetaOk(new Response('{"error":{"code":10,"message":"commenting disabled"}}', { status: 400 }), "Facebook send comment")).rejects.toBeInstanceOf(MessagingPolicyError);
+  });
+  it("keeps code 10 on a send-message context, and bare code-100 on a comment context, retryable", async () => {
+    await expect(assertMetaOk(new Response('{"error":{"code":10}}', { status: 400 }), "Facebook send message")).rejects.not.toBeInstanceOf(MessagingPolicyError);
+    await expect(assertMetaOk(new Response('{"error":{"code":100}}', { status: 400 }), "Facebook send comment")).rejects.toThrow(/failed/);
   });
 });
