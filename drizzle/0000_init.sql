@@ -15,6 +15,7 @@ CREATE TYPE "public"."response_type" AS ENUM('text', 'random_text', 'sequence', 
 CREATE TYPE "public"."sequence_enrollment_status" AS ENUM('active', 'paused', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."sequence_status" AS ENUM('draft', 'active', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."trigger_type" AS ENUM('keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction');--> statement-breakpoint
+CREATE TYPE "public"."webhook_event_handling_status" AS ENUM('received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error');--> statement-breakpoint
 CREATE TYPE "public"."workspace_member_role" AS ENUM('owner');--> statement-breakpoint
 CREATE TABLE "api_keys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -247,6 +248,7 @@ CREATE TABLE "outbound_deliveries" (
 	"status" "outbound_delivery_status" DEFAULT 'pending' NOT NULL,
 	"payload" jsonb NOT NULL,
 	"platform_message_id" text,
+	"confirmed_by_echo_at" timestamp (3),
 	"last_error" text,
 	"attempts" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp (3) DEFAULT now() NOT NULL,
@@ -266,11 +268,6 @@ CREATE TABLE "pending_approvals" (
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"resolved_at" timestamp (3),
 	"resolved_by" uuid
-);
---> statement-breakpoint
-CREATE TABLE "processed_events" (
-	"key" text PRIMARY KEY NOT NULL,
-	"created_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "rate_limit_counters" (
@@ -340,6 +337,30 @@ CREATE TABLE "users" (
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "webhook_events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"event_key" text NOT NULL,
+	"channel_id" uuid,
+	"platform" "platform",
+	"object" text,
+	"event_type" text NOT NULL,
+	"field" text,
+	"sender_id" text,
+	"recipient_id" text,
+	"platform_message_id" text,
+	"is_echo" boolean DEFAULT false NOT NULL,
+	"raw" jsonb NOT NULL,
+	"handling_status" "webhook_event_handling_status" DEFAULT 'received' NOT NULL,
+	"handled_at" timestamp (3),
+	"error_detail" text,
+	"contact_id" uuid,
+	"conversation_id" uuid,
+	"message_id" uuid,
+	"comment_log_id" uuid,
+	"outbound_delivery_id" uuid,
+	"received_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "workspace_members" (
 	"workspace_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -404,6 +425,12 @@ ALTER TABLE "sequence_enrollments" ADD CONSTRAINT "sequence_enrollments_contact_
 ALTER TABLE "sequence_enrollments" ADD CONSTRAINT "sequence_enrollments_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "sequences" ADD CONSTRAINT "sequences_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "tags" ADD CONSTRAINT "tags_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD CONSTRAINT "webhook_events_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD CONSTRAINT "webhook_events_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD CONSTRAINT "webhook_events_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD CONSTRAINT "webhook_events_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD CONSTRAINT "webhook_events_comment_log_id_fkey" FOREIGN KEY ("comment_log_id") REFERENCES "public"."comment_logs"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD CONSTRAINT "webhook_events_outbound_delivery_id_fkey" FOREIGN KEY ("outbound_delivery_id") REFERENCES "public"."outbound_deliveries"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 CREATE UNIQUE INDEX "api_keys_key_hash_key" ON "api_keys" USING btree ("key_hash");--> statement-breakpoint
@@ -439,7 +466,6 @@ CREATE UNIQUE INDEX "outbound_deliveries_delivery_key_key" ON "outbound_deliveri
 CREATE INDEX "outbound_deliveries_channel_id_status_idx" ON "outbound_deliveries" USING btree ("channel_id","status");--> statement-breakpoint
 CREATE INDEX "outbound_deliveries_status_updated_at_idx" ON "outbound_deliveries" USING btree ("status","updated_at");--> statement-breakpoint
 CREATE INDEX "pending_approvals_workspace_id_status_idx" ON "pending_approvals" USING btree ("workspace_id","status");--> statement-breakpoint
-CREATE INDEX "processed_events_created_at_idx" ON "processed_events" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "rate_limit_counters_window_start_idx" ON "rate_limit_counters" USING btree ("window_start");--> statement-breakpoint
 CREATE INDEX "revoked_tokens_expires_at_idx" ON "revoked_tokens" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "rule_cooldowns_expires_at_idx" ON "rule_cooldowns" USING btree ("expires_at");--> statement-breakpoint
@@ -448,5 +474,10 @@ CREATE INDEX "sequence_enrollments_active_contact_channel_idx" ON "sequence_enro
 CREATE INDEX "sequences_workspace_id_idx" ON "sequences" USING btree ("workspace_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "tags_workspace_id_name_key" ON "tags" USING btree ("workspace_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_email_key" ON "users" USING btree ("email");--> statement-breakpoint
+CREATE UNIQUE INDEX "webhook_events_event_key_key" ON "webhook_events" USING btree ("event_key");--> statement-breakpoint
+CREATE INDEX "webhook_events_channel_id_received_at_idx" ON "webhook_events" USING btree ("channel_id","received_at" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX "webhook_events_event_type_idx" ON "webhook_events" USING btree ("event_type");--> statement-breakpoint
+CREATE INDEX "webhook_events_platform_message_id_idx" ON "webhook_events" USING btree ("platform_message_id");--> statement-breakpoint
+CREATE INDEX "webhook_events_handling_status_idx" ON "webhook_events" USING btree ("handling_status");--> statement-breakpoint
 CREATE INDEX "workspace_members_user_id_idx" ON "workspace_members" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "workspaces_slug_key" ON "workspaces" USING btree ("slug");

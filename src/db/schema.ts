@@ -32,6 +32,12 @@ export const response_type = pgEnum("response_type", ['text', 'random_text', 'se
 export const sequenceEnrollmentStatus = pgEnum("sequence_enrollment_status", ['active', 'paused', 'completed', 'cancelled'])
 export const sequenceStatus = pgEnum("sequence_status", ['draft', 'active', 'archived'])
 export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction'])
+// Lifecycle of a logged inbound webhook event. `received` is the non-terminal landing state (a
+// handler job was enqueued); the rest are terminal. `unhandled` = no handler for this event type
+// (logged for inspection, no job); `ignored` = recognized but intentionally not acted on (self-loop
+// guard, echo with no matching delivery, non-private TG chat); `fired`/`no_match`/`paused` mirror the
+// rule outcomes; `error` = the handler threw after exhausting retries.
+export const webhookEventHandlingStatus = pgEnum("webhook_event_handling_status", ['received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error'])
 // Only `owner` for now: role-based authorization isn't enforced yet, and `admin`/`agent`
 // would be misleading dead values. Re-add richer roles together with member invitations +
 // `requireRole()` enforcement.
@@ -554,19 +560,6 @@ export const autoReplyRules = pgTable("auto_reply_rules", {
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
-// DURABLE terminal-outcome dedup for inbound events that have no natural unique row
-// (reactions; and the per-event fire claim for DMs/comments). A processed event must stay
-// deduped for as long as the source could be redelivered — so unlike idempotency_keys this
-// has NO TTL and is NOT pruned, otherwise an old webhook redelivery could fire again.
-export const processedEvents = pgTable("processed_events", {
-	key: text().primaryKey().notNull(),
-	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
-}, (table) => [
-	// The maintenance prune scans by created_at < cutoff; this table grows to millions, so
-	// without this index that prune is a full scan.
-	index("processed_events_created_at_idx").using("btree", table.created_at.asc().nullsLast()),
-]);
-
 // Durable ledger for every outbound send. One row per logical send, keyed by a
 // deterministic `delivery_key`, with an explicit state machine
 // (pending→sending→sent / failed / held / expired / unknown). The provider call is
@@ -587,6 +580,10 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 	status: outboundDeliveryStatus().default('pending').notNull(),
 	payload: jsonb().notNull(),
 	platform_message_id: text("platform_message_id"),
+	// Set when Meta echoes our own sent message back (message.is_echo) and the echoed mid matches
+	// this row's platform_message_id — a second, platform-confirmed signal that the reply actually
+	// left Meta, beyond our own status=sent.
+	confirmed_by_echo_at: timestamp("confirmed_by_echo_at", { precision: 3, mode: 'date' }),
 	last_error: text("last_error"),
 	attempts: integer().default(0).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
@@ -613,6 +610,76 @@ export const outboundDeliveries = pgTable("outbound_deliveries", {
 			foreignColumns: [contacts.id],
 			name: "outbound_deliveries_contact_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// Durable log of EVERY distinct inbound platform event + its handling outcome. One row per
+// distinct event, written at receipt regardless of whether we can handle it, so nothing is ever
+// silently dropped. Also folds in the old per-event dedup: `event_key` is unique, the edge logs
+// with onConflictDoNothing (a redelivery is a no-op), and the worker does a CAS
+// received→terminal inside its fire transaction — preserving at-least-once / at-most-once-fire.
+export const webhookEvents = pgTable("webhook_events", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	// Discriminates a distinct action (e.g. `msg-<mid>`, `cmt-<commentId>-<verb>`,
+	// `postback-<sender>-<ts>-<hash>`, `reaction-<sender>-<mid>-<ts>`, `echo-<mid>`, `tg-<identity>`).
+	// The verb/action is part of the key so add/edit/delete of the same object are separate rows.
+	event_key: text("event_key").notNull(),
+	// Resolved page→channel (null when the page is unknown to us). SET NULL so erasing/deleting a
+	// channel keeps the historical log row.
+	channel_id: uuid("channel_id"),
+	platform: platform(),
+	object: text(),
+	event_type: text("event_type").notNull(),
+	field: text(),
+	sender_id: text("sender_id"),
+	recipient_id: text("recipient_id"),
+	platform_message_id: text("platform_message_id"),
+	is_echo: boolean("is_echo").default(false).notNull(),
+	raw: jsonb().notNull(),
+	handling_status: webhookEventHandlingStatus("handling_status").default('received').notNull(),
+	handled_at: timestamp("handled_at", { precision: 3, mode: 'date' }),
+	error_detail: text("error_detail"),
+	contact_id: uuid("contact_id"),
+	conversation_id: uuid("conversation_id"),
+	message_id: uuid("message_id"),
+	comment_log_id: uuid("comment_log_id"),
+	outbound_delivery_id: uuid("outbound_delivery_id"),
+	received_at: timestamp("received_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("webhook_events_event_key_key").using("btree", table.event_key.asc().nullsLast()),
+	index("webhook_events_channel_id_received_at_idx").using("btree", table.channel_id.asc().nullsLast(), table.received_at.desc().nullsFirst()),
+	index("webhook_events_event_type_idx").using("btree", table.event_type.asc().nullsLast()),
+	index("webhook_events_platform_message_id_idx").using("btree", table.platform_message_id.asc().nullsLast()),
+	index("webhook_events_handling_status_idx").using("btree", table.handling_status.asc().nullsLast()),
+	foreignKey({
+			columns: [table.channel_id],
+			foreignColumns: [channels.id],
+			name: "webhook_events_channel_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
+	foreignKey({
+			columns: [table.contact_id],
+			foreignColumns: [contacts.id],
+			name: "webhook_events_contact_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
+	foreignKey({
+			columns: [table.conversation_id],
+			foreignColumns: [conversations.id],
+			name: "webhook_events_conversation_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
+	foreignKey({
+			columns: [table.message_id],
+			foreignColumns: [messages.id],
+			name: "webhook_events_message_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
+	foreignKey({
+			columns: [table.comment_log_id],
+			foreignColumns: [commentLogs.id],
+			name: "webhook_events_comment_log_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
+	foreignKey({
+			columns: [table.outbound_delivery_id],
+			foreignColumns: [outboundDeliveries.id],
+			name: "webhook_events_outbound_delivery_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
 export const pendingApprovals = pgTable("pending_approvals", {

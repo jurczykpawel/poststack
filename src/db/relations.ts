@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { workspaces, conversations, channels, contacts, users, contactChannels, tags, auditLogs, flows, flowTriggers, messages, autoReplyRules, flowSessions, sequences, sequenceEnrollments, broadcasts, broadcastRecipients, commentLogs, flowVersions, apiKeys, pendingApprovals, contactTags, workspaceMembers } from "./schema";
+import { workspaces, conversations, channels, contacts, users, contactChannels, tags, auditLogs, flows, flowTriggers, messages, autoReplyRules, flowSessions, sequences, sequenceEnrollments, broadcasts, broadcastRecipients, commentLogs, flowVersions, apiKeys, pendingApprovals, contactTags, workspaceMembers, webhookEvents, outboundDeliveries } from "./schema";
 
 export const conversationsRelations = relations(conversations, ({one, many}) => ({
 	workspace: one(workspaces, {
@@ -277,5 +277,32 @@ export const workspaceMembersRelations = relations(workspaceMembers, ({one}) => 
 	user: one(users, {
 		fields: [workspaceMembers.user_id],
 		references: [users.id]
+	}),
+}));
+
+export const webhookEventsRelations = relations(webhookEvents, ({one}) => ({
+	channel: one(channels, {
+		fields: [webhookEvents.channel_id],
+		references: [channels.id]
+	}),
+	contact: one(contacts, {
+		fields: [webhookEvents.contact_id],
+		references: [contacts.id]
+	}),
+	conversation: one(conversations, {
+		fields: [webhookEvents.conversation_id],
+		references: [conversations.id]
+	}),
+	message: one(messages, {
+		fields: [webhookEvents.message_id],
+		references: [messages.id]
+	}),
+	commentLog: one(commentLogs, {
+		fields: [webhookEvents.comment_log_id],
+		references: [commentLogs.id]
+	}),
+	outboundDelivery: one(outboundDeliveries, {
+		fields: [webhookEvents.outbound_delivery_id],
+		references: [outboundDeliveries.id]
 	}),
 }));
