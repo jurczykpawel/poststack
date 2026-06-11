@@ -752,7 +752,7 @@ export const openApiSpec = {
       post: {
         tags: ["Workspace"],
         summary: "Manually prune the inbound webhook-events log older than N days",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["older_than_days"], properties: { older_than_days: { type: "integer", minimum: 1 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["older_than_days"], properties: { older_than_days: { type: "integer", minimum: 7, maximum: 3650 } } } } } },
         responses: {
           "200": { description: "Prune result (deleted count)" },
           "401": { $ref: "#/components/responses/Unauthorized" },

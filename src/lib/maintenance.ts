@@ -1,6 +1,6 @@
-import { and, eq, lt, ne, inArray, sql } from "drizzle-orm";
+import { and, eq, lt, ne, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { ruleCooldowns, revokedTokens, rateLimitCounters, outboundDeliveries, pendingApprovals } from "@/db/schema";
+import { ruleCooldowns, revokedTokens, rateLimitCounters, outboundDeliveries, pendingApprovals, webhookEvents } from "@/db/schema";
 
 /** A JS Date rendered as its UTC wall-clock, for comparing against a genuinely DB-clock
  *  `timestamp without time zone` column (CURRENT_TIMESTAMP / now()) independent of the process
@@ -26,6 +26,14 @@ const TERMINAL_DELIVERY_STATUSES = ["sent", "failed", "expired", "unknown"] as c
  *  ran, the row is stuck `sending` forever. Sweep such rows well past any retry window. */
 const STUCK_SENDING_TTL_MS = 7 * 86_400_000;
 
+/** Orphan webhook_events rows (channel_id NULL — an event for an unknown page, or one whose channel
+ *  was later deleted: the FK is ON DELETE SET NULL) belong to no workspace, so no owner can prune
+ *  them via the per-workspace endpoint, which deliberately skips them. Yet they carry PSIDs + full
+ *  raw payloads. Sweep them systemically here on a 60-day TTL — well past any platform redelivery
+ *  window (the horizon the old processed_events kept), and a global delete is tenant-safe since
+ *  they are ownerless. */
+const ORPHAN_WEBHOOK_EVENT_TTL_MS = 60 * 86_400_000;
+
 /**
  * Delete time-expired ephemeral rows so the tables don't grow unbounded.
  * Run periodically (graphile-worker cron `prune-expired`). Covers the tables
@@ -39,7 +47,15 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   await db.delete(rateLimitCounters).where(lt(rateLimitCounters.window_start, utcCutoff(new Date(now.getTime() - 3_600_000))));
   // The webhook_events log (which folds in the old event-dedup) is NOT auto-pruned here: its
   // retention is owner-driven via POST /api/v1/webhook-events/prune (manual, bounded), so an
-  // operator keeps the inspection history as long as they choose.
+  // operator keeps the inspection history as long as they choose — EXCEPT ownerless orphan rows
+  // (channel_id NULL), which no per-workspace prune can reach. received_at is DB-clock (INSERT
+  // DEFAULT now()), so compare against the UTC wall-clock to stay correct on a non-UTC host.
+  await db.delete(webhookEvents).where(
+    and(
+      isNull(webhookEvents.channel_id),
+      lt(webhookEvents.received_at, utcCutoff(new Date(now.getTime() - ORPHAN_WEBHOOK_EVENT_TTL_MS))),
+    ),
+  );
 
   // Terminal delivery-ledger rows older than the window — but never a `held` row, which is still
   // awaiting a drain.

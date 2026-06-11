@@ -134,6 +134,20 @@ describe("pruneExpired (real Postgres)", () => {
     expect(remaining.map((r) => r.delivery_key)).toEqual(["dk-sending-fresh"]);
   });
 
+  it("sweeps orphan (channel_id NULL) webhook_events past 60 days, keeps a fresh orphan + a channel-owned old row", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.webhookEvents).values([
+      { event_key: "we-orphan-old", event_type: "message", raw: {}, channel_id: null, received_at: new Date(NOW.getTime() - 70 * DAY) },
+      { event_key: "we-orphan-fresh", event_type: "message", raw: {}, channel_id: null, received_at: new Date(NOW.getTime() - 10 * DAY) },
+      { event_key: "we-owned-old", event_type: "message", raw: {}, channel_id: CH, received_at: new Date(NOW.getTime() - 70 * DAY) },
+    ]);
+    await pruneExpired(NOW);
+    expect(await db.query.webhookEvents.findFirst({ where: eq(s.webhookEvents.event_key, "we-orphan-old") })).toBeUndefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(s.webhookEvents.event_key, "we-orphan-fresh") })).toBeDefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(s.webhookEvents.event_key, "we-owned-old") })).toBeDefined();
+    await db.delete(s.webhookEvents).where(inArray(s.webhookEvents.event_key, ["we-orphan-fresh", "we-owned-old"]));
+  });
+
   // DB-clock columns (created_at here) must use a UTC cutoff so a non-UTC host doesn't
   // shift the boundary and prune a row that's still inside its TTL.
   describe("timezone safety", () => {
