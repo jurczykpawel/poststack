@@ -7,16 +7,32 @@
 // free and pro) is a one-line change with zero gate refactor.
 
 /** Gateable licensed features. Extend the union as features are introduced. */
-export type Feature = "personalization" | "multi_workspace";
+export type Feature =
+  | "personalization"
+  | "ai_rephrase"
+  | "sequences"
+  | "interactive_messages"
+  | "follow_gate"
+  | "multi_channel"
+  | "non_meta_channels"
+  | "multi_workspace";
 
 export type TierId = string;
 
 // Per-tier feature sets, composed so higher tiers are supersets of lower ones.
-// `multi_workspace` (multitenancy: 2nd+ workspace on an instance) lives ONLY in
-// `business` — multitenancy is intentionally off for everyone until a Sellf
-// `business` variant exists (the owner self-issues a business token for their
-// own instance). `pro` is what is sold today.
-const PRO: readonly Feature[] = ["personalization"];
+// Free is deliberately minimal (the anti-ManyChat pitch): one FB + one IG channel,
+// keyword auto-reply, and unlimited messages/contacts. Almost everything else is PRO.
+// `multi_workspace` (multitenancy) lives ONLY in `business` — owner-only until a Sellf
+// business variant exists. `pro` is what is sold today.
+const PRO: readonly Feature[] = [
+  "personalization",
+  "ai_rephrase",
+  "sequences",
+  "interactive_messages",
+  "follow_gate",
+  "multi_channel", // a 2nd+ channel of the same platform (e.g. another FB page / IG account)
+  "non_meta_channels", // any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)
+];
 const BUSINESS: readonly Feature[] = [...PRO, "multi_workspace"];
 
 /**
@@ -33,4 +49,20 @@ export const TIER_FEATURES: Record<TierId, readonly Feature[]> = {
 export function tierFeatures(tier: string | null): Set<Feature> {
   if (!tier) return new Set();
   return new Set(TIER_FEATURES[tier] ?? []);
+}
+
+const FEATURE_LABEL: Record<Feature, string> = {
+  personalization: "Personalization placeholders ({imie}/{name})",
+  ai_rephrase: "AI rephrasing",
+  sequences: "Drip sequences",
+  interactive_messages: "Buttons and quick replies",
+  follow_gate: "Follow-gate",
+  multi_channel: "More than one channel per platform",
+  non_meta_channels: "Channels other than Facebook/Instagram",
+  multi_workspace: "Multiple workspaces",
+};
+
+/** A one-line, user-facing reason for a 402 on a given feature. */
+export function proMessage(feature: Feature): string {
+  return `${FEATURE_LABEL[feature]} requires a PRO license.`;
 }

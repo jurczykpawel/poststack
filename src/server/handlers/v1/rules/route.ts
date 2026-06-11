@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { autoReplyRules, channels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
-import { responseConfigHasPlaceholders } from "@/lib/rules/personalization";
-import { hasFeature } from "@/lib/license/gate";
+import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
+import { proMessage } from "@/lib/license/features";
 import { env } from "@/lib/env";
 import { z } from "zod";
 
@@ -225,10 +225,14 @@ export async function POST(request: Request) {
     if (!channel) return ApiErrors.notFound("Channel");
   }
 
-  // Personalization placeholders ({imie}/{name}) are a PRO feature — block authoring them on
-  // an unlicensed instance (runtime additionally strips them safely if a license later lapses).
-  if (responseConfigHasPlaceholders(parsed.data.response_config) && !(await hasFeature("personalization"))) {
-    return ApiErrors.proRequired("personalization", env.LICENSE_UPGRADE_URL, "Personalization placeholders ({imie}/{name}) require a PRO license.");
+  // Gate PRO features a rule would use (personalization, AI rephrase, follow-gate, interactive)
+  // at authoring time on an unlicensed instance.
+  const missingFeature = await firstUnlicensedRuleFeature({
+    responseType: parsed.data.response_type,
+    responseConfig: parsed.data.response_config,
+  });
+  if (missingFeature) {
+    return ApiErrors.proRequired(missingFeature, env.LICENSE_UPGRADE_URL, proMessage(missingFeature));
   }
 
   // Cap active rules per workspace so the per-message match path stays bounded — a tenant can't

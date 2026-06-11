@@ -95,4 +95,18 @@ describe("personalization authoring gate on POST /api/v1/rules", () => {
     const res = await rules.POST(post(rule("Cześć!")));
     expect(res.status).toBe(201);
   });
+
+  it("gates other PRO rule features on a free instance (402)", async () => {
+    if (!TEST_DB) return;
+    const cases: Array<[unknown, string]> = [
+      [{ name: "AI", trigger_type: "keyword", trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] }, response_type: "ai_rephrase", response_config: { text: "yo" } }, "ai_rephrase"],
+      [{ name: "Btn", trigger_type: "keyword", trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] }, response_type: "text", response_config: { text: "yo", buttons: [{ title: "Claim", payload: "C" }] } }, "interactive_messages"],
+      [{ name: "FG", trigger_type: "postback", trigger_config: { payload: "GO" }, response_type: "follow_gate", response_config: { followed: { text: "here" }, not_followed: { text: "follow first", buttons: [{ title: "Again", payload: "GO" }] } } }, "follow_gate"],
+    ];
+    for (const [body, feature] of cases) {
+      const res = await rules.POST(post(body));
+      expect(res.status).toBe(402);
+      expect((await res.json()).error.details.feature).toBe(feature);
+    }
+  });
 });

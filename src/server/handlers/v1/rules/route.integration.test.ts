@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const KEY = "rs_live_rules_validation_key_abcdef01";
@@ -23,6 +24,7 @@ beforeAll(async () => {
   s = await import("@/db/schema");
   rules = await import("./route");
   rule = await import("./[ruleId]/route");
+  await licenseInstance(); // PRO features under test (follow-gate, interactive buttons)
 });
 
 beforeEach(async () => {

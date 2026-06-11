@@ -2,7 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { authenticate } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
-import { upsertChannels } from "@/lib/channels/upsert";
+import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
+import { ProRequiredError } from "@/lib/license/gate";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { env } from "@/lib/env";
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
 
     if (accounts.length === 0) return redirect("/channels?error=no_pages");
 
+    await assertChannelsAllowed(auth.workspaceId, "facebook", accounts);
     await upsertChannels(auth.workspaceId, "facebook", accounts);
 
     // Auto-subscribe pages to webhook events (non-blocking, best-effort). A failed subscribe leaves
@@ -65,6 +67,7 @@ export async function GET(request: Request) {
 
     return redirect(`/channels?connected=facebook&count=${accounts.length}`);
   } catch (e) {
+    if (e instanceof ProRequiredError) return redirect("/channels?error=pro_required");
     console.error("[oauth/facebook/callback]", e);
     return redirect("/channels?error=oauth_failed");
   }

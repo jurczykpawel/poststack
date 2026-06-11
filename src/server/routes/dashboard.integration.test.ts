@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
@@ -28,6 +29,7 @@ beforeAll(async () => {
   app = buildApp();
   const { signSession } = await import("@/lib/auth");
   cookie = `rs_session=${await signSession(USER, WS)}`;
+  await licenseInstance(); // dashboard builds sequences / interactive rules (PRO)
 });
 
 beforeEach(async () => {

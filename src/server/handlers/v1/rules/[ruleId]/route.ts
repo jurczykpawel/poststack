@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
-import { responseConfigHasPlaceholders } from "@/lib/rules/personalization";
-import { hasFeature } from "@/lib/license/gate";
+import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
+import { proMessage } from "@/lib/license/features";
 import { env } from "@/lib/env";
 import { z } from "zod";
 import { createRuleSchema } from "../route";
@@ -204,15 +204,15 @@ export async function PATCH(
     }
   }
 
-  // Block actively SETTING personalization placeholders ({imie}/{name}) on an unlicensed
-  // instance. A patch that doesn't touch response_config (e.g. a toggle/rename) is exempt, so a
-  // rule authored while licensed stays editable after a lapse (runtime strips it safely anyway).
-  if (
-    parsed.data.response_config !== undefined &&
-    responseConfigHasPlaceholders(parsed.data.response_config) &&
-    !(await hasFeature("personalization"))
-  ) {
-    return ApiErrors.proRequired("personalization", env.LICENSE_UPGRADE_URL, "Personalization placeholders ({imie}/{name}) require a PRO license.");
+  // Gate newly-introduced PRO features (personalization / AI rephrase / follow-gate / interactive).
+  // Features already on the rule are grandfathered, so a toggle/rename of a previously-licensed rule
+  // still goes through after a lapse (runtime degrades those safely anyway).
+  const missingFeature = await firstUnlicensedRuleFeature(
+    { responseType: merged.response_type as string, responseConfig: merged.response_config as Record<string, unknown> },
+    { responseType: existing.response_type as string, responseConfig: existing.response_config as Record<string, unknown> },
+  );
+  if (missingFeature) {
+    return ApiErrors.proRequired(missingFeature, env.LICENSE_UPGRADE_URL, proMessage(missingFeature));
   }
 
   const [updated] = await db

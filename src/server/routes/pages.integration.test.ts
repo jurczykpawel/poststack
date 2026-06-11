@@ -4,6 +4,7 @@ import {
   users, workspaces, channels, contacts, contactChannels, conversations, messages, autoReplyRules, sequences,
 } from "@/db/schema";
 import type { Hono } from "hono";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const EMAIL = "hono-pages@example.test";
@@ -37,6 +38,7 @@ beforeAll(async () => {
   ({ closeQueue } = await import("@/lib/queue/client"));
   const { buildApp } = await import("../app");
   app = buildApp();
+  await licenseInstance(); // form tests create interactive + follow-gate rules (PRO)
 
   // Clear the shared rate-limit table so the once-per-run registration isn't
   // blocked by counters left over from other suites / earlier runs.

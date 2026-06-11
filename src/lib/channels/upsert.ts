@@ -5,6 +5,34 @@ import { encryptTokens } from "@/lib/crypto";
 import { addJobTx } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
+import { hasFeature, ProRequiredError } from "@/lib/license/gate";
+
+const META_PLATFORMS = new Set<Platform>(["facebook", "instagram"]);
+
+/**
+ * Free-tier channel limits: one Facebook + one Instagram channel, nothing else.
+ * A 2nd+ channel of the same Meta platform needs `multi_channel`; any non-Meta
+ * channel needs `non_meta_channels`. Reconnecting an already-connected account
+ * (same platform_id) is never gated. Throws ProRequiredError (→ 402) when the
+ * instance isn't licensed for the needed feature.
+ */
+export async function assertChannelsAllowed(workspaceId: string, platform: Platform, accounts: ConnectedAccount[]): Promise<void> {
+  const existing = await db.query.channels.findMany({
+    where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform, platform), ne(channels.status, "disabled")),
+    columns: { platform_id: true },
+  });
+  const existingIds = new Set(existing.map((c) => c.platform_id));
+  const newIds = accounts.map((a) => a.platformId).filter((id) => !existingIds.has(id));
+  if (newIds.length === 0) return; // pure reconnect / token refresh
+
+  if (!META_PLATFORMS.has(platform)) {
+    if (!(await hasFeature("non_meta_channels"))) throw new ProRequiredError("non_meta_channels");
+    return;
+  }
+  if (existingIds.size + newIds.length > 1 && !(await hasFeature("multi_channel"))) {
+    throw new ProRequiredError("multi_channel");
+  }
+}
 
 type Platform = (typeof platformEnum.enumValues)[number];
 type ChannelConnectionMode = (typeof connModeEnum.enumValues)[number];

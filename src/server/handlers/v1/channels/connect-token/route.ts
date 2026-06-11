@@ -1,6 +1,6 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
-import { upsertChannels } from "@/lib/channels/upsert";
+import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     return ApiErrors.badRequest("No pages or accounts are accessible with this token");
   }
 
+  await assertChannelsAllowed(auth.workspaceId, parsed.data.platform, accounts);
   await upsertChannels(auth.workspaceId, parsed.data.platform, accounts, {
     connectionMode: "manual_token",
   });

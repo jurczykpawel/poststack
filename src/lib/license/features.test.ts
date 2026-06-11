@@ -6,6 +6,13 @@ describe("tierFeatures", () => {
     expect(tierFeatures("pro").has("personalization")).toBe(true);
   });
 
+  it("grants the full PRO feature set on the pro tier", () => {
+    const pro = tierFeatures("pro");
+    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels"] as const) {
+      expect(pro.has(f)).toBe(true);
+    }
+  });
+
   it("grants nothing on the free tier", () => {
     expect(tierFeatures("free").size).toBe(0);
   });

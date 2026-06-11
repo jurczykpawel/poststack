@@ -8,7 +8,11 @@ const mockGetProvider = vi.fn();
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: (...a: unknown[]) => mockGetProvider(...a) }));
 
 const mockUpsert = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/lib/channels/upsert", () => ({ upsertChannels: (...a: unknown[]) => mockUpsert(...a) }));
+const mockAssertChannels = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/channels/upsert", () => ({
+  upsertChannels: (...a: unknown[]) => mockUpsert(...a),
+  assertChannelsAllowed: (...a: unknown[]) => mockAssertChannels(...a),
+}));
 
 const mockAudit = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/audit", () => ({
