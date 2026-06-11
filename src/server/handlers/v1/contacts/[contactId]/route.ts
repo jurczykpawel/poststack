@@ -1,17 +1,12 @@
 import { and, eq, or, inArray, sql } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db, isForeignKeyViolation } from "@/lib/db";
-import { contacts, commentLogs, conversations, sequenceEnrollments, processedEvents, tags, contactTags } from "@/db/schema";
+import { contacts, commentLogs, conversations, sequenceEnrollments, webhookEvents, tags, contactTags } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
-
-/** Escape SQL LIKE wildcards so an interpolated value matches literally (paired with ESCAPE '\'). */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
 
 // GET /api/v1/contacts/:id
 export async function GET(
@@ -185,17 +180,12 @@ export async function DELETE(
     await tx.execute(
       sql`delete from graphile_worker._private_jobs where payload->>'contactId' = ${contactId} or ${senderClause}`,
     );
-    // A reaction event-dedup key embeds the reactor's PSID (`reaction:{channelId}:{psid}:...`)
-    // and is never reached by a table cascade or the time-based prune, so without this the PSID
-    // outlives the contact. Scrub the keys for this contact's (channel, sender) pairs.
-    // The sender id is interpolated into a LIKE pattern, so escape its `\ % _` (today's PSIDs are
-    // numeric, but a future platform handle could carry a wildcard and over-delete neighbours) —
-    // ESCAPE '\' makes the escaped chars match literally.
-    const reactionKeyClauses = contact.contact_channels.map(
-      (cc) => sql`${processedEvents.key} like ${`reaction:${cc.channel_id}:${escapeLike(cc.platform_sender_id)}:%`} escape '\\'`,
-    );
-    if (reactionKeyClauses.length > 0) {
-      await tx.delete(processedEvents).where(or(...reactionKeyClauses));
+    // The webhook_events log stores the event sender's PSID (sender_id column + the raw payload)
+    // and its channel FK is ON DELETE SET NULL (the log row outlives the channel), so it is never
+    // reached by a table cascade. Without this, an erased contact's PSID would outlive the contact.
+    // Scrub every logged event keyed to this contact's PSID(s) so erasure is complete in the log too.
+    if (psids.length > 0) {
+      await tx.delete(webhookEvents).where(inArray(webhookEvents.sender_id, psids));
     }
     // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
     // approvals, broadcast recipients and outbound_deliveries (via foreign keys).

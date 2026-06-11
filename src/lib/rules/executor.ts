@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals, contacts } from "@/db/schema";
 import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
-import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
+import { claimEvent, isEventTerminal, type EventOutcomeLinks } from "@/lib/idempotency";
 import { rephrase } from "@/lib/ai/rephrase";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { truncateCodePoints } from "@/lib/text";
@@ -160,10 +160,14 @@ export async function evaluateRules(
     },
   });
 
+  // Outcome links recorded on the webhook_events row when we claim the event — the executor knows
+  // the contact + conversation; the worker enriches message/comment/delivery ids after (1.4).
+  const links: EventOutcomeLinks = { contact_id: contactId, conversation_id: conversationId };
+
   // Eligibility precheck (non-mutating): if this event was already handled, do nothing —
   // and never plan a reply (LLM rephrase) for it. The in-transaction claim below is the
   // authority; this just avoids the work on a redelivery.
-  if (eventKey && (await isEventProcessed(eventKey))) return { outcome: "already", ruleId: null };
+  if (eventKey && (await isEventTerminal(eventKey))) return { outcome: "already", ruleId: null };
 
   // Consent gate: an unsubscribed contact gets NO automated reply — no rule, no comment→DM,
   // no follow-gate (which is enqueued from here). This runs before any rule is planned, so no
@@ -178,7 +182,7 @@ export async function evaluateRules(
   // worker — never fire to a contact we can no longer see.
   if (!contact?.is_subscribed) {
     if (eventKey) {
-      const claimed = await claimEventOnce(eventKey);
+      const claimed = await claimEvent(eventKey, "no_match", links, db, { event_type: eventType });
       return { outcome: claimed ? "no_match" : "already", ruleId: null };
     }
     return { outcome: "no_match", ruleId: null };
@@ -243,7 +247,7 @@ export async function evaluateRules(
     try {
       await db.transaction(async (tx) => {
         // Event-level dedup: a redelivery of an already-fired event finds the claim.
-        if (eventKey && !(await claimEventOnce(eventKey, tx))) throw new NotFired("already");
+        if (eventKey && !(await claimEvent(eventKey, "fired", links, tx, { event_type: eventType }))) throw new NotFired("already");
         // Limits are spent on an actual send. An approval only PARKS a proposal — its
         // cooldown / send-count are charged when it is approved (so a reject/abandon costs
         // nothing and doesn't block the next event); parking just claims + stores it.
@@ -274,7 +278,7 @@ export async function evaluateRules(
   // new rule is added, or after the conversation is unpaused — does not produce a late
   // reply to an old event. A lost claim race means a concurrent delivery already handled it.
   if (eventKey) {
-    const claimed = await claimEventOnce(eventKey);
+    const claimed = await claimEvent(eventKey, "no_match", links, db, { event_type: eventType });
     return { outcome: claimed ? "no_match" : "already", ruleId: null };
   }
   return { outcome: "no_match", ruleId: null };

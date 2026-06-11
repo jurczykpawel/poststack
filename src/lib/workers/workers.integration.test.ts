@@ -83,10 +83,10 @@ beforeEach(async () => {
   provider.sendMessage.mockResolvedValue({ platformMessageId: "PMID-1" });
   provider.refreshToken.mockImplementation(async (t: unknown) => t);
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
-  // Durable event claims are a shared, un-workspace-scoped store; clear it so reaction-dedup
-  // / event keys don't survive into a re-run of this suite. (Outbound delivery rows are
-  // cleared by the workspace cascade below.)
-  await db.delete(s.processedEvents);
+  // The webhook_events log is a shared store (channel_id is SET NULL, not cascade); clear it so
+  // event keys / dedup claims don't survive into a re-run of this suite. (Outbound delivery rows
+  // are cleared by the workspace cascade below.)
+  await db.delete(s.webhookEvents);
   // sequence_enrollments.channel_id has no cascade — remove before the workspace.
   await db.delete(s.sequenceEnrollments).where(eq(s.sequenceEnrollments.channel_id, CH));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
@@ -339,11 +339,11 @@ describe("incoming-message worker (real Postgres)", () => {
     }
   });
 
-  // the durable event claim must outlive the ephemeral TTL prune (cooldowns,
+  // the durable event claim (in webhook_events) must outlive the ephemeral TTL prune (cooldowns,
   // rate-limit windows, the token denylist), so an old webhook redelivery can't fire a
-  // second/late reply after maintenance runs. The claim is kept for the full platform
-  // redelivery window; it is only pruned far past it (60 days), so a prune run two
-  // days out clears the short-lived stores while the claim — and thus dedup — survives.
+  // second/late reply after maintenance runs. The webhook_events log is NOT auto-pruned (its
+  // retention is owner-driven via the prune endpoint), so a maintenance run leaves the claim — and
+  // thus dedup — intact while clearing the short-lived stores.
   it("a processed event stays deduped after the operational TTL stores are pruned", async () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
@@ -352,9 +352,9 @@ describe("incoming-message worker (real Postgres)", () => {
     await w.processIncomingMessage(job, helpers); // fires + durably records the event
     expect(await jobCount("outgoing-message")).toBe(1);
     // Maintenance prunes the ephemeral TTL stores (seconds-to-hours lived); two days out is
-    // well past them but inside the event-dedup retention window.
+    // well past them but the webhook_events log is untouched by maintenance.
     await pruneExpired(new Date(Date.now() + 2 * 86_400_000));
-    expect((await db.select().from(s.processedEvents)).length).toBeGreaterThan(0); // event claim survives
+    expect((await db.select().from(s.webhookEvents)).length).toBeGreaterThan(0); // event claim survives
     // Redelivery after the prune must not reply again.
     await w.processIncomingMessage(job, helpers);
     expect(await jobCount("outgoing-message")).toBe(1);
@@ -772,12 +772,12 @@ describe("incoming-reaction worker", () => {
       await expect(w.processIncomingReaction(evt, helpers)).rejects.toThrow();
       expect(await jobCount("outgoing-message")).toBe(0);
       // The claim is taken in the same transaction as the enqueue, so a failed enqueue
-      // leaves no claim behind — otherwise the retry would hit it and skip silently.
-      expect((await db.select().from(s.processedEvents)).length).toBe(0);
+      // leaves no terminal claim behind — otherwise the retry would hit it and skip silently.
+      expect((await db.select().from(s.webhookEvents)).filter((e) => e.handling_status !== "received").length).toBe(0);
       // Retry: enqueue works, the event fires exactly once and is now claimed.
       await w.processIncomingReaction(evt, helpers);
       expect(await jobCount("outgoing-message")).toBe(1);
-      expect((await db.select().from(s.processedEvents)).length).toBe(1);
+      expect((await db.select().from(s.webhookEvents)).filter((e) => e.handling_status === "fired").length).toBe(1);
     } finally {
       spy.mockRestore();
     }

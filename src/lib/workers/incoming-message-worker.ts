@@ -5,7 +5,7 @@ import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { channels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEventOnce } from "@/lib/idempotency";
+import { claimEvent } from "@/lib/idempotency";
 import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -128,7 +128,7 @@ export async function processIncomingMessage(
   // A manually paused channel still ingests to the inbox but runs no automation —
   // same handling as a per-conversation pause: surface a new DM for a human, don't auto-reply.
   if (conversation.is_automation_paused || channel.status === "paused") {
-    await claimEventOnce(eventKey);
+    await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversation.id }, db, { event_type: "message" });
     if (isNewMessage) await ifLatest({ needs_manual_reply: true });
     return;
   }

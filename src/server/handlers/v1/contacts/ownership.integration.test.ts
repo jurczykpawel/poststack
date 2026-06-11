@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, processedEvents, tags, contactTags } from "@/db/schema";
+import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, webhookEvents, tags, contactTags } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
@@ -242,53 +242,60 @@ describe("contact erase cascades rule_send_counts (real Postgres)", () => {
   });
 });
 
-// a reaction event-dedup key embeds the reactor's PSID and is reached by no table
-// cascade; erasure scrubs the keys for the contact's (channel, sender) pairs so the PSID does
-// not outlive the contact. A key for a different PSID on the same channel survives.
-describe("contact erase scrubs PSID-bearing processed_events keys (real Postgres)", () => {
+// the webhook_events log stores the event sender's PSID (sender_id column + raw payload) and its
+// channel FK is ON DELETE SET NULL, so it is reached by no table cascade; erasure scrubs every
+// logged event keyed to the contact's PSID(s) so the PSID does not outlive the contact. A row for
+// a different PSID survives.
+describe("contact erase scrubs PSID-bearing webhook_events rows (real Postgres)", () => {
   const CH_P = "ffffffff-0000-0000-0000-0000000000a7";
   const CONTACT_P = "ffffffff-0000-0000-0000-0000000000a8";
   const PSID_P = "psid-reaction-aud66";
   const PSID_OTHER = "psid-reaction-other";
 
-  it("removes processed_events keyed by the erased contact's PSID, keeps another PSID's", async () => {
+  it("removes webhook_events rows for the erased contact's PSID, keeps another PSID's", async () => {
     if (!TEST_DB) return;
     await db.insert(channels).values({ id: CH_P, workspace_id: WS_A, platform: "instagram", platform_id: "PG-P", token_encrypted: "e", webhook_secret: "s" });
     await db.insert(contacts).values({ id: CONTACT_P, workspace_id: WS_A });
     await db.insert(contactChannels).values({ contact_id: CONTACT_P, channel_id: CH_P, platform_sender_id: PSID_P });
-    const mineKey = `reaction:${CH_P}:${PSID_P}:mid-1:love:123`;
-    const otherKey = `reaction:${CH_P}:${PSID_OTHER}:mid-2:love:456`;
-    await db.insert(processedEvents).values([{ key: mineKey }, { key: otherKey }]);
+    const mineKey = `reaction-${PSID_P}-mid-1-123`;
+    const otherKey = `reaction-${PSID_OTHER}-mid-2-456`;
+    await db.insert(webhookEvents).values([
+      { event_key: mineKey, event_type: "reaction", raw: {}, channel_id: CH_P, sender_id: PSID_P },
+      { event_key: otherKey, event_type: "reaction", raw: {}, channel_id: CH_P, sender_id: PSID_OTHER },
+    ]);
 
     const res = await DELETE(reqAsA(), ctx(CONTACT_P));
     expect(res.status).toBe(204);
 
-    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, mineKey) })).toBeUndefined();
-    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, otherKey) })).toBeDefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, mineKey) })).toBeUndefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, otherKey) })).toBeDefined();
     // Cleanup the surviving control row (no contact owns it).
-    await db.delete(processedEvents).where(eq(processedEvents.key, otherKey));
+    await db.delete(webhookEvents).where(eq(webhookEvents.event_key, otherKey));
   });
 
-  // the sender id is interpolated into a LIKE pattern. A `_`/`%` in it must match
-  // literally (ESCAPE), or the scrub would over-delete a neighbour's keys on the same channel.
-  it("escapes LIKE wildcards in the sender id so it does not over-delete neighbours", async () => {
+  // the scrub matches PSIDs exactly (sender_id column, not a LIKE pattern), so a neighbour whose
+  // PSID is a superstring of the erased one is never over-deleted.
+  it("matches the sender id exactly so it does not over-delete a neighbour", async () => {
     if (!TEST_DB) return;
     const CH_W = "ffffffff-0000-0000-0000-0000000000a9";
     const CONTACT_W = "ffffffff-0000-0000-0000-0000000000aa";
-    const PSID_WILD = "user_1"; // `_` is a single-char LIKE wildcard if unescaped
+    const PSID_MINE = "user1";
     await db.insert(channels).values({ id: CH_W, workspace_id: WS_A, platform: "instagram", platform_id: "PG-W", token_encrypted: "e", webhook_secret: "s" });
     await db.insert(contacts).values({ id: CONTACT_W, workspace_id: WS_A });
-    await db.insert(contactChannels).values({ contact_id: CONTACT_W, channel_id: CH_W, platform_sender_id: PSID_WILD });
-    const mineKey = `reaction:${CH_W}:user_1:mid:love:1`;
-    const neighbourKey = `reaction:${CH_W}:userX1:mid:love:2`; // would match `user_1` if `_` were a wildcard
-    await db.insert(processedEvents).values([{ key: mineKey }, { key: neighbourKey }]);
+    await db.insert(contactChannels).values({ contact_id: CONTACT_W, channel_id: CH_W, platform_sender_id: PSID_MINE });
+    const mineKey = `reaction-${PSID_MINE}-mid-1`;
+    const neighbourKey = `reaction-user1X-mid-2`;
+    await db.insert(webhookEvents).values([
+      { event_key: mineKey, event_type: "reaction", raw: {}, channel_id: CH_W, sender_id: PSID_MINE },
+      { event_key: neighbourKey, event_type: "reaction", raw: {}, channel_id: CH_W, sender_id: "user1X" },
+    ]);
 
     const res = await DELETE(reqAsA(), ctx(CONTACT_W));
     expect(res.status).toBe(204);
 
-    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, mineKey) })).toBeUndefined();
-    expect(await db.query.processedEvents.findFirst({ where: eq(processedEvents.key, neighbourKey) })).toBeDefined();
-    await db.delete(processedEvents).where(eq(processedEvents.key, neighbourKey));
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, mineKey) })).toBeUndefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, neighbourKey) })).toBeDefined();
+    await db.delete(webhookEvents).where(eq(webhookEvents.event_key, neighbourKey));
   });
 });
 

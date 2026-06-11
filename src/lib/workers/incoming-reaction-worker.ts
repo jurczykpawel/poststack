@@ -4,7 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEventOnce, isEventProcessed } from "@/lib/idempotency";
+import { claimEvent, isEventTerminal } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -62,7 +62,7 @@ export async function processIncomingReaction(
   // delivery, or a retry whose prior attempt rolled back) falls through and is claimed
   // atomically inside evaluateRules.
   const eventKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
-  if (await isEventProcessed(eventKey)) {
+  if (await isEventTerminal(eventKey)) {
     helpers.logger.info("Reaction already processed, skipping redelivery");
     return;
   }
@@ -79,7 +79,7 @@ export async function processIncomingReaction(
   if (isAutomationPaused || channel.status === "paused") {
     // Paused conversation OR manually paused channel: no automation, but still terminally
     // claim so a redelivery after unpause doesn't fire on an old reaction.
-    await claimEventOnce(eventKey);
+    await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversationId }, db, { event_type: "reaction" });
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
     return;
   }

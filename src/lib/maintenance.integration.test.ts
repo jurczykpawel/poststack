@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -19,8 +19,6 @@ const JTI_OLD = "maint-int-jti-old";
 const JTI_NEW = "maint-int-jti-new";
 const RL_OLD = "maint-int-rl-old";
 const RL_NEW = "maint-int-rl-new";
-const PE_OLD = "reaction:maint-int-pe-old";
-const PE_NEW = "reaction:maint-int-pe-new";
 
 const NOW = new Date();
 const PAST = new Date(NOW.getTime() - 60_000);
@@ -32,7 +30,6 @@ async function cleanup() {
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.delete(s.revokedTokens).where(inArray(s.revokedTokens.jti, [JTI_OLD, JTI_NEW]));
   await db.delete(s.rateLimitCounters).where(inArray(s.rateLimitCounters.key, [RL_OLD, RL_NEW]));
-  await db.delete(s.processedEvents).where(inArray(s.processedEvents.key, [PE_OLD, PE_NEW]));
 }
 
 beforeAll(async () => {
@@ -63,11 +60,6 @@ beforeEach(async () => {
     { key: RL_OLD, count: 1, window_start: new Date(NOW.getTime() - 7_200_000) },
     { key: RL_NEW, count: 1, window_start: NOW },
   ]);
-  await db.insert(s.processedEvents).values([
-    { key: PE_OLD, created_at: new Date(NOW.getTime() - 61 * DAY) },
-    { key: PE_NEW, created_at: new Date(NOW.getTime() - 1 * DAY) },
-  ]);
-
   // fixtures: terminal delivery rows + resolved approvals (history that should age out),
   // alongside a held delivery + a pending approval (live state that must never be pruned).
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-MNT", token_encrypted: "x", webhook_secret: "s" });
@@ -109,16 +101,6 @@ describe("pruneExpired (real Postgres)", () => {
     expect(rls.map((r) => r.key)).toEqual([RL_NEW]);
   });
 
-  // event-dedup keys are pruned past the platform redelivery window so the table stays
-  // bounded (and PSID-bearing reaction keys don't linger forever); recent keys stay so dedup
-  // still works inside the window.
-  it("prunes processed_events past the retention window, keeps recent", async () => {
-    if (!TEST_DB) return;
-    await pruneExpired(NOW);
-    const evs = await db.select().from(s.processedEvents).where(inArray(s.processedEvents.key, [PE_OLD, PE_NEW]));
-    expect(evs.map((r) => r.key)).toEqual([PE_NEW]);
-  });
-
   // the delivery ledger is the busiest table by row count; its terminal rows (sent/failed/
   // expired/unknown) are history and must age out, but a `held` row is live (awaiting drain) and
   // must survive regardless of age.
@@ -158,18 +140,6 @@ describe("pruneExpired (real Postgres)", () => {
     const ORIGINAL_TZ = process.env.TZ;
     beforeAll(() => { process.env.TZ = "Europe/Warsaw"; });
     afterAll(() => { process.env.TZ = ORIGINAL_TZ; });
-
-    it("keeps a DB-clock processed_event 90 min inside its 60-day TTL on a non-UTC host", async () => {
-      if (!TEST_DB) return;
-      const KEY = "reaction:maint-int-tz-boundary";
-      await db.delete(s.processedEvents).where(eq(s.processedEvents.key, KEY));
-      await db.execute(sql`insert into processed_events (key, created_at) values (${KEY}, now() - interval '60 days' + interval '90 minutes')`);
-
-      await pruneExpired(new Date());
-
-      expect(await db.query.processedEvents.findFirst({ where: eq(s.processedEvents.key, KEY) })).toBeDefined();
-      await db.delete(s.processedEvents).where(eq(s.processedEvents.key, KEY));
-    });
 
     // outbound_deliveries.updated_at is app-clock (terminal transitions write it via
     // $onUpdate(new Date())), so its prune stays on the plain Date cutoff: an app-clock terminal row

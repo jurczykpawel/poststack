@@ -1,25 +1,21 @@
 import { and, eq, lt, ne, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { ruleCooldowns, revokedTokens, rateLimitCounters, processedEvents, outboundDeliveries, pendingApprovals } from "@/db/schema";
+import { ruleCooldowns, revokedTokens, rateLimitCounters, outboundDeliveries, pendingApprovals } from "@/db/schema";
 
 /** A JS Date rendered as its UTC wall-clock, for comparing against a genuinely DB-clock
  *  `timestamp without time zone` column (CURRENT_TIMESTAMP / now()) independent of the process
  *  timezone — the same TZ-safety fix as the retention cutoff. Use it ONLY for columns
- *  actually written by the DB clock: `processed_events.created_at` and `rate_limit_counters.window_start`
+ *  actually written by the DB clock: `rate_limit_counters.window_start`
  *  here. Predominantly app-clock columns (written by JS `new Date()`, e.g. `outbound_deliveries.updated_at`
  *  via $onUpdate, `revoked_tokens.expires_at`) keep the plain Date — a UTC cutoff would invert the skew
  *  off-pin. NB `rule_cooldowns.expires_at` IS DB-clock (`now() + interval`), but its prune is a
  *  benign bounded cleanup whose authoritative gate is the DB-clock `expires_at < now()` in limits.ts. */
 const utcCutoff = (d: Date) => sql`${d.toISOString()}::timestamp`;
 
-/** Event-dedup rows are kept well past any platform's redelivery window, then dropped. Meta
- *  and Telegram retry webhooks for hours, not weeks — 60 days is a wide safety margin. */
-const PROCESSED_EVENT_TTL_MS = 60 * 86_400_000;
-
 /** Terminal delivery-ledger rows and resolved approvals are operator history: keep them long
  *  enough to investigate a send, then drop so these append-only tables stay bounded (the ledger
  *  is the busiest table by row count). Live state — `held` deliveries, `pending` approvals — is
- *  NEVER pruned here, only the terminal/resolved rows. Same class as the processed_events TTL. */
+ *  NEVER pruned here, only the terminal/resolved rows. */
 const TERMINAL_LEDGER_TTL_MS = 90 * 86_400_000;
 
 /** Delivery states that are done (no further work). `held`/`pending`/`sending` are live. */
@@ -41,11 +37,9 @@ export async function pruneExpired(now: Date = new Date()): Promise<void> {
   await db.delete(revokedTokens).where(lt(revokedTokens.expires_at, now));
   // Rate-limit counters age by window_start (DB-clock now()), not expires_at; drop stale windows.
   await db.delete(rateLimitCounters).where(lt(rateLimitCounters.window_start, utcCutoff(new Date(now.getTime() - 3_600_000))));
-  // Event-dedup keys are durable (no TTL) only within the redelivery window; past it they're
-  // dead weight that also outlives a contact erasure (a reaction key embeds the PSID). Prune
-  // the old ones so the table stays bounded and PSIDs don't linger forever. created_at is
-  // DB-clock, so use a UTC cutoff.
-  await db.delete(processedEvents).where(lt(processedEvents.created_at, utcCutoff(new Date(now.getTime() - PROCESSED_EVENT_TTL_MS))));
+  // The webhook_events log (which folds in the old event-dedup) is NOT auto-pruned here: its
+  // retention is owner-driven via POST /api/v1/webhook-events/prune (manual, bounded), so an
+  // operator keeps the inspection history as long as they choose.
 
   // Terminal delivery-ledger rows older than the window — but never a `held` row, which is still
   // awaiting a drain.

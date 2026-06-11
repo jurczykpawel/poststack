@@ -5,7 +5,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, commentLogs, contacts, conversations } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEventOnce } from "@/lib/idempotency";
+import { claimEvent } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -128,7 +128,7 @@ export async function processIncomingComment(
   if (isAutomationPaused || channel.status === "paused") {
     // A paused conversation OR a manually paused channel runs no automation, but the event
     // is still terminally claimed so a redelivery after unpause doesn't reply late.
-    await claimEventOnce(eventKey);
+    await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversationId, comment_log_id: loggedId }, db, { event_type: "comment" });
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying`);
     return;
   }
