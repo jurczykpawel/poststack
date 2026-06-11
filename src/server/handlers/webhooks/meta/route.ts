@@ -159,36 +159,40 @@ async function resolveChannels(pageIds: string[], platform: Platform): Promise<M
 /**
  * Log one classified event durably, then act on it. Wrapped so a per-event failure (a logging
  * error or an enqueue error) is contained: a logging failure is swallowed (return 0 → still 200,
- * Meta won't retry a row we couldn't persist anyway), while an enqueue failure on a NEW handled
- * event signals a retry (return 1 → 503). A redelivery (already logged) is a no-op.
+ * Meta won't retry a row we couldn't persist anyway), while an enqueue failure on a handled event
+ * signals a retry (return 1 → 503).
+ *
+ * The enqueue is NOT gated on whether THIS delivery created the log row. Gating on `created` would
+ * strand an event forever if the first delivery logged the row but its enqueue then failed (the
+ * 503-driven redelivery would skip the enqueue). A redelivered enqueue is a safe no-op: graphile
+ * dedups a still-pending jobKey, and the worker's received→terminal CAS fires at most once. Every
+ * downstream step (markEventStatus, the echo afterLog) is likewise idempotent.
  */
 async function processClassified(
-  classified: { log: Parameters<typeof logEvent>[0]; job: { task: string; jobKey: string } | null; terminalStatus?: "unhandled" },
+  classified: { log: Parameters<typeof logEvent>[0]; job: { task: string; jobKey: string } | null; terminalStatus?: "unhandled" | "ignored" },
   channelId: string | null,
   enqueue: () => Promise<void>,
   afterLog?: () => Promise<void>,
 ): Promise<number> {
-  let created = false;
   try {
-    ({ created } = await logEvent({ ...classified.log, channel_id: channelId }));
+    await logEvent({ ...classified.log, channel_id: channelId });
   } catch (err) {
     // A logging failure must never fail the webhook. Record nothing, signal no retry.
     console.error(`[webhook] failed to log event ${sanitizeForLog(classified.log.event_key)}:`, err);
     return 0;
   }
-  if (!created) return 0; // redelivery — already logged + already enqueued/processed
 
-  // Unhandled type: mark terminal and stop (no job).
+  // No-job event (unhandled type, malformed, or echo): mark terminal where applicable, run any
+  // post-log step. All idempotent (only a `received` row transitions), so a redelivery is a no-op.
   if (!classified.job) {
-    if (classified.terminalStatus === "unhandled") {
-      await markEventStatus(classified.log.event_key, "unhandled").catch(() => {});
+    if (classified.terminalStatus) {
+      await markEventStatus(classified.log.event_key, classified.terminalStatus).catch(() => {});
     }
     if (afterLog) await afterLog().catch((err) => console.error("[webhook] post-log step failed:", err));
     return 0;
   }
 
-  // Handled type: enqueue the job. A failed enqueue on a freshly-logged event → 503 (Meta retries
-  // the whole batch; the jobKey + event_key keep it idempotent on the re-run).
+  // Handled type: always enqueue (idempotent). A failed enqueue → 503 (Meta retries the whole batch).
   try {
     await enqueue();
   } catch (err) {

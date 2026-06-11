@@ -1,9 +1,0 @@
-# Local smoke-test override (gitignored intent — temporary). Opens registration so the smoke can
-# create a user, and leaves everything else from docker-compose.yml + .env intact.
-services:
-  web:
-    environment:
-      REGISTRATION_ENABLED: "true"
-  worker:
-    environment:
-      REGISTRATION_ENABLED: "true"

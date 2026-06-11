@@ -86,10 +86,11 @@ export async function POST(request: Request): Promise<Response> {
     msg.chat.type !== "private" ? "ignored" : !msg.text ? "unhandled" : "received";
 
   // Log the event durably first (deduped on event_key). A logging failure must never fail the
-  // webhook — swallow it and continue to enqueue (the jobKey still dedups).
-  let created = true;
+  // webhook — swallow it and continue. We do NOT gate the enqueue on whether this delivery created
+  // the row: a redelivery whose original enqueue failed must still enqueue (gating would strand it).
+  // Re-enqueue is safe — the jobKey dedups a pending job and the worker's CAS fires at most once.
   try {
-    ({ created } = await logEvent({
+    await logEvent({
       event_key: eventKey,
       event_type: handled ? "message" : "unknown",
       platform: "telegram",
@@ -99,14 +100,10 @@ export async function POST(request: Request): Promise<Response> {
       recipient_id: channel.platform_id,
       platform_message_id: identity,
       raw: update,
-    }));
+    });
   } catch (err) {
     console.error("[telegram webhook] event log failed:", err);
-    created = true; // proceed to enqueue regardless
   }
-
-  // A redelivery (already logged) needs no second row or job.
-  if (!created) return ok();
 
   if (!handled) {
     await markEventStatus(eventKey, status === "ignored" ? "ignored" : "unhandled").catch(() => {});

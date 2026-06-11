@@ -12,8 +12,9 @@ export interface ClassifiedEvent {
   log: LogEventInput;
   /** Set for handled types → enqueue this task with this jobKey; null → log only (no job). */
   job: { task: "incoming-message" | "incoming-comment" | "incoming-reaction"; jobKey: string } | null;
-  /** When the logged row should land terminal immediately (unhandled type) instead of `received`. */
-  terminalStatus?: "unhandled";
+  /** When the logged row should land terminal immediately instead of `received`: `unhandled` for a
+   *  recognized type with no handler, `ignored` for a malformed event that can't be processed. */
+  terminalStatus?: "unhandled" | "ignored";
 }
 
 /** Hash an operator-controlled string into a fixed-length token for an event key (keeps the
@@ -83,19 +84,24 @@ export function classifyMessagingEvent(
   if (evt.message?.mid) {
     const isStoryMention = evt.message.attachments?.some((a) => (a as { type?: string }).type === "story_mention");
     const eventType = evt.message.reply_to?.story ? "story_reply" : isStoryMention ? "story_mention" : "message";
+    // Well-formed only when sender + recipient are present (the worker dereferences them). A
+    // malformed event is logged but can't be processed → land it terminal `ignored`, not stuck `received`.
+    const wellFormed = !!(senderId && recipientId);
     return {
       log: { ...base, event_key: `msg-${evt.message.mid}`, event_type: eventType, platform_message_id: evt.message.mid },
-      // Well-formed only when sender + recipient are present (the worker dereferences them).
-      job: senderId && recipientId ? { task: "incoming-message", jobKey: `msg-${evt.message.mid}` } : null,
+      job: wellFormed ? { task: "incoming-message", jobKey: `msg-${evt.message.mid}` } : null,
+      ...(wellFormed ? {} : { terminalStatus: "ignored" as const }),
     };
   }
 
   // Postback (button tap). The payload can be up to 1000 chars — hash it into the key.
   if (evt.postback?.payload) {
     const key = `postback-${senderId}-${evt.timestamp}-${hash16(evt.postback.payload)}`;
+    const wellFormed = !!(senderId && recipientId);
     return {
       log: { ...base, event_key: key, event_type: "postback" },
-      job: senderId && recipientId ? { task: "incoming-message", jobKey: key } : null,
+      job: wellFormed ? { task: "incoming-message", jobKey: key } : null,
+      ...(wellFormed ? {} : { terminalStatus: "ignored" as const }),
     };
   }
 
@@ -107,6 +113,7 @@ export function classifyMessagingEvent(
       return {
         log: { ...base, event_key: key, event_type: "reaction", platform_message_id: r.mid },
         job: senderId ? { task: "incoming-reaction", jobKey: key } : null,
+        ...(senderId ? {} : { terminalStatus: "ignored" as const }),
       };
     }
     return {

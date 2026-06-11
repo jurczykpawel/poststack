@@ -74,4 +74,18 @@ describe("meta webhook partial enqueue", () => {
     const res = await POST(signed(twoMessages));
     expect(res.status).toBe(200);
   });
+
+  it("re-enqueues an already-logged redelivery so a failed first enqueue never strands the event", async () => {
+    // logEvent reports the row already exists (a redelivery whose ORIGINAL enqueue may have failed
+    // → the job was never created). The handler must still enqueue; gating on `created` would leave
+    // the event stuck in `received` forever. Re-enqueue is safe (jobKey dedups, worker CAS fires once).
+    const idem = await import("@/lib/idempotency");
+    (idem.logEvent as ReturnType<typeof vi.fn>).mockResolvedValue({ created: false });
+    addJob.mockClear();
+    addJob.mockResolvedValue(undefined);
+    const res = await POST(signed(twoMessages));
+    expect(res.status).toBe(200);
+    expect(addJob).toHaveBeenCalledTimes(2);
+    (idem.logEvent as ReturnType<typeof vi.fn>).mockResolvedValue({ created: true });
+  });
 });
