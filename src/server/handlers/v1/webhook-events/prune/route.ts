@@ -7,9 +7,12 @@ import { z } from "zod";
 export const runtime = "nodejs";
 
 const schema = z.object({
-  // Bounded like the message-prune endpoint: an unbounded value pushes the cutoff Date out of
-  // range and throws RangeError on toISOString() → 500.
-  older_than_days: z.number().int().min(1).max(MAX_RETENTION_DAYS),
+  // Floor at 7 days: webhook_events rows double as the durable inbound-event dedup claims, and a
+  // platform redelivery can arrive within a short window — pruning a recent claim could let a
+  // redelivery re-fire a reply (a reaction has no other unique row to dedup on). 7d is comfortably
+  // past any Meta/Telegram redelivery window. Upper bound (an unbounded value pushes the cutoff Date
+  // out of range → RangeError → 500) is the same MAX_RETENTION_DAYS as message-prune.
+  older_than_days: z.number().int().min(7).max(MAX_RETENTION_DAYS),
 });
 
 // POST /api/v1/webhook-events/prune — manually delete this workspace's webhook_events log rows

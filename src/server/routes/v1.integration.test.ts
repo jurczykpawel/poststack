@@ -251,6 +251,34 @@ describe("v1 delegation parity (real Postgres)", () => {
     await db.delete(webhookEvents).where(eq(webhookEvents.event_key, `we-new-${now}`));
   });
 
+  // The prune floor (7d) keeps a recent dedup claim alive past any platform redelivery window.
+  it("rejects an older_than_days below the redelivery-safe floor (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api/v1/webhook-events/prune", {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ older_than_days: 1 }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  // An orphan row (channel_id NULL — e.g. left by another tenant's deleted channel, FK SET NULL) is
+  // unowned, so a workspace prune must NOT delete it (else cross-tenant log/dedup deletion).
+  it("does not prune an orphan (channel_id NULL) row", async () => {
+    if (!TEST_DB) return;
+    const { webhookEvents } = await import("@/db/schema");
+    const now = Date.now();
+    await db.insert(webhookEvents).values({ event_key: `we-orphan-${now}`, event_type: "message", raw: {}, channel_id: null, received_at: new Date(now - 100 * 86_400_000) });
+    const res = await app.request("/api/v1/webhook-events/prune", {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ older_than_days: 30 }),
+    });
+    expect(res.status).toBe(200);
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, `we-orphan-${now}`) })).toBeDefined();
+    await db.delete(webhookEvents).where(eq(webhookEvents.event_key, `we-orphan-${now}`));
+  });
+
   it("force-drains a channel (200)", async () => {
     if (!TEST_DB) return;
     const res = await app.request(`/api/v1/channels/${CH_A}/drain`, { method: "POST", headers: authHeaders });

@@ -1,4 +1,4 @@
-import { and, eq, lt, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
+import { and, eq, lt, inArray, isNotNull, notExists, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions, sequenceEnrollments, channels, webhookEvents } from "@/db/schema";
 
@@ -116,9 +116,11 @@ export async function pruneWorkspaceMessages(
 
 /**
  * Manually prune this workspace's webhook_events log older than `olderThanDays`. The log has no
- * auto-TTL (unlike the ephemeral stores) — retention is owner-driven via this endpoint. Scoped to
- * the workspace's own channels, plus orphan rows (channel_id NULL = an event for a page unknown to
- * any workspace), so one tenant's prune never reaches another tenant's rows. Returns the count.
+ * auto-TTL (unlike the ephemeral stores) — retention is owner-driven via this endpoint. Scoped
+ * STRICTLY to the workspace's own channels: orphan rows (channel_id NULL — an event for an unknown
+ * page, OR a row whose channel was later deleted, since the FK is ON DELETE SET NULL) are NOT
+ * touched, since such a row could have belonged to another tenant's now-deleted channel. So one
+ * tenant's prune never reaches another tenant's rows. Returns the count.
  */
 export async function pruneWorkspaceWebhookEvents(
   workspaceId: string,
@@ -143,7 +145,7 @@ export async function pruneWorkspaceWebhookEvents(
         .where(
           and(
             lt(webhookEvents.received_at, cutoffUtc),
-            or(inArray(webhookEvents.channel_id, own), isNull(webhookEvents.channel_id)),
+            inArray(webhookEvents.channel_id, own),
           ),
         )
         .limit(BATCH_SIZE),
