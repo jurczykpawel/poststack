@@ -56,5 +56,8 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 
+# Local smoke/dev compose override (opens REGISTRATION_ENABLED — never ship)
+docker-compose.smoke.yml
+
 # Private — never commit (AGPL public history stays clean)
 priv/
