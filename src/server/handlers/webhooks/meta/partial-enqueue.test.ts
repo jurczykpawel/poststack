@@ -88,4 +88,30 @@ describe("meta webhook partial enqueue", () => {
     expect(addJob).toHaveBeenCalledTimes(2);
     (idem.logEvent as ReturnType<typeof vi.fn>).mockResolvedValue({ created: true });
   });
+
+  it("still enqueues when logEvent throws — a logging failure must not skip the job", async () => {
+    // A failed logEvent must not return early (that would 200 with neither a row nor a job). Fall
+    // through to enqueue: if the log failed from a transient DB outage the enqueue fails too → 503
+    // → Meta retries (the rescue); otherwise the job is still created. Mirrors the Telegram route.
+    const idem = await import("@/lib/idempotency");
+    (idem.logEvent as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
+    addJob.mockClear();
+    addJob.mockResolvedValue(undefined);
+    const res = await POST(signed(twoMessages));
+    expect(res.status).toBe(200);
+    expect(addJob).toHaveBeenCalledTimes(2);
+    (idem.logEvent as ReturnType<typeof vi.fn>).mockResolvedValue({ created: true });
+  });
+
+  it("returns 503 when logEvent and enqueue both fail (the DB-outage rescue path)", async () => {
+    const idem = await import("@/lib/idempotency");
+    (idem.logEvent as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
+    addJob.mockReset();
+    addJob.mockRejectedValue(new Error("queue down"));
+    const res = await POST(signed(twoMessages));
+    expect(res.status).toBe(503);
+    (idem.logEvent as ReturnType<typeof vi.fn>).mockResolvedValue({ created: true });
+    addJob.mockReset();
+    addJob.mockResolvedValue(undefined);
+  });
 });

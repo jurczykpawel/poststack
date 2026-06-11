@@ -87,4 +87,21 @@ describe("confirmEcho (real Postgres)", () => {
     const del = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "dk-cross") });
     expect(del?.confirmed_by_echo_at).toBeNull(); // different channel — untouched
   });
+
+  it("does not re-stamp confirmed_by_echo_at on a redelivered echo (keeps the first timestamp)", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.outboundDeliveries).values({
+      delivery_key: "dk-m", workspace_id: WS, channel_id: CH, task_name: "outgoing-message",
+      status: "sent", payload: {}, platform_message_id: "MID-MATCH",
+    });
+    await logEvent({ event_key: "echo-MATCH", event_type: "echo", raw: {}, channel_id: CH, is_echo: true, platform_message_id: "MID-MATCH" });
+    await confirmEcho("echo-MATCH", "MID-MATCH", CH);
+    const first = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "dk-m") });
+    // A redelivered echo runs confirmEcho again (always-enqueue afterLog). The IS NULL guard must
+    // keep the original timestamp rather than overwrite it with a later one.
+    await new Promise((r) => setTimeout(r, 20));
+    await confirmEcho("echo-MATCH", "MID-MATCH", CH);
+    const second = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "dk-m") });
+    expect(second?.confirmed_by_echo_at?.getTime()).toBe(first?.confirmed_by_echo_at?.getTime());
+  });
 });

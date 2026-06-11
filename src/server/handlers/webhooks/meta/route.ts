@@ -177,9 +177,10 @@ async function processClassified(
   try {
     await logEvent({ ...classified.log, channel_id: channelId });
   } catch (err) {
-    // A logging failure must never fail the webhook. Record nothing, signal no retry.
+    // A logging failure must not return early — fall through to the enqueue. logEvent and addJob
+    // share the same DB: if logging failed from a transient outage the enqueue fails too → 503 →
+    // Meta retries (the rescue); otherwise the job is still created. (Telegram route does the same.)
     console.error(`[webhook] failed to log event ${sanitizeForLog(classified.log.event_key)}:`, err);
-    return 0;
   }
 
   // No-job event (unhandled type, malformed, or echo): mark terminal where applicable, run any

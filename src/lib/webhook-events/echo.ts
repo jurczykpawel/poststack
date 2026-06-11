@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { outboundDeliveries, webhookEvents } from "@/db/schema";
 
@@ -18,10 +18,13 @@ export async function confirmEcho(
   channelId: string | null,
 ): Promise<void> {
   // Match the delivery by the echoed mid. Scope to the channel when known, so an id collision
-  // across channels can't confirm the wrong row.
-  const where = channelId
+  // across channels can't confirm the wrong row. Only an as-yet-unconfirmed delivery is stamped:
+  // a redelivered echo (afterLog runs on every delivery) must not overwrite the first confirmation
+  // timestamp with a later one.
+  const match = channelId
     ? and(eq(outboundDeliveries.platform_message_id, echoedMid), eq(outboundDeliveries.channel_id, channelId))
     : eq(outboundDeliveries.platform_message_id, echoedMid);
+  const where = and(match, isNull(outboundDeliveries.confirmed_by_echo_at));
 
   const [delivery] = await db
     .update(outboundDeliveries)
