@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
-import { notifyChannelDown } from "@/lib/notifications/channel-alert";
+import { dispatchAlert } from "@/lib/notifications/alert";
 import { addJobTx } from "@/lib/queue/client";
 
 /** An open Drizzle transaction (the callback arg of db.transaction). */
@@ -34,14 +34,16 @@ export async function markChannelNeedsReauth(
     })
     .where(eq(channels.id, channelId));
 
-  // Notify only when the channel was previously healthy (one alert per outage).
+  // Notify only when the channel was previously healthy (one alert per outage). The throttle in
+  // dispatchAlert is a second backstop against a storm.
   if (channel.status !== "needs_reauth") {
-    await notifyChannelDown({
+    await dispatchAlert({
+      type: "channel_reauth",
       workspaceId: channel.workspace_id,
       channelId,
       platform: channel.platform,
       displayName: channel.display_name,
-      reason: error,
+      detail: error,
     });
   }
 }
