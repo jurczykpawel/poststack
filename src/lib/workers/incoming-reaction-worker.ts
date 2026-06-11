@@ -61,7 +61,9 @@ export async function processIncomingReaction(
   // reaction can't reopen/reorder the conversation. A still-unprocessed event (first
   // delivery, or a retry whose prior attempt rolled back) falls through and is claimed
   // atomically inside evaluateRules.
-  const eventKey = `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
+  // Prefer the event_key the edge logged under; fall back to a stable per-event key for a direct
+  // worker invocation that skipped the edge log.
+  const eventKey = payload.eventKey ?? `reaction:${channel.id}:${senderId}:${payload.reactedMid}:${reactionType ?? ""}:${payload.timestamp ?? ""}`;
   if (await isEventTerminal(eventKey)) {
     helpers.logger.info("Reaction already processed, skipping redelivery");
     return;

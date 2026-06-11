@@ -1,9 +1,16 @@
 import { createHash, timingSafeEqual } from "crypto";
+import { and, eq, ne } from "drizzle-orm";
 import { env } from "@/lib/env";
+import { db } from "@/lib/db";
+import { channels, type Platform } from "@/db/schema";
 import { verifyMetaSignature } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { addJob } from "@/lib/queue/client";
+import { logEvent, markEventStatus } from "@/lib/idempotency";
+import { classifyMessagingEvent, classifyChangeEvent } from "@/lib/webhook-events/log";
+import { confirmEcho } from "@/lib/webhook-events/echo";
 import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob } from "@/lib/queue/types";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 
 export const runtime = "nodejs";
 
@@ -89,136 +96,35 @@ export async function POST(request: Request) {
   }
 
   // Normalize: Meta sends "page" for Facebook pages
-  const platform = payload.object === "page" ? "facebook" : payload.object;
+  const platform: Platform = (payload.object === "page" ? "facebook" : payload.object) as Platform;
+
+  // Resolve each page id to its channel once (best-effort), so every logged event can carry
+  // channel_id. A page unknown to us logs with channel_id=null — still recorded, never dropped.
+  const channelByPage = await resolveChannels(pageIds, platform);
 
   let failed = 0;
 
   for (const entry of payload.entry ?? []) {
-    // Messaging events (DMs)
-    for (const messagingEvent of entry.messaging ?? []) {
-      if (!messagingEvent.message?.mid) continue;
-      // Defensive: `sender`/`recipient` are non-optional in the Meta contract but only via a
-      // cast, not runtime validation — guard before dereferencing so an odd payload shape is a
-      // skip, not a TypeError that 500s the whole batch into a Meta retry storm.
-      if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue;
+    const channelId = channelByPage.get(entry.id) ?? null;
 
-      // Skip echo messages (our own outbound messages echoed back by Meta)
-      if (messagingEvent.message.is_echo) continue;
-
-      const replyToStory = messagingEvent.message.reply_to?.story;
-      const isStoryMention = messagingEvent.message.attachments?.some(
-        (a) => (a as { type?: string }).type === "story_mention",
-      );
-
-      const job: IncomingMessageJob = {
-        platform,
-        pageId: entry.id,
-        senderId: messagingEvent.sender.id,
-        recipientId: messagingEvent.recipient.id,
-        mid: messagingEvent.message.mid,
-        text: messagingEvent.message.text ?? null,
-        quickReplyPayload: messagingEvent.message.quick_reply?.payload,
-        isStoryReply: replyToStory ? true : undefined,
-        isStoryMention: isStoryMention ? true : undefined,
-        storyId: replyToStory?.id,
-        timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
-      };
-
-      try {
-        await addJob("incoming-message", job, {
-          jobKey: `msg-${messagingEvent.message.mid}`,
-        });
-      } catch (err) {
-        failed++;
-        console.error("[webhook] Failed to enqueue message:", err);
-      }
+    // Every messaging event → one log row (handled, unhandled, echo) — never dropped.
+    for (const evt of entry.messaging ?? []) {
+      const classified = classifyMessagingEvent(evt as Parameters<typeof classifyMessagingEvent>[0], platform, entry.id, payload.object);
+      if (!classified) continue;
+      const enqueueMessaging = () => enqueueFromClassified(classified, evt as MessagingEvent, entry.id, platform);
+      failed += await processClassified(classified, channelId, enqueueMessaging, async () => {
+        if (classified.log.event_type === "echo" && classified.log.platform_message_id) {
+          await confirmEcho(classified.log.event_key, classified.log.platform_message_id, channelId);
+        }
+      });
     }
 
-    // Postback events (button taps -- no message.mid, separate event type)
-    for (const messagingEvent of entry.messaging ?? []) {
-      if (!messagingEvent.postback?.payload) continue;
-      if (messagingEvent.message) continue; // already handled above
-      if (!messagingEvent.sender?.id || !messagingEvent.recipient?.id) continue;
-
-      // The button payload is operator-controlled (up to 1000 chars); embedding it raw would
-      // overflow graphile's 512-char job_key cap → the enqueue throws → 503 → Meta retry-storm
-      // for that button forever. Hash it into the synthetic id/key (deterministic → dedup intact);
-      // the full payload is preserved in `postbackPayload`.
-      const payloadHash = createHash("sha256").update(messagingEvent.postback.payload).digest("hex").slice(0, 16);
-      const postbackKey = `postback-${messagingEvent.sender.id}-${messagingEvent.timestamp}-${payloadHash}`;
-
-      const job: IncomingMessageJob = {
-        platform,
-        pageId: entry.id,
-        senderId: messagingEvent.sender.id,
-        recipientId: messagingEvent.recipient.id,
-        mid: postbackKey,
-        text: null,
-        postbackPayload: messagingEvent.postback.payload,
-        timestamp: Math.floor(messagingEvent.timestamp / 1000), // Meta sends ms; the worker expects seconds
-      };
-
-      try {
-        await addJob("incoming-message", job, {
-          jobKey: postbackKey,
-        });
-      } catch (err) {
-        failed++;
-        console.error("[webhook] Failed to enqueue postback:", err);
-      }
-    }
-
-    // Reaction events (emoji reaction to one of our messages -- separate event)
-    for (const messagingEvent of entry.messaging ?? []) {
-      const reaction = messagingEvent.reaction;
-      if (!reaction || reaction.action !== "react") continue;
-      if (!messagingEvent.sender?.id) continue; // guard before dereferencing sender
-
-      const job: IncomingReactionJob = {
-        platform,
-        pageId: entry.id,
-        senderId: messagingEvent.sender.id,
-        reactedMid: reaction.mid,
-        reactionType: reaction.reaction,
-        emoji: reaction.emoji,
-        // Normalize to seconds like the DM/postback events above — Meta sends ms here. The dedup
-        // key is internally consistent either way, but any future code that turns this into a Date
-        // would otherwise be ~3 years off.
-        timestamp: Math.floor(messagingEvent.timestamp / 1000),
-      };
-
-      try {
-        await addJob("incoming-reaction", job, {
-          jobKey: `reaction-${messagingEvent.sender.id}-${reaction.mid}-${messagingEvent.timestamp}`,
-        });
-      } catch (err) {
-        failed++;
-        console.error("[webhook] Failed to enqueue reaction:", err);
-      }
-    }
-
-    // Comment events — Facebook (field "feed") and Instagram (field "comments")
+    // Every change event (comments + everything else) → one log row.
     for (const change of entry.changes ?? []) {
-      const comment = normalizeComment(change);
-      if (!comment) continue;
-
-      const job: IncomingCommentJob = {
-        platform,
-        pageId: entry.id,
-        commentId: comment.commentId,
-        postId: comment.postId,
-        senderId: comment.senderId,
-        senderName: comment.senderName,
-        text: comment.text,
-        timestamp: comment.timestamp,
-      };
-
-      try {
-        await addJob("incoming-comment", job, { jobKey: `comment-${comment.commentId}` });
-      } catch (err) {
-        failed++;
-        console.error("[webhook] Failed to enqueue comment:", err);
-      }
+      const classified = classifyChangeEvent(change as Parameters<typeof classifyChangeEvent>[0], platform, payload.object);
+      if (!classified) continue;
+      const enqueueChange = () => enqueueComment(classified, change, entry.id, platform);
+      failed += await processClassified(classified, channelId, enqueueChange);
     }
   }
 
@@ -230,6 +136,130 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ status: "ok" });
+}
+
+/** Resolve the active channel id for each receiving page id, scoped by platform (globally
+ *  unique non-disabled owner). Best-effort: an unresolved page yields no entry (channel_id=null). */
+async function resolveChannels(pageIds: string[], platform: Platform): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (pageIds.length === 0) return map;
+  try {
+    const rows = await db.query.channels.findMany({
+      where: and(eq(channels.platform, platform), ne(channels.status, "disabled")),
+      columns: { id: true, platform_id: true },
+    });
+    const want = new Set(pageIds);
+    for (const r of rows) if (want.has(r.platform_id)) map.set(r.platform_id, r.id);
+  } catch (err) {
+    console.error("[webhook] channel resolution failed:", err);
+  }
+  return map;
+}
+
+/**
+ * Log one classified event durably, then act on it. Wrapped so a per-event failure (a logging
+ * error or an enqueue error) is contained: a logging failure is swallowed (return 0 → still 200,
+ * Meta won't retry a row we couldn't persist anyway), while an enqueue failure on a NEW handled
+ * event signals a retry (return 1 → 503). A redelivery (already logged) is a no-op.
+ */
+async function processClassified(
+  classified: { log: Parameters<typeof logEvent>[0]; job: { task: string; jobKey: string } | null; terminalStatus?: "unhandled" },
+  channelId: string | null,
+  enqueue: () => Promise<void>,
+  afterLog?: () => Promise<void>,
+): Promise<number> {
+  let created = false;
+  try {
+    ({ created } = await logEvent({ ...classified.log, channel_id: channelId }));
+  } catch (err) {
+    // A logging failure must never fail the webhook. Record nothing, signal no retry.
+    console.error(`[webhook] failed to log event ${sanitizeForLog(classified.log.event_key)}:`, err);
+    return 0;
+  }
+  if (!created) return 0; // redelivery — already logged + already enqueued/processed
+
+  // Unhandled type: mark terminal and stop (no job).
+  if (!classified.job) {
+    if (classified.terminalStatus === "unhandled") {
+      await markEventStatus(classified.log.event_key, "unhandled").catch(() => {});
+    }
+    if (afterLog) await afterLog().catch((err) => console.error("[webhook] post-log step failed:", err));
+    return 0;
+  }
+
+  // Handled type: enqueue the job. A failed enqueue on a freshly-logged event → 503 (Meta retries
+  // the whole batch; the jobKey + event_key keep it idempotent on the re-run).
+  try {
+    await enqueue();
+  } catch (err) {
+    console.error(`[webhook] failed to enqueue ${classified.job.task}:`, err);
+    return 1;
+  }
+  return 0;
+}
+
+/** Build + enqueue the incoming-message / incoming-reaction job for a classified messaging event. */
+async function enqueueFromClassified(
+  classified: { log: { event_key: string; event_type: string }; job: { jobKey: string } | null },
+  evt: MessagingEvent,
+  pageId: string,
+  platform: Platform,
+): Promise<void> {
+  const eventKey = classified.log.event_key;
+  if (classified.log.event_type === "reaction") {
+    const reaction = evt.reaction!;
+    const job: IncomingReactionJob = {
+      platform, pageId, eventKey,
+      senderId: evt.sender!.id,
+      reactedMid: reaction.mid,
+      reactionType: reaction.reaction,
+      emoji: reaction.emoji,
+      // Normalize ms→seconds like the DM/postback events; any future Date() use is otherwise ~3y off.
+      timestamp: Math.floor(evt.timestamp / 1000),
+    };
+    await addJob("incoming-reaction", job, { jobKey: eventKey });
+    return;
+  }
+
+  // message / story_reply / story_mention / postback → incoming-message
+  const replyToStory = evt.message?.reply_to?.story;
+  const isStoryMention = evt.message?.attachments?.some((a) => (a as { type?: string }).type === "story_mention");
+  const job: IncomingMessageJob = {
+    platform, pageId, eventKey,
+    senderId: evt.sender!.id,
+    recipientId: evt.recipient!.id,
+    mid: evt.message?.mid ?? eventKey,
+    text: evt.message?.text ?? null,
+    quickReplyPayload: evt.message?.quick_reply?.payload,
+    postbackPayload: evt.postback?.payload,
+    isStoryReply: replyToStory ? true : undefined,
+    isStoryMention: isStoryMention ? true : undefined,
+    storyId: replyToStory?.id,
+    timestamp: Math.floor(evt.timestamp / 1000), // Meta sends ms; the worker expects seconds
+  };
+  await addJob("incoming-message", job, { jobKey: classified.job!.jobKey });
+}
+
+/** Build + enqueue the incoming-comment job for a classified change event. */
+async function enqueueComment(
+  classified: { log: { event_key: string }; job: { jobKey: string } | null },
+  change: ChangeEvent,
+  pageId: string,
+  platform: Platform,
+): Promise<void> {
+  const comment = normalizeComment(change);
+  if (!comment) return; // classifier said handled, so this is non-null in practice
+  const job: IncomingCommentJob = {
+    platform, pageId,
+    eventKey: classified.log.event_key,
+    commentId: comment.commentId,
+    postId: comment.postId,
+    senderId: comment.senderId,
+    senderName: comment.senderName,
+    text: comment.text,
+    timestamp: comment.timestamp,
+  };
+  await addJob("incoming-comment", job, { jobKey: classified.job!.jobKey });
 }
 
 // ─── Comment normalization ─────────────────────────────────────────────────

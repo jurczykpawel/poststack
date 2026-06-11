@@ -123,7 +123,9 @@ export async function processIncomingComment(
   });
   helpers.logger.info(logLine(loggedId));
 
-  const eventKey = `comment:${channel.id}:${commentId}`;
+  // Prefer the event_key the edge logged under; fall back per-(channel, comment) for a direct
+  // worker invocation that skipped the edge log.
+  const eventKey = payload.eventKey ?? `comment:${channel.id}:${commentId}`;
 
   if (isAutomationPaused || channel.status === "paused") {
     // A paused conversation OR a manually paused channel runs no automation, but the event

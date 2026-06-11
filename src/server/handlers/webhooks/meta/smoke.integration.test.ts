@@ -3,7 +3,7 @@ import { createHmac } from "crypto";
 import { Pool } from "pg";
 import { runMigrations, runOnce } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
-import { workspaces, channels, autoReplyRules, messages, commentLogs, contactChannels, contacts } from "@/db/schema";
+import { workspaces, channels, autoReplyRules, messages, commentLogs, contactChannels, contacts, webhookEvents, outboundDeliveries } from "@/db/schema";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const APP_SECRET = "smoke-app-secret";
@@ -54,6 +54,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await pool.query("truncate table graphile_worker._private_jobs cascade");
+  // webhook_events.channel_id is SET NULL (not cascade), so the log rows survive the workspace
+  // delete — clear them so each test starts clean and event_key dedup doesn't carry over.
+  await db.delete(webhookEvents);
   await db.delete(workspaces).where(eq(workspaces.id, WS));
   await db.insert(workspaces).values({ id: WS, name: "Smoke", slug: `smoke-${WS}` });
   await db.insert(channels).values({
@@ -307,6 +310,148 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
       ["msg-mid-story-mention"],
     );
     expect(job.rows[0].payload.isStoryMention).toBe(true);
+  });
+});
+
+describe("webhook_events logging completeness (real Postgres)", () => {
+  async function rows() {
+    return db.select().from(webhookEvents);
+  }
+
+  it("logs a DM as event_type=message with the full raw payload, enqueues the job", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signedWebhook("mid-log-1", "hello there"));
+    expect(res.status).toBe(200);
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("message");
+    expect(all[0].event_key).toBe("msg-mid-log-1");
+    expect(all[0].handling_status).toBe("received");
+    expect(all[0].channel_id).toBe(CH); // resolved page→channel
+    expect((all[0].raw as { message: { mid: string } }).message.mid).toBe("mid-log-1");
+    const job = await pool.query("select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1", ["msg-mid-log-1"]);
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0].payload.eventKey).toBe("msg-mid-log-1"); // threaded for the worker CAS
+  });
+
+  it("logs a Facebook feed comment as event_type=comment", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: "FB_LOG_C", post_id: "P1", message: "hi", from: { id: "A1", name: "Bo" } } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("comment");
+    expect(all[0].event_key).toBe("cmt-FB_LOG_C-add");
+    expect(all[0].field).toBe("feed");
+  });
+
+  it("logs an Instagram comment as event_type=comment", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "instagram", entry: [{ id: PAGE, changes: [{ field: "comments", value: { id: "IG_LOG_C", text: "hi", from: { id: "I1", username: "j" }, media: { id: "M1" } } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("comment");
+    expect(all[0].field).toBe("comments");
+  });
+
+  it("logs a postback as event_type=postback", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: PSID }, recipient: { id: PAGE }, timestamp: 1_770_000_000_000, postback: { payload: "CLAIM", title: "x" } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("postback");
+  });
+
+  it("logs a reaction as event_type=reaction", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: "RX" }, recipient: { id: PAGE }, timestamp: 1_770_000_000_000, reaction: { mid: "RMID", action: "react", reaction: "love" } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("reaction");
+    expect(all[0].platform_message_id).toBe("RMID");
+  });
+
+  it("logs an echo as event_type=echo, is_echo=true, no incoming job", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: PAGE }, recipient: { id: PSID }, timestamp: 1_770_000_000_000, message: { mid: "ECHO_MID", text: "our reply", is_echo: true } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("echo");
+    expect(all[0].is_echo).toBe(true);
+    expect(all[0].platform_message_id).toBe("ECHO_MID");
+    // an echo with no matching delivery is ignored (not a received message job).
+    expect(all[0].handling_status).toBe("ignored");
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(job.rows[0].n).toBe(0);
+  });
+
+  it("logs an unreact as event_type=reaction_remove with handling_status=unhandled, no job", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: "RX2" }, recipient: { id: PAGE }, timestamp: 1_770_000_000_001, reaction: { mid: "UNMID", action: "unreact" } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("reaction_remove");
+    expect(all[0].handling_status).toBe("unhandled");
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-reaction'");
+    expect(job.rows[0].n).toBe(0);
+  });
+
+  it("logs a wholly-unknown messaging shape as event_type=unknown, unhandled, no job", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: "U1" }, recipient: { id: PAGE }, timestamp: 1_770_000_000_002, account_linking: { status: "linked" } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("unknown");
+    expect(all[0].handling_status).toBe("unhandled");
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier like 'incoming-%'");
+    expect(job.rows[0].n).toBe(0);
+  });
+
+  it("logs an unknown change field as unhandled, no job", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, changes: [{ field: "feed", value: { item: "status", verb: "add", post_id: "P9" } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("unknown");
+    expect(all[0].handling_status).toBe("unhandled");
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-comment'");
+    expect(job.rows[0].n).toBe(0);
+  });
+
+  it("a redelivery logs exactly one row and enqueues one job", async () => {
+    if (!TEST_DB) return;
+    await POST(signedWebhook("mid-dup-log", "hello"));
+    await POST(signedWebhook("mid-dup-log", "hello"));
+    const all = await db.select().from(webhookEvents).where(eq(webhookEvents.event_key, "msg-mid-dup-log"));
+    expect(all.length).toBe(1);
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message' and key = 'msg-mid-dup-log'");
+    expect(job.rows[0].n).toBe(1);
+  });
+
+  it("still returns 200 when the event row insert throws (logging must never fail the webhook)", async () => {
+    if (!TEST_DB) return;
+    const idem = await import("@/lib/idempotency");
+    const spy = vi.spyOn(idem, "logEvent").mockRejectedValueOnce(new Error("db down"));
+    try {
+      const res = await POST(signedWebhook("mid-throw", "hello"));
+      expect(res.status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an echo whose mid matches a delivery confirms it + links + ignores", async () => {
+    if (!TEST_DB) return;
+    // Seed a sent delivery with a known platform_message_id on this channel.
+    await db.insert(outboundDeliveries).values({
+      delivery_key: "dk-echo-1", workspace_id: WS, channel_id: CH, task_name: "outgoing-message",
+      status: "sent", payload: {}, platform_message_id: "ECHO_MATCH",
+    });
+    await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: PAGE }, recipient: { id: PSID }, timestamp: 1_770_000_000_003, message: { mid: "ECHO_MATCH", text: "x", is_echo: true } }] }] }));
+    const del = await db.select().from(outboundDeliveries).where(eq(outboundDeliveries.delivery_key, "dk-echo-1"));
+    expect(del[0].confirmed_by_echo_at).toBeTruthy();
+    const ev = await db.select().from(webhookEvents).where(eq(webhookEvents.event_key, "echo-ECHO_MATCH"));
+    expect(ev[0].handling_status).toBe("ignored");
+    expect(ev[0].outbound_delivery_id).toBe(del[0].id);
   });
 });
 

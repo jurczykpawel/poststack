@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
+import { logEvent, markEventStatus } from "@/lib/idempotency";
 import type { TelegramUpdate } from "@/lib/platforms/telegram";
 
 export const runtime = "nodejs";
@@ -63,20 +64,55 @@ export async function POST(request: Request): Promise<Response> {
     update = null;
   }
   const msg = update?.message;
-  // MVP: only plain text messages. edited_message / callback_query / etc. are ignored.
-  if (!update || !msg || !msg.text) return ok();
-  // Guard `chat` before building the identity from `msg.chat.id`: a text message without a
-  // `chat` (odd service/business update) would otherwise TypeError → 500 → ~1h retry.
+  // An unparseable / message-less update (edited_message / callback_query / channel post / etc.)
+  // can't be keyed to a chat; nothing actionable, nothing to log. 200 so it isn't retried.
+  if (!update || !msg) return ok();
+  // Guard `chat` before building the identity from `msg.chat.id`: a message without a `chat`
+  // (odd service/business update) would otherwise TypeError → 500 → ~1h retry.
   if (!msg.chat?.id) return ok();
-  // Only private (1:1) chats: in a group/supergroup/channel, chat.id is the GROUP, not a member,
-  // so using it as the sender identity would collapse every member into one contact and aim
-  // replies at the whole group. ReplyStack is a DM inbox — non-private chats are out of scope, so
-  // ignore them (200, not retried).
-  if (msg.chat.type !== "private") return ok();
 
-  // message_id is unique only per chat, so identity must include bot + chat to
+  // message_id is unique only per chat, so identity (and the event_key) must include bot + chat to
   // avoid cross-chat dedup collisions dropping messages.
   const identity = `${channel.platform_id}-${msg.chat.id}-${msg.message_id}`;
+  const eventKey = `tg-${identity}`;
+
+  // Determine handling up front so the log row records the right status:
+  //  - non-private chats are out of scope (a group chat.id collapses every member into one contact)
+  //    → `ignored`;
+  //  - a non-text message (photo/sticker/etc.) has no handler yet → `unhandled`;
+  //  - a plain-text private message → handled (`received` + enqueue).
+  const handled = msg.chat.type === "private" && !!msg.text;
+  const status: "received" | "ignored" | "unhandled" =
+    msg.chat.type !== "private" ? "ignored" : !msg.text ? "unhandled" : "received";
+
+  // Log the event durably first (deduped on event_key). A logging failure must never fail the
+  // webhook — swallow it and continue to enqueue (the jobKey still dedups).
+  let created = true;
+  try {
+    ({ created } = await logEvent({
+      event_key: eventKey,
+      event_type: handled ? "message" : "unknown",
+      platform: "telegram",
+      object: "telegram",
+      channel_id: channel.id,
+      sender_id: String(msg.chat.id),
+      recipient_id: channel.platform_id,
+      platform_message_id: identity,
+      raw: update,
+    }));
+  } catch (err) {
+    console.error("[telegram webhook] event log failed:", err);
+    created = true; // proceed to enqueue regardless
+  }
+
+  // A redelivery (already logged) needs no second row or job.
+  if (!created) return ok();
+
+  if (!handled) {
+    await markEventStatus(eventKey, status === "ignored" ? "ignored" : "unhandled").catch(() => {});
+    return ok();
+  }
+
   try {
     await addJob(
       "incoming-message",
@@ -84,14 +120,15 @@ export async function POST(request: Request): Promise<Response> {
         platform: "telegram",
         channelId: channel.id, // webhook already verified the channel — route deterministically
         pageId: channel.platform_id,
+        eventKey,
         senderId: String(msg.chat.id),
         recipientId: channel.platform_id,
         mid: identity,
-        text: msg.text,
+        text: msg.text ?? null,
         // seconds — the worker converts to a Date (×1000); do NOT pre-multiply.
         timestamp: msg.date ?? Math.floor(Date.now() / 1000),
       },
-      { jobKey: `tg-${identity}` },
+      { jobKey: eventKey },
     );
   } catch (err) {
     console.error("[telegram webhook] enqueue failed:", err);

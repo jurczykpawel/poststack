@@ -23,6 +23,11 @@ export async function processIncomingMessage(
   helpers: JobHelpers,
 ): Promise<void> {
   const { platform, channelId, pageId, senderId, mid, text, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, timestamp } = payload;
+  // The fire-claim CAS key: prefer the event_key the edge logged this event under, so the claim
+  // lands on that exact webhook_events row. Fall back to a per-(conversation, mid) key for a direct
+  // worker invocation that skipped the edge log (tests / replays) — per-conversation so a shared
+  // platform id across two conversations still dedups independently.
+  const claimKeyOf = (conversationId: string) => payload.eventKey ?? `message:${conversationId}:${mid}`;
 
   // Validate timestamp bounds (reject absurd values)
   const messageDate = new Date(timestamp * 1000);
@@ -63,7 +68,7 @@ export async function processIncomingMessage(
   const preview = text ? truncateCodePoints(text, 255) : null;
   const conversation = await ensureConversation(channel, contactId, { last_message_at: messageDate, last_message_preview: preview });
 
-  const eventKey = `message:${conversation.id}:${mid}`;
+  const eventKey = claimKeyOf(conversation.id);
 
   // 4+5. Insert the inbound message AND its counter updates in ONE transaction: a crash
   //      between the insert and the counters would otherwise leave the message committed but the

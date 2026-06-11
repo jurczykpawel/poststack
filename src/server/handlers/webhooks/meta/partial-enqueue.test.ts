@@ -3,7 +3,8 @@ import { createHmac } from "crypto";
 
 const APP_SECRET = "partial-enqueue-secret";
 
-// addJob is driven per-test; rateLimit is stubbed so the handler needs no DB.
+// addJob is driven per-test; rateLimit + the webhook_events log + channel resolution are stubbed so
+// the handler needs no DB and the enqueue path is what's under test.
 const addJob = vi.fn();
 vi.mock("@/lib/queue/client", () => ({
   addJob: (...args: unknown[]) => addJob(...args),
@@ -11,6 +12,16 @@ vi.mock("@/lib/queue/client", () => ({
 }));
 vi.mock("@/lib/api/rate-limit", () => ({
   rateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
+// logEvent reports every event as newly created so the handler proceeds to enqueue; markEventStatus
+// is a no-op. (The full log behavior is covered by the smoke integration test against real Postgres.)
+vi.mock("@/lib/idempotency", () => ({
+  logEvent: vi.fn().mockResolvedValue({ created: true }),
+  markEventStatus: vi.fn().mockResolvedValue(undefined),
+}));
+// db is touched only by resolveChannels (page→channel), which swallows errors → channel_id null.
+vi.mock("@/lib/db", () => ({
+  db: { query: { channels: { findMany: vi.fn().mockResolvedValue([]) } } },
 }));
 
 let POST: typeof import("./route").POST;

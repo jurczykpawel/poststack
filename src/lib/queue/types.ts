@@ -12,6 +12,9 @@ export interface IncomingMessageJob {
   recipientId: string;
   /** Platform message ID — used for deduplication */
   mid: string;
+  /** webhook_events.event_key the edge logged this event under. The worker uses it for the
+   *  received→terminal fire-claim CAS, so the claim lands on the same logged row. */
+  eventKey?: string;
   text: string | null;
   quickReplyPayload?: string;
   postbackPayload?: string;
@@ -57,6 +60,8 @@ export interface IncomingCommentJob {
   platform: string;
   /** The FB Page ID that received the comment */
   pageId: string;
+  /** webhook_events.event_key the edge logged this event under (worker fire-claim CAS key). */
+  eventKey?: string;
   commentId: string;
   /** Post ID (Facebook) or Media ID (Instagram) */
   postId: string | undefined;
@@ -70,6 +75,8 @@ export interface IncomingCommentJob {
 export interface IncomingReactionJob {
   platform: string;
   pageId: string;
+  /** webhook_events.event_key the edge logged this event under (worker fire-claim CAS key). */
+  eventKey?: string;
   /** Reactor's platform-native id (PSID / IG user id) */
   senderId: string;
   /** Message id that was reacted to */
