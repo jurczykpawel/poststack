@@ -162,6 +162,24 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     expect(data.response_config.comment_reply_text).toBe("sent you a DM!");
   });
 
+  it("round-trips a comment_reply_texts pool, satisfying reply_mode=comment without a DM text", async () => {
+    if (!TEST_DB) return;
+    const pool = ["Wysyłam DM-em 🙏", "Leci na priv 📩"];
+    const res = await rules.POST(post({
+      name: "Pool",
+      trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { reply_mode: "comment", comment_reply_texts: pool },
+    }));
+    expect(res.status).toBe(201);
+    const id = (await res.json()).data.id;
+
+    const got = await rule.GET(get(), { params: Promise.resolve({ ruleId: id }) });
+    const data = (await got.json()).data;
+    expect(data.response_config.comment_reply_texts).toEqual(pool);
+  });
+
   it("round-trips custom_prompt on an ai_rephrase rule", async () => {
     if (!TEST_DB) return;
     const res = await rules.POST(post({

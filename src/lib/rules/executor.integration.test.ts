@@ -157,6 +157,22 @@ describe("evaluateRules (real Postgres)", () => {
     expect((job.rows[0] as { payload: { contactId: string } }).payload.contactId).toBe(CONTACT);
   });
 
+  // a comment_reply_texts pool rotates the public comment text (anti-spam) — the enqueued reply
+  // is one of the pool members, not a fixed string.
+  it("picks the public comment reply from the comment_reply_texts pool", async () => {
+    if (!TEST_DB) return;
+    const pool = ["Wysyłam DM-em 🙏", "Leci do Ciebie na priv 📩", "Sprawdź wiadomości ✅"];
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "CmtPool", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { reply_mode: "comment", comment_reply_texts: pool },
+    });
+    const fired = await evaluateRules({ ...baseInput, text: "info here", eventType: "comment", commentId: "CMT-POOL" });
+    expect(fired.ruleId).not.toBeNull();
+    const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-comment'`);
+    expect(pool).toContain((job.rows[0] as { payload: { text: string } }).payload.text);
+  });
+
   it("respects the cooldown: a second identical event does not re-fire", async () => {
     if (!TEST_DB) return;
     await seedRule({ cooldown_seconds: 3600 });

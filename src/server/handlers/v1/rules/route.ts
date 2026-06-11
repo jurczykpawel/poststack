@@ -73,6 +73,10 @@ const responseConfigSchema = z
     ai_rephrase: z.boolean().optional(),                     // post-process any source through the LLM
     reply_mode: z.enum(["dm", "comment", "both"]).optional(),
     comment_reply_text: z.string().min(1).max(2000).optional(),
+    // Anti-spam rotation pool for the public comment reply (analog of `messages` for DM): a
+    // non-empty pool is picked from uniformly so Meta doesn't see identical repeated comments.
+    // Either this or `comment_reply_text` (or the DM-text fallback) satisfies reply_mode comment/both.
+    comment_reply_texts: z.array(z.string().min(1).max(2000)).max(50).optional(),
     quick_replies: z.array(quickReplySchema).max(13).optional(),
     buttons: z.array(buttonSchema).min(1).max(3).optional(),
     followed: gatedMessageSchema.optional(),      // follow_gate: sent when the user follows
@@ -122,7 +126,12 @@ export const createRuleSchema = z
     if (data.trigger_type === "postback" && !t.payload) {
       ctx.addIssue({ code: "custom", path: ["trigger_config", "payload"], message: "postback trigger requires payload" });
     }
-    if ((data.response_type === "text" || data.response_type === "ai_rephrase") && !r.text) {
+    // A `text`/`ai_rephrase` rule normally needs `text`. Exception: a comment-only reply
+    // (reply_mode=comment) is satisfied by a public-comment source instead — a single
+    // comment_reply_text or a comment_reply_texts pool — so `text` isn't required then.
+    const hasCommentSource = !!r.comment_reply_text || (r.comment_reply_texts?.length ?? 0) > 0;
+    const commentOnlySatisfies = data.response_type === "text" && r.reply_mode === "comment" && hasCommentSource;
+    if ((data.response_type === "text" || data.response_type === "ai_rephrase") && !r.text && !commentOnlySatisfies) {
       ctx.addIssue({ code: "custom", path: ["response_config", "text"], message: `${data.response_type} requires text` });
     }
     if (data.response_type === "random_text" && (r.messages?.length ?? 0) === 0) {

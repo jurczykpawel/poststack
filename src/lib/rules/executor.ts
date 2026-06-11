@@ -11,7 +11,7 @@ import { truncateCodePoints } from "@/lib/text";
 import { env } from "@/lib/env";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
-import { selectResponse, buildInteractiveContent } from "./response";
+import { selectResponse, buildInteractiveContent, pickText } from "./response";
 import type { MessageContent } from "@/lib/platforms/base";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -375,8 +375,13 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
   // Resolve the text to send (single or random pick, optionally LLM-rephrased).
   const dmText = await resolveDmText(workspaceId, rule.response_type, rule.response_config);
 
-  // Public comment reply (reply_mode: "comment" or "both")
-  const commentReplyText = (rule.response_config.comment_reply_text as string) ?? dmText;
+  // Public comment reply (reply_mode: "comment" or "both"). A non-empty pool rotates uniformly
+  // (anti-spam); else the single text; else fall back to the DM text.
+  const commentReplyText =
+    pickText(
+      rule.response_config.comment_reply_text as string | undefined,
+      rule.response_config.comment_reply_texts as string[] | undefined,
+    ) ?? dmText;
   const sendComment = (replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
 
   // Interactive add-ons (quick replies / buttons) attach to the DM body.
