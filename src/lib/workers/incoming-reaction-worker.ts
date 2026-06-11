@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, isEventTerminal, markEventStatus, markEventOnTerminalFailure } from "@/lib/idempotency";
+import { dispatchAlert } from "@/lib/notifications/alert";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -105,7 +106,8 @@ export async function processIncomingReaction(
   } catch (err) {
     // On the final attempt the reply is permanently lost — record the event as `error` (with the
     // reason) before rethrowing, so the failure is visible in the log rather than silent.
-    await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversationId });
+    const final = await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversationId });
+    if (final) await dispatchAlert({ type: "event_error", channelId: channel.id, workspaceId: channel.workspace_id, detail: err instanceof Error ? err.message : String(err) });
     throw err;
   }
   if (ruleId) {

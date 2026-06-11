@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { channels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
+import { dispatchAlert } from "@/lib/notifications/alert";
 import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -174,7 +175,8 @@ export async function processIncomingMessage(
     if (job && job.attempts >= job.max_attempts) {
       await ifLatest({ needs_manual_reply: true });
     }
-    await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversation.id, message_id: messageId });
+    const final = await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversation.id, message_id: messageId });
+    if (final) await dispatchAlert({ type: "event_error", channelId: channel.id, workspaceId: channel.workspace_id, detail: err instanceof Error ? err.message : String(err) });
     throw err;
   }
 }

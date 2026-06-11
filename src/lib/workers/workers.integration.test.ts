@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 
 // Mock the network/crypto boundary; the DB is real.
@@ -1687,5 +1687,83 @@ describe("webhook_events handling outcome (real Postgres)", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("alert triggers (real Postgres)", () => {
+  // dispatchAlert posts to CHANNEL_ALERT_WEBHOOK_URL; capture the POSTs by stubbing fetch. The
+  // throttle uses the real rate_limit_counters — clear the alert keys each test so it doesn't
+  // suppress across tests.
+  let realFetch: typeof fetch;
+  let alerts: Array<{ type: string; channel_id?: string; detail?: string }>;
+
+  beforeEach(async () => {
+    if (!TEST_DB) return;
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
+    await db.execute(sql`delete from rate_limit_counters where key like 'alert:%'`);
+    alerts = [];
+    realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      alerts.push(JSON.parse(init!.body as string));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
+  });
+
+  it("a transient delivery failure raises a delivery_failed alert", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValueOnce(new Error("network blip"));
+    await expect(
+      w.processOutgoingMessage(
+        { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "alert-failed" } as never,
+        helpers,
+      ),
+    ).rejects.toThrow();
+    expect(alerts.some((a) => a.type === "delivery_failed" && a.channel_id === CH)).toBe(true);
+  });
+
+  it("a held delivery (channel needs_reauth) raises a delivery_held alert", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));
+    await w.processOutgoingMessage(
+      { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: "alert-held" } as never,
+      helpers,
+    );
+    expect(alerts.some((a) => a.type === "delivery_held" && a.channel_id === CH)).toBe(true);
+  });
+
+  it("a DM whose reply fails on the final attempt raises an event_error alert", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "DM", trigger_type: "default", is_active: true, cooldown_seconds: 0,
+      trigger_config: {}, response_type: "text", response_config: { text: "hi" },
+    });
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent"));
+    try {
+      const job = { platform: "facebook", pageId: PAGE, senderId: "ALERT-EE", recipientId: PAGE, mid: "alert-ee-mid", text: "hello", timestamp: ts() };
+      const helpersFinal = { logger: { info: () => {} }, job: { attempts: 3, max_attempts: 3 } } as never;
+      await expect(w.processIncomingMessage(job, helpersFinal)).rejects.toThrow();
+      expect(alerts.some((a) => a.type === "event_error" && a.channel_id === CH)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("the throttle collapses repeated same-channel failures into one alert in the window", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValue(new Error("network blip"));
+    for (const key of ["thr-1", "thr-2", "thr-3"]) {
+      await expect(
+        w.processOutgoingMessage(
+          { channelId: CH, conversationId: CONV, contactId: CONTACT, recipientPlatformId: PSID, content: { text: "hi" }, idempotencyKey: key } as never,
+          helpers,
+        ),
+      ).rejects.toThrow();
+    }
+    expect(alerts.filter((a) => a.type === "delivery_failed" && a.channel_id === CH).length).toBe(1);
   });
 });

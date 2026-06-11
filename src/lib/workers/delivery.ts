@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { channels, outboundDeliveries, type Platform } from "@/db/schema";
 import { TokenInvalidError, MessagingPolicyError, RateLimitError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
+import { dispatchAlert } from "@/lib/notifications/alert";
 import { addJob } from "@/lib/queue/client";
 import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
 
@@ -110,6 +111,8 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
         target: outboundDeliveries.delivery_key,
         set: { status: "held", payload: heldPayload, last_error: lastError, updated_at: new Date() },
       });
+    // The send is parked awaiting a drain — surface it (throttled per channel).
+    await dispatchAlert({ type: "delivery_held", channelId, workspaceId, detail: lastError ?? undefined });
   };
 
   // 1. Reconcile any prior delivery for this key before doing any work.
@@ -241,10 +244,13 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
     }
     // Transient: we caught it, so the provider (most likely) did not accept the send.
     // Record `failed` and rethrow so graphile retries; the retry re-claims from `failed`.
+    const detail = e instanceof Error ? e.message : String(e);
     await db
       .update(outboundDeliveries)
-      .set({ status: "failed", last_error: e instanceof Error ? e.message : String(e) })
+      .set({ status: "failed", last_error: detail })
       .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+    // Surface the failed delivery (throttled per channel, so a flapping send doesn't storm).
+    await dispatchAlert({ type: "delivery_failed", channelId, workspaceId: channel.workspace_id, detail });
     throw e;
   }
 

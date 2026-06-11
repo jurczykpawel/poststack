@@ -148,16 +148,17 @@ type JobAttempts = { attempts: number; max_attempts: number } | undefined;
  * reason, so an exhausted retry is visible in the log rather than silently dropped. A no-op on an
  * earlier attempt (the job will just retry). Best-effort: never throws (the caller rethrows the
  * original error to dead-letter the job). Only transitions a row still in `received`, so it can't
- * overwrite an outcome a concurrent/earlier delivery already recorded.
+ * overwrite an outcome a concurrent/earlier delivery already recorded. Returns `true` when this
+ * was the final attempt (so the caller can raise an alert), `false` otherwise.
  */
 export async function markEventOnTerminalFailure(
   helpers: { job?: JobAttempts },
   key: string,
   err: unknown,
   links: Omit<EventOutcomeLinks, "error_detail"> = {},
-): Promise<void> {
+): Promise<boolean> {
   const job = helpers.job;
-  if (!job || job.attempts < job.max_attempts) return;
+  if (!job || job.attempts < job.max_attempts) return false;
   const detail = (err instanceof Error ? err.message : String(err)).slice(0, 500);
   try {
     await db
@@ -167,6 +168,7 @@ export async function markEventOnTerminalFailure(
   } catch {
     // Best-effort — the original error is rethrown by the caller regardless.
   }
+  return true;
 }
 
 /**
