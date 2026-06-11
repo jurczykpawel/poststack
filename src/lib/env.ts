@@ -57,6 +57,25 @@ const envSchema = z.object({
     .refine(isSafeAlertWebhookUrl, "must be an http(s) URL to a public or loopback host (no private/link-local IP literals)")
     .optional(),
 
+  // License gating (all optional — no license = free tier, full free features).
+  // The operator's Sellf license token. Bootstrap/headless default; the panel can
+  // override it (DB takes precedence over this env var).
+  REPLYSTACK_LICENSE_KEY: z.string().default(""),
+  // Seller-scoped JWKS endpoint (TSA seller baked into the URL — this is what binds
+  // tokens to the seller; claims carry no seller field).
+  LICENSE_JWKS_URL: z
+    .string()
+    .url()
+    .default("https://sellf.techskills.academy/api/licenses/jwks?seller=83789f79-bdd7-4918-af1f-e56325fa5070"),
+  // Product slug the token must match (claims.product) — guards against another
+  // product's token from the same seller unlocking ReplyStack.
+  LICENSE_PRODUCT_SLUG: z.string().default("replystack-pro"),
+  // Pinned JWKS snapshot (JSON `{ keys: [...] }`) — durable fallback used only when
+  // the live endpoint is unreachable AND nothing is cached (public-key material).
+  SELLF_JWKS_FALLBACK: z.string().default(""),
+  // Where the "requires PRO" UI sends operators to buy a license.
+  LICENSE_UPGRADE_URL: z.string().url().default("https://sellf.techskills.academy/p/replystack-pro"),
+
   // Cron
   CRON_SECRET: z.string().min(32),
 

@@ -70,6 +70,15 @@ afterAll(async () => {
 });
 
 describe("auth flow under Hono (real Postgres)", () => {
+  // The multitenancy gate caps a free instance at one workspace, counting ALL workspaces
+  // on the instance. These tests register the FIRST workspace, so reset to a clean,
+  // unlicensed single-tenant instance (the shared test DB otherwise accumulates workspaces).
+  beforeEach(async () => {
+    if (!TEST_DB) return;
+    await pool.query("truncate table users, workspaces cascade");
+    await pool.query("truncate table instance_license");
+  });
+
   it("register issues a session cookie", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api/auth/register", {

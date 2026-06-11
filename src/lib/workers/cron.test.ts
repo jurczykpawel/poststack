@@ -21,6 +21,12 @@ describe("worker cron schedule", () => {
     );
   });
 
+  it("schedules a daily license re-verification", async () => {
+    const { CRONTAB, cronTaskList } = await import("./cron");
+    expect(CRONTAB).toMatch(/\blicense-refresh\b/);
+    expect(Object.keys(cronTaskList)).toContain("license-refresh");
+  });
+
   it("every crontab entry references a task that exists in the task list", async () => {
     const { CRONTAB, cronTaskList } = await import("./cron");
     const scheduled = CRONTAB.split("\n")

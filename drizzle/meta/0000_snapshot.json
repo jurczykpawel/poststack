@@ -1,5 +1,5 @@
 {
-  "id": "45710b3f-94eb-4ef3-92c0-38278b5396f4",
+  "id": "fe1ce79e-536c-4470-946d-e37878394215",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2150,6 +2150,82 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.instance_license": {
+      "name": "instance_license",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "'singleton'"
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tier": {
+          "name": "tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "instance_license_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "jwks_snapshot": {
+          "name": "jwks_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "instance_license_singleton": {
+          "name": "instance_license_singleton",
+          "value": "\"instance_license\".\"id\" = 'singleton'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.messages": {
       "name": "messages",
       "schema": "",
@@ -3923,6 +3999,16 @@
         "draft",
         "published",
         "archived"
+      ]
+    },
+    "public.instance_license_status": {
+      "name": "instance_license_status",
+      "schema": "public",
+      "values": [
+        "none",
+        "active",
+        "expired",
+        "invalid"
       ]
     },
     "public.message_direction": {

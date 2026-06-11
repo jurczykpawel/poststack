@@ -9,6 +9,8 @@ import { ok, ApiErrors } from "@/lib/api/response";
 import { rateLimit, getClientIp } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
 import { verifyCaptcha } from "@/lib/captcha/verify";
+import { getInstanceLicense } from "@/lib/license/gate";
+import { env } from "@/lib/env";
 
 const schema = z.object({
   email: z.string().email(),
@@ -61,8 +63,14 @@ export async function POST(request: Request) {
   // see "0 accounts" and each create an owner. A transaction-scoped advisory lock
   // serializes them; the lock releases on commit, so the count check and insert
   // below act as one critical section.
+  // Multitenancy is a licensed feature: a free instance is single-tenant. Resolve
+  // the capability outside the registration lock (it's instance-global and cached),
+  // then enforce it inside the critical section against the live workspace count.
+  const canMultiWorkspace = (await getInstanceLicense()).features.has("multi_workspace");
+
   type Outcome =
     | { kind: "disabled" }
+    | { kind: "multitenant_locked" }
     | { kind: "conflict" }
     | { kind: "ok"; user: { id: string; email: string; name: string | null }; workspaceId: string };
 
@@ -78,6 +86,10 @@ export async function POST(request: Request) {
         const [{ n }] = await tx.select({ n: count() }).from(users);
         if (n > 0) return { kind: "disabled" };
       }
+
+      // The first workspace always bootstraps; the 2nd+ requires multitenancy.
+      const [{ wc }] = await tx.select({ wc: count() }).from(workspaces);
+      if (wc > 0 && !canMultiWorkspace) return { kind: "multitenant_locked" };
 
       const existing = await tx.query.users.findFirst({
         where: eq(users.email, normalizedEmail),
@@ -104,6 +116,13 @@ export async function POST(request: Request) {
   }
 
   if (outcome.kind === "disabled") return ApiErrors.forbidden("Registration is disabled");
+  if (outcome.kind === "multitenant_locked") {
+    return ApiErrors.proRequired(
+      "multi_workspace",
+      env.LICENSE_UPGRADE_URL,
+      "This instance is on the free plan (single workspace). Multitenancy requires a license.",
+    );
+  }
   if (outcome.kind === "conflict") {
     return ApiErrors.conflict("Could not create an account with these details. If you already have one, sign in instead.");
   }

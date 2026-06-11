@@ -780,6 +780,34 @@ export const openApiSpec = {
         },
       },
     },
+    "/license": {
+      get: {
+        tags: ["License"],
+        summary: "Get the instance license status (tier, features; never the token)",
+        responses: {
+          "200": { description: "License status" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+      post: {
+        tags: ["License"],
+        summary: "Verify and store a Sellf license token",
+        requestBody: { content: { "application/json": { schema: { type: "object", required: ["token"], properties: { token: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "License activated" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "422": { description: "Invalid license token" },
+        },
+      },
+      delete: {
+        tags: ["License"],
+        summary: "Remove the stored license token (revert to env/free)",
+        responses: {
+          "200": { description: "License removed" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
     "/tags": {
       get: {
         tags: ["Contacts"],

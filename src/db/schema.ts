@@ -1,4 +1,4 @@
-import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
@@ -816,4 +816,24 @@ export const workspaceMembers = pgTable("workspace_members", {
 			name: "workspace_members_user_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
 	primaryKey({ columns: [table.workspace_id, table.user_id], name: "workspace_members_pkey"}),
+]);
+
+export const instanceLicenseStatus = pgEnum("instance_license_status", ['none', 'active', 'expired', 'invalid'])
+
+// Instance-global license (NOT workspace-scoped). ReplyStack is sold per self-hosted
+// instance; one valid Sellf license unlocks PRO features for the whole instance, so this
+// is a deliberate exception to the "every table has workspace_id + FK" rule. Enforced as a
+// singleton via the `id = 'singleton'` check constraint.
+export const instanceLicense = pgTable("instance_license", {
+	id: text("id").primaryKey().default('singleton'),
+	token: text("token"), // encrypted at rest (AES-256-GCM, src/lib/crypto.ts); null = no license
+	tier: text("tier"),
+	status: instanceLicenseStatus().default('none').notNull(),
+	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }),
+	verified_at: timestamp("verified_at", { precision: 3, mode: 'date' }),
+	jwks_snapshot: jsonb("jwks_snapshot"), // last-known-good keys for cold-boot during a JWKS outage
+	last_error: text("last_error"),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	check("instance_license_singleton", sql`${table.id} = 'singleton'`),
 ]);

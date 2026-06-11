@@ -8,15 +8,14 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 
 /**
- * Encrypt OAuth token data before storing in database.
+ * Encrypt an arbitrary string at rest (AES-256-GCM).
  * Returns hex string: iv:authTag:ciphertext
  */
-export function encryptTokens(data: TokenData): string {
+export function encryptString(plaintext: string): string {
   const key = Buffer.from(env.TOKEN_ENCRYPTION_KEY, "hex");
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv);
 
-  const plaintext = JSON.stringify(data);
   const encrypted = Buffer.concat([
     cipher.update(plaintext, "utf8"),
     cipher.final(),
@@ -31,10 +30,10 @@ export function encryptTokens(data: TokenData): string {
 }
 
 /**
- * Decrypt stored OAuth token data.
+ * Decrypt a string produced by encryptString.
  * Throws if decryption fails (tampered data or wrong key).
  */
-export function decryptTokens(encrypted: string): TokenData {
+export function decryptString(encrypted: string): string {
   const key = Buffer.from(env.TOKEN_ENCRYPTION_KEY, "hex");
   const parts = encrypted.split(":");
 
@@ -43,19 +42,29 @@ export function decryptTokens(encrypted: string): TokenData {
   }
 
   const [ivHex, authTagHex, ciphertextHex] = parts;
-  const iv = Buffer.from(ivHex, "hex");
-  const authTag = Buffer.from(authTagHex, "hex");
-  const ciphertext = Buffer.from(ciphertextHex, "hex");
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivHex, "hex"));
+  decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
 
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextHex, "hex")),
     decipher.final(),
-  ]);
+  ]).toString("utf8");
+}
 
-  return JSON.parse(decrypted.toString("utf8")) as TokenData;
+/**
+ * Encrypt OAuth token data before storing in database.
+ * Returns hex string: iv:authTag:ciphertext
+ */
+export function encryptTokens(data: TokenData): string {
+  return encryptString(JSON.stringify(data));
+}
+
+/**
+ * Decrypt stored OAuth token data.
+ * Throws if decryption fails (tampered data or wrong key).
+ */
+export function decryptTokens(encrypted: string): TokenData {
+  return JSON.parse(decryptString(encrypted)) as TokenData;
 }
 
 /**

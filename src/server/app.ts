@@ -7,6 +7,8 @@ import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
 import { ApiErrors } from "@/lib/api/response";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { ProRequiredError } from "@/lib/license/gate";
+import { env } from "@/lib/env";
 
 const corsMiddleware = cors({
   origin: "*",
@@ -27,6 +29,10 @@ export function buildApp(): Hono {
   //. HTML page routes keep the framework default.
   app.onError((e, c) => {
     if (c.req.path.startsWith("/api/")) {
+      // A feature gated behind a PRO license surfaces as 402, not a 500.
+      if (e instanceof ProRequiredError) {
+        return ApiErrors.proRequired(e.feature, env.LICENSE_UPGRADE_URL);
+      }
       console.error(`Unhandled API error on ${c.req.method} ${sanitizeForLog(c.req.path)}: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
       return ApiErrors.internal();
     }

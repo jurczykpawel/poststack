@@ -1,6 +1,7 @@
 import { pruneExpired } from "@/lib/maintenance";
 import { pruneOldMessages } from "@/lib/retention";
 import { scanExpiringTokens } from "@/lib/workers/token-refresh-scan";
+import { refreshLicense } from "@/lib/license/gate";
 
 /**
  * Cron-only maintenance tasks. These are NOT enqueued via addJob — graphile-worker drives them
@@ -23,6 +24,11 @@ export const cronTaskList = {
   "token-refresh-scan": async () => {
     await scanExpiringTokens();
   },
+  // Daily license re-verification. Catches expiry/revocation and refreshes the seller JWKS
+  // snapshot so an offline instance keeps a usable fallback. No-op (writes "none") when unlicensed.
+  "license-refresh": async () => {
+    await refreshLicense();
+  },
 };
 
 /** graphile-worker crontab. Every line's trailing token must be a key in {@link cronTaskList}. */
@@ -30,4 +36,5 @@ export const CRONTAB = [
   "0 * * * * prune-expired",
   "30 3 * * * prune-old-messages",
   "15 * * * * token-refresh-scan",
+  "45 3 * * * license-refresh",
 ].join("\n");

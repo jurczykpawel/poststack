@@ -12,6 +12,7 @@ import {
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
+import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from "@/lib/license/gate";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
@@ -460,9 +461,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const [keys, workspace] = await Promise.all([
+    const [keys, workspace, license] = await Promise.all([
       loadKeys(a.workspaceId),
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
+      getInstanceLicense(),
     ]);
     return c.html(
       dashboardDoc(
@@ -503,6 +505,15 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <button class="btn btn-primary" type="submit">Save</button>
             </form>
             <p id="retention-msg" class="muted" style="margin-top:.5rem"></p>
+          </section>
+          <section class="section">
+            <h2>License</h2>
+            <p class="muted" style="margin-bottom:1rem">Unlock PRO features with a license token from Sellf. A free instance keeps all free features.</p>
+            <form hx-post="/settings/license" hx-ext="json-enc" hx-target="#license-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem">
+              <textarea class="input mono" name="token" rows="3" placeholder="Paste your license token" style="font-size:.8rem"></textarea>
+              <div class="row"><button class="btn btn-primary" type="submit">Verify &amp; save</button></div>
+            </form>
+            <div id="license-area">${renderLicense(license)}</div>
           </section>
           <section class="section">
             <h2>Webhook</h2>
@@ -562,6 +573,23 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     }
     const res = await workspacePatch(c, days);
     return c.html(html`${res ? "Saved." : "Could not save retention policy."}`);
+  });
+
+  app.post("/settings/license", guard, async (c) => {
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const token = typeof form.token === "string" ? form.token.trim() : "";
+    if (!token) {
+      return c.html(renderLicense(await getInstanceLicense(), "Paste a license token first."));
+    }
+    const result = await setLicense(token);
+    if (!result.ok) {
+      return c.html(renderLicense(result.state, `License rejected: ${result.reason}.`));
+    }
+    return c.html(renderLicense(result.state, "License activated.", true));
+  });
+
+  app.post("/settings/license/clear", guard, async (c) => {
+    return c.html(renderLicense(await clearLicense(), "License removed.", true));
   });
 
   // Rules
@@ -1005,6 +1033,21 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
       </tr>`,
     )}
   </tbody></table>`;
+}
+
+function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {
+  const notice = msg ? html`<div class="notice ${msgOk ? "notice-ok" : "notice-err"}">${msg}</div>` : html``;
+  const sourceLabel = state.source === "db" ? "panel" : state.source === "env" ? "environment variable" : "—";
+  return html`${notice}
+    <div class="card" style="margin-bottom:1rem">
+      <div><strong>Status:</strong> <span class="badge">${state.status}</span>${state.tier ? html` &nbsp;<strong>Tier:</strong> ${state.tier}` : html``}${state.expiresAt ? html` &nbsp;<span class="muted">expires ${new Date(state.expiresAt).toLocaleDateString()}</span>` : html``}</div>
+      ${state.features.size > 0 ? html`<div class="muted" style="margin-top:.4rem">Unlocked: ${[...state.features].join(", ")}</div>` : html``}
+      <div class="muted" style="margin-top:.4rem;font-size:.8rem">Source: ${sourceLabel}</div>
+    </div>
+    <div class="row">
+      ${state.status !== "active" ? html`<a class="btn btn-primary" href="${state.upgradeUrl}" target="_blank" rel="noopener">Buy PRO</a>` : html``}
+      ${state.source === "db" ? html`<button class="btn btn-sm" hx-post="/settings/license/clear" hx-target="#license-area" hx-swap="innerHTML" hx-confirm="Remove the stored license token?">Remove license</button>` : html``}
+    </div>`;
 }
 
 /** Parse a JSON-array string from the rule form (quick replies / buttons); returns [] on anything else. */

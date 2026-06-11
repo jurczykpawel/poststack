@@ -7,6 +7,7 @@ CREATE TYPE "public"."channel_status" AS ENUM('active', 'needs_reauth', 'paused'
 CREATE TYPE "public"."conversation_status" AS ENUM('open', 'closed', 'snoozed');--> statement-breakpoint
 CREATE TYPE "public"."flow_session_status" AS ENUM('active', 'completed', 'expired', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."flow_status" AS ENUM('draft', 'published', 'archived');--> statement-breakpoint
+CREATE TYPE "public"."instance_license_status" AS ENUM('none', 'active', 'expired', 'invalid');--> statement-breakpoint
 CREATE TYPE "public"."message_direction" AS ENUM('inbound', 'outbound');--> statement-breakpoint
 CREATE TYPE "public"."message_status" AS ENUM('pending', 'sent', 'delivered', 'failed', 'held', 'expired');--> statement-breakpoint
 CREATE TYPE "public"."outbound_delivery_status" AS ENUM('pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown');--> statement-breakpoint
@@ -220,6 +221,19 @@ CREATE TABLE "flows" (
 	"published_at" timestamp (3),
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "instance_license" (
+	"id" text PRIMARY KEY DEFAULT 'singleton' NOT NULL,
+	"token" text,
+	"tier" text,
+	"status" "instance_license_status" DEFAULT 'none' NOT NULL,
+	"expires_at" timestamp (3),
+	"verified_at" timestamp (3),
+	"jwks_snapshot" jsonb,
+	"last_error" text,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
+	CONSTRAINT "instance_license_singleton" CHECK ("instance_license"."id" = 'singleton')
 );
 --> statement-breakpoint
 CREATE TABLE "messages" (

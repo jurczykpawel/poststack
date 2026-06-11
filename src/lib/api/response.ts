@@ -51,6 +51,10 @@ export const ApiErrors = {
   tooManyRequests: (msg = "Rate limit exceeded") =>
     err("TOO_MANY_REQUESTS", msg, 429),
 
+  // 402: a valid PRO license is required to use this feature.
+  proRequired: (feature: string, upgradeUrl: string, msg = "This feature requires a PRO license") =>
+    err("PRO_REQUIRED", msg, 402, { feature, upgrade_url: upgradeUrl }),
+
   internal: (msg = "Internal server error") =>
     err("INTERNAL_ERROR", msg, 500),
 };
