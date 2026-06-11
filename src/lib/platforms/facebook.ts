@@ -154,7 +154,7 @@ export class FacebookProvider extends SocialProvider {
     tokens: TokenData,
     objectId: string,
     message: string
-  ): Promise<void> {
+  ): Promise<{ platformMessageId: string | null }> {
     const res = await fetch(`${GRAPH_API}/${objectId}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -167,6 +167,9 @@ export class FacebookProvider extends SocialProvider {
     });
 
     await assertMetaOk(res, "Facebook send comment");
+    // POST /{object}/comments returns { id: "<new comment id>" } — capture it for the ledger.
+    const data = (await res.json().catch(() => ({}))) as { id?: string };
+    return { platformMessageId: data.id ?? null };
   }
 
   override async sendPrivateReply(

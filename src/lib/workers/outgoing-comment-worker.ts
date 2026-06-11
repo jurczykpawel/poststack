@@ -29,8 +29,8 @@ export async function processOutgoingComment(
       if (!provider.sendComment) {
         throw new Error(`Platform ${channel.platform} does not support comments`);
       }
-      await provider.sendComment(tokens, commentId, text);
-      return { platformMessageId: null };
+      const sent = await provider.sendComment(tokens, commentId, text);
+      return { platformMessageId: sent.platformMessageId };
     },
     onSent: async (tx) => {
       await tx

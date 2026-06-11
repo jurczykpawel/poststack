@@ -115,7 +115,7 @@ export abstract class SocialProvider {
     tokens: TokenData,
     objectId: string,
     message: string
-  ): Promise<void>;
+  ): Promise<{ platformMessageId: string | null }>;
 
   /**
    * Send a private reply (comment-to-DM), addressed by comment_id.

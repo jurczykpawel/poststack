@@ -208,7 +208,7 @@ export class InstagramProvider extends SocialProvider {
     tokens: TokenData,
     mediaId: string,
     message: string
-  ): Promise<void> {
+  ): Promise<{ platformMessageId: string | null }> {
     const res = await fetch(`${GRAPH_API}/${mediaId}/replies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -221,6 +221,9 @@ export class InstagramProvider extends SocialProvider {
     });
 
     await assertMetaOk(res, "Instagram send comment");
+    // POST /{media}/replies returns { id: "<new comment id>" } — capture it for the ledger.
+    const data = (await res.json().catch(() => ({}))) as { id?: string };
+    return { platformMessageId: data.id ?? null };
   }
 
   override async sendPrivateReply(

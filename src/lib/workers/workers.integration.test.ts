@@ -6,7 +6,7 @@ const provider = {
   requiresTokenRefresh: vi.fn(() => false),
   refreshBufferSeconds: vi.fn(() => 0),
   sendMessage: vi.fn(async () => ({ platformMessageId: "PMID-1" })),
-  sendComment: vi.fn(async () => ({})),
+  sendComment: vi.fn(async () => ({ platformMessageId: "CMT-PMID" })),
   sendPrivateReply: vi.fn(async () => {}),
   checkFollowsBusiness: vi.fn(async () => true),
   refreshToken: vi.fn(async (t: unknown) => t),
@@ -1281,13 +1281,16 @@ describe("typed held parking + replay", () => {
 });
 
 describe("outgoing-comment worker", () => {
-  it("posts a reply and marks the comment log reply_sent", async () => {
+  it("posts a reply and marks the comment log reply_sent, persisting the new comment id", async () => {
     if (!TEST_DB) return;
     await db.insert(s.commentLogs).values({ channel_id: CH, workspace_id: WS, platform_comment_id: "cmt-out", comment_text: "x" });
-    await w.processOutgoingComment({ channelId: CH, commentId: "cmt-out", text: "reply" } as never, helpers);
+    await w.processOutgoingComment({ channelId: CH, commentId: "cmt-out", text: "reply", idempotencyKey: "d-cmt-out" } as never, helpers);
     expect(provider.sendComment).toHaveBeenCalled();
     const log = await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "cmt-out"));
     expect(log[0].reply_sent).toBe(true);
+    // the posted comment's id is captured on the delivery ledger (reliably populated).
+    const del = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-cmt-out") });
+    expect(del?.platform_message_id).toBe("CMT-PMID");
   });
 });
 
