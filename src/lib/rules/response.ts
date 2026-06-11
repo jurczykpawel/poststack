@@ -18,6 +18,16 @@ export function buildInteractiveContent(
 }
 
 /**
+ * Pick the text to send from a single value and/or a pool: a non-empty pool yields a uniform
+ * random pick (anti-spam rotation), otherwise the single value, otherwise null. Shared by the DM
+ * `random_text` path and the public-comment pool so both rotate identically (DRY).
+ */
+export function pickText(single?: string | null, pool?: string[] | null): string | null {
+  if (pool && pool.length > 0) return pool[Math.floor(Math.random() * pool.length)];
+  return single ?? null;
+}
+
+/**
  * Resolve the base reply text and whether to AI-rephrase it. The text source
  * (a single `text` or a random pick from `messages`) is orthogonal to AI
  * post-processing: any source can be rephrased when response_type is
@@ -29,8 +39,7 @@ export function selectResponse(
 ): { baseText: string | null; aiEnabled: boolean } {
   let baseText: string | null = null;
   if (responseType === "random_text") {
-    const msgs = responseConfig.messages as string[] | undefined;
-    if (msgs && msgs.length > 0) baseText = msgs[Math.floor(Math.random() * msgs.length)];
+    baseText = pickText(undefined, responseConfig.messages as string[] | undefined);
   } else if (responseType !== "none" && responseType !== "sequence") {
     baseText = (responseConfig.text as string) ?? null;
   }

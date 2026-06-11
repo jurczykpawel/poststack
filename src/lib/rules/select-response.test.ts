@@ -1,5 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { selectResponse } from "./response";
+import { selectResponse, pickText } from "./response";
+
+describe("pickText — single vs pool", () => {
+  it("returns the single when no pool is given", () => {
+    expect(pickText("hi", undefined)).toBe("hi");
+  });
+
+  it("picks a member of a non-empty pool", () => {
+    const pool = ["x", "y", "z"];
+    for (let i = 0; i < 20; i++) expect(pool).toContain(pickText(undefined, pool));
+  });
+
+  it("falls back to the single when the pool is empty", () => {
+    expect(pickText("hi", [])).toBe("hi");
+  });
+
+  it("returns null when neither a single nor a non-empty pool is given", () => {
+    expect(pickText(undefined, undefined)).toBeNull();
+    expect(pickText(undefined, [])).toBeNull();
+  });
+
+  it("a non-empty pool wins over a single", () => {
+    expect(pickText("single", ["only"])).toBe("only");
+  });
+});
 
 describe("selectResponse — text source × AI post-processing", () => {
   it("text: returns the single text, AI off", () => {
