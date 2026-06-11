@@ -297,6 +297,53 @@ describe("contact erase scrubs PSID-bearing webhook_events rows (real Postgres)"
     expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, neighbourKey) })).toBeDefined();
     await db.delete(webhookEvents).where(eq(webhookEvents.event_key, neighbourKey));
   });
+
+  // An echo carries the erased user's PSID in recipient_id (the page is the sender), with the full
+  // text we sent them in `raw` — erasure must reach those too, not only sender_id rows.
+  it("removes an echo row addressed to the contact by recipient_id", async () => {
+    if (!TEST_DB) return;
+    const CH_E = "ffffffff-0000-0000-0000-0000000000ab";
+    const CONTACT_E = "ffffffff-0000-0000-0000-0000000000ac";
+    const PSID_E = "psid-echo-target";
+    await db.insert(channels).values({ id: CH_E, workspace_id: WS_A, platform: "instagram", platform_id: "PG-E", token_encrypted: "e", webhook_secret: "s" });
+    await db.insert(contacts).values({ id: CONTACT_E, workspace_id: WS_A });
+    await db.insert(contactChannels).values({ contact_id: CONTACT_E, channel_id: CH_E, platform_sender_id: PSID_E });
+    const echoKey = "echo-mid-echo-1";
+    await db.insert(webhookEvents).values({ event_key: echoKey, event_type: "echo", is_echo: true, raw: { reply: "secret to PSID" }, channel_id: CH_E, sender_id: "PG-E", recipient_id: PSID_E });
+
+    const res = await DELETE(reqAsA(), ctx(CONTACT_E));
+    expect(res.status).toBe(204);
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, echoKey) })).toBeUndefined();
+  });
+
+  // A platform sender id (e.g. a Telegram chat id) is shared across channels/workspaces. The scrub
+  // is scoped by (channel, psid) pairs from the contact's own channels, so the same id on a channel
+  // the contact is NOT on survives — erasing in one workspace can't wipe another's log + dedup claims.
+  it("does not delete the same sender id on a channel the contact is not on (cross-tenant safe)", async () => {
+    if (!TEST_DB) return;
+    const CH_M = "ffffffff-0000-0000-0000-0000000000ad";
+    const CH_N = "ffffffff-0000-0000-0000-0000000000ae";
+    const CONTACT_M = "ffffffff-0000-0000-0000-0000000000af";
+    const SHARED = "tg-chat-shared-12345";
+    await db.insert(channels).values([
+      { id: CH_M, workspace_id: WS_A, platform: "telegram", platform_id: "BOT-M", token_encrypted: "e", webhook_secret: "s" },
+      { id: CH_N, workspace_id: WS_A, platform: "telegram", platform_id: "BOT-N", token_encrypted: "e", webhook_secret: "s" },
+    ]);
+    await db.insert(contacts).values({ id: CONTACT_M, workspace_id: WS_A });
+    await db.insert(contactChannels).values({ contact_id: CONTACT_M, channel_id: CH_M, platform_sender_id: SHARED });
+    const mineKey = "msg-mine-cross-1";
+    const otherChannelKey = "msg-other-channel-1";
+    await db.insert(webhookEvents).values([
+      { event_key: mineKey, event_type: "message", raw: {}, channel_id: CH_M, sender_id: SHARED },
+      { event_key: otherChannelKey, event_type: "message", raw: {}, channel_id: CH_N, sender_id: SHARED },
+    ]);
+
+    const res = await DELETE(reqAsA(), ctx(CONTACT_M));
+    expect(res.status).toBe(204);
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, mineKey) })).toBeUndefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, otherChannelKey) })).toBeDefined();
+    await db.delete(webhookEvents).where(eq(webhookEvents.event_key, otherChannelKey));
+  });
 });
 
 // queued/dead-letter graphile jobs carry the contact's PSID + message text in their

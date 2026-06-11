@@ -180,12 +180,19 @@ export async function DELETE(
     await tx.execute(
       sql`delete from graphile_worker._private_jobs where payload->>'contactId' = ${contactId} or ${senderClause}`,
     );
-    // The webhook_events log stores the event sender's PSID (sender_id column + the raw payload)
-    // and its channel FK is ON DELETE SET NULL (the log row outlives the channel), so it is never
-    // reached by a table cascade. Without this, an erased contact's PSID would outlive the contact.
-    // Scrub every logged event keyed to this contact's PSID(s) so erasure is complete in the log too.
-    if (psids.length > 0) {
-      await tx.delete(webhookEvents).where(inArray(webhookEvents.sender_id, psids));
+    // The webhook_events log stores the PSID in BOTH directions (sender_id for the contact's
+    // inbound events, recipient_id for echo events where the page is the sender and the contact is
+    // the recipient) plus the full message text in `raw`. Its channel FK is ON DELETE SET NULL, so
+    // a table cascade never reaches it → without this the PSID + conversation content would outlive
+    // the contact. Scrub by the SAME (channel, psid) pairs as the comment-log delete (a platform
+    // sender id is NOT globally unique across channels — e.g. a Telegram chat id is shared across
+    // workspaces — so matching on the id alone would wipe another workspace's log + dedup claims).
+    const evtPairs = contact.contact_channels.flatMap((cc) => [
+      and(eq(webhookEvents.channel_id, cc.channel_id), eq(webhookEvents.sender_id, cc.platform_sender_id)),
+      and(eq(webhookEvents.channel_id, cc.channel_id), eq(webhookEvents.recipient_id, cc.platform_sender_id)),
+    ]);
+    if (evtPairs.length > 0) {
+      await tx.delete(webhookEvents).where(or(...evtPairs));
     }
     // Cascade removes ContactChannel, Conversations + Messages, enrollments, pending
     // approvals, broadcast recipients and outbound_deliveries (via foreign keys).
