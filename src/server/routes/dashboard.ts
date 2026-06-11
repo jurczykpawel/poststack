@@ -348,6 +348,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const channels = await loadChannels(a.workspaceId);
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const hasFb = channels.some((ch) => ch.platform === "facebook" && ch.status !== "disabled");
+    const hasIg = channels.some((ch) => ch.platform === "instagram" && ch.status !== "disabled");
+    const canMultiChannel = features.has("multi_channel");
+    const canNonMeta = features.has("non_meta_channels");
     const connected = c.req.query("connected");
     const count = c.req.query("count");
     const errorKey = c.req.query("error");
@@ -362,11 +367,21 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           ${connected && count ? html`<div class="notice notice-ok">${count} ${PLATFORM_LABELS[connected] ?? connected} account(s) connected.</div>` : html``}
           <div x-data="{ token: false, tg: false }">
             <div class="row" style="margin:1rem 0 1rem">
-              <a class="btn" style="background:#1877f2;color:#fff;border:none" href="/api/oauth/facebook">+ Facebook</a>
-              <a class="btn" style="background:#bc1888;color:#fff;border:none" href="/api/oauth/instagram">+ Instagram</a>
-              <button class="btn" type="button" style="background:#229ED9;color:#fff;border:none" @click="tg = !tg">+ Telegram</button>
+              ${hasFb && !canMultiChannel
+                ? proConnectBtn("Facebook", upgradeUrl)
+                : html`<a class="btn" style="background:#1877f2;color:#fff;border:none" href="/api/oauth/facebook">+ Facebook</a>`}
+              ${hasIg && !canMultiChannel
+                ? proConnectBtn("Instagram", upgradeUrl)
+                : html`<a class="btn" style="background:#bc1888;color:#fff;border:none" href="/api/oauth/instagram">+ Instagram</a>`}
+              ${canNonMeta
+                ? html`<button class="btn" type="button" style="background:#229ED9;color:#fff;border:none" @click="tg = !tg">+ Telegram</button>`
+                : proConnectBtn("Telegram", upgradeUrl)}
+              <a class="btn" style="opacity:.6;pointer-events:none" title="Coming soon">+ Gmail — soon</a>
               <button class="btn" type="button" @click="token = !token">Paste token</button>
             </div>
+            ${(hasFb || hasIg) && !canMultiChannel
+              ? html`<p class="muted" style="font-size:.78rem;margin:-.5rem 0 1rem">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are ${proLink(upgradeUrl, "PRO")}.</p>`
+              : html``}
             <div x-show="token" x-cloak class="card" style="margin-bottom:1.5rem">
               <p class="muted" style="margin-bottom:.75rem">Connect with a long-lived / System User token (no 60-day refresh cycle).</p>
               <form hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="#channels-list" hx-swap="innerHTML" class="stack">
@@ -596,6 +611,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/rules", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const canFollowGate = features.has("follow_gate");
+    const canInteractive = features.has("interactive_messages");
+    const canPersonalize = features.has("personalization");
     return c.html(
       dashboardDoc(
         "Rules · ReplyStack",
@@ -647,7 +666,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <div><label class="label">Response</label>
                 <select class="input" name="response_mode" x-model="responseMode">
                   <option value="text">Text reply (with optional buttons / quick replies)</option>
-                  <option value="follow_gate">Follow-gate (unlock only after they follow)</option>
+                  ${canFollowGate
+                    ? html`<option value="follow_gate">Follow-gate (unlock only after they follow)</option>`
+                    : html`<option value="follow_gate" disabled>🔒 Follow-gate (PRO)</option>`}
                 </select>
               </div>
 
@@ -660,11 +681,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               </div>
 
               <div x-show="responseMode === 'text'"><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea>
-                <p class="muted" style="font-size:.72rem;margin-top:.25rem">Personalization (PRO): <code>{imie}</code> = first name, <code>{name}</code> = full name.</p>
+                <p class="muted" style="font-size:.72rem;margin-top:.25rem">${canPersonalize
+                  ? html`Personalization: <code>{imie}</code> = first name, <code>{name}</code> = full name.`
+                  : html`Personalization (<code>{imie}</code>/<code>{name}</code>) — ${proLink(upgradeUrl)}`}</p>
               </div>
               <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
-              <div x-show="responseMode === 'text'">
+              ${canInteractive
+                ? html`<div x-show="responseMode === 'text'">
                 <label class="label">Quick replies (tappable chips above the text box · max 13)</label>
                 <template x-for="(q, i) in quickReplies" :key="i">
                   <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
@@ -696,7 +720,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 </template>
                 <button class="btn btn-sm" type="button" @click="buttons.push({ title: '', kind: 'postback', value: '' })" x-show="buttons.length < 3">+ button</button>
                 <p class="muted" style="font-size:.7rem;margin-top:.25rem">Instagram supports postback + link buttons; quick-reply icons and extra button types are Messenger-only.</p>
-              </div>
+              </div>`
+                : html`<div x-show="responseMode === 'text'" class="card" style="font-size:.78rem"><span class="muted">Buttons &amp; quick replies are a PRO feature.</span> ${proLink(upgradeUrl, "Upgrade")}</div>`}
 
               <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
                 <input type="checkbox" x-model="requiresApproval" />
@@ -837,6 +862,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/sequences", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
+    const { features, upgradeUrl } = await getInstanceLicense();
     return c.html(
       dashboardDoc(
         "Sequences · ReplyStack",
@@ -844,7 +870,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         html`<div class="page">
           <h1>Sequences</h1>
           <p class="muted">Automated drip message sequences. Each line below becomes a message step.</p>
-          <details class="card" style="margin:1rem 0">
+          ${!features.has("sequences")
+            ? html`<div class="card" style="margin:1rem 0;font-size:.85rem"><span class="muted">Drip sequences are a PRO feature.</span> ${proLink(upgradeUrl, "Upgrade to PRO")}</div>`
+            : html`<details class="card" style="margin:1rem 0">
             <summary style="cursor:pointer;font-weight:600">+ New sequence</summary>
             <form hx-post="/sequences" hx-ext="json-enc" hx-target="#sequences-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem"
               x-data="{
@@ -876,7 +904,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <input type="hidden" name="steps_json" :value="stepsJson()" />
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create sequence</button>
             </form>
-          </details>
+          </details>`}
           <div id="sequences-list">${renderSequences(await loadSequences(a.workspaceId))}</div>
         </div>`,
       ),
@@ -1035,6 +1063,16 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
       </tr>`,
     )}
   </tbody></table>`;
+}
+
+// A small "🔒 PRO" link to the upgrade URL, for locking gated controls in forms.
+function proLink(upgradeUrl: string, label = "PRO"): Html {
+  return html`<a href="${upgradeUrl}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none;white-space:nowrap">🔒 ${label}</a>`;
+}
+
+// A connect button that is locked behind PRO — links to the upgrade page instead of connecting.
+function proConnectBtn(label: string, upgradeUrl: string): Html {
+  return html`<a class="btn" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 ${label} (PRO)</a>`;
 }
 
 function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {
