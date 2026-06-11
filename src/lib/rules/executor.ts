@@ -14,6 +14,8 @@ import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent, pickText } from "./response";
 import type { MessageContent } from "@/lib/platforms/base";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { hasFeature } from "@/lib/license/gate";
+import { applyPersonalization, type PersonalizeContext } from "./personalization";
 
 /** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
  *  and as a defensive `limit` on the per-message executor fetch, so neither the sanctioned API nor an
@@ -176,7 +178,7 @@ export async function evaluateRules(
   // as a no-match so a redelivery can't reply late, and the conversation is flagged for a human.
   const contact = await db.query.contacts.findFirst({
     where: eq(contacts.id, contactId),
-    columns: { is_subscribed: true },
+    columns: { is_subscribed: true, display_name: true },
   });
   // A missing contact (erased mid-flight) is treated as "do not send", matching the sequence
   // worker — never fire to a contact we can no longer see.
@@ -187,6 +189,13 @@ export async function evaluateRules(
     }
     return { outcome: "no_match", ruleId: null };
   }
+
+  // Personalization (PRO): resolved once per inbound (the license check is cached). When the
+  // feature is off, placeholders are stripped safely downstream — never leaked literally.
+  const personalize: PersonalizeContext = {
+    displayName: contact.display_name ?? null,
+    enabled: await hasFeature("personalization"),
+  };
 
   // Batch the cooldown + send-count prechecks for ALL candidate rules into two queries up front,
   // instead of two queries per rule inside the loop (2N on the hot inbound path). The
@@ -230,8 +239,8 @@ export async function evaluateRules(
     // claim, so the event simply retries.
     const keyBase = eventKey ? `${eventKey}:${rule.id}` : null;
     const commit: CommitFn = rule.requires_approval
-      ? await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId })
-      : await planResponse({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase });
+      ? await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize })
+      : await planResponse({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
 
     // Commit the rule's side effects as one unit: the event claim, the cooldown and
     // send-count mutations, and the outbound enqueue (or the parked approval) all
@@ -298,9 +307,12 @@ async function planApproval(input: {
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
+  personalize: PersonalizeContext;
 }): Promise<CommitFn> {
-  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId } = input;
+  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize } = input;
   const content = await resolveReplyContent(workspaceId, rule.response_type, rule.response_config);
+  // Park the exact wording the approver will send — personalized (or safely stripped).
+  if (content?.text) content.text = applyPersonalization(content.text, personalize);
   return async (tx) => {
     await tx.insert(pendingApprovals).values({
       workspace_id: workspaceId,
@@ -329,12 +341,14 @@ interface PlanResponseInput {
   commentId?: string;
   /** `${eventKey}:${ruleId}` when the event has a stable identity, else null. */
   keyBase: string | null;
+  personalize: PersonalizeContext;
 }
 
 /** Build outbound content from a follow-gate branch config ({ text, quick_replies?, buttons? }). */
-function gatedContent(branch: unknown) {
+function gatedContent(branch: unknown, personalize: PersonalizeContext) {
   const cfg = (branch ?? {}) as Record<string, unknown>;
-  return { text: cfg.text as string | undefined, ...buildInteractiveContent(cfg) };
+  const text = typeof cfg.text === "string" ? applyPersonalization(cfg.text, personalize) : (cfg.text as string | undefined);
+  return { text, ...buildInteractiveContent(cfg) };
 }
 
 /**
@@ -345,7 +359,7 @@ function gatedContent(branch: unknown) {
  * a redelivery cannot send a duplicate even if it is re-evaluated.
  */
 async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
-  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase } = input;
+  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize } = input;
   // Deterministic per-job key when we have an event identity; a fresh uuid otherwise.
   const idemKey = (discriminator: string) => (keyBase ? `${keyBase}:${discriminator}` : randomUUID());
   // Dedup the queued job too when the key is deterministic (extra guard on top of the
@@ -362,8 +376,8 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
         conversationId,
         contactId,
         recipientPlatformId,
-        followed: gatedContent(rule.response_config.followed),
-        notFollowed: gatedContent(rule.response_config.not_followed),
+        followed: gatedContent(rule.response_config.followed, personalize),
+        notFollowed: gatedContent(rule.response_config.not_followed, personalize),
         sentByRuleId: rule.id,
         idempotencyKey: key,
       }, { jobKey: jobKeyFor(key) });
@@ -372,16 +386,19 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
 
   const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
 
-  // Resolve the text to send (single or random pick, optionally LLM-rephrased).
-  const dmText = await resolveDmText(workspaceId, rule.response_type, rule.response_config);
+  // Resolve the text to send (single or random pick, optionally LLM-rephrased), then personalize
+  // (placeholders substituted when licensed, safely stripped otherwise).
+  const rawDmText = await resolveDmText(workspaceId, rule.response_type, rule.response_config);
+  const dmText = rawDmText !== null ? applyPersonalization(rawDmText, personalize) : null;
 
   // Public comment reply (reply_mode: "comment" or "both"). A non-empty pool rotates uniformly
-  // (anti-spam); else the single text; else fall back to the DM text.
+  // (anti-spam); else the single text; else fall back to the (already personalized) DM text.
+  const pickedComment = pickText(
+    rule.response_config.comment_reply_text as string | undefined,
+    rule.response_config.comment_reply_texts as string[] | undefined,
+  );
   const commentReplyText =
-    pickText(
-      rule.response_config.comment_reply_text as string | undefined,
-      rule.response_config.comment_reply_texts as string[] | undefined,
-    ) ?? dmText;
+    (pickedComment != null ? applyPersonalization(pickedComment, personalize) : undefined) ?? dmText;
   const sendComment = (replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
 
   // Interactive add-ons (quick replies / buttons) attach to the DM body.

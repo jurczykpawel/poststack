@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { autoReplyRules, channels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
+import { responseConfigHasPlaceholders } from "@/lib/rules/personalization";
+import { hasFeature } from "@/lib/license/gate";
+import { env } from "@/lib/env";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -220,6 +223,12 @@ export async function POST(request: Request) {
       columns: { id: true },
     });
     if (!channel) return ApiErrors.notFound("Channel");
+  }
+
+  // Personalization placeholders ({imie}/{name}) are a PRO feature — block authoring them on
+  // an unlicensed instance (runtime additionally strips them safely if a license later lapses).
+  if (responseConfigHasPlaceholders(parsed.data.response_config) && !(await hasFeature("personalization"))) {
+    return ApiErrors.proRequired("personalization", env.LICENSE_UPGRADE_URL, "Personalization placeholders ({imie}/{name}) require a PRO license.");
   }
 
   // Cap active rules per workspace so the per-message match path stays bounded — a tenant can't

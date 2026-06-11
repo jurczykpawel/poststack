@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { autoReplyRules, pendingApprovals } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
+import { responseConfigHasPlaceholders } from "@/lib/rules/personalization";
+import { hasFeature } from "@/lib/license/gate";
+import { env } from "@/lib/env";
 import { z } from "zod";
 import { createRuleSchema } from "../route";
 
@@ -199,6 +202,17 @@ export async function PATCH(
       }
       return ApiErrors.validationError(fieldErrors);
     }
+  }
+
+  // Block actively SETTING personalization placeholders ({imie}/{name}) on an unlicensed
+  // instance. A patch that doesn't touch response_config (e.g. a toggle/rename) is exempt, so a
+  // rule authored while licensed stays editable after a lapse (runtime strips it safely anyway).
+  if (
+    parsed.data.response_config !== undefined &&
+    responseConfigHasPlaceholders(parsed.data.response_config) &&
+    !(await hasFeature("personalization"))
+  ) {
+    return ApiErrors.proRequired("personalization", env.LICENSE_UPGRADE_URL, "Personalization placeholders ({imie}/{name}) require a PRO license.");
   }
 
   const [updated] = await db

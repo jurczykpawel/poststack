@@ -659,7 +659,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 <div><label class="label">Re-prompt button label</label><input class="input" name="claim_label" maxlength="20" placeholder="Chcę odebrać" /></div>
               </div>
 
-              <div x-show="responseMode === 'text'"><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea></div>
+              <div x-show="responseMode === 'text'"><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea>
+                <p class="muted" style="font-size:.72rem;margin-top:.25rem">Personalization (PRO): <code>{imie}</code> = first name, <code>{name}</code> = full name.</p>
+              </div>
               <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
               <div x-show="responseMode === 'text'">
