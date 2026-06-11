@@ -20,6 +20,7 @@ import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import * as auditLog from "@/server/handlers/v1/audit-log/route";
 import * as messagesPrune from "@/server/handlers/v1/messages/prune/route";
+import * as webhookEventsPrune from "@/server/handlers/v1/webhook-events/prune/route";
 import * as workspace from "@/server/handlers/v1/workspace/route";
 import * as tags from "@/server/handlers/v1/tags/route";
 import * as approvals from "@/server/handlers/v1/approvals/route";
@@ -128,6 +129,7 @@ v1.delete("/api-keys/:keyId", (c) =>
 // Audit log, retention, workspace, tags
 v1.get("/audit-log", (c) => auditLog.GET(c.req.raw));
 v1.post("/messages/prune", (c) => messagesPrune.POST(c.req.raw));
+v1.post("/webhook-events/prune", (c) => webhookEventsPrune.POST(c.req.raw));
 v1.get("/workspace", (c) => workspace.GET(c.req.raw));
 v1.patch("/workspace", (c) => workspace.PATCH(c.req.raw));
 v1.get("/tags", (c) => tags.GET(c.req.raw));

@@ -1,6 +1,6 @@
-import { and, eq, lt, inArray, isNotNull, notExists, sql } from "drizzle-orm";
+import { and, eq, lt, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions, sequenceEnrollments } from "@/db/schema";
+import { messages, commentLogs, conversations, workspaces, pendingApprovals, flowSessions, sequenceEnrollments, channels, webhookEvents } from "@/db/schema";
 
 const BATCH_SIZE = 1000;
 const DAY_MS = 86_400_000;
@@ -112,6 +112,45 @@ export async function pruneWorkspaceMessages(
   );
 
   return { deletedMessages, deletedComments, deletedConversations: emptied.rowCount ?? 0 };
+}
+
+/**
+ * Manually prune this workspace's webhook_events log older than `olderThanDays`. The log has no
+ * auto-TTL (unlike the ephemeral stores) — retention is owner-driven via this endpoint. Scoped to
+ * the workspace's own channels, plus orphan rows (channel_id NULL = an event for a page unknown to
+ * any workspace), so one tenant's prune never reaches another tenant's rows. Returns the count.
+ */
+export async function pruneWorkspaceWebhookEvents(
+  workspaceId: string,
+  olderThanDays: number,
+  now: Date = new Date(),
+): Promise<{ deletedEvents: number }> {
+  const cutoff = new Date(now.getTime() - olderThanDays * DAY_MS);
+  // received_at is DB-clock (defaultNow()), so compare against the UTC wall-clock to stay correct
+  // on a non-UTC host (same TZ-safety rationale as the message prune's created_at).
+  const cutoffUtc = sql`${cutoff.toISOString()}::timestamp`;
+
+  const own = db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(eq(channels.workspace_id, workspaceId));
+
+  const deleted = await deleteInBatches(
+    () =>
+      db
+        .select({ id: webhookEvents.id })
+        .from(webhookEvents)
+        .where(
+          and(
+            lt(webhookEvents.received_at, cutoffUtc),
+            or(inArray(webhookEvents.channel_id, own), isNull(webhookEvents.channel_id)),
+          ),
+        )
+        .limit(BATCH_SIZE),
+    async (ids) => (await db.delete(webhookEvents).where(inArray(webhookEvents.id, ids))).rowCount ?? 0,
+  );
+
+  return { deletedEvents: deleted };
 }
 
 /**

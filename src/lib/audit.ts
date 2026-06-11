@@ -17,6 +17,7 @@ export const AuditAction = {
   ChannelDrained: "channel.drained",
   ContactErased: "contact.erased",
   MessagesPruned: "messages.pruned",
+  WebhookEventsPruned: "webhook_events.pruned",
 } as const;
 
 /** Derive the audit actor from a request's auth context (never the raw key). */

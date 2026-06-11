@@ -49,6 +49,7 @@ const ENDPOINTS: Array<[string, string]> = [
   ["DELETE", "/api/v1/api-keys/abc"],
   ["GET", "/api/v1/audit-log"],
   ["POST", "/api/v1/messages/prune"],
+  ["POST", "/api/v1/webhook-events/prune"],
   ["GET", "/api/v1/workspace"],
   ["PATCH", "/api/v1/workspace"],
   ["GET", "/api/v1/tags"],

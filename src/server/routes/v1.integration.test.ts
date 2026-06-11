@@ -219,6 +219,38 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(res.status).toBe(422);
   });
 
+  // webhook-events/prune is bounded the same way.
+  it("rejects an over-max older_than_days on webhook-events prune (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api/v1/webhook-events/prune", {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ older_than_days: 1_000_000_000_000 }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("prunes webhook_events older than the cutoff, scoped to the workspace's channels", async () => {
+    if (!TEST_DB) return;
+    const { webhookEvents } = await import("@/db/schema");
+    const now = Date.now();
+    await db.insert(webhookEvents).values([
+      { event_key: `we-old-${now}`, event_type: "message", raw: {}, channel_id: CH_A, received_at: new Date(now - 40 * 86_400_000) },
+      { event_key: `we-new-${now}`, event_type: "message", raw: {}, channel_id: CH_A, received_at: new Date(now - 1 * 86_400_000) },
+    ]);
+    const res = await app.request("/api/v1/webhook-events/prune", {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ older_than_days: 30 }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.deletedEvents).toBeGreaterThanOrEqual(1);
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, `we-old-${now}`) })).toBeUndefined();
+    expect(await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.event_key, `we-new-${now}`) })).toBeDefined();
+    await db.delete(webhookEvents).where(eq(webhookEvents.event_key, `we-new-${now}`));
+  });
+
   it("force-drains a channel (200)", async () => {
     if (!TEST_DB) return;
     const res = await app.request(`/api/v1/channels/${CH_A}/drain`, { method: "POST", headers: authHeaders });
