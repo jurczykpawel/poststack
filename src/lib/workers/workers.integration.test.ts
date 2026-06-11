@@ -1582,3 +1582,107 @@ describe("follow-gate worker", () => {
     expect(provider.checkFollowsBusiness).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("webhook_events handling outcome (real Postgres)", () => {
+  // Simulate the edge: log the event row first, then run the worker with payload.eventKey so its
+  // CAS lands on that exact row — asserting the recorded handling_status + outcome links.
+  async function logged(key: string, type: string, extra: Record<string, unknown> = {}) {
+    const idem = await import("@/lib/idempotency");
+    await idem.logEvent({ event_key: key, event_type: type, raw: {}, channel_id: CH, ...extra });
+  }
+  async function eventRow(key: string) {
+    const [row] = await db.select().from(s.webhookEvents).where(eq(s.webhookEvents.event_key, key));
+    return row;
+  }
+  async function seedDmRule(over: Record<string, unknown> = {}) {
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "DM", trigger_type: "default", is_active: true, cooldown_seconds: 0,
+      trigger_config: {}, response_type: "text", response_config: { text: "hi" }, ...over,
+    });
+  }
+
+  it("a fired DM records handling_status=fired + contact/conversation/message links", async () => {
+    if (!TEST_DB) return;
+    await seedDmRule();
+    const key = "msg-evt-fired";
+    await logged(key, "message", { sender_id: "EVT-F" });
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "EVT-F", recipientId: PAGE, mid: "evt-fired-mid", eventKey: key, text: "hello", timestamp: ts() }, helpers);
+    const row = await eventRow(key);
+    expect(row.handling_status).toBe("fired");
+    expect(row.handled_at).toBeTruthy();
+    expect(row.contact_id).toBeTruthy();
+    expect(row.conversation_id).toBeTruthy();
+    expect(row.message_id).toBeTruthy();
+  });
+
+  it("a no-match DM records handling_status=no_match", async () => {
+    if (!TEST_DB) return;
+    // no rule seeded → no match
+    const key = "msg-evt-nomatch";
+    await logged(key, "message", { sender_id: "EVT-NM" });
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "EVT-NM", recipientId: PAGE, mid: "evt-nm-mid", eventKey: key, text: "nothing", timestamp: ts() }, helpers);
+    const row = await eventRow(key);
+    expect(row.handling_status).toBe("no_match");
+  });
+
+  it("a paused-channel DM records handling_status=paused", async () => {
+    if (!TEST_DB) return;
+    await seedDmRule();
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    const key = "msg-evt-paused";
+    await logged(key, "message", { sender_id: "EVT-P" });
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "EVT-P", recipientId: PAGE, mid: "evt-p-mid", eventKey: key, text: "hello", timestamp: ts() }, helpers);
+    expect((await eventRow(key)).handling_status).toBe("paused");
+  });
+
+  it("a self-loop comment records handling_status=ignored, no comment logged", async () => {
+    if (!TEST_DB) return;
+    const key = "cmt-evt-self-add";
+    await logged(key, "comment", { sender_id: PAGE });
+    await w.processIncomingComment({ platform: "facebook", pageId: PAGE, commentId: "evt-cmt-self", postId: "p", senderId: PAGE, senderName: "Us", text: "auto", eventKey: key, timestamp: ts() }, helpers);
+    expect((await eventRow(key)).handling_status).toBe("ignored");
+    expect((await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "evt-cmt-self"))).length).toBe(0);
+  });
+
+  it("a self-guard reaction records handling_status=ignored", async () => {
+    if (!TEST_DB) return;
+    const key = "reaction-evt-self";
+    await logged(key, "reaction", { sender_id: PAGE });
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: PAGE, reactedMid: "m-self-evt", reactionType: "love", emoji: "❤️", eventKey: key, timestamp: ts() }, helpers);
+    expect((await eventRow(key)).handling_status).toBe("ignored");
+  });
+
+  it("a fired comment links the comment_log row", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "C", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { post_id: "p-evt" }, response_type: "text",
+      response_config: { text: "x", reply_mode: "comment", comment_reply_text: "thanks!" },
+    });
+    const key = "cmt-evt-fired-add";
+    await logged(key, "comment", { sender_id: "EVT-CMT-F" });
+    await w.processIncomingComment({ platform: "facebook", pageId: PAGE, commentId: "evt-cmt-fired", postId: "p-evt", senderId: "EVT-CMT-F", senderName: "Fan", text: "anything", eventKey: key, timestamp: ts() }, helpers);
+    const row = await eventRow(key);
+    expect(row.handling_status).toBe("fired");
+    expect(row.comment_log_id).toBeTruthy();
+  });
+
+  it("a DM whose reply fails on the final attempt records handling_status=error + detail", async () => {
+    if (!TEST_DB) return;
+    await seedDmRule();
+    const qc = await import("@/lib/queue/client");
+    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent enqueue failure"));
+    const key = "msg-evt-error";
+    await logged(key, "message", { sender_id: "EVT-E" });
+    try {
+      const job = { platform: "facebook", pageId: PAGE, senderId: "EVT-E", recipientId: PAGE, mid: "evt-e-mid", eventKey: key, text: "hello", timestamp: ts() };
+      const helpersFinal = { logger: { info: () => {} }, job: { attempts: 3, max_attempts: 3 } } as never;
+      await expect(w.processIncomingMessage(job, helpersFinal)).rejects.toThrow();
+      const row = await eventRow(key);
+      expect(row.handling_status).toBe("error");
+      expect(row.error_detail).toContain("permanent enqueue failure");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

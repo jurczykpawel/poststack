@@ -126,6 +126,50 @@ export async function claimEvent(
 }
 
 /**
+ * Best-effort: attach outcome links (the message / comment-log row this event produced) to an
+ * already-claimed webhook_events row, WITHOUT changing its status. The executor's fire-claim
+ * records contact/conversation inside the fire tx; the worker calls this afterwards to add the ids
+ * it only learns post-fire (the inbound message row, the comment-log row). Only updates a terminal
+ * row that doesn't already carry the link, so a redelivery can't clobber the original outcome.
+ */
+export async function linkEventOutcome(key: string, links: EventOutcomeLinks): Promise<void> {
+  if (Object.keys(links).length === 0) return;
+  await db
+    .update(webhookEvents)
+    .set(links)
+    .where(and(eq(webhookEvents.event_key, key), ne(webhookEvents.handling_status, "received")));
+}
+
+/** The graphile job fields the terminal-failure check needs. */
+type JobAttempts = { attempts: number; max_attempts: number } | undefined;
+
+/**
+ * On the FINAL attempt of a worker job whose handling threw, record the event as `error` with the
+ * reason, so an exhausted retry is visible in the log rather than silently dropped. A no-op on an
+ * earlier attempt (the job will just retry). Best-effort: never throws (the caller rethrows the
+ * original error to dead-letter the job). Only transitions a row still in `received`, so it can't
+ * overwrite an outcome a concurrent/earlier delivery already recorded.
+ */
+export async function markEventOnTerminalFailure(
+  helpers: { job?: JobAttempts },
+  key: string,
+  err: unknown,
+  links: Omit<EventOutcomeLinks, "error_detail"> = {},
+): Promise<void> {
+  const job = helpers.job;
+  if (!job || job.attempts < job.max_attempts) return;
+  const detail = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+  try {
+    await db
+      .update(webhookEvents)
+      .set({ handling_status: "error", handled_at: sql`now()`, error_detail: detail, ...links })
+      .where(and(eq(webhookEvents.event_key, key), eq(webhookEvents.handling_status, "received")));
+  } catch {
+    // Best-effort — the original error is rethrown by the caller regardless.
+  }
+}
+
+/**
  * Has this inbound event already been terminally handled? True when a row exists with a
  * `handling_status` other than `received`. Used to short-circuit a redelivery before any work.
  */

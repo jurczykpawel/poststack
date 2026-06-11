@@ -5,7 +5,7 @@ import type { IncomingMessageJob } from "@/lib/queue/types";
 import { db } from "@/lib/db";
 import { channels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEvent } from "@/lib/idempotency";
+import { claimEvent, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
 import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -77,6 +77,7 @@ export async function processIncomingMessage(
   //      last_inbound_at NULL (which mis-anchors the drain's 24h messaging window). Inside the tx a
   //      genuine duplicate's insert returns no row → counters correctly skipped (preserved).
   //      unique on (conversation_id, platform_message_id) dedups a redelivery and a concurrent race.
+  let messageId: string | null = null;
   const isNewMessage = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(messages)
@@ -91,6 +92,7 @@ export async function processIncomingMessage(
       .onConflictDoNothing({ target: [messages.conversation_id, messages.platform_message_id] })
       .returning({ id: messages.id });
     if (!inserted) return false;
+    messageId = inserted.id;
     // unread always increments — it's a new message regardless of arrival order.
     await tx.update(conversations)
       .set({ unread_count: sql`${conversations.unread_count} + 1` })
@@ -133,7 +135,7 @@ export async function processIncomingMessage(
   // A manually paused channel still ingests to the inbox but runs no automation —
   // same handling as a per-conversation pause: surface a new DM for a human, don't auto-reply.
   if (conversation.is_automation_paused || channel.status === "paused") {
-    await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversation.id }, db, { event_type: "message" });
+    await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversation.id, message_id: messageId }, db, { event_type: "message" });
     if (isNewMessage) await ifLatest({ needs_manual_reply: true });
     return;
   }
@@ -153,6 +155,10 @@ export async function processIncomingMessage(
       isStoryMention,
       eventKey,
     });
+    // Attach the inbound message row to the now-claimed event (the executor records
+    // contact/conversation inside the fire tx; the message id is only known here). Skip on
+    // `already` (a redelivery must not clobber the original outcome).
+    if (outcome !== "already") await linkEventOutcome(eventKey, { message_id: messageId });
     // Change the flag only for an outcome THIS call actually decided: a fired reply
     // clears it, a real no-match raises it, and an `already`-handled event (a concurrent or
     // redelivered duplicate) leaves it untouched — so a lost claim race can't wrongly flag a
@@ -162,12 +168,13 @@ export async function processIncomingMessage(
     if (ruleId) helpers.logger.info(`Rule fired: ${ruleId}`);
   } catch (err) {
     // The auto-reply couldn't be produced/queued. Earlier attempts just retry; on the final
-    // attempt the reply is permanently lost, so flag the conversation for a human before
-    // rethrowing (which dead-letters the job) — otherwise the failure is silent.
+    // attempt the reply is permanently lost, so flag the conversation for a human and record the
+    // event as `error` before rethrowing (which dead-letters the job) — otherwise it's silent.
     const job: { attempts: number; max_attempts: number } | undefined = helpers.job;
     if (job && job.attempts >= job.max_attempts) {
       await ifLatest({ needs_manual_reply: true });
     }
+    await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversation.id, message_id: messageId });
     throw err;
   }
 }

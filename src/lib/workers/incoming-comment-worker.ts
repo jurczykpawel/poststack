@@ -5,7 +5,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, commentLogs, contacts, conversations } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEvent } from "@/lib/idempotency";
+import { claimEvent, markEventStatus, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -54,6 +54,8 @@ export async function processIncomingComment(
   //.
   if (senderId === channel.platform_id) {
     helpers.logger.info(`Comment from own page (commentId=${sanitizeForLog(commentId)}), skipping — self-loop guard`);
+    // The edge already logged this event; record that we intentionally did not act on it.
+    if (payload.eventKey) await markEventStatus(payload.eventKey, "ignored");
     return;
   }
 
@@ -138,18 +140,31 @@ export async function processIncomingComment(
   // Always evaluate (even on a redelivery): the event key makes the rule fire at most once
   // — claimed in the same transaction as the reply enqueue — and any failure propagates so
   // the job retries instead of being swallowed and lost to the comment-log dedup.
-  const { outcome, ruleId } = await evaluateRules({
-    workspaceId: channel.workspace_id,
-    channelId: channel.id,
-    conversationId,
-    contactId,
-    recipientPlatformId: senderId,
-    text,
-    eventType: "comment",
-    postId: postId ?? undefined,
-    commentId,
-    eventKey,
-  });
+  let outcome: "fired" | "no_match" | "already";
+  let ruleId: string | null;
+  try {
+    ({ outcome, ruleId } = await evaluateRules({
+      workspaceId: channel.workspace_id,
+      channelId: channel.id,
+      conversationId,
+      contactId,
+      recipientPlatformId: senderId,
+      text,
+      eventType: "comment",
+      postId: postId ?? undefined,
+      commentId,
+      eventKey,
+    }));
+  } catch (err) {
+    // On the final attempt the reply is permanently lost — record the event as `error` (with the
+    // reason) before rethrowing, so the failure is visible in the log rather than silent.
+    await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversationId, comment_log_id: loggedId });
+    throw err;
+  }
+  // Attach the comment-log row to the now-claimed event (the executor records contact/conversation
+  // inside the fire tx; the comment-log id is only known here). Skip on `already` (a redelivery
+  // must not clobber the original).
+  if (outcome !== "already") await linkEventOutcome(eventKey, { comment_log_id: loggedId });
   // An unmatched comment is unhandled work for the operator — raise the attention badge, mirroring
   // the DM worker. Only for an outcome THIS call decided (`no_match`): a redelivery returns
   // `already` and leaves the flag untouched, so it can't re-raise a flag a human just cleared. A

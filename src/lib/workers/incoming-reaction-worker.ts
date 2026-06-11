@@ -4,7 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
-import { claimEvent, isEventTerminal } from "@/lib/idempotency";
+import { claimEvent, isEventTerminal, markEventStatus, markEventOnTerminalFailure } from "@/lib/idempotency";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -52,6 +52,8 @@ export async function processIncomingReaction(
   // platform_id is NOT NULL, so this only ever matches a real page id.
   if (senderId === channel.platform_id) {
     helpers.logger.info(`Reaction from own page (pageId=${sanitizeForLog(pageId)}), skipping — self-guard`);
+    // The edge already logged this event; record that we intentionally did not act on it.
+    if (payload.eventKey) await markEventStatus(payload.eventKey, "ignored");
     return;
   }
 
@@ -86,18 +88,26 @@ export async function processIncomingReaction(
     return;
   }
 
-  const { ruleId } = await evaluateRules({
-    workspaceId: channel.workspace_id,
-    channelId: channel.id,
-    conversationId,
-    contactId,
-    recipientPlatformId: senderId,
-    text: null,
-    eventType: "message",
-    isReaction: true,
-    reactionType: reactionType ?? undefined,
-    eventKey,
-  });
+  let ruleId: string | null;
+  try {
+    ({ ruleId } = await evaluateRules({
+      workspaceId: channel.workspace_id,
+      channelId: channel.id,
+      conversationId,
+      contactId,
+      recipientPlatformId: senderId,
+      text: null,
+      eventType: "message",
+      isReaction: true,
+      reactionType: reactionType ?? undefined,
+      eventKey,
+    }));
+  } catch (err) {
+    // On the final attempt the reply is permanently lost — record the event as `error` (with the
+    // reason) before rethrowing, so the failure is visible in the log rather than silent.
+    await markEventOnTerminalFailure(helpers, eventKey, err, { contact_id: contactId, conversation_id: conversationId });
+    throw err;
+  }
   if (ruleId) {
     helpers.logger.info(`Reaction rule fired: ${ruleId}`);
   }
