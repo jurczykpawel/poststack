@@ -359,6 +359,36 @@ export const messageReactions = pgTable("message_reactions", {
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
+// Reactions/likes left on OUR posts (Facebook page feed). Unlike a comment, a post reaction
+// does not create a contact (a liker isn't necessarily messaging us), so the reactor's
+// platform id + name are stored inline. Unique per (channel, post, reactor); an unreact
+// deletes the row. Channel-scoped cascade.
+export const postReactions = pgTable("post_reactions", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	post_id: text("post_id").notNull(),
+	reactor_id: text("reactor_id").notNull(),
+	reactor_name: text("reactor_name"),
+	// "like" for a plain like, or the reaction name (love, wow, haha, …).
+	reaction_type: text("reaction_type").notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	uniqueIndex("post_reactions_channel_post_reactor_key").using("btree", table.channel_id.asc().nullsLast(), table.post_id.asc().nullsLast(), table.reactor_id.asc().nullsLast()),
+	index("post_reactions_workspace_id_post_id_idx").using("btree", table.workspace_id.asc().nullsLast(), table.post_id.asc().nullsLast()),
+	foreignKey({
+			columns: [table.workspace_id],
+			foreignColumns: [workspaces.id],
+			name: "post_reactions_workspace_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.channel_id],
+			foreignColumns: [channels.id],
+			name: "post_reactions_channel_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
 export const flowSessions = pgTable("flow_sessions", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	contact_id: uuid("contact_id").notNull(),

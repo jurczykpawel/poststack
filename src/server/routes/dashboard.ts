@@ -5,7 +5,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import { and, or, eq, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
-  conversations, messages, messageReactions, channels, contacts, contactChannels,
+  conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
   pendingApprovals, outboundDeliveries,
 } from "@/db/schema";
@@ -509,6 +509,19 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         features,
       ),
     );
+  });
+
+  // Engagement — post reactions/likes; the customer-engagement surface is PRO.
+  app.get("/engagement", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.redirect("/login");
+    const { features, upgradeUrl } = await getInstanceLicense();
+    if (!features.has("contacts_crm")) {
+      return c.html(
+        dashboardDoc("Engagement · ReplyStack", "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features),
+      );
+    }
+    return c.html(dashboardDoc("Engagement · ReplyStack", "/engagement", renderEngagement(await loadEngagement(a.workspaceId)), features));
   });
 
   app.get("/contacts/list", guard, async (c) => {
@@ -1147,6 +1160,65 @@ function proLockMain(title: string, body: Html, upgradeUrl: string): Html {
       <a class="btn btn-primary" href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a>
       <a class="btn" href="/overview">Back to overview</a>
     </div>
+  </div>`;
+}
+
+const REACTION_EMOJI: Record<string, string> = {
+  like: "👍", love: "❤️", care: "🥰", haha: "😆", wow: "😮", sad: "😢", angry: "😠",
+};
+
+type EngagementPost = { postId: string; total: number; byType: Array<{ type: string; n: number }>; reactors: string[] };
+
+/** Group post reactions by post → per-type counts + a few reactor names. Identity-free shape is
+ *  not required here (Engagement IS the PRO view), but we cap the reactor list for readability. */
+async function loadEngagement(workspaceId: string): Promise<EngagementPost[]> {
+  const rows = await db
+    .select({
+      post_id: postReactions.post_id,
+      reaction_type: postReactions.reaction_type,
+      reactor_name: postReactions.reactor_name,
+      created_at: postReactions.created_at,
+    })
+    .from(postReactions)
+    .where(eq(postReactions.workspace_id, workspaceId))
+    .orderBy(desc(postReactions.created_at))
+    .limit(1000);
+
+  const byPost = new Map<string, { total: number; types: Map<string, number>; reactors: string[] }>();
+  for (const r of rows) {
+    let p = byPost.get(r.post_id);
+    if (!p) byPost.set(r.post_id, (p = { total: 0, types: new Map(), reactors: [] }));
+    p.total++;
+    p.types.set(r.reaction_type, (p.types.get(r.reaction_type) ?? 0) + 1);
+    if (r.reactor_name && p.reactors.length < 8 && !p.reactors.includes(r.reactor_name)) p.reactors.push(r.reactor_name);
+  }
+  return [...byPost.entries()]
+    .map(([postId, p]) => ({
+      postId,
+      total: p.total,
+      byType: [...p.types.entries()].map(([type, n]) => ({ type, n })).sort((a, b) => b.n - a.n),
+      reactors: p.reactors,
+    }))
+    .sort((a, b) => b.total - a.total);
+}
+
+function renderEngagement(posts: EngagementPost[]): Html {
+  return html`<div class="page">
+    <h1>Engagement</h1>
+    <p class="muted">Reactions and likes left on your posts.</p>
+    ${posts.length === 0
+      ? html`<p class="muted">No post reactions yet. Reactions on your Facebook posts will show up here.</p>`
+      : html`<table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th></tr></thead>
+          <tbody>
+            ${posts.map(
+              (p) => html`<tr>
+                <td class="mono" style="font-size:.78rem">${p.postId}</td>
+                <td><strong>${p.total}</strong></td>
+                <td>${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span> `)}</td>
+                <td class="muted" style="font-size:.8rem">${p.reactors.length ? p.reactors.join(", ") : "—"}</td>
+              </tr>`,
+            )}
+          </tbody></table>`}
   </div>`;
 }
 

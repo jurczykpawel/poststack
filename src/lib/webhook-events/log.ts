@@ -11,7 +11,7 @@ import type { Platform } from "@/db/schema";
 export interface ClassifiedEvent {
   log: LogEventInput;
   /** Set for handled types → enqueue this task with this jobKey; null → log only (no job). */
-  job: { task: "incoming-message" | "incoming-comment" | "incoming-reaction"; jobKey: string } | null;
+  job: { task: "incoming-message" | "incoming-comment" | "incoming-reaction" | "incoming-post-reaction"; jobKey: string } | null;
   /** When the logged row should land terminal immediately instead of `received`: `unhandled` for a
    *  recognized type with no handler, `ignored` for a malformed event that can't be processed. */
   terminalStatus?: "unhandled" | "ignored";
@@ -52,6 +52,8 @@ export interface MetaChangeEvent {
     comment_id?: string;
     from?: { id?: string; name?: string; username?: string };
     id?: string;
+    post_id?: string;
+    reaction_type?: string;
   };
 }
 
@@ -166,6 +168,23 @@ export function classifyChangeEvent(
       },
       job: { task: "incoming-comment", jobKey: `comment-${v.comment_id}` },
     };
+  }
+
+  // Facebook post reaction/like: field=feed, item=reaction|like, verb=add|remove. A reactor id +
+  // post id are required to record (and dedup) it; an unreact (remove) is handled so the worker can
+  // delete the row. Reactions on comments (which carry a comment_id) are not post reactions.
+  if (field === "feed" && (v.item === "reaction" || v.item === "like") && (v.verb === "add" || v.verb === "remove") && !v.comment_id) {
+    const reactorId = v.from?.id;
+    if (reactorId && v.post_id) {
+      const key = `postreact-${v.post_id}-${reactorId}-${v.verb}`;
+      return {
+        log: {
+          platform, object, field, raw: change as unknown,
+          event_key: key, event_type: "post_reaction", sender_id: reactorId,
+        },
+        job: { task: "incoming-post-reaction", jobKey: `postreact-${v.post_id}-${reactorId}` },
+      };
+    }
   }
 
   // Instagram comment: field=comments with a flatter shape.

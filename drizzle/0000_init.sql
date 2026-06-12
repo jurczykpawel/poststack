@@ -296,6 +296,18 @@ CREATE TABLE "pending_approvals" (
 	"resolved_by" uuid
 );
 --> statement-breakpoint
+CREATE TABLE "post_reactions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"post_id" text NOT NULL,
+	"reactor_id" text NOT NULL,
+	"reactor_name" text,
+	"reaction_type" text NOT NULL,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "rate_limit_counters" (
 	"key" text PRIMARY KEY NOT NULL,
 	"count" integer NOT NULL,
@@ -446,6 +458,8 @@ ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_rule_id_fkey" 
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "post_reactions" ADD CONSTRAINT "post_reactions_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "post_reactions" ADD CONSTRAINT "post_reactions_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "rule_cooldowns" ADD CONSTRAINT "rule_cooldowns_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "rule_cooldowns" ADD CONSTRAINT "rule_cooldowns_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "rule_send_counts" ADD CONSTRAINT "rule_send_counts_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -498,6 +512,8 @@ CREATE UNIQUE INDEX "outbound_deliveries_delivery_key_key" ON "outbound_deliveri
 CREATE INDEX "outbound_deliveries_channel_id_status_idx" ON "outbound_deliveries" USING btree ("channel_id","status");--> statement-breakpoint
 CREATE INDEX "outbound_deliveries_status_updated_at_idx" ON "outbound_deliveries" USING btree ("status","updated_at");--> statement-breakpoint
 CREATE INDEX "pending_approvals_workspace_id_status_idx" ON "pending_approvals" USING btree ("workspace_id","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "post_reactions_channel_post_reactor_key" ON "post_reactions" USING btree ("channel_id","post_id","reactor_id");--> statement-breakpoint
+CREATE INDEX "post_reactions_workspace_id_post_id_idx" ON "post_reactions" USING btree ("workspace_id","post_id");--> statement-breakpoint
 CREATE INDEX "rate_limit_counters_window_start_idx" ON "rate_limit_counters" USING btree ("window_start");--> statement-breakpoint
 CREATE INDEX "revoked_tokens_expires_at_idx" ON "revoked_tokens" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "rule_cooldowns_expires_at_idx" ON "rule_cooldowns" USING btree ("expires_at");--> statement-breakpoint

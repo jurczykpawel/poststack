@@ -9,7 +9,7 @@ import { addJob } from "@/lib/queue/client";
 import { logEvent, markEventStatus } from "@/lib/idempotency";
 import { classifyMessagingEvent, classifyChangeEvent } from "@/lib/webhook-events/log";
 import { confirmEcho } from "@/lib/webhook-events/echo";
-import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob } from "@/lib/queue/types";
+import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob, IncomingPostReactionJob } from "@/lib/queue/types";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 export const runtime = "nodejs";
@@ -123,7 +123,10 @@ export async function POST(request: Request) {
     for (const change of entry.changes ?? []) {
       const classified = classifyChangeEvent(change as Parameters<typeof classifyChangeEvent>[0], platform, payload.object);
       if (!classified) continue;
-      const enqueueChange = () => enqueueComment(classified, change, entry.id, platform);
+      const enqueueChange = () =>
+        classified.job?.task === "incoming-post-reaction"
+          ? enqueuePostReaction(classified, change, entry.id, platform)
+          : enqueueComment(classified, change, entry.id, platform);
       failed += await processClassified(classified, channelId, enqueueChange);
     }
   }
@@ -265,6 +268,30 @@ async function enqueueComment(
     timestamp: comment.timestamp,
   };
   await addJob("incoming-comment", job, { jobKey: classified.job!.jobKey });
+}
+
+/** Build + enqueue the incoming-post-reaction job for a classified Facebook feed reaction/like. */
+async function enqueuePostReaction(
+  classified: { log: { event_key: string }; job: { jobKey: string } | null },
+  change: ChangeEvent,
+  pageId: string,
+  platform: Platform,
+): Promise<void> {
+  const v = (change.value ?? {}) as Record<string, unknown> & {
+    item?: string; verb?: string; post_id?: string; reaction_type?: string;
+    from?: { id?: string; name?: string }; created_time?: number;
+  };
+  const job: IncomingPostReactionJob = {
+    platform, pageId,
+    eventKey: classified.log.event_key,
+    postId: v.post_id as string,
+    reactorId: v.from?.id as string,
+    reactorName: v.from?.name,
+    reactionType: v.item === "like" ? "like" : (v.reaction_type ?? "unknown"),
+    verb: v.verb === "remove" ? "remove" : "add",
+    timestamp: v.created_time,
+  };
+  await addJob("incoming-post-reaction", job, { jobKey: classified.job!.jobKey });
 }
 
 // ─── Comment normalization ─────────────────────────────────────────────────

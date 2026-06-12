@@ -144,4 +144,27 @@ describe("license-aware dashboard UI", () => {
     expect(body).not.toContain("The conversation inbox is a PRO feature");
     expect(body).not.toContain("Inbox 🔒");
   });
+
+  it("free /engagement is locked behind PRO", async () => {
+    if (!TEST_DB) return;
+    const body = await (await get("/engagement")).text();
+    expect(body).toContain("Seeing who reacted to your posts is a PRO feature");
+    expect(body).toContain("Engagement 🔒");
+  });
+
+  it("licensed /engagement shows post reactions with reactor and counts", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    const CH = "1ace0000-0000-0000-0000-0000000000e1";
+    await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "FB-ENG", token_encrypted: "x", webhook_secret: "s", status: "active" });
+    await db.insert(s.postReactions).values([
+      { workspace_id: WS, channel_id: CH, post_id: "POST-ENG", reactor_id: "U1", reactor_name: "Ola Nowak", reaction_type: "love" },
+      { workspace_id: WS, channel_id: CH, post_id: "POST-ENG", reactor_id: "U2", reactor_name: "Jan Kox", reaction_type: "like" },
+    ]);
+    const body = await (await get("/engagement")).text();
+    expect(body).toContain("POST-ENG");
+    expect(body).toContain("Ola Nowak");
+    expect(body).toContain("❤️"); // love emoji
+    expect(body).not.toContain("Engagement 🔒");
+  });
 });

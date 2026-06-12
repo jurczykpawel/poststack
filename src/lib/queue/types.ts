@@ -87,6 +87,21 @@ export interface IncomingReactionJob {
   timestamp: number | undefined;
 }
 
+/** A reaction/like left on one of our posts (Facebook page feed). Recorded for the engagement
+ *  view; no reply is sent. An unreact arrives with verb="remove" so the worker deletes the row. */
+export interface IncomingPostReactionJob {
+  platform: string;
+  pageId: string;
+  eventKey?: string;
+  postId: string;
+  reactorId: string;
+  reactorName?: string;
+  /** "like" for a plain like, or the reaction name (love, wow, …). */
+  reactionType: string;
+  verb: "add" | "remove";
+  timestamp?: number;
+}
+
 export interface OutgoingMessageJob {
   channelId: string;
   conversationId: string;
@@ -148,6 +163,7 @@ export type TaskPayloadMap = {
   "incoming-message": IncomingMessageJob;
   "incoming-comment": IncomingCommentJob;
   "incoming-reaction": IncomingReactionJob;
+  "incoming-post-reaction": IncomingPostReactionJob;
   "outgoing-message": OutgoingMessageJob;
   "outgoing-comment": OutgoingCommentJob;
   "outgoing-private-reply": OutgoingPrivateReplyJob;

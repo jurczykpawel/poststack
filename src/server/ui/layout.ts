@@ -36,6 +36,7 @@ const NAV: { href: string; label: string; feature?: Feature }[] = [
   { href: "/rules", label: "Rules" },
   { href: "/channels", label: "Channels" },
   { href: "/contacts", label: "Contacts", feature: "contacts_crm" },
+  { href: "/engagement", label: "Engagement", feature: "contacts_crm" },
   { href: "/sequences", label: "Sequences", feature: "sequences" },
   { href: "/settings", label: "Settings" },
 ];
