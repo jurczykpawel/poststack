@@ -61,6 +61,14 @@ describe("verifyLicense", () => {
     expect(res).toEqual({ valid: false, reason: "wrong_product" });
   });
 
+  it("accepts a token whose product is in a comma-separated allowlist", async () => {
+    const token = await key.sign(makeClaims({ kid: "kid-1", product: "replystack-pro-lifetime" }));
+    const ok = await verifyLicense(token, [key.jwk], { productSlug: "replystack-pro, replystack-pro-lifetime, replystack-business" });
+    expect(ok).toEqual(expect.objectContaining({ valid: true }));
+    const no = await verifyLicense(token, [key.jwk], { productSlug: "replystack-pro,replystack-business" });
+    expect(no).toEqual({ valid: false, reason: "wrong_product" });
+  });
+
   it("treats a null exp as a non-expiring token", async () => {
     const token = await key.sign(makeClaims({ kid: "kid-1", exp: null }));
     const res = await verifyLicense(token, [key.jwk], { productSlug: PRODUCT });

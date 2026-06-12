@@ -115,7 +115,10 @@ async function verifyTokenSignature(token: string, publicKeyPem: string): Promis
 export async function verifyLicense(
   token: string,
   jwksKeys: JwksKey[],
-  opts: { productSlug: string; now?: number },
+  // productSlug is the accepted product binding. A comma-separated string (or array) is an
+  // allowlist — one instance accepts several products (e.g. an annual + a lifetime PRO variant
+  // and the business tier), each a distinct Sellf product/slug, all valid for this install.
+  opts: { productSlug: string | string[]; now?: number },
 ): Promise<VerifyResult> {
   const claims = parseClaims(token);
   if (!claims) return { valid: false, reason: "malformed" };
@@ -126,7 +129,10 @@ export async function verifyLicense(
 
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   if (claims.exp && claims.exp < now) return { valid: false, reason: "expired" };
-  if (claims.product !== opts.productSlug) return { valid: false, reason: "wrong_product" };
+  const allowed = (Array.isArray(opts.productSlug) ? opts.productSlug : opts.productSlug.split(","))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!allowed.includes(claims.product)) return { valid: false, reason: "wrong_product" };
 
   return { valid: true, tier: claims.tier, claims };
 }

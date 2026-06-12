@@ -67,8 +67,10 @@ const envSchema = z.object({
     .string()
     .url()
     .default("https://sellf.techskills.academy/api/licenses/jwks?seller=83789f79-bdd7-4918-af1f-e56325fa5070"),
-  // Product slug the token must match (claims.product) — guards against another
-  // product's token from the same seller unlocking ReplyStack.
+  // Product slug(s) the token must match (claims.product) — guards against another
+  // product's token from the same seller unlocking ReplyStack. Comma-separated allowlist:
+  // a single install can accept several products (e.g. annual + lifetime PRO variants and
+  // the business tier), each a distinct Sellf product, all valid here.
   LICENSE_PRODUCT_SLUG: z.string().default("replystack-pro"),
   // Pinned JWKS snapshot (JSON `{ keys: [...] }`) — durable fallback used only when
   // the live endpoint is unreachable AND nothing is cached (public-key material).
