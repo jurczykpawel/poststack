@@ -16,10 +16,10 @@ beforeAll(async () => {
 });
 
 describe("public pages", () => {
-  it("redirects / to /inbox", async () => {
+  it("redirects / to /overview", async () => {
     const res = await app.request("/");
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/inbox");
+    expect(res.headers.get("location")).toBe("/overview");
   });
 
   it("renders the login page", async () => {

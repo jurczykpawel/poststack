@@ -15,6 +15,7 @@ export type Feature =
   | "follow_gate"
   | "multi_channel"
   | "non_meta_channels"
+  | "contacts_crm"
   | "multi_workspace";
 
 export type TierId = string;
@@ -32,6 +33,7 @@ const PRO: readonly Feature[] = [
   "follow_gate",
   "multi_channel", // a 2nd+ channel of the same platform (e.g. another FB page / IG account)
   "non_meta_channels", // any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)
+  "contacts_crm", // seeing individual people: inbox threads, contacts list, tags, manual reply
 ];
 const BUSINESS: readonly Feature[] = [...PRO, "multi_workspace"];
 
@@ -59,6 +61,7 @@ const FEATURE_LABEL: Record<Feature, string> = {
   follow_gate: "Follow-gate",
   multi_channel: "More than one channel per platform",
   non_meta_channels: "Channels other than Facebook/Instagram",
+  contacts_crm: "The contacts inbox and CRM (seeing individual conversations)",
   multi_workspace: "Multiple workspaces",
 };
 

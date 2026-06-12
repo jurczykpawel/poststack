@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_contacts_list_key_abcdef0123";
@@ -25,6 +26,8 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   ({ GET } = await import("./route"));
+  // Viewing contacts is the PRO contacts-CRM surface; license the instance so the gate passes.
+  await licenseInstance();
 });
 
 beforeEach(async () => {
@@ -43,7 +46,10 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  if (TEST_DB) await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  if (!TEST_DB) return;
+  await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  // Drop the test license so its persisted token can't leak PRO into later test files.
+  await db.delete(s.instanceLicense);
 });
 
 const req = (qs = "") => new Request(`http://x/api/v1/contacts${qs}`, { headers: { authorization: `Bearer ${RAW_KEY}` } });

@@ -48,7 +48,7 @@ function authPage(opts: { title: string; subtitle: string; action: string; submi
 
 // ─── auth + home ──────────────────────────────────────────────────────────────
 
-pages.get("/", (c) => c.redirect("/inbox"));
+pages.get("/", (c) => c.redirect("/overview"));
 
 pages.get("/login", (c) =>
   c.html(

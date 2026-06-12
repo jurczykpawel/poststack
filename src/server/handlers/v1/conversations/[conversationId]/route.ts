@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { conversations, workspaceMembers } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { proGate } from "@/lib/api/pro-gate";
 import { resumeDueEnrollments } from "@/lib/sequences/resume";
 import { z } from "zod";
 
@@ -15,6 +16,8 @@ export async function GET(
 ) {
   const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { conversationId } = await params;
   const conversation = await db.query.conversations.findFirst({
@@ -56,6 +59,8 @@ export async function PATCH(
 ) {
   const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { conversationId } = await params;
   const existing = await db.query.conversations.findFirst({

@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db, isForeignKeyViolation } from "@/lib/db";
 import { contacts, commentLogs, conversations, sequenceEnrollments, webhookEvents, tags, contactTags } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
+import { proGate } from "@/lib/api/pro-gate";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { z } from "zod";
 
@@ -15,6 +16,8 @@ export async function GET(
 ) {
   const auth = await authenticateWithScope(request, "contacts:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { contactId } = await params;
   const contact = await db.query.contacts.findFirst({
@@ -64,6 +67,8 @@ export async function PATCH(
 ) {
   const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { contactId } = await params;
   const existing = await db.query.contacts.findFirst({

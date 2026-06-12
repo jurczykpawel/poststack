@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { eq, sql } from "drizzle-orm";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_conversations_key_abcdef01234";
@@ -30,6 +31,8 @@ beforeAll(async () => {
   detail = await import("./[conversationId]/route");
   msgs = await import("./[conversationId]/messages/route");
   ({ closeQueue } = await import("@/lib/queue/client"));
+  // Conversations + manual reply are the PRO contacts-CRM surface; license the instance.
+  await licenseInstance();
 });
 
 beforeEach(async () => {
@@ -49,6 +52,7 @@ afterAll(async () => {
   if (!TEST_DB) return;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  await db.delete(s.instanceLicense);
   if (closeQueue) await closeQueue();
 });
 

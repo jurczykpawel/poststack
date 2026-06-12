@@ -8,9 +8,18 @@ describe("tierFeatures", () => {
 
   it("grants the full PRO feature set on the pro tier", () => {
     const pro = tierFeatures("pro");
-    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels"] as const) {
+    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels", "contacts_crm"] as const) {
       expect(pro.has(f)).toBe(true);
     }
+  });
+
+  it("gates customer inbox/CRM visibility (contacts_crm) to PRO, not free", () => {
+    // Free keeps unlimited message *handling*, but seeing individual contacts/conversations
+    // is the paid CRM layer. Storage still happens on free; only visibility is gated.
+    expect(tierFeatures("pro").has("contacts_crm")).toBe(true);
+    expect(tierFeatures("business").has("contacts_crm")).toBe(true);
+    expect(tierFeatures("free").has("contacts_crm")).toBe(false);
+    expect(tierFeatures(null).has("contacts_crm")).toBe(false);
   });
 
   it("grants nothing on the free tier", () => {

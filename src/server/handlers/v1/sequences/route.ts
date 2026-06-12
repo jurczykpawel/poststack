@@ -3,9 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sequences, sequenceEnrollments } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
-import { hasFeature } from "@/lib/license/gate";
-import { proMessage } from "@/lib/license/features";
-import { env } from "@/lib/env";
+import { proGate } from "@/lib/api/pro-gate";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -67,9 +65,8 @@ export async function POST(request: Request) {
   }
 
   // Drip sequences are a PRO feature.
-  if (!(await hasFeature("sequences"))) {
-    return ApiErrors.proRequired("sequences", env.LICENSE_UPGRADE_URL, proMessage("sequences"));
-  }
+  const gate = await proGate("sequences");
+  if (gate) return gate;
 
   const [sequence] = await db
     .insert(sequences)

@@ -109,4 +109,39 @@ describe("license-aware dashboard UI", () => {
     expect(body).toContain("@click=\"tg = !tg\"");
     expect(body).not.toContain("🔒 Telegram (PRO)");
   });
+
+  it("free /overview shows aggregate stats and locks Inbox/Contacts in the nav", async () => {
+    if (!TEST_DB) return;
+    const body = await (await get("/overview")).text();
+    expect(body).toContain("Overview");
+    expect(body).toContain("Sent today");
+    // Nav: Overview is free; Inbox + Contacts are locked.
+    expect(body).toContain("Inbox 🔒");
+    expect(body).toContain("Contacts 🔒");
+    // Free overview points at the locked per-person view.
+    expect(body).toContain("Open individual conversations with");
+  });
+
+  it("free /inbox is locked behind PRO (no conversation list)", async () => {
+    if (!TEST_DB) return;
+    const body = await (await get("/inbox")).text();
+    expect(body).toContain("The conversation inbox is a PRO feature");
+    expect(body).not.toContain("Select a conversation"); // the real inbox is not rendered
+  });
+
+  it("free /contacts is locked behind PRO", async () => {
+    if (!TEST_DB) return;
+    const body = await (await get("/contacts")).text();
+    expect(body).toContain("The contacts CRM is a PRO feature");
+    expect(body).not.toContain("Search by name, email, username");
+  });
+
+  it("licensed /inbox renders the real inbox and unlocks the nav", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    const body = await (await get("/inbox")).text();
+    expect(body).toContain("Select a conversation");
+    expect(body).not.toContain("The conversation inbox is a PRO feature");
+    expect(body).not.toContain("Inbox 🔒");
+  });
 });

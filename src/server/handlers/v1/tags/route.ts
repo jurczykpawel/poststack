@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tags, contactTags } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
+import { proGate } from "@/lib/api/pro-gate";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -11,6 +12,8 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const auth = await authenticateWithScope(request, "tags:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const rows = await db.query.tags.findMany({
     where: eq(tags.workspace_id, auth.workspaceId),
@@ -46,6 +49,8 @@ const createSchema = z.object({
 export async function POST(request: Request) {
   const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const body = await request.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);

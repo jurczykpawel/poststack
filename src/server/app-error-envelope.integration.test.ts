@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vites
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 // Force the manual-reply enqueue to throw, so an unhandled error escapes the handler and we
 // can assert the global onError still honours the { data, error } JSON contract.
@@ -31,6 +32,9 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   app = (await import("./app")).buildApp();
+  // The manual-reply endpoint is PRO-gated; license the instance so the request reaches the
+  // handler body (where the mocked enqueue throws) instead of stopping at the 402 gate.
+  await licenseInstance();
 });
 
 beforeEach(async () => {
@@ -47,6 +51,7 @@ beforeEach(async () => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  await db.delete(s.instanceLicense);
 });
 
 describe("API error envelope", () => {

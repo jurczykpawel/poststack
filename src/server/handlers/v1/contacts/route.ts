@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contacts, contactChannels, contactTags, tags } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
+import { proGate } from "@/lib/api/pro-gate";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -35,6 +36,8 @@ function decodeCursor(c: string): { ts: Date | null; id: string } | null {
 export async function GET(request: Request) {
   const auth = await authenticateWithScope(request, "contacts:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse(Object.fromEntries(searchParams));

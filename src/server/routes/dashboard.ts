@@ -13,6 +13,8 @@ import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from "@/lib/license/gate";
+import type { Feature } from "@/lib/license/features";
+import { loadOverview } from "@/lib/stats/overview";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
@@ -261,10 +263,25 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // Every dashboard route runs the first-party origin check (a no-op on safe methods) before the
   // session check, so a cross-site write is refused even before auth runs.
   const guard = every(requireSameOrigin, sessionGuard);
-  // Inbox
+  // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
+  app.get("/overview", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.redirect("/login");
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const ov = await loadOverview(a.workspaceId);
+    return c.html(dashboardDoc("Overview · ReplyStack", "/overview", renderOverview(ov, features, upgradeUrl), features));
+  });
+
+  // Inbox — seeing individual conversations is the PRO contacts-CRM surface.
   app.get("/inbox", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
+    const { features, upgradeUrl } = await getInstanceLicense();
+    if (!features.has("contacts_crm")) {
+      return c.html(
+        dashboardDoc("Inbox · ReplyStack", "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features),
+      );
+    }
     const conversations = await loadConversations(a.workspaceId);
     return c.html(
       dashboardDoc(
@@ -274,6 +291,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div class="conv-list">${renderConvList(conversations)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
+        features,
       ),
     );
   });
@@ -281,6 +299,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/:id", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
     const id = c.req.param("id");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
@@ -293,6 +312,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/:id/messages", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
     const id = c.req.param("id");
     const conv = await db.query.conversations.findFirst({
       where: and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId)),
@@ -400,6 +420,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </div>
           <div id="channels-list">${renderChannels(channels)}</div>
         </div>`,
+        features,
       ),
     );
   });
@@ -444,10 +465,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(list);
   });
 
-  // Contacts
+  // Contacts — the customer CRM; seeing individual people is PRO.
   app.get("/contacts", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
+    const { features, upgradeUrl } = await getInstanceLicense();
+    if (!features.has("contacts_crm")) {
+      return c.html(
+        dashboardDoc("Contacts · ReplyStack", "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features),
+      );
+    }
     return c.html(
       dashboardDoc(
         "Contacts · ReplyStack",
@@ -459,6 +486,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             hx-get="/contacts/list" hx-trigger="keyup changed delay:300ms, search" hx-target="#contacts-list" hx-swap="innerHTML" />
           <div id="contacts-list">${renderContacts(await loadContacts(a.workspaceId, ""))}</div>
         </div>`,
+        features,
       ),
     );
   });
@@ -466,6 +494,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/contacts/list", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
     const q = c.req.query("q") ?? "";
     // "Load more" grows the page (capped) so a workspace with >50 contacts is browsable.
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 50), 1000);
@@ -536,6 +565,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <div class="card mono">${env.APP_URL}/api/webhooks/meta</div>
           </section>
         </div>`,
+        license.features,
       ),
     );
   });
@@ -736,6 +766,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </details>
           <div id="rules-list">${renderRules(await loadRules(a.workspaceId))}</div>
         </div>`,
+        features,
       ),
     );
   });
@@ -827,6 +858,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/approvals", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
+    const { features } = await getInstanceLicense();
     return c.html(
       dashboardDoc(
         "Approvals · ReplyStack",
@@ -836,6 +868,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <p class="muted">Replies from rules marked “hold for approval” wait here. Approve to send, or reject to discard.</p>
           <div id="approvals-list">${renderApprovals(await loadApprovals(a.workspaceId))}</div>
         </div>`,
+        features,
       ),
     );
   });
@@ -907,6 +940,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </details>`}
           <div id="sequences-list">${renderSequences(await loadSequences(a.workspaceId))}</div>
         </div>`,
+        features,
       ),
     );
   });
@@ -1073,6 +1107,54 @@ function proLink(upgradeUrl: string, label = "PRO"): Html {
 // A connect button that is locked behind PRO — links to the upgrade page instead of connecting.
 function proConnectBtn(label: string, upgradeUrl: string): Html {
   return html`<a class="btn" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 ${label} (PRO)</a>`;
+}
+
+// Full-page upsell shown when a free instance opens a PRO-only view (inbox / contacts).
+// Free keeps unlimited message handling; seeing individual people is the paid CRM layer.
+function proLockMain(title: string, body: Html, upgradeUrl: string): Html {
+  return html`<div class="page">
+    <h1>${title} <span class="badge">PRO</span></h1>
+    <div class="card" style="max-width:38rem">
+      <p>${body}</p>
+      <p class="muted" style="font-size:.85rem">Your automations keep running on the free plan — the bot answers everyone, with unlimited messages and contacts. The inbox and contacts CRM, where you see and manage individual people, are part of PRO.</p>
+      <a class="btn btn-primary" href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a>
+      <a class="btn" href="/overview">Back to overview</a>
+    </div>
+  </div>`;
+}
+
+function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string): Html {
+  const locked = !features.has("contacts_crm");
+  const stat = (label: string, value: number) =>
+    html`<div class="card" style="flex:1;min-width:8rem"><div class="muted" style="font-size:.8rem">${label}</div><div style="font-size:1.6rem;font-weight:600">${value}</div></div>`;
+  return html`<div class="page">
+    <h1>Overview</h1>
+    <p class="muted">Your automation at a glance. ${locked ? html`Open individual conversations with ${proLink(upgradeUrl, "PRO")}.` : html``}</p>
+    <div class="row" style="flex-wrap:wrap;gap:.75rem;margin:1rem 0">
+      ${stat("Sent today", ov.today)}
+      ${stat("Sent (all time)", ov.sent)}
+      ${stat("Failed", ov.failed)}
+      ${stat("Held", ov.held)}
+      ${stat("Contacts", ov.contactCount)}
+    </div>
+    <section class="section">
+      <h2>Recent activity</h2>
+      ${ov.recentSends.length === 0
+        ? html`<p class="muted">No messages sent yet. Connect a channel and add a keyword rule to start auto-replying.</p>`
+        : html`<table><thead><tr><th>Type</th><th>Channel</th><th>Status</th><th>When</th></tr></thead>
+            <tbody>
+              ${ov.recentSends.map(
+                (r) => html`<tr>
+                  <td>${r.label}</td>
+                  <td class="muted">${r.platform ? PLATFORM_LABELS[r.platform] ?? r.platform : "—"}</td>
+                  <td><span class="badge">${r.status}</span></td>
+                  <td class="muted">${timeAgo(r.createdAt)}</td>
+                </tr>`,
+              )}
+            </tbody></table>
+          ${locked ? html`<p class="muted" style="font-size:.8rem;margin-top:.75rem">This log shows what was sent, without client details. To see who you talked to, ${proLink(upgradeUrl, "upgrade to PRO")}.</p>` : html``}`}
+    </section>
+  </div>`;
 }
 
 function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {

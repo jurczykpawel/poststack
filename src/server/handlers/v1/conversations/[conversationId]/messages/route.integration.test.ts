@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 // Mock the queue client so we can drive an enqueue failure; the DB is real.
 const addJobTx = vi.fn(async (..._args: unknown[]): Promise<void> => {});
@@ -32,6 +33,8 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   ({ POST, GET } = await import("./route"));
+  // Conversation messages (read + manual reply) are the PRO contacts-CRM surface.
+  await licenseInstance();
 });
 
 beforeEach(async () => {
@@ -49,6 +52,7 @@ beforeEach(async () => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  await db.delete(s.instanceLicense);
 });
 
 const ctx = { params: Promise.resolve({ conversationId: CONV }) };

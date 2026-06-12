@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, webhookEvents, tags, contactTags } from "@/db/schema";
+import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, outboundDeliveries, autoReplyRules, ruleSendCounts, webhookEvents, tags, contactTags, instanceLicense } from "@/db/schema";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
@@ -26,6 +27,8 @@ beforeAll(async () => {
 
   ({ db } = await import("@/lib/db"));
   ({ GET, PATCH, DELETE } = await import("./[contactId]/route"));
+  // Reading/patching a contact is the PRO contacts-CRM surface (DELETE/GDPR stays free).
+  await licenseInstance();
 });
 
 beforeEach(async () => {
@@ -46,6 +49,7 @@ beforeEach(async () => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.delete(instanceLicense);
   await db.$client.end();
 });
 

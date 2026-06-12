@@ -4,6 +4,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { messages, conversations, contactChannels } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
+import { proGate } from "@/lib/api/pro-gate";
 import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
 
@@ -24,6 +25,8 @@ export async function GET(
 ) {
   const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { conversationId } = await params;
   const conversation = await db.query.conversations.findFirst({
@@ -77,6 +80,8 @@ export async function POST(
 ) {
   const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
 
   const { conversationId } = await params;
   const conversation = await db.query.conversations.findFirst({

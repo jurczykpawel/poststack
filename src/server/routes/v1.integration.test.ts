@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { inArray, eq } from "drizzle-orm";
-import { workspaces, channels, contacts, apiKeys, tags, conversations, messages } from "@/db/schema";
+import { workspaces, channels, contacts, apiKeys, tags, conversations, messages, instanceLicense } from "@/db/schema";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -30,6 +31,8 @@ beforeAll(async () => {
   ({ encryptTokens } = await import("@/lib/crypto"));
   const { buildApp } = await import("../app");
   app = buildApp();
+  // Contacts + tags reads are the PRO contacts-CRM surface; license the instance.
+  await licenseInstance();
 });
 
 beforeEach(async () => {
@@ -54,6 +57,7 @@ beforeEach(async () => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.delete(instanceLicense);
   await db.$client.end();
 });
 

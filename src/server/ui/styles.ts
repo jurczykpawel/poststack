@@ -39,6 +39,7 @@ h2{font-size:1rem;font-weight:600;margin-bottom:.75rem}
 .nav-link{padding:.5rem .75rem;border-radius:var(--radius);color:var(--foreground);font-size:.875rem}
 .nav-link:hover{background:var(--background);text-decoration:none}
 .nav-link.active{background:var(--background)}
+.nav-link.locked{opacity:.55}
 .signout{margin-top:auto;padding:0 .5rem}
 .main{flex:1;overflow:auto}
 /* inbox */
