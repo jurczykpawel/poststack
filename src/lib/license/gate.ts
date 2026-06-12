@@ -5,6 +5,7 @@
 import { env } from "@/lib/env";
 import { verifyLicense, type JwksKey } from "@/lib/license/format";
 import { getJwks, parseJwksJson } from "@/lib/license/jwks";
+import { getRevocations } from "@/lib/license/revocation";
 import { tierFeatures, type Feature } from "@/lib/license/features";
 import * as store from "@/lib/license/store";
 
@@ -45,6 +46,14 @@ async function jwksFallback(): Promise<JwksKey[]> {
   return [...parseJwksJson(env.SELLF_JWKS_FALLBACK), ...(await store.readJwksSnapshot())];
 }
 
+/** True when this token's order has been revoked by the seller (refund, abuse, …). Fails OPEN:
+ *  an unreachable CRL never revokes a valid token. Disabled when no revocation URL is set. */
+async function isRevoked(order: string, opts: RefreshOpts): Promise<boolean> {
+  if (!env.LICENSE_REVOCATION_URL) return false;
+  const { orders } = await getRevocations({ url: env.LICENSE_REVOCATION_URL, fetchImpl: opts.fetchImpl });
+  return orders.has(order);
+}
+
 /** Re-resolves and re-verifies the license from scratch, persists, and caches. */
 export async function refreshLicense(opts: RefreshOpts = {}): Promise<LicenseState> {
   const { token, source } = await store.resolveTokenSource();
@@ -71,6 +80,10 @@ export async function refreshLicense(opts: RefreshOpts = {}): Promise<LicenseSta
 
   const res = await verifyLicense(token, keys, { productSlug: env.LICENSE_PRODUCT_SLUG, now: opts.now });
   if (res.valid) {
+    if (await isRevoked(res.claims.order, opts)) {
+      await store.persistLicenseState({ status: "invalid", tier: null, expiresAt: null, lastError: "revoked" });
+      return cacheState(freeState(source, "invalid"));
+    }
     const expiresAt = res.claims.exp ? new Date(res.claims.exp * 1000) : null;
     await store.persistLicenseState({ status: "active", tier: res.tier, expiresAt, lastError: null });
     return cacheState({
@@ -137,6 +150,12 @@ export async function setLicense(token: string, opts: RefreshOpts = {}): Promise
     await store.persistLicenseState({ status: "invalid", tier: null, expiresAt: null, lastError: res.reason });
     invalidateLicenseCache();
     return { ok: false, reason: res.reason, state: freeState("none", "invalid") };
+  }
+
+  if (await isRevoked(res.claims.order, opts)) {
+    await store.persistLicenseState({ status: "invalid", tier: null, expiresAt: null, lastError: "revoked" });
+    invalidateLicenseCache();
+    return { ok: false, reason: "revoked", state: freeState("none", "invalid") };
   }
 
   const expiresAt = res.claims.exp ? new Date(res.claims.exp * 1000) : null;

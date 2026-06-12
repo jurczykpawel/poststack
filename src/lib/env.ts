@@ -72,6 +72,12 @@ const envSchema = z.object({
   // a single install can accept several products (e.g. annual + lifetime PRO variants and
   // the business tier), each a distinct Sellf product, all valid here.
   LICENSE_PRODUCT_SLUG: z.string().default("replystack-pro"),
+  // Seller-scoped revocation list (CRL). Licenses verify offline, so this is how a refunded /
+  // revoked token is turned off: the gate refuses a token whose `order` claim is on the list.
+  // Fails OPEN (a fetch outage never locks out a paying customer). Empty = revocation disabled.
+  LICENSE_REVOCATION_URL: z
+    .string()
+    .default("https://sellf.techskills.academy/api/licenses/revoked?seller=83789f79-bdd7-4918-af1f-e56325fa5070"),
   // Pinned JWKS snapshot (JSON `{ keys: [...] }`) — durable fallback used only when
   // the live endpoint is unreachable AND nothing is cached (public-key material).
   SELLF_JWKS_FALLBACK: z.string().default(""),
