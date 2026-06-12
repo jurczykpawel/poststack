@@ -236,6 +236,18 @@ CREATE TABLE "instance_license" (
 	CONSTRAINT "instance_license_singleton" CHECK ("instance_license"."id" = 'singleton')
 );
 --> statement-breakpoint
+CREATE TABLE "message_reactions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"conversation_id" uuid NOT NULL,
+	"contact_id" uuid NOT NULL,
+	"reacted_mid" text NOT NULL,
+	"reaction_type" text NOT NULL,
+	"emoji" text,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "messages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"conversation_id" uuid NOT NULL,
@@ -418,6 +430,10 @@ ALTER TABLE "flow_triggers" ADD CONSTRAINT "flow_triggers_flow_id_fkey" FOREIGN 
 ALTER TABLE "flow_triggers" ADD CONSTRAINT "flow_triggers_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flow_versions" ADD CONSTRAINT "flow_versions_flow_id_fkey" FOREIGN KEY ("flow_id") REFERENCES "public"."flows"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flows" ADD CONSTRAINT "flows_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_user_id_fkey" FOREIGN KEY ("sent_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sent_by_rule_id_fkey" FOREIGN KEY ("sent_by_rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
@@ -474,6 +490,8 @@ CREATE INDEX "flow_triggers_channel_id_type_is_active_idx" ON "flow_triggers" US
 CREATE INDEX "flow_versions_flow_id_version_idx" ON "flow_versions" USING btree ("flow_id","version" DESC NULLS FIRST);--> statement-breakpoint
 CREATE UNIQUE INDEX "flow_versions_flow_id_version_key" ON "flow_versions" USING btree ("flow_id","version");--> statement-breakpoint
 CREATE INDEX "flows_workspace_id_status_idx" ON "flows" USING btree ("workspace_id","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "message_reactions_channel_contact_mid_key" ON "message_reactions" USING btree ("channel_id","contact_id","reacted_mid");--> statement-breakpoint
+CREATE INDEX "message_reactions_conversation_id_created_at_idx" ON "message_reactions" USING btree ("conversation_id","created_at");--> statement-breakpoint
 CREATE INDEX "messages_conversation_id_created_at_idx" ON "messages" USING btree ("conversation_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "messages_conversation_id_platform_message_id_key" ON "messages" USING btree ("conversation_id","platform_message_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "outbound_deliveries_delivery_key_key" ON "outbound_deliveries" USING btree ("delivery_key");--> statement-breakpoint

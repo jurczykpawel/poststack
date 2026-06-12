@@ -643,6 +643,22 @@ describe("incoming-reaction worker", () => {
     expect(await jobCount("outgoing-message")).toBe(1);
   });
 
+  it("records the reaction for the thread even with no rule, upserting on re-react", async () => {
+    if (!TEST_DB) return;
+    // No reaction rule seeded: the reaction is still recorded for visibility.
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-VIS", reactedMid: "m-vis", reactionType: "love", emoji: "❤️", timestamp: ts() }, helpers);
+    const mine = () => db.select().from(s.messageReactions).where(eq(s.messageReactions.reacted_mid, "m-vis"));
+    let rows = await mine();
+    expect(rows.length).toBe(1);
+    expect(rows[0].reaction_type).toBe("love");
+    expect(rows[0].emoji).toBe("❤️");
+    // A changed reaction (new timestamp) updates the same row instead of duplicating.
+    await w.processIncomingReaction({ platform: "facebook", pageId: PAGE, senderId: "REACTOR-VIS", reactedMid: "m-vis", reactionType: "angry", emoji: "😠", timestamp: ts() + 1 }, helpers);
+    rows = await mine();
+    expect(rows.length).toBe(1);
+    expect(rows[0].reaction_type).toBe("angry");
+  });
+
   // a reaction whose sender is the page itself (senderId === channel.platform_id) must be
   // dropped: it would otherwise materialise the page as a self-contact (before rule eval, so
   // unconditionally) and fire a doomed self-DM. The reaction-path analog of the comment self-guard

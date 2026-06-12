@@ -62,6 +62,7 @@ h2{font-size:1rem;font-weight:600;margin-bottom:.75rem}
 .msg-in{justify-content:flex-start}
 .bubble{max-width:70%;padding:.5rem .75rem;border-radius:var(--radius);font-size:.875rem;background:var(--muted)}
 .msg-out .bubble{background:var(--primary);color:var(--primary-foreground)}
+.msg-reaction{text-align:center;font-size:.8rem;margin:.15rem 0}
 .reply-bar{padding:.75rem 1rem;border-top:1px solid var(--border);display:flex;gap:.5rem}
 .reply-bar .textarea{flex:1}
 /* list rows */

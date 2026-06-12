@@ -150,6 +150,17 @@ describe("dashboard inbox conversation controls", () => {
     const conv = await db.query.conversations.findFirst({ where: eq(s.conversations.id, CONV), columns: { is_automation_paused: true } });
     expect(conv?.is_automation_paused).toBe(true);
   });
+
+  it("shows a contact's reaction interleaved in the thread", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.messageReactions).values({
+      workspace_id: WS, channel_id: CH, conversation_id: CONV, contact_id: CONTACT,
+      reacted_mid: "m-thread", reaction_type: "love", emoji: "❤️",
+    });
+    const res = await app.request(`/inbox/${CONV}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("reacted ❤️");
+  });
 });
 
 describe("dashboard sequence builder", () => {

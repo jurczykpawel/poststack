@@ -319,6 +319,46 @@ export const messages = pgTable("messages", {
 		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
+// Emoji reactions a contact leaves on our DMs. A reaction is not a message (it stores no
+// message row), so it is recorded here for the conversation thread. Unique per
+// (channel, contact, reacted message) so a redelivery or re-react updates in place. The
+// contact FK cascade carries an erasure through, so a reaction can't outlive its contact.
+export const messageReactions = pgTable("message_reactions", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	conversation_id: uuid("conversation_id").notNull(),
+	contact_id: uuid("contact_id").notNull(),
+	// The platform message id (mid) of OUR message that was reacted to.
+	reacted_mid: text("reacted_mid").notNull(),
+	reaction_type: text("reaction_type").notNull(),
+	emoji: text("emoji"),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	uniqueIndex("message_reactions_channel_contact_mid_key").using("btree", table.channel_id.asc().nullsLast(), table.contact_id.asc().nullsLast(), table.reacted_mid.asc().nullsLast()),
+	index("message_reactions_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast(), table.created_at.asc().nullsLast()),
+	foreignKey({
+			columns: [table.workspace_id],
+			foreignColumns: [workspaces.id],
+			name: "message_reactions_workspace_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.channel_id],
+			foreignColumns: [channels.id],
+			name: "message_reactions_channel_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.conversation_id],
+			foreignColumns: [conversations.id],
+			name: "message_reactions_conversation_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.contact_id],
+			foreignColumns: [contacts.id],
+			name: "message_reactions_contact_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
 export const flowSessions = pgTable("flow_sessions", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	contact_id: uuid("contact_id").notNull(),

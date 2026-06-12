@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import type { IncomingReactionJob } from "@/lib/queue/types";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels } from "@/db/schema";
+import { channels, messageReactions } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, isEventTerminal, markEventStatus, markEventOnTerminalFailure } from "@/lib/idempotency";
 import { dispatchAlert } from "@/lib/notifications/alert";
@@ -80,6 +80,27 @@ export async function processIncomingReaction(
     // A reaction is low-signal: it must not resurface a conversation the operator closed.
     { reopenClosed: false },
   );
+
+  // Record the reaction so it shows in the conversation thread (PRO contacts-CRM view),
+  // independent of whether any rule fires. Idempotent on (channel, contact, reacted message)
+  // so a redelivery or a changed reaction updates in place rather than duplicating.
+  if (payload.reactedMid) {
+    await db
+      .insert(messageReactions)
+      .values({
+        workspace_id: channel.workspace_id,
+        channel_id: channel.id,
+        conversation_id: conversationId,
+        contact_id: contactId,
+        reacted_mid: payload.reactedMid,
+        reaction_type: reactionType ?? "unknown",
+        emoji: payload.emoji ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [messageReactions.channel_id, messageReactions.contact_id, messageReactions.reacted_mid],
+        set: { reaction_type: reactionType ?? "unknown", emoji: payload.emoji ?? null, created_at: new Date() },
+      });
+  }
 
   if (isAutomationPaused || channel.status === "paused") {
     // Paused conversation OR manually paused channel: no automation, but still terminally

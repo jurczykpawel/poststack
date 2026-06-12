@@ -5,7 +5,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import { and, or, eq, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
-  conversations, messages, channels, contacts, contactChannels,
+  conversations, messages, messageReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
   pendingApprovals, outboundDeliveries,
 } from "@/db/schema";
@@ -109,10 +109,18 @@ function renderConvList(conversations: Array<Awaited<ReturnType<typeof loadConve
     )}`;
 }
 
-function renderMessages(messages: Array<{ id: string; direction: string; text: string | null }>): Html {
-  if (messages.length === 0) return html`<p class="muted">No messages yet.</p>`;
-  return html`${messages.map(
-    (m) => html`<div class="msg ${m.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${m.text ?? "(attachment)"}</div></div>`,
+// A reaction is interleaved into the message timeline as a small centered note — the conversation
+// has one contact, so "reacted ❤️" is unambiguous without naming them.
+type ThreadItem =
+  | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date }
+  | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date };
+
+function renderMessages(items: ThreadItem[]): Html {
+  if (items.length === 0) return html`<p class="muted">No messages yet.</p>`;
+  return html`${items.map((it) =>
+    it.kind === "reaction"
+      ? html`<div class="msg-reaction muted">reacted ${it.emoji ?? it.reactionType}</div>`
+      : html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div></div>`,
   )}`;
 }
 
@@ -135,7 +143,7 @@ function renderConvControls(conv: ConvControls): Html {
 
 function renderThread(
   conv: ConvName & ConvControls,
-  messages: Array<{ id: string; direction: string; text: string | null }>,
+  messages: ThreadItem[],
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
   // out as if the message went.
   opts: { error?: string; draft?: string } = {},
@@ -166,15 +174,27 @@ function loadConversation(id: string, workspaceId: string) {
   });
 }
 
-function loadMessages(conversationId: string) {
-  return db.query.messages
-    .findMany({
+async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
+  const [msgs, reactions] = await Promise.all([
+    db.query.messages.findMany({
       where: eq(messages.conversation_id, conversationId),
       orderBy: desc(messages.created_at),
       limit: 50,
       columns: { id: true, direction: true, text: true, created_at: true },
-    })
-    .then((m) => m.reverse());
+    }),
+    db.query.messageReactions.findMany({
+      where: eq(messageReactions.conversation_id, conversationId),
+      orderBy: desc(messageReactions.created_at),
+      limit: 50,
+      columns: { id: true, emoji: true, reaction_type: true, created_at: true },
+    }),
+  ]);
+  const items: ThreadItem[] = [
+    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at })),
+    ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
+  ];
+  // Chronological ascending; interleaves reactions with messages by time.
+  return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
 // ─── channels ─────────────────────────────────────────────────────────────────
