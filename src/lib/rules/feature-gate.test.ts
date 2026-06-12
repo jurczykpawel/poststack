@@ -42,4 +42,10 @@ describe("requiredRuleFeatures", () => {
     const feats = requiredRuleFeatures("ai_rephrase", { text: "Hi {imie}", buttons: [{ title: "B", payload: "B" }] });
     expect(feats).toEqual(expect.arrayContaining(["personalization", "ai_rephrase", "interactive_messages"]));
   });
+  it("flags the reaction trigger as PRO; keyword/comment triggers stay free", () => {
+    expect(requiredRuleFeatures("text", { text: "x" }, "reaction")).toContain("reaction_trigger");
+    expect(requiredRuleFeatures("text", { text: "x" }, "keyword")).not.toContain("reaction_trigger");
+    expect(requiredRuleFeatures("text", { text: "x" }, "comment_keyword")).not.toContain("reaction_trigger");
+    expect(requiredRuleFeatures("text", { text: "x" })).not.toContain("reaction_trigger");
+  });
 });

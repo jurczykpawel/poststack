@@ -8,7 +8,7 @@ describe("tierFeatures", () => {
 
   it("grants the full PRO feature set on the pro tier", () => {
     const pro = tierFeatures("pro");
-    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels", "contacts_crm"] as const) {
+    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels", "contacts_crm", "reaction_trigger"] as const) {
       expect(pro.has(f)).toBe(true);
     }
   });

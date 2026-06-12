@@ -208,8 +208,8 @@ export async function PATCH(
   // Features already on the rule are grandfathered, so a toggle/rename of a previously-licensed rule
   // still goes through after a lapse (runtime degrades those safely anyway).
   const missingFeature = await firstUnlicensedRuleFeature(
-    { responseType: merged.response_type as string, responseConfig: merged.response_config as Record<string, unknown> },
-    { responseType: existing.response_type as string, responseConfig: existing.response_config as Record<string, unknown> },
+    { responseType: merged.response_type as string, responseConfig: merged.response_config as Record<string, unknown>, triggerType: merged.trigger_type as string },
+    { responseType: existing.response_type as string, responseConfig: existing.response_config as Record<string, unknown>, triggerType: existing.trigger_type as string },
   );
   if (missingFeature) {
     return ApiErrors.proRequired(missingFeature, env.LICENSE_UPGRADE_URL, proMessage(missingFeature));

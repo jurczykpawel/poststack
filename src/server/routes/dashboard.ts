@@ -645,6 +645,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canFollowGate = features.has("follow_gate");
     const canInteractive = features.has("interactive_messages");
     const canPersonalize = features.has("personalization");
+    const canReactionTrigger = features.has("reaction_trigger");
     return c.html(
       dashboardDoc(
         "Rules · ReplyStack",
@@ -680,9 +681,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   <option value="keyword">DM keyword</option>
                   <option value="comment_keyword">Comment keyword</option>
                   <option value="postback">Button tap (postback)</option>
+                  ${canReactionTrigger
+                    ? html`<option value="reaction">Message reaction</option>`
+                    : html`<option value="reaction" disabled>🔒 Message reaction (PRO)</option>`}
                 </select>
               </div>
-              <div x-show="triggerType !== 'postback'"><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" /></div>
+              <div x-show="triggerType !== 'postback' && triggerType !== 'reaction'"><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" /></div>
+              <div x-show="triggerType === 'reaction'"><p class="muted" style="font-size:.78rem">Fires when someone reacts to one of your messages — sends the reply below as a DM.</p></div>
               <div x-show="triggerType === 'postback'"><label class="label">Button payload (must match the payload of the button you sent)</label><input class="input" name="payload" placeholder="CLAIM_LM" /></div>
               <div x-show="triggerType === 'comment_keyword'"><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" placeholder="leave blank for any post" /></div>
               <div x-show="triggerType === 'comment_keyword' && responseMode === 'text'"><label class="label">Reply via</label>
@@ -778,7 +783,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       .map((k) => k.trim())
       .filter(Boolean)
       .map((value) => ({ value, match_type: "contains" }));
-    const triggerType = ["comment_keyword", "postback"].includes(form.trigger_type) ? form.trigger_type : "keyword";
+    const triggerType = ["comment_keyword", "postback", "reaction"].includes(form.trigger_type) ? form.trigger_type : "keyword";
     const postId = (form.post_id ?? "").trim();
     // The postback payload input is hidden (x-show) for other triggers but json-enc still serializes
     // it, so a value typed under "postback" then switched away would leak in as a stale payload (and
@@ -790,6 +795,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const triggerConfig: Record<string, unknown> = {};
     if (triggerType === "postback") {
       if (payloadValue) triggerConfig.payload = payloadValue;
+    } else if (triggerType === "reaction") {
+      // Empty config = fire on any reaction. Keywords/post_id don't apply here.
     } else {
       if (keywords.length) triggerConfig.keywords = keywords;
       if (triggerType === "comment_keyword" && postId) triggerConfig.post_id = postId;

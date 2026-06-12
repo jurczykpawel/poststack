@@ -230,6 +230,7 @@ export async function POST(request: Request) {
   const missingFeature = await firstUnlicensedRuleFeature({
     responseType: parsed.data.response_type,
     responseConfig: parsed.data.response_config,
+    triggerType: parsed.data.trigger_type,
   });
   if (missingFeature) {
     return ApiErrors.proRequired(missingFeature, env.LICENSE_UPGRADE_URL, proMessage(missingFeature));

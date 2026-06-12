@@ -11,6 +11,7 @@ const WS = "9b500000-0000-0000-0000-0000000000b1";
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let seqs: typeof import("./sequences/route");
+let rulesRoute: typeof import("./rules/route");
 let contactsList: typeof import("./contacts/route");
 let contact: typeof import("./contacts/[contactId]/route");
 let conversationsList: typeof import("./conversations/route");
@@ -48,6 +49,7 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   seqs = await import("./sequences/route");
+  rulesRoute = await import("./rules/route");
   contactsList = await import("./contacts/route");
   contact = await import("./contacts/[contactId]/route");
   conversationsList = await import("./conversations/route");
@@ -61,6 +63,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  await db.delete(s.autoReplyRules).where(eq(s.autoReplyRules.workspace_id, WS));
   await db.delete(s.channels).where(eq(s.channels.workspace_id, WS));
   await db.delete(s.sequences).where(eq(s.sequences.workspace_id, WS));
   await db.delete(s.contacts).where(eq(s.contacts.workspace_id, WS));
@@ -160,5 +163,46 @@ describe("contacts/inbox visibility gate (contacts_crm)", () => {
     await licenseInstance();
     const res = await contactsList.GET(get());
     expect(res.status).toBe(200);
+  });
+});
+
+describe("reaction-trigger rule gate", () => {
+  const rulePost = (triggerType: string) =>
+    new Request("http://x", {
+      method: "POST",
+      headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "React rule", trigger_type: triggerType, trigger_config: {},
+        response_type: "text", response_config: { text: "Thanks for the reaction!" },
+      }),
+    });
+
+  it("allows a free keyword rule", async () => {
+    if (!TEST_DB) return;
+    const res = await rulesRoute.POST(
+      new Request("http://x", {
+        method: "POST",
+        headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "kw", trigger_type: "keyword", trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+          response_type: "text", response_config: { text: "hello" },
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("blocks a reaction-triggered rule without a license (402)", async () => {
+    if (!TEST_DB) return;
+    const res = await rulesRoute.POST(rulePost("reaction"));
+    expect(res.status).toBe(402);
+    expect((await res.json()).error.details.feature).toBe("reaction_trigger");
+  });
+
+  it("allows a reaction-triggered rule once licensed (201)", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    const res = await rulesRoute.POST(rulePost("reaction"));
+    expect(res.status).toBe(201);
   });
 });
