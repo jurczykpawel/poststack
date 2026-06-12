@@ -128,7 +128,11 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
             -p ${{ secrets.DEPLOY_PORT }} \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            'cd /opt/stacks/replystack && { grep -q "^TRUSTED_PROXY=" .env || echo "TRUSTED_PROXY=proxy" >> .env; } && { grep -q "^REGISTRATION_ENABLED=" .env || echo "REGISTRATION_ENABLED=false" >> .env; } && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d --remove-orphans && docker image prune -f'
+            'cd /opt/stacks/replystack && \
+              { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.ref_name }}/" .env || echo "IMAGE_TAG=${{ github.ref_name }}" >> .env; } && \
+              { grep -q "^TRUSTED_PROXY=" .env || echo "TRUSTED_PROXY=proxy" >> .env; } && \
+              { grep -q "^REGISTRATION_ENABLED=" .env || echo "REGISTRATION_ENABLED=false" >> .env; } && \
+              docker compose pull && docker compose up -d --remove-orphans && docker image prune -f'
 
       - name: Health gate
         run: |
