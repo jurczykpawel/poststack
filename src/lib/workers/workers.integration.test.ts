@@ -15,7 +15,7 @@ vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
 // decryptTokens is a vi.fn so a test can make it throw (a corrupt token / rotated key); the
 // channel-token wrapper that the workers use is NOT mocked, so it maps that throw to a re-auth.
 const decryptTokens = vi.fn(() => ({ access_token: "x" }));
-vi.mock("@/lib/crypto", () => ({ decryptTokens, encryptTokens: () => "enc" }));
+vi.mock("@/lib/crypto", () => ({ decryptTokens, encryptTokens: () => "enc", encryptString: () => "enc", decryptString: (s: string) => s }));
 const health = { markChannelNeedsReauth: vi.fn(async () => {}), markChannelHealthy: vi.fn(async () => {}) };
 vi.mock("@/lib/channels/health", () => health);
 

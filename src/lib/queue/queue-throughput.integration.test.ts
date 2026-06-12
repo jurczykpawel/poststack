@@ -12,7 +12,7 @@ const provider = {
   refreshToken: vi.fn(async (t: unknown) => t),
 };
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
-vi.mock("@/lib/crypto", () => ({ decryptTokens: () => ({ access_token: "x" }), encryptTokens: () => "enc" }));
+vi.mock("@/lib/crypto", () => ({ decryptTokens: () => ({ access_token: "x" }), encryptTokens: () => "enc", encryptString: () => "enc", decryptString: (s: string) => s }));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
@@ -72,6 +72,7 @@ beforeEach(async () => {
   provider.sendMessage.mockResolvedValue({ platformMessageId: "PMID" });
   provider.requiresTokenRefresh.mockReturnValue(false);
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
+  await db.delete(s.instanceLicense); // a license row leaked from another file would make the real worker decrypt + flip PRO behavior
   await db.delete(s.webhookEvents); // event log + inbound dedup — clear so re-runs re-process events
   await db.delete(s.outboundDeliveries); // delivery ledger (outbound dedup) — clear so re-runs are deterministic
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
