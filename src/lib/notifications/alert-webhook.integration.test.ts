@@ -73,7 +73,7 @@ describe("dispatchAlert — uses the workspace's customized webhook (real Postgr
   it("POSTs the customized body + custom headers to the configured url, not the env fallback", async () => {
     if (!TEST_DB) return;
     await wh.upsertAlertWebhook(WS, {
-      url: "https://example.com/mailstack",
+      url: "https://example.com/email-hook",
       headers: { "X-Api-Key": "k1" },
       fieldSelection: ["type", "display_name"],
       extraFields: { subject: "Connection {{display_name}} expires in {{days_left}} days" },
@@ -100,7 +100,7 @@ describe("dispatchAlert — uses the workspace's customized webhook (real Postgr
 
     expect(captured).not.toBeNull();
     const c = captured!;
-    expect(c.url).toBe("https://example.com/mailstack");
+    expect(c.url).toBe("https://example.com/email-hook");
     expect(c.headers["X-Api-Key"]).toBe("k1");
     // field selection kept only type+display_name from the standard body; extra subject was templated
     expect(c.body).toEqual({ type: "token_expiring", display_name: "Acme", subject: "Connection Acme expires in 7 days" });

@@ -367,7 +367,7 @@ function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolea
   return html`${notice}
     <form hx-post="/settings/alert-webhook" hx-ext="json-enc" hx-target="#alert-webhook-area" hx-swap="innerHTML" class="stack">
       <label class="muted" style="font-size:.75rem">Webhook URL</label>
-      <input class="input mono" name="url" placeholder="https://mailstack.example.com/hook" value="${cfg?.url ?? ""}" required />
+      <input class="input mono" name="url" placeholder="https://hooks.example.com/alert" value="${cfg?.url ?? ""}" required />
       <label style="display:flex;gap:.4rem;align-items:center;font-size:.85rem"><input type="checkbox" name="enabled" value="true" ${cfg ? (cfg.enabled ? "checked" : "") : "checked"} /> Enabled</label>
       <label class="muted" style="font-size:.75rem">Custom headers — one <code>Key: Value</code> per line (encrypted at rest)${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</label>
       <textarea class="textarea mono" name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy"></textarea>
@@ -843,7 +843,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <h2 style="margin:0">Alert webhook</h2>
               ${canAlerts ? html`` : proLink(upgradeUrl, "PRO")}
             </div>
-            <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email via mailstack, Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
+            <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
             <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
           </section>
         </div>`,

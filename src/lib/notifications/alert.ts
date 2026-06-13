@@ -80,7 +80,7 @@ function placeholderContext(body: Record<string, unknown>): PlaceholderContext {
  * Resolution order:
  *  1. the alert's workspace has a configured + enabled `alert_webhooks` row → POST the customized
  *     body (field selection + {{placeholder}} extra fields) with its (decrypted) custom headers —
- *     so it can target mailstack (email) / Slack / n8n. This is the PRO path.
+ *     so it can target your email service (SES/SMTP) / Slack / n8n. This is the PRO path.
  *  2. otherwise the global env `CHANNEL_ALERT_WEBHOOK_URL` (the ungated self-host fallback), plain body.
  *
  * Throttled per (type, channel|source) so a persistent failure can't storm. Best-effort: never

@@ -46,7 +46,7 @@ export function renderTemplate(fields: unknown, ctx: PlaceholderContext): unknow
 /**
  * Compose the body actually POSTed: the (optionally field-selected) standard body plus the rendered
  * extra fields. Extra fields win on key collision so an operator can override a standard field
- * (e.g. shape a mailstack `subject`/`to` from {{placeholder}}s).
+ * (e.g. shape an email `subject`/`to` from {{placeholder}}s).
  */
 export function buildAlertBody(
   standard: Record<string, unknown>,

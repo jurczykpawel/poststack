@@ -124,7 +124,7 @@ export const accountSources = pgTable("account_sources", {
 // Per-workspace outbound alert webhook (PRO). Mirrors Sellf's webhook_endpoints customization: an
 // optional encrypted custom-header map, extra top-level payload fields with {{placeholder}}
 // templating, and a field-selection over the standard alert body — so the same hook can target
-// mailstack (email), Slack, or n8n. The global env CHANNEL_ALERT_WEBHOOK_URL stays as the
+// an email service, Slack, or n8n. The global env CHANNEL_ALERT_WEBHOOK_URL stays as the
 // ungated self-host fallback; this row, when enabled, takes precedence for its workspace.
 export const alertWebhooks = pgTable("alert_webhooks", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
