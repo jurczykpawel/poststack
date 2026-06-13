@@ -1,5 +1,13 @@
 import { relations } from "drizzle-orm/relations";
-import { workspaces, conversations, channels, contacts, users, contactChannels, tags, auditLogs, flows, flowTriggers, messages, autoReplyRules, flowSessions, sequences, sequenceEnrollments, broadcasts, broadcastRecipients, commentLogs, flowVersions, apiKeys, pendingApprovals, contactTags, workspaceMembers, webhookEvents, outboundDeliveries } from "./schema";
+import { workspaces, conversations, channels, contacts, users, contactChannels, tags, auditLogs, flows, flowTriggers, messages, autoReplyRules, flowSessions, sequences, sequenceEnrollments, broadcasts, broadcastRecipients, commentLogs, flowVersions, apiKeys, pendingApprovals, contactTags, workspaceMembers, webhookEvents, outboundDeliveries, content, posts } from "./schema";
+
+// Editorial content ↔ its per-platform posts (publishing layer), so db.query.content can eager-load posts.
+export const contentRelations = relations(content, ({ many }) => ({
+	posts: many(posts),
+}));
+export const postsRelations = relations(posts, ({ one }) => ({
+	content: one(content, { fields: [posts.content_id], references: [content.id] }),
+}));
 
 export const conversationsRelations = relations(conversations, ({one, many}) => ({
 	workspace: one(workspaces, {
