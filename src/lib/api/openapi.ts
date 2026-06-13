@@ -212,6 +212,39 @@ export const openApiSpec = {
     },
   },
   paths: {
+    // ── Publishing (editorial content + posts + media + brands) ──────────────────────
+    "/content": {
+      get: { tags: ["Publishing"], summary: "List editorial content (keyset paginated)", responses: { "200": { description: "List of content" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      post: { tags: ["Publishing"], summary: "Create editorial content", responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } } },
+    },
+    "/content/{contentId}": {
+      get: { tags: ["Publishing"], summary: "Get content with its posts", responses: { "200": { description: "Content" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      patch: { tags: ["Publishing"], summary: "Update content", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      delete: { tags: ["Publishing"], summary: "Delete content", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
+    "/posts": {
+      get: { tags: ["Publishing"], summary: "List editorial posts", responses: { "200": { description: "List of posts" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      post: { tags: ["Publishing"], summary: "Create an editorial post", responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } } },
+    },
+    "/posts/{postId}": {
+      get: { tags: ["Publishing"], summary: "Get a post", responses: { "200": { description: "Post" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      patch: { tags: ["Publishing"], summary: "Update a post", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      delete: { tags: ["Publishing"], summary: "Delete a post", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
+    "/posts/{postId}/publish": {
+      post: { tags: ["Publishing"], summary: "Publish or schedule a post through the delivery engine", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string" } } } } } }, responses: { "200": { description: "Delivery created + linked" }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
+    "/media": {
+      post: { tags: ["Publishing"], summary: "Register a media URL into content-addressed storage", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" } } } } } }, responses: { "201": { description: "Media registered" }, "400": { description: "Ingest/SSRF error" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
+    "/brands": {
+      get: { tags: ["Publishing"], summary: "List brands", responses: { "200": { description: "List of brands" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      post: { tags: ["Publishing"], summary: "Create a brand", responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
+    "/brands/{brandKey}": {
+      patch: { tags: ["Publishing"], summary: "Update a brand", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      delete: { tags: ["Publishing"], summary: "Delete a brand (unassigns its channels)", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
     "/health": {
       // Health lives at /api/health, outside the /api/v1 surface — override the server for this
       // path so "Try it out" hits the real endpoint, and document the RAW (unenveloped) shape it

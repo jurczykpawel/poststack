@@ -30,6 +30,14 @@ import * as tags from "@/server/handlers/v1/tags/route";
 import * as approvals from "@/server/handlers/v1/approvals/route";
 import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
 import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
+import * as contentList from "@/server/handlers/v1/content/route";
+import * as contentItem from "@/server/handlers/v1/content/[contentId]/route";
+import * as postsList from "@/server/handlers/v1/posts/route";
+import * as postItem from "@/server/handlers/v1/posts/[postId]/route";
+import * as postPublish from "@/server/handlers/v1/posts/[postId]/publish/route";
+import * as mediaRegister from "@/server/handlers/v1/media/route";
+import * as brandsList from "@/server/handlers/v1/brands/route";
+import * as brandItem from "@/server/handlers/v1/brands/[brandKey]/route";
 
 export const v1 = new Hono();
 
@@ -151,3 +159,39 @@ v1.post("/license", (c) => license.POST(c.req.raw));
 v1.delete("/license", (c) => license.DELETE(c.req.raw));
 v1.get("/tags", (c) => tags.GET(c.req.raw));
 v1.post("/tags", (c) => tags.POST(c.req.raw));
+
+// ── Publishing: editorial content + posts + media + brands ──────────────────────
+v1.get("/content", (c) => contentList.GET(c.req.raw));
+v1.post("/content", (c) => contentList.POST(c.req.raw));
+v1.get("/content/:contentId", (c) =>
+  contentItem.GET(c.req.raw, { params: Promise.resolve({ contentId: c.req.param("contentId") }) }),
+);
+v1.patch("/content/:contentId", (c) =>
+  contentItem.PATCH(c.req.raw, { params: Promise.resolve({ contentId: c.req.param("contentId") }) }),
+);
+v1.delete("/content/:contentId", (c) =>
+  contentItem.DELETE(c.req.raw, { params: Promise.resolve({ contentId: c.req.param("contentId") }) }),
+);
+v1.get("/posts", (c) => postsList.GET(c.req.raw));
+v1.post("/posts", (c) => postsList.POST(c.req.raw));
+v1.get("/posts/:postId", (c) =>
+  postItem.GET(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
+);
+v1.patch("/posts/:postId", (c) =>
+  postItem.PATCH(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
+);
+v1.delete("/posts/:postId", (c) =>
+  postItem.DELETE(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
+);
+v1.post("/posts/:postId/publish", (c) =>
+  postPublish.POST(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
+);
+v1.post("/media", (c) => mediaRegister.POST(c.req.raw));
+v1.get("/brands", (c) => brandsList.GET(c.req.raw));
+v1.post("/brands", (c) => brandsList.POST(c.req.raw));
+v1.patch("/brands/:brandKey", (c) =>
+  brandItem.PATCH(c.req.raw, { params: Promise.resolve({ brandKey: c.req.param("brandKey") }) }),
+);
+v1.delete("/brands/:brandKey", (c) =>
+  brandItem.DELETE(c.req.raw, { params: Promise.resolve({ brandKey: c.req.param("brandKey") }) }),
+);
