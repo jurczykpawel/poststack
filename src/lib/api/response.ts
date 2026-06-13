@@ -1,6 +1,59 @@
+import type { ZodError } from "zod";
+
 export type ApiResponse<T> =
   | { data: T; error: null; meta?: Record<string, unknown> }
   | { data: null; error: { code: string; message: string; details?: unknown }; meta?: never };
+
+export interface Detail {
+  path: string;
+  message: string;
+}
+
+/**
+ * A throwable API error (ported from PostStack). Service-layer code throws this; the central
+ * onError handler converts it to the `{ data, error }` envelope via `apiErrorResponse`. Keeps
+ * services free of Response plumbing while preserving the unified envelope shape.
+ */
+export class ApiError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public status: number = 400,
+    public details?: Detail[],
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Map a ZodError to field-level details for a 422 body. */
+export function zodDetails(e: ZodError): Detail[] {
+  return e.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+}
+
+/**
+ * Validate an optional enum-typed query param against its allow-list. A bogus value would otherwise
+ * flow into a Postgres enum column and raise a masked 500. Returns the narrowed value (or undefined)
+ * or throws 422 (PSA56).
+ */
+export function validateEnumParam<T extends string>(
+  value: string | undefined,
+  allowed: readonly T[],
+  field: string,
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw new ApiError("invalid_request", `Invalid ${field}`, 422, [
+      { path: field, message: `must be one of: ${allowed.join(", ")}` },
+    ]);
+  }
+  return value as T;
+}
+
+/** Convert a thrown ApiError into the unified `{ data, error }` Response envelope. */
+export function apiErrorResponse(e: ApiError): Response {
+  return err(e.code, e.message, e.status, e.details && e.details.length ? e.details : undefined);
+}
 
 export type PaginationMeta = {
   page: number;

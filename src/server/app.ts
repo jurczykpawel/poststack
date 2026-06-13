@@ -5,7 +5,7 @@ import { publicRoutes } from "./routes/public";
 import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
-import { ApiErrors } from "@/lib/api/response";
+import { ApiErrors, ApiError, apiErrorResponse } from "@/lib/api/response";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { ProRequiredError, LimitExceededError } from "@/lib/license/gate";
 import { env } from "@/lib/env";
@@ -36,6 +36,10 @@ export function buildApp(): Hono {
       // A tier count-limit (e.g. too many API keys on free) is also a 402.
       if (e instanceof LimitExceededError) {
         return ApiErrors.proRequired(e.kind, env.LICENSE_UPGRADE_URL, e.message);
+      }
+      // A service-layer ApiError (ported publishing code) carries its own code/status/details.
+      if (e instanceof ApiError) {
+        return apiErrorResponse(e);
       }
       console.error(`Unhandled API error on ${c.req.method} ${sanitizeForLog(c.req.path)}: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
       return ApiErrors.internal();
