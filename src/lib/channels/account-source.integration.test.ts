@@ -177,6 +177,39 @@ describe("syncAccountSource (real Postgres)", () => {
   });
 });
 
+describe("markSourceNeedsReauth — cascade + one-click reconnect recovery", () => {
+  it("cascades needs_reauth to active derived children", async () => {
+    if (!TEST_DB) return;
+    mockGraph();
+    const { sourceId } = await svc.connectAccountSource(WS, "MASTER_TOKEN");
+
+    await svc.markSourceNeedsReauth(sourceId, "token revoked");
+
+    const source = await db.query.accountSources.findFirst({ where: eq(s.accountSources.id, sourceId) });
+    expect(source?.status).toBe("needs_reauth");
+    const chans = await db.query.channels.findMany({ where: eq(s.channels.source_id, sourceId), columns: { status: true } });
+    expect(chans).toHaveLength(2);
+    for (const c of chans) expect(c.status).toBe("needs_reauth");
+  });
+
+  it("reconnecting the master recovers the source AND all children in one shot", async () => {
+    if (!TEST_DB) return;
+    mockGraph();
+    const { sourceId } = await svc.connectAccountSource(WS, "MASTER_TOKEN");
+    await svc.markSourceNeedsReauth(sourceId, "token revoked");
+
+    // Operator pastes a fresh token for the same account → one reconnect.
+    mockGraph();
+    await svc.connectAccountSource(WS, "FRESH_TOKEN");
+
+    const source = await db.query.accountSources.findFirst({ where: eq(s.accountSources.id, sourceId) });
+    expect(source?.status).toBe("active");
+    expect(source?.needs_reauth_reason).toBeNull();
+    const chans = await db.query.channels.findMany({ where: eq(s.channels.source_id, sourceId), columns: { status: true } });
+    for (const c of chans) expect(c.status).toBe("active");
+  });
+});
+
 describe("sweepAccountSources (real Postgres)", () => {
   it("syncs healthy sources and marks a source whose master went invalid as needs_reauth", async () => {
     if (!TEST_DB) return;

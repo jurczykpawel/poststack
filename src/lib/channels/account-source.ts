@@ -1,10 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { accountSources } from "@/db/schema";
+import { accountSources, channels } from "@/db/schema";
 import { encryptTokens, decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { GRAPH_API_BASE } from "@/lib/platforms/constants";
 import { inspectMetaToken, MetaTokenError, type MetaTokenKind } from "@/lib/platforms/meta-token";
+import { dispatchAlert } from "@/lib/notifications/alert";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { upsertChannels } from "./upsert";
 
@@ -180,14 +181,41 @@ export async function syncAccountSource(sourceId: string): Promise<SyncSourceRes
 }
 
 /**
- * Flag a master source as needing re-auth (its token went invalid). Records the reason + error.
- * Cascading the needs_reauth state to the derived child channels is layered on in a later step.
+ * Flag a master source as needing re-auth (its token went invalid) and CASCADE that state to every
+ * active derived child channel, so they stop auto-sending until the one master is reconnected (a
+ * single reconnect then recovers them all — see {@link connectAccountSource}). Emits ONE alert scoped
+ * to the source instead of one per child (no storm). Only the ok→down transition alerts.
  */
 export async function markSourceNeedsReauth(sourceId: string, reason: string): Promise<void> {
+  const detail = reason.slice(0, 500);
+  const source = await db.query.accountSources.findFirst({
+    where: eq(accountSources.id, sourceId),
+    columns: { status: true, workspace_id: true, display_name: true },
+  });
+  if (!source) return;
+
   await db
     .update(accountSources)
-    .set({ status: "needs_reauth", needs_reauth_reason: reason.slice(0, 500), last_error: reason.slice(0, 500) })
+    .set({ status: "needs_reauth", needs_reauth_reason: detail, last_error: detail })
     .where(eq(accountSources.id, sourceId));
+
+  // Cascade to the children: pause the active derived channels (leave paused/disabled as the
+  // operator set them). They recover in one shot when the master is reconnected.
+  await db
+    .update(channels)
+    .set({ status: "needs_reauth", last_error: detail, last_health_at: new Date() })
+    .where(and(eq(channels.source_id, sourceId), eq(channels.status, "active")));
+
+  // One alert per outage (the master is the unit of failure here), only on the ok→down edge.
+  if (source.status !== "needs_reauth") {
+    await dispatchAlert({
+      type: "channel_reauth",
+      sourceId,
+      workspaceId: source.workspace_id,
+      displayName: source.display_name,
+      detail: `Managed connection needs re-authentication: ${detail}`,
+    });
+  }
 }
 
 /**
