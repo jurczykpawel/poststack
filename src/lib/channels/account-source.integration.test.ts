@@ -27,6 +27,7 @@ function mockGraph(opts: {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/debug_token")) return Response.json({ data: debug });
+    if (url.includes("/subscribed_apps")) return Response.json({ success: true }); // inbound webhook subscribe
     if (url.includes("/me/accounts") && url.includes("instagram_business_account")) return Response.json({ data: igPages });
     if (url.includes("/me/accounts")) return Response.json({ data: fbPages });
     if (url.includes("/me?")) return Response.json(me);
@@ -133,6 +134,41 @@ describe("connectAccountSource (real Postgres)", () => {
     expect(await channelsFor()).toHaveLength(2);
   });
 
+  it("UNIFY P2.1: minted channels are FULL dual-capability — publish-token + webhook_secret + subscribed", async () => {
+    if (!TEST_DB) return;
+    const subscribed: string[] = [];
+    const debug = { app_id: "111", is_valid: true, type: "SYSTEM_USER", expires_at: 0, data_access_expires_at: 0 };
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/debug_token")) return Response.json({ data: debug });
+      if (url.includes("/subscribed_apps")) {
+        subscribed.push(url.split("/").slice(-2)[0] ?? ""); // the {pageId}/subscribed_apps id
+        return Response.json({ success: true });
+      }
+      if (url.includes("/me/accounts") && url.includes("instagram_business_account"))
+        return Response.json({ data: [{ id: "FB9", name: "P", access_token: "PT9", instagram_business_account: { id: "IG9", username: "ig9" } }] });
+      if (url.includes("/me/accounts")) return Response.json({ data: [{ id: "FB9", name: "P", access_token: "PT9" }] });
+      if (url.includes("/me?")) return Response.json({ id: "MASTER1", name: "Master" });
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+
+    await svc.connectAccountSource(WS, "MASTER_TOKEN");
+
+    const chans = await db.query.channels.findMany({
+      where: eq(s.channels.workspace_id, WS),
+      columns: { platform: true, platform_id: true, webhook_secret: true, token_encrypted: true, connection_mode: true, last_error: true },
+    });
+    expect(chans).toHaveLength(2);
+    for (const c of chans) {
+      expect(c.connection_mode).toBe("derived");
+      expect(c.webhook_secret).toBeTruthy(); // can RECEIVE (inbound identity)
+      expect(c.token_encrypted).toBeTruthy(); // can PUBLISH + reply (one token)
+      expect(c.last_error).toBeNull(); // subscribe succeeded → not half-connected
+    }
+    // the underlying Page (FB9) was subscribed — IG inbound rides the same Page subscription
+    expect(subscribed).toContain("FB9");
+  });
+
   it("enumerates Pages ACROSS paging.next — a managed connection with > one page isn't truncated", async () => {
     if (!TEST_DB) return;
     // The me/accounts edge returns one Page per response page, linking to paging.next. Without
@@ -147,6 +183,7 @@ describe("connectAccountSource (real Postgres)", () => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/debug_token"))
         return Response.json({ data: { app_id: "111", is_valid: true, type: "USER", expires_at: 0, data_access_expires_at: 0 } });
+      if (url.includes("/subscribed_apps")) return Response.json({ success: true });
       if (url.includes("/me?")) return Response.json({ id: "MASTER1", name: "Master Account" });
       if (url.includes("/me/accounts") && url.includes("instagram_business_account")) {
         igCalls++;

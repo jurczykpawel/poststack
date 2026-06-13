@@ -1,14 +1,10 @@
-import { and, eq, inArray } from "drizzle-orm";
 import { authenticate } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
+import { subscribeChannelWebhooks } from "@/lib/channels/subscribe";
 import { ProRequiredError } from "@/lib/license/gate";
-import { db } from "@/lib/db";
-import { channels } from "@/db/schema";
 import { env } from "@/lib/env";
-
-const SUBSCRIBE_FAILED_ERROR = "Webhook subscription failed — no inbound events until re-subscribed";
 
 export const runtime = "nodejs";
 
@@ -46,25 +42,9 @@ export async function GET(request: Request) {
 
     await assertChannelsAllowed(auth.workspaceId, "instagram", accounts);
     await upsertChannels(auth.workspaceId, "instagram", accounts);
-
-    // Auto-subscribe underlying FB pages to webhook events (non-blocking). IG webhooks are delivered
-    // through the Page subscription, so a failed subscribe means the IG channel silently receives no
-    // inbound — flag those channels (by their IG-account platform_id) so it's visible.
-    if (provider.subscribePageWebhooks) {
-      const subscribable = accounts.filter((a) => a.tokens.page_id);
-      const results = await Promise.allSettled(
-        subscribable.map((a) => provider.subscribePageWebhooks!(String(a.tokens.page_id), a.tokens.access_token)),
-      );
-      const failedIds = subscribable
-        .filter((_, i) => results[i].status === "rejected" || (results[i] as PromiseFulfilledResult<boolean>).value === false)
-        .map((a) => a.platformId);
-      if (failedIds.length > 0) {
-        await db
-          .update(channels)
-          .set({ last_error: SUBSCRIBE_FAILED_ERROR })
-          .where(and(eq(channels.workspace_id, auth.workspaceId), eq(channels.platform, "instagram"), inArray(channels.platform_id, failedIds)));
-      }
-    }
+    // Auto-subscribe to inbound webhook events (IG events ride the linked Page subscription). Same
+    // path as FB + the managed-connection mint, so the account both publishes AND receives on one row.
+    await subscribeChannelWebhooks(auth.workspaceId, "instagram", accounts);
 
     return redirect(`/channels?connected=instagram&count=${accounts.length}`);
   } catch (e) {

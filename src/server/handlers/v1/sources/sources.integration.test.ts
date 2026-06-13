@@ -20,6 +20,7 @@ function mockGraph(opts: { fbPages?: unknown[] } = {}) {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/debug_token")) return Response.json({ data: { app_id: "111", is_valid: true, type: "USER", expires_at: 0, data_access_expires_at: 0 } });
+    if (url.includes("/subscribed_apps")) return Response.json({ success: true }); // inbound webhook subscribe (UNIFY P2.1)
     if (url.includes("/me/accounts") && url.includes("instagram_business_account"))
       return Response.json({ data: [{ id: "FB1", name: "Page One", access_token: "PT1", instagram_business_account: { id: "IG1", name: "IG One", username: "ig_one", profile_picture_url: "p" } }] });
     if (url.includes("/me/accounts")) return Response.json({ data: fbPages });

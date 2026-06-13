@@ -8,6 +8,7 @@ import { inspectMetaToken, MetaTokenError, type MetaTokenKind } from "@/lib/plat
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { upsertChannels } from "./upsert";
+import { subscribeChannelWebhooks } from "./subscribe";
 
 /**
  * Managed connection ("Meta managed connection", PRO): ONE master Meta token (a long-lived User or a
@@ -107,6 +108,9 @@ export async function connectAccountSource(
       sourceId: source.id,
       dataAccessExpiresAt,
     });
+    // A managed-connection channel is a FULL dual-capability channel: it publishes AND receives. Mint
+    // sets webhook_secret (in upsertChannels); subscribe the inbound webhook too (same path as OAuth).
+    await subscribeChannelWebhooks(workspaceId, "facebook", facebook);
   }
   if (instagram.length > 0) {
     await upsertChannels(workspaceId, "instagram", instagram, {
@@ -114,6 +118,7 @@ export async function connectAccountSource(
       sourceId: source.id,
       dataAccessExpiresAt,
     });
+    await subscribeChannelWebhooks(workspaceId, "instagram", instagram);
   }
 
   return {
@@ -154,6 +159,9 @@ export async function syncAccountSource(sourceId: string): Promise<SyncSourceRes
       sourceId: source.id,
       dataAccessExpiresAt,
     });
+    // Re-subscribe on every sync so a newly-added Page starts receiving inbound immediately (the
+    // subscribe is idempotent on Meta's side).
+    await subscribeChannelWebhooks(source.workspace_id, "facebook", facebook);
   }
   if (instagram.length > 0) {
     await upsertChannels(source.workspace_id, "instagram", instagram, {
@@ -161,6 +169,7 @@ export async function syncAccountSource(sourceId: string): Promise<SyncSourceRes
       sourceId: source.id,
       dataAccessExpiresAt,
     });
+    await subscribeChannelWebhooks(source.workspace_id, "instagram", instagram);
   }
 
   await db

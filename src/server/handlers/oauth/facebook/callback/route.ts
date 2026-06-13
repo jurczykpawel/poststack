@@ -1,14 +1,10 @@
-import { and, eq, inArray } from "drizzle-orm";
 import { authenticate } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
+import { subscribeChannelWebhooks } from "@/lib/channels/subscribe";
 import { ProRequiredError } from "@/lib/license/gate";
-import { db } from "@/lib/db";
-import { channels } from "@/db/schema";
 import { env } from "@/lib/env";
-
-const SUBSCRIBE_FAILED_ERROR = "Webhook subscription failed — no inbound events until re-subscribed";
 
 export const runtime = "nodejs";
 
@@ -46,24 +42,9 @@ export async function GET(request: Request) {
 
     await assertChannelsAllowed(auth.workspaceId, "facebook", accounts);
     await upsertChannels(auth.workspaceId, "facebook", accounts);
-
-    // Auto-subscribe pages to webhook events (non-blocking, best-effort). A failed subscribe leaves
-    // an active channel that silently receives NO inbound, so flag those channels' last_error to make
-    // the half-connected state visible instead of invisible.
-    if (provider.subscribePageWebhooks) {
-      const results = await Promise.allSettled(
-        accounts.map((a) => provider.subscribePageWebhooks!(a.platformId, a.tokens.access_token)),
-      );
-      const failedIds = accounts
-        .filter((_, i) => results[i].status === "rejected" || (results[i] as PromiseFulfilledResult<boolean>).value === false)
-        .map((a) => a.platformId);
-      if (failedIds.length > 0) {
-        await db
-          .update(channels)
-          .set({ last_error: SUBSCRIBE_FAILED_ERROR })
-          .where(and(eq(channels.workspace_id, auth.workspaceId), eq(channels.platform, "facebook"), inArray(channels.platform_id, failedIds)));
-      }
-    }
+    // Auto-subscribe to inbound webhook events (best-effort; flags any that fail). Same path as IG +
+    // the managed-connection mint, so a connected account both publishes AND receives on one row.
+    await subscribeChannelWebhooks(auth.workspaceId, "facebook", accounts);
 
     return redirect(`/channels?connected=facebook&count=${accounts.length}`);
   } catch (e) {
