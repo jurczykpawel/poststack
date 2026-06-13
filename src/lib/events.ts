@@ -1,5 +1,23 @@
+import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { events } from "@/db/schema";
+
+/**
+ * Realtime hint (REALTIME1 · R1): fire a `pg_notify('realtime', …)` carrying the workspace + a coarse
+ * kind + subject id. The web-process SSE hub (Phase 3) LISTENs and fans this out to workspace-scoped
+ * subscribers — so the dashboard updates live with no polling. Emitting it on the same tx as the
+ * write means the UI is signalled exactly when the data is committed. Best-effort: a NOTIFY failure
+ * never breaks the surrounding write.
+ */
+export async function notifyRealtime(
+  exec: { execute: typeof db.execute },
+  workspaceId: string,
+  kind: string,
+  id: string,
+): Promise<void> {
+  const payload = JSON.stringify({ ws: workspaceId, kind, id });
+  await exec.execute(sql`SELECT pg_notify('realtime', ${payload})`).catch(() => {});
+}
 
 /**
  * The internal event bus. Writes a workspace-scoped row to `events`; consumers (the realtime NOTIFY
@@ -30,9 +48,10 @@ export function isKnownEventType(type: string): type is EventType {
   return EVENT_TYPE_SET.has(type);
 }
 
-type TxLike = { insert: typeof db.insert };
+type TxLike = { insert: typeof db.insert; execute: typeof db.execute };
 
-/** Emit an event inside the caller's transaction (outbox semantics with the surrounding write). */
+/** Emit an event inside the caller's transaction (outbox semantics with the surrounding write), and
+ *  fire the realtime NOTIFY so the live UI is signalled on commit. */
 export async function emitEvent(
   tx: TxLike,
   workspaceId: string,
@@ -43,6 +62,7 @@ export async function emitEvent(
   await tx
     .insert(events)
     .values({ workspace_id: workspaceId, type, subject_type: subject.type, subject_id: subject.id, payload });
+  await notifyRealtime(tx, workspaceId, type, subject.id);
 }
 
 /** Best-effort emit outside a transaction (single-statement call sites). */
