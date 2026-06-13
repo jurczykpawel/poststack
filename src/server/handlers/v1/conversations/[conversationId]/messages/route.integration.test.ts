@@ -130,3 +130,23 @@ describe("messages GET — cursor validation", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// Manual (human) reply is a PRO feature (manual_reply): free relies on rule auto-replies and handles
+// a needs-reply in the native app. Runs LAST + re-seeds PRO so it doesn't starve other suites.
+describe("manual reply — PRO gate (manual_reply)", () => {
+  it("blocks sending a manual reply without a PRO license (402)", async () => {
+    if (!TEST_DB) return;
+    const { invalidateLicenseCache } = await import("@/lib/license/gate");
+    await db.delete(s.instanceLicense);
+    invalidateLicenseCache();
+    try {
+      const res = await POST(postReq(), ctx);
+      expect(res.status).toBe(402);
+      expect((await res.json()).error.code).toBe("PRO_REQUIRED");
+      expect(addJobTx).not.toHaveBeenCalled(); // nothing was sent
+    } finally {
+      await licenseInstance(); // restore PRO for any later work
+      invalidateLicenseCache();
+    }
+  });
+});

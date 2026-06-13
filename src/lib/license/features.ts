@@ -16,6 +16,7 @@ export type Feature =
   | "multi_channel"
   | "non_meta_channels"
   | "contacts_crm"
+  | "manual_reply"
   | "reaction_trigger"
   | "managed_connection"
   | "api_access"
@@ -36,7 +37,9 @@ const PRO: readonly Feature[] = [
   "follow_gate",
   "multi_channel", // a 2nd+ channel of the same platform (e.g. another FB page / IG account)
   "non_meta_channels", // any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)
-  "contacts_crm", // seeing individual people: inbox threads, contacts list, tags, manual reply
+  "contacts_crm", // seeing individual people: inbox threads, contacts list, tags
+  "manual_reply", // a human typing a reply in the inbox / via the API. Free = rules auto-reply only;
+  //                a needs-reply case is handled in the native app. Rule-based sends stay free.
   "reaction_trigger", // rules that fire on a message reaction (free triggers are keyword/comment only)
   "managed_connection", // one master Meta token → auto-enumerate all Pages+IG, auto-sync, alerts, cascade
   "api_access", // programmatic REST access via API keys (dashboard uses session auth, unaffected)
@@ -68,6 +71,7 @@ const FEATURE_LABEL: Record<Feature, string> = {
   multi_channel: "More than one channel per platform",
   non_meta_channels: "Channels other than Facebook/Instagram",
   contacts_crm: "The contacts inbox and CRM (seeing individual conversations)",
+  manual_reply: "Replying to conversations by hand (rules still auto-reply for free)",
   reaction_trigger: "Auto-replies triggered by a message reaction",
   managed_connection: "Meta managed connection (one token connects all Pages + Instagram)",
   api_access: "API access (REST API keys)",

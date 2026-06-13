@@ -8,7 +8,7 @@ describe("tierFeatures", () => {
 
   it("grants the full PRO feature set on the pro tier", () => {
     const pro = tierFeatures("pro");
-    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels", "contacts_crm", "reaction_trigger", "managed_connection", "api_access"] as const) {
+    for (const f of ["ai_rephrase", "sequences", "interactive_messages", "follow_gate", "multi_channel", "non_meta_channels", "contacts_crm", "manual_reply", "reaction_trigger", "managed_connection", "api_access"] as const) {
       expect(pro.has(f)).toBe(true);
     }
   });
@@ -20,6 +20,13 @@ describe("tierFeatures", () => {
       expect(tierFeatures("free").has(f)).toBe(false);
       expect(tierFeatures(null).has(f)).toBe(false);
     }
+  });
+
+  it("gates manual replying (manual_reply) to PRO — free is rules-only auto-reply", () => {
+    expect(tierFeatures("pro").has("manual_reply")).toBe(true);
+    expect(tierFeatures("business").has("manual_reply")).toBe(true);
+    expect(tierFeatures("free").has("manual_reply")).toBe(false);
+    expect(tierFeatures(null).has("manual_reply")).toBe(false);
   });
 
   it("gates customer inbox/CRM visibility (contacts_crm) to PRO, not free", () => {

@@ -80,7 +80,9 @@ export async function POST(
 ) {
   const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
-  const gate = await proGate("contacts_crm");
+  // Manual (human) replying is PRO — free relies on rule auto-replies, and handles a needs-reply
+  // case in the native app. Rule-driven sends go through the worker, not here, so they stay free.
+  const gate = await proGate("manual_reply");
   if (gate) return gate;
 
   const { conversationId } = await params;
