@@ -42,3 +42,30 @@ export function verifyOAuthState(state: string, cookieHeader: string | null): vo
     throw new Error("Invalid OAuth state — possible CSRF attack");
   }
 }
+
+// ── PKCE verifier transport (publish-side OAuth, e.g. X) ──────────────────────────────────────────
+// The PKCE code_verifier is generated on the authorize leg and needed again on the callback leg to
+// prove possession. We stash it in a short-lived HttpOnly cookie (same lifetime/CSRF posture as the
+// state cookie); the callback reads it, exchanges, then clears it. Never exposed to JS or the URL.
+const PKCE_COOKIE_NAME = "rs_oauth_pkce";
+
+/** `Set-Cookie` value stashing the PKCE verifier for the callback leg. */
+export function pkceCookie(verifier: string): string {
+  const secure = process.env.NODE_ENV === "production" ? " Secure;" : "";
+  return `${PKCE_COOKIE_NAME}=${verifier}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}`;
+}
+
+/** Read the PKCE verifier from the raw `Cookie` header (null when absent). */
+export function readPkceCookie(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${PKCE_COOKIE_NAME}=`));
+  return match ? match.slice(PKCE_COOKIE_NAME.length + 1) : null;
+}
+
+/** `Set-Cookie` value that clears the PKCE verifier cookie (one-time use). */
+export function clearPkceCookie(): string {
+  return `${PKCE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
