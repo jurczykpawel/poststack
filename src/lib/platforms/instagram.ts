@@ -8,8 +8,10 @@ import {
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
+import { fetchAllManagedPages } from "./meta-graph";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
+import { asString } from "@/lib/providers/util";
 
 const GRAPH_API = GRAPH_API_BASE;
 
@@ -23,10 +25,6 @@ interface FbPage {
     username: string;
     profile_picture_url: string;
   };
-}
-
-interface FbPagesResponse {
-  data: FbPage[];
 }
 
 interface FbUserToken {
@@ -141,32 +139,26 @@ export class InstagramProvider extends SocialProvider {
     ];
   }
 
-  /** Resolve IG business accounts behind a user/System User token's Pages. */
+  /** Resolve IG business accounts behind a user/System User token's Pages. Paginates the me/accounts
+   *  edge so a managed connection with many Pages isn't truncated, and skips a Page with no linked IG
+   *  account, no page token, or a malformed IG id (PSA55). */
   private async fetchIgAccounts(
     userToken: string,
     expiresAt?: number,
   ): Promise<ConnectedAccount[]> {
-    const pagesRes = await fetch(
-      `${GRAPH_API}/me/accounts?` +
-        new URLSearchParams({
-          access_token: userToken,
-          fields: "id,name,access_token,instagram_business_account{id,name,username,profile_picture_url}",
-        }),
-      { redirect: "error", signal: AbortSignal.timeout(10_000) }
+    const pages = await fetchAllManagedPages<FbPage>(
+      userToken,
+      "id,name,access_token,instagram_business_account{id,name,username,profile_picture_url}",
     );
-    if (!pagesRes.ok) {
-      const body = await pagesRes.text();
-      throw new Error(`Failed to fetch Facebook pages: ${body}`);
-    }
-    const pages = (await pagesRes.json()) as FbPagesResponse;
 
     const accounts: ConnectedAccount[] = [];
-    for (const page of pages.data) {
+    for (const page of pages) {
       const igAccount = page.instagram_business_account;
-      if (!igAccount) continue;
+      const igId = asString(igAccount?.id);
+      if (!igAccount || !igId || !page.access_token) continue;
 
       accounts.push({
-        platformId: igAccount.id,
+        platformId: igId,
         displayName: igAccount.name ?? igAccount.username,
         username: igAccount.username,
         profilePicture: igAccount.profile_picture_url,

@@ -8,8 +8,10 @@ import {
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
+import { fetchAllManagedPages } from "./meta-graph";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
+import { asString } from "@/lib/providers/util";
 
 const GRAPH_API = GRAPH_API_BASE;
 
@@ -18,10 +20,6 @@ interface FbPage {
   name: string;
   access_token: string;
   picture?: { data: { url: string } };
-}
-
-interface FbPagesResponse {
-  data: FbPage[];
 }
 
 interface FbUserToken {
@@ -115,31 +113,26 @@ export class FacebookProvider extends SocialProvider {
     ];
   }
 
-  /** Resolve the Pages a user/System User token manages → connected accounts. */
+  /** Resolve the Pages a user/System User token manages → connected accounts. Paginates the
+   *  me/accounts edge so a managed connection with many Pages isn't truncated to the first response
+   *  page, and skips an entry we can't mint (no page token) or a malformed id (PSA55). */
   private async fetchPageAccounts(userToken: string): Promise<ConnectedAccount[]> {
-    const pagesRes = await fetch(
-      `${GRAPH_API}/me/accounts?` +
-        new URLSearchParams({
-          access_token: userToken,
-          fields: "id,name,access_token,picture",
-        }),
-      { redirect: "error", signal: AbortSignal.timeout(10_000) }
-    );
-    if (!pagesRes.ok) {
-      const body = await pagesRes.text();
-      throw new Error(`Failed to fetch Facebook pages: ${body}`);
+    const pages = await fetchAllManagedPages<FbPage>(userToken, "id,name,access_token,picture");
+    const accounts: ConnectedAccount[] = [];
+    for (const page of pages) {
+      const id = asString(page.id);
+      if (!id || !page.access_token) continue;
+      accounts.push({
+        platformId: id,
+        displayName: page.name,
+        profilePicture: page.picture?.data?.url,
+        tokens: {
+          access_token: page.access_token,
+          // Facebook page tokens don't expire
+        },
+      });
     }
-    const pages = (await pagesRes.json()) as FbPagesResponse;
-
-    return pages.data.map((page) => ({
-      platformId: page.id,
-      displayName: page.name,
-      profilePicture: page.picture?.data?.url,
-      tokens: {
-        access_token: page.access_token,
-        // Facebook page tokens don't expire
-      },
-    }));
+    return accounts;
   }
 
   async refreshToken(tokens: TokenData): Promise<TokenData> {

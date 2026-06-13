@@ -132,6 +132,59 @@ describe("connectAccountSource (real Postgres)", () => {
     expect(sources).toHaveLength(1);
     expect(await channelsFor()).toHaveLength(2);
   });
+
+  it("enumerates Pages ACROSS paging.next — a managed connection with > one page isn't truncated", async () => {
+    if (!TEST_DB) return;
+    // The me/accounts edge returns one Page per response page, linking to paging.next. Without
+    // following it, FB2/IG2 (on page 2) would be silently dropped — the bug Task 7 closed.
+    // Graph's paging.next preserves the original `fields` query — so the IG cursor still carries the
+    // instagram_business_account marker the mock routes on.
+    const nextFb = "https://graph.facebook.com/v20.0/me/accounts?fields=id,name,access_token&after=CURSOR";
+    const nextIg = "https://graph.facebook.com/v20.0/me/accounts?fields=id,name,access_token,instagram_business_account&after=CURSOR";
+    let fbCalls = 0;
+    let igCalls = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/debug_token"))
+        return Response.json({ data: { app_id: "111", is_valid: true, type: "USER", expires_at: 0, data_access_expires_at: 0 } });
+      if (url.includes("/me?")) return Response.json({ id: "MASTER1", name: "Master Account" });
+      if (url.includes("/me/accounts") && url.includes("instagram_business_account")) {
+        igCalls++;
+        return igCalls === 1
+          ? Response.json({ data: [{ id: "FB1", name: "P1", access_token: "PT1", instagram_business_account: { id: "IG1", username: "ig1" } }], paging: { next: nextIg } })
+          : Response.json({ data: [{ id: "FB2", name: "P2", access_token: "PT2", instagram_business_account: { id: "IG2", username: "ig2" } }] });
+      }
+      if (url.includes("/me/accounts")) {
+        fbCalls++;
+        return fbCalls === 1
+          ? Response.json({ data: [{ id: "FB1", name: "P1", access_token: "PT1" }], paging: { next: nextFb } })
+          : Response.json({ data: [{ id: "FB2", name: "P2", access_token: "PT2" }] });
+      }
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+
+    const r = await svc.connectAccountSource(WS, "MASTER_TOKEN");
+    expect(r.byPlatform).toEqual({ facebook: 2, instagram: 2 });
+    const fb = (await channelsFor()).filter((c) => c.platform === "facebook").map((c) => c.platform_id).sort();
+    expect(fb).toEqual(["FB1", "FB2"]);
+    const ig = (await channelsFor()).filter((c) => c.platform === "instagram").map((c) => c.platform_id).sort();
+    expect(ig).toEqual(["IG1", "IG2"]);
+  });
+
+  it("skips a Page with no access token (one we can't mint) instead of minting a broken channel", async () => {
+    if (!TEST_DB) return;
+    mockGraph({
+      fbPages: [
+        { id: "FB1", name: "Mine", access_token: "PT1" },
+        { id: "FB2", name: "Not mine — no token", access_token: undefined },
+      ],
+      igPages: [],
+    });
+    const r = await svc.connectAccountSource(WS, "MASTER_TOKEN");
+    expect(r.byPlatform.facebook).toBe(1);
+    const fb = (await channelsFor()).filter((c) => c.platform === "facebook").map((c) => c.platform_id);
+    expect(fb).toEqual(["FB1"]);
+  });
 });
 
 describe("syncAccountSource (real Postgres)", () => {
