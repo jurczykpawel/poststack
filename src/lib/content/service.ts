@@ -30,6 +30,7 @@ const POST_MAP: Record<string, string> = {
   publishedUrl: "published_url", publishedAt: "published_at", notes: "notes", language: "language",
   mediaUrl: "media_url", videoUrl: "video_url", coverUrl: "cover_url", mediaUrls: "media_urls",
   assetStatus: "asset_status", assetNotes: "asset_notes", sourceRef: "source_ref",
+  autoReply: "auto_reply",
 };
 const POST_DATES = new Set(["scheduledDate", "publishedAt"]);
 

@@ -128,6 +128,18 @@ describe("editorial posts service (workspace-scoped)", () => {
     expect(await svc.getPost(p.id, WS)).toBeUndefined();
   });
 
+  it("UNIFY P2.2: accepts + persists an auto_reply config on a post (camelCase round-trip)", async () => {
+    if (!TEST_DB) return;
+    const p = await svc.createPost(
+      { platform: "instagram", description: "reel", autoReply: { keywords: [{ value: "link", matchType: "contains" }], dmText: "DM!", replyMode: "dm" } },
+      WS,
+    );
+    const got = await svc.getPost(p.id, WS);
+    const ar = got!.auto_reply as { dmText?: string; keywords?: { value: string }[] };
+    expect(ar.dmText).toBe("DM!");
+    expect(ar.keywords).toEqual([{ value: "link", matchType: "contains" }]);
+  });
+
   it("filters posts by q (description ILIKE)", async () => {
     if (!TEST_DB) return;
     await svc.createPost({ platform: "x", description: "hello world" }, WS);

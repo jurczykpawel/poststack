@@ -40,6 +40,7 @@ afterAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   // FK-safe wipe of the per-test rows (keep the workspace).
+  await db.delete(schema.autoReplyRules).where(eq(schema.autoReplyRules.workspace_id, WS));
   await db.delete(schema.posts).where(eq(schema.posts.workspace_id, WS));
   await db.delete(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS));
   await db.delete(schema.content).where(eq(schema.content.workspace_id, WS));
@@ -103,6 +104,42 @@ describe("publish worker (AUD27)", () => {
       expect(await status(postId)).toBe("sent");
       const row = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
       expect(row!.provider_handle).toBe("post_xyz");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("UNIFY P2.2: publishing an IG post with auto_reply provisions a comment→DM rule scoped to the media id", async () => {
+    if (!TEST_DB) return;
+    const [c] = await db
+      .insert(schema.channels)
+      .values({ workspace_id: WS, platform: "instagram", platform_id: `IG-${Math.random()}`, connection_mode: "derived", status: "active", token_encrypted: encryptTokens({ access_token: "T" }), webhook_secret: "wh" })
+      .returning();
+    const [m] = await db
+      .insert(schema.media)
+      .values({ workspace_id: WS, checksum: `c${Math.random()}`, storage_key: "k", url: "https://cdn/x.mp4", kind: "video" })
+      .returning();
+    const [d] = await db
+      .insert(schema.deliveries)
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" }, scheduled_at: new Date(), run_at: new Date() })
+      .returning();
+    // editorial post linked to the delivery, carrying the auto-reply config
+    await db.insert(schema.posts).values({
+      workspace_id: WS,
+      platform: "instagram",
+      delivery_id: d!.id,
+      status: "scheduled",
+      auto_reply: { keywords: [{ value: "link", matchType: "contains" }], dmText: "Here you go!", replyMode: "dm" },
+    });
+
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_777" });
+    try {
+      await processPublish({ postId: d!.id }, helpers);
+      expect(await status(d!.id)).toBe("sent");
+      const rule = await db.query.autoReplyRules.findFirst({ where: eq(schema.autoReplyRules.workspace_id, WS) });
+      expect(rule!.trigger_type).toBe("comment_keyword");
+      expect((rule!.trigger_config as { post_id?: string }).post_id).toBe("IG_MEDIA_777");
+      expect(rule!.channel_id).toBe(c!.id);
     } finally {
       spy.mockRestore();
     }

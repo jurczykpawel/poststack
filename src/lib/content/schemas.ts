@@ -29,9 +29,23 @@ export const contentCreate = z.object({
 });
 export const contentPatch = contentCreate.partial();
 
+// UNIFY P2.2: the user-writable auto-reply attached to a post (system-managed `ruleId`/`status` are
+// stamped by the publish loop-back, never accepted here — PSA8 mass-assignment guard).
+export const autoReplyInput = z.object({
+  keywords: z
+    .array(z.object({ value: z.string().min(1).max(100), matchType: z.enum(["exact", "contains", "starts_with"]).default("contains") }))
+    .min(1)
+    .max(100),
+  dmText: z.string().min(1).max(2000),
+  commentReplyText: z.string().min(1).max(2000).optional(),
+  replyMode: z.enum(["dm", "comment", "both"]).default("dm"),
+  cooldownSeconds: z.number().int().min(0).max(86400).optional(),
+});
+
 export const postCreate = z.object({
   contentId: z.string().uuid().optional(),
   platform: z.string().min(1).max(LIMITS.line),
+  autoReply: autoReplyInput.nullish(),
   description: z.string().max(LIMITS.text).optional(),
   hashtags: z.string().max(LIMITS.hashtags).optional(),
   ctaType: z.string().max(LIMITS.line).optional(),

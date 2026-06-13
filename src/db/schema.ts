@@ -1155,6 +1155,10 @@ export const posts = pgTable("posts", {
 	media_urls: jsonb("media_urls").default([]).notNull(),
 	asset_status: text("asset_status"),
 	asset_notes: text("asset_notes"),
+	// UNIFY P2.2 (REPLYSTACK1 native): optional comment→DM auto-reply attached to this published post.
+	// On publish, the loop-back provisions an `auto_reply_rules` row scoped to the resulting media id.
+	// Shape validated by `autoReplySchema` (lib/autoreply/provision.ts); null = no auto-reply.
+	auto_reply: jsonb("auto_reply"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [

@@ -6,6 +6,7 @@ import { decryptTokens } from "@/lib/crypto";
 import { toTokenSet } from "@/lib/providers/token-codec";
 import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
 import { can } from "@/lib/channels/capabilities";
+import { provisionAutoReply } from "@/lib/autoreply/provision";
 import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
@@ -223,6 +224,9 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });
     await reflectEditorial(postId, "published", { published_at: new Date() });
     await emitEventNow(ws, "post.published", { type: "post", id: postId }, { providerHandle: handle.providerHandle });
+    // REPLYSTACK1 native (UNIFY P2.2): if the editorial post carries an auto-reply, provision the
+    // comment→DM rule scoped to the just-published media id — in-process, idempotent, best-effort.
+    await provisionAutoReply(postId, ws).catch(() => {});
   } catch (err) {
     if (err instanceof TokenInvalidError) {
       // AUD48: leave the post reattemptable FIRST; the channel flag + event are best-effort.

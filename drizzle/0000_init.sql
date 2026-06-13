@@ -466,6 +466,7 @@ CREATE TABLE "posts" (
 	"media_urls" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"asset_status" text,
 	"asset_notes" text,
+	"auto_reply" jsonb,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );

@@ -1,5 +1,5 @@
 {
-  "id": "69e0f32f-fa35-413c-94ee-4dbbb50245a5",
+  "id": "c7c082d4-aef2-4957-9e62-db132385d074",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -4484,6 +4484,12 @@
         "asset_notes": {
           "name": "asset_notes",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auto_reply": {
+          "name": "auto_reply",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
