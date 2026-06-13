@@ -63,9 +63,18 @@ export async function upsertChannels(
   workspaceId: string,
   platform: Platform,
   accounts: ConnectedAccount[],
-  opts: { connectionMode?: ChannelConnectionMode; deferDrain?: boolean } = {}
+  opts: {
+    connectionMode?: ChannelConnectionMode;
+    deferDrain?: boolean;
+    /** Link these channels to a managed connection (account_sources.id). Stamped on derived channels. */
+    sourceId?: string | null;
+    /** The ~90-day data-access wall inherited from the source (for the badge + expiry cron). */
+    dataAccessExpiresAt?: Date | null;
+  } = {}
 ): Promise<{ recoveredChannelIds: string[] }> {
   const connectionMode = opts.connectionMode ?? "oauth";
+  const sourceId = opts.sourceId ?? null;
+  const dataAccessExpiresAt = opts.dataAccessExpiresAt ?? null;
   if (accounts.length > MAX_ACCOUNTS_PER_OAUTH) {
     throw new Error(`Too many accounts (${accounts.length}), max ${MAX_ACCOUNTS_PER_OAUTH}`);
   }
@@ -84,6 +93,12 @@ export async function upsertChannels(
     for (const account of ordered) {
       const encryptedTokens = encryptTokens(account.tokens);
       const lockKey = `channel:${platform}:${account.platformId}`;
+      // Plaintext token-death clock for the badge + proactive expiry cron (no decrypt needed).
+      // Page/System-User tokens carry no expires_at → NULL (permanent).
+      const tokenExpiresAt =
+        typeof account.tokens.expires_at === "number" && account.tokens.expires_at > 0
+          ? new Date(account.tokens.expires_at * 1000)
+          : null;
 
       // Serialize concurrent connects for this exact account; the lock releases on
       // commit, so the ownership check and the insert are one critical section.
@@ -118,6 +133,9 @@ export async function upsertChannels(
           webhook_secret: randomBytes(32).toString("hex"),
           status: "active",
           connection_mode: connectionMode,
+          source_id: sourceId,
+          token_expires_at: tokenExpiresAt,
+          data_access_expires_at: dataAccessExpiresAt,
         })
         .onConflictDoUpdate({
           target: [channels.workspace_id, channels.platform, channels.platform_id],
@@ -129,6 +147,9 @@ export async function upsertChannels(
             status: "active",
             last_error: null,
             connection_mode: connectionMode,
+            source_id: sourceId,
+            token_expires_at: tokenExpiresAt,
+            data_access_expires_at: dataAccessExpiresAt,
           },
         })
         .returning({ id: channels.id });
