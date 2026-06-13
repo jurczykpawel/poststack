@@ -185,24 +185,33 @@ export const channels = pgTable("channels", {
 	// without decrypting every token. NULL = no/unknown expiry (e.g. permanent page/system-user token).
 	token_expires_at: timestamp("token_expires_at", { precision: 3, mode: 'date' }),
 	data_access_expires_at: timestamp("data_access_expires_at", { precision: 3, mode: 'date' }),
+	// Why a credential needs re-auth (e.g. "token_expired", "cascade:source"); surfaced in the UI.
+	needs_reauth_reason: text("needs_reauth_reason"),
+	// Owning brand within the workspace (null = unassigned). Drives cross-platform brand grouping —
+	// the SAME brand groups publish AND reply channels. FK is composite (workspace_id, brand_key) →
+	// brands(workspace_id, key) so a channel can only join a brand in its OWN workspace.
+	brand_key: text("brand_key"),
+	// Provider-specific display extras (e.g. { subKind: 'instagram' | 'facebook' }). Capabilities are
+	// computed by the provider, never stored; this is for UI/identity hints only.
+	metadata: jsonb().default({}).notNull(),
+	// Soft delete: a removed channel keeps its row but is excluded from every read.
+	deleted_at: timestamp("deleted_at", { precision: 3, mode: 'date' }),
+	// Hidden: stays connected but filtered out of the default list (e.g. sandbox/old test accounts).
+	hidden_at: timestamp("hidden_at", { precision: 3, mode: 'date' }),
 }, (table) => [
 	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
 	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	index("channels_source_id_idx").using("btree", table.source_id.asc().nullsLast()),
-	// Unique per (workspace, platform, platform_id) — a superset of the old
-	// (workspace_id, platform_id) key, so adding it never fails on existing data.
-	// Adding `platform` stops a numeric id colliding across platforms (e.g. a FB
-	// page vs a Telegram bot). "One account, one workspace" is enforced in the app
-	// layer (upsertChannels rejects connecting an account owned elsewhere).
+	index("channels_brand_idx").using("btree", table.workspace_id.asc().nullsLast(), table.brand_key.asc().nullsLast()),
+	// Unique per (workspace, platform, platform_id) — FULL (not partial) so it can serve as the
+	// upsert ON CONFLICT arbiter. Reconnecting an account that was soft-deleted in this workspace
+	// hits this conflict and REVIVES the existing row (onConflictDoUpdate clears deleted_at) instead
+	// of spawning a zombie — exactly the canonical-identity dedup we want.
 	uniqueIndex("channels_workspace_id_platform_platform_id_key").using("btree", table.workspace_id.asc().nullsLast(), table.platform.asc().nullsLast(), table.platform_id.asc().nullsLast()),
-	// At most one NON-disabled channel per (platform, platform_id) across the whole
-	// instance. Incoming webhook events carry only the account id, so routing resolves
-	// the channel by (platform, platform_id) filtered to non-disabled — this partial
-	// index makes that resolution unambiguous (one live owner per account). Disabled
-	// rows are exempt, so an account released by one workspace can be re-used, and the
-	// migration that adds this index stays safe (it disables any pre-existing duplicate
-	// first, then the index can be created).
-	uniqueIndex("channels_active_platform_platform_id_key").using("btree", table.platform.asc().nullsLast(), table.platform_id.asc().nullsLast()).where(sql`status <> 'disabled'`),
+	// At most one NON-disabled, non-deleted channel per (platform, platform_id) instance-wide.
+	// Incoming webhook events carry only the account id, so routing resolves the channel by
+	// (platform, platform_id) filtered to live rows — this partial index makes that unambiguous.
+	uniqueIndex("channels_active_platform_platform_id_key").using("btree", table.platform.asc().nullsLast(), table.platform_id.asc().nullsLast()).where(sql`status <> 'disabled' AND deleted_at IS NULL`),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],
@@ -212,6 +221,11 @@ export const channels = pgTable("channels", {
 			columns: [table.source_id],
 			foreignColumns: [accountSources.id],
 			name: "channels_source_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
+	foreignKey({
+			columns: [table.workspace_id, table.brand_key],
+			foreignColumns: [brands.workspace_id, brands.key],
+			name: "channels_brand_fkey"
 		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
@@ -1000,4 +1014,168 @@ export const instanceLicense = pgTable("instance_license", {
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
 	check("instance_license_singleton", sql`${table.id} = 'singleton'`),
+]);
+
+// ─── Publishing engine (ported from PostStack, made workspace-scoped) ──────────────────────────
+
+export const mediaStatus = pgEnum("media_status", ['uploading', 'probing', 'ready', 'failed'])
+export const deliveryStatus = pgEnum("delivery_status", ['scheduled', 'sending', 'sent', 'held', 'unknown', 'failed', 'canceled'])
+
+// A publishing brand (e.g. techskills.academy) — the grouping unit above channels WITHIN a workspace.
+// Cross-platform: a brand groups channels from different platforms (and both publish + reply roles).
+// Composite PK (workspace_id, key): the key is unique per workspace, and channels.brand_key FK is
+// composite so a channel can only ever join a brand in its own workspace (tenancy invariant).
+export const brands = pgTable("brands", {
+	workspace_id: uuid("workspace_id").notNull(),
+	key: text("key").notNull(), // canonical brand key, equals content.profile
+	name: text("name").notNull(),
+	accent: text("accent"), // UI chip color (hex or design token)
+	icon: text("icon"), // optional short mark / emoji
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.workspace_id, table.key], name: "brands_pkey" }),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "brands_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// Content-addressed media (dedup by sha256 checksum, PER workspace).
+export const media = pgTable("media", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	checksum: text("checksum").notNull(), // sha256 hex — content address (dedup key, per workspace)
+	storage_key: text("storage_key").notNull(),
+	url: text("url").notNull(),
+	kind: text("kind").notNull(), // 'video' | 'image'
+	mime: text("mime"),
+	size: integer("size"),
+	width: integer("width"),
+	height: integer("height"),
+	duration_sec: integer("duration_sec"),
+	status: mediaStatus().default('ready').notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	uniqueIndex("media_workspace_checksum_key").using("btree", table.workspace_id.asc().nullsLast(), table.checksum.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "media_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// The publish ledger / execution job (AUD27 crash-safe state machine). Separate from the inbound
+// `outbound_deliveries` (reply sends) — this is the publish side.
+export const deliveries = pgTable("deliveries", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	format: text("format").notNull(),
+	status: deliveryStatus().default('scheduled').notNull(),
+	payload: jsonb("payload").notNull(), // normalized PublishRequest
+	payload_version: integer("payload_version").default(1).notNull(),
+	idempotency_key: text("idempotency_key"),
+	scheduled_at: timestamp("scheduled_at", { precision: 3, mode: 'date' }).notNull(),
+	run_at: timestamp("run_at", { precision: 3, mode: 'date' }),
+	provider_handle: text("provider_handle"),
+	attempts: integer("attempts").default(0).notNull(),
+	attempt_started_at: timestamp("attempt_started_at", { precision: 3, mode: 'date' }),
+	last_error: text("last_error"),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	index("deliveries_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	index("deliveries_channel_idx").using("btree", table.channel_id.asc().nullsLast()),
+	uniqueIndex("deliveries_workspace_idempotency_key").using("btree", table.workspace_id.asc().nullsLast(), table.idempotency_key.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "deliveries_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "deliveries_channel_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// Per-channel token-bucket rate state (publish throttle). Keyed by channel (already workspace-scoped).
+export const channelRateState = pgTable("channel_rate_state", {
+	channel_id: uuid("channel_id").primaryKey().notNull(),
+	tokens: integer("tokens").default(60).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "channel_rate_state_channel_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// Editorial content (← migrated from NocoDB ContentManagementHub). source_ref makes import idempotent.
+export const content = pgTable("content", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	source_ref: text("source_ref"),
+	idempotency_key: text("idempotency_key"),
+	title: text("title").notNull(),
+	content_type: text("content_type"),
+	script: text("script"),
+	media_urls: jsonb("media_urls").default([]).notNull(),
+	profile: text("profile"),
+	status: text("status").default('draft').notNull(),
+	evergreen: boolean().default(false).notNull(),
+	republish_interval: text("republish_interval"),
+	last_published_at: timestamp("last_published_at", { precision: 3, mode: 'date' }),
+	approved_at: timestamp("approved_at", { precision: 3, mode: 'date' }),
+	approved_by: text("approved_by"),
+	lead_magnet: text("lead_magnet"),
+	notes: text("notes"),
+	base_description: text("base_description"),
+	base_hashtags: text("base_hashtags"),
+	idea_source: text("idea_source"),
+	language: text("language"),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	index("content_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	uniqueIndex("content_workspace_source_ref_key").using("btree", table.workspace_id.asc().nullsLast(), table.source_ref.asc().nullsLast()),
+	uniqueIndex("content_workspace_idempotency_key").using("btree", table.workspace_id.asc().nullsLast(), table.idempotency_key.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "content_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// Per-platform editorial post (a row of the content's cross-platform plan). delivery_id links to the
+// engine job once published.
+export const posts = pgTable("posts", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	source_ref: text("source_ref"),
+	idempotency_key: text("idempotency_key"),
+	content_id: uuid("content_id"),
+	delivery_id: uuid("delivery_id"),
+	platform: text("platform").notNull(),
+	description: text("description"),
+	hashtags: text("hashtags"),
+	cta_type: text("cta_type"),
+	scheduled_date: timestamp("scheduled_date", { precision: 3, mode: 'date' }),
+	status: text("status").default('planned').notNull(),
+	postiz_id: text("postiz_id"),
+	published_url: text("published_url"),
+	published_at: timestamp("published_at", { precision: 3, mode: 'date' }),
+	notes: text("notes"),
+	language: text("language"),
+	media_url: text("media_url"),
+	video_url: text("video_url"),
+	cover_url: text("cover_url"),
+	media_urls: jsonb("media_urls").default([]).notNull(),
+	asset_status: text("asset_status"),
+	asset_notes: text("asset_notes"),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	index("posts_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	index("posts_content_idx").using("btree", table.content_id.asc().nullsLast()),
+	index("posts_delivery_idx").using("btree", table.delivery_id.asc().nullsLast()),
+	uniqueIndex("posts_workspace_source_ref_key").using("btree", table.workspace_id.asc().nullsLast(), table.source_ref.asc().nullsLast()),
+	uniqueIndex("posts_workspace_idempotency_key").using("btree", table.workspace_id.asc().nullsLast(), table.idempotency_key.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "posts_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.content_id], foreignColumns: [content.id], name: "posts_content_id_fkey" }).onUpdate("cascade").onDelete("set null"),
+	foreignKey({ columns: [table.delivery_id], foreignColumns: [deliveries.id], name: "posts_delivery_id_fkey" }).onUpdate("cascade").onDelete("set null"),
+]);
+
+// Internal event log — the workspace-scoped bus the realtime NOTIFY emit + (later) outbound webhooks
+// read from. Keyset-paginated by (workspace_id, created_at, id).
+export const events = pgTable("events", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	type: text("type").notNull(),
+	subject_type: text("subject_type"),
+	subject_id: text("subject_id"),
+	payload: jsonb("payload").default({}).notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	index("events_workspace_created_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.asc().nullsLast(), table.id.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "events_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
 ]);

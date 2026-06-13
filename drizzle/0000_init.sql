@@ -7,9 +7,11 @@ CREATE TYPE "public"."channel_connection_mode" AS ENUM('oauth', 'manual_token', 
 CREATE TYPE "public"."channel_status" AS ENUM('active', 'needs_reauth', 'paused', 'disabled');--> statement-breakpoint
 CREATE TYPE "public"."conversation_status" AS ENUM('open', 'closed', 'snoozed');--> statement-breakpoint
 CREATE TYPE "public"."conversation_thread_type" AS ENUM('dm', 'comment');--> statement-breakpoint
+CREATE TYPE "public"."delivery_status" AS ENUM('scheduled', 'sending', 'sent', 'held', 'unknown', 'failed', 'canceled');--> statement-breakpoint
 CREATE TYPE "public"."flow_session_status" AS ENUM('active', 'completed', 'expired', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."flow_status" AS ENUM('draft', 'published', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."instance_license_status" AS ENUM('none', 'active', 'expired', 'invalid');--> statement-breakpoint
+CREATE TYPE "public"."media_status" AS ENUM('uploading', 'probing', 'ready', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."message_direction" AS ENUM('inbound', 'outbound');--> statement-breakpoint
 CREATE TYPE "public"."message_status" AS ENUM('pending', 'sent', 'delivered', 'failed', 'held', 'expired');--> statement-breakpoint
 CREATE TYPE "public"."outbound_delivery_status" AS ENUM('pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown');--> statement-breakpoint
@@ -93,6 +95,17 @@ CREATE TABLE "auto_reply_rules" (
 	"requires_approval" boolean DEFAULT false NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "brands" (
+	"workspace_id" uuid NOT NULL,
+	"key" text NOT NULL,
+	"name" text NOT NULL,
+	"accent" text,
+	"icon" text,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
+	CONSTRAINT "brands_pkey" PRIMARY KEY("workspace_id","key")
+);
+--> statement-breakpoint
 CREATE TABLE "broadcast_recipients" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"broadcast_id" uuid NOT NULL,
@@ -119,6 +132,12 @@ CREATE TABLE "broadcasts" (
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "channel_rate_state" (
+	"channel_id" uuid PRIMARY KEY NOT NULL,
+	"tokens" integer DEFAULT 60 NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "channels" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
@@ -138,7 +157,12 @@ CREATE TABLE "channels" (
 	"connection_mode" "channel_connection_mode" DEFAULT 'oauth' NOT NULL,
 	"source_id" uuid,
 	"token_expires_at" timestamp (3),
-	"data_access_expires_at" timestamp (3)
+	"data_access_expires_at" timestamp (3),
+	"needs_reauth_reason" text,
+	"brand_key" text,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"deleted_at" timestamp (3),
+	"hidden_at" timestamp (3)
 );
 --> statement-breakpoint
 CREATE TABLE "comment_logs" (
@@ -188,6 +212,32 @@ CREATE TABLE "contacts" (
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "content" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"source_ref" text,
+	"idempotency_key" text,
+	"title" text NOT NULL,
+	"content_type" text,
+	"script" text,
+	"media_urls" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"profile" text,
+	"status" text DEFAULT 'draft' NOT NULL,
+	"evergreen" boolean DEFAULT false NOT NULL,
+	"republish_interval" text,
+	"last_published_at" timestamp (3),
+	"approved_at" timestamp (3),
+	"approved_by" text,
+	"lead_magnet" text,
+	"notes" text,
+	"base_description" text,
+	"base_hashtags" text,
+	"idea_source" text,
+	"language" text,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "conversations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
@@ -207,6 +257,35 @@ CREATE TABLE "conversations" (
 	"last_inbound_at" timestamp (3),
 	"thread_type" "conversation_thread_type" DEFAULT 'dm' NOT NULL,
 	"thread_ref" text DEFAULT '' NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "deliveries" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"format" text NOT NULL,
+	"status" "delivery_status" DEFAULT 'scheduled' NOT NULL,
+	"payload" jsonb NOT NULL,
+	"payload_version" integer DEFAULT 1 NOT NULL,
+	"idempotency_key" text,
+	"scheduled_at" timestamp (3) NOT NULL,
+	"run_at" timestamp (3),
+	"provider_handle" text,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"attempt_started_at" timestamp (3),
+	"last_error" text,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"type" text NOT NULL,
+	"subject_type" text,
+	"subject_id" text,
+	"payload" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "flow_sessions" (
@@ -273,6 +352,22 @@ CREATE TABLE "instance_license" (
 	"last_error" text,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	CONSTRAINT "instance_license_singleton" CHECK ("instance_license"."id" = 'singleton')
+);
+--> statement-breakpoint
+CREATE TABLE "media" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"checksum" text NOT NULL,
+	"storage_key" text NOT NULL,
+	"url" text NOT NULL,
+	"kind" text NOT NULL,
+	"mime" text,
+	"size" integer,
+	"width" integer,
+	"height" integer,
+	"duration_sec" integer,
+	"status" "media_status" DEFAULT 'ready' NOT NULL,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "message_reactions" (
@@ -343,6 +438,34 @@ CREATE TABLE "post_reactions" (
 	"reactor_id" text NOT NULL,
 	"reactor_name" text,
 	"reaction_type" text NOT NULL,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "posts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"source_ref" text,
+	"idempotency_key" text,
+	"content_id" uuid,
+	"delivery_id" uuid,
+	"platform" text NOT NULL,
+	"description" text,
+	"hashtags" text,
+	"cta_type" text,
+	"scheduled_date" timestamp (3),
+	"status" text DEFAULT 'planned' NOT NULL,
+	"postiz_id" text,
+	"published_url" text,
+	"published_at" timestamp (3),
+	"notes" text,
+	"language" text,
+	"media_url" text,
+	"video_url" text,
+	"cover_url" text,
+	"media_urls" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"asset_status" text,
+	"asset_notes" text,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
@@ -461,12 +584,15 @@ ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_workspace_id_fkey" FOREIGN KEY (
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "auto_reply_rules" ADD CONSTRAINT "auto_reply_rules_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "auto_reply_rules" ADD CONSTRAINT "auto_reply_rules_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "brands" ADD CONSTRAINT "brands_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "broadcast_recipients" ADD CONSTRAINT "broadcast_recipients_broadcast_id_fkey" FOREIGN KEY ("broadcast_id") REFERENCES "public"."broadcasts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "broadcast_recipients" ADD CONSTRAINT "broadcast_recipients_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "broadcast_recipients" ADD CONSTRAINT "broadcast_recipients_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "broadcasts" ADD CONSTRAINT "broadcasts_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "channel_rate_state" ADD CONSTRAINT "channel_rate_state_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "channels" ADD CONSTRAINT "channels_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "channels" ADD CONSTRAINT "channels_source_id_fkey" FOREIGN KEY ("source_id") REFERENCES "public"."account_sources"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "channels" ADD CONSTRAINT "channels_brand_fkey" FOREIGN KEY ("workspace_id","brand_key") REFERENCES "public"."brands"("workspace_id","key") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "comment_logs" ADD CONSTRAINT "comment_logs_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "comment_logs" ADD CONSTRAINT "comment_logs_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contact_channels" ADD CONSTRAINT "contact_channels_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -474,10 +600,14 @@ ALTER TABLE "contact_channels" ADD CONSTRAINT "contact_channels_channel_id_fkey"
 ALTER TABLE "contact_tags" ADD CONSTRAINT "contact_tags_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contact_tags" ADD CONSTRAINT "contact_tags_tag_id_fkey" FOREIGN KEY ("tag_id") REFERENCES "public"."tags"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contacts" ADD CONSTRAINT "contacts_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "content" ADD CONSTRAINT "content_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_assigned_to_fkey" FOREIGN KEY ("assigned_to") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "deliveries" ADD CONSTRAINT "deliveries_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "deliveries" ADD CONSTRAINT "deliveries_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "events" ADD CONSTRAINT "events_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flow_sessions" ADD CONSTRAINT "flow_sessions_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flow_sessions" ADD CONSTRAINT "flow_sessions_flow_id_fkey" FOREIGN KEY ("flow_id") REFERENCES "public"."flows"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flow_sessions" ADD CONSTRAINT "flow_sessions_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -485,6 +615,7 @@ ALTER TABLE "flow_triggers" ADD CONSTRAINT "flow_triggers_flow_id_fkey" FOREIGN 
 ALTER TABLE "flow_triggers" ADD CONSTRAINT "flow_triggers_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flow_versions" ADD CONSTRAINT "flow_versions_flow_id_fkey" FOREIGN KEY ("flow_id") REFERENCES "public"."flows"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "flows" ADD CONSTRAINT "flows_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "media" ADD CONSTRAINT "media_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -503,6 +634,9 @@ ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_contact_id_fke
 ALTER TABLE "pending_approvals" ADD CONSTRAINT "pending_approvals_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "post_reactions" ADD CONSTRAINT "post_reactions_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "post_reactions" ADD CONSTRAINT "post_reactions_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "posts" ADD CONSTRAINT "posts_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "posts" ADD CONSTRAINT "posts_content_id_fkey" FOREIGN KEY ("content_id") REFERENCES "public"."content"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "posts" ADD CONSTRAINT "posts_delivery_id_fkey" FOREIGN KEY ("delivery_id") REFERENCES "public"."deliveries"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "rule_cooldowns" ADD CONSTRAINT "rule_cooldowns_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "rule_cooldowns" ADD CONSTRAINT "rule_cooldowns_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "rule_send_counts" ADD CONSTRAINT "rule_send_counts_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "public"."auto_reply_rules"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -532,8 +666,9 @@ CREATE INDEX "broadcast_recipients_broadcast_id_status_idx" ON "broadcast_recipi
 CREATE INDEX "channels_status_idx" ON "channels" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "channels_workspace_id_idx" ON "channels" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "channels_source_id_idx" ON "channels" USING btree ("source_id");--> statement-breakpoint
+CREATE INDEX "channels_brand_idx" ON "channels" USING btree ("workspace_id","brand_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "channels_workspace_id_platform_platform_id_key" ON "channels" USING btree ("workspace_id","platform","platform_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "channels_active_platform_platform_id_key" ON "channels" USING btree ("platform","platform_id") WHERE status <> 'disabled';--> statement-breakpoint
+CREATE UNIQUE INDEX "channels_active_platform_platform_id_key" ON "channels" USING btree ("platform","platform_id") WHERE status <> 'disabled' AND deleted_at IS NULL;--> statement-breakpoint
 CREATE INDEX "comment_logs_channel_id_idx" ON "comment_logs" USING btree ("channel_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "comment_logs_channel_id_platform_comment_id_key" ON "comment_logs" USING btree ("channel_id","platform_comment_id");--> statement-breakpoint
 CREATE INDEX "comment_logs_workspace_id_idx" ON "comment_logs" USING btree ("workspace_id");--> statement-breakpoint
@@ -543,15 +678,23 @@ CREATE INDEX "contact_channels_contact_id_idx" ON "contact_channels" USING btree
 CREATE INDEX "contact_tags_tag_id_idx" ON "contact_tags" USING btree ("tag_id");--> statement-breakpoint
 CREATE INDEX "contacts_workspace_id_idx" ON "contacts" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "contacts_workspace_id_last_interaction_at_idx" ON "contacts" USING btree ("workspace_id","last_interaction_at" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX "content_workspace_id_idx" ON "content" USING btree ("workspace_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "content_workspace_source_ref_key" ON "content" USING btree ("workspace_id","source_ref");--> statement-breakpoint
+CREATE UNIQUE INDEX "content_workspace_idempotency_key" ON "content" USING btree ("workspace_id","idempotency_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "conversations_channel_id_contact_id_thread_key" ON "conversations" USING btree ("channel_id","contact_id","thread_type","thread_ref");--> statement-breakpoint
 CREATE INDEX "conversations_workspace_id_last_message_at_idx" ON "conversations" USING btree ("workspace_id","last_message_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "conversations_workspace_id_status_idx" ON "conversations" USING btree ("workspace_id","status");--> statement-breakpoint
 CREATE INDEX "conversations_ws_channel_last_message_at_idx" ON "conversations" USING btree ("workspace_id","channel_id","last_message_at" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX "deliveries_workspace_id_idx" ON "deliveries" USING btree ("workspace_id");--> statement-breakpoint
+CREATE INDEX "deliveries_channel_idx" ON "deliveries" USING btree ("channel_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "deliveries_workspace_idempotency_key" ON "deliveries" USING btree ("workspace_id","idempotency_key");--> statement-breakpoint
+CREATE INDEX "events_workspace_created_idx" ON "events" USING btree ("workspace_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "flow_sessions_contact_id_status_idx" ON "flow_sessions" USING btree ("contact_id","status");--> statement-breakpoint
 CREATE INDEX "flow_triggers_channel_id_type_is_active_idx" ON "flow_triggers" USING btree ("channel_id","type","is_active");--> statement-breakpoint
 CREATE INDEX "flow_versions_flow_id_version_idx" ON "flow_versions" USING btree ("flow_id","version" DESC NULLS FIRST);--> statement-breakpoint
 CREATE UNIQUE INDEX "flow_versions_flow_id_version_key" ON "flow_versions" USING btree ("flow_id","version");--> statement-breakpoint
 CREATE INDEX "flows_workspace_id_status_idx" ON "flows" USING btree ("workspace_id","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "media_workspace_checksum_key" ON "media" USING btree ("workspace_id","checksum");--> statement-breakpoint
 CREATE UNIQUE INDEX "message_reactions_channel_contact_mid_key" ON "message_reactions" USING btree ("channel_id","contact_id","reacted_mid");--> statement-breakpoint
 CREATE INDEX "message_reactions_conversation_id_created_at_idx" ON "message_reactions" USING btree ("conversation_id","created_at");--> statement-breakpoint
 CREATE INDEX "messages_conversation_id_created_at_idx" ON "messages" USING btree ("conversation_id","created_at");--> statement-breakpoint
@@ -562,6 +705,11 @@ CREATE INDEX "outbound_deliveries_status_updated_at_idx" ON "outbound_deliveries
 CREATE INDEX "pending_approvals_workspace_id_status_idx" ON "pending_approvals" USING btree ("workspace_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "post_reactions_channel_post_reactor_key" ON "post_reactions" USING btree ("channel_id","post_id","reactor_id");--> statement-breakpoint
 CREATE INDEX "post_reactions_workspace_id_post_id_idx" ON "post_reactions" USING btree ("workspace_id","post_id");--> statement-breakpoint
+CREATE INDEX "posts_workspace_id_idx" ON "posts" USING btree ("workspace_id");--> statement-breakpoint
+CREATE INDEX "posts_content_idx" ON "posts" USING btree ("content_id");--> statement-breakpoint
+CREATE INDEX "posts_delivery_idx" ON "posts" USING btree ("delivery_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "posts_workspace_source_ref_key" ON "posts" USING btree ("workspace_id","source_ref");--> statement-breakpoint
+CREATE UNIQUE INDEX "posts_workspace_idempotency_key" ON "posts" USING btree ("workspace_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "rate_limit_counters_window_start_idx" ON "rate_limit_counters" USING btree ("window_start");--> statement-breakpoint
 CREATE INDEX "revoked_tokens_expires_at_idx" ON "revoked_tokens" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "rule_cooldowns_expires_at_idx" ON "rule_cooldowns" USING btree ("expires_at");--> statement-breakpoint
