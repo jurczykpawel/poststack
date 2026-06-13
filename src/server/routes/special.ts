@@ -13,8 +13,12 @@ import * as oauthConnectCallback from "@/server/handlers/oauth/connect/callback/
 import * as webhook from "@/server/handlers/webhooks/meta/route";
 import * as telegramWebhook from "@/server/handlers/webhooks/telegram/route";
 import * as cronTokenRefresh from "@/server/handlers/cron/token-refresh/route";
+import * as eventsStream from "./events-stream";
 
 export const special = new Hono();
+
+// Realtime SSE (REALTIME1 · R3) — workspace-scoped live signals; authenticate() inside the handler.
+special.get("/events/stream", (c) => eventsStream.GET(c));
 
 // Auth (these set/clear the session cookie on the returned Response)
 special.post("/api/auth/login", (c) => login.POST(c.req.raw));

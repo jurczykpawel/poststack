@@ -479,7 +479,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         t("title.suffix", { section: "Inbox" }),
         "/inbox",
         html`<div class="inbox">
-          <div id="conv-panel" class="conv-list">${renderConvPanel(conversations, filter, channelId, chans)}</div>
+          <div id="conv-panel" class="conv-list"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}"
+            hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
+            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,

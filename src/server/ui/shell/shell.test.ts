@@ -58,6 +58,13 @@ describe("renderPage shell", () => {
     expect(out).toContain('role="status"');
   });
 
+  it("wires the realtime SSE connection into the shell (REALTIME1 R4)", async () => {
+    const out = s(await renderPage({ title: "Inbox", nav: "inbox", body: html`<p>x</p>`, products: ALL_AREAS }));
+    expect(out).toContain("/static/vendor/htmx-ext-sse-2.2.2.js");
+    expect(out).toContain('hx-ext="sse"');
+    expect(out).toContain('sse-connect="/events/stream"');
+  });
+
   it("wires the Alpine toast store + styled confirm dialog into the shell", async () => {
     const out = s(await renderPage({ title: "Overview", nav: "overview", body: html`<p>x</p>`, products: ALL_AREAS }));
     expect(out).toContain("<body x-data>");

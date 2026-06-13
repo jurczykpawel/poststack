@@ -16,6 +16,7 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
 const ALPINE = assetUrl("vendor/alpine-3.14.9.min.js");
 const HTMX = assetUrl("vendor/htmx-2.0.4.min.js");
+const HTMX_SSE = assetUrl("vendor/htmx-ext-sse-2.2.2.js");
 
 // The first glyph of the brand name powers the sidebar brand mark (single source: BRAND.name).
 function brandGlyph(): string {
@@ -104,12 +105,15 @@ export function renderPage(o: PageOpts): Html {
     ${paletteScript()}
     <script defer src="${ALPINE}"></script>
     <script defer src="${HTMX}"></script>
+    <script defer src="${HTMX_SSE}"></script>
     <script defer src="${assetUrl("ps-select.js")}"></script>
   </head>
   <body x-data>
     ${iconSprite()}
     <a class="skip-link" href="#main">Skip to content</a>
-    <div class="app">
+    <!-- REALTIME1 · R4: one SSE connection for the whole shell; sections declare live regions with
+         hx-trigger="sse:<kind>" + hx-get to re-render through the SAME server fragment renderer (DRY). -->
+    <div class="app" hx-ext="sse" sse-connect="/events/stream">
       ${sidebar(activeKey, features, products)}
       <div class="main">
         <header class="topbar">
