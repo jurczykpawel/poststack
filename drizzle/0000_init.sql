@@ -592,7 +592,7 @@ ALTER TABLE "broadcasts" ADD CONSTRAINT "broadcasts_workspace_id_fkey" FOREIGN K
 ALTER TABLE "channel_rate_state" ADD CONSTRAINT "channel_rate_state_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "channels" ADD CONSTRAINT "channels_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "channels" ADD CONSTRAINT "channels_source_id_fkey" FOREIGN KEY ("source_id") REFERENCES "public"."account_sources"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
-ALTER TABLE "channels" ADD CONSTRAINT "channels_brand_fkey" FOREIGN KEY ("workspace_id","brand_key") REFERENCES "public"."brands"("workspace_id","key") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "channels" ADD CONSTRAINT "channels_brand_fkey" FOREIGN KEY ("workspace_id","brand_key") REFERENCES "public"."brands"("workspace_id","key") ON DELETE no action ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "comment_logs" ADD CONSTRAINT "comment_logs_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "comment_logs" ADD CONSTRAINT "comment_logs_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contact_channels" ADD CONSTRAINT "contact_channels_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint

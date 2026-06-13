@@ -1,5 +1,5 @@
 {
-  "id": "25d56f3a-d7da-4297-b593-a275d2c83770",
+  "id": "69e0f32f-fa35-413c-94ee-4dbbb50245a5",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1366,7 +1366,7 @@
             "workspace_id",
             "key"
           ],
-          "onDelete": "set null",
+          "onDelete": "no action",
           "onUpdate": "cascade"
         }
       },

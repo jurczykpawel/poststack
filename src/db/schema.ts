@@ -222,11 +222,14 @@ export const channels = pgTable("channels", {
 			foreignColumns: [accountSources.id],
 			name: "channels_source_id_fkey"
 		}).onUpdate("cascade").onDelete("set null"),
+	// Composite FK keeps a channel's brand inside its own workspace (tenancy invariant). NOT
+	// ON DELETE SET NULL: a composite set-null would null workspace_id too (which is NOT NULL).
+	// deleteBrand() unassigns the channels (brand_key → NULL) in a tx before removing the brand.
 	foreignKey({
 			columns: [table.workspace_id, table.brand_key],
 			foreignColumns: [brands.workspace_id, brands.key],
 			name: "channels_brand_fkey"
-		}).onUpdate("cascade").onDelete("set null"),
+		}).onUpdate("cascade").onDelete("no action"),
 ]);
 
 export const workspaces = pgTable("workspaces", {
