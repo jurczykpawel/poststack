@@ -35,7 +35,7 @@ export async function processOutgoingComment(
     onSent: async (tx) => {
       await tx
         .update(commentLogs)
-        .set({ reply_sent: true, matched_rule_id: sentByRuleId ?? null })
+        .set({ reply_sent: true, reply_text: text, matched_rule_id: sentByRuleId ?? null })
         .where(and(eq(commentLogs.platform_comment_id, commentId), eq(commentLogs.channel_id, channelId)));
     },
   });

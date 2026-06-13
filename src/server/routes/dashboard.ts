@@ -128,14 +128,36 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
   })}`;
 }
 
-function renderConvList(conversations: Array<Awaited<ReturnType<typeof loadConversations>>[number]>, filter: ConvFilter = "all"): Html {
+type InboxChannel = Awaited<ReturnType<typeof loadInboxChannels>>[number];
+
+/** The inbox left panel: filter tabs + a channel dropdown + the rows. Tabs carry the current channel
+ *  and the dropdown carries the current filter, and both re-render the whole panel (#conv-panel), so
+ *  the two filters compose and their selected state always stays in sync. */
+function renderConvPanel(
+  conversations: Array<Awaited<ReturnType<typeof loadConversations>>[number]>,
+  filter: ConvFilter,
+  channelId: string,
+  chans: InboxChannel[],
+): Html {
   return html`<div class="conv-head">Inbox</div>
     <div class="conv-filters" style="display:flex;gap:.25rem;flex-wrap:wrap;padding:.4rem .5rem;border-bottom:1px solid var(--border,#222)">
       ${CONV_FILTERS.map(
         (f) => html`<button class="btn btn-sm ${f.id === filter ? "btn-primary" : ""}" style="font-size:.72rem;padding:.15rem .5rem"
-          hx-get="/inbox/list?filter=${f.id}" hx-target="#conv-list-items" hx-swap="innerHTML">${f.label}</button>`,
+          hx-get="/inbox/list?filter=${f.id}&channel=${channelId}" hx-target="#conv-panel" hx-swap="innerHTML">${f.label}</button>`,
       )}
     </div>
+    ${chans.length > 1
+      ? html`<div style="padding:.35rem .5rem;border-bottom:1px solid var(--border,#222)">
+          <select class="input" name="channel" style="font-size:.75rem;width:100%;padding:.25rem"
+            hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML" hx-trigger="change"
+            hx-vals='${`{"filter":"${filter}"}`}'>
+            <option value="all" ${channelId === "all" ? "selected" : ""}>All channels</option>
+            ${chans.map(
+              (ch) => html`<option value="${ch.id}" ${channelId === ch.id ? "selected" : ""}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`,
+            )}
+          </select>
+        </div>`
+      : html``}
     <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
 }
 
@@ -145,7 +167,16 @@ function renderConvList(conversations: Array<Awaited<ReturnType<typeof loadConve
 type ThreadItem =
   | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date }
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
-  | { kind: "comment"; id: string; text: string; postId: string | null; dmSent: boolean; replySent: boolean; error: string | null; createdAt: Date };
+  | { kind: "comment"; id: string; text: string; postId: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
+
+/** A public URL for the post a comment was on, where the platform allows building one from the id.
+ *  Instagram media ids don't map to a public URL without the shortcode (which we don't store). */
+function postUrlFor(platform: string, postId: string | null): string | null {
+  if (!postId) return null;
+  if (platform === "youtube") return `https://www.youtube.com/watch?v=${encodeURIComponent(postId)}`;
+  if (platform === "facebook") return `https://www.facebook.com/${encodeURIComponent(postId)}`;
+  return null;
+}
 
 /** The thread timeline. `threadType` shapes the empty-state copy (a comment thread with no follow-up
  *  DM is a normal state, not an error). */
@@ -158,16 +189,24 @@ function renderMessages(items: ThreadItem[], threadType: "dm" | "comment" = "dm"
   return html`${items.map((it) => {
     if (it.kind === "reaction") return html`<div class="msg-reaction muted">reacted ${it.emoji ?? it.reactionType}</div>`;
     if (it.kind === "comment") {
-      const auto = [
-        it.dmSent ? "auto-DM sent ✓" : null,
-        it.replySent ? "public reply sent ✓" : null,
-        it.error ? `⚠ ${it.error}` : null,
-      ].filter(Boolean).join(" · ");
+      const postRef = it.postId
+        ? it.postUrl
+          ? html` on post <a href="${it.postUrl}" target="_blank" rel="noopener" class="mono">${it.postId} ↗</a>`
+          : html` on post <span class="mono">${it.postId}</span>`
+        : "";
       return html`<div class="msg msg-in">
         <div class="bubble" style="border-left:3px solid var(--primary);background:transparent">
-          <div class="muted" style="font-size:.7rem;margin-bottom:.15rem">💬 commented${it.postId ? html` on post <span class="mono">${it.postId}</span>` : ""}</div>
+          <div class="muted" style="font-size:.7rem;margin-bottom:.15rem">💬 commented${postRef}</div>
           <div>${it.text}</div>
-          ${auto ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem">↳ ${auto}</div>` : html``}
+          ${it.replySent && it.replyText
+            ? html`<div style="font-size:.78rem;margin-top:.35rem;padding-left:.5rem;border-left:2px solid #16a34a"><span class="muted">↳ public reply sent ✓</span><br/>${it.replyText}</div>`
+            : it.replySent
+              ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem">↳ public reply sent ✓</div>`
+              : html``}
+          ${it.dmSent
+            ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem">↳ auto-DM sent ✓ ${it.dmConvId ? html`· <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML">open DM thread →</a>` : ""}</div>`
+            : html``}
+          ${it.error ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem;color:var(--danger,#e5484d)">↳ ⚠ ${it.error}</div>` : html``}
         </div>
       </div>`;
     }
@@ -227,17 +266,27 @@ function renderThread(
     </form>`;
 }
 
-function loadConversations(workspaceId: string, filter: ConvFilter = "all") {
+function loadConversations(workspaceId: string, filter: ConvFilter = "all", channelId = "all") {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
   else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
   else if (filter === "dm") where.push(eq(conversations.thread_type, "dm"));
   else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
+  if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
   return db.query.conversations.findMany({
     where: and(...where),
     orderBy: desc(conversations.last_message_at),
     limit: 50,
     ...CONV_QUERY,
+  });
+}
+
+/** Channels for the inbox channel-filter dropdown (id + label). */
+function loadInboxChannels(workspaceId: string) {
+  return db.query.channels.findMany({
+    where: eq(channels.workspace_id, workspaceId),
+    orderBy: asc(channels.created_at),
+    columns: { id: true, display_name: true, platform: true, username: true },
   });
 }
 
@@ -249,6 +298,22 @@ function loadConversation(id: string, workspaceId: string) {
 }
 
 async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
+  // The thread's own conversation: gives the platform (for post links) and, for a comment thread,
+  // lets us link each comment's auto-DM to the contact's separate DM thread.
+  const conv = await db.query.conversations.findFirst({
+    where: eq(conversations.id, conversationId),
+    columns: { channel_id: true, contact_id: true, thread_type: true, platform: true },
+  });
+  let dmSiblingId: string | null = null;
+  if (conv && conv.thread_type === "comment") {
+    const dm = await db.query.conversations.findFirst({
+      where: and(eq(conversations.channel_id, conv.channel_id), eq(conversations.contact_id, conv.contact_id), eq(conversations.thread_type, "dm")),
+      columns: { id: true },
+    });
+    dmSiblingId = dm?.id ?? null;
+  }
+  const platform = conv?.platform ?? "";
+
   const [msgs, reactions, comments] = await Promise.all([
     db.query.messages.findMany({
       where: eq(messages.conversation_id, conversationId),
@@ -267,13 +332,13 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       where: eq(commentLogs.conversation_id, conversationId),
       orderBy: desc(commentLogs.created_at),
       limit: 50,
-      columns: { id: true, comment_text: true, post_id: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
+      columns: { id: true, comment_text: true, post_id: true, reply_text: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
     }),
   ]);
   const items: ThreadItem[] = [
     ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
-    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, dmSent: c.dm_sent, replySent: c.reply_sent, error: c.error, createdAt: c.created_at })),
+    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postUrl: postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];
   // Chronological ascending; interleaves comments, reactions and messages by time.
   return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
@@ -515,13 +580,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       );
     }
     const filter = parseConvFilter(c.req.query("filter"));
-    const conversations = await loadConversations(a.workspaceId, filter);
+    const channelId = c.req.query("channel") || "all";
+    const [conversations, chans] = await Promise.all([
+      loadConversations(a.workspaceId, filter, channelId),
+      loadInboxChannels(a.workspaceId),
+    ]);
     return c.html(
       dashboardDoc(
         "Inbox · ReplyStack",
         "/inbox",
         html`<div class="inbox">
-          <div class="conv-list">${renderConvList(conversations, filter)}</div>
+          <div id="conv-panel" class="conv-list">${renderConvPanel(conversations, filter, channelId, chans)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,
@@ -529,13 +598,18 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     );
   });
 
-  // htmx: swap just the conversation rows when a filter tab is clicked.
+  // htmx: re-render the whole left panel (tabs + channel dropdown + rows) on a filter/channel change.
   app.get("/inbox/list", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
     const filter = parseConvFilter(c.req.query("filter"));
-    return c.html(renderConvItems(await loadConversations(a.workspaceId, filter)));
+    const channelId = c.req.query("channel") || "all";
+    const [conversations, chans] = await Promise.all([
+      loadConversations(a.workspaceId, filter, channelId),
+      loadInboxChannels(a.workspaceId),
+    ]);
+    return c.html(renderConvPanel(conversations, filter, channelId, chans));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -1316,6 +1390,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl } = await getInstanceLicense();
+    // Building drip sequences is PRO — lock the whole page (consistent with inbox/contacts), not just
+    // the builder form, so a free instance sees a clear upsell rather than an empty builder.
+    if (!features.has("sequences")) {
+      return c.html(
+        dashboardDoc("Sequences · ReplyStack", "/sequences", proLockMain("Sequences", html`Automated drip message sequences are a PRO feature.`, upgradeUrl), features),
+      );
+    }
     return c.html(
       dashboardDoc(
         "Sequences · ReplyStack",
@@ -1323,9 +1404,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         html`<div class="page">
           <h1>Sequences</h1>
           <p class="muted">Automated drip message sequences. Each line below becomes a message step.</p>
-          ${!features.has("sequences")
-            ? html`<div class="card" style="margin:1rem 0;font-size:.85rem"><span class="muted">Drip sequences are a PRO feature.</span> ${proLink(upgradeUrl, "Upgrade to PRO")}</div>`
-            : html`<details class="card" style="margin:1rem 0">
+          ${html`<details class="card" style="margin:1rem 0">
             <summary style="cursor:pointer;font-weight:600">+ New sequence</summary>
             <form hx-post="/sequences" hx-ext="json-enc" hx-target="#sequences-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem"
               x-data="{

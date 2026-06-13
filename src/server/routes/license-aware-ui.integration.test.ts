@@ -73,8 +73,10 @@ describe("license-aware dashboard UI", () => {
   it("free /sequences locks the builder", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/sequences")).text();
-    expect(body).toContain("Drip sequences are a PRO feature");
+    // Full-page PRO lock (consistent with inbox/contacts), not just a hidden builder form.
+    expect(body).toContain("Automated drip message sequences are a PRO feature");
     expect(body).not.toContain("Create sequence");
+    expect(body).not.toContain("+ New sequence");
   });
 
   it("licensed /sequences shows the builder", async () => {

@@ -1,5 +1,5 @@
 {
-  "id": "5659179e-0277-4a30-b122-89f442e39978",
+  "id": "f7b9e3a4-0e85-466a-9ed2-bcade76dbb22",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1255,6 +1255,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "reply_text": {
+          "name": "reply_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "error": {
           "name": "error",

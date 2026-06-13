@@ -624,6 +624,9 @@ export const commentLogs = pgTable("comment_logs", {
 	matched_rule_id: uuid("matched_rule_id"),
 	dm_sent: boolean("dm_sent").default(false).notNull(),
 	reply_sent: boolean("reply_sent").default(false).notNull(),
+	// The public reply text we posted (when reply_sent) — so the comment thread shows what went out,
+	// not just that something did.
+	reply_text: text("reply_text"),
 	error: text(),
 	// The comment's thread (a per-post comment conversation). Lets the inbox render the comment as a
 	// thread item. onDelete set null keeps the audit log row if the conversation is purged.

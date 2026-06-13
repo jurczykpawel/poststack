@@ -153,6 +153,7 @@ CREATE TABLE "comment_logs" (
 	"matched_rule_id" uuid,
 	"dm_sent" boolean DEFAULT false NOT NULL,
 	"reply_sent" boolean DEFAULT false NOT NULL,
+	"reply_text" text,
 	"error" text,
 	"conversation_id" uuid,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL

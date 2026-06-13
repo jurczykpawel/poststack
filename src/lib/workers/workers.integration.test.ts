@@ -892,6 +892,24 @@ describe("outgoing-private-reply worker", () => {
     expect(sent[0].text).toBe("hi via DM");
   });
 
+  // A comment-triggered DM must land in the contact's DM thread, NOT the comment thread it was
+  // passed — so the inbox keeps comment and DM as two separate threads.
+  it("routes a comment-triggered DM to the contact's DM thread, not the comment thread", async () => {
+    if (!TEST_DB) return;
+    const [commentConv] = await db
+      .insert(s.conversations)
+      .values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "comment", thread_ref: "POST-Z" })
+      .returning({ id: s.conversations.id });
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: commentConv.id, contactId: CONTACT, commentId: "cmt-split", text: "DM not in comment thread" }, helpers);
+
+    // nothing landed in the comment thread …
+    const inComment = await db.select().from(s.messages).where(eq(s.messages.conversation_id, commentConv.id));
+    expect(inComment.length).toBe(0);
+    // … it went to the contact's DM thread (the default-seeded CONV is that dm thread)
+    const inDm = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.text, "DM not in comment thread")));
+    expect(inDm.length).toBe(1);
+  });
+
   // a comment→DM flips the comment-log's dm_sent (mirrors the public worker's reply_sent),
   // scoped by (commentId, channelId), so "did this comment get a DM?" is queryable.
   it("flips comment_logs.dm_sent for the (comment, channel) once the private reply is sent", async () => {

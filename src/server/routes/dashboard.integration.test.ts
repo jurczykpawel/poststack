@@ -171,16 +171,36 @@ describe("dashboard inbox conversation controls", () => {
     });
     await db.insert(s.commentLogs).values({
       channel_id: CH, workspace_id: WS, conversation_id: COMMENT_CONV, post_id: "POST-42",
-      platform_comment_id: "cmt-1", author_id: "PSID-D", author_name: "rin", comment_text: "😂😂", dm_sent: true,
+      platform_comment_id: "cmt-1", author_id: "PSID-D", author_name: "rin", comment_text: "😂😂",
+      dm_sent: true, reply_sent: true, reply_text: "Thanks for commenting!",
     });
+    // the contact's DM thread already exists (the beforeEach-seeded CONV) → the comment item links to it
     const res = await app.request(`/inbox/${COMMENT_CONV}`, { headers: { cookie } });
     const body = await res.text();
     expect(res.status).toBe(200);
     expect(body).toContain("😂😂");
     expect(body).toContain("commented");
     expect(body).toContain("POST-42");
+    expect(body).toContain("Thanks for commenting!"); // the actual public reply text
     expect(body).toContain("auto-DM sent");
+    expect(body).toContain("open DM thread"); // link to the separate DM thread
+    // FB post link (postId → facebook.com)
+    expect(body).toContain("facebook.com/POST-42");
     expect(body).not.toContain("No messages yet");
+  });
+
+  it("offers a channel filter dropdown and filters by channel", async () => {
+    if (!TEST_DB) return;
+    // a second channel so the dropdown renders (>1 channel)
+    const CH2 = "dddddddd-0000-0000-0000-0000000000c8";
+    await db.insert(s.channels).values({ id: CH2, workspace_id: WS, platform: "instagram", platform_id: "IG-D2", display_name: "Second IG", token_encrypted: "x", webhook_secret: "s2", status: "active" });
+    await db.insert(s.conversations).values({ id: "dddddddd-0000-0000-0000-0000000000c9", workspace_id: WS, channel_id: CH2, contact_id: CONTACT, platform: "instagram", thread_type: "dm", thread_ref: "ig", last_message_preview: "from second channel" });
+    const page = await (await app.request("/inbox", { headers: { cookie } })).text();
+    expect(page).toContain("All channels");
+    expect(page).toContain("Second IG");
+    // filter to CH2 only → the CH (default CONV) conversation is excluded
+    const filtered = await (await app.request(`/inbox/list?filter=all&channel=${CH2}`, { headers: { cookie } })).text();
+    expect(filtered).toContain("from second channel");
   });
 
   it("filters the inbox list by comment vs dm threads", async () => {
