@@ -27,7 +27,7 @@ export const outboundDeliveryStatus = pgEnum("outbound_delivery_status", ['pendi
 // `tiktok`/`twitter`/`gmail`/`discord` are reserved enum values with NO provider in the registry —
 // getProvider() throws for them and OAuth/connect only ever writes facebook/instagram/telegram. They
 // are forward-looking placeholders, currently unreachable.
-export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord', 'youtube'])
+export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord', 'youtube', 'linkedin', 'threads'])
 export type Platform = (typeof platform.enumValues)[number]
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate'])
 // `paused` is reserved/forward-looking: pausing happens at the channel/conversation level

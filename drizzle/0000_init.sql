@@ -15,7 +15,7 @@ CREATE TYPE "public"."media_status" AS ENUM('uploading', 'probing', 'ready', 'fa
 CREATE TYPE "public"."message_direction" AS ENUM('inbound', 'outbound');--> statement-breakpoint
 CREATE TYPE "public"."message_status" AS ENUM('pending', 'sent', 'delivered', 'failed', 'held', 'expired');--> statement-breakpoint
 CREATE TYPE "public"."outbound_delivery_status" AS ENUM('pending', 'sending', 'sent', 'failed', 'held', 'expired', 'unknown');--> statement-breakpoint
-CREATE TYPE "public"."platform" AS ENUM('facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord', 'youtube');--> statement-breakpoint
+CREATE TYPE "public"."platform" AS ENUM('facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord', 'youtube', 'linkedin', 'threads');--> statement-breakpoint
 CREATE TYPE "public"."response_type" AS ENUM('text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate');--> statement-breakpoint
 CREATE TYPE "public"."sequence_enrollment_status" AS ENUM('active', 'paused', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."sequence_status" AS ENUM('draft', 'active', 'archived');--> statement-breakpoint

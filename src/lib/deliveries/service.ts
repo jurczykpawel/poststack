@@ -3,7 +3,7 @@ import { db, isUniqueViolation } from "@/lib/db";
 import { deliveries, channels } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { encodeCursor, decodeCursor, type Cursor } from "@/lib/api/pagination";
-import { getProvider, isProvider } from "@/lib/providers";
+import { getProviderForPlatform, isPublishablePlatform } from "@/lib/providers";
 import { validate } from "@/lib/providers/validate";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getMedia } from "@/lib/media/service";
@@ -38,11 +38,11 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
     where: and(eq(channels.id, input.channelId), eq(channels.workspace_id, workspaceId)),
   });
   if (!channel) throw new ApiError("not_found", "Channel not found", 404);
-  if (!isProvider(channel.platform)) {
+  if (!isPublishablePlatform(channel.platform)) {
     throw new ApiError("unsupported", `No provider for '${channel.platform}'`, 400);
   }
 
-  const v = validate(getProvider(channel.platform), input.request);
+  const v = validate(getProviderForPlatform(channel.platform), input.request);
   if (!v.ok) throw new ApiError("invalid_request", v.errors.join("; "), 422);
 
   for (const m of input.request.media) {

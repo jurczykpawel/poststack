@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { deliveries, channels, posts } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { toTokenSet } from "@/lib/providers/token-codec";
-import { getProvider, isProvider } from "@/lib/providers";
+import { getProviderForPlatform, isPublishablePlatform, subKindForPlatform } from "@/lib/providers";
 import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
@@ -111,7 +111,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const channel = await db.query.channels.findFirst({
     where: and(eq(channels.id, post.channel_id), isNull(channels.deleted_at)),
   });
-  if (!channel || !isProvider(channel.platform)) {
+  if (!channel || !isPublishablePlatform(channel.platform)) {
     await setStatus(postId, "failed", { last_error: "channel or provider unavailable" });
     return;
   }
@@ -123,7 +123,13 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     return;
   }
 
-  const provider = getProvider(channel.platform);
+  const provider = getProviderForPlatform(channel.platform);
+  // Route FB-vs-IG for the meta provider: an explicit stored subKind (managed connection) wins,
+  // else derive it from the RS platform (facebook→facebook_page, instagram→instagram).
+  const channelMetadata: Record<string, unknown> = {
+    subKind: subKindForPlatform(channel.platform),
+    ...(channel.metadata as Record<string, unknown>),
+  };
 
   // Pre-publish freshness guard (§5C): refresh a soon-to-expire refreshable token inline.
   const FRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -211,7 +217,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       accountId: channel.platform_id,
       request,
       mediaUrls,
-      channelMetadata: channel.metadata as Record<string, unknown>,
+      channelMetadata,
     });
     await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });
     await reflectEditorial(postId, "published", { published_at: new Date() });
