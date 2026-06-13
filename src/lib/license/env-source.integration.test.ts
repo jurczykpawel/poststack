@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { makeTestKey, makeClaims, type TestKey } from "@/lib/license/__fixtures__/keys";
 import type { JwksKey } from "@/lib/license/format";
 
-// Precedence: a panel-stored token (DB) wins over the REPLYSTACK_LICENSE_KEY env
+// Precedence: a panel-stored token (DB) wins over the LICENSE_KEY env
 // token; with no DB token the env token is the fallback. The env token must be
 // signed and set before the env module loads, so it's built first in beforeAll.
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -28,7 +28,7 @@ beforeAll(async () => {
   process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
-  process.env.REPLYSTACK_LICENSE_KEY = envToken; // set BEFORE importing env
+  process.env.LICENSE_KEY = envToken; // set BEFORE importing env
   gate = await import("./gate");
   store = await import("./store");
   jwks = await import("./jwks");
@@ -48,7 +48,7 @@ beforeEach(async () => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(schema.instanceLicense);
-  delete process.env.REPLYSTACK_LICENSE_KEY;
+  delete process.env.LICENSE_KEY;
   await db.$client.end();
 });
 

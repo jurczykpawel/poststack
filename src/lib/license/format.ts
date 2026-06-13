@@ -22,6 +22,10 @@ export interface Claims {
   tier: string | null;
   iat: number;
   exp: number | null;
+  // Optional per-area entitlement. When present (and non-empty) it is the authoritative grant —
+  // the signed token, not the local registry, decides which areas unlock. Absent → entitlement is
+  // derived from the product slug (else all-access for current/legacy tokens).
+  products?: string[];
 }
 
 export interface JwksKey {

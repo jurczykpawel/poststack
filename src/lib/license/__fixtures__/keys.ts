@@ -73,7 +73,7 @@ export function makeClaims(overrides: Partial<Claims> = {}): Claims {
   return {
     v: 1,
     kid: "test-kid-1",
-    product: "replystack-pro",
+    product: "poststack",
     email: "buyer@example.com",
     order: "ord_test_1",
     tier: "pro",

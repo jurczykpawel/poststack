@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { parseClaims, verifyLicense } from "@/lib/license/format";
 import { makeTestKey, makeClaims, type TestKey } from "@/lib/license/__fixtures__/keys";
 
-const PRODUCT = "replystack-pro";
+const PRODUCT = "poststack"; // matches makeClaims default product
 
 let key: TestKey;
 let otherKey: TestKey;

@@ -1,84 +1,94 @@
-// The PRO feature registry and the tier -> features map. This is the *mechanism*,
-// not the pricing policy: which existing features become PRO is decided later
-// (sub-project C). B ships the gate plus a single seed feature.
+// The single source of truth for what's gated: one registry array, each row tagging a feature with
+// its functional AREA (publishing / replies / core), the minimum TIER that unlocks it, a status, and
+// user-facing copy. Licensing a NEW feature = add one row here + one requireFeature()/hasFeature() at
+// the call-site. The `Feature` union is DERIVED from this array, so call-sites stay type-checked and
+// the registry can never drift from the type.
 //
-// tier comes from the Sellf token (claims.tier); ReplyStack maps it to a feature
-// set here, so adding a tier (e.g. a free-registration "registered" tier between
-// free and pro) is a one-line change with zero gate refactor.
+// `area` is the second entitlement dimension: a license entitles a set of areas (from the signed
+// token), and a feature is granted only when the tier meets minTier AND its area is entitled. `core`
+// is always entitled. `status: "live"` is enforced now; `"planned"` is reserved on the roadmap.
+import type { Tier } from "./tiers";
+import { meetsTier, normalizeTier } from "./tiers";
+import type { Area } from "./areas";
 
-/** Gateable licensed features. Extend the union as features are introduced. */
-export type Feature =
-  | "personalization"
-  | "ai_rephrase"
-  | "sequences"
-  | "interactive_messages"
-  | "follow_gate"
-  | "multi_channel"
-  | "non_meta_channels"
-  | "contacts_crm"
-  | "manual_reply"
-  | "reaction_trigger"
-  | "managed_connection"
-  | "api_access"
-  | "multi_workspace";
+export interface FeatureDef {
+  key: string;
+  area: Area;
+  minTier: Tier;
+  status: "live" | "planned";
+  label: string;
+  description: string;
+}
 
+export const FEATURES = [
+  // ── replies wing (the ReplyStack feature set) ───────────────────────────────────────────────
+  { key: "personalization", area: "replies", minTier: "pro", status: "live", label: "Personalization placeholders ({imie}/{name})", description: "Insert the contact's name into auto-replies." },
+  { key: "ai_rephrase", area: "replies", minTier: "pro", status: "live", label: "AI rephrasing", description: "Rephrase replies with an LLM for variety." },
+  { key: "sequences", area: "replies", minTier: "pro", status: "live", label: "Drip sequences", description: "Automated multi-step message sequences." },
+  { key: "interactive_messages", area: "replies", minTier: "pro", status: "live", label: "Buttons and quick replies", description: "Send interactive buttons and quick replies." },
+  { key: "follow_gate", area: "replies", minTier: "pro", status: "live", label: "Follow-gate", description: "Require a follow before delivering a reply." },
+  { key: "multi_channel", area: "replies", minTier: "pro", status: "live", label: "More than one channel per platform", description: "Connect a 2nd+ channel of the same platform (e.g. another FB page / IG account)." },
+  { key: "non_meta_channels", area: "replies", minTier: "pro", status: "live", label: "Channels other than Facebook/Instagram", description: "Any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)." },
+  { key: "contacts_crm", area: "replies", minTier: "pro", status: "live", label: "The contacts inbox and CRM (seeing individual conversations)", description: "See individual people: inbox threads, contacts list, tags." },
+  { key: "manual_reply", area: "replies", minTier: "pro", status: "live", label: "Replying to conversations by hand (rules still auto-reply for free)", description: "A human typing a reply in the inbox / via the API. Free = rules auto-reply only." },
+  { key: "reaction_trigger", area: "replies", minTier: "pro", status: "live", label: "Auto-replies triggered by a message reaction", description: "Rules that fire on a message reaction (free triggers are keyword/comment only)." },
+
+  // ── core (connection / access infra shared by both wings) ───────────────────────────────────
+  { key: "managed_connection", area: "core", minTier: "pro", status: "live", label: "Meta managed connection (one token connects all Pages + Instagram)", description: "Connect one master FB/IG token that auto-enumerates Pages and linked Instagram accounts, mints and refreshes their tokens automatically." },
+  { key: "api_access", area: "core", minTier: "pro", status: "live", label: "API access (REST API keys)", description: "Programmatic REST access via API keys (the dashboard uses session auth, unaffected)." },
+  // multitenancy is owner-only for now: pro (sold today) must NOT unlock it — business only.
+  { key: "multi_workspace", area: "core", minTier: "business", status: "live", label: "Multiple workspaces", description: "Run more than one isolated workspace (multi-tenant / agency)." },
+
+  // ── publishing wing (PostStack feature set — placeholders wired up in Phase 1/3) ─────────────
+  { key: "multi_brand", area: "publishing", minTier: "pro", status: "live", label: "Multiple brands", description: "Manage more than one brand — run it as an agency or across projects." },
+  { key: "webhook_filtering", area: "publishing", minTier: "pro", status: "live", label: "Webhook event filtering", description: "Choose which events each webhook receives (free sends all events)." },
+  { key: "multi_api_key", area: "core", minTier: "pro", status: "live", label: "Multiple API keys", description: "Issue more than one API key (e.g. one per client/integration)." },
+] as const satisfies readonly FeatureDef[];
+
+/** Gateable feature keys — the union is derived from the registry, so it can never drift. */
+export type Feature = (typeof FEATURES)[number]["key"];
+
+/** Open tier identifier (any string from the Sellf token; normalised against the ladder). */
 export type TierId = string;
 
-// Per-tier feature sets, composed so higher tiers are supersets of lower ones.
-// Free is deliberately minimal (the anti-ManyChat pitch): one FB + one IG channel,
-// keyword auto-reply, and unlimited messages/contacts. Almost everything else is PRO.
-// `multi_workspace` (multitenancy) lives ONLY in `business` — owner-only until a Sellf
-// business variant exists. `pro` is what is sold today.
-const PRO: readonly Feature[] = [
-  "personalization",
-  "ai_rephrase",
-  "sequences",
-  "interactive_messages",
-  "follow_gate",
-  "multi_channel", // a 2nd+ channel of the same platform (e.g. another FB page / IG account)
-  "non_meta_channels", // any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)
-  "contacts_crm", // seeing individual people: inbox threads, contacts list, tags
-  "manual_reply", // a human typing a reply in the inbox / via the API. Free = rules auto-reply only;
-  //                a needs-reply case is handled in the native app. Rule-based sends stay free.
-  "reaction_trigger", // rules that fire on a message reaction (free triggers are keyword/comment only)
-  "managed_connection", // one master Meta token → auto-enumerate all Pages+IG, auto-sync, alerts, cascade
-  "api_access", // programmatic REST access via API keys (dashboard uses session auth, unaffected)
-];
-const BUSINESS: readonly Feature[] = [...PRO, "multi_workspace"];
+const BY_KEY = new Map<string, FeatureDef>(FEATURES.map((f) => [f.key, f]));
+
+/** The registry row for a key, or undefined for an unknown key. */
+export function getFeature(key: string): FeatureDef | undefined {
+  return BY_KEY.get(key);
+}
+
+/** The functional area of a (known) feature. */
+export function featureArea(key: Feature): Area {
+  return BY_KEY.get(key)!.area;
+}
 
 /**
- * Open map of tier -> granted features. `free` is the implicit tier for no /
- * invalid / expired license. Add tiers here without touching the gate.
+ * The set of feature keys a tier unlocks (independent of area — area entitlement is applied in the
+ * gate). Unknown / null tiers degrade to free, which grants nothing (every feature is minTier >= pro).
  */
-export const TIER_FEATURES: Record<TierId, readonly Feature[]> = {
-  free: [],
-  pro: [...PRO],
-  business: [...BUSINESS],
-};
-
-/** Resolves the feature set for a tier; unknown or null tiers degrade to free. */
 export function tierFeatures(tier: string | null): Set<Feature> {
   if (!tier) return new Set();
-  return new Set(TIER_FEATURES[tier] ?? []);
+  const t = normalizeTier(tier);
+  return new Set(FEATURES.filter((f) => meetsTier(t, f.minTier)).map((f) => f.key as Feature));
 }
 
-const FEATURE_LABEL: Record<Feature, string> = {
-  personalization: "Personalization placeholders ({imie}/{name})",
-  ai_rephrase: "AI rephrasing",
-  sequences: "Drip sequences",
-  interactive_messages: "Buttons and quick replies",
-  follow_gate: "Follow-gate",
-  multi_channel: "More than one channel per platform",
-  non_meta_channels: "Channels other than Facebook/Instagram",
-  contacts_crm: "The contacts inbox and CRM (seeing individual conversations)",
-  manual_reply: "Replying to conversations by hand (rules still auto-reply for free)",
-  reaction_trigger: "Auto-replies triggered by a message reaction",
-  managed_connection: "Meta managed connection (one token connects all Pages + Instagram)",
-  api_access: "API access (REST API keys)",
-  multi_workspace: "Multiple workspaces",
-};
-
-/** A one-line, user-facing reason for a 402 on a given feature. */
+/** A one-line, user-facing reason for a 402 on a given feature — names the area (publishing/replies)
+ *  when the feature belongs to a wing, so the message reflects WHICH product is needed, not just tier. */
 export function proMessage(feature: Feature): string {
-  return `${FEATURE_LABEL[feature]} requires a PRO license.`;
+  const f = BY_KEY.get(feature);
+  const label = f?.label ?? feature;
+  const tier = (f?.minTier ?? "pro").toUpperCase();
+  if (f?.area === "publishing") return `${label} requires a ${tier} license with the publishing product.`;
+  if (f?.area === "replies") return `${label} requires a ${tier} license with the replies product.`;
+  return `${label} requires a ${tier} license.`;
 }
+
+/** Per-tier numeric limits (Infinity = unlimited). New limit kind = add to each tier. */
+export type LimitKind = "brands" | "apiKeys";
+export const LIMITS: Record<Tier, Record<LimitKind, number>> = {
+  free: { brands: 1, apiKeys: 1 },
+  registered: { brands: 1, apiKeys: 1 }, // reserved tier — same as free until options are assigned
+  pro: { brands: Infinity, apiKeys: Infinity },
+  business: { brands: Infinity, apiKeys: Infinity },
+};

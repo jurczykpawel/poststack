@@ -39,7 +39,7 @@ beforeAll(async () => {
   process.env.ENCRYPTION_KEY ??= "0".repeat(64);
   process.env.APP_URL ??= "http://localhost:3000";
   process.env.CRON_SECRET ??= "test-cron-secret-at-least-32-chars!!";
-  // REPLYSTACK_LICENSE_KEY intentionally left empty in this file (no env token).
+  // LICENSE_KEY intentionally left empty in this file (no env token).
   gate = await import("./gate");
   store = await import("./store");
   jwks = await import("./jwks");
@@ -188,5 +188,51 @@ describe("license gate (real Postgres)", () => {
     expect((await gate.getInstanceLicense()).status).toBe("active");
     gate.invalidateLicenseCache();
     expect((await gate.getInstanceLicense({ fetchImpl: jwksFetch([key.jwk]) })).status).toBe("none");
+  });
+});
+
+describe("per-area entitlements (real Postgres)", () => {
+  it("an all-access token (no products claim) entitles every area and unlocks both wings", async () => {
+    if (!TEST_DB) return;
+    // makeClaims defaults product to "poststack" → all areas; no explicit products claim.
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro" }));
+    await gate.setLicense(token, { fetchImpl: jwksFetch([key.jwk]) });
+    const products = await gate.entitledProducts();
+    expect(products).toEqual(new Set(["core", "publishing", "replies"]));
+    // a replies feature AND a publishing feature both pass (zero behaviour change day-1).
+    await expect(gate.requireFeature("sequences")).resolves.toBeUndefined();
+    await expect(gate.requireFeature("multi_brand")).resolves.toBeUndefined();
+  });
+
+  it("a publishing-only token unlocks publishing but 402s a replies feature with an area-aware message", async () => {
+    if (!TEST_DB) return;
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro", products: ["publishing"] }));
+    await gate.setLicense(token, { fetchImpl: jwksFetch([key.jwk]) });
+    expect(await gate.entitledProducts()).toEqual(new Set(["core", "publishing"]));
+    await expect(gate.requireFeature("multi_brand")).resolves.toBeUndefined();
+    await expect(gate.requireFeature("sequences")).rejects.toBeInstanceOf(gate.ProRequiredError);
+    await gate.requireFeature("sequences").catch((e: Error) => {
+      expect(e.message).toMatch(/replies product/);
+    });
+  });
+
+  it("a replies-only token unlocks replies but 402s a publishing feature", async () => {
+    if (!TEST_DB) return;
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro", products: ["replies"] }));
+    await gate.setLicense(token, { fetchImpl: jwksFetch([key.jwk]) });
+    expect(await gate.entitledProducts()).toEqual(new Set(["core", "replies"]));
+    await expect(gate.requireFeature("sequences")).resolves.toBeUndefined();
+    await expect(gate.requireFeature("multi_brand")).rejects.toBeInstanceOf(gate.ProRequiredError);
+  });
+
+  it("gates multi_workspace to business, not pro (preserved)", async () => {
+    if (!TEST_DB) return;
+    const pro = await key.sign(makeClaims({ kid: "kid-1", tier: "pro" }));
+    await gate.setLicense(pro, { fetchImpl: jwksFetch([key.jwk]) });
+    expect(await gate.hasFeature("multi_workspace")).toBe(false);
+    gate.invalidateLicenseCache();
+    const biz = await key.sign(makeClaims({ kid: "kid-1", tier: "business" }));
+    await gate.setLicense(biz, { fetchImpl: jwksFetch([key.jwk]) });
+    expect(await gate.hasFeature("multi_workspace")).toBe(true);
   });
 });

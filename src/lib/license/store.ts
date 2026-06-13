@@ -47,7 +47,7 @@ export async function resolveTokenSource(): Promise<{
 }> {
   const row = await selectRow();
   if (row?.token) return { token: decryptString(row.token), source: "db" };
-  if (env.REPLYSTACK_LICENSE_KEY) return { token: env.REPLYSTACK_LICENSE_KEY, source: "env" };
+  if (env.LICENSE_KEY) return { token: env.LICENSE_KEY, source: "env" };
   return { token: null, source: "none" };
 }
 

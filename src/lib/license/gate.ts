@@ -3,10 +3,12 @@
 // This is the single entry point the rest of the app uses (hasFeature / requireFeature).
 
 import { env } from "@/lib/env";
-import { verifyLicense, type JwksKey } from "@/lib/license/format";
+import { verifyLicense, type JwksKey, type Claims } from "@/lib/license/format";
 import { getJwks, parseJwksJson } from "@/lib/license/jwks";
 import { getRevocations } from "@/lib/license/revocation";
-import { tierFeatures, type Feature } from "@/lib/license/features";
+import { tierFeatures, featureArea, proMessage, LIMITS, type Feature, type LimitKind } from "@/lib/license/features";
+import { normalizeTier } from "@/lib/license/tiers";
+import { AREAS, slugAreas, isArea, type Area } from "@/lib/license/areas";
 import * as store from "@/lib/license/store";
 
 export type { LicenseStatus } from "@/lib/license/store";
@@ -14,10 +16,42 @@ export type { LicenseStatus } from "@/lib/license/store";
 export interface LicenseState {
   status: store.LicenseStatus;
   tier: string | null;
+  /** Feature keys entitled by BOTH the tier AND the entitled areas (see entitledFeatures). */
   features: Set<Feature>;
+  /** Areas entitled by the verified token (the second gate dimension). */
+  products: Set<Area>;
   expiresAt: Date | null;
   source: "db" | "env" | "none";
   upgradeUrl: string;
+}
+
+/**
+ * The features entitled by a license: a feature is granted only when the tier meets its minTier AND
+ * its area is entitled (core is always entitled). Area entitlement is token-derived (deriveProducts),
+ * NOT registry-derived — so lowering a feature's minTier in the registry alone never unlocks a
+ * publishing/replies feature whose area the verified token doesn't grant. Pure + exported for tests.
+ */
+export function entitledFeatures(tier: string | null, products: Set<Area>): Set<Feature> {
+  const out = new Set<Feature>();
+  for (const key of tierFeatures(tier)) {
+    const area = featureArea(key);
+    if (area === "core" || products.has(area)) out.add(key);
+  }
+  return out;
+}
+
+/**
+ * Areas a verified token entitles. An explicit `products` claim is authoritative (the signed token
+ * decides); otherwise derive from the product slug; otherwise all-access (current/legacy tokens with
+ * neither → zero behaviour change on day one). `core` is always included.
+ */
+export function deriveProducts(claims: Claims): Set<Area> {
+  if (claims.products && claims.products.length) {
+    const s = new Set<Area>(["core"]);
+    for (const p of claims.products) if (isArea(p)) s.add(p);
+    return s;
+  }
+  return slugAreas(claims.product) ?? new Set<Area>(AREAS);
 }
 
 export interface RefreshOpts {
@@ -39,7 +73,7 @@ export function invalidateLicenseCache(): void {
 }
 
 function freeState(source: "db" | "env" | "none", status: store.LicenseStatus): LicenseState {
-  return { status, tier: null, features: new Set(), expiresAt: null, source, upgradeUrl: env.LICENSE_UPGRADE_URL };
+  return { status, tier: null, features: new Set(), products: new Set(), expiresAt: null, source, upgradeUrl: env.LICENSE_UPGRADE_URL };
 }
 
 async function jwksFallback(): Promise<JwksKey[]> {
@@ -86,10 +120,14 @@ export async function refreshLicense(opts: RefreshOpts = {}): Promise<LicenseSta
     }
     const expiresAt = res.claims.exp ? new Date(res.claims.exp * 1000) : null;
     await store.persistLicenseState({ status: "active", tier: res.tier, expiresAt, lastError: null });
+    // products is re-derived from the token on every refresh — never persisted — so the store schema
+    // is unchanged (one-migration rule) and a tampered DB row can't grant areas the token doesn't.
+    const products = deriveProducts(res.claims);
     return cacheState({
       status: "active",
       tier: res.tier,
-      features: tierFeatures(res.tier),
+      features: entitledFeatures(res.tier, products),
+      products,
       expiresAt,
       source,
       upgradeUrl: env.LICENSE_UPGRADE_URL,
@@ -115,15 +153,49 @@ export async function hasFeature(feature: Feature, opts?: RefreshOpts): Promise<
   return (await getInstanceLicense(opts)).features.has(feature);
 }
 
+/** The areas the instance license currently entitles. */
+export async function entitledProducts(opts?: RefreshOpts): Promise<Set<Area>> {
+  return (await getInstanceLicense(opts)).products;
+}
+
 export class ProRequiredError extends Error {
   constructor(public readonly feature: Feature) {
-    super(`PRO feature required: ${feature}`);
+    // Area-aware reason: names whether a publishing/replies product (not just a tier) is needed.
+    super(proMessage(feature));
     this.name = "ProRequiredError";
   }
 }
 
 export async function requireFeature(feature: Feature, opts?: RefreshOpts): Promise<void> {
   if (!(await hasFeature(feature, opts))) throw new ProRequiredError(feature);
+}
+
+// ── tier count-limits (ported from PostStack: limitFor / assertWithinLimit) ───────────────────────
+
+/** The current instance tier (null = free). One license per instance → one verdict for all. */
+export async function currentTier(opts?: RefreshOpts): Promise<string | null> {
+  return (await getInstanceLicense(opts)).tier;
+}
+
+/** The numeric limit for a tier+kind (Infinity = unlimited). */
+export function limitFor(tier: string | null | undefined, kind: LimitKind): number {
+  return LIMITS[normalizeTier(tier)][kind];
+}
+
+/** Thrown when creating one more of `kind` would exceed the tier's count limit. Mapped to 402. */
+export class LimitExceededError extends Error {
+  constructor(public readonly kind: LimitKind, public readonly limit: number) {
+    const noun = kind === "apiKeys" ? "API key(s)" : "brand(s)";
+    super(`Your plan allows ${limit} ${noun} — upgrade for more.`);
+    this.name = "LimitExceededError";
+  }
+}
+
+/** Hard gate on a count limit — `currentCount` = how many already exist; throws if creating one
+ *  more would exceed the tier's limit. */
+export function assertWithinLimit(tier: string | null | undefined, kind: LimitKind, currentCount: number): void {
+  const limit = limitFor(tier, kind);
+  if (currentCount >= limit) throw new LimitExceededError(kind, limit);
 }
 
 export interface SetLicenseResult {
