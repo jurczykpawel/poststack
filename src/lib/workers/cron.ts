@@ -7,6 +7,7 @@ import { sweepAccountSources } from "@/lib/channels/account-source";
 import { sweepChannelHealth } from "@/lib/channels/health-sweep";
 import { scanExpiringConnections } from "@/lib/channels/expiry-scan";
 import { sweepYouTubeChannels } from "@/lib/youtube/poll";
+import { stuckSendingSweep } from "@/lib/deliveries/publish-worker";
 
 /**
  * Cron-only maintenance tasks. These are NOT enqueued via addJob — graphile-worker drives them
@@ -56,6 +57,12 @@ export const cronTaskList = {
   "youtube-comment-poll": async () => {
     await sweepYouTubeChannels();
   },
+  // AUD27 recovery: surface any publish delivery stuck in `sending` past the window as `unknown`
+  // (with an event), so a worker crash between publish() and the `sent` commit is never a silent
+  // black-hole. Runs every 5 minutes; the window is 15 min.
+  "stuck-sending-sweep": async () => {
+    await stuckSendingSweep();
+  },
 };
 
 /** graphile-worker crontab. Every line's trailing token must be a key in {@link cronTaskList}. */
@@ -68,4 +75,5 @@ export const CRONTAB = [
   "20 * * * * channel-health-sweep",
   "30 4 * * * managed-expiry-scan",
   "*/15 * * * * youtube-comment-poll",
+  "*/5 * * * * stuck-sending-sweep",
 ].join("\n");
