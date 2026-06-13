@@ -2,12 +2,12 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, gt, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, outboundDeliveries, accountSources,
+  pendingApprovals, outboundDeliveries, accountSources, commentLogs,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
@@ -83,7 +83,7 @@ function contactName(c: ConvName): string {
 const CONV_QUERY = {
   columns: {
     id: true, platform: true, status: true, last_message_at: true,
-    last_message_preview: true, unread_count: true,
+    last_message_preview: true, unread_count: true, thread_type: true, thread_ref: true,
     // Surfaced as inbox controls / indicators.
     is_automation_paused: true, needs_manual_reply: true, assigned_to: true,
   },
@@ -96,52 +96,116 @@ const CONV_QUERY = {
   },
 } as const;
 
-function renderConvList(conversations: Array<Awaited<ReturnType<typeof loadConversations>>[number]>): Html {
-  if (conversations.length === 0) {
-    return html`<div class="conv-head">Inbox</div><p class="muted" style="padding:1rem">No conversations yet. Connect a channel to start receiving messages.</p>`;
-  }
-  return html`<div class="conv-head">Inbox</div>
-    ${conversations.map(
-      (conv) => html`<button class="conv-item" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
-        <div class="conv-top">
-          <span class="conv-name ${conv.unread_count > 0 ? "unread" : ""}">${contactName(conv)}</span>
-          <span class="conv-time">${timeAgo(conv.last_message_at)}</span>
-        </div>
-        <div class="conv-preview">${conv.last_message_preview ?? "No messages"}</div>
-        ${conv.unread_count > 0 ? html`<span class="badge">${conv.unread_count}</span>` : html``}
-      </button>`,
-    )}`;
+export type ConvFilter = "all" | "needs_reply" | "unread" | "dm" | "comment";
+const CONV_FILTERS: { id: ConvFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "needs_reply", label: "Needs reply" },
+  { id: "unread", label: "Unread" },
+  { id: "dm", label: "DMs" },
+  { id: "comment", label: "Comments" },
+];
+export function parseConvFilter(v: string | undefined): ConvFilter {
+  return CONV_FILTERS.some((f) => f.id === v) ? (v as ConvFilter) : "all";
 }
 
-// A reaction is interleaved into the message timeline as a small centered note — the conversation
-// has one contact, so "reacted ❤️" is unambiguous without naming them.
+/** Just the conversation rows (htmx swaps this when a filter tab is clicked). */
+function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConversations>>[number]>): Html {
+  if (conversations.length === 0) {
+    return html`<p class="muted" style="padding:1rem">Nothing here. Try another filter, or wait for new activity.</p>`;
+  }
+  return html`${conversations.map((conv) => {
+    const isComment = conv.thread_type === "comment";
+    return html`<button class="conv-item" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
+      <div class="conv-top">
+        <span class="conv-name ${conv.unread_count > 0 ? "unread" : ""}"><span title="${isComment ? "Comment thread" : "Direct message"}">${isComment ? "💬" : "✉️"}</span> ${contactName(conv)}</span>
+        <span class="conv-time">${timeAgo(conv.last_message_at)}</span>
+      </div>
+      ${isComment ? html`<div class="muted" style="font-size:.68rem">comment${conv.needs_manual_reply ? " · ⚠ needs reply" : ""}</div>` : conv.needs_manual_reply ? html`<div class="muted" style="font-size:.68rem">⚠ needs reply</div>` : html``}
+      <div class="conv-preview">${conv.last_message_preview ?? "No messages"}</div>
+      ${conv.unread_count > 0 ? html`<span class="badge">${conv.unread_count}</span>` : html``}
+    </button>`;
+  })}`;
+}
+
+function renderConvList(conversations: Array<Awaited<ReturnType<typeof loadConversations>>[number]>, filter: ConvFilter = "all"): Html {
+  return html`<div class="conv-head">Inbox</div>
+    <div class="conv-filters" style="display:flex;gap:.25rem;flex-wrap:wrap;padding:.4rem .5rem;border-bottom:1px solid var(--border,#222)">
+      ${CONV_FILTERS.map(
+        (f) => html`<button class="btn btn-sm ${f.id === filter ? "btn-primary" : ""}" style="font-size:.72rem;padding:.15rem .5rem"
+          hx-get="/inbox/list?filter=${f.id}" hx-target="#conv-list-items" hx-swap="innerHTML">${f.label}</button>`,
+      )}
+    </div>
+    <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
+}
+
+// The thread is a universal, chronological timeline of items from any inbound source. A reaction is a
+// small centered note; a comment is the post-anchored event that may have triggered an auto-DM/reply;
+// a message is a DM bubble. New channels add item kinds without changing the renderer's shape.
 type ThreadItem =
   | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date }
-  | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date };
+  | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
+  | { kind: "comment"; id: string; text: string; postId: string | null; dmSent: boolean; replySent: boolean; error: string | null; createdAt: Date };
 
-function renderMessages(items: ThreadItem[]): Html {
-  if (items.length === 0) return html`<p class="muted">No messages yet.</p>`;
-  return html`${items.map((it) =>
-    it.kind === "reaction"
-      ? html`<div class="msg-reaction muted">reacted ${it.emoji ?? it.reactionType}</div>`
-      : html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div></div>`,
-  )}`;
+/** The thread timeline. `threadType` shapes the empty-state copy (a comment thread with no follow-up
+ *  DM is a normal state, not an error). */
+function renderMessages(items: ThreadItem[], threadType: "dm" | "comment" = "dm"): Html {
+  if (items.length === 0) {
+    return html`<p class="muted">${threadType === "comment"
+      ? "This comment thread has no messages yet — reply below to start a DM."
+      : "No messages yet — say hello below."}</p>`;
+  }
+  return html`${items.map((it) => {
+    if (it.kind === "reaction") return html`<div class="msg-reaction muted">reacted ${it.emoji ?? it.reactionType}</div>`;
+    if (it.kind === "comment") {
+      const auto = [
+        it.dmSent ? "auto-DM sent ✓" : null,
+        it.replySent ? "public reply sent ✓" : null,
+        it.error ? `⚠ ${it.error}` : null,
+      ].filter(Boolean).join(" · ");
+      return html`<div class="msg msg-in">
+        <div class="bubble" style="border-left:3px solid var(--primary);background:transparent">
+          <div class="muted" style="font-size:.7rem;margin-bottom:.15rem">💬 commented${it.postId ? html` on post <span class="mono">${it.postId}</span>` : ""}</div>
+          <div>${it.text}</div>
+          ${auto ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem">↳ ${auto}</div>` : html``}
+        </div>
+      </div>`;
+    }
+    return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div></div>`;
+  })}`;
 }
 
-type ConvControls = { id: string; status: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; channel: { display_name: string | null; platform: string } };
+type ConvControls = { id: string; status: string; thread_type: "dm" | "comment"; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; channel: { display_name: string | null; platform: string } };
 
-/** The conversation control bar: status + close/snooze/reopen, automation pause toggle, and the
- *  attention/assignment indicators — all wired to PATCH /conversations/:id. */
+const STATUS_LABEL: Record<string, string> = { open: "Open", closed: "Closed", snoozed: "Snoozed" };
+const STATUS_TIP: Record<string, string> = {
+  open: "Active — sitting in your inbox.",
+  closed: "Marked done — leaves the inbox until this person messages again.",
+  snoozed: "Set aside — comes back to the inbox on their next message.",
+};
+
+/** The conversation control bar: a status pill, the close/snooze/reopen action, the automation
+ *  pause toggle, attention/assignment indicators — every control carries a tooltip, plus a
+ *  collapsible legend, so it's self-explanatory. All wired to PATCH /conversations/:id. */
 function renderConvControls(conv: ConvControls): Html {
-  const statusBtn = (label: string, status: string) =>
-    html`<button class="btn btn-sm" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"status":"${status}"}`}' hx-target="#thread" hx-swap="innerHTML">${label}</button>`;
+  const statusBtn = (label: string, status: string, title: string) =>
+    html`<button class="btn btn-sm" title="${title}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"status":"${status}"}`}' hx-target="#thread" hx-swap="innerHTML">${label}</button>`;
   return html`<div class="thread-controls" style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:.8rem;margin:.25rem 0">
-    <span class="badge">${conv.status}</span>
-    ${conv.needs_manual_reply ? html`<span class="badge" style="background:#b91c1c">⚠ Needs reply</span>` : html``}
-    ${conv.is_automation_paused ? html`<span class="badge" style="background:#b45309">⏸ Automation paused</span>` : html``}
-    ${conv.assigned_to ? html`<span class="muted">assigned</span>` : html``}
-    ${conv.status === "open" ? html`${statusBtn("Close", "closed")}${statusBtn("Snooze", "snoozed")}` : statusBtn("Reopen", "open")}
-    <button class="btn btn-sm" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"is_automation_paused":${conv.is_automation_paused ? "false" : "true"}}`}' hx-target="#thread" hx-swap="innerHTML">${conv.is_automation_paused ? "Resume automation" : "Pause automation"}</button>
+    <span class="badge" title="${STATUS_TIP[conv.status] ?? ""}">${STATUS_LABEL[conv.status] ?? conv.status}</span>
+    ${conv.needs_manual_reply ? html`<span class="badge" style="background:#b91c1c" title="Automation didn't handle this — a human should reply.">⚠ Needs reply</span>` : html``}
+    ${conv.is_automation_paused ? html`<span class="badge" style="background:#b45309" title="Auto-replies are off for this person — you reply manually.">⏸ Auto-replies off</span>` : html``}
+    ${conv.assigned_to ? html`<span class="muted" title="Assigned to a teammate.">assigned</span>` : html``}
+    ${conv.status === "open"
+      ? html`${statusBtn("✓ Done", "closed", "Mark done — hides it from the inbox until they message again.")}${statusBtn("⏰ Snooze", "snoozed", "Set aside — it comes back on their next message.")}`
+      : statusBtn("↩ Reopen", "open", "Put it back in the active inbox.")}
+    <button class="btn btn-sm" title="${conv.is_automation_paused ? "Let the bot auto-reply here again." : "Stop the bot auto-replying to this person — you'll answer manually."}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"is_automation_paused":${conv.is_automation_paused ? "false" : "true"}}`}' hx-target="#thread" hx-swap="innerHTML">${conv.is_automation_paused ? "▶ Resume auto-reply" : "⏸ Pause auto-reply"}</button>
+    <details style="font-size:.72rem"><summary class="muted" style="cursor:pointer;list-style:none">ⓘ what do these mean?</summary>
+      <div class="muted" style="margin-top:.3rem;line-height:1.5">
+        <strong>Done</strong> — handled; leaves the inbox until they write again.<br/>
+        <strong>Snooze</strong> — set aside; returns on their next message.<br/>
+        <strong>Pause auto-reply</strong> — the bot stops answering this person; you reply by hand.<br/>
+        <strong>⚠ Needs reply</strong> — automation found no rule for this; waiting on a human.
+      </div>
+    </details>
   </div>`;
 }
 
@@ -155,16 +219,21 @@ function renderThread(
   return html`<div class="thread-head">${contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
     ${renderConvControls(conv)}
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
-    <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages)}</div>
+    <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type)}</div>
     <form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
       <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
       <button class="btn btn-primary" type="submit">Send</button>
     </form>`;
 }
 
-function loadConversations(workspaceId: string) {
+function loadConversations(workspaceId: string, filter: ConvFilter = "all") {
+  const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
+  if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
+  else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
+  else if (filter === "dm") where.push(eq(conversations.thread_type, "dm"));
+  else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
   return db.query.conversations.findMany({
-    where: eq(conversations.workspace_id, workspaceId),
+    where: and(...where),
     orderBy: desc(conversations.last_message_at),
     limit: 50,
     ...CONV_QUERY,
@@ -179,7 +248,7 @@ function loadConversation(id: string, workspaceId: string) {
 }
 
 async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
-  const [msgs, reactions] = await Promise.all([
+  const [msgs, reactions, comments] = await Promise.all([
     db.query.messages.findMany({
       where: eq(messages.conversation_id, conversationId),
       orderBy: desc(messages.created_at),
@@ -192,12 +261,20 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       limit: 50,
       columns: { id: true, emoji: true, reaction_type: true, created_at: true },
     }),
+    // Comments that opened/belong to this thread — the event the operator is actually replying to.
+    db.query.commentLogs.findMany({
+      where: eq(commentLogs.conversation_id, conversationId),
+      orderBy: desc(commentLogs.created_at),
+      limit: 50,
+      columns: { id: true, comment_text: true, post_id: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
+    }),
   ]);
   const items: ThreadItem[] = [
     ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
+    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, dmSent: c.dm_sent, replySent: c.reply_sent, error: c.error, createdAt: c.created_at })),
   ];
-  // Chronological ascending; interleaves reactions with messages by time.
+  // Chronological ascending; interleaves comments, reactions and messages by time.
   return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
@@ -432,18 +509,28 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         dashboardDoc("Inbox · ReplyStack", "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features),
       );
     }
-    const conversations = await loadConversations(a.workspaceId);
+    const filter = parseConvFilter(c.req.query("filter"));
+    const conversations = await loadConversations(a.workspaceId, filter);
     return c.html(
       dashboardDoc(
         "Inbox · ReplyStack",
         "/inbox",
         html`<div class="inbox">
-          <div class="conv-list">${renderConvList(conversations)}</div>
+          <div class="conv-list">${renderConvList(conversations, filter)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,
       ),
     );
+  });
+
+  // htmx: swap just the conversation rows when a filter tab is clicked.
+  app.get("/inbox/list", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
+    const filter = parseConvFilter(c.req.query("filter"));
+    return c.html(renderConvItems(await loadConversations(a.workspaceId, filter)));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -466,10 +553,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const id = c.req.param("id");
     const conv = await db.query.conversations.findFirst({
       where: and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId)),
-      columns: { id: true },
+      columns: { id: true, thread_type: true },
     });
     if (!conv) return c.notFound();
-    return c.html(renderMessages(await loadMessages(id)));
+    return c.html(renderMessages(await loadMessages(id), conv.thread_type));
   });
 
   app.post("/inbox/:id/reply", guard, async (c) => {

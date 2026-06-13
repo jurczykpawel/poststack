@@ -146,7 +146,7 @@ describe("dashboard inbox conversation controls", () => {
       body: JSON.stringify({ is_automation_paused: true }),
     });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Resume automation");
+    expect(await res.text()).toContain("Resume auto-reply");
     const conv = await db.query.conversations.findFirst({ where: eq(s.conversations.id, CONV), columns: { is_automation_paused: true } });
     expect(conv?.is_automation_paused).toBe(true);
   });
@@ -160,6 +160,47 @@ describe("dashboard inbox conversation controls", () => {
     const res = await app.request(`/inbox/${CONV}`, { headers: { cookie } });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("reacted ❤️");
+  });
+
+  it("renders a comment in its thread (not 'No messages yet') with post + auto-DM status", async () => {
+    if (!TEST_DB) return;
+    const COMMENT_CONV = "dddddddd-0000-0000-0000-0000000000c1";
+    await db.insert(s.conversations).values({
+      id: COMMENT_CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook",
+      thread_type: "comment", thread_ref: "POST-42",
+    });
+    await db.insert(s.commentLogs).values({
+      channel_id: CH, workspace_id: WS, conversation_id: COMMENT_CONV, post_id: "POST-42",
+      platform_comment_id: "cmt-1", author_id: "PSID-D", author_name: "rin", comment_text: "😂😂", dm_sent: true,
+    });
+    const res = await app.request(`/inbox/${COMMENT_CONV}`, { headers: { cookie } });
+    const body = await res.text();
+    expect(res.status).toBe(200);
+    expect(body).toContain("😂😂");
+    expect(body).toContain("commented");
+    expect(body).toContain("POST-42");
+    expect(body).toContain("auto-DM sent");
+    expect(body).not.toContain("No messages yet");
+  });
+
+  it("filters the inbox list by comment vs dm threads", async () => {
+    if (!TEST_DB) return;
+    const COMMENT_CONV = "dddddddd-0000-0000-0000-0000000000c2";
+    await db.insert(s.conversations).values({
+      id: COMMENT_CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook",
+      thread_type: "comment", thread_ref: "POST-99", last_message_preview: "a comment preview",
+    });
+    const comments = await (await app.request("/inbox/list?filter=comment", { headers: { cookie } })).text();
+    expect(comments).toContain("a comment preview");
+    const dms = await (await app.request("/inbox/list?filter=dm", { headers: { cookie } })).text();
+    expect(dms).not.toContain("a comment preview"); // the DM filter excludes the comment thread
+  });
+
+  it("control bar has a self-explanatory legend + clear labels", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
+    expect(body).toContain("what do these mean?");
+    expect(body).toContain("Pause auto-reply");
   });
 });
 
