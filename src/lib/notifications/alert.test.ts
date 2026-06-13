@@ -4,6 +4,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const rateLimit = vi.fn();
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLimit(...a) }));
 
+// No per-workspace webhook config here (its own integration test covers that) → these unit cases
+// exercise the global env fallback path. Mocking it also keeps the DB out of this unit suite.
+vi.mock("./alert-webhook", () => ({ getAlertWebhook: vi.fn().mockResolvedValue(null) }));
+
 import { dispatchAlert } from "./alert";
 
 let originalFetch: typeof fetch;

@@ -37,6 +37,18 @@ CREATE TABLE "account_sources" (
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "alert_webhooks" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"url" text NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"custom_headers_encrypted" text,
+	"extra_payload_fields" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"field_selection" jsonb,
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "api_keys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
@@ -439,6 +451,7 @@ CREATE TABLE "workspaces" (
 );
 --> statement-breakpoint
 ALTER TABLE "account_sources" ADD CONSTRAINT "account_sources_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "alert_webhooks" ADD CONSTRAINT "alert_webhooks_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "auto_reply_rules" ADD CONSTRAINT "auto_reply_rules_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -503,6 +516,7 @@ ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_workspace_id_f
 ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 CREATE INDEX "account_sources_workspace_id_idx" ON "account_sources" USING btree ("workspace_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "account_sources_workspace_provider_account_key" ON "account_sources" USING btree ("workspace_id","provider","provider_account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "alert_webhooks_workspace_id_key" ON "alert_webhooks" USING btree ("workspace_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "api_keys_key_hash_key" ON "api_keys" USING btree ("key_hash");--> statement-breakpoint
 CREATE INDEX "api_keys_workspace_id_idx" ON "api_keys" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "audit_logs_workspace_id_created_at_idx" ON "audit_logs" USING btree ("workspace_id","created_at" DESC NULLS FIRST);--> statement-breakpoint

@@ -121,6 +121,33 @@ export const accountSources = pgTable("account_sources", {
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
+// Per-workspace outbound alert webhook (PRO). Mirrors Sellf's webhook_endpoints customization: an
+// optional encrypted custom-header map, extra top-level payload fields with {{placeholder}}
+// templating, and a field-selection over the standard alert body — so the same hook can target
+// mailstack (email), Slack, or n8n. The global env CHANNEL_ALERT_WEBHOOK_URL stays as the
+// ungated self-host fallback; this row, when enabled, takes precedence for its workspace.
+export const alertWebhooks = pgTable("alert_webhooks", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	url: text().notNull(),
+	enabled: boolean().default(true).notNull(),
+	// AES-256-GCM ciphertext of a JSON header map. NULL = no custom headers. Values never returned.
+	custom_headers_encrypted: text("custom_headers_encrypted"),
+	// Extra top-level fields merged into the body; string leaves get {{placeholder}} substitution.
+	extra_payload_fields: jsonb("extra_payload_fields").default({}).notNull(),
+	// Whitelist of standard body keys to keep. NULL = include them all.
+	field_selection: jsonb("field_selection"),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	uniqueIndex("alert_webhooks_workspace_id_key").using("btree", table.workspace_id.asc().nullsLast()),
+	foreignKey({
+			columns: [table.workspace_id],
+			foreignColumns: [workspaces.id],
+			name: "alert_webhooks_workspace_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
 export const channels = pgTable("channels", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
