@@ -139,7 +139,11 @@ function renderConvPanel(
   channelId: string,
   chans: InboxChannel[],
 ): Html {
-  return html`<div class="conv-head">Inbox</div>
+  return html`<div class="conv-head" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Inbox</span>
+      <button class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem"
+        hx-get="/inbox/list?filter=${filter}&channel=${channelId}" hx-target="#conv-panel" hx-swap="innerHTML">↻</button>
+    </div>
     <div class="conv-filters" style="display:flex;gap:.25rem;flex-wrap:wrap;padding:.4rem .5rem;border-bottom:1px solid var(--border,#222)">
       ${CONV_FILTERS.map(
         (f) => html`<button class="btn btn-sm ${f.id === filter ? "btn-primary" : ""}" style="font-size:.72rem;padding:.15rem .5rem"
@@ -702,10 +706,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <h1>Channels</h1>
           <p class="muted">Connect your Facebook Pages and Instagram Business accounts.</p>
           <details class="card" style="margin:.5rem 0 1rem">
-            <summary style="cursor:pointer;font-weight:600">Meta app setup — callback / redirect URLs</summary>
+            <summary style="cursor:pointer;font-weight:600">App setup — OAuth redirect / callback URLs</summary>
             <p class="muted" style="font-size:.8rem;margin:.5rem 0 .75rem">Paste these into your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a> before connecting. They are derived from your <code>APP_URL</code>.</p>
             ${metaConfigRow("Valid OAuth Redirect URI — Facebook Login → Settings", `${env.APP_URL}/api/oauth/facebook/callback`)}
             ${metaConfigRow("Valid OAuth Redirect URI — Instagram", `${env.APP_URL}/api/oauth/instagram/callback`)}
+            ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
             ${metaConfigRow("Webhook callback URL — Messenger + Instagram products", `${env.APP_URL}/api/webhooks/meta`)}
             ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
             ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}
@@ -1057,6 +1062,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted" style="margin-bottom:.75rem">Paste these into your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
             ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
             ${metaConfigRow("Valid OAuth Redirect URI (Instagram)", `${env.APP_URL}/api/oauth/instagram/callback`)}
+            ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
             ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
             ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
             ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}

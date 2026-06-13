@@ -301,6 +301,7 @@ describe("settings — Meta App config + alert webhook UI", () => {
     expect(body).toContain("Meta App configuration");
     expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
     expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/youtube/callback"); // YouTube redirect URI
     expect(body).toContain("http://localhost:3000/api/webhooks/meta");
   });
 
@@ -363,9 +364,10 @@ describe("channels — managed connection section", () => {
   it("shows the Meta callback / redirect URLs on /channels (not just Settings)", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/channels", { headers: { cookie } })).text();
-    expect(body).toContain("callback / redirect URLs");
+    expect(body).toContain("OAuth redirect / callback URLs");
     expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
     expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/youtube/callback"); // YouTube redirect URI
     expect(body).toContain("http://localhost:3000/api/webhooks/meta");
   });
 
