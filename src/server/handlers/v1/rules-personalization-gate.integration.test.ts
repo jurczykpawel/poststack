@@ -5,7 +5,7 @@ import { makeTestKey, makeClaims, type TestKey } from "@/lib/license/__fixtures_
 import type { JwksKey } from "@/lib/license/format";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const KEY = "rs_live_persgate_0123456789abcdef0123456789abcdef";
+const KEY = "sk_live_persgate_0123456789abcdef0123456789abcdef";
 const WS = "9e500000-0000-0000-0000-0000000000a1";
 
 let db: typeof import("@/lib/db").db;
@@ -51,7 +51,7 @@ beforeAll(async () => {
   await db.insert(s.workspaces).values({ id: WS, name: "PG", slug: `pg-${WS}` });
   await db.insert(s.apiKeys).values({
     workspace_id: WS, name: "k",
-    key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "rs_live_persgate",
+    key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "sk_live_persgate",
   });
 });
 

@@ -28,7 +28,7 @@ beforeAll(async () => {
   const { buildApp } = await import("../app");
   app = buildApp();
   const { signSession } = await import("@/lib/auth");
-  cookie = `rs_session=${await signSession(USER, WS)}`;
+  cookie = `session=${await signSession(USER, WS)}`;
   await licenseInstance(); // dashboard builds sequences / interactive rules (PRO)
 });
 

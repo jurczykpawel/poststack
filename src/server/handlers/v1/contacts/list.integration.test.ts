@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_contacts_list_key_abcdef0123";
+const RAW_KEY = "sk_live_contacts_list_key_abcdef0123";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -35,7 +35,7 @@ beforeEach(async () => {
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "C", slug: `c-${WS}` });
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "instagram", platform_id: "PG-C", token_encrypted: "x", webhook_secret: "s" });
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_cl" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_cl" });
   await db.insert(s.contacts).values([
     { id: ALICE, workspace_id: WS, display_name: "Alice", last_interaction_at: new Date(Date.now() - 1000) },
     { id: BOB, workspace_id: WS, display_name: "Bob", last_interaction_at: new Date(Date.now() - 2000) },

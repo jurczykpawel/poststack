@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const KEY = "rs_live_approvals_key_abcdef0123456789";
+const KEY = "sk_live_approvals_key_abcdef0123456789";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -55,7 +55,7 @@ beforeEach(async () => {
     response_type: "text", response_config: { text: "hello" }, requires_approval: true,
   }).returning({ id: s.autoReplyRules.id });
   RULE = r.id;
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "rs_live_ap" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "sk_live_ap" });
 });
 
 afterAll(async () => {

@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   let outcome: Outcome;
   try {
     outcome = await db.transaction(async (tx): Promise<Outcome> => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('replystack:registration'))`);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('stack:registration'))`);
 
       // Registration is closed by default. The first user (empty instance) may
       // always register to bootstrap the admin; after that REGISTRATION_ENABLED

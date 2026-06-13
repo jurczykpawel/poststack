@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const KEY = "rs_live_rules_validation_key_abcdef01";
+const KEY = "sk_live_rules_validation_key_abcdef01";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -31,7 +31,7 @@ beforeEach(async () => {
   if (!TEST_DB) return;
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "R", slug: `r-${WS}` });
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "rs_live_ru" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "sk_live_ru" });
 });
 
 afterAll(async () => {

@@ -21,7 +21,7 @@ describe("auth routes", () => {
     const res = await app.request("/api/auth/logout", { method: "POST" });
     expect(res.status).toBe(200);
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain("rs_session=");
+    expect(setCookie).toContain("session=");
     expect(setCookie.toLowerCase()).toMatch(/max-age=0|expires=/);
   });
 });

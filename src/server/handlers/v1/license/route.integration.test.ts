@@ -6,7 +6,7 @@ import { makeTestKey, makeClaims, type TestKey } from "@/lib/license/__fixtures_
 import type { JwksKey } from "@/lib/license/format";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_licensetest_0123456789abcdef0123456789abcdef";
+const RAW_KEY = "sk_live_licensetest_0123456789abcdef0123456789abcdef";
 const WS = "1ce50000-0000-0000-0000-000000000001";
 const authHeaders = { authorization: `Bearer ${RAW_KEY}` };
 
@@ -51,7 +51,7 @@ beforeAll(async () => {
     workspace_id: WS,
     name: "lic key",
     key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-    key_prefix: "rs_live_licensetest",
+    key_prefix: "sk_live_licensetest",
   });
 });
 

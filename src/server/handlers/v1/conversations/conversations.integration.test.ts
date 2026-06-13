@@ -4,7 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_conversations_key_abcdef01234";
+const RAW_KEY = "sk_live_conversations_key_abcdef01234";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -45,7 +45,7 @@ beforeEach(async () => {
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-CV", platform_username: "jane" });
   await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", status: "open", last_message_at: new Date(), last_message_preview: "hi" });
   await db.insert(s.messages).values({ conversation_id: CONV, direction: "inbound", text: "hi", status: "delivered" });
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_cv" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_cv" });
 });
 
 afterAll(async () => {

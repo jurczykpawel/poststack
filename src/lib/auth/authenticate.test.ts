@@ -20,7 +20,7 @@ describe("authenticate (no-DB paths)", () => {
   it("returns null for invalid JWT", async () => {
     const { authenticate } = await import("./index");
     const request = new Request("http://localhost/api/v1/test", {
-      headers: { cookie: "rs_session=garbage.token.here" },
+      headers: { cookie: "session=garbage.token.here" },
     });
     expect(await authenticate(request)).toBeNull();
   });
@@ -37,7 +37,7 @@ describe("authenticate (no-DB paths)", () => {
 
     const { authenticate } = await import("./index");
     const request = new Request("http://localhost/api/v1/test", {
-      headers: { cookie: `rs_session=${token}` },
+      headers: { cookie: `session=${token}` },
     });
     expect(await authenticate(request)).toBeNull();
   });
@@ -46,17 +46,35 @@ describe("authenticate (no-DB paths)", () => {
     const { authenticate, signSession } = await import("./index");
     const token = await signSession("user-1", "ws-wrong");
     const request = new Request("http://localhost/api/v1/test", {
-      headers: { cookie: `rs_session=${token}` },
+      headers: { cookie: `session=${token}` },
     });
     expect(await authenticate(request, "ws-correct")).toBeNull();
   });
 
-  it("returns null for a non-rs_ Bearer token (no API key lookup)", async () => {
+  it("returns null for a Bearer token not matching the idPrefix (no API key lookup)", async () => {
     const { authenticate } = await import("./index");
     const request = new Request("http://localhost/api/v1/test", {
       headers: { authorization: "Bearer some-random-token" },
     });
     expect(await authenticate(request)).toBeNull();
+  });
+
+  it("no longer accepts a legacy rs_ Bearer token (clean cut)", async () => {
+    // Old ReplyStack keys were rs_live_*; the prefix is now sk_live_. A rs_ bearer must not even
+    // reach the API-key lookup — the prefix gate rejects it outright.
+    const { authenticate } = await import("./index");
+    const request = new Request("http://localhost/api/v1/test", {
+      headers: { authorization: "Bearer rs_live_legacykeyvalue000000" },
+    });
+    expect(await authenticate(request)).toBeNull();
+  });
+
+  it("signs sessions with the brand-neutral issuer/audience (stack)", async () => {
+    const { signSession } = await import("./index");
+    const { decodeJwt } = await import("jose");
+    const claims = decodeJwt(await signSession("user-1", "ws-1"));
+    expect(claims.iss).toBe("stack");
+    expect(claims.aud).toBe("stack");
   });
 });
 

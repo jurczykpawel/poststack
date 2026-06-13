@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_posts_route_key_abcdef0123";
+const RAW_KEY = "sk_live_posts_route_key_abcdef0123";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -40,7 +40,7 @@ beforeEach(async () => {
     { id: CH_FB, workspace_id: WS, platform: "facebook", platform_id: "FBPAGE", token_encrypted: tok, webhook_secret: "s1" },
     { id: CH_IG, workspace_id: WS, platform: "instagram", platform_id: "IGUSER", token_encrypted: tok, webhook_secret: "s2" },
   ]);
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_po" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_po" });
 });
 
 afterEach(() => {

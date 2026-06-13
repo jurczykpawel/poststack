@@ -11,7 +11,7 @@ vi.mock("@/lib/queue/client", () => ({
 }));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const KEY = "rs_live_enroll_atomic_key_abcdef01";
+const KEY = "sk_live_enroll_atomic_key_abcdef01";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -48,7 +48,7 @@ beforeEach(async () => {
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-EA", token_encrypted: "x", webhook_secret: "s" });
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-EA" });
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "rs_live_en" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "sk_live_en" });
   const [seq] = await db.insert(s.sequences).values({
     workspace_id: WS, name: "Seq", status: "active", steps: [{ type: "message", content: "hi" }],
   }).returning({ id: s.sequences.id });

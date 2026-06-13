@@ -5,7 +5,7 @@ import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 import type { ConnectedAccount } from "@/lib/platforms/base";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const KEY = "rs_live_progates_0123456789abcdef0123456789abcdef";
+const KEY = "sk_live_progates_0123456789abcdef0123456789abcdef";
 const WS = "9b500000-0000-0000-0000-0000000000b1";
 
 let db: typeof import("@/lib/db").db;
@@ -58,7 +58,7 @@ beforeAll(async () => {
   ({ ProRequiredError } = gate = await import("@/lib/license/gate"));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "PGate", slug: `pgate-${WS}` });
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "rs_live_progates" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(KEY).digest("hex"), key_prefix: "sk_live_progates" });
 });
 
 beforeEach(async () => {

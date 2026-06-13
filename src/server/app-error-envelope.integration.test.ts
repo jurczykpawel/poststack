@@ -12,7 +12,7 @@ vi.mock("@/lib/queue/client", () => ({
 }));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_err_envelope_key_0123456789ab";
+const RAW_KEY = "sk_live_err_envelope_key_0123456789ab";
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let app: Hono;
@@ -45,7 +45,7 @@ beforeEach(async () => {
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-E" });
   await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook" });
-  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_err" });
+  await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_err" });
 });
 
 afterAll(async () => {

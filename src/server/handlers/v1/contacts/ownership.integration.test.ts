@@ -5,7 +5,7 @@ import { workspaces, contacts, apiKeys, channels, contactChannels, commentLogs, 
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_smoke_ownership_key_abcdef";
+const RAW_KEY = "sk_live_smoke_ownership_key_abcdef";
 
 let db: typeof import("@/lib/db").db;
 let GET: typeof import("./[contactId]/route").GET;
@@ -42,7 +42,7 @@ beforeEach(async () => {
     workspace_id: WS_A,
     name: "A key",
     key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-    key_prefix: "rs_live_smoke",
+    key_prefix: "sk_live_smoke",
   });
 });
 
@@ -76,7 +76,7 @@ describe("ownership scoping via Bearer API key (real Postgres)", () => {
   it("rejects an unknown key", async () => {
     if (!TEST_DB) return;
     const res = await GET(
-      new Request("http://x/api/v1/contacts/x", { headers: { authorization: "Bearer rs_live_nope" } }),
+      new Request("http://x/api/v1/contacts/x", { headers: { authorization: "Bearer sk_live_nope" } }),
       ctx(CONTACT_A),
     );
     expect(res.status).toBe(401);

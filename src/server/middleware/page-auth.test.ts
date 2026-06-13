@@ -33,8 +33,8 @@ async function signWith(alg: "HS256" | "HS512") {
   return new SignJWT({ wid: "ws-1" })
     .setProtectedHeader({ alg })
     .setSubject("user-1")
-    .setIssuer("replystack")
-    .setAudience("replystack")
+    .setIssuer("stack")
+    .setAudience("stack")
     .setExpirationTime("1h")
     .sign(SECRET());
 }
@@ -43,7 +43,7 @@ describe("requireSession — JWT algorithm pin", () => {
   it("calls next() for a valid HS256 session token", async () => {
     const { requireSession } = await import("./page-auth");
     const token = await signWith("HS256");
-    const { c, redirects } = fakeContext(`rs_session=${token}`);
+    const { c, redirects } = fakeContext(`session=${token}`);
     const next = vi.fn(async () => {});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await requireSession(c as any, next as any);
@@ -56,7 +56,7 @@ describe("requireSession — JWT algorithm pin", () => {
     // Same symmetric secret, only the header alg differs — without the ["HS256"] pin jose would
     // accept this; with the pin it must be rejected (the exact future-refactor footgun this pin closes).
     const token = await signWith("HS512");
-    const { c, redirects } = fakeContext(`rs_session=${token}`);
+    const { c, redirects } = fakeContext(`session=${token}`);
     const next = vi.fn(async () => {});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await requireSession(c as any, next as any);
@@ -68,11 +68,11 @@ describe("requireSession — JWT algorithm pin", () => {
     const { requireSession } = await import("./page-auth");
     const { UnsecuredJWT } = await import("jose");
     const token = new UnsecuredJWT({ wid: "ws-1", sub: "user-1" })
-      .setIssuer("replystack")
-      .setAudience("replystack")
+      .setIssuer("stack")
+      .setAudience("stack")
       .setExpirationTime("1h")
       .encode();
-    const { c, redirects } = fakeContext(`rs_session=${token}`);
+    const { c, redirects } = fakeContext(`session=${token}`);
     const next = vi.fn(async () => {});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await requireSession(c as any, next as any);

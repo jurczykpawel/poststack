@@ -1,13 +1,8 @@
-import { invalidateSession, sessionCookie } from "@/lib/auth";
+import { invalidateSession, sessionCookie, readSessionCookie } from "@/lib/auth";
 
 export async function POST(request: Request) {
   // Parse session cookie and add to denylist
-  const cookieHeader = request.headers.get("cookie") ?? "";
-  const match = cookieHeader
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith("rs_session="));
-  const token = match ? decodeURIComponent(match.slice("rs_session=".length)) : null;
+  const token = readSessionCookie(request.headers.get("cookie"));
 
   if (token) {
     await invalidateSession(token);

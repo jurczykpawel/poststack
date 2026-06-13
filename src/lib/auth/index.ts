@@ -4,6 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { apiKeys, revokedTokens, workspaceMembers } from "@/db/schema";
 import { env } from "@/lib/env";
+import { BRAND } from "@/lib/brand";
+
+// The bearer prefix gate: a key is "sk_live_<secret>", so the cheap pre-check is "sk_". Derived
+// from BRAND.idPrefix so the prefix and this gate can never drift.
+const BEARER_PREFIX = `${BRAND.idPrefix.split("_")[0]}_`;
 
 export interface AuthContext {
   userId: string;
@@ -51,7 +56,7 @@ export async function authenticate(
 ): Promise<AuthContext | null> {
   // Try Bearer API key first
   const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer rs_")) {
+  if (authHeader?.startsWith(`Bearer ${BEARER_PREFIX}`)) {
     return authenticateApiKey(authHeader.slice(7), requiredWorkspaceId);
   }
 
@@ -91,6 +96,12 @@ async function authenticateApiKey(
   };
 }
 
+/** Read the session token from a Cookie header (brand-neutral cookie name). One source for the
+ *  three call-sites that need it (authenticate, page-auth middleware, logout) — no drift. */
+export function readSessionCookie(cookieHeader: string | null): string | null {
+  return parseCookie(cookieHeader, BRAND.cookieName);
+}
+
 /** Parse a specific cookie value from the Cookie header. */
 function parseCookie(cookieHeader: string | null, name: string): string | null {
   if (!cookieHeader) return null;
@@ -110,13 +121,13 @@ async function authenticateSession(
   request: Request,
   requiredWorkspaceId?: string
 ): Promise<AuthContext | null> {
-  const token = parseCookie(request.headers.get("cookie"), "rs_session");
+  const token = readSessionCookie(request.headers.get("cookie"));
   if (!token) return null;
 
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET, {
-      issuer: "replystack",
-      audience: "replystack",
+      issuer: BRAND.jwtIssuer,
+      audience: BRAND.jwtIssuer,
       // Pin the verify algorithm to what signSession signs with (HS256). The symmetric Uint8Array
       // key already makes jose reject asymmetric (RS*/ES*) and `none` algs, so this is
       // defense-in-depth against a future refactor swapping the secret for a KeyObject/JWKS that
@@ -162,8 +173,8 @@ export async function signSession(
   return new SignJWT({ wid: workspaceId })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
-    .setIssuer("replystack")
-    .setAudience("replystack")
+    .setIssuer(BRAND.jwtIssuer)
+    .setAudience(BRAND.jwtIssuer)
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(env.JWT_EXPIRY)
@@ -179,7 +190,7 @@ export async function invalidateSession(token: string): Promise<void> {
     // Verify issuer/audience too (logout is an unauthenticated endpoint, so the caller controls
     // the token). Otherwise a token merely signed with this JWT_SECRET — e.g. one minted by a
     // sibling service that shares the secret — could push an arbitrary jti onto the denylist.
-    const { payload } = await jwtVerify(token, JWT_SECRET, { issuer: "replystack", audience: "replystack", algorithms: ["HS256"] });
+    const { payload } = await jwtVerify(token, JWT_SECRET, { issuer: BRAND.jwtIssuer, audience: BRAND.jwtIssuer, algorithms: ["HS256"] });
     const jti = payload.jti;
     const exp = payload.exp;
 
@@ -203,7 +214,7 @@ export async function invalidateSession(token: string): Promise<void> {
  */
 export function sessionCookie(token: string, maxAgeSeconds: number): string {
   const secure = process.env.NODE_ENV === "production" ? " Secure;" : "";
-  return `rs_session=${token}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+  return `${BRAND.cookieName}=${token}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
 }
 
 /**
@@ -212,8 +223,8 @@ export function sessionCookie(token: string, maxAgeSeconds: number): string {
  */
 export function generateApiKey(): { plaintext: string; prefix: string; hash: string } {
   const secret = randomBytes(32).toString("hex");
-  const plaintext = `rs_live_${secret}`;
-  const prefix = plaintext.slice(0, 16); // "rs_live_" + first 8 chars
+  const plaintext = `${BRAND.idPrefix}${secret}`;
+  const prefix = plaintext.slice(0, 16); // idPrefix (8) + first 8 chars of the secret
   const hash = createHash("sha256").update(plaintext).digest("hex");
   return { plaintext, prefix, hash };
 }

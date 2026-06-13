@@ -51,7 +51,7 @@ describe("session gating", () => {
   });
 
   it("redirects to /login when the session cookie is invalid", async () => {
-    const res = await app.request("/inbox", { headers: { cookie: "rs_session=garbage" } });
+    const res = await app.request("/inbox", { headers: { cookie: "session=garbage" } });
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/login");
   });

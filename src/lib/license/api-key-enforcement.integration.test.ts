@@ -44,7 +44,7 @@ afterAll(async () => {
 async function key(name: string, expires_at: Date | null) {
   const [row] = await db
     .insert(s.apiKeys)
-    .values({ workspace_id: WS, name, key_hash: `h-${name}-${Math.random()}`, key_prefix: `rs_live_${name}`, expires_at })
+    .values({ workspace_id: WS, name, key_hash: `h-${name}-${Math.random()}`, key_prefix: `sk_live_${name}`, expires_at })
     .returning({ id: s.apiKeys.id });
   return row.id;
 }

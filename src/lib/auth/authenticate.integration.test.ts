@@ -10,7 +10,7 @@ let auth: typeof import("./index");
 const WS = "bbbbbbbb-0000-0000-0000-0000000000a1";
 const USER = "bbbbbbbb-0000-0000-0000-0000000000a2";
 const EMAIL = "auth-int@example.test";
-const RAW_KEY = "rs_live_auth_int_key_abcdef0123456789";
+const RAW_KEY = "sk_live_auth_int_key_abcdef0123456789";
 const KEY_HASH = createHash("sha256").update(RAW_KEY).digest("hex");
 
 beforeAll(async () => {
@@ -35,7 +35,7 @@ beforeEach(async () => {
   await db.insert(s.users).values({ id: USER, email: EMAIL });
   await db.insert(s.workspaceMembers).values({ workspace_id: WS, user_id: USER });
   await db.insert(s.apiKeys).values({
-    workspace_id: WS, name: "k", key_hash: KEY_HASH, key_prefix: "rs_live_auth", scopes: ["channels:read", "contacts:read"],
+    workspace_id: WS, name: "k", key_hash: KEY_HASH, key_prefix: "sk_live_auth", scopes: ["channels:read", "contacts:read"],
   });
 });
 
@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 const sessionReq = (token: string) =>
-  new Request("http://x/api/v1/test", { headers: { cookie: `rs_session=${token}` } });
+  new Request("http://x/api/v1/test", { headers: { cookie: `session=${token}` } });
 const keyReq = (k: string) =>
   new Request("http://x/api/v1/test", { headers: { authorization: `Bearer ${k}` } });
 
@@ -100,7 +100,7 @@ describe("authenticate — API key (real Postgres)", () => {
 
   it("returns null for an unknown key", async () => {
     if (!TEST_DB) return;
-    expect(await auth.authenticate(keyReq("rs_live_nope000000000000000000000000"))).toBeNull();
+    expect(await auth.authenticate(keyReq("sk_live_nope000000000000000000000000"))).toBeNull();
   });
 
   it("returns null for an expired key", async () => {

@@ -14,7 +14,7 @@ import * as cronTokenRefresh from "@/server/handlers/cron/token-refresh/route";
 
 export const special = new Hono();
 
-// Auth (these set/clear the rs_session cookie on the returned Response)
+// Auth (these set/clear the session cookie on the returned Response)
 special.post("/api/auth/login", (c) => login.POST(c.req.raw));
 special.post("/api/auth/logout", (c) => logout.POST(c.req.raw));
 special.post("/api/auth/register", (c) => register.POST(c.req.raw));

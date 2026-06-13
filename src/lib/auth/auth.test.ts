@@ -14,10 +14,12 @@ beforeAll(() => {
 });
 
 describe("generateApiKey", () => {
-  it("returns plaintext starting with rs_live_", async () => {
+  it("returns plaintext starting with the brand-neutral idPrefix (sk_live_)", async () => {
     const { generateApiKey } = await import("./index");
+    const { BRAND } = await import("@/lib/brand");
     const { plaintext } = generateApiKey();
-    expect(plaintext).toMatch(/^rs_live_/);
+    expect(BRAND.idPrefix).toBe("sk_live_");
+    expect(plaintext.startsWith(BRAND.idPrefix)).toBe(true);
   });
 
   it("prefix is first 16 chars of plaintext", async () => {

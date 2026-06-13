@@ -14,7 +14,7 @@ export const openApiSpec = {
     version: "1.0.0",
     description:
       "Self-hosted social media inbox automation API. " +
-      "Authenticate with an API key: `Authorization: Bearer rs_live_...`\n\n" +
+      `Authenticate with an API key: \`Authorization: Bearer ${BRAND.idPrefix}...\`\n\n` +
       "Generate API keys in Settings > API Keys.",
     license: { name: "AGPL-3.0", url: "https://www.gnu.org/licenses/agpl-3.0" },
     contact: { url: "https://github.com/jurczykpawel/replystack" },
@@ -26,10 +26,10 @@ export const openApiSpec = {
       BearerAuth: {
         type: "http",
         scheme: "bearer",
-        bearerFormat: "API Key (rs_live_...)",
+        bearerFormat: `API Key (${BRAND.idPrefix}...)`,
         description:
           "API key generated in Settings > API Keys. " +
-          "Format: `Authorization: Bearer rs_live_<key>`",
+          `Format: \`Authorization: Bearer ${BRAND.idPrefix}<key>\``,
       },
     },
     schemas: {
@@ -182,7 +182,7 @@ export const openApiSpec = {
         properties: {
           id: { type: "string", format: "uuid" },
           name: { type: "string" },
-          key_prefix: { type: "string", example: "rs_live_abcd" },
+          key_prefix: { type: "string", example: `${BRAND.idPrefix}abcd` },
           scopes: { type: "array", items: { type: "string" }, description: "Empty = full access" },
           last_used_at: { type: "string", format: "date-time", nullable: true },
           expires_at: { type: "string", format: "date-time", nullable: true },

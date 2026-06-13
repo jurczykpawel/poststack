@@ -20,7 +20,7 @@ let channelRoute: typeof import("@/server/handlers/v1/channels/[channelId]/route
 const WS = "dddddddd-0000-0000-0000-0000000000a1";
 const CH = "dddddddd-0000-0000-0000-0000000000a2";
 const PAGE = "PG-RD-39";
-const RAW_KEY = "rs_live_recovery_drain_key_abcdef01";
+const RAW_KEY = "sk_live_recovery_drain_key_abcdef01";
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -43,7 +43,7 @@ beforeEach(async () => {
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "RD", slug: `rd-${WS}` });
   await db.insert(s.apiKeys).values({
-    workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_re",
+    workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_re",
   });
 });
 

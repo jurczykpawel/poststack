@@ -88,8 +88,8 @@ describe("auth flow under Hono (real Postgres)", () => {
     });
     expect(res.status).toBe(201);
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toMatch(/rs_session=[^;]+/);
-    expect(setCookie).not.toMatch(/rs_session=;/);
+    expect(setCookie).toMatch(/session=[^;]+/);
+    expect(setCookie).not.toMatch(/session=;/);
   });
 
   it("does not reveal whether an email is already registered", async () => {
@@ -157,7 +157,7 @@ describe("auth flow under Hono (real Postgres)", () => {
       body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get("set-cookie") ?? "").toMatch(/rs_session=[^;]+/);
+    expect(res.headers.get("set-cookie") ?? "").toMatch(/session=[^;]+/);
   });
 
   it("login with a wrong password is rejected (401)", async () => {

@@ -6,7 +6,7 @@ import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_v1_integration_key_abcdef0123";
+const RAW_KEY = "sk_live_v1_integration_key_abcdef0123";
 
 let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
@@ -50,7 +50,7 @@ beforeEach(async () => {
   await db.insert(apiKeys).values({
     workspace_id: WS_A, name: "A key",
     key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-    key_prefix: "rs_live_v1_in",
+    key_prefix: "sk_live_v1_in",
   });
 });
 
@@ -177,7 +177,7 @@ describe("v1 delegation parity (real Postgres)", () => {
   it("rejects an unknown key (401)", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api/v1/channels", {
-      headers: { authorization: "Bearer rs_live_nope" },
+      headers: { authorization: "Bearer sk_live_nope" },
     });
     expect(res.status).toBe(401);
   });
@@ -314,11 +314,11 @@ describe("api-key management is session-only + scope catalog (real Postgres)", (
 
   it("a tags:read-scoped key can list tags (GET /tags requires tags:read, not tags:write)", async () => {
     if (!TEST_DB) return;
-    const TAGS_KEY = "rs_live_tagsread_key_0123456789abcd";
+    const TAGS_KEY = "sk_live_tagsread_key_0123456789abcd";
     await db.insert(apiKeys).values({
       workspace_id: WS_A, name: "tags reader",
       key_hash: createHash("sha256").update(TAGS_KEY).digest("hex"),
-      key_prefix: "rs_live_tags", scopes: ["tags:read"],
+      key_prefix: "sk_live_tags", scopes: ["tags:read"],
     });
     const res = await app.request("/api/v1/tags", { headers: { authorization: `Bearer ${TAGS_KEY}` } });
     expect(res.status).toBe(200);
@@ -326,11 +326,11 @@ describe("api-key management is session-only + scope catalog (real Postgres)", (
 
   it("a sequences:read-scoped key can list sequences (GET /sequences requires :read, not :write)", async () => {
     if (!TEST_DB) return;
-    const SEQ_KEY = "rs_live_seqread_key_0123456789abcd";
+    const SEQ_KEY = "sk_live_seqread_key_0123456789abcd";
     await db.insert(apiKeys).values({
       workspace_id: WS_A, name: "sequence reader",
       key_hash: createHash("sha256").update(SEQ_KEY).digest("hex"),
-      key_prefix: "rs_live_seq", scopes: ["sequences:read"],
+      key_prefix: "sk_live_seq", scopes: ["sequences:read"],
     });
     const res = await app.request("/api/v1/sequences", { headers: { authorization: `Bearer ${SEQ_KEY}` } });
     expect(res.status).toBe(200);

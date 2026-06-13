@@ -20,7 +20,7 @@ let workspaceId = "";
 
 function cookieFrom(res: Response): string {
   const sc = res.headers.get("set-cookie") ?? "";
-  const m = sc.match(/rs_session=[^;]+/);
+  const m = sc.match(/session=[^;]+/);
   return m ? m[0] : "";
 }
 
@@ -187,7 +187,7 @@ describe("authenticated dashboard (real Postgres)", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("rs_live_");
+    expect(body).toContain("sk_live_");
     expect(body).toContain("CI key");
   });
 

@@ -41,7 +41,7 @@ beforeAll(async () => {
   s = await import("@/db/schema");
   app = (await import("@/server/app")).buildApp();
   const { signSession } = await import("@/lib/auth");
-  cookie = `rs_session=${await signSession(USER, WS)}`;
+  cookie = `session=${await signSession(USER, WS)}`;
   gate = await import("@/lib/license/gate");
   ({ closeQueue } = await import("@/lib/queue/client"));
 });

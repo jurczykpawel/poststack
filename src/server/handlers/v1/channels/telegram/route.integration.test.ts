@@ -16,7 +16,7 @@ vi.mock("@/lib/queue/client", () => ({
 }));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_tg_drain_test_key_0123456789";
+const RAW_KEY = "sk_live_tg_drain_test_key_0123456789";
 const TOKEN = "123456789:AAAAAAAAAAAAAAAAAAAAAAAA";
 
 let db: typeof import("@/lib/db").db;
@@ -53,7 +53,7 @@ beforeEach(async () => {
   await db.insert(s.apiKeys).values({
     workspace_id: WS, name: "k",
     key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-    key_prefix: "rs_live_tg_dr",
+    key_prefix: "sk_live_tg_dr",
   });
   await db.insert(s.channels).values({
     id: CH, workspace_id: WS, platform: "telegram", platform_id: BOT,

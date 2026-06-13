@@ -27,7 +27,7 @@ beforeAll(async () => {
   ({ signSession } = await import("@/lib/auth"));
   gate = await import("@/lib/license/gate");
   ({ closeQueue } = await import("@/lib/queue/client"));
-  cookie = `rs_session=${await signSession(USER, WS)}`;
+  cookie = `session=${await signSession(USER, WS)}`;
 });
 
 beforeEach(async () => {
@@ -75,7 +75,7 @@ describe("POST /api/v1/api-keys — api_access PRO gate", () => {
     const res = await route.POST(postKey());
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.data.key).toMatch(/^rs_live_/);
+    expect(body.data.key).toMatch(/^sk_live_/);
   });
 
   it("accepts the new sources:read / sources:write scopes", async () => {

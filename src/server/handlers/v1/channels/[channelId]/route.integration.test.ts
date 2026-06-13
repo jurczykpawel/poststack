@@ -11,7 +11,7 @@ vi.mock("@/lib/queue/client", () => ({
 }));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const RAW_KEY = "rs_live_channel_route_key_abcdef01";
+const RAW_KEY = "sk_live_channel_route_key_abcdef01";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -46,7 +46,7 @@ beforeEach(async () => {
   ]);
   await db.insert(s.apiKeys).values({
     workspace_id: WS_A, name: "A key",
-    key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "rs_live_ch",
+    key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_ch",
   });
   await db.insert(s.channels).values({
     id: CH_A, workspace_id: WS_A, platform: "instagram", platform_id: "PG-CH-A",
@@ -114,10 +114,10 @@ describe("channel DELETE with a sequence enrollment (real Postgres)", () => {
 describe("channel PATCH/DELETE is workspace-scoped (real Postgres)", () => {
   it("a key from another workspace cannot rename the channel (404, unchanged)", async () => {
     if (!TEST_DB) return;
-    const bKey = "rs_live_channel_route_key_otherws1";
+    const bKey = "sk_live_channel_route_key_otherws1";
     await db.insert(s.apiKeys).values({
       workspace_id: WS_B, name: "B key",
-      key_hash: createHash("sha256").update(bKey).digest("hex"), key_prefix: "rs_live_ch",
+      key_hash: createHash("sha256").update(bKey).digest("hex"), key_prefix: "sk_live_ch",
     });
     const res = await PATCH(
       new Request("http://x/api/v1/channels/x", {
