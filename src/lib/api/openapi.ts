@@ -201,6 +201,12 @@ export const openApiSpec = {
           "application/json": { schema: { $ref: "#/components/schemas/Error" } },
         },
       },
+      ProRequired: {
+        description: "A PRO license is required for this feature",
+        content: {
+          "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+        },
+      },
     },
   },
   paths: {
@@ -420,6 +426,55 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Connect token issued" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/sources": {
+      get: {
+        tags: ["Channels"],
+        summary: "List managed connections (Meta master tokens) and their derived channels — PRO",
+        responses: {
+          "200": { description: "Managed connections" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+        },
+      },
+      post: {
+        tags: ["Channels"],
+        summary: "Connect/reconnect a managed connection from a pasted User/System-User token — PRO",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["token"], properties: { token: { type: "string" } } } } } },
+        responses: {
+          "201": { description: "Connected; all Pages + linked Instagram minted as derived channels" },
+          "400": { description: "Token rejected (foreign app / invalid / expired / wrong type / missing scope)" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "422": { description: "Validation error" },
+        },
+      },
+    },
+    "/sources/{sourceId}": {
+      delete: {
+        tags: ["Channels"],
+        summary: "Remove a managed connection (derived channels survive as standalone) — PRO",
+        parameters: [{ name: "sourceId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Removed" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/sources/{sourceId}/sync": {
+      post: {
+        tags: ["Channels"],
+        summary: "Re-enumerate a managed connection now (new Pages/IG appear) — PRO",
+        parameters: [{ name: "sourceId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Synced" },
+          "400": { description: "Master token invalid — reconnect with a fresh token" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "404": { $ref: "#/components/responses/NotFound" },
         },
       },
     },

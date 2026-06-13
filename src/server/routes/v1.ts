@@ -5,6 +5,9 @@ import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/r
 import * as channelPosts from "@/server/handlers/v1/channels/[channelId]/posts/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
+import * as sources from "@/server/handlers/v1/sources/route";
+import * as source from "@/server/handlers/v1/sources/[sourceId]/route";
+import * as sourceSync from "@/server/handlers/v1/sources/[sourceId]/sync/route";
 import * as contacts from "@/server/handlers/v1/contacts/route";
 import * as contact from "@/server/handlers/v1/contacts/[contactId]/route";
 import * as conversations from "@/server/handlers/v1/conversations/route";
@@ -48,6 +51,16 @@ v1.post("/channels/:channelId/drain", (c) =>
 );
 v1.get("/channels/:channelId/posts", (c) =>
   channelPosts.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+
+// Managed connections (Meta managed connection — one master token → all Pages + IG)
+v1.get("/sources", (c) => sources.GET(c.req.raw));
+v1.post("/sources", (c) => sources.POST(c.req.raw));
+v1.delete("/sources/:sourceId", (c) =>
+  source.DELETE(c.req.raw, { params: Promise.resolve({ sourceId: c.req.param("sourceId") }) }),
+);
+v1.post("/sources/:sourceId/sync", (c) =>
+  sourceSync.POST(c.req.raw, { params: Promise.resolve({ sourceId: c.req.param("sourceId") }) }),
 );
 
 // Contacts
