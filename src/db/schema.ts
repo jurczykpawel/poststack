@@ -8,7 +8,8 @@ export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 
 export const auditActorType = pgEnum("audit_actor_type", ['user', 'api_key', 'system'])
 export const broadcastRecipientStatus = pgEnum("broadcast_recipient_status", ['pending', 'sent', 'delivered', 'failed'])
 export const broadcastStatus = pgEnum("broadcast_status", ['draft', 'scheduled', 'sending', 'completed', 'cancelled'])
-export const channelConnectionMode = pgEnum("channel_connection_mode", ['oauth', 'manual_token'])
+export const channelConnectionMode = pgEnum("channel_connection_mode", ['oauth', 'manual_token', 'derived'])
+export const accountSourceStatus = pgEnum("account_source_status", ['active', 'needs_reauth', 'disabled'])
 export const channelStatus = pgEnum("channel_status", ['active', 'needs_reauth', 'paused', 'disabled'])
 export const conversationStatus = pgEnum("conversation_status", ['open', 'closed', 'snoozed'])
 export const flowSessionStatus = pgEnum("flow_session_status", ['active', 'completed', 'expired', 'cancelled'])
@@ -89,6 +90,37 @@ export const conversations = pgTable("conversations", {
 		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
+// A "master" Meta connection (PRO managed_connection): one user / system-user token that
+// enumerates the account's Pages + linked Instagram and mints a derived channel per account.
+// The token is kept (encrypted) so we can re-enumerate (auto-sync), monitor its data-access wall,
+// and cascade health to the derived channels. NOT used by the free single-channel connect.
+export const accountSources = pgTable("account_sources", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	provider: text().notNull(), // "meta"
+	provider_account_id: text("provider_account_id").notNull(), // FB user / system-user id
+	display_name: text("display_name"),
+	kind: text().notNull(), // "user" | "system_user" — drives expiry monitoring (user has a 90d wall)
+	token_encrypted: text("token_encrypted").notNull(),
+	status: accountSourceStatus().default('active').notNull(),
+	needs_reauth_reason: text("needs_reauth_reason"),
+	// The ~90-day data-access wall (user tokens). NULL for system-user "Never" tokens = no wall.
+	data_access_expires_at: timestamp("data_access_expires_at", { precision: 3, mode: 'date' }),
+	last_synced_at: timestamp("last_synced_at", { precision: 3, mode: 'date' }),
+	last_error: text("last_error"),
+	metadata: jsonb().default({}).notNull(), // { scopes: [...] }
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	index("account_sources_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	uniqueIndex("account_sources_workspace_provider_account_key").using("btree", table.workspace_id.asc().nullsLast(), table.provider.asc().nullsLast(), table.provider_account_id.asc().nullsLast()),
+	foreignKey({
+			columns: [table.workspace_id],
+			foreignColumns: [workspaces.id],
+			name: "account_sources_workspace_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
 export const channels = pgTable("channels", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
@@ -109,9 +141,18 @@ export const channels = pgTable("channels", {
 	last_health_at: timestamp("last_health_at", { precision: 3, mode: 'date' }),
 	status: channelStatus().default('active').notNull(),
 	connection_mode: channelConnectionMode("connection_mode").default('oauth').notNull(),
+	// Set on `derived` channels minted from a managed connection (account_sources). NULL for
+	// directly-connected channels (oauth / manual_token). onDelete=set null keeps a channel
+	// (and its data) if its master source is removed.
+	source_id: uuid("source_id"),
+	// Surfaced from debug_token so the panel can show a badge + the proactive expiry cron can scan
+	// without decrypting every token. NULL = no/unknown expiry (e.g. permanent page/system-user token).
+	token_expires_at: timestamp("token_expires_at", { precision: 3, mode: 'date' }),
+	data_access_expires_at: timestamp("data_access_expires_at", { precision: 3, mode: 'date' }),
 }, (table) => [
 	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
 	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	index("channels_source_id_idx").using("btree", table.source_id.asc().nullsLast()),
 	// Unique per (workspace, platform, platform_id) — a superset of the old
 	// (workspace_id, platform_id) key, so adding it never fails on existing data.
 	// Adding `platform` stops a numeric id colliding across platforms (e.g. a FB
@@ -131,6 +172,11 @@ export const channels = pgTable("channels", {
 			foreignColumns: [workspaces.id],
 			name: "channels_workspace_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.source_id],
+			foreignColumns: [accountSources.id],
+			name: "channels_source_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
 export const workspaces = pgTable("workspaces", {
