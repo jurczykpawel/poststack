@@ -12,6 +12,8 @@ import {
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
+import { BRAND } from "@/lib/brand";
+import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from "@/lib/license/gate";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import type { Feature } from "@/lib/license/features";
@@ -523,7 +525,7 @@ function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolea
       <label class="muted" style="font-size:.75rem">Custom headers — one <code>Key: Value</code> per line (encrypted at rest)${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</label>
       <textarea class="textarea mono" name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy"></textarea>
       <label class="muted" style="font-size:.75rem">Extra payload fields — JSON, supports {{type}} {{display_name}} {{days_left}} {{detail}} {{expires_at}}</label>
-      <textarea class="textarea mono" name="extra" rows="3" placeholder='{ "to": "ops@example.com", "subject": "ReplyStack: {{type}} ({{days_left}}d)" }'>${extraJson}</textarea>
+      <textarea class="textarea mono" name="extra" rows="3" placeholder='{ "to": "ops@example.com", "subject": "${BRAND.name}: {{type}} ({{days_left}}d)" }'>${extraJson}</textarea>
       <label class="muted" style="font-size:.75rem">Only send these standard fields (comma list, blank = all)</label>
       <input class="input mono" name="selection" placeholder="type, display_name, detail" value="${selection}" />
       <div class="row" style="gap:.5rem">
@@ -570,7 +572,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl } = await getInstanceLicense();
     const ov = await loadOverview(a.workspaceId);
-    return c.html(dashboardDoc("Overview · ReplyStack", "/overview", renderOverview(ov, features, upgradeUrl), features));
+    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl), features));
   });
 
   // Inbox — seeing individual conversations is the PRO contacts-CRM surface.
@@ -580,7 +582,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, upgradeUrl } = await getInstanceLicense();
     if (!features.has("contacts_crm")) {
       return c.html(
-        dashboardDoc("Inbox · ReplyStack", "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Inbox" }), "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features),
       );
     }
     const filter = parseConvFilter(c.req.query("filter"));
@@ -591,7 +593,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     ]);
     return c.html(
       dashboardDoc(
-        "Inbox · ReplyStack",
+        t("title.suffix", { section: "Inbox" }),
         "/inbox",
         html`<div class="inbox">
           <div id="conv-panel" class="conv-list">${renderConvPanel(conversations, filter, channelId, chans)}</div>
@@ -700,7 +702,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const errorKey = c.req.query("error");
     return c.html(
       dashboardDoc(
-        "Channels · ReplyStack",
+        t("title.suffix", { section: "Channels" }),
         "/channels",
         html`<div class="page">
           <h1>Channels</h1>
@@ -886,14 +888,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, upgradeUrl } = await getInstanceLicense();
     if (!features.has("contacts_crm")) {
       return c.html(
-        dashboardDoc("Contacts · ReplyStack", "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Contacts" }), "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features),
       );
     }
     const chans = await loadInboxChannels(a.workspaceId);
     const platforms = [...new Set(chans.map((ch) => ch.platform))];
     return c.html(
       dashboardDoc(
-        "Contacts · ReplyStack",
+        t("title.suffix", { section: "Contacts" }),
         "/contacts",
         html`<div class="page" style="max-width:900px">
           <h1>Contacts</h1>
@@ -928,10 +930,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, upgradeUrl } = await getInstanceLicense();
     if (!features.has("contacts_crm")) {
       return c.html(
-        dashboardDoc("Engagement · ReplyStack", "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features),
       );
     }
-    return c.html(dashboardDoc("Engagement · ReplyStack", "/engagement", renderEngagement(await loadEngagement(a.workspaceId)), features));
+    return c.html(dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", renderEngagement(await loadEngagement(a.workspaceId)), features));
   });
 
   app.get("/contacts/list", guard, async (c) => {
@@ -1007,7 +1009,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
-        "Settings · ReplyStack",
+        t("title.suffix", { section: "Settings" }),
         "/settings",
         html`<div class="page">
           <h1>Settings</h1>
@@ -1159,7 +1161,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canReactionTrigger = features.has("reaction_trigger");
     return c.html(
       dashboardDoc(
-        "Rules · ReplyStack",
+        t("title.suffix", { section: "Rules" }),
         "/rules",
         html`<div class="page">
           <h1>Rules</h1>
@@ -1379,7 +1381,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features } = await getInstanceLicense();
     return c.html(
       dashboardDoc(
-        "Approvals · ReplyStack",
+        t("title.suffix", { section: "Approvals" }),
         "/approvals",
         html`<div class="page">
           <h1>Approvals</h1>
@@ -1418,12 +1420,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // the builder form, so a free instance sees a clear upsell rather than an empty builder.
     if (!features.has("sequences")) {
       return c.html(
-        dashboardDoc("Sequences · ReplyStack", "/sequences", proLockMain("Sequences", html`Automated drip message sequences are a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Sequences" }), "/sequences", proLockMain("Sequences", html`Automated drip message sequences are a PRO feature.`, upgradeUrl), features),
       );
     }
     return c.html(
       dashboardDoc(
-        "Sequences · ReplyStack",
+        t("title.suffix", { section: "Sequences" }),
         "/sequences",
         html`<div class="page">
           <h1>Sequences</h1>

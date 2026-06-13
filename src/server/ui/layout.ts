@@ -2,6 +2,7 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { CSS } from "./styles";
 import { env } from "@/lib/env";
+import { BRAND } from "@/lib/brand";
 import type { Feature } from "@/lib/license/features";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -48,7 +49,7 @@ export function dashboardDoc(title: string, active: string, content: Html, featu
     title,
     html`<div class="app">
   <aside class="sidebar">
-    <div class="brand">ReplyStack</div>
+    <div class="brand">${BRAND.name}</div>
     <nav class="nav">
       ${NAV.map((n) =>
         n.feature && !features.has(n.feature)

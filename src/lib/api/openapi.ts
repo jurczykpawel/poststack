@@ -1,14 +1,16 @@
 /**
- * OpenAPI 3.1 specification for ReplyStack API v1.
+ * OpenAPI 3.1 specification for the API v1.
  *
  * Add new endpoints here as they are implemented.
  * Served at GET /api/v1 (JSON) and GET /api/docs (Scalar UI).
  */
 
+import { BRAND } from "@/lib/brand";
+
 export const openApiSpec = {
   openapi: "3.1.0",
   info: {
-    title: "ReplyStack API",
+    title: `${BRAND.name} API`,
     version: "1.0.0",
     description:
       "Self-hosted social media inbox automation API. " +

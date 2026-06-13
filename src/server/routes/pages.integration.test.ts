@@ -5,6 +5,7 @@ import {
 } from "@/db/schema";
 import type { Hono } from "hono";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
+import { BRAND } from "@/lib/brand";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const EMAIL = "hono-pages@example.test";
@@ -107,7 +108,7 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("Select a conversation");
-    expect(body).toContain("ReplyStack");
+    expect(body).toContain(BRAND.name);
   });
 
   it("renders a seeded conversation and its thread, and accepts a reply", async () => {

@@ -1,11 +1,12 @@
 import { serve } from "@hono/node-server";
 import { buildApp } from "./app";
 import { closeQueue } from "@/lib/queue/client";
+import { BRAND } from "@/lib/brand";
 
 const port = Number(process.env.PORT) || 3000;
 
 const server = serve({ fetch: buildApp().fetch, port }, (info) => {
-  console.log(`[server] ReplyStack listening on http://localhost:${info.port}`);
+  console.log(`[server] ${BRAND.name} listening on http://localhost:${info.port}`);
 });
 
 // Graceful shutdown. On deploy/stop the orchestrator sends SIGTERM; without a handler the

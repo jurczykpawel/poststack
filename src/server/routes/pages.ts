@@ -6,6 +6,8 @@ import * as logout from "@/server/handlers/auth/logout/route";
 import { doc } from "../ui/layout";
 import { requireSession } from "../middleware/page-auth";
 import { registerDashboard } from "./dashboard";
+import { BRAND } from "@/lib/brand";
+import { t } from "@/lib/i18n";
 
 export const pages = new Hono();
 
@@ -30,7 +32,7 @@ function authPage(opts: { title: string; subtitle: string; action: string; submi
   return doc(
     opts.title,
     html`<div class="auth-wrap"><div class="auth-box">
-  <div class="auth-head"><h1 style="font-size:1.5rem">ReplyStack</h1><p class="muted">${opts.subtitle}</p></div>
+  <div class="auth-head"><h1 style="font-size:1.5rem">${BRAND.name}</h1><p class="muted">${opts.subtitle}</p></div>
   <form class="stack" hx-post="${opts.action}" hx-ext="json-enc" hx-target="#auth-error" hx-swap="innerHTML">
     ${opts.nameField
       ? html`<div><label class="label">Name</label><input class="input" type="text" name="name" autocomplete="name" /></div>`
@@ -53,7 +55,7 @@ pages.get("/", (c) => c.redirect("/overview"));
 pages.get("/login", (c) =>
   c.html(
     authPage({
-      title: "Sign in · ReplyStack",
+      title: t("title.signIn"),
       subtitle: "Sign in to your account",
       action: "/login",
       submit: "Sign in",
@@ -66,7 +68,7 @@ pages.get("/login", (c) =>
 pages.get("/register", (c) =>
   c.html(
     authPage({
-      title: "Register · ReplyStack",
+      title: t("title.register"),
       subtitle: "Create your account",
       action: "/register",
       submit: "Create account",

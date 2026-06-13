@@ -3,11 +3,12 @@ import { sql } from "drizzle-orm";
 import { createChallenge } from "altcha-lib";
 import { db } from "@/lib/db";
 import { openApiSpec } from "@/lib/api/openapi";
+import { t } from "@/lib/i18n";
 
 const DOCS_HTML = `<!doctype html>
 <html>
   <head>
-    <title>ReplyStack API Docs</title>
+    <title>${t("apiDocs.title")}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
