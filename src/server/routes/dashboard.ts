@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, outboundDeliveries, accountSources, commentLogs,
+  pendingApprovals, accountSources, commentLogs,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
@@ -18,14 +18,11 @@ import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from 
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
-import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
-import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
 import * as sources from "@/server/handlers/v1/sources/route";
 import * as source from "@/server/handlers/v1/sources/[sourceId]/route";
 import * as sourceSync from "@/server/handlers/v1/sources/[sourceId]/sync/route";
-import { pollYouTubeChannel } from "@/lib/youtube/poll";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
 import * as conversation from "@/server/handlers/v1/conversations/[conversationId]/route";
 import * as rules from "@/server/handlers/v1/rules/route";
@@ -38,6 +35,7 @@ import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { dashboardDoc } from "../ui/layout";
 import { requireSameOrigin } from "../middleware/same-origin";
+import { registerChannels } from "../ui/sections/channels";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -353,57 +351,6 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 // ─── channels ─────────────────────────────────────────────────────────────────
 
 const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube" };
-const CHANNEL_ERRORS: Record<string, string> = {
-  access_denied: "Access denied — you cancelled the connection.",
-  no_pages: "No Facebook Pages found. Make sure you manage at least one Page.",
-  no_ig_accounts: "No Instagram Business accounts found linked to your Pages.",
-  oauth_failed: "Connection failed. Please try again.",
-  invalid_state: "Invalid request state. Please try again.",
-  missing_params: "Missing parameters from platform. Please try again.",
-  pro_required: "That channel needs a PRO license.",
-  yt_no_refresh: "YouTube didn't return offline access — try again and keep the consent checkboxes ticked.",
-  yt_no_channel: "No YouTube channel found on that Google account.",
-};
-
-async function loadChannels(workspaceId: string) {
-  const rows = await db.query.channels.findMany({
-    where: eq(channels.workspace_id, workspaceId),
-    orderBy: asc(channels.created_at),
-    columns: {
-      id: true, platform: true, platform_id: true, display_name: true, username: true,
-      profile_picture: true, status: true, connection_mode: true,
-      token_expires_at: true, data_access_expires_at: true, source_id: true,
-    },
-  });
-  // Grouped counts for every channel in one query each, instead of a COUNT per channel (N+1 on each
-  // /channels load + after every action) — joined in memory. `unknown` deliveries are sends
-  // interrupted after dispatch (maybe-delivered): they were previously only visible in psql, so
-  // surface a per-channel count next to `held` for the operator to reconcile.
-  const ids = rows.map((r) => r.id);
-  const [heldCounts, unknownCounts] = ids.length
-    ? await Promise.all([
-        db
-          .select({ channel_id: conversations.channel_id, n: count() })
-          .from(messages)
-          .innerJoin(conversations, eq(messages.conversation_id, conversations.id))
-          .where(and(eq(messages.status, "held"), inArray(conversations.channel_id, ids)))
-          .groupBy(conversations.channel_id),
-        db
-          .select({ channel_id: outboundDeliveries.channel_id, n: count() })
-          .from(outboundDeliveries)
-          .where(and(eq(outboundDeliveries.status, "unknown"), inArray(outboundDeliveries.channel_id, ids)))
-          .groupBy(outboundDeliveries.channel_id),
-      ])
-    : [[], []];
-  const heldByChannel = new Map(heldCounts.map((h) => [h.channel_id, Number(h.n)]));
-  const unknownByChannel = new Map(unknownCounts.map((u) => [u.channel_id, Number(u.n)]));
-  return rows.map((ch) => ({
-    ...ch,
-    held_count: heldByChannel.get(ch.id) ?? 0,
-    unknown_count: unknownByChannel.get(ch.id) ?? 0,
-  }));
-}
-
 /**
  * A passive expiry hint for a channel (shown in the panel on both tiers — free must watch it
  * manually, PRO also gets proactive alerts). Returns the soonest of the token-death and the
@@ -417,25 +364,6 @@ function expiryNote(tokenExpiresAt: Date | null, dataAccessExpiresAt: Date | nul
   if (days < 0) return " · ⛔ access expired — reconnect";
   if (days <= 14) return ` · ⏳ expires in ${days} day${days === 1 ? "" : "s"}`;
   return "";
-}
-
-function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, error?: string): Html {
-  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (channels.length === 0) return html`${notice}<p class="muted">No channels connected yet.</p>`;
-  return html`${notice}<div class="list">${channels.map(
-    (ch) => html`<div class="list-row">
-      ${ch.profile_picture ? html`<img class="avatar" src="${ch.profile_picture}" alt="" />` : html``}
-      <div class="grow">
-        <div style="font-weight:600">${ch.display_name ?? ch.username ?? ch.platform_id}</div>
-        <div class="muted" style="font-size:.75rem">
-          ${PLATFORM_LABELS[ch.platform] ?? ch.platform}${ch.username ? ` · @${ch.username}` : ""}${ch.status === "needs_reauth" ? " · ⚠ Needs reconnect" : ""}${ch.status === "paused" ? " · Paused" : ""}${ch.status === "disabled" ? " · Disabled" : ""}${ch.connection_mode === "manual_token" ? " · 🔑 Long-lived token" : ""}${ch.connection_mode === "derived" ? " · 🔗 Managed" : ""}${expiryNote(ch.token_expires_at, ch.data_access_expires_at)}${ch.held_count > 0 ? ` · ${ch.held_count} held` : ""}${ch.unknown_count > 0 ? ` · ⚠ ${ch.unknown_count} unknown` : ""}
-        </div>
-      </div>
-      ${ch.held_count > 0 ? html`<button class="btn btn-sm" hx-post="/channels/${ch.id}/drain" hx-target="#channels-list" hx-swap="innerHTML">↻ Retry held</button>` : html``}
-      ${ch.platform === "youtube" ? html`<button class="btn btn-sm" title="Check for new comments now (also runs automatically every 15 min)" hx-post="/channels/${ch.id}/poll-youtube" hx-target="#channels-list" hx-swap="innerHTML">↻ Poll comments</button>` : html``}
-      <button class="btn btn-sm" hx-delete="/channels/${ch.id}" hx-target="#channels-list" hx-swap="innerHTML" hx-confirm="Disconnect this channel? Auto-replies will stop for this account.">Disconnect</button>
-    </div>`,
-  )}</div>`;
 }
 
 async function loadSources(workspaceId: string) {
@@ -686,115 +614,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderThread(conv, await loadMessages(id), { error }));
   });
 
-  // Channels
-  app.get("/channels", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const channels = await loadChannels(a.workspaceId);
-    const { features, upgradeUrl, products } = await getInstanceLicense();
-    const hasFb = channels.some((ch) => ch.platform === "facebook" && ch.status !== "disabled");
-    const hasIg = channels.some((ch) => ch.platform === "instagram" && ch.status !== "disabled");
-    const canMultiChannel = features.has("multi_channel");
-    const canNonMeta = features.has("non_meta_channels");
-    const canManaged = features.has("managed_connection");
-    const srcs = canManaged ? await loadSources(a.workspaceId) : [];
-    const connected = c.req.query("connected");
-    const count = c.req.query("count");
-    const errorKey = c.req.query("error");
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "Channels" }),
-        "/channels",
-        html`<div class="page">
-          <h1>Channels</h1>
-          <p class="muted">Connect your Facebook Pages and Instagram Business accounts.</p>
-          <details class="card" style="margin:.5rem 0 1rem">
-            <summary style="cursor:pointer;font-weight:600">App setup — OAuth redirect / callback URLs</summary>
-            <p class="muted" style="font-size:.8rem;margin:.5rem 0 .75rem">Paste these into your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a> before connecting. They are derived from your <code>APP_URL</code>.</p>
-            ${metaConfigRow("Valid OAuth Redirect URI — Facebook Login → Settings", `${env.APP_URL}/api/oauth/facebook/callback`)}
-            ${metaConfigRow("Valid OAuth Redirect URI — Instagram", `${env.APP_URL}/api/oauth/instagram/callback`)}
-            ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
-            ${metaConfigRow("Webhook callback URL — Messenger + Instagram products", `${env.APP_URL}/api/webhooks/meta`)}
-            ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
-            ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}
-            <p class="muted" style="font-size:.75rem;margin-top:.5rem">Also shown under <a href="/settings">Settings → Meta App configuration</a>.</p>
-          </details>
-          ${errorKey ? html`<div class="notice notice-err">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : html``}
-          ${connected && count ? html`<div class="notice notice-ok">${count} ${PLATFORM_LABELS[connected] ?? connected} account(s) connected.</div>` : html``}
-          <div x-data="{ token: false, tg: false }">
-            <div class="row" style="margin:1rem 0 1rem">
-              ${hasFb && !canMultiChannel
-                ? proConnectBtn("Facebook", upgradeUrl)
-                : html`<a class="btn" style="background:#1877f2;color:#fff;border:none" href="/api/oauth/facebook">+ Facebook</a>`}
-              ${hasIg && !canMultiChannel
-                ? proConnectBtn("Instagram", upgradeUrl)
-                : html`<a class="btn" style="background:#bc1888;color:#fff;border:none" href="/api/oauth/instagram">+ Instagram</a>`}
-              ${canNonMeta
-                ? html`<button class="btn" type="button" style="background:#229ED9;color:#fff;border:none" @click="tg = !tg">+ Telegram</button>`
-                : proConnectBtn("Telegram", upgradeUrl)}
-              ${canNonMeta
-                ? html`<a class="btn" style="background:#ff0000;color:#fff;border:none" href="/api/oauth/youtube" title="Connect a YouTube channel for comment automation (polled)">+ YouTube</a>`
-                : proConnectBtn("YouTube", upgradeUrl)}
-              <a class="btn" style="opacity:.6;pointer-events:none" title="Coming soon">+ Gmail — soon</a>
-              <button class="btn" type="button" @click="token = !token">Paste token</button>
-            </div>
-            ${(hasFb || hasIg) && !canMultiChannel
-              ? html`<p class="muted" style="font-size:.78rem;margin:-.5rem 0 1rem">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are ${proLink(upgradeUrl, "PRO")}.</p>`
-              : html``}
-            <div x-show="token" x-cloak class="card" style="margin-bottom:1.5rem">
-              <p class="muted" style="margin-bottom:.75rem">Connect with a long-lived / System User token (no 60-day refresh cycle).</p>
-              <form hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="#channels-list" hx-swap="innerHTML" class="stack">
-                <select class="input" name="platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select>
-                <textarea class="textarea mono" name="token" rows="3" placeholder="Paste the access token" required></textarea>
-                <button class="btn btn-primary" type="submit" style="align-self:flex-start">Connect</button>
-              </form>
-            </div>
-            <div x-show="tg" x-cloak class="card" style="margin-bottom:1.5rem">
-              <p class="muted" style="margin-bottom:.5rem">In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token (it looks like <code>1234567890:AA…</code>, not your password). We register the webhook for you.</p>
-              <form hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="#channels-list" hx-swap="innerHTML" class="stack">
-                <input class="input mono" name="token" placeholder="123456789:AA..." required />
-                <button class="btn btn-primary" type="submit" style="align-self:flex-start">Connect Telegram</button>
-              </form>
-            </div>
-          </div>
-          <div class="card" style="margin:1.5rem 0">
-            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.5rem">
-              <h2 style="margin:0">Managed connection</h2>
-              ${canManaged ? html`` : proLink(upgradeUrl, "PRO")}
-            </div>
-            <p class="muted" style="font-size:.82rem;margin-bottom:.75rem">One master token connects <strong>all</strong> your Pages + Instagram accounts at once, auto-syncs new ones, and warns you before access expires. ${canManaged ? "" : html`A free plan connects one Facebook + one Instagram manually — managed connection is ${proLink(upgradeUrl, "PRO")}.`}</p>
-            ${canManaged
-              ? html`<div x-data="{ guide: false }">
-                  <form hx-post="/channels/sources" hx-ext="json-enc" hx-target="#sources-list" hx-swap="innerHTML" class="stack" style="margin-bottom:.75rem">
-                    <textarea class="textarea mono" name="token" rows="3" placeholder="Paste a User or System User access token" required></textarea>
-                    <div class="row" style="gap:.5rem">
-                      <button class="btn btn-primary" type="submit">Connect all</button>
-                      <button class="btn btn-sm" type="button" @click="guide = !guide">How do I get a permanent token?</button>
-                    </div>
-                  </form>
-                  <div x-show="guide" x-cloak class="card" style="margin-bottom:.75rem;font-size:.8rem;line-height:1.5">
-                    <strong>Generate a permanent System User token (never expires, no 90-day wall):</strong>
-                    <ol style="margin:.4rem 0 0 1rem;padding:0">
-                      <li>Open <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">Business Manager → Business settings</a>.</li>
-                      <li>Users → <strong>System Users</strong> → Add → create an <em>Admin</em> system user.</li>
-                      <li>Assign your Pages (and the linked Instagram accounts) to it with full control.</li>
-                      <li>Click <strong>Generate new token</strong>, pick this app, set expiry to <strong>Never</strong>.</li>
-                      <li>Grant scopes: <code>pages_show_list</code>, <code>pages_messaging</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>instagram_basic</code>, <code>instagram_manage_messages</code>, <code>instagram_manage_comments</code>.</li>
-                      <li>Copy the token and paste it above. A long-lived <em>User</em> token works too, but it hits a 90-day re-login wall.</li>
-                    </ol>
-                  </div>
-                  <div id="sources-list">${renderSources(srcs)}</div>
-                </div>`
-              : html``}
-          </div>
-          <div id="channels-list">${renderChannels(channels)}</div>
-        </div>`,
-        features,
-        products,
-      ),
-    );
-  });
-
   app.post("/channels/sources", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -817,70 +636,31 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not remove this connection.")));
   });
 
-  app.delete("/channels/:id", guard, async (c) => {
-    const id = c.req.param("id");
-    const res = await channel.DELETE(c.req.raw, { params: Promise.resolve({ channelId: id }) }).catch(() => null);
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderChannels(await loadChannels(a.workspaceId), await noticeFrom(res, "Could not disconnect the channel.")));
-  });
-
-  app.post("/channels/:id/drain", guard, async (c) => {
-    const id = c.req.param("id");
-    const res = await channelDrain.POST(c.req.raw, { params: Promise.resolve({ channelId: id }) }).catch(() => null);
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderChannels(await loadChannels(a.workspaceId), await noticeFrom(res, "Could not retry held messages.")));
-  });
-
-  // Manual "poll now" for a YouTube channel (no comment webhook → on-demand + the 15-min cron).
-  app.post("/channels/:id/poll-youtube", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const id = c.req.param("id");
-    const ch = await db.query.channels.findFirst({
-      where: and(eq(channels.id, id), eq(channels.workspace_id, a.workspaceId), eq(channels.platform, "youtube")),
-      columns: { id: true },
-    });
-    let notice: string | undefined;
-    if (!ch) {
-      notice = "Not a YouTube channel.";
-    } else {
-      try {
-        const r = await pollYouTubeChannel(id);
-        notice = r.notModified
-          ? "No new comments since the last check."
-          : `Polled — ${r.ingested} new comment${r.ingested === 1 ? "" : "s"}.`;
-      } catch {
-        notice = "Couldn't poll YouTube — check the channel connection.";
-      }
-    }
-    const list = renderChannels(await loadChannels(a.workspaceId));
-    return c.html(html`${notice ? html`<div class="notice notice-ok">${notice}</div>` : html``}${list}`);
-  });
-
+  // Connect a channel with a pasted long-lived / System User token. On success the unified channels
+  // page reloads (HX-Redirect); on failure a small inline error is returned (no list — the list lives
+  // on the dedicated /channels page now).
   app.post("/channels/connect-token", guard, async (c) => {
     const res = await channelConnectToken.POST(c.req.raw);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const list = renderChannels(await loadChannels(a.workspaceId));
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
-      return c.html(html`<div class="notice notice-err">${body?.error?.message ?? "Could not connect with this token."}</div>${list}`);
+      return c.html(html`<div class="auth-error">${body?.error?.message ?? "Could not connect with this token."}</div>`);
     }
-    return c.html(list);
+    c.header("HX-Redirect", "/channels");
+    return c.body(null, 200);
   });
 
   app.post("/channels/telegram/connect", guard, async (c) => {
     const res = await channelTelegram.POST(c.req.raw);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const list = renderChannels(await loadChannels(a.workspaceId));
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
-      return c.html(html`<div class="notice notice-err">${body?.error?.message ?? "Could not connect the Telegram bot."}</div>${list}`);
+      return c.html(html`<div class="auth-error">${body?.error?.message ?? "Could not connect the Telegram bot."}</div>`);
     }
-    return c.html(list);
+    c.header("HX-Redirect", "/channels");
+    return c.body(null, 200);
   });
 
   // Contacts — the customer CRM; seeing individual people is PRO.
@@ -1525,6 +1305,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     return c.html(renderSequences(await loadSequences(a.workspaceId), await noticeFrom(res, "Could not delete the sequence.")));
   });
+
+  // Unified publishing sections (UNIFY1 Phase 3) — mounted on the same origin+session guard.
+  registerChannels(app, guard);
 }
 
 // jsonReqMethod allows non-POST verbs for delegated handlers (PATCH).
@@ -1662,11 +1445,6 @@ function metaConfigRow(label: string, value: string): Html {
 
 function proLink(upgradeUrl: string, label = "PRO"): Html {
   return html`<a href="${upgradeUrl}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none;white-space:nowrap">🔒 ${label}</a>`;
-}
-
-// A connect button that is locked behind PRO — links to the upgrade page instead of connecting.
-function proConnectBtn(label: string, upgradeUrl: string): Html {
-  return html`<a class="btn" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 ${label} (PRO)</a>`;
 }
 
 // Full-page upsell shown when a free instance opens a PRO-only view (inbox / contacts).

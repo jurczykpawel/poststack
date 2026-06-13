@@ -354,21 +354,14 @@ describe("channels — managed connection section", () => {
     }) as typeof fetch;
   }
 
-  it("renders the managed-connection section + System User guide on PRO", async () => {
+  it("the unified channels page links to the managed-connection section + offers connect buttons", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/channels", { headers: { cookie } })).text();
-    expect(body).toContain("Managed connection");
-    expect(body).toContain("System User token"); // the guide CTA
-  });
-
-  it("shows the Meta callback / redirect URLs on /channels (not just Settings)", async () => {
-    if (!TEST_DB) return;
-    const body = await (await app.request("/channels", { headers: { cookie } })).text();
-    expect(body).toContain("OAuth redirect / callback URLs");
-    expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
-    expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
-    expect(body).toContain("http://localhost:3000/api/oauth/youtube/callback"); // YouTube redirect URI
-    expect(body).toContain("http://localhost:3000/api/webhooks/meta");
+    // Managed connection moved to its own /sources section (UNIFY1 Task 5); the channels page links to it.
+    expect(body).toContain('href="/sources"');
+    expect(body).toContain("+ Facebook");
+    expect(body).toContain("+ Instagram");
+    expect(body).toContain("Connect a token manually");
   });
 
   it("connecting a master token renders the source with its derived channels", async () => {
