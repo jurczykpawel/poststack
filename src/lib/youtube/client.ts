@@ -7,7 +7,60 @@
 
 const YT_API = "https://www.googleapis.com/youtube/v3";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+// force-ssl is required to read + reply to comments as the channel owner.
+export const YOUTUBE_OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl";
 const TIMEOUT_MS = 15_000;
+
+/** Build the Google consent URL. access_type=offline + prompt=consent guarantee a refresh_token. */
+export function googleAuthUrl(opts: { clientId: string; redirectUri: string; state: string }): string {
+  const params = new URLSearchParams({
+    client_id: opts.clientId,
+    redirect_uri: opts.redirectUri,
+    response_type: "code",
+    scope: YOUTUBE_OAUTH_SCOPE,
+    access_type: "offline",
+    prompt: "consent",
+    include_granted_scopes: "true",
+    state: opts.state,
+  });
+  return `${GOOGLE_AUTH_URL}?${params}`;
+}
+
+/** Exchange an authorization code for tokens (access + refresh). */
+export async function exchangeGoogleCode(opts: {
+  code: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ accessToken: string; refreshToken: string | null; expiresAt: number }> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const res = await fetchImpl(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: opts.code,
+      client_id: opts.clientId,
+      client_secret: opts.clientSecret,
+      redirect_uri: opts.redirectUri,
+    }),
+    redirect: "error",
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new YouTubeApiError(res.status, `Google code exchange ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
+  if (!data.access_token) throw new YouTubeApiError(500, "Google code exchange returned no access_token");
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? null,
+    expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in ?? 3600),
+  };
+}
 
 export interface YtComment {
   /** commentThread id. */

@@ -3,6 +3,7 @@ import type { SocialProvider } from "./base";
 import { FacebookProvider } from "./facebook";
 import { InstagramProvider } from "./instagram";
 import { TelegramProvider } from "./telegram";
+import { YouTubeProvider } from "./youtube";
 
 const providerFactories: Partial<Record<Platform, () => SocialProvider>> = {};
 
@@ -35,3 +36,4 @@ export function getSupportedPlatforms(): Platform[] {
 registerProvider("facebook", () => new FacebookProvider());
 registerProvider("instagram", () => new InstagramProvider());
 registerProvider("telegram", () => new TelegramProvider());
+registerProvider("youtube", () => new YouTubeProvider());

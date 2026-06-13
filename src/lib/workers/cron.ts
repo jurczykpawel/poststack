@@ -6,6 +6,7 @@ import { enforceApiKeyLicense } from "@/lib/license/api-key-enforcement";
 import { sweepAccountSources } from "@/lib/channels/account-source";
 import { sweepChannelHealth } from "@/lib/channels/health-sweep";
 import { scanExpiringConnections } from "@/lib/channels/expiry-scan";
+import { sweepYouTubeChannels } from "@/lib/youtube/poll";
 
 /**
  * Cron-only maintenance tasks. These are NOT enqueued via addJob — graphile-worker drives them
@@ -50,6 +51,11 @@ export const cronTaskList = {
   "managed-expiry-scan": async () => {
     await scanExpiringConnections();
   },
+  // YouTube has no comment webhook, so poll each active YouTube channel on a schedule. Quota-cheap:
+  // an unchanged channel returns 304 (zero quota); the manual "Poll now" button covers urgency.
+  "youtube-comment-poll": async () => {
+    await sweepYouTubeChannels();
+  },
 };
 
 /** graphile-worker crontab. Every line's trailing token must be a key in {@link cronTaskList}. */
@@ -61,4 +67,5 @@ export const CRONTAB = [
   "0 4 * * * source-sync-sweep",
   "20 * * * * channel-health-sweep",
   "30 4 * * * managed-expiry-scan",
+  "*/15 * * * * youtube-comment-poll",
 ].join("\n");

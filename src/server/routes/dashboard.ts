@@ -23,6 +23,7 @@ import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
 import * as sources from "@/server/handlers/v1/sources/route";
 import * as source from "@/server/handlers/v1/sources/[sourceId]/route";
 import * as sourceSync from "@/server/handlers/v1/sources/[sourceId]/sync/route";
+import { pollYouTubeChannel } from "@/lib/youtube/poll";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
 import * as conversation from "@/server/handlers/v1/conversations/[conversationId]/route";
 import * as rules from "@/server/handlers/v1/rules/route";
@@ -280,7 +281,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 
 // ─── channels ─────────────────────────────────────────────────────────────────
 
-const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram" };
+const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube" };
 const CHANNEL_ERRORS: Record<string, string> = {
   access_denied: "Access denied — you cancelled the connection.",
   no_pages: "No Facebook Pages found. Make sure you manage at least one Page.",
@@ -288,6 +289,9 @@ const CHANNEL_ERRORS: Record<string, string> = {
   oauth_failed: "Connection failed. Please try again.",
   invalid_state: "Invalid request state. Please try again.",
   missing_params: "Missing parameters from platform. Please try again.",
+  pro_required: "That channel needs a PRO license.",
+  yt_no_refresh: "YouTube didn't return offline access — try again and keep the consent checkboxes ticked.",
+  yt_no_channel: "No YouTube channel found on that Google account.",
 };
 
 async function loadChannels(workspaceId: string) {
@@ -357,6 +361,7 @@ function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, erro
         </div>
       </div>
       ${ch.held_count > 0 ? html`<button class="btn btn-sm" hx-post="/channels/${ch.id}/drain" hx-target="#channels-list" hx-swap="innerHTML">↻ Retry held</button>` : html``}
+      ${ch.platform === "youtube" ? html`<button class="btn btn-sm" title="Check for new comments now (also runs automatically every 15 min)" hx-post="/channels/${ch.id}/poll-youtube" hx-target="#channels-list" hx-swap="innerHTML">↻ Poll comments</button>` : html``}
       <button class="btn btn-sm" hx-delete="/channels/${ch.id}" hx-target="#channels-list" hx-swap="innerHTML" hx-confirm="Disconnect this channel? Auto-replies will stop for this account.">Disconnect</button>
     </div>`,
   )}</div>`;
@@ -645,6 +650,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               ${canNonMeta
                 ? html`<button class="btn" type="button" style="background:#229ED9;color:#fff;border:none" @click="tg = !tg">+ Telegram</button>`
                 : proConnectBtn("Telegram", upgradeUrl)}
+              ${canNonMeta
+                ? html`<a class="btn" style="background:#ff0000;color:#fff;border:none" href="/api/oauth/youtube" title="Connect a YouTube channel for comment automation (polled)">+ YouTube</a>`
+                : proConnectBtn("YouTube", upgradeUrl)}
               <a class="btn" style="opacity:.6;pointer-events:none" title="Coming soon">+ Gmail — soon</a>
               <button class="btn" type="button" @click="token = !token">Paste token</button>
             </div>
@@ -740,6 +748,32 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     return c.html(renderChannels(await loadChannels(a.workspaceId), await noticeFrom(res, "Could not retry held messages.")));
+  });
+
+  // Manual "poll now" for a YouTube channel (no comment webhook → on-demand + the 15-min cron).
+  app.post("/channels/:id/poll-youtube", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const ch = await db.query.channels.findFirst({
+      where: and(eq(channels.id, id), eq(channels.workspace_id, a.workspaceId), eq(channels.platform, "youtube")),
+      columns: { id: true },
+    });
+    let notice: string | undefined;
+    if (!ch) {
+      notice = "Not a YouTube channel.";
+    } else {
+      try {
+        const r = await pollYouTubeChannel(id);
+        notice = r.notModified
+          ? "No new comments since the last check."
+          : `Polled — ${r.ingested} new comment${r.ingested === 1 ? "" : "s"}.`;
+      } catch {
+        notice = "Couldn't poll YouTube — check the channel connection.";
+      }
+    }
+    const list = renderChannels(await loadChannels(a.workspaceId));
+    return c.html(html`${notice ? html`<div class="notice notice-ok">${notice}</div>` : html``}${list}`);
   });
 
   app.post("/channels/connect-token", guard, async (c) => {
