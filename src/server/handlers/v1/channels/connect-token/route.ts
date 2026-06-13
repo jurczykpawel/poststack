@@ -1,5 +1,6 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
+import { MetaTokenError } from "@/lib/platforms/meta-token";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { created, ApiErrors } from "@/lib/api/response";
@@ -32,7 +33,10 @@ export async function POST(request: Request) {
   let accounts;
   try {
     accounts = await provider.connectWithToken(parsed.data.token);
-  } catch {
+  } catch (err) {
+    // A MetaTokenError carries a specific, user-facing reason (foreign app / invalid / expired /
+    // missing scope) — surface it. Anything else stays a generic message.
+    if (err instanceof MetaTokenError) return ApiErrors.badRequest(err.message);
     return ApiErrors.badRequest("Token validation failed — check the token and its permissions");
   }
   if (accounts.length === 0) {

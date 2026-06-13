@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+// The route imports MetaTokenError from meta-token, which loads + validates env at module top.
+// This unit test mocks everything else, so stub env too (the error class doesn't read it).
+vi.mock("@/lib/env", () => ({ env: { META_APP_ID: "test-app-id", META_APP_SECRET: "test-secret" } }));
+
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ authenticateWithScope: (...a: unknown[]) => mockAuth(...a) }));
 
@@ -76,5 +80,16 @@ describe("POST /api/v1/channels/connect-token — manual token", () => {
     const res = await POST(post({ platform: "facebook", token: "x".repeat(40) }));
     expect(res.status).toBe(400);
     expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a MetaTokenError's specific reason to the client", async () => {
+    const { MetaTokenError } = await import("@/lib/platforms/meta-token");
+    mockConnectWithToken.mockRejectedValueOnce(
+      new MetaTokenError("This access token belongs to a different Facebook app. Generate a token for THIS app."),
+    );
+    const res = await POST(post({ platform: "facebook", token: "x".repeat(40) }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/different Facebook app/);
   });
 });

@@ -7,7 +7,7 @@ import {
   type SentMessage,
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
-import { assertMetaTokenBelongsToApp } from "./meta-token";
+import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
 
@@ -101,14 +101,44 @@ export class InstagramProvider extends SocialProvider {
   }
 
   /**
-   * Connect a channel with a pasted long-lived / System User token.
-   * The token resolves the linked IG business accounts; tokens are stored
-   * without an expiry so the refresh worker skips them.
+   * Connect a channel with a pasted token. Branches on the token type:
+   *  - PAGE token → connect the IG business account linked to that one Page (FREE single path).
+   *  - USER / System User token → enumerate ALL linked IG business accounts (managed path).
+   * Rejects a foreign-app / invalid / expired / under-scoped token up front with a SPECIFIC message.
    */
   override async connectWithToken(token: string): Promise<ConnectedAccount[]> {
-    // Reject a foreign-app / invalid token up front with a clear message.
-    await assertMetaTokenBelongsToApp(token);
+    const info = await inspectMetaToken(token);
+    if (info?.kind === "page") return this.fetchSingleIgAccount(token);
+    assertMetaScopes(info, ["pages_show_list", "instagram_basic"], "Instagram");
     return this.fetchIgAccounts(token);
+  }
+
+  /** Connect the IG business account linked to the single Page a PAGE token is scoped to. */
+  private async fetchSingleIgAccount(pageToken: string): Promise<ConnectedAccount[]> {
+    const res = await fetch(
+      `${GRAPH_API}/me?` +
+        new URLSearchParams({
+          access_token: pageToken,
+          fields: "id,name,instagram_business_account{id,name,username,profile_picture_url}",
+        }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to load Instagram account for this token: ${body}`);
+    }
+    const page = (await res.json()) as FbPage;
+    const ig = page.instagram_business_account;
+    if (!ig) return [];
+    return [
+      {
+        platformId: ig.id,
+        displayName: ig.name ?? ig.username,
+        username: ig.username,
+        profilePicture: ig.profile_picture_url,
+        tokens: { access_token: pageToken, page_id: page.id }, // page token, non-expiring
+      },
+    ];
   }
 
   /** Resolve IG business accounts behind a user/System User token's Pages. */

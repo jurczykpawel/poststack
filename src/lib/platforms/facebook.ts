@@ -7,7 +7,7 @@ import {
   type SentMessage,
 } from "./base";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
-import { assertMetaTokenBelongsToApp } from "./meta-token";
+import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
 
@@ -79,14 +79,40 @@ export class FacebookProvider extends SocialProvider {
   }
 
   /**
-   * Connect a channel with a pasted long-lived / System User token.
-   * The token itself resolves the managed Pages; page tokens are non-expiring.
+   * Connect a channel with a pasted token. Branches on the token type:
+   *  - PAGE token → connect exactly that one Page (the FREE single-page path).
+   *  - USER / System User token → enumerate ALL managed Pages (the managed path).
+   * Rejects a foreign-app / invalid / expired / under-scoped token up front with a SPECIFIC message
+   * (via inspectMetaToken / assertMetaScopes) instead of storing it and dead-lettering every send.
    */
   override async connectWithToken(token: string): Promise<ConnectedAccount[]> {
-    // Reject a token minted by a different app (or already invalid/expired) up front, with a clear
-    // message, instead of storing it and dead-lettering every send later.
-    await assertMetaTokenBelongsToApp(token);
+    const info = await inspectMetaToken(token);
+    if (info?.kind === "page") return this.fetchSinglePage(token);
+    // Enumeration needs a user-level token that can list the Pages.
+    assertMetaScopes(info, ["pages_show_list"], "Facebook");
     return this.fetchPageAccounts(token);
+  }
+
+  /** Connect the single Page a PAGE token is scoped to (GET /me with a page token = that page). */
+  private async fetchSinglePage(pageToken: string): Promise<ConnectedAccount[]> {
+    const res = await fetch(
+      `${GRAPH_API}/me?` +
+        new URLSearchParams({ access_token: pageToken, fields: "id,name,picture" }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to load Facebook page for this token: ${body}`);
+    }
+    const page = (await res.json()) as FbPage;
+    return [
+      {
+        platformId: page.id,
+        displayName: page.name,
+        profilePicture: page.picture?.data?.url,
+        tokens: { access_token: pageToken }, // page tokens don't expire
+      },
+    ];
   }
 
   /** Resolve the Pages a user/System User token manages → connected accounts. */
