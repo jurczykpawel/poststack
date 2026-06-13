@@ -88,6 +88,15 @@ describe("/api/v1/sources — managed_connection PRO gate", () => {
     const res = await app.request("/api/v1/sources", { headers: { cookie } });
     expect(res.status).toBe(402);
   });
+
+  it("blocks sync + delete without a PRO license (402) — consistent with GET/POST", async () => {
+    if (!TEST_DB) return;
+    const id = "a7a7a7a7-0000-0000-0000-0000000000fe";
+    const sync = await app.request(`/api/v1/sources/${id}/sync`, { method: "POST", headers: { cookie } });
+    expect(sync.status).toBe(402);
+    const del = await app.request(`/api/v1/sources/${id}`, { method: "DELETE", headers: { cookie } });
+    expect(del.status).toBe(402);
+  });
 });
 
 describe("/api/v1/sources — connect + list + sync + delete (PRO, real Postgres)", () => {

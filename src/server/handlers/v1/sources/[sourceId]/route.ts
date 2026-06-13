@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accountSources } from "@/db/schema";
 import { ApiErrors } from "@/lib/api/response";
+import { proGate } from "@/lib/api/pro-gate";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -15,6 +16,10 @@ export async function DELETE(
 ) {
   const auth = await authenticateWithScope(request, "sources:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  // Match GET/POST/sync: managed connections are a PRO feature end-to-end (consistency, not a
+  // data-exposure fix — the query below is already workspace-scoped).
+  const gate = await proGate("managed_connection");
+  if (gate) return gate;
 
   const { sourceId } = await params;
   const deleted = await db

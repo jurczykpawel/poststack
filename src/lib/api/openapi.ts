@@ -460,6 +460,7 @@ export const openApiSpec = {
         responses: {
           "204": { description: "Removed" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
