@@ -17,6 +17,8 @@ export type Feature =
   | "non_meta_channels"
   | "contacts_crm"
   | "reaction_trigger"
+  | "managed_connection"
+  | "api_access"
   | "multi_workspace";
 
 export type TierId = string;
@@ -36,6 +38,8 @@ const PRO: readonly Feature[] = [
   "non_meta_channels", // any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)
   "contacts_crm", // seeing individual people: inbox threads, contacts list, tags, manual reply
   "reaction_trigger", // rules that fire on a message reaction (free triggers are keyword/comment only)
+  "managed_connection", // one master Meta token → auto-enumerate all Pages+IG, auto-sync, alerts, cascade
+  "api_access", // programmatic REST access via API keys (dashboard uses session auth, unaffected)
 ];
 const BUSINESS: readonly Feature[] = [...PRO, "multi_workspace"];
 
@@ -65,6 +69,8 @@ const FEATURE_LABEL: Record<Feature, string> = {
   non_meta_channels: "Channels other than Facebook/Instagram",
   contacts_crm: "The contacts inbox and CRM (seeing individual conversations)",
   reaction_trigger: "Auto-replies triggered by a message reaction",
+  managed_connection: "Meta managed connection (one token connects all Pages + Instagram)",
+  api_access: "API access (REST API keys)",
   multi_workspace: "Multiple workspaces",
 };
 
