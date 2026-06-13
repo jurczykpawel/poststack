@@ -53,9 +53,9 @@ describe("PSA4 class guard — no DB URL reaches href/src unguarded", () => {
   it("queue.ts routes the provider handle + media src through the guard", () => {
     const src = tryRead("queue.ts");
     if (!src) return; // not yet ported (Task 6)
-    expect(src).not.toMatch(/href="\$\{handle\}"/);
+    expect(src).not.toMatch(/href="\$\{post\.provider_handle\}"/);
     expect(src).not.toMatch(/src="\$\{media\.url\}"/);
-    expect(src).toMatch(/urlLink\(handle\)/);
+    expect(src).toMatch(/urlLink\(post\.provider_handle\)/);
     expect(src).toContain("safeHttpUrl(media.url)");
   });
 });

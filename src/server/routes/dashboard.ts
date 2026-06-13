@@ -37,6 +37,7 @@ import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
 import { registerSources } from "../ui/sections/sources";
+import { registerQueue } from "../ui/sections/queue";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -1229,6 +1230,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerContent(app, guard);
   registerBrands(app, guard);
   registerSources(app, guard);
+  registerQueue(app, guard);
 }
 
 // jsonReqMethod allows non-POST verbs for delegated handlers (PATCH).
