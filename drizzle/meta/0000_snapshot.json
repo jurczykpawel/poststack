@@ -1,5 +1,5 @@
 {
-  "id": "f06f8407-c926-4e51-8a59-68cddbbb9d5d",
+  "id": "3c2c7ec4-b6bd-4e15-86fa-bf838c73fbb1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1262,6 +1262,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3)",
@@ -1321,6 +1327,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "comment_logs_conversation_id_idx": {
+          "name": "comment_logs_conversation_id_idx",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1335,6 +1356,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "comment_logs_conversation_id_fkey": {
+          "name": "comment_logs_conversation_id_fkey",
+          "tableFrom": "comment_logs",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "cascade"
         }
       },
@@ -1779,11 +1813,26 @@
           "type": "timestamp (3)",
           "primaryKey": false,
           "notNull": false
+        },
+        "thread_type": {
+          "name": "thread_type",
+          "type": "conversation_thread_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'dm'"
+        },
+        "thread_ref": {
+          "name": "thread_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
         }
       },
       "indexes": {
-        "conversations_channel_id_contact_id_key": {
-          "name": "conversations_channel_id_contact_id_key",
+        "conversations_channel_id_contact_id_thread_key": {
+          "name": "conversations_channel_id_contact_id_thread_key",
           "columns": [
             {
               "expression": "channel_id",
@@ -1793,6 +1842,18 @@
             },
             {
               "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "thread_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "thread_ref",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4621,6 +4682,14 @@
         "open",
         "closed",
         "snoozed"
+      ]
+    },
+    "public.conversation_thread_type": {
+      "name": "conversation_thread_type",
+      "schema": "public",
+      "values": [
+        "dm",
+        "comment"
       ]
     },
     "public.flow_session_status": {

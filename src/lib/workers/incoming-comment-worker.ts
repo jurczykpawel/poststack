@@ -98,7 +98,9 @@ export async function processIncomingComment(
     senderId,
     senderName ?? null,
     truncateCodePoints(text, 255),
-    { mutateActivity: false },
+    // A comment belongs to a per-post thread (one thread per post the commenter touched), distinct
+    // from their DM thread. postId is the thread anchor; '' when the platform omitted it.
+    { mutateActivity: false, thread: { type: "comment", ref: postId ?? "" } },
   );
 
   // 4. Log the comment AND its activity/unread counters in ONE transaction: a crash between
@@ -109,7 +111,7 @@ export async function processIncomingComment(
   //    replicates what resolveContactConversation(mutateActivity:true) used to do for a fresh comment.
   const loggedId = await db.transaction(async (tx) => {
     const [logged] = await tx
-      .insert(commentLogs).values(logValues)
+      .insert(commentLogs).values({ ...logValues, conversation_id: conversationId })
       .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
       .returning({ id: commentLogs.id });
     if (!logged) return null;

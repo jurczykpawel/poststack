@@ -4,7 +4,26 @@ import { contacts, contactChannels, conversations } from "@/db/schema";
 import type { Platform } from "@/db/schema";
 
 /**
- * Ensure a conversation row exists for (channel, contact) and return its id + automation
+ * Which thread an inbound event belongs to. `dm` = one ongoing thread per contact (ref ''); `comment`
+ * = one thread per post the contact commented on (ref = post id). The unique key
+ * (channel_id, contact_id, thread_type, thread_ref) subdivides accordingly — and is universal, so a
+ * future channel (email, …) plugs in as dm-style (ref '') or topic-style (ref = some id).
+ */
+export interface ThreadKey {
+  type: (typeof conversations.thread_type.enumValues)[number];
+  /** Sub-thread anchor; '' for a DM-style thread. */
+  ref?: string;
+}
+
+export const DM_THREAD: ThreadKey = { type: "dm", ref: "" };
+
+/** thread_ref is NOT NULL in the DB; normalize an absent/empty ref to ''. */
+function refOf(thread: ThreadKey): string {
+  return thread.ref ?? "";
+}
+
+/**
+ * Ensure a conversation row exists for (channel, contact, thread) and return its id + automation
  * flag, WITHOUT mutating any existing row's activity/status. A brand-new row gets the
  * supplied initial timestamp/preview; an existing one is left exactly as it is — so a
  * redelivery/retry can resolve identity without reordering the inbox or reopening a
@@ -15,7 +34,9 @@ export async function ensureConversation(
   channel: { id: string; workspace_id: string; platform: Platform },
   contactId: string,
   initial: { last_message_at: Date; last_message_preview: string | null },
+  thread: ThreadKey = DM_THREAD,
 ): Promise<{ id: string; is_automation_paused: boolean }> {
+  const ref = refOf(thread);
   const [created] = await db
     .insert(conversations)
     .values({
@@ -23,15 +44,22 @@ export async function ensureConversation(
       channel_id: channel.id,
       contact_id: contactId,
       platform: channel.platform,
+      thread_type: thread.type,
+      thread_ref: ref,
       last_message_at: initial.last_message_at,
       last_message_preview: initial.last_message_preview,
       unread_count: 0,
     })
-    .onConflictDoNothing({ target: [conversations.channel_id, conversations.contact_id] })
+    .onConflictDoNothing({ target: [conversations.channel_id, conversations.contact_id, conversations.thread_type, conversations.thread_ref] })
     .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
   if (created) return created;
   const existing = await db.query.conversations.findFirst({
-    where: and(eq(conversations.channel_id, channel.id), eq(conversations.contact_id, contactId)),
+    where: and(
+      eq(conversations.channel_id, channel.id),
+      eq(conversations.contact_id, contactId),
+      eq(conversations.thread_type, thread.type),
+      eq(conversations.thread_ref, ref),
+    ),
     columns: { id: true, is_automation_paused: true },
   });
   return existing!;
@@ -115,10 +143,12 @@ export async function resolveContactConversation(
   senderId: string,
   senderName: string | null,
   preview: string | null,
-  opts: { mutateActivity?: boolean; reopenClosed?: boolean } = {},
+  opts: { mutateActivity?: boolean; reopenClosed?: boolean; thread?: ThreadKey } = {},
 ): Promise<{ contactId: string; conversationId: string; isAutomationPaused: boolean }> {
   const mutateActivity = opts.mutateActivity ?? true;
   const reopenClosed = opts.reopenClosed ?? true;
+  const thread = opts.thread ?? DM_THREAD;
+  const threadRef = refOf(thread);
 
   // Find-or-create the contact via the shared, race-hardened helper.
   const { contactId, created } = await resolveContactId(channel, senderId, {
@@ -139,11 +169,13 @@ export async function resolveContactConversation(
         channel_id: channel.id,
         contact_id: contactId,
         platform: channel.platform,
+        thread_type: thread.type,
+        thread_ref: threadRef,
         last_message_at: new Date(),
         last_message_preview: preview,
       })
       .onConflictDoUpdate({
-        target: [conversations.channel_id, conversations.contact_id],
+        target: [conversations.channel_id, conversations.contact_id, conversations.thread_type, conversations.thread_ref],
         // A low-signal event (reaction) bumps activity but leaves a deliberately closed/snoozed
         // conversation as-is — only higher-signal events reopen it.
         set: reopenClosed ? { status: "open", last_message_at: new Date() } : { last_message_at: new Date() },
@@ -153,6 +185,6 @@ export async function resolveContactConversation(
   }
 
   // Ensure the conversation exists WITHOUT touching activity/status.
-  const conversation = await ensureConversation(channel, contactId, { last_message_at: new Date(), last_message_preview: preview });
+  const conversation = await ensureConversation(channel, contactId, { last_message_at: new Date(), last_message_preview: preview }, thread);
   return { contactId, conversationId: conversation.id, isAutomationPaused: conversation.is_automation_paused };
 }

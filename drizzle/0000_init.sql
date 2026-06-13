@@ -6,6 +6,7 @@ CREATE TYPE "public"."broadcast_status" AS ENUM('draft', 'scheduled', 'sending',
 CREATE TYPE "public"."channel_connection_mode" AS ENUM('oauth', 'manual_token', 'derived');--> statement-breakpoint
 CREATE TYPE "public"."channel_status" AS ENUM('active', 'needs_reauth', 'paused', 'disabled');--> statement-breakpoint
 CREATE TYPE "public"."conversation_status" AS ENUM('open', 'closed', 'snoozed');--> statement-breakpoint
+CREATE TYPE "public"."conversation_thread_type" AS ENUM('dm', 'comment');--> statement-breakpoint
 CREATE TYPE "public"."flow_session_status" AS ENUM('active', 'completed', 'expired', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."flow_status" AS ENUM('draft', 'published', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."instance_license_status" AS ENUM('none', 'active', 'expired', 'invalid');--> statement-breakpoint
@@ -153,6 +154,7 @@ CREATE TABLE "comment_logs" (
 	"dm_sent" boolean DEFAULT false NOT NULL,
 	"reply_sent" boolean DEFAULT false NOT NULL,
 	"error" text,
+	"conversation_id" uuid,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
@@ -201,7 +203,9 @@ CREATE TABLE "conversations" (
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	"needs_manual_reply" boolean DEFAULT false NOT NULL,
-	"last_inbound_at" timestamp (3)
+	"last_inbound_at" timestamp (3),
+	"thread_type" "conversation_thread_type" DEFAULT 'dm' NOT NULL,
+	"thread_ref" text DEFAULT '' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "flow_sessions" (
@@ -463,6 +467,7 @@ ALTER TABLE "broadcasts" ADD CONSTRAINT "broadcasts_workspace_id_fkey" FOREIGN K
 ALTER TABLE "channels" ADD CONSTRAINT "channels_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "channels" ADD CONSTRAINT "channels_source_id_fkey" FOREIGN KEY ("source_id") REFERENCES "public"."account_sources"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "comment_logs" ADD CONSTRAINT "comment_logs_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "comment_logs" ADD CONSTRAINT "comment_logs_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contact_channels" ADD CONSTRAINT "contact_channels_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contact_channels" ADD CONSTRAINT "contact_channels_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "contact_tags" ADD CONSTRAINT "contact_tags_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
@@ -531,12 +536,13 @@ CREATE UNIQUE INDEX "channels_active_platform_platform_id_key" ON "channels" USI
 CREATE INDEX "comment_logs_channel_id_idx" ON "comment_logs" USING btree ("channel_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "comment_logs_channel_id_platform_comment_id_key" ON "comment_logs" USING btree ("channel_id","platform_comment_id");--> statement-breakpoint
 CREATE INDEX "comment_logs_workspace_id_idx" ON "comment_logs" USING btree ("workspace_id");--> statement-breakpoint
+CREATE INDEX "comment_logs_conversation_id_idx" ON "comment_logs" USING btree ("conversation_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "contact_channels_channel_id_platform_sender_id_key" ON "contact_channels" USING btree ("channel_id","platform_sender_id");--> statement-breakpoint
 CREATE INDEX "contact_channels_contact_id_idx" ON "contact_channels" USING btree ("contact_id");--> statement-breakpoint
 CREATE INDEX "contact_tags_tag_id_idx" ON "contact_tags" USING btree ("tag_id");--> statement-breakpoint
 CREATE INDEX "contacts_workspace_id_idx" ON "contacts" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "contacts_workspace_id_last_interaction_at_idx" ON "contacts" USING btree ("workspace_id","last_interaction_at" DESC NULLS FIRST);--> statement-breakpoint
-CREATE UNIQUE INDEX "conversations_channel_id_contact_id_key" ON "conversations" USING btree ("channel_id","contact_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "conversations_channel_id_contact_id_thread_key" ON "conversations" USING btree ("channel_id","contact_id","thread_type","thread_ref");--> statement-breakpoint
 CREATE INDEX "conversations_workspace_id_last_message_at_idx" ON "conversations" USING btree ("workspace_id","last_message_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "conversations_workspace_id_status_idx" ON "conversations" USING btree ("workspace_id","status");--> statement-breakpoint
 CREATE INDEX "conversations_ws_channel_last_message_at_idx" ON "conversations" USING btree ("workspace_id","channel_id","last_message_at" DESC NULLS FIRST);--> statement-breakpoint

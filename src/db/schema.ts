@@ -10,6 +10,10 @@ export const broadcastRecipientStatus = pgEnum("broadcast_recipient_status", ['p
 export const broadcastStatus = pgEnum("broadcast_status", ['draft', 'scheduled', 'sending', 'completed', 'cancelled'])
 export const channelConnectionMode = pgEnum("channel_connection_mode", ['oauth', 'manual_token', 'derived'])
 export const accountSourceStatus = pgEnum("account_source_status", ['active', 'needs_reauth', 'disabled'])
+// How a conversation thread is grouped. `dm` = one ongoing thread per contact (thread_ref ''); `comment`
+// = one thread per post the contact commented on (thread_ref = post id). Extensible (email, …) without
+// touching the inbox: a new channel plugs in as dm-style (ref '') or topic-style (ref = some id).
+export const conversationThreadType = pgEnum("conversation_thread_type", ['dm', 'comment'])
 export const channelStatus = pgEnum("channel_status", ['active', 'needs_reauth', 'paused', 'disabled'])
 export const conversationStatus = pgEnum("conversation_status", ['open', 'closed', 'snoozed'])
 export const flowSessionStatus = pgEnum("flow_session_status", ['active', 'completed', 'expired', 'cancelled'])
@@ -62,8 +66,13 @@ export const conversations = pgTable("conversations", {
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	needs_manual_reply: boolean("needs_manual_reply").default(false).notNull(),
 	last_inbound_at: timestamp("last_inbound_at", { precision: 3, mode: 'date' }),
+	// Universal threading: dm = per-contact thread (ref ''); comment = per-post thread (ref = post id).
+	thread_type: conversationThreadType("thread_type").default('dm').notNull(),
+	thread_ref: text("thread_ref").default('').notNull(),
 }, (table) => [
-	uniqueIndex("conversations_channel_id_contact_id_key").using("btree", table.channel_id.asc().nullsLast(), table.contact_id.asc().nullsLast()),
+	// One thread per (channel, contact, type, ref). thread_ref is NOT NULL (default '') so DM threads
+	// dedup correctly — a NULL-bearing unique index would treat every DM row as distinct.
+	uniqueIndex("conversations_channel_id_contact_id_thread_key").using("btree", table.channel_id.asc().nullsLast(), table.contact_id.asc().nullsLast(), table.thread_type.asc().nullsLast(), table.thread_ref.asc().nullsLast()),
 	index("conversations_workspace_id_last_message_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.last_message_at.desc().nullsFirst()),
 	index("conversations_workspace_id_status_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast()),
 	// Channel-filtered inbox list ordered by recency (GET /conversations?channel_id=…).
@@ -616,16 +625,25 @@ export const commentLogs = pgTable("comment_logs", {
 	dm_sent: boolean("dm_sent").default(false).notNull(),
 	reply_sent: boolean("reply_sent").default(false).notNull(),
 	error: text(),
+	// The comment's thread (a per-post comment conversation). Lets the inbox render the comment as a
+	// thread item. onDelete set null keeps the audit log row if the conversation is purged.
+	conversation_id: uuid("conversation_id"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	index("comment_logs_channel_id_idx").using("btree", table.channel_id.asc().nullsLast()),
 	uniqueIndex("comment_logs_channel_id_platform_comment_id_key").using("btree", table.channel_id.asc().nullsLast(), table.platform_comment_id.asc().nullsLast()),
 	index("comment_logs_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	index("comment_logs_conversation_id_idx").using("btree", table.conversation_id.asc().nullsLast()),
 	foreignKey({
 			columns: [table.channel_id],
 			foreignColumns: [channels.id],
 			name: "comment_logs_channel_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.conversation_id],
+			foreignColumns: [conversations.id],
+			name: "comment_logs_conversation_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
 export const flowVersions = pgTable("flow_versions", {
