@@ -36,6 +36,7 @@ import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { dashboardDoc } from "../ui/layout";
 import { requireSameOrigin } from "../middleware/same-origin";
 import { registerChannels } from "../ui/sections/channels";
+import { registerCompose } from "../ui/sections/compose";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -1308,6 +1309,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   // Unified publishing sections (UNIFY1 Phase 3) — mounted on the same origin+session guard.
   registerChannels(app, guard);
+  registerCompose(app, guard);
 }
 
 // jsonReqMethod allows non-POST verbs for delegated handlers (PATCH).
