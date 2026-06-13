@@ -48,6 +48,10 @@ const envSchema = z.object({
   META_APP_SECRET: z.string().default(""),
   META_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
 
+  // Google / YouTube (optional — needed only to connect a YouTube channel for comment automation)
+  GOOGLE_CLIENT_ID: z.string().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().default(""),
+
   // Optional outbound webhook fired when a channel needs re-auth. Validated up front so a
   // private/link-local target (e.g. the cloud metadata endpoint) is rejected at boot rather
   // than fetched at runtime. https anywhere, or http to a hostname / loopback; a

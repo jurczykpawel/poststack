@@ -1,5 +1,5 @@
 {
-  "id": "3c2c7ec4-b6bd-4e15-86fa-bf838c73fbb1",
+  "id": "5659179e-0277-4a30-b122-89f442e39978",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -4764,7 +4764,8 @@
         "tiktok",
         "twitter",
         "gmail",
-        "discord"
+        "discord",
+        "youtube"
       ]
     },
     "public.response_type": {
