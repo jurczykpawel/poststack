@@ -7,18 +7,22 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, outboundDeliveries,
+  pendingApprovals, outboundDeliveries, accountSources,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from "@/lib/license/gate";
+import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
+import * as sources from "@/server/handlers/v1/sources/route";
+import * as source from "@/server/handlers/v1/sources/[sourceId]/route";
+import * as sourceSync from "@/server/handlers/v1/sources/[sourceId]/sync/route";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
 import * as conversation from "@/server/handlers/v1/conversations/[conversationId]/route";
 import * as rules from "@/server/handlers/v1/rules/route";
@@ -216,6 +220,7 @@ async function loadChannels(workspaceId: string) {
     columns: {
       id: true, platform: true, platform_id: true, display_name: true, username: true,
       profile_picture: true, status: true, connection_mode: true,
+      token_expires_at: true, data_access_expires_at: true, source_id: true,
     },
   });
   // Grouped counts for every channel in one query each, instead of a COUNT per channel (N+1 on each
@@ -247,6 +252,21 @@ async function loadChannels(workspaceId: string) {
   }));
 }
 
+/**
+ * A passive expiry hint for a channel (shown in the panel on both tiers — free must watch it
+ * manually, PRO also gets proactive alerts). Returns the soonest of the token-death and the
+ * 90-day data-access clocks, as " · ⏳ expires in N days" / " · ⛔ access expired".
+ */
+function expiryNote(tokenExpiresAt: Date | null, dataAccessExpiresAt: Date | null): string {
+  const dates = [tokenExpiresAt, dataAccessExpiresAt].filter((d): d is Date => d instanceof Date);
+  if (dates.length === 0) return ""; // permanent (page / System User) — nothing to warn about
+  const soonest = dates.reduce((a, b) => (a < b ? a : b));
+  const days = Math.ceil((soonest.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  if (days < 0) return " · ⛔ access expired — reconnect";
+  if (days <= 14) return ` · ⏳ expires in ${days} day${days === 1 ? "" : "s"}`;
+  return "";
+}
+
 function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (channels.length === 0) return html`${notice}<p class="muted">No channels connected yet.</p>`;
@@ -256,13 +276,123 @@ function renderChannels(channels: Awaited<ReturnType<typeof loadChannels>>, erro
       <div class="grow">
         <div style="font-weight:600">${ch.display_name ?? ch.username ?? ch.platform_id}</div>
         <div class="muted" style="font-size:.75rem">
-          ${PLATFORM_LABELS[ch.platform] ?? ch.platform}${ch.username ? ` · @${ch.username}` : ""}${ch.status === "needs_reauth" ? " · ⚠ Needs reconnect" : ""}${ch.status === "paused" ? " · Paused" : ""}${ch.status === "disabled" ? " · Disabled" : ""}${ch.connection_mode === "manual_token" ? " · 🔑 Long-lived token" : ""}${ch.held_count > 0 ? ` · ${ch.held_count} held` : ""}${ch.unknown_count > 0 ? ` · ⚠ ${ch.unknown_count} unknown` : ""}
+          ${PLATFORM_LABELS[ch.platform] ?? ch.platform}${ch.username ? ` · @${ch.username}` : ""}${ch.status === "needs_reauth" ? " · ⚠ Needs reconnect" : ""}${ch.status === "paused" ? " · Paused" : ""}${ch.status === "disabled" ? " · Disabled" : ""}${ch.connection_mode === "manual_token" ? " · 🔑 Long-lived token" : ""}${ch.connection_mode === "derived" ? " · 🔗 Managed" : ""}${expiryNote(ch.token_expires_at, ch.data_access_expires_at)}${ch.held_count > 0 ? ` · ${ch.held_count} held` : ""}${ch.unknown_count > 0 ? ` · ⚠ ${ch.unknown_count} unknown` : ""}
         </div>
       </div>
       ${ch.held_count > 0 ? html`<button class="btn btn-sm" hx-post="/channels/${ch.id}/drain" hx-target="#channels-list" hx-swap="innerHTML">↻ Retry held</button>` : html``}
       <button class="btn btn-sm" hx-delete="/channels/${ch.id}" hx-target="#channels-list" hx-swap="innerHTML" hx-confirm="Disconnect this channel? Auto-replies will stop for this account.">Disconnect</button>
     </div>`,
   )}</div>`;
+}
+
+async function loadSources(workspaceId: string) {
+  const rows = await db.query.accountSources.findMany({
+    where: eq(accountSources.workspace_id, workspaceId),
+    orderBy: asc(accountSources.created_at),
+    columns: {
+      id: true, provider_account_id: true, display_name: true, kind: true, status: true,
+      needs_reauth_reason: true, data_access_expires_at: true, last_synced_at: true,
+    },
+  });
+  const ids = rows.map((r) => r.id);
+  const derived = ids.length
+    ? await db.query.channels.findMany({
+        where: and(eq(channels.workspace_id, workspaceId), inArray(channels.source_id, ids)),
+        columns: {
+          id: true, source_id: true, platform: true, platform_id: true, display_name: true,
+          username: true, profile_picture: true, status: true, token_expires_at: true, data_access_expires_at: true,
+        },
+      })
+    : [];
+  return rows.map((s) => ({ ...s, channels: derived.filter((c) => c.source_id === s.id) }));
+}
+
+function fmtDate(d: Date | null): string {
+  return d ? d.toISOString().slice(0, 10) : "—";
+}
+
+function renderSources(srcs: Awaited<ReturnType<typeof loadSources>>, error?: string): Html {
+  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
+  if (srcs.length === 0) {
+    return html`${notice}<p class="muted" style="font-size:.85rem">No managed connection yet. Paste a User or System User token above to auto-connect all your Pages and Instagram accounts.</p>`;
+  }
+  return html`${notice}<div class="list">${srcs.map((s) => {
+    const broken = s.status === "needs_reauth";
+    return html`<div class="list-row" style="flex-direction:column;align-items:stretch;gap:.5rem">
+      <div class="row" style="align-items:center;gap:.5rem">
+        <div class="grow">
+          <div style="font-weight:600">${s.display_name ?? s.provider_account_id}
+            ${broken ? html`<span style="color:var(--danger,#e5484d)"> · ⚠ Needs reconnect</span>` : html`<span class="muted"> · ✓ Active</span>`}
+          </div>
+          <div class="muted" style="font-size:.72rem">
+            ${s.kind === "system_user" ? "System User (permanent)" : "User token"} ·
+            ${s.channels.length} channel${s.channels.length === 1 ? "" : "s"} ·
+            data access ${s.kind === "system_user" ? "never expires" : `until ${fmtDate(s.data_access_expires_at)}`} ·
+            synced ${fmtDate(s.last_synced_at)}
+          </div>
+          ${broken && s.needs_reauth_reason ? html`<div class="muted" style="font-size:.72rem;color:var(--danger,#e5484d)">${s.needs_reauth_reason}</div>` : html``}
+        </div>
+        <button class="btn btn-sm" hx-post="/channels/sources/${s.id}/sync" hx-target="#sources-list" hx-swap="innerHTML" title="Re-check for new Pages/Instagram now">↻ Sync</button>
+        <button class="btn btn-sm" hx-delete="/channels/sources/${s.id}" hx-target="#sources-list" hx-swap="innerHTML" hx-confirm="Remove this managed connection? The connected channels stay, but stop auto-syncing.">Remove</button>
+      </div>
+      <div class="list" style="margin-left:.5rem">${s.channels.map(
+        (c) => html`<div class="row" style="align-items:center;gap:.5rem;font-size:.8rem">
+          ${c.profile_picture ? html`<img class="avatar" src="${c.profile_picture}" alt="" style="width:20px;height:20px" />` : html``}
+          <span>${PLATFORM_LABELS[c.platform] ?? c.platform}</span>
+          <span class="grow">${c.display_name ?? c.platform_id}${c.username ? html` · <span class="muted">@${c.username}</span>` : html``}
+            <span class="muted" style="font-size:.7rem"> · id ${c.platform_id}</span>
+            ${c.status === "needs_reauth" ? html`<span style="color:var(--danger,#e5484d)"> · ⚠</span>` : html``}
+            ${html`<span class="muted">${expiryNote(c.token_expires_at, c.data_access_expires_at)}</span>`}
+          </span>
+        </div>`,
+      )}</div>
+    </div>`;
+  })}</div>`;
+}
+
+/**
+ * The alert-webhook config form (PRO). Custom header VALUES are never echoed back — only their names
+ * (so the operator knows what's set without leaking secrets). Headers are entered as `Key: Value`
+ * lines; extra payload fields as a JSON object with {{placeholder}} tokens; field selection as a
+ * comma list (blank = send all standard fields).
+ */
+function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
+  const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
+  if (!canConfigure) {
+    return html`${notice}<p class="muted" style="font-size:.85rem">Configuring a proactive alert webhook is ${proLink(upgradeUrl, "PRO")}.</p>`;
+  }
+  const headerNames = cfg ? Object.keys(cfg.headers) : [];
+  const extraJson = cfg && Object.keys(cfg.extraFields).length ? JSON.stringify(cfg.extraFields, null, 2) : "";
+  const selection = cfg?.fieldSelection?.join(", ") ?? "";
+  return html`${notice}
+    <form hx-post="/settings/alert-webhook" hx-ext="json-enc" hx-target="#alert-webhook-area" hx-swap="innerHTML" class="stack">
+      <label class="muted" style="font-size:.75rem">Webhook URL</label>
+      <input class="input mono" name="url" placeholder="https://mailstack.example.com/hook" value="${cfg?.url ?? ""}" required />
+      <label style="display:flex;gap:.4rem;align-items:center;font-size:.85rem"><input type="checkbox" name="enabled" value="true" ${cfg ? (cfg.enabled ? "checked" : "") : "checked"} /> Enabled</label>
+      <label class="muted" style="font-size:.75rem">Custom headers — one <code>Key: Value</code> per line (encrypted at rest)${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</label>
+      <textarea class="textarea mono" name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy"></textarea>
+      <label class="muted" style="font-size:.75rem">Extra payload fields — JSON, supports {{type}} {{display_name}} {{days_left}} {{detail}} {{expires_at}}</label>
+      <textarea class="textarea mono" name="extra" rows="3" placeholder='{ "to": "ops@example.com", "subject": "ReplyStack: {{type}} ({{days_left}}d)" }'>${extraJson}</textarea>
+      <label class="muted" style="font-size:.75rem">Only send these standard fields (comma list, blank = all)</label>
+      <input class="input mono" name="selection" placeholder="type, display_name, detail" value="${selection}" />
+      <div class="row" style="gap:.5rem">
+        <button class="btn btn-primary" type="submit">Save</button>
+        ${cfg ? html`<button class="btn btn-sm" type="button" hx-delete="/settings/alert-webhook" hx-target="#alert-webhook-area" hx-swap="innerHTML" hx-confirm="Remove the alert webhook?">Remove</button>` : html``}
+      </div>
+    </form>`;
+}
+
+/** Parse a `Key: Value` per-line textarea into a header map (ignoring blanks / malformed lines). */
+function parseHeaderLines(raw: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of raw.split("\n")) {
+    const i = line.indexOf(":");
+    if (i <= 0) continue;
+    const key = line.slice(0, i).trim();
+    const val = line.slice(i + 1).trim();
+    if (key) out[key] = val;
+  }
+  return out;
 }
 
 // ─── registration ─────────────────────────────────────────────────────────────
@@ -393,6 +523,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const hasIg = channels.some((ch) => ch.platform === "instagram" && ch.status !== "disabled");
     const canMultiChannel = features.has("multi_channel");
     const canNonMeta = features.has("non_meta_channels");
+    const canManaged = features.has("managed_connection");
+    const srcs = canManaged ? await loadSources(a.workspaceId) : [];
     const connected = c.req.query("connected");
     const count = c.req.query("count");
     const errorKey = c.req.query("error");
@@ -438,11 +570,63 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               </form>
             </div>
           </div>
+          <div class="card" style="margin:1.5rem 0">
+            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.5rem">
+              <h2 style="margin:0">Managed connection</h2>
+              ${canManaged ? html`` : proLink(upgradeUrl, "PRO")}
+            </div>
+            <p class="muted" style="font-size:.82rem;margin-bottom:.75rem">One master token connects <strong>all</strong> your Pages + Instagram accounts at once, auto-syncs new ones, and warns you before access expires. ${canManaged ? "" : html`A free plan connects one Facebook + one Instagram manually — managed connection is ${proLink(upgradeUrl, "PRO")}.`}</p>
+            ${canManaged
+              ? html`<div x-data="{ guide: false }">
+                  <form hx-post="/channels/sources" hx-ext="json-enc" hx-target="#sources-list" hx-swap="innerHTML" class="stack" style="margin-bottom:.75rem">
+                    <textarea class="textarea mono" name="token" rows="3" placeholder="Paste a User or System User access token" required></textarea>
+                    <div class="row" style="gap:.5rem">
+                      <button class="btn btn-primary" type="submit">Connect all</button>
+                      <button class="btn btn-sm" type="button" @click="guide = !guide">How do I get a permanent token?</button>
+                    </div>
+                  </form>
+                  <div x-show="guide" x-cloak class="card" style="margin-bottom:.75rem;font-size:.8rem;line-height:1.5">
+                    <strong>Generate a permanent System User token (never expires, no 90-day wall):</strong>
+                    <ol style="margin:.4rem 0 0 1rem;padding:0">
+                      <li>Open <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">Business Manager → Business settings</a>.</li>
+                      <li>Users → <strong>System Users</strong> → Add → create an <em>Admin</em> system user.</li>
+                      <li>Assign your Pages (and the linked Instagram accounts) to it with full control.</li>
+                      <li>Click <strong>Generate new token</strong>, pick this app, set expiry to <strong>Never</strong>.</li>
+                      <li>Grant scopes: <code>pages_show_list</code>, <code>pages_messaging</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>instagram_basic</code>, <code>instagram_manage_messages</code>, <code>instagram_manage_comments</code>.</li>
+                      <li>Copy the token and paste it above. A long-lived <em>User</em> token works too, but it hits a 90-day re-login wall.</li>
+                    </ol>
+                  </div>
+                  <div id="sources-list">${renderSources(srcs)}</div>
+                </div>`
+              : html``}
+          </div>
           <div id="channels-list">${renderChannels(channels)}</div>
         </div>`,
         features,
       ),
     );
+  });
+
+  app.post("/channels/sources", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const res = await sources.POST(c.req.raw);
+    const list = renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not connect this token."));
+    return c.html(list);
+  });
+
+  app.post("/channels/sources/:id/sync", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const res = await sourceSync.POST(c.req.raw, { params: Promise.resolve({ sourceId: c.req.param("id") }) }).catch(() => null);
+    return c.html(renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not sync this connection.")));
+  });
+
+  app.delete("/channels/sources/:id", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const res = await source.DELETE(c.req.raw, { params: Promise.resolve({ sourceId: c.req.param("id") }) }).catch(() => null);
+    return c.html(renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not remove this connection.")));
   });
 
   app.delete("/channels/:id", guard, async (c) => {
@@ -535,14 +719,64 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   });
 
   // Settings
+  app.post("/settings/alert-webhook", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const license = await getInstanceLicense();
+    const canAlerts = license.features.has("managed_connection");
+    if (!canAlerts) return c.html(renderAlertWebhook(null, false, license.upgradeUrl));
+
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const url = typeof form.url === "string" ? form.url.trim() : "";
+    if (!/^https?:\/\//.test(url)) {
+      return c.html(renderAlertWebhook(await getAlertWebhook(a.workspaceId), true, license.upgradeUrl, "Enter a valid http(s) URL — nothing saved."));
+    }
+    let extraFields: Record<string, unknown> = {};
+    if (typeof form.extra === "string" && form.extra.trim()) {
+      try {
+        const parsed = JSON.parse(form.extra);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) extraFields = parsed as Record<string, unknown>;
+      } catch {
+        return c.html(renderAlertWebhook(await getAlertWebhook(a.workspaceId), true, license.upgradeUrl, "Extra fields must be valid JSON — nothing saved."));
+      }
+    }
+    const headerLines = typeof form.headers === "string" ? parseHeaderLines(form.headers) : {};
+    const selection = typeof form.selection === "string" && form.selection.trim()
+      ? form.selection.split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
+    // Preserve previously-saved headers when the textarea is left blank (values are never echoed back).
+    const existing = await getAlertWebhook(a.workspaceId);
+    const headers = Object.keys(headerLines).length ? headerLines : existing?.headers;
+
+    await upsertAlertWebhook(a.workspaceId, {
+      url,
+      enabled: form.enabled === "true" || form.enabled === true,
+      headers,
+      extraFields,
+      fieldSelection: selection,
+    });
+    return c.html(renderAlertWebhook(await getAlertWebhook(a.workspaceId), true, license.upgradeUrl, "Alert webhook saved."));
+  });
+
+  app.delete("/settings/alert-webhook", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const license = await getInstanceLicense();
+    await deleteAlertWebhook(a.workspaceId);
+    return c.html(renderAlertWebhook(null, license.features.has("managed_connection"), license.upgradeUrl, "Alert webhook removed."));
+  });
+
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const [keys, workspace, license] = await Promise.all([
+    const [keys, workspace, license, alertWebhook] = await Promise.all([
       loadKeys(a.workspaceId),
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
       getInstanceLicense(),
+      getAlertWebhook(a.workspaceId),
     ]);
+    const canAlerts = license.features.has("managed_connection");
+    const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
         "Settings · ReplyStack",
@@ -551,8 +785,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <h1>Settings</h1>
           <p class="muted">Manage your workspace settings and API access.</p>
           <section class="section">
-            <h2>API Keys</h2>
-            <p class="muted" style="margin-bottom:1rem">Keys are shown once on creation — store them securely.</p>
+            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <h2 style="margin:0">API Keys</h2>
+              ${license.features.has("api_access") ? html`` : proLink(upgradeUrl, "PRO")}
+            </div>
+            <p class="muted" style="margin-bottom:1rem">Keys are shown once on creation — store them securely.${license.features.has("api_access") ? "" : html` Creating API keys is a ${proLink(upgradeUrl, "PRO")} feature; existing keys are disabled while unlicensed.`}</p>
             <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
               x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
               <div class="row">
@@ -593,9 +830,21 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <div id="license-area">${renderLicense(license)}</div>
           </section>
           <section class="section">
-            <h2>Webhook</h2>
-            <p class="muted" style="margin-bottom:.5rem">Configure the Meta webhook to receive messages and comments.</p>
-            <div class="card mono">${env.APP_URL}/api/webhooks/meta</div>
+            <h2>Meta App configuration</h2>
+            <p class="muted" style="margin-bottom:.75rem">Paste these into your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
+            ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
+            ${metaConfigRow("Valid OAuth Redirect URI (Instagram)", `${env.APP_URL}/api/oauth/instagram/callback`)}
+            ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
+            ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
+            ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}
+          </section>
+          <section class="section">
+            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <h2 style="margin:0">Alert webhook</h2>
+              ${canAlerts ? html`` : proLink(upgradeUrl, "PRO")}
+            </div>
+            <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email via mailstack, Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
+            <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
           </section>
         </div>`,
         license.features,
@@ -1140,6 +1389,17 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
 }
 
 // A small "🔒 PRO" link to the upgrade URL, for locking gated controls in forms.
+// A labelled, copy-to-clipboard config value (for the Meta App configuration panel).
+function metaConfigRow(label: string, value: string): Html {
+  return html`<div style="margin-bottom:.75rem">
+    <div class="muted" style="font-size:.75rem;margin-bottom:.2rem">${label}</div>
+    <div class="row" style="gap:.5rem;align-items:stretch" x-data="{ copied: false }">
+      <code class="card mono grow" style="overflow-x:auto;white-space:nowrap;padding:.5rem .6rem">${value}</code>
+      <button type="button" class="btn btn-sm" @click="navigator.clipboard.writeText($el.previousElementSibling.textContent); copied = true; setTimeout(() => copied = false, 1200)" x-text="copied ? '✓ Copied' : 'Copy'"></button>
+    </div>
+  </div>`;
+}
+
 function proLink(upgradeUrl: string, label = "PRO"): Html {
   return html`<a href="${upgradeUrl}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none;white-space:nowrap">🔒 ${label}</a>`;
 }

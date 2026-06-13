@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
@@ -204,5 +204,92 @@ describe("dashboard API key scopes", () => {
     expect(res.status).toBe(200); // re-renders the form area with a notice, no key created
     const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Empty-130"), columns: { id: true } });
     expect(key).toBeUndefined();
+  });
+});
+
+describe("settings — Meta App config + alert webhook UI", () => {
+  it("shows copy-ready OAuth redirect URIs + webhook URL derived from APP_URL", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/settings", { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain("Meta App configuration");
+    expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
+    expect(body).toContain("http://localhost:3000/api/webhooks/meta");
+  });
+
+  it("saves an alert webhook with encrypted headers and echoes header NAMES (not values)", async () => {
+    if (!TEST_DB) return;
+    const save = await app.request("/settings/alert-webhook", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com/hook", enabled: "true", headers: "Authorization: Bearer s3cr3t", extra: '{"to":"ops@x.com"}', selection: "type, detail" }),
+    });
+    expect(save.status).toBe(200);
+    const html = await save.text();
+    expect(html).toContain("Alert webhook saved.");
+    expect(html).toContain("Authorization"); // name shown
+    expect(html).not.toContain("s3cr3t"); // value never echoed
+
+    const row = await db.query.alertWebhooks.findFirst({ where: eq(s.alertWebhooks.workspace_id, WS) });
+    expect(row?.url).toBe("https://example.com/hook");
+    expect(row?.custom_headers_encrypted).toBeTruthy();
+    expect(row?.custom_headers_encrypted).not.toContain("s3cr3t");
+    expect(row?.field_selection).toEqual(["type", "detail"]);
+  });
+
+  it("rejects invalid extra-fields JSON without saving", async () => {
+    if (!TEST_DB) return;
+    await db.delete(s.alertWebhooks).where(eq(s.alertWebhooks.workspace_id, WS));
+    const res = await app.request("/settings/alert-webhook", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com/hook", enabled: "true", extra: "{not json" }),
+    });
+    expect((await res.text())).toContain("valid JSON");
+    const row = await db.query.alertWebhooks.findFirst({ where: eq(s.alertWebhooks.workspace_id, WS) });
+    expect(row).toBeUndefined();
+  });
+});
+
+describe("channels — managed connection section", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  function mockGraph() {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/me/accounts") && url.includes("instagram_business_account"))
+        return Promise.resolve(Response.json({ data: [{ id: "FB9", name: "Page Nine", access_token: "PT9", instagram_business_account: { id: "IG9", name: "IG Nine", username: "ig_nine", profile_picture_url: "p" } }] }));
+      if (url.includes("/me/accounts")) return Promise.resolve(Response.json({ data: [{ id: "FB9", name: "Page Nine", access_token: "PT9" }] }));
+      if (url.includes("/me?")) return Promise.resolve(Response.json({ id: "MASTER9", name: "Master Nine" }));
+      return Promise.resolve(new Response("Not Found", { status: 404 }));
+    }) as typeof fetch;
+  }
+
+  it("renders the managed-connection section + System User guide on PRO", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/channels", { headers: { cookie } })).text();
+    expect(body).toContain("Managed connection");
+    expect(body).toContain("System User token"); // the guide CTA
+  });
+
+  it("connecting a master token renders the source with its derived channels", async () => {
+    if (!TEST_DB) return;
+    mockGraph();
+    const res = await app.request("/channels/sources", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ token: "MASTER_TOKEN_dashboard_xxxx" }),
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Master Nine");
+    expect(html).toContain("@ig_nine");
+
+    const src = await db.query.accountSources.findFirst({ where: eq(s.accountSources.workspace_id, WS) });
+    expect(src?.provider_account_id).toBe("MASTER9");
+    const derived = await db.query.channels.findMany({ where: eq(s.channels.source_id, src!.id) });
+    expect(derived).toHaveLength(2);
   });
 });
