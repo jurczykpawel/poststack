@@ -154,6 +154,22 @@ describe("license-aware dashboard UI", () => {
     expect(body).toContain("Engagement 🔒");
   });
 
+  it("settings shows the entitled product areas (publishing/replies/core) for an all-access license", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance(); // all-access poststack token → every area
+    const body = await (await get("/settings")).text();
+    expect(body).toContain("Products:");
+    expect(body).toContain(">core<");
+    expect(body).toContain(">publishing<");
+    expect(body).toContain(">replies<");
+  });
+
+  it("free settings shows no product areas (nothing entitled)", async () => {
+    if (!TEST_DB) return;
+    const body = await (await get("/settings")).text();
+    expect(body).not.toContain("Products:");
+  });
+
   it("licensed /engagement shows post reactions with reactor and counts", async () => {
     if (!TEST_DB) return;
     await licenseInstance();
