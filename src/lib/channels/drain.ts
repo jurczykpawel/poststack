@@ -1,7 +1,7 @@
 import { and, eq, asc, gt, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, messages, conversations, outboundDeliveries } from "@/db/schema";
-import { addJob } from "@/lib/queue/client";
+import { channels, messages, conversations, outboundDeliveries, deliveries, posts } from "@/db/schema";
+import { addJob, addJobTx } from "@/lib/queue/client";
 import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -150,6 +150,22 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
 
     if (batch.length < DRAIN_BATCH_SIZE) break;
     cursorId = batch[batch.length - 1].id;
+  }
+
+  // Publish-side drain (unified channel): a publish delivery parked `held` while the channel was down
+  // returns to `scheduled` and is re-enqueued, mirroring the editorial post back to scheduled. The
+  // `publish:<id>` jobKey + the worker's scheduled→sending CAS keep this idempotent (no double-send).
+  const heldPublish = await db
+    .select({ id: deliveries.id })
+    .from(deliveries)
+    .where(and(eq(deliveries.channel_id, channelId), eq(deliveries.status, "held")));
+  for (const d of heldPublish) {
+    await db.transaction(async (tx) => {
+      await tx.update(deliveries).set({ status: "scheduled", run_at: now, updated_at: now }).where(eq(deliveries.id, d.id));
+      await tx.update(posts).set({ status: "scheduled", updated_at: now }).where(eq(posts.delivery_id, d.id));
+      await addJobTx(tx, "publish", { postId: d.id }, { runAt: now, jobKey: `publish:${d.id}` });
+    });
+    enqueued++;
   }
 
   return { enqueued, expired };

@@ -125,6 +125,11 @@ export interface TokenRefreshJob {
   channelId: string;
 }
 
+/** Publish a scheduled delivery (the AUD27 crash-safe publish worker). */
+export interface PublishJob {
+  postId: string;
+}
+
 export interface SequenceStepJob {
   enrollmentId: string;
 }
@@ -172,6 +177,7 @@ export type TaskPayloadMap = {
   "sequence-step": SequenceStepJob;
   "drain-channel": DrainChannelJob;
   "resume-channel-enrollments": ResumeChannelEnrollmentsJob;
+  publish: PublishJob;
 };
 
 export type TaskName = keyof TaskPayloadMap;

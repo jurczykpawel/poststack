@@ -21,6 +21,9 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   "sequence-step": 3,
   "drain-channel": 3,
   "resume-channel-enrollments": 3,
+  // AUD27 publish worker manages its own state machine (claim/defer/reconcile); a generous attempt
+  // budget covers transient pre_commit retries without the row being abandoned by graphile.
+  publish: 10,
 };
 
 export interface AddJobOptions {
