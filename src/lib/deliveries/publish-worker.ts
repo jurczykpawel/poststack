@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { deliveries, channels, posts } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { toTokenSet } from "@/lib/providers/token-codec";
-import { getProviderForPlatform, isPublishablePlatform, subKindForPlatform } from "@/lib/providers";
+import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
+import { can } from "@/lib/channels/capabilities";
 import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
@@ -111,7 +112,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const channel = await db.query.channels.findFirst({
     where: and(eq(channels.id, post.channel_id), isNull(channels.deleted_at)),
   });
-  if (!channel || !isPublishablePlatform(channel.platform)) {
+  if (!channel || !can({ platform: channel.platform, connection_mode: channel.connection_mode }, "publish")) {
     await setStatus(postId, "failed", { last_error: "channel or provider unavailable" });
     return;
   }

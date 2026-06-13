@@ -1,4 +1,5 @@
 import type { Platform } from "@/db/schema";
+import type { Capability } from "@/lib/channels/capabilities";
 
 export interface TokenData {
   access_token: string;
@@ -178,5 +179,20 @@ export abstract class SocialProvider {
       case "follow_check":
         return typeof this.checkFollowsBusiness === "function";
     }
+  }
+
+  /**
+   * The INBOUND channel capabilities this provider grants (CHANNELS-ARCHITECTURE Task 6). The
+   * provider owns this — the channel capability resolver folds it together with the publish-side
+   * capability so the engine can ask `can(channel, "dm")` without any platform branch. Default is
+   * derived from method presence: every provider sends DMs (`sendMessage` is core), comment-reply
+   * and webhook-subscription are duck-typed. Platforms that diverge (e.g. YouTube has no DM, polls
+   * instead of receiving webhooks) override this.
+   */
+  inboundCapabilities(): Capability[] {
+    const caps: Capability[] = ["dm"];
+    if (this.supportsFeature("comments")) caps.push("comment_reply");
+    if (typeof this.subscribePageWebhooks === "function") caps.push("receive_webhooks");
+    return caps;
   }
 }

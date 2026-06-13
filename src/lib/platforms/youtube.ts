@@ -5,6 +5,7 @@ import {
   type ConnectedAccount,
   type SentMessage,
 } from "./base";
+import type { Capability } from "@/lib/channels/capabilities";
 import { insertCommentReply, refreshGoogleAccessToken } from "@/lib/youtube/client";
 
 /**
@@ -39,6 +40,11 @@ export class YouTubeProvider extends SocialProvider {
 
   async sendMessage(): Promise<SentMessage> {
     throw new Error("YouTube has no direct messages — only public comment replies");
+  }
+
+  /** No DM and no webhook on YouTube: inbound comments are polled (poll_comments), replies are public. */
+  override inboundCapabilities(): Capability[] {
+    return ["comment_reply", "poll_comments"];
   }
 
   /** Reply publicly to a comment (comments.insert). `objectId` is the parent comment id. */
