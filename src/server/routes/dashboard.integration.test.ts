@@ -274,6 +274,15 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("System User token"); // the guide CTA
   });
 
+  it("shows the Meta callback / redirect URLs on /channels (not just Settings)", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/channels", { headers: { cookie } })).text();
+    expect(body).toContain("callback / redirect URLs");
+    expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
+    expect(body).toContain("http://localhost:3000/api/webhooks/meta");
+  });
+
   it("connecting a master token renders the source with its derived channels", async () => {
     if (!TEST_DB) return;
     mockGraph();

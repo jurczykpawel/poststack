@@ -535,6 +535,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         html`<div class="page">
           <h1>Channels</h1>
           <p class="muted">Connect your Facebook Pages and Instagram Business accounts.</p>
+          <details class="card" style="margin:.5rem 0 1rem">
+            <summary style="cursor:pointer;font-weight:600">Meta app setup — callback / redirect URLs</summary>
+            <p class="muted" style="font-size:.8rem;margin:.5rem 0 .75rem">Paste these into your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a> before connecting. They are derived from your <code>APP_URL</code>.</p>
+            ${metaConfigRow("Valid OAuth Redirect URI — Facebook Login → Settings", `${env.APP_URL}/api/oauth/facebook/callback`)}
+            ${metaConfigRow("Valid OAuth Redirect URI — Instagram", `${env.APP_URL}/api/oauth/instagram/callback`)}
+            ${metaConfigRow("Webhook callback URL — Messenger + Instagram products", `${env.APP_URL}/api/webhooks/meta`)}
+            ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
+            ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}
+            <p class="muted" style="font-size:.75rem;margin-top:.5rem">Also shown under <a href="/settings">Settings → Meta App configuration</a>.</p>
+          </details>
           ${errorKey ? html`<div class="notice notice-err">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : html``}
           ${connected && count ? html`<div class="notice notice-ok">${count} ${PLATFORM_LABELS[connected] ?? connected} account(s) connected.</div>` : html``}
           <div x-data="{ token: false, tg: false }">
