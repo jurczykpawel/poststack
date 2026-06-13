@@ -38,6 +38,7 @@ import { requireSameOrigin } from "../middleware/same-origin";
 import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
+import { registerBrands } from "../ui/sections/brands";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -158,13 +159,30 @@ function renderConvPanel(
             hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML" hx-trigger="change"
             hx-vals='${`{"filter":"${filter}"}`}'>
             <option value="all" ${channelId === "all" ? "selected" : ""}>All channels</option>
-            ${chans.map(
-              (ch) => html`<option value="${ch.id}" ${channelId === ch.id ? "selected" : ""}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`,
-            )}
+            ${renderInboxChannelOptions(chans, channelId)}
           </select>
         </div>`
       : html``}
     <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
+}
+
+/** Inbox channel <option>s, grouped into <optgroup>s by owning brand (brand-aware reply filter —
+ *  UNIFY1 Task 4: the SAME brand groups publish AND reply channels). Channels without a brand fall
+ *  into an "Unassigned" group. With no brands assigned at all, renders a flat option list. */
+function renderInboxChannelOptions(chans: InboxChannel[], channelId: string): Html {
+  const label = (ch: InboxChannel) => `${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}`;
+  const opt = (ch: InboxChannel) => html`<option value="${ch.id}" ${channelId === ch.id ? "selected" : ""}>${label(ch)}</option>`;
+  const anyBrand = chans.some((ch) => ch.brand_key);
+  if (!anyBrand) return html`${chans.map(opt)}`;
+  const byBrand = new Map<string, InboxChannel[]>();
+  for (const ch of chans) {
+    const k = ch.brand_key ?? "";
+    (byBrand.get(k) ?? byBrand.set(k, []).get(k)!).push(ch);
+  }
+  const keys = [...byBrand.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
+  return html`${keys.map(
+    (k) => html`<optgroup label="${k === "" ? "Unassigned" : k}">${byBrand.get(k)!.map(opt)}</optgroup>`,
+  )}`;
 }
 
 // The thread is a universal, chronological timeline of items from any inbound source. A reaction is a
@@ -287,12 +305,12 @@ function loadConversations(workspaceId: string, filter: ConvFilter = "all", chan
   });
 }
 
-/** Channels for the inbox channel-filter dropdown (id + label). */
+/** Channels for the inbox channel-filter dropdown (id + label + brand for grouping). */
 function loadInboxChannels(workspaceId: string) {
   return db.query.channels.findMany({
     where: eq(channels.workspace_id, workspaceId),
     orderBy: asc(channels.created_at),
-    columns: { id: true, display_name: true, platform: true, username: true },
+    columns: { id: true, display_name: true, platform: true, username: true, brand_key: true },
   });
 }
 
@@ -1312,6 +1330,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerChannels(app, guard);
   registerCompose(app, guard);
   registerContent(app, guard);
+  registerBrands(app, guard);
 }
 
 // jsonReqMethod allows non-POST verbs for delegated handlers (PATCH).
