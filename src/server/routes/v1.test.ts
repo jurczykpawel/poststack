@@ -5,7 +5,7 @@ let app: Hono;
 
 beforeAll(async () => {
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
-  process.env.TOKEN_ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY =
     "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";

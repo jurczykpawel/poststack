@@ -59,8 +59,8 @@ fi
 # ─────────────────────────────────────────────
 # 5. Token encryption key fallback
 # ─────────────────────────────────────────────
-if echo "$DIFF" | grep -qE '^\+.*TOKEN_ENCRYPTION_KEY.*\|\|.*["'"'"']' 2>/dev/null; then
-  ERRORS+=("TOKEN_ENCRYPTION_KEY with fallback value detected. Missing key must throw, never use a default.")
+if echo "$DIFF" | grep -qE '^\+.*ENCRYPTION_KEY.*\|\|.*["'"'"']' 2>/dev/null; then
+  ERRORS+=("ENCRYPTION_KEY with fallback value detected. Missing key must throw, never use a default.")
 fi
 
 # ─────────────────────────────────────────────

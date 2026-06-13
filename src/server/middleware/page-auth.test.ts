@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 
 // page-auth imports @/lib/env (validated at import time), so set the required env before importing.
 beforeAll(() => {
-  process.env.TOKEN_ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY =
     "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.JWT_EXPIRY = "7d";

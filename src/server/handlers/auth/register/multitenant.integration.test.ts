@@ -24,7 +24,7 @@ beforeAll(async () => {
   if (!TEST_DB) return;
   key = await makeTestKey("kid-1");
   process.env.DATABASE_URL = TEST_DB;
-  process.env.TOKEN_ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
+  process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";

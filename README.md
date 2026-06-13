@@ -78,7 +78,7 @@ cp .env.example .env
 ```
 
 Edit `.env` -- fill in at minimum:
-- `TOKEN_ENCRYPTION_KEY` -- run `openssl rand -hex 32`
+- `ENCRYPTION_KEY` -- any passphrase >= 32 chars, e.g. `openssl rand -base64 32`
 - `JWT_SECRET` -- run `openssl rand -hex 32`
 - `CRON_SECRET` -- run `openssl rand -hex 32`
 - `META_APP_ID` and `META_APP_SECRET` -- from [Meta for Developers](https://developers.facebook.com)
@@ -162,13 +162,13 @@ docker compose -f docker-compose.prod.yml exec postgres \
 Or snapshot the `postgres_data` volume at the filesystem level while the stack is stopped. Test a restore
 before you need one.
 
-### Rotating `TOKEN_ENCRYPTION_KEY`
+### Rotating `ENCRYPTION_KEY`
 
-Channel OAuth tokens are encrypted at rest with `TOKEN_ENCRYPTION_KEY`. **Swapping the key without
+Channel OAuth tokens are encrypted at rest with `ENCRYPTION_KEY`. **Swapping the key without
 re-encrypting first makes every channel undecryptable** — decryption throws, so all sends and refreshes fail
 and every channel must be reconnected. To rotate safely: with the **old** key still in place, decrypt and
 re-encrypt every `channels.token_encrypted` under the new key (in a maintenance step that holds both keys),
-**then** swap `TOKEN_ENCRYPTION_KEY` to the new value and restart. Always take a backup (above) first.
+**then** swap `ENCRYPTION_KEY` to the new value and restart. Always take a backup (above) first.
 
 ---
 

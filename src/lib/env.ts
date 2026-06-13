@@ -12,13 +12,12 @@ const envSchema = z.object({
   // always register to bootstrap; after that, set "true" to allow more.
   REGISTRATION_ENABLED: z.string().default("false"),
 
-  // Encryption - must be 32-byte hex (64 chars). The hex regex catches a 64-char NON-hex value
-  // at startup; otherwise Buffer.from(key,"hex") yields a 0-byte key and the failure surfaces
-  // only on the first encryptTokens (e.g. a channel connect), not at boot.
-  TOKEN_ENCRYPTION_KEY: z
+  // At-rest encryption secret. Any passphrase >= 32 chars; sha256-derived to a 32-byte AES key
+  // (see crypto.ts requireEncryptionKey — the single runtime guard). Validated here too so a
+  // missing/short key fails at boot, not on the first encrypt (e.g. a channel connect).
+  ENCRYPTION_KEY: z
     .string()
-    .length(64, "TOKEN_ENCRYPTION_KEY must be a 32-byte hex string (64 chars). Generate: openssl rand -hex 32")
-    .regex(/^[0-9a-f]{64}$/i, "TOKEN_ENCRYPTION_KEY must be hex (0-9a-f). Generate: openssl rand -hex 32"),
+    .min(32, "ENCRYPTION_KEY must be at least 32 characters. Generate: openssl rand -base64 32"),
 
   // App
   APP_URL: z.string().url(),

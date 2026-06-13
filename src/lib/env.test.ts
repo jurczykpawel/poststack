@@ -8,7 +8,7 @@ const GOOD: Record<string, string> = {
   JWT_SECRET: "x".repeat(32),
   CRON_SECRET: "x".repeat(32),
   APP_URL: "http://localhost:3000",
-  TOKEN_ENCRYPTION_KEY: "a".repeat(64), // valid 64-char hex
+  ENCRYPTION_KEY: "a".repeat(40), // any passphrase >= 32 chars (sha256-derived)
 };
 
 let saved: NodeJS.ProcessEnv;
@@ -29,19 +29,19 @@ function setEnv(over: Record<string, string | undefined>) {
 }
 
 describe("env validation", () => {
-  it("accepts a valid 64-char hex TOKEN_ENCRYPTION_KEY", async () => {
-    setEnv({});
+  it("accepts any passphrase >= 32 chars as ENCRYPTION_KEY (no hex constraint)", async () => {
+    setEnv({ ENCRYPTION_KEY: "a non-hex but plenty long passphrase!!" });
     const { env } = await import("@/lib/env");
-    expect(env.TOKEN_ENCRYPTION_KEY).toHaveLength(64);
+    expect(env.ENCRYPTION_KEY.length).toBeGreaterThanOrEqual(32);
   });
 
-  it("rejects a 64-char NON-hex TOKEN_ENCRYPTION_KEY at startup (not deferred to first use)", async () => {
-    setEnv({ TOKEN_ENCRYPTION_KEY: "G".repeat(64) });
+  it("rejects an ENCRYPTION_KEY shorter than 32 chars at startup (not deferred to first use)", async () => {
+    setEnv({ ENCRYPTION_KEY: "too-short" });
     await expect(import("@/lib/env")).rejects.toThrow();
   });
 
   it("no longer bypasses validation under NEXT_PHASE (dead Next guard removed)", async () => {
-    setEnv({ TOKEN_ENCRYPTION_KEY: undefined });
+    setEnv({ ENCRYPTION_KEY: undefined });
     process.env.NEXT_PHASE = "phase-production-build";
     try {
       await expect(import("@/lib/env")).rejects.toThrow();

@@ -36,7 +36,7 @@ beforeAll(async () => {
   badKey = await makeTestKey("kid-1"); // same kid, different key -> bad signature
   process.env.DATABASE_URL = TEST_DB;
   process.env.JWT_SECRET ??= "test-jwt-secret-至少-32-characters-长!!";
-  process.env.TOKEN_ENCRYPTION_KEY ??= "0".repeat(64);
+  process.env.ENCRYPTION_KEY ??= "0".repeat(64);
   process.env.APP_URL ??= "http://localhost:3000";
   process.env.CRON_SECRET ??= "test-cron-secret-at-least-32-chars!!";
   // REPLYSTACK_LICENSE_KEY intentionally left empty in this file (no env token).

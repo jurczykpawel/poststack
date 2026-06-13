@@ -31,7 +31,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://replystack:replystack-ci@localhost:5432/replystack
       JWT_SECRET: ci-jwt-secret-not-real-but-must-be-32chars
-      TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       APP_URL: http://localhost:3000
       META_APP_ID: ci-fake-app-id
       META_APP_SECRET: ci-fake-app-secret

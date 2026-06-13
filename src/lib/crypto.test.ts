@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-// Set required env before importing module
+// Set required env before importing module. The encryption key is now ENCRYPTION_KEY: any
+// passphrase >= 32 chars (sha256-derived to 32 bytes), not a 64-char hex string.
 beforeAll(() => {
-  process.env.TOKEN_ENCRYPTION_KEY =
-    "0000000000000000000000000000000000000000000000000000000000000001";
+  process.env.ENCRYPTION_KEY = "test-encryption-key-at-least-32-characters-long";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
   process.env.APP_URL = "http://localhost:3000";
@@ -11,6 +11,35 @@ beforeAll(() => {
   process.env.META_APP_SECRET = "test-app-secret";
   process.env.META_WEBHOOK_VERIFY_TOKEN = "test-verify-token";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
+});
+
+describe("requireEncryptionKey", () => {
+  it("returns the key when set and long enough", async () => {
+    const { requireEncryptionKey } = await import("./crypto");
+    expect(requireEncryptionKey()).toBe(process.env.ENCRYPTION_KEY);
+  });
+
+  it("throws when ENCRYPTION_KEY is missing", async () => {
+    const { requireEncryptionKey } = await import("./crypto");
+    const saved = process.env.ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_KEY;
+    try {
+      expect(() => requireEncryptionKey()).toThrow(/ENCRYPTION_KEY/);
+    } finally {
+      process.env.ENCRYPTION_KEY = saved;
+    }
+  });
+
+  it("throws when ENCRYPTION_KEY is shorter than 32 chars", async () => {
+    const { requireEncryptionKey } = await import("./crypto");
+    const saved = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = "too-short";
+    try {
+      expect(() => requireEncryptionKey()).toThrow(/ENCRYPTION_KEY/);
+    } finally {
+      process.env.ENCRYPTION_KEY = saved;
+    }
+  });
 });
 
 describe("encryptTokens / decryptTokens", () => {

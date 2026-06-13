@@ -6,7 +6,7 @@ import { TokenInvalidError } from "@/lib/platforms/errors";
  * a re-auth case.
  *
  * `decryptTokens` throws a generic Error when the ciphertext can't be authenticated — a corrupt
- * `token_encrypted` (partial write / bad restore) or a rotated `TOKEN_ENCRYPTION_KEY` without a
+ * `token_encrypted` (partial write / bad restore) or a rotated `ENCRYPTION_KEY` without a
  * re-encrypt (a documented DR step). On the worker send/refresh paths a generic throw lands in
  * the delivery state machine's "transient" branch and crash-loops to the dead-letter queue WITHOUT
  * ever flagging the channel `needs_reauth` — a silent total outbound outage with no operator signal

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 beforeAll(() => {
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
-  process.env.TOKEN_ENCRYPTION_KEY = "0".repeat(64);
+  process.env.ENCRYPTION_KEY = "0".repeat(64);
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 });

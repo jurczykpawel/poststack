@@ -54,7 +54,7 @@ async function jobCount(task: string) {
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  process.env.TOKEN_ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
+  process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
@@ -988,7 +988,7 @@ describe("outgoing-message worker", () => {
     expect(held.length).toBe(1);
   });
 
-  // an undecryptable stored token (corrupt token / rotated TOKEN_ENCRYPTION_KEY) must
+  // an undecryptable stored token (corrupt token / rotated ENCRYPTION_KEY) must
   // degrade exactly like a dead token: hold + needs_reauth + alert, NOT crash-loop to dead-letter
   // with no operator signal. The send callback never even reaches the provider.
   it("holds + flags needs_reauth when the stored token cannot be decrypted", async () => {

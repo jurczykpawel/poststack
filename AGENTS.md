@@ -123,7 +123,7 @@ See `.env.example`. Required:
 | Var | Purpose |
 |-----|---------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `TOKEN_ENCRYPTION_KEY` | 32-byte hex (`openssl rand -hex 32`) |
+| `ENCRYPTION_KEY` | Passphrase >= 32 chars, sha256-derived (`openssl rand -base64 32`) |
 | `JWT_SECRET` | Auth JWT secret |
 | `META_APP_ID` | Facebook App ID |
 | `META_APP_SECRET` | Facebook App Secret |

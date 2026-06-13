@@ -33,7 +33,7 @@ const helpers = { logger: { info: () => {}, error: () => {} } } as unknown as Pa
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  process.env.TOKEN_ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
+  process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
@@ -90,7 +90,7 @@ describe("token refresh is atomic with the health flip", () => {
   });
 });
 
-// a stored token that can't be decrypted (corruption / a rotated TOKEN_ENCRYPTION_KEY
+// a stored token that can't be decrypted (corruption / a rotated ENCRYPTION_KEY
 // without re-encrypt) must flag the channel needs_reauth and stop, exactly like a token the
 // provider rejects — not throw out of the worker and dead-letter the refresh job with no signal.
 describe("token refresh on an undecryptable token", () => {

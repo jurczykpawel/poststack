@@ -21,7 +21,7 @@ const CONTACT_B = "dddddddd-0000-0000-0000-0000000000b1";
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
-  process.env.TOKEN_ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY =
     "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";

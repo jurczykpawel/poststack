@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
 beforeAll(() => {
-  process.env.TOKEN_ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY =
     "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
@@ -11,7 +11,7 @@ beforeAll(() => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 });
 
-// on a send/refresh path a decrypt FAILURE (corrupt token / rotated TOKEN_ENCRYPTION_KEY)
+// on a send/refresh path a decrypt FAILURE (corrupt token / rotated ENCRYPTION_KEY)
 // must surface as a re-auth case, not a generic throw that crash-loops to the dead-letter queue
 // without ever flagging the channel needs_reauth.
 describe("decryptChannelToken", () => {

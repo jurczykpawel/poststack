@@ -1,20 +1,37 @@
-import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "crypto";
-import { env } from "@/lib/env";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { TokenData } from "@/lib/platforms/base";
 
 export type { TokenData };
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
+const MIN_KEY_LEN = 32;
+
+/**
+ * The raw secret behind at-rest encryption. Fails fast with NO silent dev fallback (a public
+ * OSS-history default would let anyone decrypt stored tokens). Any passphrase >= 32 chars is
+ * accepted and sha256-derived to a 32-byte key — no hex-length constraint. Single source of truth
+ * for what "set + well-formed" means; read at call time so a missing key surfaces immediately.
+ */
+export function requireEncryptionKey(): string {
+  const k = process.env.ENCRYPTION_KEY;
+  if (!k || k.length < MIN_KEY_LEN) {
+    throw new Error(`ENCRYPTION_KEY must be set (>= ${MIN_KEY_LEN} chars)`);
+  }
+  return k;
+}
+
+function key(): Buffer {
+  return createHash("sha256").update(requireEncryptionKey()).digest(); // deterministic 32-byte key
+}
 
 /**
  * Encrypt an arbitrary string at rest (AES-256-GCM).
  * Returns hex string: iv:authTag:ciphertext
  */
 export function encryptString(plaintext: string): string {
-  const key = Buffer.from(env.TOKEN_ENCRYPTION_KEY, "hex");
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const cipher = createCipheriv(ALGORITHM, key(), iv);
 
   const encrypted = Buffer.concat([
     cipher.update(plaintext, "utf8"),
@@ -34,7 +51,6 @@ export function encryptString(plaintext: string): string {
  * Throws if decryption fails (tampered data or wrong key).
  */
 export function decryptString(encrypted: string): string {
-  const key = Buffer.from(env.TOKEN_ENCRYPTION_KEY, "hex");
   const parts = encrypted.split(":");
 
   if (parts.length !== 3) {
@@ -42,7 +58,7 @@ export function decryptString(encrypted: string): string {
   }
 
   const [ivHex, authTagHex, ciphertextHex] = parts;
-  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivHex, "hex"));
+  const decipher = createDecipheriv(ALGORITHM, key(), Buffer.from(ivHex, "hex"));
   decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
 
   return Buffer.concat([
