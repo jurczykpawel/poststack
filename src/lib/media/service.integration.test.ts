@@ -1,0 +1,144 @@
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { eq } from "drizzle-orm";
+
+const TEST_DB = process.env.TEST_DATABASE_URL;
+let db: typeof import("@/lib/db").db;
+let schema: typeof import("@/db/schema");
+let registerByUrl: typeof import("./service").registerByUrl;
+let InMemoryStorage: typeof import("@/lib/storage/memory").InMemoryStorage;
+let seedWorkspace: typeof import("../../../tests/helpers/workspace").seedWorkspace;
+let WS = "";
+
+beforeAll(async () => {
+  if (!TEST_DB) return;
+  process.env.DATABASE_URL = TEST_DB;
+  process.env.JWT_SECRET ??= "test-secret-at-least-32-characters-long";
+  process.env.ENCRYPTION_KEY ??= "test-encryption-key-at-least-32-characters-long";
+  process.env.APP_URL ??= "http://localhost:3000";
+  process.env.CRON_SECRET ??= "test-cron-secret-at-least-32-characters-long";
+  ({ db } = await import("@/lib/db"));
+  schema = await import("@/db/schema");
+  ({ registerByUrl } = await import("./service"));
+  ({ InMemoryStorage } = await import("@/lib/storage/memory"));
+  ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
+  WS = await seedWorkspace(db, schema, { slug: `media-${Date.now()}` });
+});
+
+beforeEach(async () => {
+  if (!TEST_DB) return;
+  await db.delete(schema.media);
+});
+
+afterAll(async () => {
+  if (!TEST_DB) return;
+  // Clean up everything this suite created so it never pollutes serially-following files.
+  await db.delete(schema.media);
+  await db.delete(schema.workspaces).where(eq(schema.workspaces.id, WS));
+  await db.$client.end();
+});
+
+const fakeProbe = async () => ({
+  kind: "video" as const,
+  mime: "video/mp4",
+  width: 1080,
+  height: 1920,
+  durationSec: 12,
+});
+const bytes = new Uint8Array([1, 2, 3, 4]);
+
+function stubFetch() {
+  const storage = new InMemoryStorage("https://cdn.test");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(bytes, { status: 200, headers: { "content-type": "video/mp4" } })),
+  );
+  return storage;
+}
+
+describe("media registerByUrl (real Postgres, workspace-scoped)", () => {
+  it("ingests a public URL, stores content-addressed, and probes metadata", async () => {
+    if (!TEST_DB) return;
+    const storage = stubFetch();
+    const m = await registerByUrl("https://cdn.test/source.mp4", { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] }, WS);
+    expect(m.workspace_id).toBe(WS);
+    expect(m.checksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(m.storage_key).toContain("media/sha256/");
+    expect(m.duration_sec).toBe(12);
+    expect((await storage.head(m.storage_key)).exists).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("deduplicates identical content within a workspace (same checksum -> same row)", async () => {
+    if (!TEST_DB) return;
+    const storage = stubFetch();
+    const a = await registerByUrl("https://cdn.test/a.mp4", { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] }, WS);
+    const b = await registerByUrl("https://cdn.test/b.mp4", { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] }, WS);
+    expect(b.id).toBe(a.id);
+    vi.unstubAllGlobals();
+  });
+
+  it("the SAME content in a DIFFERENT workspace gets its own row (no cross-tenant share)", async () => {
+    if (!TEST_DB) return;
+    const storage = stubFetch();
+    const WS2 = await seedWorkspace(db, schema, { slug: `media2-${Date.now()}` });
+    const a = await registerByUrl("https://cdn.test/a.mp4", { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] }, WS);
+    const b = await registerByUrl("https://cdn.test/a.mp4", { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] }, WS2);
+    expect(b.id).not.toBe(a.id);
+    expect(b.workspace_id).toBe(WS2);
+    await db.delete(schema.workspaces).where(eq(schema.workspaces.id, WS2));
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses a private/internal URL (SSRF)", async () => {
+    if (!TEST_DB) return;
+    const storage = stubFetch();
+    await expect(
+      registerByUrl("http://169.254.169.254/latest/meta-data", { storage, probe: fakeProbe, resolve: async () => ["169.254.169.254"] }, WS),
+    ).rejects.toThrow();
+    vi.unstubAllGlobals();
+  });
+
+  it("two concurrent identical ingests resolve to one row without a unique-violation 500 [PSA34]", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(bytes, { status: 200, headers: { "content-type": "video/mp4" } })));
+    const slowProbe = async () => {
+      await new Promise((r) => setTimeout(r, 60));
+      return fakeProbe();
+    };
+    try {
+      const [a, b] = await Promise.all([
+        registerByUrl("https://cdn.test/a.mp4", { storage, probe: slowProbe, resolve: async () => ["8.8.8.8"] }, WS),
+        registerByUrl("https://cdn.test/b.mp4", { storage, probe: slowProbe, resolve: async () => ["8.8.8.8"] }, WS),
+      ]);
+      expect(a.id).toBe(b.id);
+      const rows = await db.select().from(schema.media).where(eq(schema.media.workspace_id, WS));
+      expect(rows.length).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("aborts a hung source after MEDIA_FETCH_TIMEOUT_MS instead of pinning a slot forever [PSA32]", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    process.env.MEDIA_FETCH_TIMEOUT_MS = "50";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      ),
+    );
+    try {
+      await expect(
+        registerByUrl("https://cdn.test/hung.mp4", { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] }, WS),
+      ).rejects.toThrow();
+    } finally {
+      delete process.env.MEDIA_FETCH_TIMEOUT_MS;
+      vi.unstubAllGlobals();
+    }
+  });
+});
