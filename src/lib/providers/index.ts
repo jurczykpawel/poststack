@@ -1,11 +1,16 @@
 import { providers } from "./registry";
+import { metaProvider } from "./meta";
+import { youtubeProvider } from "./youtube";
 import { tiktokProvider } from "./tiktok";
 import { xProvider } from "./x";
 import { linkedinProvider } from "./linkedin";
 import { threadsProvider } from "./threads";
 
-// Publish-only adapters RS lacked. meta + youtube get the publish capability folded into their
-// existing inbound providers (Task 4b reconciliation) and are registered here once unified.
+// The publish-side providers (one per platform). meta serves FB+IG publish; the inbound side lives
+// in @/lib/platforms (facebook/instagram/youtube) and shares the Meta token/app-secret model. The
+// channel-level unification (one account both publishes AND replies) is the Task 6 capability model.
+providers.register(metaProvider);
+providers.register(youtubeProvider);
 providers.register(tiktokProvider);
 providers.register(xProvider);
 providers.register(linkedinProvider);

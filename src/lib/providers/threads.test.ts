@@ -42,9 +42,9 @@ describe("threads provider", () => {
     expect(h.providerHandle).toBe("post_th");
   });
 
-  it("the publish-only adapters are registered (meta + youtube join in the Task 4b reconciliation)", () => {
-    // meta/youtube get the publish capability folded into their existing inbound providers and are
-    // registered then; until that lands, the registry holds the four publish-only adapters.
-    expect(listProviders().map((p) => p.id).sort()).toEqual(["linkedin", "threads", "tiktok", "x"]);
+  it("all six v1 providers are registered", () => {
+    expect(listProviders().map((p) => p.id).sort()).toEqual(
+      ["linkedin", "meta", "threads", "tiktok", "x", "youtube"],
+    );
   });
 });

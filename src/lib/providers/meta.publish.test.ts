@@ -1,0 +1,223 @@
+import { describe, it, expect, afterEach, vi } from "vitest";
+// Cover/media fetches now route through the SSRF guard (safeFetch → DNS resolve). Stub DNS to a
+// public IP so these unit tests don't hit the network for fake hostnames.
+vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
+import { metaProvider } from "./meta";
+import { PermanentError } from "./errors";
+
+afterEach(() => vi.unstubAllGlobals());
+const tokens = { accessToken: "T" };
+
+describe("meta.publish", () => {
+  it("publishes a reel: container -> status FINISHED -> publish", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.includes("/media_publish"))
+          return new Response(JSON.stringify({ id: "post_123" }), { status: 200 });
+        if (url.includes("?fields=status_code"))
+          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "container_1" }), { status: 200 });
+      }),
+    );
+    const handle = await metaProvider.publish({
+      tokens,
+      accountId: "ACCT",
+      request: { format: "reel", media: [{ mediaId: "m" }], caption: "hi" },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(handle.providerHandle).toBe("post_123");
+    expect(calls.some((u) => u.includes("/ACCT/media"))).toBe(true);
+  });
+
+  it("passes cover_url to the reel container when options.coverUrl is set", async () => {
+    let createBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/media_publish"))
+          return new Response(JSON.stringify({ id: "post_9" }), { status: 200 });
+        if (url.includes("?fields=status_code"))
+          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        createBody = String(init?.body ?? ""); // the container-create POST
+        return new Response(JSON.stringify({ id: "container_9" }), { status: 200 });
+      }),
+    );
+    await metaProvider.publish({
+      tokens,
+      accountId: "ACCT",
+      request: {
+        format: "reel",
+        media: [{ mediaId: "m" }],
+        caption: "hi",
+        options: { coverUrl: "https://cdn/cover.png" },
+      },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(createBody).toContain("cover_url=");
+    expect(decodeURIComponent(createBody)).toContain("https://cdn/cover.png");
+  });
+
+  it("Facebook page video: posts to /{page}/videos via file_url + published flag (METAPUB1)", async () => {
+    let url = "";
+    let body = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        url = String(input);
+        body = String(init?.body ?? "");
+        return new Response(JSON.stringify({ id: "fbvid_1" }), { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publish({
+      tokens,
+      accountId: "PAGE123",
+      request: {
+        format: "feed_post",
+        media: [{ mediaId: "m" }],
+        caption: "hello fb",
+        options: { target: "facebook", published: false },
+      },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(h.providerHandle).toBe("fbvid_1");
+    expect(url).toContain("/PAGE123/videos");
+    const decoded = decodeURIComponent(body);
+    expect(decoded).toContain("file_url=https://cdn/x.mp4");
+    expect(decoded).toContain("published=false");
+    expect(body).toContain("description=hello+fb"); // URLSearchParams encodes space as +
+  });
+
+  it("FB Reel: 3-step video_reels (start -> file_url upload -> finish) routed by subKind", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        calls.push(u);
+        if (u.includes("/video_reels") && u.includes("upload_phase=start"))
+          return new Response(JSON.stringify({ video_id: "r1", upload_url: "https://rupload.facebook.com/r1" }), { status: 200 });
+        if (u === "https://rupload.facebook.com/r1") return new Response(JSON.stringify({ success: true }), { status: 200 });
+        if (u.includes("/video_reels") && u.includes("upload_phase=finish"))
+          return new Response(JSON.stringify({ success: true, post_id: "r1" }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publish({
+      tokens,
+      accountId: "PAGE",
+      request: { format: "reel", media: [{ mediaId: "m" }], caption: "c" },
+      mediaUrls: ["https://cdn/x.mp4"],
+      channelMetadata: { subKind: "facebook_page" },
+    });
+    expect(h.providerHandle).toBe("r1");
+    expect(calls.some((u) => u.includes("upload_phase=start"))).toBe(true);
+    expect(calls.some((u) => u.includes("upload_phase=finish"))).toBe(true);
+  });
+
+  it("refuses to send the token to an upload_url on a non-Meta host [PSA50]", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        calls.push(u);
+        if (u.includes("/video_reels") && u.includes("upload_phase=start"))
+          return new Response(JSON.stringify({ video_id: "r1", upload_url: "http://169.254.169.254/exfil" }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    await expect(
+      metaProvider.publish({
+        tokens,
+        accountId: "PAGE",
+        request: { format: "reel", media: [{ mediaId: "m" }], caption: "c" },
+        mediaUrls: ["https://cdn/x.mp4"],
+        channelMetadata: { subKind: "facebook_page" },
+      }),
+    ).rejects.toThrow();
+    expect(calls.some((u) => u.includes("169.254.169.254"))).toBe(false); // the token was never sent there
+  });
+
+  it("FB photo: feed_post + mediaKind=image posts to /{page}/photos", async () => {
+    let url = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        url = String(input);
+        return new Response(JSON.stringify({ post_id: "ph1" }), { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publish({
+      tokens,
+      accountId: "PAGE",
+      request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "c", options: { mediaKind: "image" } },
+      mediaUrls: ["https://cdn/x.jpg"],
+      channelMetadata: { subKind: "facebook_page" },
+    });
+    expect(h.providerHandle).toBe("ph1");
+    expect(url).toContain("/PAGE/photos");
+  });
+
+  it("FB video sets a custom thumbnail when options.coverUrl is set", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        calls.push(u);
+        if (u.includes("/PAGE/videos")) return new Response(JSON.stringify({ id: "v1" }), { status: 200 });
+        if (u === "https://cdn/cover.png") return new Response(new Uint8Array([1]), { status: 200 });
+        if (u.includes("/v1/thumbnails")) return new Response(JSON.stringify({ success: true }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publish({
+      tokens,
+      accountId: "PAGE",
+      request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "c", options: { target: "facebook", coverUrl: "https://cdn/cover.png" } },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(h.providerHandle).toBe("v1");
+    expect(calls.some((u) => u.includes("/v1/thumbnails"))).toBe(true);
+  });
+
+  it("subKind=instagram routes to the IG container flow (not Facebook)", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        calls.push(u);
+        if (u.includes("/media_publish")) return new Response(JSON.stringify({ id: "ig1" }), { status: 200 });
+        if (u.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "cont1" }), { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publish({
+      tokens,
+      accountId: "IGID",
+      request: { format: "reel", media: [{ mediaId: "m" }], caption: "c" },
+      mediaUrls: ["https://cdn/x.mp4"],
+      channelMetadata: { subKind: "instagram" },
+    });
+    expect(h.providerHandle).toBe("ig1");
+    expect(calls.some((u) => u.includes("/IGID/media") || u.includes("/media_publish"))).toBe(true);
+    expect(calls.every((u) => !u.includes("/video_reels"))).toBe(true);
+  });
+
+  it("throws PermanentError for an unsupported format", async () => {
+    await expect(
+      metaProvider.publish({
+        tokens,
+        accountId: "A",
+        request: { format: "carousel", media: [] },
+        mediaUrls: [],
+      }),
+    ).rejects.toBeInstanceOf(PermanentError);
+  });
+});

@@ -86,12 +86,24 @@ describe("PSA1 class guard — caller-influenced URL fetches route through safeF
   // upload URLs — sj.upload_url / location / uploadUrl — are NOT caller-influenced and are excluded.)
   const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 
-  // NOTE (UNIFY1 Phase 1): the provider + webhook-dispatch assertions are RE-ADDED in Task 4 / the
-  // webhook-dispatch port, when `src/lib/providers/*` and `src/lib/webhooks/dispatch.ts` land in this
-  // repo. Until then this guard pins the only ported caller-URL fetch (media service.ts).
-  it("media service fetches the user URL only through safeFetch", () => {
+  // NOTE (UNIFY1 Phase 1): the webhook-dispatch assertion is RE-ADDED when src/lib/webhooks/dispatch.ts
+  // lands. The publish providers are ported, so their caller-URL fetches are pinned here.
+  it("no bare fetch() of a known user-URL remains in media + providers; all use safeFetch", () => {
+    const meta = read("../providers/meta.ts");
+    const youtube = read("../providers/youtube.ts");
+    const tiktok = read("../providers/tiktok.ts");
     const service = read("./service.ts");
+
+    expect(meta).not.toMatch(/[^e]fetch\(coverUrl/);
+    expect(youtube).not.toMatch(/[^e]fetch\(coverUrl/);
+    expect(youtube).not.toMatch(/[^e]fetch\(videoUrl/);
+    expect(tiktok).not.toMatch(/[^e]fetch\(videoUrl/);
     expect(service).not.toMatch(/[^e]fetch\(url\)/);
+
+    expect(meta).toContain("safeFetch(coverUrl)");
+    expect(youtube).toContain("safeFetch(coverUrl)");
+    expect(youtube).toContain("safeFetch(videoUrl)");
+    expect(tiktok).toContain("safeFetch(videoUrl)");
     expect(service).toContain("safeFetch(url");
   });
 });
