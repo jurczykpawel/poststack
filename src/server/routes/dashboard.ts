@@ -38,6 +38,8 @@ import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
 import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
+import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
+import { dot } from "../ui/components/status";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -440,7 +442,19 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl, products } = await getInstanceLicense();
     const ov = await loadOverview(a.workspaceId);
-    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl), features, products));
+    // When the publishing wing is entitled, fold its KPIs (attention / upcoming / events) into the
+    // unified overview alongside the reply stats (workspace-scoped). Otherwise it's the reply landing.
+    const pub = products.has("publishing")
+      ? await (async () => {
+          const [attention, upcoming, recent] = await Promise.all([
+            gatherAttention(a.workspaceId),
+            upcomingScheduled(a.workspaceId, 6),
+            recentEvents(a.workspaceId, 8),
+          ]);
+          return { attention, upcoming, recent };
+        })()
+      : null;
+    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub), features, products));
   });
 
   // Inbox — seeing individual conversations is the PRO contacts-CRM surface.
@@ -1443,7 +1457,51 @@ function renderEngagement(posts: EngagementPost[]): Html {
   </div>`;
 }
 
-function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string): Html {
+interface OverviewPublishing {
+  attention: AttentionRow[];
+  upcoming: UpcomingPost[];
+  recent: RecentEvent[];
+}
+
+/** The publishing wing's slice of the unified overview: attention hero + upcoming + recent events. */
+function renderPublishingOverview(pub: OverviewPublishing): Html {
+  const attention = pub.attention.length
+    ? html`<section class="panel" style="margin:1rem 0">
+        <div class="panel-head"><h3>Needs attention</h3><span class="panel-count">${pub.attention.length}</span></div>
+        ${pub.attention.map(
+          (a) => html`<div class="attn-row">
+            ${dot(a.tone)}
+            <span class="attn-title" title="${a.reason}">${a.title} <span class="muted" style="font-weight:400">· ${a.reason}</span></span>
+            <span class="attn-acts"><a class="btn btn-sm ${a.action.variant === "primary" ? "btn-primary" : "btn-secondary"}" href="${a.action.href}">${a.action.label}</a></span>
+          </div>`,
+        )}
+      </section>`
+    : html`<section class="panel" style="margin:1rem 0"><div class="panel-head"><h3>Needs attention</h3></div><div class="empty"><p class="empty-title">All healthy ✓</p><p class="empty-body">No channels, sources or deliveries need a fix.</p></div></section>`;
+  const upcoming = html`<section class="panel">
+      <div class="panel-head"><h3>Upcoming</h3><a class="panel-more" href="/queue?status=scheduled">Queue →</a></div>
+      ${pub.upcoming.length
+        ? pub.upcoming.map((u) => html`<div class="up-row"><span class="up-time">${relTimeShort(u.scheduledAt)}</span><span class="up-title">${PLATFORM_LABELS[u.platform] ?? u.platform} · ${u.format}</span><span class="up-channel">${u.channelName}</span></div>`)
+        : html`<div class="rec-empty"><small>Nothing scheduled.</small></div>`}
+    </section>`;
+  const recent = html`<section class="panel">
+      <div class="panel-head"><h3>Recent events</h3><a class="panel-more" href="/events">Events →</a></div>
+      ${pub.recent.length
+        ? pub.recent.map((e) => html`<div class="feed-row"><span class="feed-main"><span class="feed-type">${e.type}</span></span><span class="feed-time">${timeAgo(e.createdAt)}</span></div>`)
+        : html`<div class="rec-empty"><small>No events yet.</small></div>`}
+    </section>`;
+  return html`${attention}<div class="dash-grid">${upcoming}${recent}</div>`;
+}
+
+/** A compact relative time for the upcoming feed ("in 22m" / "12d ago"). */
+function relTimeShort(at: Date): string {
+  const ms = at.getTime() - Date.now();
+  const abs = Math.abs(ms);
+  const day = 86400000;
+  const v = abs < 3600000 ? `${Math.max(1, Math.round(abs / 60000))}m` : abs < day ? `${Math.round(abs / 3600000)}h` : `${Math.round(abs / day)}d`;
+  return ms >= 0 ? `in ${v}` : `${v} ago`;
+}
+
+function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string, pub: OverviewPublishing | null = null): Html {
   const locked = !features.has("contacts_crm");
   const stat = (label: string, value: number) =>
     html`<div class="card" style="flex:1;min-width:8rem"><div class="muted" style="font-size:.8rem">${label}</div><div style="font-size:1.6rem;font-weight:600">${value}</div></div>`;
@@ -1457,6 +1515,7 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
       ${stat("Held", ov.held)}
       ${stat("Contacts", ov.contactCount)}
     </div>
+    ${pub ? renderPublishingOverview(pub) : ""}
     <section class="section">
       <h2>Recent activity</h2>
       ${ov.recentSends.length === 0

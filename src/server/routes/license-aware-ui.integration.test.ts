@@ -158,6 +158,18 @@ describe("license-aware dashboard UI", () => {
     expect(body).toContain("<span>Engagement</span>");
   });
 
+  it("overview folds in the publishing KPIs (attention) only when publishing is entitled", async () => {
+    if (!TEST_DB) return;
+    // Free instance: no publishing area → no publishing dashboard section.
+    expect(await (await get("/overview")).text()).not.toContain("Needs attention");
+    // All-access: the unified overview shows the publishing attention/upcoming/events block.
+    await licenseInstance();
+    const licensed = await (await get("/overview")).text();
+    expect(licensed).toContain("Needs attention");
+    expect(licensed).toContain("Upcoming");
+    expect(licensed).toContain("Recent events");
+  });
+
   it("settings shows the entitled product areas (publishing/replies/core) for an all-access license", async () => {
     if (!TEST_DB) return;
     await licenseInstance(); // all-access poststack token → every area
