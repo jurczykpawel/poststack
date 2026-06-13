@@ -189,6 +189,31 @@ describe("dashboard inbox conversation controls", () => {
     expect(body).not.toContain("No messages yet");
   });
 
+  it("contacts view filters by channel + platform (auto-assignment)", async () => {
+    if (!TEST_DB) return;
+    const CH3 = "dddddddd-0000-0000-0000-0000000000d1";
+    const CONTACT3 = "dddddddd-0000-0000-0000-0000000000d2";
+    await db.insert(s.channels).values({ id: CH3, workspace_id: WS, platform: "instagram", platform_id: "IG-CT", display_name: "IG Shop", token_encrypted: "x", webhook_secret: "s3", status: "active" });
+    await db.insert(s.contacts).values({ id: CONTACT3, workspace_id: WS, display_name: "IG Only Person" });
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT3, channel_id: CH3, platform_sender_id: "IGSENDER", platform_username: "ig_only" });
+
+    // page shows the channel + platform filter dropdowns (now that there are 2 channels / platforms)
+    const page = await (await app.request("/contacts", { headers: { cookie } })).text();
+    expect(page).toContain("All channels");
+    expect(page).toContain("All platforms");
+    expect(page).toContain("IG Shop");
+
+    // channel filter → only the IG contact
+    const byChannel = await (await app.request(`/contacts/list?channel=${CH3}`, { headers: { cookie } })).text();
+    expect(byChannel).toContain("IG Only Person");
+    expect(byChannel).not.toContain("dylankelly"); // (the FB-seeded CONTACT has no such name; just ensure scoping)
+
+    // platform filter → instagram only
+    const byPlatform = await (await app.request("/contacts/list?platform=instagram", { headers: { cookie } })).text();
+    expect(byPlatform).toContain("IG Only Person");
+    expect(byPlatform).toContain("@ig_only"); // handle shown
+  });
+
   it("offers a channel filter dropdown and filters by channel", async () => {
     if (!TEST_DB) return;
     // a second channel so the dropdown renders (>1 channel)
