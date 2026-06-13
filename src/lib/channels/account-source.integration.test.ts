@@ -176,3 +176,20 @@ describe("syncAccountSource (real Postgres)", () => {
     expect(r.connected).toBe(0);
   });
 });
+
+describe("sweepAccountSources (real Postgres)", () => {
+  it("syncs healthy sources and marks a source whose master went invalid as needs_reauth", async () => {
+    if (!TEST_DB) return;
+    mockGraph();
+    const { sourceId } = await svc.connectAccountSource(WS, "MASTER_TOKEN");
+
+    // Master token is now revoked → debug_token reports invalid → sync throws → sweep flags it.
+    mockGraph({ debug: { app_id: "111", is_valid: false } });
+    const r = await svc.sweepAccountSources();
+    expect(r.failed).toBe(1);
+
+    const source = await db.query.accountSources.findFirst({ where: eq(s.accountSources.id, sourceId) });
+    expect(source?.status).toBe("needs_reauth");
+    expect(source?.needs_reauth_reason).toBeTruthy();
+  });
+});

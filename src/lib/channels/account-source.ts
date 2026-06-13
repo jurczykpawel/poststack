@@ -5,6 +5,7 @@ import { encryptTokens, decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { GRAPH_API_BASE } from "@/lib/platforms/constants";
 import { inspectMetaToken, MetaTokenError, type MetaTokenKind } from "@/lib/platforms/meta-token";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 import { upsertChannels } from "./upsert";
 
 /**
@@ -176,4 +177,43 @@ export async function syncAccountSource(sourceId: string): Promise<SyncSourceRes
     connected: facebook.length + instagram.length,
     byPlatform: { facebook: facebook.length, instagram: instagram.length },
   };
+}
+
+/**
+ * Flag a master source as needing re-auth (its token went invalid). Records the reason + error.
+ * Cascading the needs_reauth state to the derived child channels is layered on in a later step.
+ */
+export async function markSourceNeedsReauth(sourceId: string, reason: string): Promise<void> {
+  await db
+    .update(accountSources)
+    .set({ status: "needs_reauth", needs_reauth_reason: reason.slice(0, 500), last_error: reason.slice(0, 500) })
+    .where(eq(accountSources.id, sourceId));
+}
+
+/**
+ * Daily sweep: re-enumerate every active managed source so newly-added Pages/IG appear and a
+ * reconnected master recovers. Each source is isolated — one failing master is marked needs_reauth
+ * and the sweep moves on, never aborting the others (which would silently stop discovering new pages
+ * across the whole instance). Returns per-source outcomes for observability.
+ */
+export async function sweepAccountSources(): Promise<{ synced: number; failed: number }> {
+  const sources = await db.query.accountSources.findMany({
+    where: eq(accountSources.status, "active"),
+    columns: { id: true },
+  });
+
+  let synced = 0;
+  let failed = 0;
+  for (const { id } of sources) {
+    try {
+      await syncAccountSource(id);
+      synced++;
+    } catch (err) {
+      failed++;
+      const reason = err instanceof Error ? err.message : String(err);
+      await markSourceNeedsReauth(id, reason).catch(() => {});
+      console.error(`[source-sync-sweep] source ${id} failed: ${sanitizeForLog(reason)}`);
+    }
+  }
+  return { synced, failed };
 }

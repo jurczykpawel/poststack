@@ -3,17 +3,27 @@ import { rateLimit } from "@/lib/api/rate-limit";
 
 /** Alert classes carried on the `type` discriminator. A single outbound webhook receives them all;
  *  the operator routes by `type` on their side (Telegram / n8n / Slack). */
-export type AlertType = "channel_reauth" | "delivery_failed" | "delivery_held" | "event_error";
+export type AlertType =
+  | "channel_reauth"
+  | "delivery_failed"
+  | "delivery_held"
+  | "event_error"
+  | "token_expiring"; // proactive: a managed connection / token nears its data-access wall or expiry
 
 export interface Alert {
   type: AlertType;
   /** The channel the alert concerns, when applicable (used for throttle scoping + payload). */
   channelId?: string;
+  /** The managed source the alert concerns (token_expiring on a master); scopes the throttle too. */
+  sourceId?: string;
   workspaceId?: string;
   platform?: string;
   displayName?: string | null;
   /** Human-readable reason / error detail. Never a secret. */
   detail?: string;
+  /** For token_expiring: when access ends + how many whole days remain (for templating/routing). */
+  expiresAt?: string;
+  daysLeft?: number;
 }
 
 /** One alert per (type, channel) per this window — a dead channel emitting hundreds of failed
@@ -27,7 +37,7 @@ export const ALERT_THROTTLE_WINDOW_SECONDS = 15 * 60; // 15 minutes
  * fail OPEN (allow the alert) — a missed suppression is better than a missed alert.
  */
 async function isThrottled(alert: Alert): Promise<boolean> {
-  const key = `alert:${alert.type}:${alert.channelId ?? "-"}`;
+  const key = `alert:${alert.type}:${alert.channelId ?? alert.sourceId ?? "-"}`;
   try {
     const { allowed } = await rateLimit(key, 1, ALERT_THROTTLE_WINDOW_SECONDS);
     return !allowed;
@@ -63,10 +73,13 @@ export async function dispatchAlert(alert: Alert): Promise<void> {
       body: JSON.stringify({
         type: alert.type,
         channel_id: alert.channelId,
+        source_id: alert.sourceId,
         workspace_id: alert.workspaceId,
         platform: alert.platform,
         display_name: alert.displayName,
         detail: alert.detail,
+        expires_at: alert.expiresAt,
+        days_left: alert.daysLeft,
         app_url: appUrl,
       }),
       redirect: "error",
