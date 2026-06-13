@@ -31,14 +31,14 @@ function captchaWidget() {
 function authPage(opts: { title: string; subtitle: string; action: string; submit: string; alt: ReturnType<typeof html>; nameField: boolean }) {
   return doc(
     opts.title,
-    html`<div class="auth-wrap"><div class="auth-box">
-  <div class="auth-head"><h1 style="font-size:1.5rem">${BRAND.name}</h1><p class="muted">${opts.subtitle}</p></div>
-  <form class="stack" hx-post="${opts.action}" hx-ext="json-enc" hx-target="#auth-error" hx-swap="innerHTML">
+    html`<div class="auth-wrap"><div class="auth-card">
+  <h1>${BRAND.name}</h1><p class="muted">${opts.subtitle}</p>
+  <form hx-post="${opts.action}" hx-ext="json-enc" hx-target="#auth-error" hx-swap="innerHTML">
     ${opts.nameField
-      ? html`<div><label class="label">Name</label><input class="input" type="text" name="name" autocomplete="name" /></div>`
+      ? html`<div class="fld"><span>Name</span><input type="text" name="name" autocomplete="name" /></div>`
       : html``}
-    <div><label class="label">Email</label><input class="input" type="email" name="email" autocomplete="email" required /></div>
-    <div><label class="label">Password</label><input class="input" type="password" name="password" autocomplete="${opts.nameField ? "new-password" : "current-password"}" required /></div>
+    <div class="fld"><span>Email</span><input type="email" name="email" autocomplete="email" required /></div>
+    <div class="fld"><span>Password</span><input type="password" name="password" autocomplete="${opts.nameField ? "new-password" : "current-password"}" required /></div>
     <div class="row" style="justify-content:center">${captchaWidget()}</div>
     <div id="auth-error"></div>
     <button class="btn btn-primary" type="submit">${opts.submit}</button>
@@ -82,14 +82,14 @@ pages.post("/login", async (c) => {
   const res = await login.POST(c.req.raw);
   if (res.status === 200) return htmxRedirect(res, "/inbox");
   const body = await res.json().catch(() => ({}));
-  return c.html(html`<p class="error">${raw(escapeText(authErrorMessage(body, "Login failed")))}</p>`);
+  return c.html(html`<p class="auth-error">${raw(escapeText(authErrorMessage(body, "Login failed")))}</p>`);
 });
 
 pages.post("/register", async (c) => {
   const res = await register.POST(c.req.raw);
   if (res.status === 201) return htmxRedirect(res, "/inbox");
   const body = await res.json().catch(() => ({}));
-  return c.html(html`<p class="error">${raw(escapeText(authErrorMessage(body, "Registration failed")))}</p>`);
+  return c.html(html`<p class="auth-error">${raw(escapeText(authErrorMessage(body, "Registration failed")))}</p>`);
 });
 
 pages.post("/logout", async (c) => {

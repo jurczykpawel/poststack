@@ -27,15 +27,16 @@ describe("dashboard shell brand", () => {
     return out.toString();
   }
 
-  it("renders the default brand PostStack in the sidebar", async () => {
+  it("renders the default brand PostStack in the sidebar (glyph + name)", async () => {
     delete process.env.BRAND_NAME;
-    expect(await renderBrand()).toContain(`<div class="brand">PostStack</div>`);
+    const out = await renderBrand();
+    expect(out).toContain(`<span class="brand-glyph">P</span>PostStack`);
   });
 
   it("flips the rendered brand when BRAND_NAME is overridden", async () => {
     process.env.BRAND_NAME = "Acme Social";
     const out = await renderBrand();
-    expect(out).toContain(`<div class="brand">Acme Social</div>`);
+    expect(out).toContain(`<span class="brand-glyph">A</span>Acme Social`);
     expect(out).not.toContain("PostStack");
   });
 });

@@ -1,0 +1,21 @@
+:root[data-theme="dark"] {
+  --bg: #1a1b26; --bg-sidebar: #15151d; --surface: #21263a; --surface-2: #2c3147; --overlay: #292e42;
+  --border: #262a3f; --border-strong: #363c57;
+  --text-1: #c0caf5; --text-2: #a3abd0; --text-3: #8b93c4;
+  --accent: #7aa2f7; --accent-contrast: #10131f; --accent-2: #bb9af7;
+  --ok: #9ece6a; --ok-text: #b9e08f; --warn: #e0af68; --warn-text: #f0c896; --bad: #f7768e; --bad-text: #ffa6b6; --info: #7dcfff;
+  --ok-bg: color-mix(in srgb, var(--ok) 15%, transparent);
+  --warn-bg: color-mix(in srgb, var(--warn) 15%, transparent);
+  --bad-bg: color-mix(in srgb, var(--bad) 15%, transparent);
+  --info-bg: color-mix(in srgb, var(--info) 15%, transparent);
+  --ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --accent-bg: color-mix(in srgb, var(--accent) 13%, transparent);
+  --nav-hover: color-mix(in srgb, var(--text-1) 5%, var(--bg-sidebar));
+  --ok-strong: color-mix(in srgb, var(--ok) 30%, transparent);
+  --warn-strong: color-mix(in srgb, var(--warn) 32%, transparent);
+  --bad-strong: color-mix(in srgb, var(--bad) 32%, transparent);
+  --radius-control: 8px; --radius-card: 12px; --radius-pill: 999px;
+  --shell-max: 1440px;
+  --font-sans: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}

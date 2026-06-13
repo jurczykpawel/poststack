@@ -4,6 +4,7 @@ import { createChallenge } from "altcha-lib";
 import { db } from "@/lib/db";
 import { openApiSpec } from "@/lib/api/openapi";
 import { t } from "@/lib/i18n";
+import { serveAsset } from "../ui/assets";
 
 const DOCS_HTML = `<!doctype html>
 <html>
@@ -23,6 +24,11 @@ const DOCS_HTML = `<!doctype html>
 </html>`;
 
 export const publicRoutes = new Hono();
+
+// Vendored, buildless static assets (Tokyo Night admin shell: tokens.css, admin.css, htmx, Alpine,
+// ps-select). Public + pre-auth so the login/register pages style correctly too. Path traversal is
+// guarded in serveAsset; vendor/* is cached immutable, the rest must-revalidate.
+publicRoutes.get("/static/*", (c) => serveAsset(c, c.req.path.replace(/^\/static\//, "")));
 
 publicRoutes.get("/api/health", async (c) => {
   try {

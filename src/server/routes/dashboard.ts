@@ -570,19 +570,19 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     const ov = await loadOverview(a.workspaceId);
-    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl), features));
+    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl), features, products));
   });
 
   // Inbox — seeing individual conversations is the PRO contacts-CRM surface.
   app.get("/inbox", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     if (!features.has("contacts_crm")) {
       return c.html(
-        dashboardDoc(t("title.suffix", { section: "Inbox" }), "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Inbox" }), "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features, products),
       );
     }
     const filter = parseConvFilter(c.req.query("filter"));
@@ -600,6 +600,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,
+        products,
       ),
     );
   });
@@ -690,7 +691,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const channels = await loadChannels(a.workspaceId);
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     const hasFb = channels.some((ch) => ch.platform === "facebook" && ch.status !== "disabled");
     const hasIg = channels.some((ch) => ch.platform === "instagram" && ch.status !== "disabled");
     const canMultiChannel = features.has("multi_channel");
@@ -789,6 +790,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="channels-list">${renderChannels(channels)}</div>
         </div>`,
         features,
+        products,
       ),
     );
   });
@@ -885,10 +887,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/contacts", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     if (!features.has("contacts_crm")) {
       return c.html(
-        dashboardDoc(t("title.suffix", { section: "Contacts" }), "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Contacts" }), "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features, products),
       );
     }
     const chans = await loadInboxChannels(a.workspaceId);
@@ -919,6 +921,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="contacts-list">${renderContacts(await loadContacts(a.workspaceId, ""))}</div>
         </div>`,
         features,
+        products,
       ),
     );
   });
@@ -927,13 +930,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/engagement", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     if (!features.has("contacts_crm")) {
       return c.html(
-        dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features, products),
       );
     }
-    return c.html(dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", renderEngagement(await loadEngagement(a.workspaceId)), features));
+    return c.html(dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", renderEngagement(await loadEngagement(a.workspaceId)), features, products));
   });
 
   app.get("/contacts/list", guard, async (c) => {
@@ -1079,6 +1082,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </section>
         </div>`,
         license.features,
+        license.products,
       ),
     );
   });
@@ -1154,7 +1158,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/rules", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     const canFollowGate = features.has("follow_gate");
     const canInteractive = features.has("interactive_messages");
     const canPersonalize = features.has("personalization");
@@ -1285,6 +1289,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="rules-list">${renderRules(await loadRules(a.workspaceId))}</div>
         </div>`,
         features,
+        products,
       ),
     );
   });
@@ -1378,7 +1383,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/approvals", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features } = await getInstanceLicense();
+    const { features, products } = await getInstanceLicense();
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Approvals" }),
@@ -1389,6 +1394,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="approvals-list">${renderApprovals(await loadApprovals(a.workspaceId))}</div>
         </div>`,
         features,
+        products,
       ),
     );
   });
@@ -1415,12 +1421,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/sequences", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl } = await getInstanceLicense();
+    const { features, upgradeUrl, products } = await getInstanceLicense();
     // Building drip sequences is PRO — lock the whole page (consistent with inbox/contacts), not just
     // the builder form, so a free instance sees a clear upsell rather than an empty builder.
     if (!features.has("sequences")) {
       return c.html(
-        dashboardDoc(t("title.suffix", { section: "Sequences" }), "/sequences", proLockMain("Sequences", html`Automated drip message sequences are a PRO feature.`, upgradeUrl), features),
+        dashboardDoc(t("title.suffix", { section: "Sequences" }), "/sequences", proLockMain("Sequences", html`Automated drip message sequences are a PRO feature.`, upgradeUrl), features, products),
       );
     }
     return c.html(
@@ -1466,6 +1472,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="sequences-list">${renderSequences(await loadSequences(a.workspaceId))}</div>
         </div>`,
         features,
+        products,
       ),
     );
   });

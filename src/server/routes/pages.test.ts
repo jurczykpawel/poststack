@@ -29,7 +29,8 @@ describe("public pages", () => {
     expect(body).toContain('name="email"');
     expect(body).toContain('name="password"');
     expect(body).toContain("Sign in");
-    expect(body).toContain("htmx.org");
+    // The unified shell vendors htmx (no CDN) — assert the vendored asset is wired in.
+    expect(body).toContain("/static/vendor/htmx-2.0.4.min.js");
   });
 
   it("renders the register page with a name field", async () => {

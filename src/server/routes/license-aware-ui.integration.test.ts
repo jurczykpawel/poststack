@@ -117,9 +117,10 @@ describe("license-aware dashboard UI", () => {
     const body = await (await get("/overview")).text();
     expect(body).toContain("Overview");
     expect(body).toContain("Sent today");
-    // Nav: Overview is free; Inbox + Contacts are locked.
-    expect(body).toContain("Inbox 🔒");
-    expect(body).toContain("Contacts 🔒");
+    // Nav: Overview is free; Inbox + Contacts are shown but locked (nav-locked → upgrade link).
+    expect(body).toContain("nav-locked");
+    expect(body).toContain("<span>Inbox</span>");
+    expect(body).toContain("<span>Contacts</span>");
     // Free overview points at the locked per-person view.
     expect(body).toContain("Open individual conversations with");
   });
@@ -144,14 +145,17 @@ describe("license-aware dashboard UI", () => {
     const body = await (await get("/inbox")).text();
     expect(body).toContain("Select a conversation");
     expect(body).not.toContain("The conversation inbox is a PRO feature");
-    expect(body).not.toContain("Inbox 🔒");
+    // Inbox is now unlocked: it's the active nav item, not a locked upgrade link.
+    expect(body).toContain('aria-current="page"');
   });
 
   it("free /engagement is locked behind PRO", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/engagement")).text();
     expect(body).toContain("Seeing who reacted to your posts is a PRO feature");
-    expect(body).toContain("Engagement 🔒");
+    // Engagement is shown but locked in the nav for a free instance.
+    expect(body).toContain("nav-locked");
+    expect(body).toContain("<span>Engagement</span>");
   });
 
   it("settings shows the entitled product areas (publishing/replies/core) for an all-access license", async () => {
@@ -183,6 +187,7 @@ describe("license-aware dashboard UI", () => {
     expect(body).toContain("POST-ENG");
     expect(body).toContain("Ola Nowak");
     expect(body).toContain("❤️"); // love emoji
-    expect(body).not.toContain("Engagement 🔒");
+    // Engagement is unlocked under a license: it renders the real reactions view (above), not the lock copy.
+    expect(body).not.toContain("Seeing who reacted to your posts is a PRO feature");
   });
 });
