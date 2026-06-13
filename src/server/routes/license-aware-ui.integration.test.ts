@@ -178,6 +178,13 @@ describe("license-aware dashboard UI", () => {
     expect(body).toContain(">core<");
     expect(body).toContain(">publishing<");
     expect(body).toContain(">replies<");
+    // Unified settings (Task 8): the publishing-providers status panel shows under a publishing license.
+    expect(body).toContain("Publishing providers");
+  });
+
+  it("free settings hides the publishing-providers panel (publishing not entitled)", async () => {
+    if (!TEST_DB) return;
+    expect(await (await get("/settings")).text()).not.toContain("Publishing providers");
   });
 
   it("free settings shows no product areas (nothing entitled)", async () => {

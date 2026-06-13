@@ -39,7 +39,8 @@ import { registerBrands } from "../ui/sections/brands";
 import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
-import { dot } from "../ui/components/status";
+import { dot, pill as pillBadge } from "../ui/components/status";
+import { listProviders } from "@/lib/providers";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -784,6 +785,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
             ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}
           </section>
+          ${license.products.has("publishing") ? renderProvidersStatus() : ""}
           <section class="section">
             <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
               <h2 style="margin:0">Alert webhook</h2>
@@ -1534,6 +1536,22 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
           ${locked ? html`<p class="muted" style="font-size:.8rem;margin-top:.75rem">This log shows what was sent, without client details. To see who you talked to, ${proLink(upgradeUrl, "upgrade to PRO")}.</p>` : html``}`}
     </section>
   </div>`;
+}
+
+/** Read-only publishing-provider status (merged from PostStack settings): which publish providers
+ *  are registered and whether their OAuth client env is configured. Self-hoster diagnostic. */
+function renderProvidersStatus(): Html {
+  const providers = listProviders();
+  return html`<section class="section">
+    <h2>Publishing providers</h2>
+    <p class="muted" style="margin-bottom:1rem">Which publishing providers are available and whether their OAuth client credentials are configured.</p>
+    <table><thead><tr><th>Provider</th><th>OAuth</th></tr></thead><tbody>
+      ${providers.map((p) => {
+        const configured = !!p.oauthConfig?.();
+        return html`<tr><td>${p.id}</td><td>${configured ? pillBadge("configured", "ok") : pillBadge("not configured", "neutral")}</td></tr>`;
+      })}
+    </tbody></table>
+  </section>`;
 }
 
 function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {
