@@ -2,6 +2,7 @@ import { pruneExpired } from "@/lib/maintenance";
 import { pruneOldMessages } from "@/lib/retention";
 import { scanExpiringTokens } from "@/lib/workers/token-refresh-scan";
 import { refreshLicense } from "@/lib/license/gate";
+import { enforceApiKeyLicense } from "@/lib/license/api-key-enforcement";
 import { sweepAccountSources } from "@/lib/channels/account-source";
 import { sweepChannelHealth } from "@/lib/channels/health-sweep";
 import { scanExpiringConnections } from "@/lib/channels/expiry-scan";
@@ -31,6 +32,9 @@ export const cronTaskList = {
   // snapshot so an offline instance keeps a usable fallback. No-op (writes "none") when unlicensed.
   "license-refresh": async () => {
     await refreshLicense();
+    // PRO-gate API access on the existing keys: a downgrade (refund/expiry) expires them so they
+    // stop authenticating. Creation is gated separately at the route.
+    await enforceApiKeyLicense();
   },
   // Daily managed-connection sync: re-enumerate each active source so newly-added Pages/IG appear
   // automatically and a reconnected master recovers. No-op when there are no managed sources.

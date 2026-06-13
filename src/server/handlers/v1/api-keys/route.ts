@@ -5,6 +5,7 @@ import { apiKeys } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
+import { proGate } from "@/lib/api/pro-gate";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -42,6 +43,7 @@ export const VALID_SCOPES = [
   "sequences:read", "sequences:write",
   "tags:read", "tags:write",
   "settings:read", "settings:write",
+  "sources:read", "sources:write",
 ] as const;
 
 const createSchema = z.object({
@@ -56,6 +58,11 @@ export async function POST(request: Request) {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
   if (auth.authMethod === "api_key") return ApiErrors.forbidden("API key management requires a logged-in session");
+
+  // API access is PRO: gate key CREATION (authentication is gated separately in authenticateApiKey,
+  // so existing keys also hard-stop on a downgrade). 402 with an upgrade link.
+  const gate = await proGate("api_access");
+  if (gate) return gate;
 
   // Rate limit: 10 key creations per hour per workspace
   const rl = await rateLimit(`rl:apikey:${auth.workspaceId}`, 10, 3600);
