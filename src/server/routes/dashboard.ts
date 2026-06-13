@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, accountSources, commentLogs,
+  pendingApprovals, commentLogs,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
@@ -20,9 +20,6 @@ import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
-import * as sources from "@/server/handlers/v1/sources/route";
-import * as source from "@/server/handlers/v1/sources/[sourceId]/route";
-import * as sourceSync from "@/server/handlers/v1/sources/[sourceId]/sync/route";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
 import * as conversation from "@/server/handlers/v1/conversations/[conversationId]/route";
 import * as rules from "@/server/handlers/v1/rules/route";
@@ -39,6 +36,7 @@ import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
+import { registerSources } from "../ui/sections/sources";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -371,85 +369,6 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 // ─── channels ─────────────────────────────────────────────────────────────────
 
 const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube" };
-/**
- * A passive expiry hint for a channel (shown in the panel on both tiers — free must watch it
- * manually, PRO also gets proactive alerts). Returns the soonest of the token-death and the
- * 90-day data-access clocks, as " · ⏳ expires in N days" / " · ⛔ access expired".
- */
-function expiryNote(tokenExpiresAt: Date | null, dataAccessExpiresAt: Date | null): string {
-  const dates = [tokenExpiresAt, dataAccessExpiresAt].filter((d): d is Date => d instanceof Date);
-  if (dates.length === 0) return ""; // permanent (page / System User) — nothing to warn about
-  const soonest = dates.reduce((a, b) => (a < b ? a : b));
-  const days = Math.ceil((soonest.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-  if (days < 0) return " · ⛔ access expired — reconnect";
-  if (days <= 14) return ` · ⏳ expires in ${days} day${days === 1 ? "" : "s"}`;
-  return "";
-}
-
-async function loadSources(workspaceId: string) {
-  const rows = await db.query.accountSources.findMany({
-    where: eq(accountSources.workspace_id, workspaceId),
-    orderBy: asc(accountSources.created_at),
-    columns: {
-      id: true, provider_account_id: true, display_name: true, kind: true, status: true,
-      needs_reauth_reason: true, data_access_expires_at: true, last_synced_at: true,
-    },
-  });
-  const ids = rows.map((r) => r.id);
-  const derived = ids.length
-    ? await db.query.channels.findMany({
-        where: and(eq(channels.workspace_id, workspaceId), inArray(channels.source_id, ids)),
-        columns: {
-          id: true, source_id: true, platform: true, platform_id: true, display_name: true,
-          username: true, profile_picture: true, status: true, token_expires_at: true, data_access_expires_at: true,
-        },
-      })
-    : [];
-  return rows.map((s) => ({ ...s, channels: derived.filter((c) => c.source_id === s.id) }));
-}
-
-function fmtDate(d: Date | null): string {
-  return d ? d.toISOString().slice(0, 10) : "—";
-}
-
-function renderSources(srcs: Awaited<ReturnType<typeof loadSources>>, error?: string): Html {
-  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (srcs.length === 0) {
-    return html`${notice}<p class="muted" style="font-size:.85rem">No managed connection yet. Paste a User or System User token above to auto-connect all your Pages and Instagram accounts.</p>`;
-  }
-  return html`${notice}<div class="list">${srcs.map((s) => {
-    const broken = s.status === "needs_reauth";
-    return html`<div class="list-row" style="flex-direction:column;align-items:stretch;gap:.5rem">
-      <div class="row" style="align-items:center;gap:.5rem">
-        <div class="grow">
-          <div style="font-weight:600">${s.display_name ?? s.provider_account_id}
-            ${broken ? html`<span style="color:var(--danger,#e5484d)"> · ⚠ Needs reconnect</span>` : html`<span class="muted"> · ✓ Active</span>`}
-          </div>
-          <div class="muted" style="font-size:.72rem">
-            ${s.kind === "system_user" ? "System User (permanent)" : "User token"} ·
-            ${s.channels.length} channel${s.channels.length === 1 ? "" : "s"} ·
-            data access ${s.kind === "system_user" ? "never expires" : `until ${fmtDate(s.data_access_expires_at)}`} ·
-            synced ${fmtDate(s.last_synced_at)}
-          </div>
-          ${broken && s.needs_reauth_reason ? html`<div class="muted" style="font-size:.72rem;color:var(--danger,#e5484d)">${s.needs_reauth_reason}</div>` : html``}
-        </div>
-        <button class="btn btn-sm" hx-post="/channels/sources/${s.id}/sync" hx-target="#sources-list" hx-swap="innerHTML" title="Re-check for new Pages/Instagram now">↻ Sync</button>
-        <button class="btn btn-sm" hx-delete="/channels/sources/${s.id}" hx-target="#sources-list" hx-swap="innerHTML" hx-confirm="Remove this managed connection? The connected channels stay, but stop auto-syncing.">Remove</button>
-      </div>
-      <div class="list" style="margin-left:.5rem">${s.channels.map(
-        (c) => html`<div class="row" style="align-items:center;gap:.5rem;font-size:.8rem">
-          ${c.profile_picture ? html`<img class="avatar" src="${c.profile_picture}" alt="" style="width:20px;height:20px" />` : html``}
-          <span>${PLATFORM_LABELS[c.platform] ?? c.platform}</span>
-          <span class="grow">${c.display_name ?? c.platform_id}${c.username ? html` · <span class="muted">@${c.username}</span>` : html``}
-            <span class="muted" style="font-size:.7rem"> · id ${c.platform_id}</span>
-            ${c.status === "needs_reauth" ? html`<span style="color:var(--danger,#e5484d)"> · ⚠</span>` : html``}
-            ${html`<span class="muted">${expiryNote(c.token_expires_at, c.data_access_expires_at)}</span>`}
-          </span>
-        </div>`,
-      )}</div>
-    </div>`;
-  })}</div>`;
-}
 
 /**
  * The alert-webhook config form (PRO). Custom header VALUES are never echoed back — only their names
@@ -632,28 +551,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!conv) return c.notFound();
     const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
     return c.html(renderThread(conv, await loadMessages(id), { error }));
-  });
-
-  app.post("/channels/sources", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const res = await sources.POST(c.req.raw);
-    const list = renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not connect this token."));
-    return c.html(list);
-  });
-
-  app.post("/channels/sources/:id/sync", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const res = await sourceSync.POST(c.req.raw, { params: Promise.resolve({ sourceId: c.req.param("id") }) }).catch(() => null);
-    return c.html(renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not sync this connection.")));
-  });
-
-  app.delete("/channels/sources/:id", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const res = await source.DELETE(c.req.raw, { params: Promise.resolve({ sourceId: c.req.param("id") }) }).catch(() => null);
-    return c.html(renderSources(await loadSources(a.workspaceId), await noticeFrom(res, "Could not remove this connection.")));
   });
 
   // Connect a channel with a pasted long-lived / System User token. On success the unified channels
@@ -1331,6 +1228,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerCompose(app, guard);
   registerContent(app, guard);
   registerBrands(app, guard);
+  registerSources(app, guard);
 }
 
 // jsonReqMethod allows non-POST verbs for delegated handlers (PATCH).

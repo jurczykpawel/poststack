@@ -364,10 +364,20 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Connect a token manually");
   });
 
-  it("connecting a master token renders the source with its derived channels", async () => {
+  it("the /sources section renders the managed-connection form + System User guide on PRO", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/sources", { headers: { cookie } })).text();
+    expect(body).toContain("Connect a master token");
+    expect(body).toContain("System User"); // the guide CTA
+    // The Meta callback / redirect URLs live here now (moved off /channels).
+    expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
+    expect(body).toContain("http://localhost:3000/api/webhooks/meta");
+  });
+
+  it("connecting a master token via /sources renders the source with its derived channels", async () => {
     if (!TEST_DB) return;
     mockGraph();
-    const res = await app.request("/channels/sources", {
+    const res = await app.request("/sources", {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ token: "MASTER_TOKEN_dashboard_xxxx" }),
