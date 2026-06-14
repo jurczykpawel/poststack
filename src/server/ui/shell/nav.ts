@@ -25,7 +25,11 @@ export const NAV_SECTIONS: NavSection[] = [
   { section: "Overview", items: [
     { key: "overview", label: "Overview", href: "/overview", icon: "dashboard", area: "core" },
     { key: "channels", label: "Channels", href: "/channels", icon: "channels", area: "core" },
-    { key: "brands", label: "Brands", href: "/brands", icon: "brands", area: "core", feature: "multi_brand" },
+    // Brands is open-core: free gets ONE brand (LIMITS.free.brands=1, enforced at create via
+    // createWithinLimit); `multi_brand` gates the SECOND+ brand, NOT the page. So the nav item is
+    // ungated — otherwise a free user can pick a brand on /channels but can't open /brands to manage
+    // their one brand (the page route is only session-guarded; the page renders for everyone).
+    { key: "brands", label: "Brands", href: "/brands", icon: "brands", area: "core" },
     { key: "sources", label: "Sources", href: "/sources", icon: "sources", area: "core", feature: "managed_connection" },
   ]},
   { section: "Replies", items: [

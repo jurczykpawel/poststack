@@ -111,7 +111,8 @@ describe("area-gated nav (publish vs reply wings)", () => {
 
   it("a missing feature locks its item (🔒 PRO link to upgrade) without hiding it", async () => {
     const out = s(await renderPage({ title: "Overview", nav: "overview", body: html`<p>x</p>`, features: new Set<Feature>(), products: ALL_AREAS }));
-    // Brands needs multi_brand → locked: rendered as a PRO link, not its real href.
+    // Feature-gated items (e.g. Sources→managed_connection, Sequences→sequences) render locked: a PRO
+    // link to upgrade, not their real href. (Brands is open-core — ungated — so it is NOT among these.)
     expect(out).toContain("nav-locked");
     expect(out).toContain("PRO");
   });
