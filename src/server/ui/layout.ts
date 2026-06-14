@@ -17,6 +17,9 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 const ALPINE = assetUrl("vendor/alpine-3.14.9.min.js");
 const HTMX = assetUrl("vendor/htmx-2.0.4.min.js");
 const HTMX_SSE = assetUrl("vendor/htmx-ext-sse-2.2.2.js");
+// json-enc: forms across the app (auth, channels, sources, dashboard) use hx-ext="json-enc" to POST
+// JSON; without this extension htmx falls back to form-encoding and the JSON-only handlers reject it.
+const HTMX_JSON_ENC = assetUrl("vendor/htmx-ext-json-enc-2.0.3.js");
 
 // The first glyph of the brand name powers the sidebar brand mark (single source: BRAND.name).
 function brandGlyph(): string {
@@ -106,6 +109,7 @@ export function renderPage(o: PageOpts): Html {
     <script defer src="${ALPINE}"></script>
     <script defer src="${HTMX}"></script>
     <script defer src="${HTMX_SSE}"></script>
+    <script defer src="${HTMX_JSON_ENC}"></script>
     <script defer src="${assetUrl("ps-select.js")}"></script>
   </head>
   <body x-data>
@@ -135,6 +139,7 @@ export function renderPage(o: PageOpts): Html {
 const HEAD = html`
   <script defer src="${ALPINE}"></script>
   <script defer src="${HTMX}"></script>
+  <script defer src="${HTMX_JSON_ENC}"></script>
 `;
 
 export function doc(title: string, body: Html): Html {
