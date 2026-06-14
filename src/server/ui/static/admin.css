@@ -1001,3 +1001,60 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .section { margin-top: 20px; }
 .section > h2 { font-size: 14px; font-weight: 600; color: var(--text-1); margin: 0 0 12px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 13px 15px; }
+
+/* ── Inbox (replies wing — ReplyStack-lineage pages; classes had no CSS after the shell port) ─── */
+.inbox {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  height: min(74vh, calc(100vh - 8.5rem));
+  min-height: 26rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--surface);
+}
+.conv-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+.conv-head { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
+#conv-list-items { flex: 1; min-height: 0; overflow-y: auto; }
+.conv-item {
+  display: block; width: 100%; text-align: left; position: relative;
+  background: transparent; color: var(--text-1); font: inherit;
+  border: 0; border-bottom: 1px solid var(--border); padding: 9px 12px; cursor: pointer;
+}
+.conv-item:hover { background: var(--nav-hover); }
+.conv-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.conv-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-name.unread { font-weight: 700; }
+.conv-time { font-size: 11px; color: var(--text-2, #9aa5b1); flex-shrink: 0; }
+.conv-preview { font-size: 12.5px; color: var(--text-2, #9aa5b1); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-item .badge { position: absolute; right: 12px; bottom: 8px; }
+
+.thread { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.thread-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-2, #9aa5b1); }
+.thread-head { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.thread-controls { padding: 0 12px; }
+.thread-msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 7px; }
+.msg { display: flex; max-width: 78%; }
+.msg-in { align-self: flex-start; }
+.msg-out { align-self: flex-end; }
+.msg .bubble { padding: 7px 11px; border-radius: var(--radius-control); background: var(--bg); border: 1px solid var(--border); font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+.msg-out .bubble { background: var(--accent-bg); border-color: var(--accent); }
+.msg-reaction { align-self: center; font-size: 11.5px; }
+.reply-bar { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px; border-top: 1px solid var(--border); }
+.reply-bar .textarea { flex: 1; }
+.reply-locked .textarea { opacity: .6; }
+
+/* ── Form controls + notices + list (ReplyStack-lineage; missing after shell port) ───────────── */
+.textarea, .input, textarea.textarea, select.input {
+  width: 100%; background: var(--bg); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  padding: 7px 10px; font: inherit; resize: vertical;
+}
+.textarea:focus, .input:focus { outline: none; border-color: var(--accent); }
+.notice { padding: 9px 12px; border-radius: var(--radius-control); margin: 8px 0; font-size: 13px; }
+.notice-err { background: var(--bad-bg); color: var(--bad-text); border: 1px solid var(--bad); }
+.notice-ok { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok); }
+.notice-info { background: var(--info-bg); color: var(--text-1); border: 1px solid var(--info); }
+.list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+.list-row { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.list-row:last-child { border-bottom: 0; }

@@ -1710,7 +1710,12 @@ function renderProvidersStatus(): Html {
 function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {
   const notice = msg ? html`<div class="notice ${msgOk ? "notice-ok" : "notice-err"}">${msg}</div>` : html``;
   const sourceLabel = state.source === "db" ? "panel" : state.source === "env" ? "environment variable" : "—";
-  return html`${notice}
+  // When the active license comes from the LICENSE_KEY env var (server config), make it explicit —
+  // otherwise the panel looks "empty" (no stored token) even though PRO is active, which is confusing.
+  const envNote = state.source === "env"
+    ? html`<div class="notice notice-info">ℹ This license is provided by the <code>LICENSE_KEY</code> environment variable (server config), not the panel — so there's nothing to paste here. To change it, update the env var. Pasting a token below would override the env one via the panel.</div>`
+    : html``;
+  return html`${notice}${envNote}
     <div class="card" style="margin-bottom:1rem">
       <div><strong>Status:</strong> <span class="badge">${state.status}</span>${state.tier ? html` &nbsp;<strong>Tier:</strong> ${state.tier}` : html``}${state.expiresAt ? html` &nbsp;<span class="muted">expires ${new Date(state.expiresAt).toLocaleDateString()}</span>` : html``}</div>
       ${state.products.size > 0 ? html`<div style="margin-top:.4rem"><strong>Products:</strong> ${[...state.products].map((p) => html`<span class="badge">${p}</span> `)}</div>` : html``}
