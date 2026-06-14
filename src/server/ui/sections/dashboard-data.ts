@@ -37,6 +37,7 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
     where: and(
       eq(channels.workspace_id, workspaceId),
       isNull(channels.deleted_at),
+      isNull(channels.hidden_at), // hidden channels are intentionally parked — don't nag about them
       or(eq(channels.status, "needs_reauth"), eq(channels.status, "paused")),
     ),
     orderBy: [desc(channels.updated_at)],

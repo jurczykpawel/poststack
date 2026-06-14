@@ -1058,3 +1058,4 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
 .list-row { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); }
 .list-row:last-child { border-bottom: 0; }
+.avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; vertical-align: middle; }

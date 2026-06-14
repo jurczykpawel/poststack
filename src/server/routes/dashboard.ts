@@ -1589,7 +1589,7 @@ function renderEngagement(posts: EngagementPost[], dms: DmReaction[]): Html {
           <tbody>
             ${posts.map(
               (p) => html`<tr>
-                <td class="mono" style="font-size:.78rem">${p.postId}</td>
+                <td class="mono" style="font-size:.78rem"><a href="https://www.facebook.com/${p.postId}" target="_blank" rel="noopener">${p.postId} ↗</a></td>
                 <td><strong>${p.total}</strong></td>
                 <td>${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span> `)}</td>
                 <td class="muted" style="font-size:.8rem">${p.reactors.length ? p.reactors.join(", ") : "—"}</td>
