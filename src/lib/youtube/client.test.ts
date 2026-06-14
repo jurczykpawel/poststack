@@ -1,5 +1,26 @@
 import { describe, it, expect, vi } from "vitest";
-import { pollCommentThreads, insertCommentReply, refreshGoogleAccessToken, getMyChannel, YouTubeApiError } from "./client";
+import { pollCommentThreads, insertCommentReply, refreshGoogleAccessToken, getMyChannel, YouTubeApiError, googleAuthUrl, YOUTUBE_OAUTH_SCOPE } from "./client";
+
+describe("googleAuthUrl — YouTube-only consent", () => {
+  const url = googleAuthUrl({ clientId: "cid", redirectUri: "https://app/cb", state: "st" });
+  const params = new URL(url).searchParams;
+
+  it("requests exactly the YouTube scope — never Gmail/Drive/Photos", () => {
+    expect(params.get("scope")).toBe(YOUTUBE_OAUTH_SCOPE);
+    expect(url).not.toContain("gmail");
+    expect(url).not.toContain("drive");
+    expect(url).not.toContain("photoslibrary");
+  });
+
+  it("does not set include_granted_scopes — that would union in every scope already granted to a shared client", () => {
+    expect(params.has("include_granted_scopes")).toBe(false);
+  });
+
+  it("still forces a refresh token", () => {
+    expect(params.get("access_type")).toBe("offline");
+    expect(params.get("prompt")).toBe("consent");
+  });
+});
 
 function thread(id: string, publishedAt: string, over: Record<string, unknown> = {}) {
   return {

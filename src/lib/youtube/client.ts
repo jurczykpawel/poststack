@@ -12,7 +12,10 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const YOUTUBE_OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl";
 const TIMEOUT_MS = 15_000;
 
-/** Build the Google consent URL. access_type=offline + prompt=consent guarantee a refresh_token. */
+/** Build the Google consent URL. access_type=offline + prompt=consent guarantee a refresh_token.
+ *  We deliberately omit include_granted_scopes: this Google client may be shared with other tools
+ *  (Gmail/Drive/Photos), and unioning their previously-granted scopes would both scare the user with a
+ *  huge consent screen and over-grant the issued token. Connecting a channel needs YouTube only. */
 export function googleAuthUrl(opts: { clientId: string; redirectUri: string; state: string }): string {
   const params = new URLSearchParams({
     client_id: opts.clientId,
@@ -21,7 +24,6 @@ export function googleAuthUrl(opts: { clientId: string; redirectUri: string; sta
     scope: YOUTUBE_OAUTH_SCOPE,
     access_type: "offline",
     prompt: "consent",
-    include_granted_scopes: "true",
     state: opts.state,
   });
   return `${GOOGLE_AUTH_URL}?${params}`;
