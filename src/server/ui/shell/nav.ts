@@ -33,7 +33,9 @@ export const NAV_SECTIONS: NavSection[] = [
     { key: "sources", label: "Sources", href: "/sources", icon: "sources", area: "core", feature: "managed_connection" },
   ]},
   { section: "Replies", items: [
-    { key: "inbox", label: "Inbox", href: "/inbox", icon: "events", area: "replies", feature: "contacts_crm" },
+    // Inbox READING is free (basic incoming-message info; rules auto-reply for free). The human-reply
+    // box is PRO (manual_reply, gated in the thread + send endpoint), so the nav item itself is ungated.
+    { key: "inbox", label: "Inbox", href: "/inbox", icon: "events", area: "replies" },
     { key: "approvals", label: "Approvals", href: "/approvals", icon: "queue", area: "replies" },
     { key: "rules", label: "Rules", href: "/rules", icon: "compose", area: "replies" },
     { key: "contacts", label: "Contacts", href: "/contacts", icon: "brands", area: "replies", feature: "contacts_crm" },

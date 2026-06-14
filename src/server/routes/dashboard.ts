@@ -280,17 +280,24 @@ function renderThread(
   conv: ConvName & ConvControls,
   messages: ThreadItem[],
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
-  // out as if the message went.
-  opts: { error?: string; draft?: string } = {},
+  // out as if the message went. `canReply` = the manual_reply PRO feature: free can READ the inbox
+  // but the human-reply box is locked (rules still auto-reply for free). `upgradeUrl` for the lock.
+  opts: { error?: string; draft?: string; canReply?: boolean; upgradeUrl?: string } = {},
 ): Html {
+  const canReply = opts.canReply ?? true;
   return html`<div class="thread-head">${contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
     ${renderConvControls(conv)}
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type)}</div>
-    <form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
-      <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
-      <button class="btn btn-primary" type="submit">Send</button>
-    </form>`;
+    ${canReply
+      ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
+          <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
+          <button class="btn btn-primary" type="submit">Send</button>
+        </form>`
+      : html`<div class="reply-bar reply-locked">
+          <textarea class="textarea" rows="2" placeholder="Replying by hand is a PRO feature — your rules still auto-reply for free." disabled></textarea>
+          <a class="btn btn-primary" href="${opts.upgradeUrl ?? "#"}">Upgrade to reply</a>
+        </div>`}`;
 }
 
 function loadConversations(workspaceId: string, filter: ConvFilter = "all", channelId = "all") {
@@ -459,16 +466,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub), features, products));
   });
 
-  // Inbox — seeing individual conversations is the PRO contacts-CRM surface.
+  // Inbox — READING incoming conversations is free (basic info; rules auto-reply for free). Only the
+  // human-reply box is PRO (manual_reply), gated in renderThread + on the send endpoint. The richer
+  // contacts CRM (tags/assignment, /contacts) stays PRO (contacts_crm).
   app.get("/inbox", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, upgradeUrl, products } = await getInstanceLicense();
-    if (!features.has("contacts_crm")) {
-      return c.html(
-        dashboardDoc(t("title.suffix", { section: "Inbox" }), "/inbox", proLockMain("Inbox", html`The conversation inbox is a PRO feature.`, upgradeUrl), features, products),
-      );
-    }
+    const { features, products } = await getInstanceLicense();
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
     const [conversations, chans] = await Promise.all([
@@ -496,7 +500,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/list", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
     const [conversations, chans] = await Promise.all([
@@ -509,20 +512,19 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/:id", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
+    const { features, upgradeUrl } = await getInstanceLicense();
     const id = c.req.param("id");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     // workspace_id alongside the PK keeps the unread reset tenant-scoped.
     await db.update(conversations).set({ unread_count: 0 }).where(and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId))).catch(() => {});
     const msgs = await loadMessages(id);
-    return c.html(renderThread(conv, msgs));
+    return c.html(renderThread(conv, msgs, { canReply: features.has("manual_reply"), upgradeUrl }));
   });
 
   app.get("/inbox/:id/messages", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
     const id = c.req.param("id");
     const conv = await db.query.conversations.findFirst({
       where: and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId)),
@@ -544,14 +546,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       .catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const canReply = features.has("manual_reply");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     if (!res || res.status >= 400) {
       const errBody = res ? ((await res.json().catch(() => null)) as { error?: { message?: string } } | null) : null;
       const error = errBody?.error?.message ?? "Could not send the reply. Please try again.";
-      return c.html(renderThread(conv, await loadMessages(id), { error, draft }));
+      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, upgradeUrl }));
     }
-    return c.html(renderThread(conv, await loadMessages(id)));
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, upgradeUrl }));
   });
 
   // Conversation controls: status (close/snooze/reopen) + automation pause toggle, delegated to the
@@ -567,10 +571,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       .catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const { features, upgradeUrl } = await getInstanceLicense();
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
-    return c.html(renderThread(conv, await loadMessages(id), { error }));
+    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), upgradeUrl }));
   });
 
   // Connect a channel with a pasted long-lived / System User token. On success the unified channels
@@ -1604,7 +1609,7 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
   const locked = !features.has("contacts_crm");
   return html`<div class="page">
     <h1>Overview</h1>
-    <p class="section-intro">Your automation at a glance.${locked ? html` Open individual conversations with ${proLink(upgradeUrl, "PRO")}.` : html``}</p>
+    <p class="section-intro">Your automation at a glance.${locked ? html` Replying to conversations by hand is ${proLink(upgradeUrl, "PRO")} — your rules auto-reply for free.` : html``}</p>
     <div class="kpis" style="margin:14px 0">
       ${kpi({ label: "Sent today", value: ov.today, tone: "neutral" })}
       ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok" })}

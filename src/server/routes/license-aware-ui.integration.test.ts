@@ -112,24 +112,26 @@ describe("license-aware dashboard UI", () => {
     expect(body).not.toContain("🔒 Telegram (PRO)");
   });
 
-  it("free /overview shows aggregate stats and locks Inbox/Contacts in the nav", async () => {
+  it("free /overview: inbox is free (real nav link), contacts CRM stays locked", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/overview")).text();
     expect(body).toContain("Overview");
     expect(body).toContain("Sent today");
-    // Nav: Overview is free; Inbox + Contacts are shown but locked (nav-locked → upgrade link).
+    // Contacts CRM (+ other PRO items) still locked.
     expect(body).toContain("nav-locked");
-    expect(body).toContain("<span>Inbox</span>");
     expect(body).toContain("<span>Contacts</span>");
-    // Free overview points at the locked per-person view.
-    expect(body).toContain("Open individual conversations with");
+    // Inbox READING is free now → a real nav link to /inbox, not an upgrade lock.
+    expect(body).toContain('href="/inbox"');
+    // Overview hint reflects the new model: replying BY HAND is PRO, not the whole inbox.
+    expect(body).toContain("Replying to conversations by hand is");
+    expect(body).not.toContain("Open individual conversations with");
   });
 
-  it("free /inbox is locked behind PRO (no conversation list)", async () => {
+  it("free /inbox renders the conversation list (free); only the reply box is PRO", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/inbox")).text();
-    expect(body).toContain("The conversation inbox is a PRO feature");
-    expect(body).not.toContain("Select a conversation"); // the real inbox is not rendered
+    expect(body).not.toContain("The conversation inbox is a PRO feature"); // page no longer locked
+    expect(body).toContain("Select a conversation"); // the real inbox renders for free
   });
 
   it("free /contacts is locked behind PRO", async () => {

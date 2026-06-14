@@ -29,7 +29,7 @@ export const FEATURES = [
   { key: "follow_gate", area: "replies", minTier: "pro", status: "live", label: "Follow-gate", description: "Require a follow before delivering a reply." },
   { key: "multi_channel", area: "replies", minTier: "pro", status: "live", label: "More than one channel per platform", description: "Connect a 2nd+ channel of the same platform (e.g. another FB page / IG account)." },
   { key: "non_meta_channels", area: "replies", minTier: "pro", status: "live", label: "Channels other than Facebook/Instagram", description: "Any channel that isn't Facebook/Instagram (Telegram, future Gmail, …)." },
-  { key: "contacts_crm", area: "replies", minTier: "pro", status: "live", label: "The contacts inbox and CRM (seeing individual conversations)", description: "See individual people: inbox threads, contacts list, tags." },
+  { key: "contacts_crm", area: "replies", minTier: "pro", status: "live", label: "The contacts CRM (managing individual people)", description: "The contacts CRM: contacts list, tags, assignment. Reading the inbox is free." },
   { key: "manual_reply", area: "replies", minTier: "pro", status: "live", label: "Replying to conversations by hand (rules still auto-reply for free)", description: "A human typing a reply in the inbox / via the API. Free = rules auto-reply only." },
   { key: "reaction_trigger", area: "replies", minTier: "pro", status: "live", label: "Auto-replies triggered by a message reaction", description: "Rules that fire on a message reaction (free triggers are keyword/comment only)." },
 
