@@ -100,7 +100,7 @@ describe("settings → License section", () => {
     const res = await postLicense("garbage");
     expect(res.status).toBe(200); // htmx partial, error shown inline
     const body = await res.text();
-    expect(body).toContain("License rejected: malformed");
+    expect(body).toContain("This license token is invalid."); // friendly message for reason=malformed
   });
 
   it("removes a stored license", async () => {

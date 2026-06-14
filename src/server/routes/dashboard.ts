@@ -14,7 +14,7 @@ import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { t } from "@/lib/i18n";
-import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from "@/lib/license/gate";
+import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
@@ -868,7 +868,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     }
     const result = await setLicense(token);
     if (!result.ok) {
-      return c.html(renderLicense(result.state, `License rejected: ${result.reason}.`));
+      return c.html(renderLicense(result.state, licenseRejectionMessage(result.reason)));
     }
     return c.html(renderLicense(result.state, "License activated.", true));
   });

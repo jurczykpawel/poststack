@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
 import { ok, err, ApiErrors } from "@/lib/api/response";
-import { getInstanceLicense, setLicense, clearLicense, type LicenseState } from "@/lib/license/gate";
+import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
 
 export const runtime = "nodejs";
 
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
   const result = await setLicense(parsed.data.token.trim());
   if (!result.ok) {
-    return err("INVALID_LICENSE", `License rejected: ${result.reason}`, 422, { reason: result.reason });
+    return err("INVALID_LICENSE", licenseRejectionMessage(result.reason), 422, { reason: result.reason });
   }
   return ok(publicState(result.state));
 }

@@ -96,6 +96,12 @@ const envSchema = z.object({
   SELLF_JWKS_FALLBACK: z.string().default(""),
   // Where the "requires PRO" UI sends operators to buy a license.
   LICENSE_UPGRADE_URL: z.string().url().default("https://sellf.techskills.academy/p/poststack"),
+  // Optional. The instance's public domain for per-domain license binding. A license token may
+  // carry a `domain` claim binding it to one buyer's domain (and its subdomains); it is honoured
+  // only when THIS host falls under that domain. Empty → derived from APP_URL's host. Set this
+  // explicitly when APP_URL is an internal/proxy URL that differs from the public domain the
+  // license was issued for. Unbound (no domain claim) tokens ignore this entirely.
+  LICENSE_DOMAIN: z.string().default(""),
 
   // Cron
   CRON_SECRET: z.string().min(32),

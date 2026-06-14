@@ -3,7 +3,7 @@
 // This is the single entry point the rest of the app uses (hasFeature / requireFeature).
 
 import { env } from "@/lib/env";
-import { verifyLicense, type JwksKey, type Claims } from "@/lib/license/format";
+import { verifyLicense, hostFromUrl, type JwksKey, type Claims } from "@/lib/license/format";
 import { getJwks, parseJwksJson } from "@/lib/license/jwks";
 import { getRevocations } from "@/lib/license/revocation";
 import { tierFeatures, featureArea, proMessage, LIMITS, type Feature, type LimitKind } from "@/lib/license/features";
@@ -76,6 +76,35 @@ function freeState(source: "db" | "env" | "none", status: store.LicenseStatus): 
   return { status, tier: null, features: new Set(), products: new Set(), expiresAt: null, source, upgradeUrl: env.LICENSE_UPGRADE_URL };
 }
 
+/** The instance's own public host for per-domain license binding: explicit LICENSE_DOMAIN, else
+ *  the host of APP_URL. Empty when neither yields a host — a domain-bound token then fails closed. */
+function instanceHost(): string {
+  return (env.LICENSE_DOMAIN || hostFromUrl(env.APP_URL) || "").trim().toLowerCase();
+}
+
+/** A human, UI-facing reason a pasted/stored token was rejected (the raw machine reason is kept
+ *  separately for the API/details). Centralised so the panel and the REST route stay consistent. */
+export function licenseRejectionMessage(reason: string | undefined): string {
+  switch (reason) {
+    case "wrong_domain":
+      return "This license is for a different domain.";
+    case "wrong_product":
+      return "This license is for a different product.";
+    case "expired":
+      return "This license has expired.";
+    case "revoked":
+      return "This license has been revoked.";
+    case "malformed":
+    case "unknown_kid":
+    case "bad_signature":
+      return "This license token is invalid.";
+    case "jwks_error":
+      return "Couldn't reach the license server — please try again.";
+    default:
+      return "License rejected.";
+  }
+}
+
 async function jwksFallback(): Promise<JwksKey[]> {
   return [...parseJwksJson(env.SELLF_JWKS_FALLBACK), ...(await store.readJwksSnapshot())];
 }
@@ -112,7 +141,7 @@ export async function refreshLicense(opts: RefreshOpts = {}): Promise<LicenseSta
   }
   if (fresh) await store.writeJwksSnapshot(keys);
 
-  const res = await verifyLicense(token, keys, { productSlug: env.LICENSE_PRODUCT_SLUG, now: opts.now });
+  const res = await verifyLicense(token, keys, { productSlug: env.LICENSE_PRODUCT_SLUG, now: opts.now, expectedHost: instanceHost() });
   if (res.valid) {
     if (await isRevoked(res.claims.order, opts)) {
       await store.persistLicenseState({ status: "invalid", tier: null, expiresAt: null, lastError: "revoked" });
@@ -216,7 +245,7 @@ export async function setLicense(token: string, opts: RefreshOpts = {}): Promise
     return { ok: false, reason: "jwks_error", state: freeState("none", "invalid") };
   }
 
-  const res = await verifyLicense(token, keys, { productSlug: env.LICENSE_PRODUCT_SLUG, now: opts.now });
+  const res = await verifyLicense(token, keys, { productSlug: env.LICENSE_PRODUCT_SLUG, now: opts.now, expectedHost: instanceHost() });
   if (!res.valid) {
     // Reject without storing an unusable token; record why for the panel.
     await store.persistLicenseState({ status: "invalid", tier: null, expiresAt: null, lastError: res.reason });

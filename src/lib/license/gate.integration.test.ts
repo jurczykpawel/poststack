@@ -118,6 +118,40 @@ describe("license gate (real Postgres)", () => {
     await expect(gate.requireFeature("personalization")).rejects.toBeInstanceOf(gate.ProRequiredError);
   });
 
+  // Per-domain binding: instanceHost() derives from APP_URL (http://localhost:3000 → "localhost").
+  it("activates a domain-bound token whose domain covers this instance host", async () => {
+    if (!TEST_DB) return;
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro", domain: "localhost" }));
+    const res = await gate.setLicense(token, { fetchImpl: jwksFetch([key.jwk]) });
+    expect(res.ok).toBe(true);
+    expect(res.state.status).toBe("active");
+    expect(await gate.hasFeature("personalization")).toBe(true);
+  });
+
+  it("rejects a domain-bound token issued for a different domain (no feature leak, not stored)", async () => {
+    if (!TEST_DB) return;
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro", domain: "example.com" }));
+    const res = await gate.setLicense(token, { fetchImpl: jwksFetch([key.jwk]) });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("wrong_domain");
+    const row = await db.query.instanceLicense.findFirst();
+    expect(row?.token).toBeNull(); // unusable token never stored
+    expect(row?.status).toBe("invalid");
+    expect(await gate.hasFeature("personalization")).toBe(false);
+  });
+
+  it("a smuggled domain-bound token in the DB does not grant features on the wrong host", async () => {
+    if (!TEST_DB) return;
+    // Simulate a token planted/persisted as active for another domain, then a fresh refresh.
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro", domain: "example.com" }));
+    await store.persistLicenseState({ token, status: "active", tier: "pro", expiresAt: null, lastError: null });
+    const state = await gate.refreshLicense({ fetchImpl: jwksFetch([key.jwk]) });
+    expect(state.status).toBe("invalid");
+    expect(state.features.size).toBe(0);
+    const row = await db.query.instanceLicense.findFirst();
+    expect(row?.last_error).toBe("wrong_domain");
+  });
+
   it("serves stale keys during a JWKS outage (PRO survives)", async () => {
     if (!TEST_DB) return;
     const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro" }));
