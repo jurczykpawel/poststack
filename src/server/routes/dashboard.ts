@@ -658,7 +658,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features, products),
       );
     }
-    return c.html(dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", renderEngagement(await loadEngagement(a.workspaceId)), features, products));
+    const [posts, dms] = await Promise.all([loadEngagement(a.workspaceId), loadMessageReactions(a.workspaceId)]);
+    return c.html(dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", renderEngagement(posts, dms), features, products));
   });
 
   app.get("/contacts/list", guard, async (c) => {
@@ -1541,10 +1542,47 @@ async function loadEngagement(workspaceId: string): Promise<EngagementPost[]> {
     .sort((a, b) => b.total - a.total);
 }
 
-function renderEngagement(posts: EngagementPost[]): Html {
+type DmReaction = { who: string; platform: string; emoji: string; type: string; at: Date };
+
+/** Reactions left on OUR direct messages (the only reaction signal Instagram delivers over webhooks;
+ *  Facebook DMs too). Joined to the contact for a display name and the channel for the platform. */
+async function loadMessageReactions(workspaceId: string): Promise<DmReaction[]> {
+  const rows = await db
+    .select({
+      type: messageReactions.reaction_type,
+      emoji: messageReactions.emoji,
+      created_at: messageReactions.created_at,
+      who: contacts.display_name,
+      platform: channels.platform,
+    })
+    .from(messageReactions)
+    .leftJoin(contacts, eq(contacts.id, messageReactions.contact_id))
+    .leftJoin(channels, eq(channels.id, messageReactions.channel_id))
+    .where(eq(messageReactions.workspace_id, workspaceId))
+    .orderBy(desc(messageReactions.created_at))
+    .limit(50);
+  return rows.map((r) => ({
+    who: r.who ?? "Someone",
+    platform: r.platform ?? "—",
+    emoji: r.emoji ?? REACTION_EMOJI[r.type] ?? "💬",
+    type: r.type,
+    at: r.created_at,
+  }));
+}
+
+function renderEngagement(posts: EngagementPost[], dms: DmReaction[]): Html {
   return html`<div class="page">
     <h1>Engagement</h1>
-    <p class="muted">Reactions and likes left on your posts.</p>
+    <p class="muted">Who reacted to your posts and messages.</p>
+
+    <p class="muted" style="margin:.25rem 0 1rem">
+      <strong>Platform coverage:</strong> Facebook delivers <em>post</em> reactions (shown below).
+      Instagram does <strong>not</strong> send <strong>post likes</strong> or reactions over its API,
+      so they can't appear here — Instagram engagement instead arrives as <em>message reactions</em>
+      (further down) and as comments in your <a href="/inbox">Inbox</a>.
+    </p>
+
+    <h2 style="margin-top:1rem">Post reactions <span class="muted" style="font-weight:400">· Facebook</span></h2>
     ${posts.length === 0
       ? html`<p class="muted">No post reactions yet. Reactions on your Facebook posts will show up here.</p>`
       : html`<table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th></tr></thead>
@@ -1555,6 +1593,21 @@ function renderEngagement(posts: EngagementPost[]): Html {
                 <td><strong>${p.total}</strong></td>
                 <td>${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span> `)}</td>
                 <td class="muted" style="font-size:.8rem">${p.reactors.length ? p.reactors.join(", ") : "—"}</td>
+              </tr>`,
+            )}
+          </tbody></table>`}
+
+    <h2 style="margin-top:1.5rem">Message reactions <span class="muted" style="font-weight:400">· Facebook &amp; Instagram DMs</span></h2>
+    ${dms.length === 0
+      ? html`<p class="muted">No message reactions yet. When someone reacts to one of your direct messages, it shows up here.</p>`
+      : html`<table><thead><tr><th>Who</th><th>Reaction</th><th>Platform</th><th>When</th></tr></thead>
+          <tbody>
+            ${dms.map(
+              (d) => html`<tr>
+                <td>${d.who}</td>
+                <td><span class="badge" title="${d.type}">${d.emoji} ${d.type}</span></td>
+                <td class="muted">${d.platform}</td>
+                <td class="muted" style="font-size:.8rem">${d.at.toISOString().slice(0, 16).replace("T", " ")}</td>
               </tr>`,
             )}
           </tbody></table>`}

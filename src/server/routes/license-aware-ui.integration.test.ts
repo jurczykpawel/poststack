@@ -211,4 +211,25 @@ describe("license-aware dashboard UI", () => {
     // Engagement is unlocked under a license: it renders the real reactions view (above), not the lock copy.
     expect(body).not.toContain("Seeing who reacted to your posts is a PRO feature");
   });
+
+  it("licensed /engagement also shows DM message reactions and explains the Instagram limitation", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    const CH = "1ace0000-0000-0000-0000-0000000000e2";
+    await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "instagram", platform_id: "IG-ENG", token_encrypted: "x", webhook_secret: "s", status: "active" });
+    const [ct] = await db.insert(s.contacts).values({ workspace_id: WS, display_name: "Maja IG" }).returning({ id: s.contacts.id });
+    const [cv] = await db
+      .insert(s.conversations)
+      .values({ workspace_id: WS, channel_id: CH, contact_id: ct!.id, platform: "instagram" })
+      .returning({ id: s.conversations.id });
+    await db.insert(s.messageReactions).values({
+      workspace_id: WS, channel_id: CH, conversation_id: cv!.id, contact_id: ct!.id,
+      reacted_mid: "MID-1", reaction_type: "love", emoji: "❤️",
+    });
+    const body = await (await get("/engagement")).text();
+    expect(body).toContain("Message reactions");
+    expect(body).toContain("Maja IG");
+    expect(body).toContain("Instagram"); // limitation note
+    expect(body).toContain("post likes");
+  });
 });
