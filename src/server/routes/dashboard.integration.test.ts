@@ -364,6 +364,108 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Connect a token manually");
   });
 
+  it("edits a rule's name + reply text via the edit form, preserving advanced config", async () => {
+    if (!TEST_DB) return;
+    const RID = "dddddddd-0000-0000-0000-0000000000e1";
+    await db.insert(s.autoReplyRules).values({
+      id: RID, workspace_id: WS, name: "Greeter", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "old reply", buttons: [{ title: "Visit", url: "https://example.com" }] },
+    });
+    // The edit form is prefilled
+    const form = await (await app.request(`/rules/${RID}/edit`, { headers: { cookie } })).text();
+    expect(form).toContain('value="Greeter"');
+    expect(form).toContain("old reply");
+    // Saving updates name + text + approval, and keeps the buttons we didn't touch
+    const res = await app.request(`/rules/${RID}`, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Greeter v2", keywords: "hi, hello", text: "new reply", requires_approval: "true" }),
+    });
+    expect(res.status).toBe(200);
+    const updated = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, RID) });
+    expect(updated?.name).toBe("Greeter v2");
+    expect((updated?.response_config as { text: string }).text).toBe("new reply");
+    expect((updated?.response_config as { buttons: unknown[] }).buttons).toHaveLength(1); // preserved
+    expect((updated?.trigger_config as { keywords: unknown[] }).keywords).toHaveLength(2);
+    expect(updated?.requires_approval).toBe(true);
+  });
+
+  it("engagement shows the owning page name + a post link, not just the raw id", async () => {
+    if (!TEST_DB) return;
+    const PCH = "dddddddd-0000-0000-0000-0000000000a8";
+    await db.insert(s.channels).values({ id: PCH, workspace_id: WS, platform: "facebook", platform_id: "PAGE1", display_name: "My FB Page", token_encrypted: "x", webhook_secret: "pp", status: "active" });
+    await db.insert(s.postReactions).values({ workspace_id: WS, channel_id: PCH, post_id: "PAGE1_999", reactor_id: "r1", reactor_name: "Reactor One", reaction_type: "like" });
+    const body = await (await app.request("/engagement", { headers: { cookie } })).text();
+    expect(body).toContain("My FB Page");
+    expect(body).toContain("View post");
+    expect(body).toContain("Reactor One");
+  });
+
+  it("webhooks page separates incoming vs outgoing and explains the statuses", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/webhooks", { headers: { cookie } })).text();
+    expect(body).toContain("Incoming");
+    expect(body).toContain("Outgoing");
+    expect(body).toContain("What do the statuses mean?");
+    expect(body).toContain("Matched an active rule"); // a legend entry
+  });
+
+  it("filters contacts by brand", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.brands).values([
+      { workspace_id: WS, key: "acme", name: "Acme" },
+      { workspace_id: WS, key: "globex", name: "Globex" },
+    ]);
+    const chA = "dddddddd-0000-0000-0000-0000000000b1";
+    const chB = "dddddddd-0000-0000-0000-0000000000b2";
+    await db.insert(s.channels).values([
+      { id: chA, workspace_id: WS, platform: "instagram", platform_id: "IG-A", token_encrypted: "x", webhook_secret: "ba", status: "active", brand_key: "acme" },
+      { id: chB, workspace_id: WS, platform: "instagram", platform_id: "IG-B", token_encrypted: "x", webhook_secret: "bb", status: "active", brand_key: "globex" },
+    ]);
+    const ctA = "dddddddd-0000-0000-0000-0000000000c1";
+    const ctB = "dddddddd-0000-0000-0000-0000000000c2";
+    await db.insert(s.contacts).values([
+      { id: ctA, workspace_id: WS, display_name: "AliceAcme" },
+      { id: ctB, workspace_id: WS, display_name: "BobGlobex" },
+    ]);
+    await db.insert(s.contactChannels).values([
+      { contact_id: ctA, channel_id: chA, platform_sender_id: "sa" },
+      { contact_id: ctB, channel_id: chB, platform_sender_id: "sb" },
+    ]);
+    const body = await (await app.request("/contacts/list?brand=acme", { headers: { cookie } })).text();
+    expect(body).toContain("AliceAcme");
+    expect(body).not.toContain("BobGlobex");
+  });
+
+  it("the contacts page shows a brand filter when brands exist", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.brands).values([
+      { workspace_id: WS, key: "acme", name: "Acme" },
+      { workspace_id: WS, key: "globex", name: "Globex" },
+    ]);
+    const body = await (await app.request("/contacts", { headers: { cookie } })).text();
+    expect(body).toContain('name="brand"');
+    expect(body).toContain("Acme");
+  });
+
+  it("/api-keys is its own page (create form + key list), not a redirect to settings", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/api-keys", { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("API Keys");
+    expect(body).toContain('hx-post="/settings/api-keys"'); // the create form lives here now
+    expect(body).toContain('id="keys-area"');
+  });
+
+  it("settings no longer embeds API keys — it links out to the dedicated page", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/settings", { headers: { cookie } })).text();
+    expect(body).not.toContain('hx-post="/settings/api-keys"');
+    expect(body).toContain('href="/api-keys"');
+  });
+
   it("renders the @handle + avatar from the username/profile_picture columns (not metadata)", async () => {
     if (!TEST_DB) return;
     const CHH = "dddddddd-0000-0000-0000-0000000000f1";
@@ -385,6 +487,26 @@ describe("channels — managed connection section", () => {
     // The Meta callback / redirect URLs live here now (moved off /channels).
     expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
     expect(body).toContain("http://localhost:3000/api/webhooks/meta");
+  });
+
+  it("/sources groups a master source's channels by platform with per-platform counts", async () => {
+    if (!TEST_DB) return;
+    const SRC = "dddddddd-0000-0000-0000-0000000000d1";
+    await db.insert(s.accountSources).values({
+      id: SRC, workspace_id: WS, provider: "meta", provider_account_id: "MASTER_G", display_name: "Big Master",
+      kind: "system_user", token_encrypted: "x", status: "active",
+    });
+    await db.insert(s.channels).values([
+      { workspace_id: WS, source_id: SRC, platform: "instagram", platform_id: "IG-G1", display_name: "IG One", token_encrypted: "x", webhook_secret: "g1", status: "active", connection_mode: "derived" },
+      { workspace_id: WS, source_id: SRC, platform: "instagram", platform_id: "IG-G2", display_name: "IG Two", token_encrypted: "x", webhook_secret: "g2", status: "active", connection_mode: "derived" },
+      { workspace_id: WS, source_id: SRC, platform: "facebook", platform_id: "FB-G1", display_name: "FB One", token_encrypted: "x", webhook_secret: "g3", status: "active", connection_mode: "derived" },
+    ]);
+    const body = await (await app.request("/sources", { headers: { cookie } })).text();
+    expect(body).toContain("Big Master");
+    expect(body).toContain("<details"); // collapsible platform groups
+    expect(body).toContain("Instagram <span class=\"muted\" style=\"font-weight:400\">· 2");
+    expect(body).toContain("Facebook <span class=\"muted\" style=\"font-weight:400\">· 1");
+    expect(body).toContain("3 channels across 2 platforms");
   });
 
   it("connecting a master token via /sources renders the source with its derived channels", async () => {

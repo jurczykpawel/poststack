@@ -1,5 +1,5 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { accountSources, channels } from "@/db/schema";
@@ -55,41 +55,58 @@ async function loadSources(workspaceId: string) {
   return rows.map((s) => ({ ...s, channels: derived.filter((c) => c.source_id === s.id) }));
 }
 
+type DerivedChannel = Awaited<ReturnType<typeof loadSources>>[number]["channels"][number];
+
+/** One channel line under a source's platform group: avatar · name · @handle · id · expiry. */
+function sourceChannelLine(c: DerivedChannel): Html {
+  return html`<div class="row" style="align-items:center;gap:.5rem;font-size:.8rem">
+    ${c.profile_picture ? html`<img class="avatar" src="${c.profile_picture}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'" style="width:22px;height:22px" />` : html``}
+    <span class="grow">${c.display_name ?? c.platform_id}${c.username ? html` · <span class="muted">@${c.username}</span>` : html``}
+      <span class="muted" style="font-size:.7rem"> · id ${c.platform_id}</span>
+      ${c.status === "needs_reauth" ? html`<span style="color:var(--bad-text)"> · ⚠</span>` : html``}
+      <span class="muted">${expiryNote(c.token_expires_at, c.data_access_expires_at)}</span>
+    </span>
+  </div>`;
+}
+
 function renderSources(srcs: Awaited<ReturnType<typeof loadSources>>, error?: string): Html {
   const notice = error ? html`<div class="auth-error">${error}</div>` : html``;
   if (srcs.length === 0) {
     return html`${notice}<p class="muted" style="font-size:.85rem">No managed connection yet. Paste a User or System User token above to auto-connect all your Pages and Instagram accounts.</p>`;
   }
-  return html`${notice}<div class="list">${srcs.map((s) => {
+  return html`${notice}<div class="list" style="gap:.75rem">${srcs.map((s) => {
     const broken = s.status === "needs_reauth";
+    // Group the source's derived channels by platform so a 60-channel token reads as a few
+    // collapsible sections instead of one flat wall. Large groups start collapsed.
+    const groups = new Map<string, DerivedChannel[]>();
+    for (const c of s.channels) (groups.get(c.platform) ?? groups.set(c.platform, []).get(c.platform)!).push(c);
+    const groupEntries = [...groups.entries()].sort((a, b) => platformLabel(a[0]).localeCompare(platformLabel(b[0])));
     return html`<div class="list-row" style="flex-direction:column;align-items:stretch;gap:.5rem">
       <div class="row" style="align-items:center;gap:.5rem">
         <div class="grow">
           <div style="font-weight:600">${s.display_name ?? s.provider_account_id}
-            ${broken ? html`<span style="color:var(--bad,#e5484d)"> · ⚠ Needs reconnect</span>` : html`<span class="muted"> · ✓ Active</span>`}
+            ${broken ? html`<span style="color:var(--bad-text)"> · ⚠ Needs reconnect</span>` : html`<span class="muted"> · ✓ Active</span>`}
           </div>
           <div class="muted" style="font-size:.72rem">
             ${s.kind === "system_user" ? "System User (permanent)" : "User token"} ·
-            ${s.channels.length} channel${s.channels.length === 1 ? "" : "s"} ·
+            ${s.channels.length} channel${s.channels.length === 1 ? "" : "s"} across ${groupEntries.length} platform${groupEntries.length === 1 ? "" : "s"} ·
             data access ${s.kind === "system_user" ? "never expires" : `until ${fmtDate(s.data_access_expires_at)}`} ·
             synced ${fmtDate(s.last_synced_at)}
           </div>
-          ${broken && s.needs_reauth_reason ? html`<div class="muted" style="font-size:.72rem;color:var(--bad,#e5484d)">${s.needs_reauth_reason}</div>` : html``}
+          ${broken && s.needs_reauth_reason ? html`<div class="muted" style="font-size:.72rem;color:var(--bad-text)">${s.needs_reauth_reason}</div>` : html``}
         </div>
         <button class="btn btn-sm btn-secondary" hx-post="/sources/${s.id}/sync" hx-target="#sources-list" hx-swap="innerHTML" title="Re-check for new Pages/Instagram now">↻ Sync</button>
         <button class="btn btn-sm btn-danger" hx-delete="/sources/${s.id}" hx-target="#sources-list" hx-swap="innerHTML" hx-confirm="Remove this managed connection? The connected channels stay, but stop auto-syncing.">Remove</button>
       </div>
-      <div class="list" style="margin-left:.5rem">${s.channels.map(
-        (c) => html`<div class="row" style="align-items:center;gap:.5rem;font-size:.8rem">
-          ${c.profile_picture ? html`<img class="avatar" src="${c.profile_picture}" alt="" style="width:20px;height:20px" />` : html``}
-          <span>${platformLabel(c.platform)}</span>
-          <span class="grow">${c.display_name ?? c.platform_id}${c.username ? html` · <span class="muted">@${c.username}</span>` : html``}
-            <span class="muted" style="font-size:.7rem"> · id ${c.platform_id}</span>
-            ${c.status === "needs_reauth" ? html`<span style="color:var(--bad,#e5484d)"> · ⚠</span>` : html``}
-            <span class="muted">${expiryNote(c.token_expires_at, c.data_access_expires_at)}</span>
-          </span>
-        </div>`,
-      )}</div>
+      ${s.channels.length === 0
+        ? html`<p class="muted" style="font-size:.78rem;margin:0">No channels found under this token yet — try ↻ Sync.</p>`
+        : html`<div class="stack" style="gap:.3rem;margin-left:.25rem">${groupEntries.map(([platform, chans]) => {
+            const needs = chans.filter((c) => c.status === "needs_reauth").length;
+            return html`<details ${chans.length <= 8 ? raw("open") : raw("")}>
+              <summary style="cursor:pointer;font-size:.82rem;font-weight:600">${platformLabel(platform)} <span class="muted" style="font-weight:400">· ${chans.length}</span>${needs ? html` <span style="color:var(--bad-text);font-weight:400">· ${needs} need reconnect</span>` : ""}</summary>
+              <div class="list" style="margin:.3rem 0 .25rem .5rem;gap:.2rem">${chans.map(sourceChannelLine)}</div>
+            </details>`;
+          })}</div>`}
     </div>`;
   })}</div>`;
 }

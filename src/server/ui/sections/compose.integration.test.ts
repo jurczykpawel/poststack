@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
-import { users, workspaces, channels, brands, content, posts } from "@/db/schema";
+import { users, workspaces, channels, brands, content, posts, rateLimitCounters } from "@/db/schema";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -46,6 +46,7 @@ beforeAll(async () => {
     await db.delete(workspaces).where(eq(workspaces.id, m.workspace_id));
   }
   await db.delete(users).where(eq(users.email, EMAIL));
+  await db.delete(rateLimitCounters); // the register rate-limit is DB-backed + shared across files
   const res = await app.request("/register", {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -1,6 +1,6 @@
 import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { and, or, eq, gt, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -36,10 +36,11 @@ import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
+import { listBrands } from "@/lib/brands/service";
 import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
-import { dot, pill as pillBadge } from "../ui/components/status";
+import { dot, pill as pillBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
 import { listProviders } from "@/lib/providers";
 
@@ -382,6 +383,18 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 
 const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube" };
 
+// Plain-language meaning of each inbound webhook handling status, for the /webhooks legend.
+const WEBHOOK_STATUS_LEGEND: ReadonlyArray<readonly [string, Tone, string]> = [
+  ["received", "neutral", "Arrived and logged — no rule acted on it (informational)."],
+  ["fired", "ok", "Matched an active rule — an auto-reply was sent or queued."],
+  ["no_match", "neutral", "Valid event, but no rule's keywords/trigger matched."],
+  ["paused", "warn", "A rule would match, but it's currently paused."],
+  ["ignored", "neutral", "Intentionally skipped — e.g. your own echo or a duplicate."],
+  ["unhandled", "neutral", "An event type the app doesn't act on."],
+  ["error", "bad", "Processing failed — see the Detail column."],
+];
+const WEBHOOK_STATUS_TONE: Record<string, Tone> = Object.fromEntries(WEBHOOK_STATUS_LEGEND.map(([s, tone]) => [s, tone]));
+
 /**
  * The alert-webhook config form (PRO). Custom header VALUES are never echoed back — only their names
  * (so the operator knows what's set without leaking secrets). Headers are entered as `Key: Value`
@@ -617,6 +630,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     }
     const chans = await loadInboxChannels(a.workspaceId);
     const platforms = [...new Set(chans.map((ch) => ch.platform))];
+    // Brand filter — only when the license allows multiple brands and the workspace actually has some.
+    const brandList = features.has("multi_brand") ? await listBrands(a.workspaceId) : [];
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Contacts" }),
@@ -627,6 +642,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <form class="row" style="gap:.5rem;margin:1rem 0;flex-wrap:wrap;align-items:center">
             <input class="input" style="max-width:340px" type="search" name="q" placeholder="Search by name, email, username..."
               hx-get="/contacts/list" hx-trigger="keyup changed delay:300ms, search" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form" />
+            ${brandList.length > 0
+              ? html`<select class="input" name="brand" style="max-width:200px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
+                  <option value="all">All brands</option>
+                  ${brandList.map((b) => html`<option value="${b.key}">${b.name}</option>`)}
+                </select>`
+              : html``}
             ${chans.length > 1
               ? html`<select class="input" name="channel" style="max-width:220px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
                   <option value="all">All channels</option>
@@ -665,13 +686,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/contacts/list", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    if (!(await getInstanceLicense()).features.has("contacts_crm")) return c.body(null, 402);
+    const { features } = await getInstanceLicense();
+    if (!features.has("contacts_crm")) return c.body(null, 402);
     const q = c.req.query("q") ?? "";
     const channelId = c.req.query("channel") || "all";
     const platform = c.req.query("platform") || "all";
+    // The brand dimension is a multi_brand (PRO) capability; ignore it on instances without the feature.
+    const brand = features.has("multi_brand") ? (c.req.query("brand") || "all") : "all";
     // "Load more" grows the page (capped) so a workspace with >50 contacts is browsable.
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 50), 1000);
-    return c.html(renderContacts(await loadContacts(a.workspaceId, q, limit, channelId, platform), q, limit, channelId, platform));
+    return c.html(renderContacts(await loadContacts(a.workspaceId, q, limit, channelId, platform, brand), q, limit, channelId, platform, brand));
   });
 
   // Settings
@@ -725,8 +749,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const [keys, workspace, license, alertWebhook] = await Promise.all([
-      loadKeys(a.workspaceId),
+    const [workspace, license, alertWebhook] = await Promise.all([
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
       getInstanceLicense(),
       getAlertWebhook(a.workspaceId),
@@ -741,29 +764,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <h1>Settings</h1>
           <p class="muted">Manage your workspace settings and API access.</p>
           <section class="section">
-            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
-              <h2 style="margin:0">API Keys</h2>
-              ${license.features.has("api_access") ? html`` : proLink(upgradeUrl, "PRO")}
-            </div>
-            <p class="muted" style="margin-bottom:1rem">Keys are shown once on creation — store them securely.${license.features.has("api_access") ? "" : html` Creating API keys is a ${proLink(upgradeUrl, "PRO")} feature; existing keys are disabled while unlicensed.`}</p>
-            <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
-              x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
-              <div class="row">
-                <input class="input" name="name" placeholder="Key name (e.g. Production webhook)" required />
-                <button class="btn btn-primary" type="submit">Create</button>
-              </div>
-              <details class="card" style="font-size:.8rem">
-                <summary style="cursor:pointer">Scopes (all selected = full access)</summary>
-                <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem">
-                  ${apiKeys.VALID_SCOPES.map(
-                    (sc) => html`<label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" value="${sc}" checked
-                      @change="$event.target.checked ? (scopes = [...new Set([...scopes, '${sc}'])]) : (scopes = scopes.filter(s => s !== '${sc}'))" />${sc}</label>`,
-                  )}
-                </div>
-              </details>
-              <input type="hidden" name="scopes_json" :value="scopesJson()" />
-            </form>
-            <div id="keys-area">${renderKeys(keys)}</div>
+            <h2>API Keys</h2>
+            <p class="muted">Programmatic API access now lives on its own page. <a href="/api-keys">Open API Keys →</a></p>
           </section>
           <section class="section">
             <h2>Data retention</h2>
@@ -1103,6 +1105,66 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderRules(await loadRules(a.workspaceId), await noticeFrom(res, "Could not delete the rule.")));
   });
 
+  // The rules list as a partial (for Cancel out of the inline edit form).
+  app.get("/rules/list", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    return c.html(renderRules(await loadRules(a.workspaceId)));
+  });
+
+  app.get("/rules/:id/edit", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
+    if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
+    return c.html(renderRuleEditForm(r));
+  });
+
+  app.post("/rules/:id", guard, async (c) => {
+    const id = c.req.param("id");
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, string>;
+    const existing = await loadRuleForEdit(a.workspaceId, id);
+    if (!existing) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
+    // The API PATCH replaces whole config columns, so overlay the edited fields onto the existing
+    // configs — advanced response config (buttons / quick replies / follow-gate) survives untouched.
+    const triggerConfig = { ...((existing.trigger_config ?? {}) as Record<string, unknown>) };
+    if (existing.trigger_type === "keyword" || existing.trigger_type === "comment_keyword") {
+      const keywords = (form.keywords ?? "").split(",").map((k) => k.trim()).filter(Boolean).map((value) => ({ value, match_type: "contains" }));
+      if (keywords.length) triggerConfig.keywords = keywords;
+      else delete triggerConfig.keywords;
+    }
+    if (existing.trigger_type === "comment_keyword") {
+      const postId = (form.post_id ?? "").trim();
+      if (postId) triggerConfig.post_id = postId;
+      else delete triggerConfig.post_id;
+    }
+    const responseConfig = { ...((existing.response_config ?? {}) as Record<string, unknown>) };
+    if (existing.response_type === "text") {
+      responseConfig.text = form.text ?? "";
+      if (existing.trigger_type === "comment_keyword") {
+        responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
+        const cr = (form.comment_reply_text ?? "").trim();
+        if (cr) responseConfig.comment_reply_text = cr;
+        else delete responseConfig.comment_reply_text;
+      }
+    }
+    const payload = {
+      name: form.name ?? "",
+      trigger_config: triggerConfig,
+      response_config: responseConfig,
+      requires_approval: form.requires_approval === "true",
+    };
+    const res = await rule.PATCH(jsonReqMethod(c, "PATCH", payload), { params: Promise.resolve({ ruleId: id }) }).catch(() => null);
+    const list = renderRules(await loadRules(a.workspaceId));
+    if (!res || res.status >= 400) {
+      const body = res ? await res.json().catch(() => ({})) : {};
+      return c.html(html`<div class="notice notice-err">${(body as { error?: { message?: string } })?.error?.message ?? "Could not update the rule."}</div>${list}`);
+    }
+    return c.html(list);
+  });
+
   // Approvals (human-in-the-loop review queue)
   app.get("/approvals", guard, async (c) => {
     const a = await auth(c);
@@ -1181,7 +1243,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/webhooks", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const { features, products } = await getInstanceLicense();
+    const { features, products, upgradeUrl } = await getInstanceLicense();
     // webhook_events has no workspace_id column (it resolves page→channel); scope by the workspace's
     // own channels so the log is tenant-correct.
     const wsChannels = await db.query.channels.findMany({
@@ -1189,36 +1251,66 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       columns: { id: true },
     });
     const channelIds = wsChannels.map((ch) => ch.id);
-    const rows = channelIds.length
-      ? await db.query.webhookEvents.findMany({
-          where: inArray(webhookEvents.channel_id, channelIds),
-          orderBy: [desc(webhookEvents.received_at)],
-          limit: 100,
-          columns: { id: true, platform: true, event_type: true, field: true, handling_status: true, received_at: true, error_detail: true },
-        })
-      : [];
+    const [rows, alertWebhook] = await Promise.all([
+      channelIds.length
+        ? db.query.webhookEvents.findMany({
+            where: inArray(webhookEvents.channel_id, channelIds),
+            orderBy: [desc(webhookEvents.received_at)],
+            limit: 100,
+            columns: { id: true, platform: true, event_type: true, field: true, handling_status: true, received_at: true, error_detail: true },
+          })
+        : Promise.resolve([]),
+      getAlertWebhook(a.workspaceId),
+    ]);
+    const canAlerts = features.has("managed_connection");
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Webhooks" }),
         "/webhooks",
         html`<div class="page">
           <h1>Webhooks</h1>
-          <p class="muted">Inbound platform webhook events (messages, comments, reactions) and how each was handled. Configure the outbound alert webhook under <a href="/settings">Settings</a>.</p>
+          <p class="muted">Two separate things share this name: events <strong>coming in</strong> from the platforms, and an alert we send <strong>out</strong> to you.</p>
+
+          <h2 style="margin-top:1rem">⬇ Incoming — from Meta / Telegram</h2>
+          <p class="muted" style="font-size:.85rem">The platforms POST here whenever someone messages, comments, or reacts. This is the log of what arrived and what the bot did with it.</p>
           <div class="card" style="margin:.75rem 0">
             <div class="muted" style="font-size:.8rem;margin-bottom:.2rem">Your inbound webhook URL (paste into your Meta app)</div>
             <code class="mono">${env.APP_URL}/api/webhooks/meta</code>
           </div>
+          <details class="card" style="font-size:.82rem;margin-bottom:.75rem">
+            <summary style="cursor:pointer;font-weight:600">What do the statuses mean?</summary>
+            <dl class="wh-legend" style="margin:.5rem 0 0;display:grid;grid-template-columns:auto 1fr;gap:.35rem .75rem">
+              ${WEBHOOK_STATUS_LEGEND.map(([status, tone, desc]) => html`<dt><span class="badge tone-${tone}">${status}</span></dt><dd class="muted">${desc}</dd>`)}
+            </dl>
+          </details>
           ${rows.length === 0
             ? html`<p class="muted">No webhook events received yet. They appear here once your connected pages send activity.</p>`
-            : html`<table><thead><tr><th>Platform</th><th>Event</th><th>Status</th><th>When</th></tr></thead>
+            : html`<table><thead><tr><th>Platform</th><th>Event</th><th>Status</th><th>Detail</th><th>When</th></tr></thead>
                 <tbody>${rows.map(
                   (e) => html`<tr>
                     <td>${PLATFORM_LABELS[e.platform ?? ""] ?? e.platform ?? "—"}</td>
                     <td class="muted" style="font-size:.8rem">${e.event_type}${e.field ? ` · ${e.field}` : ""}</td>
-                    <td><span class="badge" title="${e.error_detail ?? ""}">${e.handling_status}</span></td>
+                    <td><span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span></td>
+                    <td class="muted" style="font-size:.78rem">${e.handling_status === "error" && e.error_detail ? html`<span style="color:var(--bad-text)">${e.error_detail}</span>` : e.field ? e.field : "—"}</td>
                     <td class="muted">${timeAgo(e.received_at)}</td>
                   </tr>`,
                 )}</tbody></table>`}
+
+          <h2 style="margin-top:1.5rem">⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
+          <p class="muted" style="font-size:.85rem">A proactive POST we send to <em>your</em> endpoint (Slack, n8n, email relay…) when a connection needs re-auth or nears expiry — so you find out before publishing breaks.</p>
+          ${!canAlerts
+            ? html`<div class="card"><p class="muted" style="font-size:.85rem">Configuring an outbound alert webhook is a ${proLink(upgradeUrl, "PRO")} feature.</p></div>`
+            : alertWebhook
+              ? html`<div class="card">
+                  <div class="row" style="align-items:center;gap:.5rem">
+                    <span class="badge tone-${alertWebhook.enabled ? "ok" : "neutral"}">${alertWebhook.enabled ? "Enabled" : "Disabled"}</span>
+                    <code class="mono grow" style="overflow-x:auto;white-space:nowrap">${alertWebhook.url}</code>
+                  </div>
+                  <p class="muted" style="font-size:.78rem;margin-top:.4rem">
+                    ${Object.keys(alertWebhook.headers).length ? `${Object.keys(alertWebhook.headers).length} custom header(s) · ` : ""}${Object.keys(alertWebhook.extraFields).length ? `${Object.keys(alertWebhook.extraFields).length} extra field(s) · ` : ""}<a href="/settings#alert">Edit in Settings →</a>
+                  </p>
+                </div>`
+              : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#alert">Set it up in Settings →</a></p></div>`}
         </div>`,
         features,
         products,
@@ -1226,12 +1318,24 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     );
   });
 
-  // API keys — a top-level nav target; the management UI lives in Settings (key list + create form),
-  // so this is a stable redirect there rather than a dead link.
+  // API keys — its own top-level page (create + revoke + scopes). Settings links here.
   app.get("/api-keys", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    return c.redirect("/settings#api-keys");
+    const [keys, license] = await Promise.all([loadKeys(a.workspaceId), getInstanceLicense()]);
+    return c.html(
+      dashboardDoc(
+        t("title.suffix", { section: "API Keys" }),
+        "/api-keys",
+        html`<div class="page">
+          <h1>API Keys ${license.features.has("api_access") ? "" : proLink(license.upgradeUrl, "PRO")}</h1>
+          <p class="muted">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>.</p>
+          ${apiKeysSection(keys, license)}
+        </div>`,
+        license.features,
+        license.products,
+      ),
+    );
   });
 
   // Sequences
@@ -1375,7 +1479,7 @@ async function workspacePatch(c: Context, days: number | null): Promise<boolean>
 
 // ─── contacts/keys/rules/sequences renderers ──────────────────────────────────
 
-function loadContacts(workspaceId: string, q: string, limit = 50, channelId = "all", platform = "all") {
+function loadContacts(workspaceId: string, q: string, limit = 50, channelId = "all", platform = "all", brand = "all") {
   const safeQ = q ? q.replace(/[%_\\]/g, "\\$&") : "";
   const conds: SQL[] = [eq(contacts.workspace_id, workspaceId)];
   if (safeQ) {
@@ -1415,6 +1519,18 @@ function loadContacts(workspaceId: string, q: string, limit = 50, channelId = "a
       ),
     );
   }
+  // Filter by the brand owning a contact's channel(s). Independent of channel/platform filters.
+  if (brand !== "all") {
+    conds.push(
+      exists(
+        db
+          .select({ x: sql`1` })
+          .from(contactChannels)
+          .innerJoin(channels, eq(channels.id, contactChannels.channel_id))
+          .where(and(eq(contactChannels.contact_id, contacts.id), eq(channels.brand_key, brand))),
+      ),
+    );
+  }
   return db.query.contacts.findMany({
     where: and(...conds),
     orderBy: desc(contacts.last_interaction_at),
@@ -1430,14 +1546,14 @@ function loadContacts(workspaceId: string, q: string, limit = 50, channelId = "a
   });
 }
 
-function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = "", limit = 50, channelId = "all", platform = "all"): Html {
+function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = "", limit = 50, channelId = "all", platform = "all", brand = "all"): Html {
   if (contacts.length === 0) {
-    return html`<p class="muted">${q || channelId !== "all" || platform !== "all" ? "No contacts match your filters." : "No contacts yet. Connect a channel and start receiving messages."}</p>`;
+    return html`<p class="muted">${q || channelId !== "all" || platform !== "all" || brand !== "all" ? "No contacts match your filters." : "No contacts yet. Connect a channel and start receiving messages."}</p>`;
   }
   // A full page likely has more — offer to load the next batch by re-rendering with a larger limit
   // (the list was previously capped at 50 with no way to browse the rest). Carry the active filters.
   const more = contacts.length >= limit
-    ? html`<button class="btn btn-sm" style="margin-top:.5rem" hx-get="/contacts/list?q=${encodeURIComponent(q)}&channel=${encodeURIComponent(channelId)}&platform=${encodeURIComponent(platform)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button>`
+    ? html`<button class="btn btn-sm" style="margin-top:.5rem" hx-get="/contacts/list?q=${encodeURIComponent(q)}&channel=${encodeURIComponent(channelId)}&platform=${encodeURIComponent(platform)}&brand=${encodeURIComponent(brand)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button>`
     : html``;
   return html`<table><thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th></tr></thead><tbody>
     ${contacts.map(
@@ -1471,6 +1587,32 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
       </tr>`,
     )}
   </tbody></table>`;
+}
+
+/** API-key management body (create form + key list). Lives on its own /api-keys page; the page
+ *  supplies the H1, so this renders only the intro + form + list. */
+function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awaited<ReturnType<typeof getInstanceLicense>>): Html {
+  const canApi = license.features.has("api_access");
+  return html`
+    <p class="muted" style="margin-bottom:1rem">Keys are shown once on creation — store them securely.${canApi ? "" : html` Creating API keys is a ${proLink(license.upgradeUrl, "PRO")} feature; existing keys are disabled while unlicensed.`}</p>
+    <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
+      x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
+      <div class="row">
+        <input class="input" name="name" placeholder="Key name (e.g. Production webhook)" required />
+        <button class="btn btn-primary" type="submit">Create</button>
+      </div>
+      <details class="card" style="font-size:.8rem">
+        <summary style="cursor:pointer">Scopes (all selected = full access)</summary>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem">
+          ${apiKeys.VALID_SCOPES.map(
+            (sc) => html`<label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" value="${sc}" checked
+              @change="$event.target.checked ? (scopes = [...new Set([...scopes, '${sc}'])]) : (scopes = scopes.filter(s => s !== '${sc}'))" />${sc}</label>`,
+          )}
+        </div>
+      </details>
+      <input type="hidden" name="scopes_json" :value="scopesJson()" />
+    </form>
+    <div id="keys-area">${renderKeys(keys)}</div>`;
 }
 
 // A small "🔒 PRO" link to the upgrade URL, for locking gated controls in forms.
@@ -1507,7 +1649,7 @@ const REACTION_EMOJI: Record<string, string> = {
   like: "👍", love: "❤️", care: "🥰", haha: "😆", wow: "😮", sad: "😢", angry: "😠",
 };
 
-type EngagementPost = { postId: string; total: number; byType: Array<{ type: string; n: number }>; reactors: string[] };
+type EngagementPost = { postId: string; channelName: string | null; total: number; lastAt: Date; byType: Array<{ type: string; n: number }>; reactors: string[] };
 
 /** Group post reactions by post → per-type counts + a few reactor names. Identity-free shape is
  *  not required here (Engagement IS the PRO view), but we cap the reactor list for readability. */
@@ -1524,18 +1666,28 @@ async function loadEngagement(workspaceId: string): Promise<EngagementPost[]> {
     .orderBy(desc(postReactions.created_at))
     .limit(1000);
 
-  const byPost = new Map<string, { total: number; types: Map<string, number>; reactors: string[] }>();
+  const byPost = new Map<string, { total: number; types: Map<string, number>; reactors: string[]; lastAt: Date }>();
   for (const r of rows) {
     let p = byPost.get(r.post_id);
-    if (!p) byPost.set(r.post_id, (p = { total: 0, types: new Map(), reactors: [] }));
+    if (!p) byPost.set(r.post_id, (p = { total: 0, types: new Map(), reactors: [], lastAt: r.created_at }));
     p.total++;
+    if (r.created_at > p.lastAt) p.lastAt = r.created_at;
     p.types.set(r.reaction_type, (p.types.get(r.reaction_type) ?? 0) + 1);
     if (r.reactor_name && p.reactors.length < 8 && !p.reactors.includes(r.reactor_name)) p.reactors.push(r.reactor_name);
   }
+  // Resolve the owning page for each post: FB post ids are `{pageId}_{postId}`, and the page id is a
+  // facebook channel's platform_id — so we can show the page name instead of just a raw id.
+  const fbChannels = await db.query.channels.findMany({
+    where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform, "facebook")),
+    columns: { platform_id: true, display_name: true },
+  });
+  const pageName = new Map(fbChannels.map((ch) => [ch.platform_id, ch.display_name] as const));
   return [...byPost.entries()]
     .map(([postId, p]) => ({
       postId,
+      channelName: pageName.get(postId.split("_")[0] ?? "") ?? null,
       total: p.total,
+      lastAt: p.lastAt,
       byType: [...p.types.entries()].map(([type, n]) => ({ type, n })).sort((a, b) => b.n - a.n),
       reactors: p.reactors,
     }))
@@ -1585,14 +1737,19 @@ function renderEngagement(posts: EngagementPost[], dms: DmReaction[]): Html {
     <h2 style="margin-top:1rem">Post reactions <span class="muted" style="font-weight:400">· Facebook</span></h2>
     ${posts.length === 0
       ? html`<p class="muted">No post reactions yet. Reactions on your Facebook posts will show up here.</p>`
-      : html`<table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th></tr></thead>
+      : html`<table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th><th>Latest</th></tr></thead>
           <tbody>
             ${posts.map(
               (p) => html`<tr>
-                <td class="mono" style="font-size:.78rem"><a href="https://www.facebook.com/${p.postId}" target="_blank" rel="noopener">${p.postId} ↗</a></td>
+                <td style="font-size:.82rem">
+                  ${p.channelName ? html`<div style="font-weight:600">${p.channelName}</div>` : ""}
+                  <a href="https://www.facebook.com/${p.postId}" target="_blank" rel="noopener">View post ↗</a>
+                  <div class="muted mono" style="font-size:.68rem">${p.postId}</div>
+                </td>
                 <td><strong>${p.total}</strong></td>
                 <td>${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span> `)}</td>
                 <td class="muted" style="font-size:.8rem">${p.reactors.length ? p.reactors.join(", ") : "—"}</td>
+                <td class="muted" style="font-size:.78rem">${timeAgo(p.lastAt)}</td>
               </tr>`,
             )}
           </tbody></table>`}
@@ -1754,10 +1911,64 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: s
   return html`${notice}<div class="list">${rulesList.map(
     (r) => html`<div class="list-row">
       <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type}${r.is_active ? "" : " · inactive"}</span></div>
+      <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
       <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
       <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
     </div>`,
   )}</div>`;
+}
+
+function loadRuleForEdit(workspaceId: string, id: string) {
+  return db.query.autoReplyRules.findFirst({
+    where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, workspaceId)),
+    columns: { id: true, name: true, trigger_type: true, trigger_config: true, response_type: true, response_config: true, requires_approval: true },
+  });
+}
+
+/** Inline edit form for a rule. Exposes the common fields; advanced response config (buttons,
+ *  quick replies, follow-gate) is preserved untouched by the update route, not edited here. */
+function renderRuleEditForm(r: NonNullable<Awaited<ReturnType<typeof loadRuleForEdit>>>): Html {
+  const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
+  const rc = (r.response_config ?? {}) as Record<string, unknown>;
+  const keywords = Array.isArray(tc.keywords)
+    ? (tc.keywords as Array<string | { value?: string }>).map((k) => (typeof k === "string" ? k : k.value ?? "")).filter(Boolean).join(", ")
+    : "";
+  const postId = typeof tc.post_id === "string" ? tc.post_id : "";
+  const text = typeof rc.text === "string" ? rc.text : "";
+  const replyMode = typeof rc.reply_mode === "string" ? rc.reply_mode : "dm";
+  const commentReply = typeof rc.comment_reply_text === "string" ? rc.comment_reply_text : "";
+  const isText = r.response_type === "text";
+  const isKeyword = r.trigger_type === "keyword" || r.trigger_type === "comment_keyword";
+  const isComment = r.trigger_type === "comment_keyword";
+  const hasAdvanced = (Array.isArray(rc.buttons) && rc.buttons.length > 0) || (Array.isArray(rc.quick_replies) && rc.quick_replies.length > 0);
+  const sel = (v: string) => (v === replyMode ? raw(" selected") : raw(""));
+  return html`<div class="card" style="margin-bottom:1rem">
+    <h3 style="margin-top:0">Edit rule <span class="muted" style="font-weight:400;font-size:.8rem">${r.trigger_type} → ${r.response_type}</span></h3>
+    <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack">
+      <div><label class="label">Name</label><input class="input" name="name" value="${r.name}" required /></div>
+      ${isKeyword ? html`<div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" value="${keywords}" placeholder="hello, hi, info" /></div>` : ""}
+      ${isComment ? html`<div><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" value="${postId}" placeholder="leave blank for any post" /></div>` : ""}
+      ${isComment && isText ? html`<div><label class="label">Reply via</label>
+        <select class="input" name="reply_mode">
+          <option value="dm"${sel("dm")}>DM only</option>
+          <option value="comment"${sel("comment")}>Public comment only</option>
+          <option value="both"${sel("both")}>Both</option>
+        </select></div>` : ""}
+      ${isText
+        ? html`<div><label class="label">Reply text</label><textarea class="textarea" name="text" rows="2">${text}</textarea></div>`
+        : html`<p class="muted" style="font-size:.78rem">This rule's response type is <strong>${r.response_type}</strong>; its detailed configuration is preserved on save. To rebuild it, delete and recreate the rule.</p>`}
+      ${isComment && isText ? html`<div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" value="${commentReply}" /></div>` : ""}
+      ${hasAdvanced ? html`<p class="muted" style="font-size:.72rem">ℹ Buttons / quick replies on this rule are kept as-is.</p>` : ""}
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
+        <input type="checkbox" name="requires_approval" value="true"${r.requires_approval ? raw(" checked") : raw("")} />
+        Hold for human approval before sending
+      </label>
+      <div class="row" style="gap:.5rem">
+        <button class="btn btn-primary" type="submit">Save changes</button>
+        <button class="btn btn-sm" type="button" hx-get="/rules/list" hx-target="#rules-list" hx-swap="innerHTML">Cancel</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 function loadApprovals(workspaceId: string) {
