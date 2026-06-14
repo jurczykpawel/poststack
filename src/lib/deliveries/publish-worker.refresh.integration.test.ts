@@ -85,6 +85,10 @@ describe("pre-publish freshness guard", () => {
       .returning();
 
     const tt = (await import("@/lib/providers/tiktok")).tiktokProvider;
+    // Precondition (makes the coupling explicit + self-protecting): tiktok stands in for "a real
+    // refreshable oauth provider". If it ever stops requiring refresh, fail HERE with a clear reason
+    // — switch to another refreshable provider — rather than silently no-op'ing the §5C path below.
+    expect(tt.requiresTokenRefresh()).toBe(true);
     const refresh = vi.spyOn(tt, "refreshToken").mockResolvedValue({
       accessToken: "new",
       refreshToken: "R",
