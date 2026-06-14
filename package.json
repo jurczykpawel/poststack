@@ -28,6 +28,7 @@
   "dependencies": {
     "@hono/node-server": "^2.0.4",
     "altcha-lib": "^1.4.1",
+    "aws4fetch": "^1.0.20",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
     "graphile-worker": "^0.16.6",

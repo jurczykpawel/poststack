@@ -27,6 +27,16 @@ const envSchema = z.object({
   // actually behind Cloudflare, to trust CF-Connecting-IP.
   TRUSTED_PROXY: z.string().default(""),
 
+  // Object storage (S3-compatible: Backblaze B2 / R2 / MinIO). With STORAGE_ENDPOINT unset, media
+  // falls back to an in-memory store (dev/tests). PUBLIC_BASE_URL must serve the bucket publicly so
+  // platforms (Meta `url=` publish) can pull the asset.
+  STORAGE_ENDPOINT: z.string().default(""),
+  STORAGE_REGION: z.string().default("auto"),
+  STORAGE_BUCKET: z.string().default(""),
+  STORAGE_ACCESS_KEY_ID: z.string().default(""),
+  STORAGE_SECRET_ACCESS_KEY: z.string().default(""),
+  STORAGE_PUBLIC_BASE_URL: z.string().default(""),
+
   // Altcha CAPTCHA (optional -- login/register skip verification without key)
   ALTCHA_HMAC_KEY: z.string().default(""),
 
