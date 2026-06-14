@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { brands as brandsTbl, channels as channelsTbl } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
-import { getInstanceLicense } from "@/lib/license/gate";
+import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
 import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
 import { resolveBrandSlots, EDITORIAL_PLATFORMS } from "@/lib/brands/resolve";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
@@ -139,7 +139,7 @@ async function renderBrandCard(workspaceId: string, brand: BrandRow): Promise<Ht
   return brandCard(brand, await brandSlots(workspaceId, brand, candidates));
 }
 
-async function brandsPage(c: Context): Promise<Response> {
+async function brandsPage(c: Context, notice?: string, status = 200): Promise<Response> {
   const a = await auth(c);
   if (!a) return c.redirect("/login");
   const ws = a.workspaceId;
@@ -154,7 +154,8 @@ async function brandsPage(c: Context): Promise<Response> {
       features: lic.features,
       products: lic.products,
       breadcrumb: `${brands.length} brand${brands.length === 1 ? "" : "s"}`,
-      body: html`<p class="section-intro">
+      body: html`${notice ? html`<div class="notice notice-err" role="alert">${notice}</div>` : ""}
+        <p class="section-intro">
           A brand groups the channels you publish to. Map one channel per platform here, then publishing
           a content item resolves the right channel automatically.
         </p>
@@ -172,6 +173,7 @@ async function brandsPage(c: Context): Promise<Response> {
           ? html`<div class="empty-state"><p>No brands yet. Create one above, then assign its channels.</p></div>`
           : html`<div class="brand-grid">${cards}</div>`}`,
     }),
+    status as 200,
   );
 }
 
@@ -212,7 +214,7 @@ async function assignSlot(workspaceId: string, brandKey: string, platform: strin
 }
 
 export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
-  r.get("/brands", guard, brandsPage);
+  r.get("/brands", guard, (c) => brandsPage(c));
 
   r.post("/brands", guard, async (c) => {
     const a = await auth(c);
@@ -234,7 +236,12 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
           ),
       });
     } catch (err) {
-      if (err instanceof ApiError) return c.text(err.message, err.status as 400);
+      // Limit hit (free already has its 1 brand) or area not entitled → re-render the page with a
+      // friendly notice, NOT a 500/raw text. A plain full-page form POST, so we return the HTML page.
+      if (err instanceof LimitExceededError || err instanceof ProRequiredError) {
+        return brandsPage(c, err.message, 402);
+      }
+      if (err instanceof ApiError) return brandsPage(c, err.message, err.status);
       throw err;
     }
     return c.redirect("/brands", 303);
