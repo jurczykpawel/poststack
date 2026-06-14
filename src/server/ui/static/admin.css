@@ -990,3 +990,14 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .pub-target { color: var(--text-2); font-size: 0.84rem; }
 .card-warn { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-wrap: wrap;
   align-items: center; gap: 8px; color: var(--warn-text); }
+
+/* ── Legacy reply-section layout vocabulary ───────────────────────────────────────────────────────
+   The re-mounted ReplyStack section bodies (overview/inbox/rules/contacts/sequences/settings/events/
+   webhooks) predate the Tokyo-Night shell and share these classes (RS's old styles.ts, removed in the
+   shell port). Style them with the shell's tokens so those pages aren't unstyled stacks. */
+.page { max-width: var(--shell-max); }
+.page > h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; color: var(--text-1); margin: 0 0 6px; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.section { margin-top: 20px; }
+.section > h2 { font-size: 14px; font-weight: 600; color: var(--text-1); margin: 0 0 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 13px 15px; }

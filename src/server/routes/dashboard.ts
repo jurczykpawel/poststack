@@ -40,6 +40,7 @@ import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge } from "../ui/components/status";
+import { kpi } from "../ui/components/kpi";
 import { listProviders } from "@/lib/providers";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -1601,17 +1602,15 @@ function relTimeShort(at: Date): string {
 
 function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string, pub: OverviewPublishing | null = null): Html {
   const locked = !features.has("contacts_crm");
-  const stat = (label: string, value: number) =>
-    html`<div class="card" style="flex:1;min-width:8rem"><div class="muted" style="font-size:.8rem">${label}</div><div style="font-size:1.6rem;font-weight:600">${value}</div></div>`;
   return html`<div class="page">
     <h1>Overview</h1>
-    <p class="muted">Your automation at a glance. ${locked ? html`Open individual conversations with ${proLink(upgradeUrl, "PRO")}.` : html``}</p>
-    <div class="row" style="flex-wrap:wrap;gap:.75rem;margin:1rem 0">
-      ${stat("Sent today", ov.today)}
-      ${stat("Sent (all time)", ov.sent)}
-      ${stat("Failed", ov.failed)}
-      ${stat("Held", ov.held)}
-      ${stat("Contacts", ov.contactCount)}
+    <p class="section-intro">Your automation at a glance.${locked ? html` Open individual conversations with ${proLink(upgradeUrl, "PRO")}.` : html``}</p>
+    <div class="kpis" style="margin:14px 0">
+      ${kpi({ label: "Sent today", value: ov.today, tone: "neutral" })}
+      ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok" })}
+      ${kpi({ label: "Failed", value: ov.failed, tone: ov.failed > 0 ? "bad" : "neutral" })}
+      ${kpi({ label: "Held", value: ov.held, tone: ov.held > 0 ? "warn" : "neutral" })}
+      ${kpi({ label: "Contacts", value: ov.contactCount, tone: "neutral" })}
     </div>
     ${pub ? renderPublishingOverview(pub) : ""}
     <section class="section">
