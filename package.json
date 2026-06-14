@@ -23,7 +23,8 @@
     "db:push": "drizzle-kit push",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.4",
@@ -39,6 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.49.1",
     "@types/node": "25.5.0",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",

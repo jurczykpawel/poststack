@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, commentLogs,
+  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents,
 } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
@@ -1132,6 +1132,99 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     return c.html(renderApprovals(await loadApprovals(a.workspaceId), await noticeFrom(res, "Could not reject the reply.")));
+  });
+
+  // Events — the workspace activity log (a nav target). Read-only, identity-free type/time rows.
+  app.get("/events", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.redirect("/login");
+    const { features, products } = await getInstanceLicense();
+    const rows = await db.query.events.findMany({
+      where: eq(eventsTbl.workspace_id, a.workspaceId),
+      orderBy: [desc(eventsTbl.created_at)],
+      limit: 100,
+      columns: { id: true, type: true, subject_type: true, subject_id: true, created_at: true },
+    });
+    return c.html(
+      dashboardDoc(
+        t("title.suffix", { section: "Events" }),
+        "/events",
+        html`<div class="page">
+          <h1>Events</h1>
+          <p class="muted">A log of what happened in this workspace — channel, publishing and automation events.</p>
+          ${rows.length === 0
+            ? html`<p class="muted">No events yet. Activity shows up here as channels connect and automations run.</p>`
+            : html`<table><thead><tr><th>Type</th><th>Subject</th><th>When</th></tr></thead>
+                <tbody>${rows.map(
+                  (e) => html`<tr>
+                    <td><span class="badge">${e.type}</span></td>
+                    <td class="muted" style="font-size:.8rem">${e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—"}</td>
+                    <td class="muted">${timeAgo(e.created_at)}</td>
+                  </tr>`,
+                )}</tbody></table>`}
+        </div>`,
+        features,
+        products,
+      ),
+    );
+  });
+
+  // Webhooks — the inbound webhook-event log (a nav target). Shows recent Meta/Telegram deliveries and
+  // how each was handled; outbound alert-webhook config lives under Settings.
+  app.get("/webhooks", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.redirect("/login");
+    const { features, products } = await getInstanceLicense();
+    // webhook_events has no workspace_id column (it resolves page→channel); scope by the workspace's
+    // own channels so the log is tenant-correct.
+    const wsChannels = await db.query.channels.findMany({
+      where: eq(channels.workspace_id, a.workspaceId),
+      columns: { id: true },
+    });
+    const channelIds = wsChannels.map((ch) => ch.id);
+    const rows = channelIds.length
+      ? await db.query.webhookEvents.findMany({
+          where: inArray(webhookEvents.channel_id, channelIds),
+          orderBy: [desc(webhookEvents.received_at)],
+          limit: 100,
+          columns: { id: true, platform: true, event_type: true, field: true, handling_status: true, received_at: true, error_detail: true },
+        })
+      : [];
+    return c.html(
+      dashboardDoc(
+        t("title.suffix", { section: "Webhooks" }),
+        "/webhooks",
+        html`<div class="page">
+          <h1>Webhooks</h1>
+          <p class="muted">Inbound platform webhook events (messages, comments, reactions) and how each was handled. Configure the outbound alert webhook under <a href="/settings">Settings</a>.</p>
+          <div class="card" style="margin:.75rem 0">
+            <div class="muted" style="font-size:.8rem;margin-bottom:.2rem">Your inbound webhook URL (paste into your Meta app)</div>
+            <code class="mono">${env.APP_URL}/api/webhooks/meta</code>
+          </div>
+          ${rows.length === 0
+            ? html`<p class="muted">No webhook events received yet. They appear here once your connected pages send activity.</p>`
+            : html`<table><thead><tr><th>Platform</th><th>Event</th><th>Status</th><th>When</th></tr></thead>
+                <tbody>${rows.map(
+                  (e) => html`<tr>
+                    <td>${PLATFORM_LABELS[e.platform ?? ""] ?? e.platform ?? "—"}</td>
+                    <td class="muted" style="font-size:.8rem">${e.event_type}${e.field ? ` · ${e.field}` : ""}</td>
+                    <td><span class="badge" title="${e.error_detail ?? ""}">${e.handling_status}</span></td>
+                    <td class="muted">${timeAgo(e.received_at)}</td>
+                  </tr>`,
+                )}</tbody></table>`}
+        </div>`,
+        features,
+        products,
+      ),
+    );
+  });
+
+  // API keys — a top-level nav target; the management UI lives in Settings (key list + create form),
+  // so this is a stable redirect there rather than a dead link.
+  app.get("/api-keys", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.redirect("/login");
+    return c.redirect("/settings#api-keys");
   });
 
   // Sequences

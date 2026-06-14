@@ -61,3 +61,8 @@ docker-compose.smoke.yml
 
 # Private — never commit (AGPL public history stays clean)
 priv/
+
+# Playwright e2e artifacts
+e2e/.auth/
+test-results/
+playwright-report/
