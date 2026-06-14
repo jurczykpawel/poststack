@@ -28,14 +28,23 @@ const envSchema = z.object({
   TRUSTED_PROXY: z.string().default(""),
 
   // Object storage (S3-compatible: Backblaze B2 / R2 / MinIO). With STORAGE_ENDPOINT unset, media
-  // falls back to an in-memory store (dev/tests). PUBLIC_BASE_URL must serve the bucket publicly so
-  // platforms (Meta `url=` publish) can pull the asset.
+  // falls back to an in-memory store (dev/tests). STORAGE_PUBLIC_BASE_URL must serve the bucket
+  // publicly so platforms (Meta `url=` publish) can pull the asset. STORAGE_PUBLIC_BUCKET names the
+  // shared content-addressed bucket (e.g. `tsa-media-public`) — same naming as ReelStack so a reel
+  // it rendered can be linked here by reference without re-upload.
   STORAGE_ENDPOINT: z.string().default(""),
   STORAGE_REGION: z.string().default("auto"),
-  STORAGE_BUCKET: z.string().default(""),
+  STORAGE_PUBLIC_BUCKET: z.string().default(""),
   STORAGE_ACCESS_KEY_ID: z.string().default(""),
   STORAGE_SECRET_ACCESS_KEY: z.string().default(""),
   STORAGE_PUBLIC_BASE_URL: z.string().default(""),
+
+  // ReelStack reel.completed inbound webhook (optional, OFF by default). BOTH must be set to enable
+  // POST /integrations/reelstack/webhook: the HMAC shared secret (must equal ReelStack's
+  // WEBHOOK_CALLBACK_SECRET) and the workspace a completed reel is auto-registered into (this app is
+  // multi-tenant, so a global integration must name its target tenant). Either unset ⇒ endpoint 404s.
+  REELSTACK_WEBHOOK_SECRET: z.string().default(""),
+  REELSTACK_WEBHOOK_WORKSPACE_ID: z.string().default(""),
 
   // Altcha CAPTCHA (optional -- login/register skip verification without key)
   ALTCHA_HMAC_KEY: z.string().default(""),

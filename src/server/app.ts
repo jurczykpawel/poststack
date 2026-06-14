@@ -5,6 +5,7 @@ import { publicRoutes } from "./routes/public";
 import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
+import { integrationsRoutes } from "./routes/integrations";
 import { ApiErrors, ApiError, apiErrorResponse } from "@/lib/api/response";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { ProRequiredError, LimitExceededError } from "@/lib/license/gate";
@@ -50,6 +51,10 @@ export function buildApp(): Hono {
 
   app.route("/", publicRoutes);
   app.route("/", special);
+  // Inbound integration webhooks (HMAC-authenticated, NOT Bearer-auth) — mounted outside /api/v1 so
+  // the API-key middleware does NOT apply. Off by default (requires REELSTACK_WEBHOOK_SECRET +
+  // REELSTACK_WEBHOOK_WORKSPACE_ID). Has its own onError (app-level onError only covers /api/).
+  app.route("/", integrationsRoutes());
   app.route("/api/v1", v1);
   app.route("/", pages);
 

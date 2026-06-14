@@ -18,7 +18,7 @@ export function getStorage(): Storage {
     cached = new S3Storage({
       endpoint,
       region: process.env.STORAGE_REGION ?? "auto",
-      bucket: process.env.STORAGE_BUCKET ?? "poststack",
+      bucket: process.env.STORAGE_PUBLIC_BUCKET ?? "poststack",
       accessKeyId: process.env.STORAGE_ACCESS_KEY_ID ?? "",
       secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY ?? "",
       publicBaseUrl: process.env.STORAGE_PUBLIC_BASE_URL ?? endpoint,

@@ -103,3 +103,68 @@ export async function getMedia(id: string, workspaceId: string): Promise<MediaRo
     where: and(eq(media.id, id), eq(media.workspace_id, workspaceId)),
   });
 }
+
+// ---------------------------------------------------------------------------
+// registerKnownMedia — link a content-addressed object by reference (no re-upload)
+// ---------------------------------------------------------------------------
+
+export interface KnownMedia {
+  checksum: string;
+  mime?: string;
+  kind: "video" | "image";
+  size?: number;
+  width?: number;
+  height?: number;
+  durationSec?: number;
+}
+
+/**
+ * Register media that ALREADY lives in the content-addressed bucket (e.g. a reel rendered by
+ * ReelStack into the shared `tsa-media-public` bucket), scoped to a workspace. Verifies the object
+ * is present via a storage HEAD and links a DB row — never fetches bytes or re-uploads. CAS dedup is
+ * PER workspace (checksum unique per workspace_id), mirroring registerByUrl. Throws
+ * ApiError("not_present", …, 422) when the object is absent so the caller can fall back to
+ * registerByUrl (a missing dependency object is an unprocessable request, not a 409 conflict).
+ */
+export async function registerKnownMedia(
+  m: KnownMedia,
+  deps: { storage: Storage },
+  workspaceId: string,
+): Promise<MediaRow> {
+  // CAS dedup (per workspace): identical checksum already linked here → return without storage I/O.
+  const existing = await db.query.media.findFirst({
+    where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum)),
+  });
+  if (existing) return existing;
+
+  const key = casKey(m.checksum, m.mime);
+
+  // Verify the object is actually present — the caller (or ReelStack) must have uploaded it first.
+  if (!(await deps.storage.head(key)).exists) {
+    throw new ApiError("not_present", `Object ${key} not present in media bucket`, 422);
+  }
+
+  // Row-level CAS scoped to (workspace_id, checksum): a concurrent registration can race past
+  // findFirst. onConflictDoNothing + re-select mirrors registerByUrl (PSA34).
+  const [row] = await db
+    .insert(media)
+    .values({
+      workspace_id: workspaceId,
+      checksum: m.checksum,
+      storage_key: key,
+      url: deps.storage.publicUrl(key),
+      kind: m.kind,
+      mime: m.mime ?? null,
+      size: m.size ?? null,
+      width: m.width ?? null,
+      height: m.height ?? null,
+      duration_sec: m.durationSec ?? null,
+      status: "ready",
+    })
+    .onConflictDoNothing({ target: [media.workspace_id, media.checksum] })
+    .returning();
+  if (row) return row;
+  return (await db.query.media.findFirst({
+    where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum)),
+  }))!;
+}

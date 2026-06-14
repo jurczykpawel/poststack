@@ -5,6 +5,8 @@ const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let schema: typeof import("@/db/schema");
 let registerByUrl: typeof import("./service").registerByUrl;
+let registerKnownMedia: typeof import("./service").registerKnownMedia;
+let casKey: typeof import("@/lib/media/cas").casKey;
 let InMemoryStorage: typeof import("@/lib/storage/memory").InMemoryStorage;
 let seedWorkspace: typeof import("../../../tests/helpers/workspace").seedWorkspace;
 let WS = "";
@@ -18,7 +20,8 @@ beforeAll(async () => {
   process.env.CRON_SECRET ??= "test-cron-secret-at-least-32-characters-long";
   ({ db } = await import("@/lib/db"));
   schema = await import("@/db/schema");
-  ({ registerByUrl } = await import("./service"));
+  ({ registerByUrl, registerKnownMedia } = await import("./service"));
+  ({ casKey } = await import("@/lib/media/cas"));
   ({ InMemoryStorage } = await import("@/lib/storage/memory"));
   ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
   WS = await seedWorkspace(db, schema, { slug: `media-${Date.now()}` });
@@ -140,5 +143,63 @@ describe("media registerByUrl (real Postgres, workspace-scoped)", () => {
       delete process.env.MEDIA_FETCH_TIMEOUT_MS;
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("media registerKnownMedia (link by reference, no re-upload, workspace-scoped)", () => {
+  const CHK = "a".repeat(64);
+
+  it("links an object already in the bucket without fetching — row points at the CAS key", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    const key = casKey(CHK, "video/mp4");
+    await storage.putBytes(key, bytes, "video/mp4", { sha256: CHK });
+    const m = await registerKnownMedia({ checksum: CHK, mime: "video/mp4", kind: "video", durationSec: 9 }, { storage }, WS);
+    expect(m.workspace_id).toBe(WS);
+    expect(m.checksum).toBe(CHK);
+    expect(m.storage_key).toBe(key);
+    expect(m.duration_sec).toBe(9);
+    expect(m.url).toBe(storage.publicUrl(key));
+  });
+
+  it("throws not_present (422) when the object is absent, so the caller can fall back to registerByUrl", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    await expect(
+      registerKnownMedia({ checksum: "b".repeat(64), mime: "video/mp4", kind: "video" }, { storage }, WS),
+    ).rejects.toMatchObject({ code: "not_present", status: 422 });
+  });
+
+  it("is idempotent within a workspace: a second call returns the same row (CAS dedup)", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    const key = casKey(CHK, "video/mp4");
+    await storage.putBytes(key, bytes, "video/mp4", { sha256: CHK });
+    const a = await registerKnownMedia({ checksum: CHK, mime: "video/mp4", kind: "video" }, { storage }, WS);
+    const b = await registerKnownMedia({ checksum: CHK, mime: "video/mp4", kind: "video" }, { storage }, WS);
+    expect(b.id).toBe(a.id);
+  });
+
+  it("mime omitted → key uses .bin and the row's mime is null", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    const key = casKey(CHK, undefined);
+    await storage.putBytes(key, bytes, "application/octet-stream");
+    const m = await registerKnownMedia({ checksum: CHK, kind: "video" }, { storage }, WS);
+    expect(m.storage_key).toBe(key);
+    expect(m.mime).toBeNull();
+  });
+
+  it("the SAME known object in a DIFFERENT workspace gets its own row (no cross-tenant share)", async () => {
+    if (!TEST_DB) return;
+    const storage = new InMemoryStorage("https://cdn.test");
+    const key = casKey(CHK, "video/mp4");
+    await storage.putBytes(key, bytes, "video/mp4", { sha256: CHK });
+    const WS2 = await seedWorkspace(db, schema, { slug: `mediak2-${Date.now()}` });
+    const a = await registerKnownMedia({ checksum: CHK, mime: "video/mp4", kind: "video" }, { storage }, WS);
+    const b = await registerKnownMedia({ checksum: CHK, mime: "video/mp4", kind: "video" }, { storage }, WS2);
+    expect(b.id).not.toBe(a.id);
+    expect(b.workspace_id).toBe(WS2);
+    await db.delete(schema.workspaces).where(eq(schema.workspaces.id, WS2));
   });
 });
