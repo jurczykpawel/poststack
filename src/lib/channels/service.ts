@@ -34,6 +34,7 @@ export interface PublicChannel {
   provider_account_id: string;
   display_name: string | null;
   username: string | null;
+  profile_picture: string | null;
   status: ChannelStatus;
   connection_mode: "oauth" | "manual_token" | "derived";
   brand_key: string | null;
@@ -54,6 +55,7 @@ function toPublic(r: ChannelRow): PublicChannel {
     provider_account_id: r.platform_id,
     display_name: r.display_name,
     username: r.username,
+    profile_picture: r.profile_picture,
     status: r.status as ChannelStatus,
     connection_mode: r.connection_mode,
     brand_key: r.brand_key,

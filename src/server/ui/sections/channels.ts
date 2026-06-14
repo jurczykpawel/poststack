@@ -30,6 +30,7 @@ import { statusBadge, pill, dot, type Tone } from "../components/status";
 import { platformCell, platformLabel } from "../components/platform";
 import { btn } from "../components/button";
 import { accountCell } from "../components/account";
+import { oauthStartHref } from "../components/reconnect";
 import { relTime, fmtDate } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 
@@ -61,15 +62,6 @@ function capabilityBadges(ch: PublicChannel): Html {
   const on = CAP_LABEL.filter((c) => can(ctx, c.cap));
   if (on.length === 0) return html`<small>—</small>`;
   return html`<span class="pill-row">${on.map((c) => pill(c.label, "info"))}</span>`;
-}
-
-/** A provider can be (re)connected by OAuth only when its client env is configured. */
-function oauthStartHref(platform: string): string | null {
-  // RS exposes dedicated OAuth starts for the inbound platforms.
-  if (platform === "facebook") return "/api/oauth/facebook";
-  if (platform === "instagram") return "/api/oauth/instagram";
-  if (platform === "youtube") return "/api/oauth/youtube";
-  return null;
 }
 
 /** The per-row reconnect action — only shown on a channel that actually needs it. */
@@ -175,12 +167,10 @@ function brandSelect(ch: PublicChannel, brands: BrandRow[]): Html {
 }
 
 function channelAvatar(ch: PublicChannel): string | undefined {
-  const a = ch.metadata?.avatarUrl;
-  return typeof a === "string" ? a : undefined;
+  return ch.profile_picture ?? undefined;
 }
 function channelHandle(ch: PublicChannel): string | undefined {
-  const h = ch.metadata?.handle;
-  return typeof h === "string" && h ? h : undefined;
+  return ch.username ?? undefined;
 }
 
 function channelRow(ch: PublicChannel, brands: BrandRow[]): Html {

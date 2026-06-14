@@ -75,6 +75,21 @@ describe("dashboard-data gatherAttention", () => {
     await channel(WS_A, "active");
     expect(await dd.gatherAttention(WS_A)).toHaveLength(0);
   });
+
+  it("sends a needs_reauth channel's Reconnect straight to its OAuth flow, not /channels", async () => {
+    if (!TEST_DB) return;
+    await db.insert(schema.channels).values({
+      workspace_id: WS_A, platform: "facebook", platform_id: `fb-${Math.random()}`, display_name: "FB Page",
+      token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "w", status: "needs_reauth", connection_mode: "oauth",
+    });
+    await db.insert(schema.channels).values({
+      workspace_id: WS_A, platform: "instagram", platform_id: `ig-${Math.random()}`, display_name: "IG Derived",
+      token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "w", status: "needs_reauth", connection_mode: "derived",
+    });
+    const rows = await dd.gatherAttention(WS_A);
+    expect(rows.find((r) => r.title === "FB Page")?.action.href).toBe("/api/oauth/facebook");
+    expect(rows.find((r) => r.title === "IG Derived")?.action.href).toBe("/sources");
+  });
 });
 
 describe("dashboard-data upcomingScheduled + recentEvents", () => {

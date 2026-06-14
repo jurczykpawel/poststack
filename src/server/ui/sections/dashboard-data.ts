@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle
 import { db } from "@/lib/db";
 import { channels, accountSources, deliveries, events } from "@/db/schema";
 import { platformLabel } from "../components/platform";
+import { reconnectHref } from "../components/reconnect";
 import type { Tone } from "../components/status";
 
 const WARN_DAYS = Math.max(1, Number(process.env.SOURCE_DATA_ACCESS_WARN_DAYS ?? 7) || 7);
@@ -46,7 +47,7 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
   for (const ch of chans) {
     const name = ch.display_name ?? ch.platform_id;
     if (ch.status === "needs_reauth") {
-      items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "warn", reason: ch.needs_reauth_reason ?? "Token needs reauthorization", action: { label: "Reconnect", href: "/channels" } });
+      items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "warn", reason: ch.needs_reauth_reason ?? "Token needs reauthorization", action: { label: "Reconnect", href: reconnectHref(ch) } });
     } else {
       items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "neutral", reason: "Paused — not publishing", action: { label: "Resume", href: "/channels" } });
     }

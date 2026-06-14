@@ -364,6 +364,19 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Connect a token manually");
   });
 
+  it("renders the @handle + avatar from the username/profile_picture columns (not metadata)", async () => {
+    if (!TEST_DB) return;
+    const CHH = "dddddddd-0000-0000-0000-0000000000f1";
+    await db.insert(s.channels).values({
+      id: CHH, workspace_id: WS, platform: "instagram", platform_id: "IG-HANDLE",
+      display_name: "Handle Shop", username: "shop_handle", profile_picture: "https://example.com/pic.jpg",
+      token_encrypted: "x", webhook_secret: "sh", status: "active", metadata: {},
+    });
+    const body = await (await app.request("/channels", { headers: { cookie } })).text();
+    expect(body).toContain("@shop_handle");
+    expect(body).toContain("https://example.com/pic.jpg");
+  });
+
   it("the /sources section renders the managed-connection form + System User guide on PRO", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/sources", { headers: { cookie } })).text();
