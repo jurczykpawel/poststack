@@ -412,6 +412,18 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Stored for engagement only"); // the 'recorded' legend entry
   });
 
+  it("shows PRO webhook delivery stats (outcome counts)", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.webhookEvents).values([
+      { event_key: "st-1", channel_id: CH, event_type: "post_reaction", raw: {}, handling_status: "recorded" },
+      { event_key: "st-2", channel_id: CH, event_type: "message", raw: {}, handling_status: "error", error_detail: "boom" },
+    ]);
+    const body = await (await app.request("/webhooks", { headers: { cookie } })).text();
+    expect(body).toContain("Total received");
+    expect(body).toContain("Engagement (likes/reactions)");
+    expect(body).toContain("Errors");
+  });
+
   it("webhooks detail shows the raw payload + what was triggered", async () => {
     if (!TEST_DB) return;
     const EV = "dddddddd-0000-0000-0000-0000000000e9";

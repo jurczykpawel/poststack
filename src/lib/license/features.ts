@@ -36,6 +36,7 @@ export const FEATURES = [
   // ── core (connection / access infra shared by both wings) ───────────────────────────────────
   { key: "managed_connection", area: "core", minTier: "pro", status: "live", label: "Meta managed connection (one token connects all Pages + Instagram)", description: "Connect one master FB/IG token that auto-enumerates Pages and linked Instagram accounts, mints and refreshes their tokens automatically." },
   { key: "api_access", area: "core", minTier: "pro", status: "live", label: "API access (REST API keys)", description: "Programmatic REST access via API keys (the dashboard uses session auth, unaffected)." },
+  { key: "webhook_insights", area: "core", minTier: "pro", status: "live", label: "Webhook delivery stats", description: "Aggregate counts of inbound webhook events by outcome (delivered, auto-replied, errors) on the Webhooks page." },
   // multitenancy is owner-only for now: pro (sold today) must NOT unlock it — business only.
   { key: "multi_workspace", area: "core", minTier: "business", status: "live", label: "Multiple workspaces", description: "Run more than one isolated workspace (multi-tenant / agency)." },
 

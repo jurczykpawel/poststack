@@ -466,6 +466,44 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
   </div>`;
 }
 
+interface WebhookStats { total: number; last24h: number; byStatus: Record<string, number> }
+
+/** Aggregate inbound-event counts for the workspace's channels — the PRO Webhooks-page stats. */
+async function loadWebhookStats(channelIds: string[]): Promise<WebhookStats> {
+  if (channelIds.length === 0) return { total: 0, last24h: 0, byStatus: {} };
+  const since = new Date(Date.now() - 24 * 3600_000);
+  const grouped = await db
+    .select({ status: webhookEvents.handling_status, n: count() })
+    .from(webhookEvents)
+    .where(inArray(webhookEvents.channel_id, channelIds))
+    .groupBy(webhookEvents.handling_status);
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for (const r of grouped) { byStatus[r.status] = Number(r.n); total += Number(r.n); }
+  const [recent] = await db
+    .select({ n: count() })
+    .from(webhookEvents)
+    .where(and(inArray(webhookEvents.channel_id, channelIds), gt(webhookEvents.received_at, since)));
+  return { total, last24h: Number(recent?.n ?? 0), byStatus };
+}
+
+function renderWebhookStats(s: WebhookStats): Html {
+  const tiles: Array<[string, number]> = [
+    ["Total received", s.total],
+    ["Last 24h", s.last24h],
+    ["Auto-replied", s.byStatus.fired ?? 0],
+    ["Engagement (likes/reactions)", s.byStatus.recorded ?? 0],
+    ["No rule matched", s.byStatus.no_match ?? 0],
+    ["Errors", s.byStatus.error ?? 0],
+  ];
+  return html`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin:.5rem 0 1rem">
+    ${tiles.map(([label, n]) => html`<div class="card" style="padding:.55rem .7rem">
+      <div style="font-size:1.5rem;font-weight:700;line-height:1.1${label === "Errors" && n > 0 ? ";color:var(--bad-text)" : ""}">${n}</div>
+      <div class="muted" style="font-size:.72rem">${label}</div>
+    </div>`)}
+  </div>`;
+}
+
 /**
  * The alert-webhook config form (PRO). Custom header VALUES are never echoed back — only their names
  * (so the operator knows what's set without leaking secrets). Headers are entered as `Key: Value`
@@ -1334,6 +1372,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       getAlertWebhook(a.workspaceId),
     ]);
     const canAlerts = features.has("managed_connection");
+    const canInsights = features.has("webhook_insights");
+    const stats = canInsights ? await loadWebhookStats(channelIds) : null;
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Webhooks" }),
@@ -1344,6 +1384,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
           <h2 style="margin-top:1rem">⬇ Incoming — from Meta / Telegram</h2>
           <p class="muted" style="font-size:.85rem">The platforms POST here whenever someone messages, comments, or reacts. This is the log of what arrived and what the bot did with it.</p>
+          ${stats
+            ? renderWebhookStats(stats)
+            : html`<p class="muted" style="font-size:.82rem">📊 Webhook delivery stats (totals by outcome) are a ${proLink(upgradeUrl, "PRO")} feature.</p>`}
           <div class="card" style="margin:.75rem 0">
             <div class="muted" style="font-size:.8rem;margin-bottom:.2rem">Your inbound webhook URL (paste into your Meta app)</div>
             <code class="mono">${env.APP_URL}/api/webhooks/meta</code>
