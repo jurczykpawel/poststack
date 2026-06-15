@@ -55,5 +55,7 @@ export async function processIncomingPostReaction(
       });
   }
 
-  if (payload.eventKey) await markEventStatus(payload.eventKey, "fired");
+  // Pure engagement signal — nothing was triggered (no rule, no reply). Mark it 'recorded', not
+  // 'fired', so the webhooks log doesn't claim an auto-reply happened for every like/reaction.
+  if (payload.eventKey) await markEventStatus(payload.eventKey, "recorded");
 }

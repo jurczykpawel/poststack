@@ -385,15 +385,64 @@ const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagra
 
 // Plain-language meaning of each inbound webhook handling status, for the /webhooks legend.
 const WEBHOOK_STATUS_LEGEND: ReadonlyArray<readonly [string, Tone, string]> = [
-  ["received", "neutral", "Arrived and logged — no rule acted on it (informational)."],
   ["fired", "ok", "Matched an active rule — an auto-reply was sent or queued."],
+  ["recorded", "info", "Stored for engagement only (a like/reaction on your post) — no rule runs on these."],
+  ["received", "neutral", "Arrived and logged, still being processed (transient)."],
   ["no_match", "neutral", "Valid event, but no rule's keywords/trigger matched."],
   ["paused", "warn", "A rule would match, but it's currently paused."],
   ["ignored", "neutral", "Intentionally skipped — e.g. your own echo or a duplicate."],
   ["unhandled", "neutral", "An event type the app doesn't act on."],
-  ["error", "bad", "Processing failed — see the Detail column."],
+  ["error", "bad", "Processing failed — open the event for details."],
 ];
 const WEBHOOK_STATUS_TONE: Record<string, Tone> = Object.fromEntries(WEBHOOK_STATUS_LEGEND.map(([s, tone]) => [s, tone]));
+
+type WebhookEventDetail = typeof import("@/db/schema").webhookEvents.$inferSelect;
+
+function metaRow(label: string, value: unknown): Html {
+  if (value === null || value === undefined || value === "") return html``;
+  return html`<div class="meta-row"><dt>${label}</dt><dd>${typeof value === "boolean" ? (value ? "yes" : "no") : String(value)}</dd></div>`;
+}
+
+/** Expanded view of one inbound webhook event: what arrived + what (if anything) it triggered + the
+ *  full raw payload. Lazy-loaded into #wh-detail so the list stays light. */
+function renderWebhookDetail(e: WebhookEventDetail): Html {
+  const triggered: Array<[string, string]> = [];
+  if (e.conversation_id) triggered.push(["Conversation", e.conversation_id]);
+  if (e.message_id) triggered.push(["Message", e.message_id]);
+  if (e.comment_log_id) triggered.push(["Comment action", e.comment_log_id]);
+  if (e.outbound_delivery_id) triggered.push(["Outbound reply", e.outbound_delivery_id]);
+  if (e.contact_id) triggered.push(["Contact", e.contact_id]);
+  const rawJson = JSON.stringify(e.raw, null, 2);
+  return html`<div class="card" id="wh-detail-card" style="margin:.5rem 0 1rem">
+    <div class="row" style="align-items:center;gap:.5rem">
+      <strong>${PLATFORM_LABELS[e.object ?? ""] ?? e.object ?? "—"} · ${e.event_type}${e.field ? ` · ${e.field}` : ""}</strong>
+      <span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span>
+      <span class="grow"></span>
+      <button class="btn btn-sm" hx-get="/webhooks/clear" hx-target="#wh-detail" hx-swap="innerHTML">Close ✕</button>
+    </div>
+    <h4 style="margin:.75rem 0 .25rem">What came in</h4>
+    <dl class="meta-list">
+      ${metaRow("Received", e.received_at.toISOString().replace("T", " ").slice(0, 19))}
+      ${metaRow("Handled", e.handled_at ? e.handled_at.toISOString().replace("T", " ").slice(0, 19) : null)}
+      ${metaRow("From (sender id)", e.sender_id)}
+      ${metaRow("To (recipient id)", e.recipient_id)}
+      ${metaRow("Platform message id", e.platform_message_id)}
+      ${metaRow("Echo (our own message)", e.is_echo)}
+      ${metaRow("Event key", e.event_key)}
+    </dl>
+    <h4 style="margin:.75rem 0 .25rem">What was triggered</h4>
+    ${triggered.length === 0
+      ? html`<p class="muted" style="font-size:.85rem">${e.handling_status === "recorded" ? "Nothing — stored for engagement only (no rule runs on post likes/reactions)." : e.handling_status === "fired" ? "A reply was sent/queued (no linked record captured)." : "Nothing was triggered for this event."}</p>`
+      : html`<dl class="meta-list">${triggered.map(([k, v]) =>
+          k === "Conversation"
+            ? html`<div class="meta-row"><dt>${k}</dt><dd><a href="/inbox/${v}">${v} →</a></dd></div>`
+            : html`<div class="meta-row"><dt>${k}</dt><dd><code class="mono">${v}</code></dd></div>`,
+        )}</dl>`}
+    ${e.error_detail ? html`<div class="notice notice-err" style="margin-top:.5rem">${e.error_detail}</div>` : html``}
+    <h4 style="margin:.75rem 0 .25rem">Raw payload</h4>
+    <pre class="mono" style="max-height:340px;overflow:auto;background:var(--bg);padding:.6rem;border-radius:var(--radius-control);font-size:.72rem;white-space:pre-wrap;word-break:break-word">${rawJson}</pre>
+  </div>`;
+}
 
 /**
  * The alert-webhook config form (PRO). Custom header VALUES are never echoed back — only their names
@@ -1283,9 +1332,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               ${WEBHOOK_STATUS_LEGEND.map(([status, tone, desc]) => html`<dt><span class="badge tone-${tone}">${status}</span></dt><dd class="muted">${desc}</dd>`)}
             </dl>
           </details>
+          <div id="wh-detail"></div>
           ${rows.length === 0
             ? html`<p class="muted">No webhook events received yet. They appear here once your connected pages send activity.</p>`
-            : html`<table><thead><tr><th>Platform</th><th>Event</th><th>Status</th><th>Detail</th><th>When</th></tr></thead>
+            : html`<table><thead><tr><th>Platform</th><th>Event</th><th>Status</th><th>Detail</th><th>When</th><th></th></tr></thead>
                 <tbody>${rows.map(
                   (e) => html`<tr>
                     <td>${PLATFORM_LABELS[e.platform ?? ""] ?? e.platform ?? "—"}</td>
@@ -1293,6 +1343,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     <td><span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span></td>
                     <td class="muted" style="font-size:.78rem">${e.handling_status === "error" && e.error_detail ? html`<span style="color:var(--bad-text)">${e.error_detail}</span>` : e.field ? e.field : "—"}</td>
                     <td class="muted">${timeAgo(e.received_at)}</td>
+                    <td><button class="btn btn-sm" hx-get="/webhooks/${e.id}" hx-target="#wh-detail" hx-swap="innerHTML" title="Full payload + what it triggered">View</button></td>
                   </tr>`,
                 )}</tbody></table>`}
 
@@ -1316,6 +1367,24 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         products,
       ),
     );
+  });
+
+  // Clear the inbound-event detail panel (Close button).
+  app.get("/webhooks/clear", guard, (c) => c.html(html``));
+
+  // Full detail for one inbound webhook event — raw payload + what it triggered. Tenant-scoped: the
+  // event must belong to one of this workspace's channels (webhook_events has no workspace_id).
+  app.get("/webhooks/:id", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const ev = await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.id, c.req.param("id")) });
+    if (!ev || !ev.channel_id) return c.html(html`<div class="notice notice-err">Event not found.</div>`);
+    const owns = await db.query.channels.findFirst({
+      where: and(eq(channels.id, ev.channel_id), eq(channels.workspace_id, a.workspaceId)),
+      columns: { id: true },
+    });
+    if (!owns) return c.html(html`<div class="notice notice-err">Event not found.</div>`);
+    return c.html(renderWebhookDetail(ev));
   });
 
   // API keys — its own top-level page (create + revoke + scopes). Settings links here.

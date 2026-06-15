@@ -75,4 +75,14 @@ describe("processIncomingPostReaction", () => {
     await processIncomingPostReaction(job({ pageId: "NOPE" }), helpers);
     expect((await rows()).length).toBe(0);
   });
+
+  it("marks the webhook event 'recorded' (engagement only) — never 'fired'", async () => {
+    if (!TEST_DB) return;
+    const key = `evt-pr-${WS}`;
+    await db.delete(s.webhookEvents).where(eq(s.webhookEvents.event_key, key));
+    await db.insert(s.webhookEvents).values({ event_key: key, channel_id: CH, event_type: "post_reaction", field: "feed", raw: {}, handling_status: "received" });
+    await processIncomingPostReaction(job({ eventKey: key }), helpers);
+    const ev = await db.query.webhookEvents.findFirst({ where: eq(s.webhookEvents.event_key, key) });
+    expect(ev?.handling_status).toBe("recorded");
+  });
 });

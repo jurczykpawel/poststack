@@ -20,7 +20,7 @@ CREATE TYPE "public"."response_type" AS ENUM('text', 'random_text', 'sequence', 
 CREATE TYPE "public"."sequence_enrollment_status" AS ENUM('active', 'paused', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."sequence_status" AS ENUM('draft', 'active', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."trigger_type" AS ENUM('keyword', 'comment_keyword', 'postback', 'welcome', 'default', 'story_reply', 'story_mention', 'reaction');--> statement-breakpoint
-CREATE TYPE "public"."webhook_event_handling_status" AS ENUM('received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error');--> statement-breakpoint
+CREATE TYPE "public"."webhook_event_handling_status" AS ENUM('received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error', 'recorded');--> statement-breakpoint
 CREATE TYPE "public"."workspace_member_role" AS ENUM('owner');--> statement-breakpoint
 CREATE TABLE "account_sources" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

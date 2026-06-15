@@ -409,6 +409,33 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Outgoing");
     expect(body).toContain("What do the statuses mean?");
     expect(body).toContain("Matched an active rule"); // a legend entry
+    expect(body).toContain("Stored for engagement only"); // the 'recorded' legend entry
+  });
+
+  it("webhooks detail shows the raw payload + what was triggered", async () => {
+    if (!TEST_DB) return;
+    const EV = "dddddddd-0000-0000-0000-0000000000e9";
+    await db.insert(s.webhookEvents).values({
+      id: EV, event_key: "k-detail-1", channel_id: CH, object: "page", event_type: "post_reaction", field: "feed",
+      raw: { entry: [{ id: "PAGE-RAW-1", reaction: "like" }] }, handling_status: "recorded",
+    });
+    const body = await (await app.request(`/webhooks/${EV}`, { headers: { cookie } })).text();
+    expect(body).toContain("Raw payload");
+    expect(body).toContain("PAGE-RAW-1"); // pretty-printed raw JSON
+    expect(body).toContain("engagement only"); // recorded → nothing triggered
+  });
+
+  it("webhooks detail is tenant-scoped — another workspace's event is not found", async () => {
+    if (!TEST_DB) return;
+    const WSX = "dddddddd-0000-0000-0000-0000000000f7";
+    const CHX = "dddddddd-0000-0000-0000-0000000000f8";
+    const EVX = "dddddddd-0000-0000-0000-0000000000f9";
+    await db.insert(s.workspaces).values({ id: WSX, name: "X", slug: `x-${WSX}` });
+    await db.insert(s.channels).values({ id: CHX, workspace_id: WSX, platform: "facebook", platform_id: "FB-X", token_encrypted: "x", webhook_secret: "wx", status: "active" });
+    await db.insert(s.webhookEvents).values({ id: EVX, event_key: "k-x", channel_id: CHX, event_type: "message", raw: {}, handling_status: "fired" });
+    const res = await app.request(`/webhooks/${EVX}`, { headers: { cookie } });
+    expect((await res.text())).toContain("not found");
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WSX));
   });
 
   it("filters contacts by brand", async () => {

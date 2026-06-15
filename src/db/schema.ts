@@ -42,7 +42,7 @@ export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword'
 // (logged for inspection, no job); `ignored` = recognized but intentionally not acted on (self-loop
 // guard, echo with no matching delivery, non-private TG chat); `fired`/`no_match`/`paused` mirror the
 // rule outcomes; `error` = the handler threw after exhausting retries.
-export const webhookEventHandlingStatus = pgEnum("webhook_event_handling_status", ['received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error'])
+export const webhookEventHandlingStatus = pgEnum("webhook_event_handling_status", ['received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error', 'recorded'])
 // Only `owner` for now: role-based authorization isn't enforced yet, and `admin`/`agent`
 // would be misleading dead values. Re-add richer roles together with member invitations +
 // `requireRole()` enforcement.

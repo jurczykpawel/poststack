@@ -7,7 +7,7 @@ type Executor = Pick<typeof db, "insert" | "update" | "query">;
 
 /** Terminal handling outcomes a worker can claim an event with. `received` is the only
  *  non-terminal state, so it is intentionally excluded here. */
-export type TerminalHandlingStatus = "fired" | "no_match" | "paused" | "ignored" | "unhandled" | "error";
+export type TerminalHandlingStatus = "fired" | "no_match" | "paused" | "ignored" | "unhandled" | "error" | "recorded";
 
 /** Outcome links recorded on the webhook_events row when a worker claims the fire. All optional —
  *  a public comment reply has no contact/conversation, a no-match has no message, etc. */
