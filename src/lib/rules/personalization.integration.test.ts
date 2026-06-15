@@ -20,6 +20,7 @@ const CONV = "ee500000-0000-0000-0000-0000000000d4";
 const baseInput = {
   workspaceId: WS,
   channelId: CH,
+  platform: "facebook",
   conversationId: CONV,
   contactId: CONTACT,
   recipientPlatformId: "PSID-PERS",

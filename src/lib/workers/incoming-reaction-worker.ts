@@ -115,6 +115,7 @@ export async function processIncomingReaction(
     ({ ruleId } = await evaluateRules({
       workspaceId: channel.workspace_id,
       channelId: channel.id,
+      platform: channel.platform,
       conversationId,
       contactId,
       recipientPlatformId: senderId,

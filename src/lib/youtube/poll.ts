@@ -104,6 +104,7 @@ async function ingestComment(channel: YtChannel, c: YtComment): Promise<boolean>
     const { outcome } = await evaluateRules({
       workspaceId: channel.workspace_id,
       channelId: channel.id,
+      platform: "youtube",
       conversationId,
       contactId,
       recipientPlatformId: c.authorChannelId,

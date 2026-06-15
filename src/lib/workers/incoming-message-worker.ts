@@ -145,6 +145,7 @@ export async function processIncomingMessage(
     const { outcome, ruleId } = await evaluateRules({
       workspaceId: channel.workspace_id,
       channelId: channel.id,
+      platform: channel.platform,
       conversationId: conversation.id,
       contactId,
       recipientPlatformId: senderId,

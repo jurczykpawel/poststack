@@ -15,6 +15,7 @@ const CONV = "eeeeeeee-0000-0000-0000-0000000000d4";
 const baseInput = {
   workspaceId: WS,
   channelId: CH,
+  platform: "facebook",
   conversationId: CONV,
   contactId: CONTACT,
   recipientPlatformId: "PSID-EXEC",
@@ -171,6 +172,23 @@ describe("evaluateRules (real Postgres)", () => {
     expect(fired.ruleId).not.toBeNull();
     const job = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'outgoing-comment'`);
     expect(pool).toContain((job.rows[0] as { payload: { text: string } }).payload.text);
+  });
+
+  it("on a no-DM platform (YouTube) a comment rule replies as a public comment, never a DM", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "YtBoth", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "Check the pinned comment 📌", reply_mode: "both" },
+    });
+    // reply_mode "both" would normally enqueue a comment AND a DM — on YouTube the DM is impossible.
+    const fired = await evaluateRules({ ...baseInput, platform: "youtube", text: "info here", eventType: "comment", commentId: "CMT-YT" });
+    expect(fired.ruleId).not.toBeNull();
+    const count = async (task: string) =>
+      Number((await db.execute(sql`select count(*)::int n from graphile_worker.jobs where task_identifier = ${task}`)).rows[0]!.n);
+    expect(await count("outgoing-comment")).toBe(1);
+    expect(await count("outgoing-private-reply")).toBe(0);
+    expect(await count("outgoing-message")).toBe(0);
   });
 
   it("respects the cooldown: a second identical event does not re-fire", async () => {

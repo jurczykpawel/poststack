@@ -13,6 +13,17 @@ import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent, pickText } from "./response";
 import type { MessageContent } from "@/lib/platforms/base";
+import { getProvider } from "@/lib/platforms/registry";
+
+/** Whether a platform can receive a DM reply (FB/IG yes; YouTube polls comments, has no DM). Drives
+ *  the no-DM fallback: a rule fired on such a platform replies as a public comment, never a DM. */
+function platformSupportsDM(platform: string): boolean {
+  try {
+    return getProvider(platform as Parameters<typeof getProvider>[0]).inboundCapabilities().includes("dm");
+  } catch {
+    return true; // unknown platform — don't suppress the DM
+  }
+}
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { hasFeature } from "@/lib/license/gate";
 import { applyPersonalization, type PersonalizeContext } from "./personalization";
@@ -103,6 +114,8 @@ export async function resolveReplyContent(
 interface EvaluateRulesInput {
   workspaceId: string;
   channelId: string;
+  /** The channel's platform — gates DM-only replies on platforms without DMs (e.g. YouTube). */
+  platform: string;
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
@@ -135,7 +148,7 @@ interface EvaluateRulesInput {
 export async function evaluateRules(
   input: EvaluateRulesInput
 ): Promise<EvaluateOutcome> {
-  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
+  const { workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
 
   const rules = await db.query.autoReplyRules.findMany({
     where: and(
@@ -240,7 +253,7 @@ export async function evaluateRules(
     const keyBase = eventKey ? `${eventKey}:${rule.id}` : null;
     const commit: CommitFn = rule.requires_approval
       ? await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize })
-      : await planResponse({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
+      : await planResponse({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
 
     // Commit the rule's side effects as one unit: the event claim, the cooldown and
     // send-count mutations, and the outbound enqueue (or the parked approval) all
@@ -335,6 +348,7 @@ interface PlanResponseInput {
   };
   workspaceId: string;
   channelId: string;
+  platform: string;
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
@@ -359,7 +373,7 @@ function gatedContent(branch: unknown, personalize: PersonalizeContext) {
  * a redelivery cannot send a duplicate even if it is re-evaluated.
  */
 async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
-  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize } = input;
+  const { rule, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize } = input;
   // Deterministic per-job key when we have an event identity; a fresh uuid otherwise.
   const idemKey = (discriminator: string) => (keyBase ? `${keyBase}:${discriminator}` : randomUUID());
   // Dedup the queued job too when the key is deterministic (extra guard on top of the
@@ -399,15 +413,19 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
   );
   const commentReplyText =
     (pickedComment != null ? applyPersonalization(pickedComment, personalize) : undefined) ?? dmText;
-  const sendComment = (replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
+  // On a platform without DMs (e.g. YouTube), every reply becomes a public comment — there is no DM
+  // to send, and reply_mode=dm/both would otherwise enqueue a DM job that can only fail.
+  const canDM = platformSupportsDM(platform);
+  const sendComment = (!canDM || replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
 
   // Interactive add-ons (quick replies / buttons) attach to the DM body.
   const interactive = buildInteractiveContent(rule.response_config);
   const hasInteractive = interactive.quick_replies !== undefined || interactive.buttons !== undefined;
 
-  // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment couldn't go out.
+  // DM: send when reply_mode=dm, reply_mode=both, or fallback when comment couldn't go out — but
+  // never on a no-DM platform (there the comment above is the whole reply).
   const shouldDM =
-    (replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !sendComment)) && !!dmText;
+    canDM && (replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !sendComment)) && !!dmText;
 
   return async (tx) => {
     if (sendComment) {

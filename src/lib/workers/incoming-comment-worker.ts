@@ -13,15 +13,6 @@ import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
- * Process an incoming comment on a Facebook post or Instagram media.
- *
- * 1. Resolve Channel from pageId
- * 2. Log the comment (dedup by unique constraint on channel_id + platform_comment_id)
- * 3. Upsert a contact + conversation for the commenter, then evaluate rules.
- *    Works first-touch: a commenter who never DM'd still gets a public reply
- *    and/or a private reply (addressed by comment_id).
- */
-/**
  * Best-effort public permalink of the post a comment is on, so the inbox can link to it.
  * Facebook builds its URL from post_id at render time (no provider method), so this only does work
  * for platforms whose ids don't map to a URL by construction (Instagram). Reuses a permalink already
@@ -52,6 +43,15 @@ async function resolvePostUrl(
   }
 }
 
+/**
+ * Process an incoming comment on a Facebook post or Instagram media.
+ *
+ * 1. Resolve Channel from pageId
+ * 2. Log the comment (dedup by unique constraint on channel_id + platform_comment_id)
+ * 3. Upsert a contact + conversation for the commenter, then evaluate rules.
+ *    Works first-touch: a commenter who never DM'd still gets a public reply
+ *    and/or a private reply (addressed by comment_id).
+ */
 export async function processIncomingComment(
   payload: IncomingCommentJob,
   helpers: JobHelpers,
@@ -184,6 +184,7 @@ export async function processIncomingComment(
     ({ outcome, ruleId } = await evaluateRules({
       workspaceId: channel.workspace_id,
       channelId: channel.id,
+      platform: channel.platform,
       conversationId,
       contactId,
       recipientPlatformId: senderId,
