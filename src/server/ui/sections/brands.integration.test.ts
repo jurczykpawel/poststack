@@ -52,6 +52,7 @@ beforeAll(async () => {
   for (const m of prior?.workspaceMembers ?? []) await db.delete(workspaces).where(eq(workspaces.id, m.workspace_id));
   await db.delete(users).where(eq(users.email, EMAIL));
   await db.delete(rateLimitCounters); // the register rate-limit is DB-backed + shared across files
+  await db.delete(workspaces); // single-tenant test — clear leftover workspaces so register isn't multitenant-locked (pro lacks multi_workspace)
   const res = await app.request("/register", {
     method: "POST",
     headers: { "content-type": "application/json" },

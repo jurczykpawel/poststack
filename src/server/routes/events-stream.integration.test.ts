@@ -65,6 +65,7 @@ beforeAll(async () => {
   // Clear the shared rate-limit table so registration isn't blocked by counters from earlier suites.
   const { sql } = await import("drizzle-orm");
   await db.execute(sql.raw("DELETE FROM rate_limit_counters"));
+  await db.delete(workspaces); // single-tenant test — clear leftover workspaces so register isn't multitenant-locked (pro lacks multi_workspace)
   const res = await app.request("/register", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
