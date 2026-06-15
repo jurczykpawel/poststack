@@ -135,6 +135,42 @@ describe("dashboard rule builder", () => {
     expect(rule).toBeTruthy();
     expect((rule!.trigger_config as Record<string, unknown>).payload).toBeUndefined();
   });
+
+  it("edit form shows and lets you change a rule's action buttons (link in DM)", async () => {
+    if (!TEST_DB) return;
+    const [seeded] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "LM rule", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text",
+      response_config: {
+        text: "Here you go!", reply_mode: "both",
+        buttons: [{ title: "Get the kit", url: "https://sellf.example/p/kit" }],
+        quick_replies: [{ content_type: "user_email" }],
+      },
+    }).returning({ id: s.autoReplyRules.id });
+
+    // The edit form pre-fills the existing button (not an opaque "kept as-is" note).
+    const editForm = await (await app.request(`/rules/${seeded!.id}/edit`, { headers: { cookie } })).text();
+    expect(editForm).toContain("https://sellf.example/p/kit");
+    expect(editForm).toContain("user_email");
+    expect(editForm).not.toContain("kept as-is");
+
+    // Saving a changed button replaces it in the stored config.
+    const res = await app.request(`/rules/${seeded!.id}`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "LM rule", keywords: "info", text: "Here you go!", reply_mode: "both",
+        buttons_json: JSON.stringify([{ title: "Pobierz", url: "https://sellf.example/p/v2" }]),
+        quick_replies_json: JSON.stringify([{ content_type: "user_phone_number" }]),
+      }),
+    });
+    expect(res.status).toBe(200);
+    const after = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, seeded!.id) });
+    const rc = after!.response_config as Record<string, unknown>;
+    expect(rc.buttons).toEqual([{ title: "Pobierz", url: "https://sellf.example/p/v2" }]);
+    expect(rc.quick_replies).toEqual([{ content_type: "user_phone_number" }]);
+  });
 });
 
 describe("dashboard inbox conversation controls", () => {

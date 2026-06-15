@@ -1016,18 +1016,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 requiresApproval: false,
                 triggerType: 'keyword',
                 responseMode: 'text',
-                qrJson() {
-                  return JSON.stringify(this.quickReplies
-                    .filter(q => q.content_type !== 'text' || (q.title && q.title.trim()))
-                    .map(q => q.content_type === 'text'
-                      ? { content_type: 'text', title: q.title.trim(), payload: (q.payload && q.payload.trim()) ? q.payload.trim() : q.title.trim() }
-                      : { content_type: q.content_type }));
-                },
-                btnJson() {
-                  return JSON.stringify(this.buttons
-                    .filter(b => b.title && b.title.trim() && b.value && b.value.trim())
-                    .map(b => b.kind === 'url' ? { title: b.title.trim(), url: b.value.trim() } : { title: b.title.trim(), payload: b.value.trim() }));
-                }
+                ${raw(RULE_EDITOR_METHODS)}
               }">
               <div><label class="label">Name</label><input class="input" name="name" required /></div>
               <div><label class="label">Trigger</label>
@@ -1076,41 +1065,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               </div>
               <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
-              ${canInteractive
-                ? html`<div x-show="responseMode === 'text'">
-                <label class="label">Quick replies (tappable chips above the text box · max 13)</label>
-                <template x-for="(q, i) in quickReplies" :key="i">
-                  <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
-                    <select class="input" x-model="q.content_type" style="max-width:150px">
-                      <option value="text">Text</option>
-                      <option value="user_email">Ask email</option>
-                      <option value="user_phone_number">Ask phone</option>
-                    </select>
-                    <input class="input" placeholder="Label (≤20)" maxlength="20" x-model="q.title" x-show="q.content_type === 'text'" />
-                    <input class="input" placeholder="Payload (tap value)" x-model="q.payload" x-show="q.content_type === 'text'" />
-                    <button class="btn btn-sm btn-danger" type="button" @click="quickReplies.splice(i, 1)">×</button>
-                  </div>
-                </template>
-                <button class="btn btn-sm" type="button" @click="quickReplies.push({ content_type: 'text', title: '', payload: '' })" x-show="quickReplies.length < 13">+ quick reply</button>
-              </div>
-
-              <div x-show="responseMode === 'text'">
-                <label class="label">Buttons (shown inside the message · max 3)</label>
-                <template x-for="(b, i) in buttons" :key="i">
-                  <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
-                    <input class="input" placeholder="Label (≤20)" maxlength="20" x-model="b.title" />
-                    <select class="input" x-model="b.kind" style="max-width:170px">
-                      <option value="postback">Reply (postback)</option>
-                      <option value="url">Open link</option>
-                    </select>
-                    <input class="input" :placeholder="b.kind === 'url' ? 'https://…' : 'PAYLOAD'" x-model="b.value" />
-                    <button class="btn btn-sm btn-danger" type="button" @click="buttons.splice(i, 1)">×</button>
-                  </div>
-                </template>
-                <button class="btn btn-sm" type="button" @click="buttons.push({ title: '', kind: 'postback', value: '' })" x-show="buttons.length < 3">+ button</button>
-                <p class="muted" style="font-size:.7rem;margin-top:.25rem">Instagram supports postback + link buttons; quick-reply icons and extra button types are Messenger-only.</p>
-              </div>`
-                : html`<div x-show="responseMode === 'text'" class="card" style="font-size:.78rem"><span class="muted">Buttons &amp; quick replies are a PRO feature.</span> ${proLink(upgradeUrl, "Upgrade")}</div>`}
+              ${interactiveRuleFields(canInteractive, upgradeUrl)}
 
               <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
                 <input type="checkbox" x-model="requiresApproval" />
@@ -1228,7 +1183,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
     if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
-    return c.html(renderRuleEditForm(r));
+    const { features, upgradeUrl } = await getInstanceLicense();
+    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl));
   });
 
   app.post("/rules/:id", guard, async (c) => {
@@ -1259,6 +1215,19 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         const cr = (form.comment_reply_text ?? "").trim();
         if (cr) responseConfig.comment_reply_text = cr;
         else delete responseConfig.comment_reply_text;
+      }
+      // Action buttons / quick replies. Only touch them when the editor was present (the json field
+      // is sent) — a free instance renders no editor, so it sends nothing and its config is preserved.
+      // Parsing is ungated here (matching the create handler); the UI gates the editor by license.
+      if (form.quick_replies_json !== undefined) {
+        const qr = parseJsonArray(form.quick_replies_json);
+        if (qr.length) responseConfig.quick_replies = qr;
+        else delete responseConfig.quick_replies;
+      }
+      if (form.buttons_json !== undefined) {
+        const btns = parseJsonArray(form.buttons_json);
+        if (btns.length) responseConfig.buttons = btns;
+        else delete responseConfig.buttons;
       }
     }
     const payload = {
@@ -2058,6 +2027,77 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: s
   )}</div>`;
 }
 
+/** The x-data methods that serialize the quick-reply / button editor rows into the hidden JSON inputs
+ *  the rule POST handlers read. Shared verbatim by the create and edit rule forms (DRY). */
+const RULE_EDITOR_METHODS = `qrJson() {
+  return JSON.stringify(this.quickReplies
+    .filter(q => q.content_type !== 'text' || (q.title && q.title.trim()))
+    .map(q => q.content_type === 'text'
+      ? { content_type: 'text', title: q.title.trim(), payload: (q.payload && q.payload.trim()) ? q.payload.trim() : q.title.trim() }
+      : { content_type: q.content_type }));
+},
+btnJson() {
+  return JSON.stringify(this.buttons
+    .filter(b => b.title && b.title.trim() && b.value && b.value.trim())
+    .map(b => b.kind === 'url' ? { title: b.title.trim(), url: b.value.trim() } : { title: b.title.trim(), payload: b.value.trim() }));
+}`;
+
+/** The action-button + quick-reply editor (link buttons, ask-email/phone) sent inside DMs. Shared by
+ *  the create and edit rule forms; requires the form's x-data to expose quickReplies[]/buttons[]. */
+function interactiveRuleFields(canInteractive: boolean, upgradeUrl: string): Html {
+  if (!canInteractive) {
+    return html`<div x-show="responseMode === 'text'" class="card" style="font-size:.78rem"><span class="muted">Buttons &amp; quick replies are a PRO feature.</span> ${proLink(upgradeUrl, "Upgrade")}</div>`;
+  }
+  return html`<div x-show="responseMode === 'text'">
+      <label class="label">Quick replies (tappable chips above the text box · max 13)</label>
+      <template x-for="(q, i) in quickReplies" :key="i">
+        <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
+          <select class="input" x-model="q.content_type" style="max-width:150px">
+            <option value="text">Text</option>
+            <option value="user_email">Ask email</option>
+            <option value="user_phone_number">Ask phone</option>
+          </select>
+          <input class="input" placeholder="Label (≤20)" maxlength="20" x-model="q.title" x-show="q.content_type === 'text'" />
+          <input class="input" placeholder="Payload (tap value)" x-model="q.payload" x-show="q.content_type === 'text'" />
+          <button class="btn btn-sm btn-danger" type="button" @click="quickReplies.splice(i, 1)">×</button>
+        </div>
+      </template>
+      <button class="btn btn-sm" type="button" @click="quickReplies.push({ content_type: 'text', title: '', payload: '' })" x-show="quickReplies.length < 13">+ quick reply</button>
+    </div>
+
+    <div x-show="responseMode === 'text'">
+      <label class="label">Buttons (shown inside the message · max 3)</label>
+      <template x-for="(b, i) in buttons" :key="i">
+        <div style="display:flex;gap:.4rem;margin-bottom:.4rem">
+          <input class="input" placeholder="Label (≤20)" maxlength="20" x-model="b.title" />
+          <select class="input" x-model="b.kind" style="max-width:170px">
+            <option value="postback">Reply (postback)</option>
+            <option value="url">Open link</option>
+          </select>
+          <input class="input" :placeholder="b.kind === 'url' ? 'https://…' : 'PAYLOAD'" x-model="b.value" />
+          <button class="btn btn-sm btn-danger" type="button" @click="buttons.splice(i, 1)">×</button>
+        </div>
+      </template>
+      <button class="btn btn-sm" type="button" @click="buttons.push({ title: '', kind: 'postback', value: '' })" x-show="buttons.length < 3">+ button</button>
+      <p class="muted" style="font-size:.7rem;margin-top:.25rem">Instagram supports postback + link buttons; quick-reply icons and extra button types are Messenger-only.</p>
+    </div>`;
+}
+
+/** Map a stored response_config to the editor's row shapes for x-data pre-fill. */
+function buttonsToEditor(rc: Record<string, unknown>): { quickReplies: unknown[]; buttons: unknown[] } {
+  const quickReplies = (Array.isArray(rc.quick_replies) ? rc.quick_replies : []).map((q) => {
+    const o = (q ?? {}) as { content_type?: string; title?: string; payload?: string };
+    return { content_type: o.content_type ?? "text", title: o.title ?? "", payload: o.payload ?? "" };
+  });
+  const buttons = (Array.isArray(rc.buttons) ? rc.buttons : []).map((b) => {
+    const o = (b ?? {}) as { title?: string; url?: string; payload?: string };
+    return o.url !== undefined
+      ? { title: o.title ?? "", kind: "url", value: o.url ?? "" }
+      : { title: o.title ?? "", kind: "postback", value: o.payload ?? "" };
+  });
+  return { quickReplies, buttons };
+}
+
 function loadRuleForEdit(workspaceId: string, id: string) {
   return db.query.autoReplyRules.findFirst({
     where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, workspaceId)),
@@ -2065,9 +2105,14 @@ function loadRuleForEdit(workspaceId: string, id: string) {
   });
 }
 
-/** Inline edit form for a rule. Exposes the common fields; advanced response config (buttons,
- *  quick replies, follow-gate) is preserved untouched by the update route, not edited here. */
-function renderRuleEditForm(r: NonNullable<Awaited<ReturnType<typeof loadRuleForEdit>>>): Html {
+/** Inline edit form for a rule. Edits the common fields AND the DM action buttons / quick replies
+ *  (link buttons, ask-email/phone), pre-filled from the stored config — the same editor as the
+ *  create form, so an imported rule's buttons are visible and changeable, not opaque. */
+function renderRuleEditForm(
+  r: NonNullable<Awaited<ReturnType<typeof loadRuleForEdit>>>,
+  canInteractive: boolean,
+  upgradeUrl: string,
+): Html {
   const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
   const rc = (r.response_config ?? {}) as Record<string, unknown>;
   const keywords = Array.isArray(tc.keywords)
@@ -2080,11 +2125,17 @@ function renderRuleEditForm(r: NonNullable<Awaited<ReturnType<typeof loadRuleFor
   const isText = r.response_type === "text";
   const isKeyword = r.trigger_type === "keyword" || r.trigger_type === "comment_keyword";
   const isComment = r.trigger_type === "comment_keyword";
-  const hasAdvanced = (Array.isArray(rc.buttons) && rc.buttons.length > 0) || (Array.isArray(rc.quick_replies) && rc.quick_replies.length > 0);
   const sel = (v: string) => (v === replyMode ? raw(" selected") : raw(""));
+  const { quickReplies, buttons } = buttonsToEditor(rc);
+  // Pre-fill the Alpine editor: the init arrays are interpolated as normal values so the html`` tag
+  // HTML-escapes them (safe in the attribute, the browser un-escapes for Alpine); the methods are raw
+  // code (their `=>` / `{}` must not be escaped).
+  const xData = isText
+    ? html` x-data="{ responseMode: 'text', quickReplies: ${JSON.stringify(quickReplies)}, buttons: ${JSON.stringify(buttons)}, ${raw(RULE_EDITOR_METHODS)} }"`
+    : html``;
   return html`<div class="card" style="margin-bottom:1rem">
     <h3 style="margin-top:0">Edit rule <span class="muted" style="font-weight:400;font-size:.8rem">${r.trigger_type} → ${r.response_type}</span></h3>
-    <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack">
+    <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack"${xData}>
       <div><label class="label">Name</label><input class="input" name="name" value="${r.name}" required /></div>
       ${isKeyword ? html`<div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" value="${keywords}" placeholder="hello, hi, info" /></div>` : ""}
       ${isComment ? html`<div><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" value="${postId}" placeholder="leave blank for any post" /></div>` : ""}
@@ -2093,12 +2144,14 @@ function renderRuleEditForm(r: NonNullable<Awaited<ReturnType<typeof loadRuleFor
           <option value="dm"${sel("dm")}>DM only</option>
           <option value="comment"${sel("comment")}>Public comment only</option>
           <option value="both"${sel("both")}>Both</option>
-        </select></div>` : ""}
+        </select>
+        <p class="muted" style="font-size:.7rem;margin-top:.2rem">Buttons &amp; quick replies are delivered in the DM — set "DM only" or "Both" to send them.</p></div>` : ""}
       ${isText
         ? html`<div><label class="label">Reply text</label><textarea class="textarea" name="text" rows="2">${text}</textarea></div>`
         : html`<p class="muted" style="font-size:.78rem">This rule's response type is <strong>${r.response_type}</strong>; its detailed configuration is preserved on save. To rebuild it, delete and recreate the rule.</p>`}
       ${isComment && isText ? html`<div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" value="${commentReply}" /></div>` : ""}
-      ${hasAdvanced ? html`<p class="muted" style="font-size:.72rem">ℹ Buttons / quick replies on this rule are kept as-is.</p>` : ""}
+      ${isText ? html`${interactiveRuleFields(canInteractive, upgradeUrl)}
+      ${canInteractive ? html`<input type="hidden" name="quick_replies_json" :value="qrJson()" /><input type="hidden" name="buttons_json" :value="btnJson()" />` : ""}` : ""}
       <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
         <input type="checkbox" name="requires_approval" value="true"${r.requires_approval ? raw(" checked") : raw("")} />
         Hold for human approval before sending
