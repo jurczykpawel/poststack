@@ -136,6 +136,34 @@ describe("dashboard rule builder", () => {
     expect((rule!.trigger_config as Record<string, unknown>).payload).toBeUndefined();
   });
 
+  it("scopes a rule to one channel on create and clears it on edit", async () => {
+    if (!TEST_DB) return;
+    // A real channel id (the API validates channel_id as a strict v4 UUID, like gen_random_uuid).
+    const SCOPED_CH = "dddddddd-0000-4000-8000-000000005c01";
+    await db.insert(s.channels).values({ id: SCOPED_CH, workspace_id: WS, platform: "youtube", platform_id: "YT-SCOPE", display_name: "My channel", token_encrypted: "x", webhook_secret: "ssc", status: "active" });
+
+    const created = await app.request("/rules", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "ScopedRule", trigger_type: "comment_keyword", keywords: "info", text: "hello", channel_id: SCOPED_CH }),
+    });
+    expect(created.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.name, "ScopedRule") });
+    expect(rule!.channel_id).toBe(SCOPED_CH);
+    // The list shows the channel scope, not "All channels".
+    expect(await created.text()).toContain("My channel");
+
+    // Editing with an empty channel clears the scope back to all channels.
+    const edited = await app.request(`/rules/${rule!.id}`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "ScopedRule", keywords: "info", text: "hello", channel_id: "" }),
+    });
+    expect(edited.status).toBe(200);
+    const after = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, rule!.id) });
+    expect(after!.channel_id).toBeNull();
+  });
+
   it("edit form shows and lets you change a rule's action buttons (link in DM)", async () => {
     if (!TEST_DB) return;
     const [seeded] = await db.insert(s.autoReplyRules).values({

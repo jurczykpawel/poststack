@@ -1,7 +1,7 @@
 import { and, eq, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { autoReplyRules, pendingApprovals } from "@/db/schema";
+import { autoReplyRules, pendingApprovals, channels } from "@/db/schema";
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
 import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
@@ -66,6 +66,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 const patchSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  channel_id: z.string().uuid().nullable().optional(),
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).max(999).optional(),
   trigger_type: z
@@ -118,6 +119,16 @@ export async function PATCH(
     return ApiErrors.validationError({ _errors: ["No fields to update"] });
   }
 
+  // Scoping a rule to a channel: the channel must belong to this workspace (defense-in-depth — the
+  // UI only offers own channels, but never trust the client). null clears the scope (all channels).
+  if (parsed.data.channel_id) {
+    const owned = await db.query.channels.findFirst({
+      where: and(eq(channels.id, parsed.data.channel_id), eq(channels.workspace_id, auth.workspaceId)),
+      columns: { id: true },
+    });
+    if (!owned) return ApiErrors.validationError({ channel_id: ["Channel not found in this workspace"] });
+  }
+
   // Re-apply the active-rule cap on a re-activation: the cap is enforced at create, but
   // toggling is_active false→true would otherwise let a workspace exceed it. (The non-atomic
   // create-race is accepted — the executor's bounded fetch caps the hot path regardless.)
@@ -151,6 +162,7 @@ export async function PATCH(
   const merged = {
     ...shape(existing),
     ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+    ...(parsed.data.channel_id !== undefined ? { channel_id: parsed.data.channel_id } : {}),
     ...(parsed.data.priority !== undefined ? { priority: parsed.data.priority } : {}),
     ...(parsed.data.trigger_type !== undefined ? { trigger_type: parsed.data.trigger_type } : {}),
     ...(parsed.data.trigger_config !== undefined ? { trigger_config: parsed.data.trigger_config } : {}),

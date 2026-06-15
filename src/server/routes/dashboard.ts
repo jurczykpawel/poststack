@@ -1015,6 +1015,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canInteractive = features.has("interactive_messages");
     const canPersonalize = features.has("personalization");
     const canReactionTrigger = features.has("reaction_trigger");
+    const ruleChannels = await loadInboxChannels(a.workspaceId);
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Rules" }),
@@ -1034,6 +1035,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 ${raw(RULE_EDITOR_METHODS)}
               }">
               <div><label class="label">Name</label><input class="input" name="name" required /></div>
+              ${ruleChannelSelect(ruleChannels, null)}
               <div><label class="label">Trigger</label>
                 <select class="input" name="trigger_type" x-model="triggerType">
                   <option value="keyword">DM keyword</option>
@@ -1149,6 +1151,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
     const payload = {
       name: form.name ?? "",
+      channel_id: form.channel_id ? form.channel_id : null,
       trigger_type: triggerType,
       trigger_config: triggerConfig,
       response_type: responseType,
@@ -1199,7 +1202,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
     if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
     const { features, upgradeUrl } = await getInstanceLicense();
-    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl));
+    const channels = await loadInboxChannels(a.workspaceId);
+    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels));
   });
 
   app.post("/rules/:id", guard, async (c) => {
@@ -1247,6 +1251,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     }
     const payload = {
       name: form.name ?? "",
+      channel_id: form.channel_id ? form.channel_id : null,
       trigger_config: triggerConfig,
       response_config: responseConfig,
       requires_approval: form.requires_approval === "true",
@@ -2023,13 +2028,18 @@ function parseJsonArray(raw: string | undefined): unknown[] {
   }
 }
 
-function loadRules(workspaceId: string) {
-  return db.query.autoReplyRules.findMany({
-    where: eq(autoReplyRules.workspace_id, workspaceId),
-    orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
-    limit: 200,
-    columns: { id: true, name: true, is_active: true, trigger_type: true, response_type: true },
-  });
+async function loadRules(workspaceId: string) {
+  const [rows, chans] = await Promise.all([
+    db.query.autoReplyRules.findMany({
+      where: eq(autoReplyRules.workspace_id, workspaceId),
+      orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
+      limit: 200,
+      columns: { id: true, name: true, is_active: true, trigger_type: true, response_type: true, channel_id: true },
+    }),
+    loadInboxChannels(workspaceId),
+  ]);
+  const label = new Map(chans.map((ch) => [ch.id, `${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}`]));
+  return rows.map((r) => ({ ...r, channelLabel: r.channel_id ? label.get(r.channel_id) ?? "Unknown channel" : "All channels" }));
 }
 
 function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: string): Html {
@@ -2037,7 +2047,7 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: s
   if (rulesList.length === 0) return html`${notice}<p class="muted">No rules yet.</p>`;
   return html`${notice}<div class="list">${rulesList.map(
     (r) => html`<div class="list-row">
-      <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type}${r.is_active ? "" : " · inactive"}</span></div>
+      <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type} · ${r.channelLabel}${r.is_active ? "" : " · inactive"}</span></div>
       <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
       <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
       <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
@@ -2059,6 +2069,18 @@ btnJson() {
     .filter(b => b.title && b.title.trim() && b.value && b.value.trim())
     .map(b => b.kind === 'url' ? { title: b.title.trim(), url: b.value.trim() } : { title: b.title.trim(), payload: b.value.trim() }));
 }`;
+
+/** Channel-scope selector for a rule: "All channels" (channel_id null) or one specific channel.
+ *  Shared by the create and edit rule forms. */
+function ruleChannelSelect(chans: InboxChannel[], selected: string | null): Html {
+  return html`<div><label class="label">Channel</label>
+    <select class="input" name="channel_id">
+      <option value=""${selected ? raw("") : raw(" selected")}>All channels</option>
+      ${chans.map((ch) => html`<option value="${ch.id}"${selected === ch.id ? raw(" selected") : raw("")}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`)}
+    </select>
+    <p class="muted" style="font-size:.7rem;margin-top:.2rem">Limit this rule to one channel (e.g. only YouTube), or leave "All channels" to apply everywhere.</p>
+  </div>`;
+}
 
 /** The action-button + quick-reply editor (link buttons, ask-email/phone) sent inside DMs. Shared by
  *  the create and edit rule forms; requires the form's x-data to expose quickReplies[]/buttons[]. */
@@ -2119,7 +2141,7 @@ function buttonsToEditor(rc: Record<string, unknown>): { quickReplies: unknown[]
 function loadRuleForEdit(workspaceId: string, id: string) {
   return db.query.autoReplyRules.findFirst({
     where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, workspaceId)),
-    columns: { id: true, name: true, trigger_type: true, trigger_config: true, response_type: true, response_config: true, requires_approval: true },
+    columns: { id: true, name: true, channel_id: true, trigger_type: true, trigger_config: true, response_type: true, response_config: true, requires_approval: true },
   });
 }
 
@@ -2130,6 +2152,7 @@ function renderRuleEditForm(
   r: NonNullable<Awaited<ReturnType<typeof loadRuleForEdit>>>,
   canInteractive: boolean,
   upgradeUrl: string,
+  channels: InboxChannel[],
 ): Html {
   const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
   const rc = (r.response_config ?? {}) as Record<string, unknown>;
@@ -2155,6 +2178,7 @@ function renderRuleEditForm(
     <h3 style="margin-top:0">Edit rule <span class="muted" style="font-weight:400;font-size:.8rem">${r.trigger_type} → ${r.response_type}</span></h3>
     <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack"${xData}>
       <div><label class="label">Name</label><input class="input" name="name" value="${r.name}" required /></div>
+      ${ruleChannelSelect(channels, r.channel_id)}
       ${isKeyword ? html`<div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" value="${keywords}" placeholder="hello, hi, info" /></div>` : ""}
       ${isComment ? html`<div><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" value="${postId}" placeholder="leave blank for any post" /></div>` : ""}
       ${isComment && isText ? html`<div><label class="label">Reply via</label>
