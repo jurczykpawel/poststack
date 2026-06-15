@@ -34,7 +34,7 @@
     "drizzle-orm": "^0.45.2",
     "graphile-worker": "^0.16.6",
     "hono": "^4.12.23",
-    "jose": "6.2.2",
+    "jose": "6.2.3",
     "pg": "^8.20.0",
     "zod": "4.3.6"
   },
@@ -45,9 +45,9 @@
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.4",
-    "typescript": "6.0.2",
+    "typescript": "6.0.3",
     "typescript-eslint": "^8.20.0",
-    "vitest": "4.1.2"
+    "vitest": "4.1.9"
   },
   "engines": {
     "node": ">=18.0.0"
