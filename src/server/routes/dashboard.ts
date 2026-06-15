@@ -385,6 +385,21 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 
 const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube" };
 
+/** Friendly label + tone for each activity-feed event type (raw type is the fallback). */
+const EVENT_META: Record<string, { label: string; tone: Tone }> = {
+  "channel.created": { label: "Channel connected", tone: "ok" },
+  "channel.reconnected": { label: "Channel reconnected", tone: "ok" },
+  "channel.needs_reauth": { label: "Channel needs re-auth", tone: "bad" },
+  "post.published": { label: "Post published", tone: "ok" },
+  "post.held": { label: "Post held", tone: "warn" },
+  "post.failed": { label: "Post failed", tone: "bad" },
+  "post.unknown": { label: "Post error", tone: "bad" },
+  "source.connected": { label: "Source connected", tone: "ok" },
+  "source.synced": { label: "Source synced", tone: "info" },
+  "source.needs_reauth": { label: "Source needs re-auth", tone: "bad" },
+  "source.data_access_expiring": { label: "Data access expiring", tone: "warn" },
+};
+
 // Plain-language meaning of each inbound webhook handling status, for the /webhooks legend.
 const WEBHOOK_STATUS_LEGEND: ReadonlyArray<readonly [string, Tone, string]> = [
   ["fired", "ok", "Matched an active rule — an auto-reply was sent or queued."],
@@ -1302,17 +1317,20 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <h1>Events</h1>
           <p class="muted">A log of what happened in this workspace — channel, publishing and automation events.</p>
           ${rows.length === 0
-            ? html`<p class="muted">No events yet. Activity shows up here as channels connect and automations run.</p>`
-            : html`<table><thead><tr><th>Type</th><th>Subject</th><th>When</th></tr></thead>
+            ? html`<p class="muted">No events yet. Activity shows up here as channels connect, posts publish, and tokens expire.</p>`
+            : html`<table><thead><tr><th>Event</th><th>Platform</th><th>Subject</th><th>Detail</th><th>When</th></tr></thead>
                 <tbody>${rows.map((e) => {
-                  const label = (e.payload as { displayName?: string } | null)?.displayName;
-                  const subject = e.subject_type
-                    ? `${e.subject_type}${label ? ` · ${label}` : e.subject_id ? ` · ${e.subject_id}` : ""}`
-                    : "—";
+                  const p = (e.payload ?? {}) as { displayName?: string; platform?: string; error?: string; reason?: string; providerHandle?: string };
+                  const meta = EVENT_META[e.type];
+                  const platform = p.platform ? PLATFORM_LABELS[p.platform] ?? p.platform : "—";
+                  const subject = p.displayName ?? (e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—");
+                  const detail = p.error ?? p.reason ?? p.providerHandle ?? "";
                   return html`<tr>
-                    <td><span class="badge">${e.type}</span></td>
-                    <td class="muted" style="font-size:.8rem">${subject}</td>
-                    <td class="muted">${timeAgo(e.created_at)}</td>
+                    <td><span class="badge tone-${meta?.tone ?? "neutral"}">${meta?.label ?? e.type}</span></td>
+                    <td class="muted" style="font-size:.82rem">${platform}</td>
+                    <td class="muted" style="font-size:.82rem">${subject}</td>
+                    <td class="muted mono" style="font-size:.72rem;max-width:24rem;overflow-wrap:anywhere">${detail || "—"}</td>
+                    <td class="muted" style="white-space:nowrap">${timeAgo(e.created_at)}</td>
                   </tr>`;
                 })}</tbody></table>`}
         </div>`,

@@ -173,6 +173,21 @@ describe("dashboard rule builder", () => {
   });
 });
 
+describe("dashboard events feed", () => {
+  it("shows the event with a friendly label, platform and subject name", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.events).values({
+      workspace_id: WS, type: "channel.needs_reauth", subject_type: "channel", subject_id: CH,
+      payload: { platform: "instagram", displayName: "Acme IG" },
+    });
+    const body = await (await app.request("/events", { headers: { cookie } })).text();
+    expect(body).toContain("Channel needs re-auth"); // friendly label, not the raw type
+    expect(body).toContain("Instagram"); // platform column
+    expect(body).toContain("Acme IG"); // subject name from payload
+    expect(body).not.toContain("No events yet");
+  });
+});
+
 describe("dashboard inbox conversation controls", () => {
   it("pauses automation from the inbox via the control route", async () => {
     if (!TEST_DB) return;

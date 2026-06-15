@@ -223,7 +223,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     });
     await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });
     await reflectEditorial(postId, "published", { published_at: new Date() });
-    await emitEventNow(ws, "post.published", { type: "post", id: postId }, { providerHandle: handle.providerHandle });
+    await emitEventNow(ws, "post.published", { type: "post", id: postId }, { providerHandle: handle.providerHandle, platform: channel.platform });
     // REPLYSTACK1 native (UNIFY P2.2): if the editorial post carries an auto-reply, provision the
     // comment→DM rule scoped to the just-published media id — in-process, idempotent, best-effort.
     await provisionAutoReply(postId, ws).catch(() => {});
@@ -233,7 +233,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       await setStatus(postId, "held", { last_error: err.message });
       await reflectEditorial(postId, "held").catch(() => {}); // PSA3
       await markChannelNeedsReauth(channel.id, err.message).catch(() => {});
-      await emitEventNow(ws, "post.held", { type: "post", id: postId }, { reason: redactSecrets(err.message) }).catch(() => {});
+      await emitEventNow(ws, "post.held", { type: "post", id: postId }, { reason: redactSecrets(err.message), platform: channel.platform }).catch(() => {});
       return; // reconnect + drain will retry
     }
     if (err instanceof PermanentError) {
