@@ -72,6 +72,18 @@ describe("upsertChannels (real Postgres)", () => {
     expect(after?.id).toBe(before?.id);
   });
 
+  it("emits channel.created on first connect and channel.reconnected on a later connect", async () => {
+    if (!TEST_DB) return;
+    await upsertChannels(WS, "facebook", [account("First Name")]);
+    const c = await getChannel();
+    const created = await db.query.events.findMany({ where: and(eq(s.events.workspace_id, WS), eq(s.events.subject_id, c!.id)) });
+    expect(created.map((e) => e.type)).toEqual(["channel.created"]);
+
+    await upsertChannels(WS, "facebook", [account("First Name")]); // reconnect (same account)
+    const all = await db.query.events.findMany({ where: and(eq(s.events.workspace_id, WS), eq(s.events.subject_id, c!.id)), orderBy: s.events.created_at });
+    expect(all.map((e) => e.type)).toEqual(["channel.created", "channel.reconnected"]);
+  });
+
   it("recovers a needs_reauth channel and enqueues a drain on reconnect", async () => {
     if (!TEST_DB) return;
     await upsertChannels(WS, "facebook", [account("X")]);

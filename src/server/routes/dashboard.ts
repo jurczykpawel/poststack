@@ -1323,7 +1323,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       where: eq(eventsTbl.workspace_id, a.workspaceId),
       orderBy: [desc(eventsTbl.created_at)],
       limit: 100,
-      columns: { id: true, type: true, subject_type: true, subject_id: true, created_at: true },
+      columns: { id: true, type: true, subject_type: true, subject_id: true, payload: true, created_at: true },
     });
     return c.html(
       dashboardDoc(
@@ -1335,13 +1335,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           ${rows.length === 0
             ? html`<p class="muted">No events yet. Activity shows up here as channels connect and automations run.</p>`
             : html`<table><thead><tr><th>Type</th><th>Subject</th><th>When</th></tr></thead>
-                <tbody>${rows.map(
-                  (e) => html`<tr>
+                <tbody>${rows.map((e) => {
+                  const label = (e.payload as { displayName?: string } | null)?.displayName;
+                  const subject = e.subject_type
+                    ? `${e.subject_type}${label ? ` · ${label}` : e.subject_id ? ` · ${e.subject_id}` : ""}`
+                    : "—";
+                  return html`<tr>
                     <td><span class="badge">${e.type}</span></td>
-                    <td class="muted" style="font-size:.8rem">${e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—"}</td>
+                    <td class="muted" style="font-size:.8rem">${subject}</td>
                     <td class="muted">${timeAgo(e.created_at)}</td>
-                  </tr>`,
-                )}</tbody></table>`}
+                  </tr>`;
+                })}</tbody></table>`}
         </div>`,
         features,
         products,

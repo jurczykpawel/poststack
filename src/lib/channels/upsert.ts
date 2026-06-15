@@ -6,6 +6,7 @@ import { addJobTx } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
 import { hasFeature, ProRequiredError } from "@/lib/license/gate";
+import { emitEventNow } from "@/lib/events";
 
 const META_PLATFORMS = new Set<Platform>(["facebook", "instagram"]);
 
@@ -89,7 +90,7 @@ export async function upsertChannels(
   // so a later account's rejection rolls back the earlier ones instead of leaving
   // them half-connected.
   const results = await db.transaction(async (tx) => {
-    const out: { channelId: string; recovered: boolean }[] = [];
+    const out: { channelId: string; recovered: boolean; isNew: boolean; displayName: string }[] = [];
     for (const account of ordered) {
       const encryptedTokens = encryptTokens(account.tokens);
       const lockKey = `channel:${platform}:${account.platformId}`;
@@ -155,7 +156,7 @@ export async function upsertChannels(
         .returning({ id: channels.id });
 
       const recovered = live?.status === "needs_reauth";
-      out.push({ channelId: channel.id, recovered });
+      out.push({ channelId: channel.id, recovered, isNew: !live, displayName: account.displayName });
 
       // Reconnecting a broken channel recovers it — drain anything parked while it was down
       //. Enqueue the drain in the SAME transaction as the recovery (a transactional
@@ -169,6 +170,17 @@ export async function upsertChannels(
     }
     return out;
   });
+
+  // Log a connect/reconnect event per channel for the activity feed (/events). Best-effort and
+  // post-commit: a logging failure must never roll back a successful connect.
+  for (const r of results) {
+    await emitEventNow(
+      workspaceId,
+      r.isNew ? "channel.created" : "channel.reconnected",
+      { type: "channel", id: r.channelId },
+      { platform, displayName: r.displayName },
+    ).catch(() => {});
+  }
 
   const recoveredChannelIds = results.filter((r) => r.recovered).map((r) => r.channelId);
   return { recoveredChannelIds };

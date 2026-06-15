@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { addJobTx } from "@/lib/queue/client";
+import { emitEventNow } from "@/lib/events";
 
 /** An open Drizzle transaction (the callback arg of db.transaction). */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -45,6 +46,13 @@ export async function markChannelNeedsReauth(
       displayName: channel.display_name,
       detail: error,
     });
+    // Surface the outage in the activity feed (/events). Best-effort: never break the health flip.
+    await emitEventNow(
+      channel.workspace_id,
+      "channel.needs_reauth",
+      { type: "channel", id: channelId },
+      { platform: channel.platform, displayName: channel.display_name },
+    ).catch(() => {});
   }
 }
 

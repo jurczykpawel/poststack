@@ -57,6 +57,14 @@ describe("channel health (real Postgres)", () => {
     expect(c?.last_error?.length).toBe(500);
   });
 
+  it("emits a channel.needs_reauth event once, only on the healthy→down transition", async () => {
+    if (!TEST_DB) return;
+    await health.markChannelNeedsReauth(CH, "token dead");
+    await health.markChannelNeedsReauth(CH, "still dead"); // already down → no second event
+    const evts = await db.query.events.findMany({ where: eq(s.events.subject_id, CH) });
+    expect(evts.map((e) => e.type)).toEqual(["channel.needs_reauth"]);
+  });
+
   it("is a no-op for a missing channel", async () => {
     if (!TEST_DB) return;
     await expect(health.markChannelNeedsReauth("eeeeeeee-0000-0000-0000-0000000000ef", "x")).resolves.toBeUndefined();
