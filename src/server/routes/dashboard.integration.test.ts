@@ -417,11 +417,13 @@ describe("channels — managed connection section", () => {
     const EV = "dddddddd-0000-0000-0000-0000000000e9";
     await db.insert(s.webhookEvents).values({
       id: EV, event_key: "k-detail-1", channel_id: CH, object: "page", event_type: "post_reaction", field: "feed",
-      raw: { entry: [{ id: "PAGE-RAW-1", reaction: "like" }] }, handling_status: "recorded",
+      sender_id: "SENDER-1",
+      raw: { entry: [{ changes: [{ value: { from: { id: "SENDER-1", name: "Noémie Pfirsch" }, item: "reaction" } }] }] },
+      handling_status: "recorded",
     });
     const body = await (await app.request(`/webhooks/${EV}`, { headers: { cookie } })).text();
     expect(body).toContain("Raw payload");
-    expect(body).toContain("PAGE-RAW-1"); // pretty-printed raw JSON
+    expect(body).toContain("Noémie Pfirsch"); // name resolved from the payload, not the bare id
     expect(body).toContain("engagement only"); // recorded → nothing triggered
   });
 

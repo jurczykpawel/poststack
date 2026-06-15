@@ -403,6 +403,28 @@ function metaRow(label: string, value: unknown): Html {
   return html`<div class="meta-row"><dt>${label}</dt><dd>${typeof value === "boolean" ? (value ? "yes" : "no") : String(value)}</dd></div>`;
 }
 
+/** Find the display name a platform attached to an id anywhere in the raw payload (Meta nests it as
+ *  `{ id, name }` under from/sender/recipient). Generic recursive match so it works for any event. */
+function findNameForId(node: unknown, id: string, depth = 0): string | null {
+  if (depth > 8 || node === null || typeof node !== "object") return null;
+  const o = node as Record<string, unknown>;
+  if (o.id === id && typeof o.name === "string" && o.name.trim()) return o.name;
+  for (const v of Object.values(o)) {
+    const found = findNameForId(v, id, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** A "From"/"To" row that leads with the person's name and shows the raw id quietly beside it. */
+function identityRow(label: string, id: string | null, raw: unknown): Html {
+  if (!id) return html``;
+  const name = findNameForId(raw, id);
+  return html`<div class="meta-row"><dt>${label}</dt><dd>${name
+    ? html`<strong>${name}</strong> <code class="mono" style="color:var(--text-2);font-size:.74rem">${id}</code>`
+    : html`<code class="mono">${id}</code>`}</dd></div>`;
+}
+
 /** Expanded view of one inbound webhook event: what arrived + what (if anything) it triggered + the
  *  full raw payload. Lazy-loaded into #wh-detail so the list stays light. */
 function renderWebhookDetail(e: WebhookEventDetail): Html {
@@ -424,8 +446,8 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
     <dl class="meta-list">
       ${metaRow("Received", e.received_at.toISOString().replace("T", " ").slice(0, 19))}
       ${metaRow("Handled", e.handled_at ? e.handled_at.toISOString().replace("T", " ").slice(0, 19) : null)}
-      ${metaRow("From (sender id)", e.sender_id)}
-      ${metaRow("To (recipient id)", e.recipient_id)}
+      ${identityRow("From", e.sender_id, e.raw)}
+      ${identityRow("To", e.recipient_id, e.raw)}
       ${metaRow("Platform message id", e.platform_message_id)}
       ${metaRow("Echo (our own message)", e.is_echo)}
       ${metaRow("Event key", e.event_key)}
