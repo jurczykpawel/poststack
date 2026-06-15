@@ -193,6 +193,23 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(body).toContain("CI key");
   });
 
+  it("changes the password (rejects a wrong current password)", async () => {
+    if (!TEST_DB) return;
+    const bad = await app.request("/settings/password", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ current_password: "definitely-wrong", new_password: "brandnewpass123" }),
+    });
+    expect(await bad.text()).toContain("Current password is incorrect");
+
+    const ok = await app.request("/settings/password", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ current_password: PASSWORD, new_password: "brandnewpass123" }),
+    });
+    expect(await ok.text()).toContain("Password updated");
+  });
+
   it("creates a keyword rule from the simplified form", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/rules", {

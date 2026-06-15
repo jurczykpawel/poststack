@@ -199,6 +199,32 @@ describe("dashboard rule builder", () => {
     expect(rc.buttons).toEqual([{ title: "Pobierz", url: "https://sellf.example/p/v2" }]);
     expect(rc.quick_replies).toEqual([{ content_type: "user_phone_number" }]);
   });
+
+  it("rules list shows what each rule does — keywords, reply text and button link", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Summary rule", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "promo", match_type: "contains" }] },
+      response_type: "text",
+      response_config: { text: "Grab the deal here", reply_mode: "both", buttons: [{ title: "Open", url: "https://sellf.example/p/deal" }] },
+    });
+    const body = await (await app.request("/rules", { headers: { cookie } })).text();
+    expect(body).toContain("promo"); // keyword
+    expect(body).toContain("Grab the deal here"); // reply text preview
+    expect(body).toContain("https://sellf.example/p/deal"); // button link
+  });
+});
+
+describe("channel detail page", () => {
+  it("links to the channel's inbox and shows PRO stats", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request(`/channels/${CH}`, { headers: { cookie } })).text();
+    expect(body).toContain(`/inbox?channel=${CH}`); // inbox filtered to this channel
+    expect(body).toContain("View inbox");
+    expect(body).toContain("Stats"); // PRO stats panel (license fixture = PRO)
+    expect(body).toContain("Posts published");
+    expect(body).not.toContain("Channel stats (posts &amp; messages) are a PRO feature");
+  });
 });
 
 describe("dashboard events feed", () => {
@@ -287,6 +313,23 @@ describe("dashboard inbox conversation controls", () => {
     const body = await (await app.request(`/inbox/${IG_CONV}`, { headers: { cookie } })).text();
     expect(body).toContain("love this");
     expect(body).toContain("https://www.instagram.com/reel/DYuqTvIFHO2/"); // clickable permalink
+  });
+
+  it("links a contact to its conversations and the inbox filters by contact", async () => {
+    if (!TEST_DB) return;
+    // CONTACT (seeded) owns CONV on CH. A second contact with no conversation.
+    const OTHER = "dddddddd-0000-4000-8000-0000000000cc";
+    await db.insert(s.contacts).values({ id: OTHER, workspace_id: WS, display_name: "No Threads Person" });
+
+    const list = await (await app.request("/contacts/list", { headers: { cookie } })).text();
+    expect(list).toContain(`/inbox?contact=${CONTACT}`); // per-contact inbox deep-link
+
+    // Inbox filtered to CONTACT shows their conversation; filtered to OTHER shows none.
+    const forContact = await (await app.request(`/inbox?contact=${CONTACT}`, { headers: { cookie } })).text();
+    expect(forContact).not.toContain("No conversations"); // CONTACT has CONV
+    const forOther = await (await app.request(`/inbox?contact=${OTHER}`, { headers: { cookie } })).text();
+    // OTHER has no conversation → the conv list is empty (no conversation rows for OTHER).
+    expect(forOther).not.toContain(`hx-get="/inbox/${CONV}"`);
   });
 
   it("contacts view filters by channel + platform (auto-assignment)", async () => {

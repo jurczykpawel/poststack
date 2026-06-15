@@ -1,8 +1,8 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { desc, eq, and } from "drizzle-orm";
+import { desc, eq, and, count } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { events as eventsTbl } from "@/db/schema";
+import { events as eventsTbl, conversations as conversationsTbl, messages as messagesTbl, commentLogs as commentLogsTbl, deliveries as deliveriesTbl } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import {
   listChannels,
@@ -472,6 +472,19 @@ async function channelDetailPage(c: Context): Promise<Response> {
 
   const name = ch.display_name ?? ch.provider_account_id;
   const lic = await getInstanceLicense();
+  // Per-channel activity stats — PRO (reuses contacts_crm: knowing your audience/volume).
+  const canStats = lic.features.has("contacts_crm");
+  const stats = canStats
+    ? await (async () => {
+        const [conv, msg, cmt, posts] = await Promise.all([
+          db.select({ n: count() }).from(conversationsTbl).where(eq(conversationsTbl.channel_id, id)),
+          db.select({ n: count() }).from(messagesTbl).innerJoin(conversationsTbl, eq(conversationsTbl.id, messagesTbl.conversation_id)).where(eq(conversationsTbl.channel_id, id)),
+          db.select({ n: count() }).from(commentLogsTbl).where(eq(commentLogsTbl.channel_id, id)),
+          db.select({ n: count() }).from(deliveriesTbl).where(and(eq(deliveriesTbl.channel_id, id), eq(deliveriesTbl.status, "sent"))),
+        ]);
+        return { conversations: conv[0]?.n ?? 0, messages: msg[0]?.n ?? 0, comments: cmt[0]?.n ?? 0, posts: posts[0]?.n ?? 0 };
+      })()
+    : null;
 
   const postRows = posts.items.length
     ? posts.items.map((p) => html`<a class="rec-row" href="/queue">
@@ -498,6 +511,19 @@ async function channelDetailPage(c: Context): Promise<Response> {
       breadcrumb: `Channels / ${name}`,
       primaryAction: btn({ label: "All channels", href: "/channels", variant: "ghost" }),
       body: html`${detailHead(ch)}
+        <div class="action-bar" style="margin:.5rem 0">
+          ${btn({ label: "View inbox", href: `/inbox?channel=${ch.id}`, variant: "secondary" })}
+          ${btn({ label: "Published posts", href: "/queue", variant: "secondary" })}
+        </div>
+        ${stats
+          ? html`<section class="panel"><div class="panel-head"><h3>Stats</h3></div>
+              <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:1.25rem">
+                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.posts}</div><div class="muted" style="font-size:.72rem">Posts published</div></div>
+                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.conversations}</div><div class="muted" style="font-size:.72rem">Conversations</div></div>
+                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.messages}</div><div class="muted" style="font-size:.72rem">Messages</div></div>
+                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.comments}</div><div class="muted" style="font-size:.72rem">Comments</div></div>
+              </div></section>`
+          : html`<section class="panel"><div class="panel-body muted" style="font-size:.82rem">📊 Channel stats (posts &amp; messages) are a PRO feature.</div></section>`}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
           <section class="panel">

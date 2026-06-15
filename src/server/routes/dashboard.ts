@@ -7,9 +7,11 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents,
+  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, users,
 } from "@/db/schema";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
+import { truncateCodePoints } from "@/lib/text";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
@@ -303,13 +305,14 @@ function renderThread(
         </div>`}`;
 }
 
-function loadConversations(workspaceId: string, filter: ConvFilter = "all", channelId = "all") {
+function loadConversations(workspaceId: string, filter: ConvFilter = "all", channelId = "all", contactId = "all") {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
   else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
   else if (filter === "dm") where.push(eq(conversations.thread_type, "dm"));
   else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
   if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
+  if (contactId !== "all") where.push(eq(conversations.contact_id, contactId));
   return db.query.conversations.findMany({
     where: and(...where),
     orderBy: desc(conversations.last_message_at),
@@ -614,8 +617,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, products } = await getInstanceLicense();
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
+    const contactId = c.req.query("contact") || "all";
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId),
+      loadConversations(a.workspaceId, filter, channelId, contactId),
       loadInboxChannels(a.workspaceId),
     ]);
     return c.html(
@@ -624,7 +628,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/inbox",
         html`<div class="inbox">
           <div id="conv-panel" class="conv-list"
-            hx-get="/inbox/list?filter=${filter}&channel=${channelId}"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
             hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
@@ -641,8 +645,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
+    const contactId = c.req.query("contact") || "all";
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId),
+      loadConversations(a.workspaceId, filter, channelId, contactId),
       loadInboxChannels(a.workspaceId),
     ]);
     return c.html(renderConvPanel(conversations, filter, channelId, chans));
@@ -894,6 +899,15 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted">Programmatic API access now lives on its own page. <a href="/api-keys">Open API Keys →</a></p>
           </section>
           <section class="section">
+            <h2>Change password</h2>
+            <form hx-post="/settings/password" hx-ext="json-enc" hx-target="#password-msg" hx-swap="innerHTML" class="stack" style="max-width:24rem">
+              <div><label class="label">Current password</label><input class="input" type="password" name="current_password" autocomplete="current-password" required /></div>
+              <div><label class="label">New password (min 8 chars)</label><input class="input" type="password" name="new_password" autocomplete="new-password" minlength="8" required /></div>
+              <div class="row"><button class="btn btn-primary" type="submit">Update password</button></div>
+            </form>
+            <p id="password-msg" class="muted" style="margin-top:.5rem"></p>
+          </section>
+          <section class="section">
             <h2>Data retention</h2>
             <p class="muted" style="margin-bottom:1rem">Delete messages older than N days (runs daily). Blank = keep forever. Pending messages are never deleted.</p>
             <form hx-post="/settings/retention" hx-ext="json-enc" hx-target="#retention-msg" hx-swap="innerHTML" class="row">
@@ -973,6 +987,21 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const keys = await loadKeys(a.workspaceId);
     return c.html(renderKeys(keys, await noticeFrom(res, "Could not revoke the API key.")));
+  });
+
+  app.post("/settings/password", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, string>;
+    const current = form.current_password ?? "";
+    const next = form.new_password ?? "";
+    if (next.length < 8) return c.html(html`<span class="error">New password must be at least 8 characters.</span>`);
+    const user = await db.query.users.findFirst({ where: eq(users.id, a.userId), columns: { password_hash: true } });
+    if (!user?.password_hash || !(await verifyPassword(current, user.password_hash))) {
+      return c.html(html`<span class="error">Current password is incorrect.</span>`);
+    }
+    await db.update(users).set({ password_hash: await hashPassword(next) }).where(eq(users.id, a.userId));
+    return c.html(html`<span style="color:var(--ok-text)">Password updated.</span>`);
   });
 
   app.post("/settings/retention", guard, async (c) => {
@@ -1687,12 +1716,13 @@ function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = 
   const more = contacts.length >= limit
     ? html`<button class="btn btn-sm" style="margin-top:.5rem" hx-get="/contacts/list?q=${encodeURIComponent(q)}&channel=${encodeURIComponent(channelId)}&platform=${encodeURIComponent(platform)}&brand=${encodeURIComponent(brand)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button>`
     : html``;
-  return html`<table><thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th></tr></thead><tbody>
+  return html`<table><thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th><th></th></tr></thead><tbody>
     ${contacts.map(
       (ct) => html`<tr>
         <td>${ct.display_name ?? ct.contact_channels[0]?.platform_username ?? ct.contact_channels[0]?.platform_sender_id ?? "Unknown"}${ct.email ? html`<div class="muted" style="font-size:.75rem">${ct.email}</div>` : html``}${!ct.is_subscribed ? html`<div class="error" style="font-size:.7rem">Unsubscribed</div>` : html``}</td>
         <td>${ct.contact_channels.map((cc) => html`<span class="badge" title="${cc.channel.display_name ?? cc.channel.platform}" style="background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);margin-right:.35rem">${PLATFORM_LABELS[cc.channel.platform] ?? cc.channel.platform}${cc.platform_username ? html` · @${cc.platform_username}` : ""}</span>`)}</td>
         <td class="muted">${timeAgo(ct.last_interaction_at)}</td>
+        <td><a class="btn btn-sm" href="/inbox?contact=${ct.id}">View conversations →</a></td>
       </tr>`,
     )}
   </tbody></table>${more}`;
@@ -2034,7 +2064,7 @@ async function loadRules(workspaceId: string) {
       where: eq(autoReplyRules.workspace_id, workspaceId),
       orderBy: [desc(autoReplyRules.priority), asc(autoReplyRules.created_at)],
       limit: 200,
-      columns: { id: true, name: true, is_active: true, trigger_type: true, response_type: true, channel_id: true },
+      columns: { id: true, name: true, is_active: true, trigger_type: true, response_type: true, channel_id: true, trigger_config: true, response_config: true },
     }),
     loadInboxChannels(workspaceId),
   ]);
@@ -2042,12 +2072,36 @@ async function loadRules(workspaceId: string) {
   return rows.map((r) => ({ ...r, channelLabel: r.channel_id ? label.get(r.channel_id) ?? "Unknown channel" : "All channels" }));
 }
 
+/** A human-readable one-line summary of what a rule actually does — keywords, post scope, reply mode,
+ *  the reply text, and the action buttons / quick replies — so the list isn't opaque (RULESVIEW1). */
+function ruleSummary(r: Awaited<ReturnType<typeof loadRules>>[number]): Html {
+  const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
+  const rc = (r.response_config ?? {}) as Record<string, unknown>;
+  const bits: Html[] = [];
+  const kws = Array.isArray(tc.keywords)
+    ? (tc.keywords as Array<string | { value?: string }>).map((k) => (typeof k === "string" ? k : k.value ?? "")).filter(Boolean)
+    : [];
+  if (kws.length) bits.push(html`🔑 ${kws.join(", ")}`);
+  if (r.trigger_type === "comment_keyword") {
+    bits.push(html`📌 ${typeof tc.post_id === "string" && tc.post_id ? `post ${tc.post_id}` : "any post"}`);
+    if (typeof rc.reply_mode === "string") bits.push(html`💬 ${rc.reply_mode}`);
+  }
+  if (typeof rc.text === "string" && rc.text.trim()) bits.push(html`↳ “${truncateCodePoints(rc.text, 60)}”`);
+  const buttons = Array.isArray(rc.buttons) ? (rc.buttons as Array<{ title?: string; url?: string; payload?: string }>) : [];
+  for (const b of buttons) bits.push(html`🔘 ${b.title ?? ""}${b.url ? html` → <a href="${b.url}" target="_blank" rel="noopener">${b.url}</a>` : b.payload ? ` (${b.payload})` : ""}`);
+  const qr = Array.isArray(rc.quick_replies) ? (rc.quick_replies as Array<{ content_type?: string; title?: string }>) : [];
+  const qrLabels = qr.map((q) => (q.content_type === "user_email" ? "ask email" : q.content_type === "user_phone_number" ? "ask phone" : q.title ?? "reply"));
+  if (qrLabels.length) bits.push(html`⚡ ${qrLabels.join(", ")}`);
+  if (!bits.length) return html``;
+  return html`<div class="muted" style="font-size:.72rem;margin-top:.25rem;display:flex;flex-wrap:wrap;gap:.1rem .6rem">${bits.map((b) => html`<span>${b}</span>`)}</div>`;
+}
+
 function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (rulesList.length === 0) return html`${notice}<p class="muted">No rules yet.</p>`;
   return html`${notice}<div class="list">${rulesList.map(
     (r) => html`<div class="list-row">
-      <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type} · ${r.channelLabel}${r.is_active ? "" : " · inactive"}</span></div>
+      <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type} · ${r.channelLabel}${r.is_active ? "" : " · inactive"}</span>${ruleSummary(r)}</div>
       <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
       <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
       <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
