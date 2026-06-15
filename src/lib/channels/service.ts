@@ -6,7 +6,7 @@
 // PublicChannel is the UI-facing projection of a channel row. It exposes `provider_account_id`
 // (= the row's `platform_id`) so the ported PostStack section markup reads naturally; capabilities
 // are computed (never stored) via channels/capabilities.
-import { and, asc, desc, eq, isNull, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, isNotNull, ilike, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, channelRateState, type Platform } from "@/db/schema";
 import { getProvider } from "@/lib/platforms/registry";
@@ -126,7 +126,9 @@ export async function listChannels(args: ListChannelsArgs): Promise<ListChannels
   }
 
   const where = [...base];
-  if (!args.showHidden) where.push(isNull(channels.hidden_at));
+  // The "Hidden" chip is a filter like status/platform: showHidden lists ONLY hidden channels;
+  // the default list shows only non-hidden ones.
+  where.push(args.showHidden ? isNotNull(channels.hidden_at) : isNull(channels.hidden_at));
   if (platform) where.push(eq(channels.platform, platform as Platform));
   if (args.status) where.push(eq(channels.status, args.status));
   if (args.sourceId) where.push(eq(channels.source_id, args.sourceId));

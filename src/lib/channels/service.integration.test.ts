@@ -88,8 +88,10 @@ describe("channels service — listChannels", () => {
     await makeChannel(WS_A, { platform: "instagram", platformId: "IG1", displayName: "Acme IG" });
     await makeChannel(WS_A, { platform: "facebook", platformId: "FB2", displayName: "Hidden", hidden: true });
 
-    expect((await svc.listChannels({ workspaceId: WS_A })).items).toHaveLength(2); // hidden excluded
-    expect((await svc.listChannels({ workspaceId: WS_A, showHidden: true })).items).toHaveLength(3);
+    expect((await svc.listChannels({ workspaceId: WS_A })).items).toHaveLength(2); // hidden excluded by default
+    // showHidden is a filter chip like status/platform: it shows ONLY the hidden channels, not all.
+    const onlyHidden = (await svc.listChannels({ workspaceId: WS_A, showHidden: true })).items;
+    expect(onlyHidden.map((c) => c.provider_account_id)).toEqual(["FB2"]);
     expect((await svc.listChannels({ workspaceId: WS_A, platform: "facebook" })).items.map((c) => c.provider_account_id)).toEqual(["FB1"]);
     expect((await svc.listChannels({ workspaceId: WS_A, q: "IG" })).items).toHaveLength(1);
     // hiddenCount reflects the hidden row even when not shown.
