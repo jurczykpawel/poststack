@@ -17,7 +17,7 @@ export const openApiSpec = {
       `Authenticate with an API key: \`Authorization: Bearer ${BRAND.idPrefix}...\`\n\n` +
       "Generate API keys in Settings > API Keys.",
     license: { name: "AGPL-3.0", url: "https://www.gnu.org/licenses/agpl-3.0" },
-    contact: { url: "https://github.com/jurczykpawel/replystack" },
+    contact: { url: "https://github.com/jurczykpawel/poststack" },
   },
   servers: [{ url: "/api/v1", description: "Current instance" }],
   security: [{ BearerAuth: [] }],

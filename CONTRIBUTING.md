@@ -3,7 +3,7 @@
 ## Development Setup
 
 ```bash
-git clone https://github.com/jurczykpawel/replystack.git
+git clone https://github.com/jurczykpawel/poststack.git
 cd replystack
 cp .env.example .env
 # Fill in your values in .env

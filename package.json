@@ -4,10 +4,10 @@
   "private": false,
   "license": "AGPL-3.0",
   "description": "Self-hosted, open-source social media inbox automation. Alternative to ManyChat.",
-  "homepage": "https://github.com/jurczykpawel/replystack",
+  "homepage": "https://github.com/jurczykpawel/poststack",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jurczykpawel/replystack"
+    "url": "https://github.com/jurczykpawel/poststack"
   },
   "scripts": {
     "dev": "bun --watch src/server/index.ts",

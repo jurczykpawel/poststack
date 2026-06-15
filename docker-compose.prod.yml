@@ -11,7 +11,7 @@ services:
     restart: always
 
   web:
-    image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/poststack}:${IMAGE_TAG:-latest}
     env_file: .env
     environment:
       # Reach the bundled postgres service by its in-network name, derived from the
@@ -39,7 +39,7 @@ services:
       retries: 3
 
   worker:
-    image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/replystack}-worker:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REPO:-ghcr.io/jurczykpawel/poststack}-worker:${IMAGE_TAG:-latest}
     env_file: .env
     environment:
       # Same in-network DATABASE_URL override as web (see note above).

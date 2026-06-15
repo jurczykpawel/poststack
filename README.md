@@ -3,11 +3,11 @@
 > Self-hosted Meta inbox automation -- auto-reply to messages and comments, manage conversations from one inbox.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![CI](https://github.com/jurczykpawel/replystack/actions/workflows/ci.yml/badge.svg)](https://github.com/jurczykpawel/replystack/actions/workflows/ci.yml)
+[![CI](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml/badge.svg)](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Open Source](https://img.shields.io/badge/Open%20Source-100%25-brightgreen)](https://github.com/jurczykpawel/replystack)
+[![Open Source](https://img.shields.io/badge/Open%20Source-100%25-brightgreen)](https://github.com/jurczykpawel/poststack)
 
-[API Docs](/api/docs) | [Issues](https://github.com/jurczykpawel/replystack/issues) | [Contributing](CONTRIBUTING.md)
+[API Docs](/api/docs) | [Issues](https://github.com/jurczykpawel/poststack/issues) | [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -72,7 +72,7 @@
 **Prerequisites:** Docker, Docker Compose (for local development without Docker: [Bun](https://bun.sh) + Node.js for tooling)
 
 ```bash
-git clone https://github.com/jurczykpawel/replystack.git
+git clone https://github.com/jurczykpawel/poststack.git
 cd replystack
 cp .env.example .env
 ```
@@ -124,7 +124,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images from GHCR.
 
-> **Images & registry.** By default it pulls `ghcr.io/jurczykpawel/replystack` (and `-worker`). If the packages are private, run `docker login ghcr.io` first. Forks: set `IMAGE_REPO` in `.env` to your own registry path, and `IMAGE_TAG` to pin a version.
+> **Images & registry.** By default it pulls `ghcr.io/jurczykpawel/poststack` (and `-worker`). If the packages are private, run `docker login ghcr.io` first. Forks: set `IMAGE_REPO` in `.env` to your own registry path, and `IMAGE_TAG` to pin a version.
 
 > **Rollback.** A release re-pulls `IMAGE_TAG` (default `latest`) and recreates the containers, so if a deploy is bad the previous containers are already gone. To roll back, pin the last good version and bring the stack back up:
 > ```bash
