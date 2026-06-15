@@ -1,9 +1,11 @@
 import type { JobHelpers } from "graphile-worker";
 import type { IncomingCommentJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, commentLogs, contacts, conversations } from "@/db/schema";
+import { channels, commentLogs, contacts, conversations, type Platform } from "@/db/schema";
+import { decryptTokens } from "@/lib/crypto";
+import { getProvider } from "@/lib/platforms/registry";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, markEventStatus, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
 import { dispatchAlert } from "@/lib/notifications/alert";
@@ -19,6 +21,37 @@ import { sanitizeForLog } from "@/lib/api/safe-log";
  *    Works first-touch: a commenter who never DM'd still gets a public reply
  *    and/or a private reply (addressed by comment_id).
  */
+/**
+ * Best-effort public permalink of the post a comment is on, so the inbox can link to it.
+ * Facebook builds its URL from post_id at render time (no provider method), so this only does work
+ * for platforms whose ids don't map to a URL by construction (Instagram). Reuses a permalink already
+ * stored for another comment on the same post to avoid an API call per comment. Never throws — a
+ * failed/absent permalink just means no link, which must not block logging the comment.
+ */
+async function resolvePostUrl(
+  channel: { id: string; platform: Platform; token_encrypted: string },
+  postId: string,
+  helpers: JobHelpers,
+): Promise<string | null> {
+  const provider = getProvider(channel.platform);
+  if (!provider.getPostUrl) return null;
+  const existing = await db.query.commentLogs.findFirst({
+    where: and(
+      eq(commentLogs.channel_id, channel.id),
+      eq(commentLogs.post_id, postId),
+      isNotNull(commentLogs.post_url),
+    ),
+    columns: { post_url: true },
+  });
+  if (existing?.post_url) return existing.post_url;
+  try {
+    return await provider.getPostUrl(decryptTokens(channel.token_encrypted), postId);
+  } catch (err) {
+    helpers.logger.info(`post-url resolve failed post=${sanitizeForLog(postId)}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 export async function processIncomingComment(
   payload: IncomingCommentJob,
   helpers: JobHelpers,
@@ -38,7 +71,7 @@ export async function processIncomingComment(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true, status: true, platform_id: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true, platform_id: true, token_encrypted: true },
   });
 
   if (!channel) {
@@ -61,10 +94,12 @@ export async function processIncomingComment(
   }
 
   // 2. The comment-log row values, shared by the no-sender quick-log path and the atomic path below.
+  const postUrl = postId ? await resolvePostUrl(channel, postId, helpers) : null;
   const logValues = {
     channel_id: channel.id,
     workspace_id: channel.workspace_id,
     post_id: postId ?? null,
+    post_url: postUrl,
     platform_comment_id: commentId,
     author_id: senderId ?? null,
     author_name: senderName ?? null,

@@ -634,6 +634,9 @@ export const commentLogs = pgTable("comment_logs", {
 	channel_id: uuid("channel_id").notNull(),
 	workspace_id: uuid("workspace_id").notNull(),
 	post_id: text("post_id"),
+	// Public permalink of the post the comment is on, when the platform doesn't let us build one
+	// from post_id alone (Instagram media ids have no shortcode). Best-effort, resolved at log time.
+	post_url: text("post_url"),
 	platform_comment_id: text("platform_comment_id").notNull(),
 	author_id: text("author_id"),
 	author_name: text("author_name"),

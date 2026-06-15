@@ -9,6 +9,7 @@ const provider = {
   sendComment: vi.fn(async () => ({ platformMessageId: "CMT-PMID" })),
   sendPrivateReply: vi.fn(async () => {}),
   checkFollowsBusiness: vi.fn(async () => true),
+  getPostUrl: vi.fn(async (_t: unknown, postId: string) => `https://www.instagram.com/reel/${postId}/`),
   refreshToken: vi.fn(async (t: unknown) => t),
 };
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
@@ -422,6 +423,22 @@ describe("incoming-comment worker", () => {
     await w.processIncomingComment(job, helpers);
     const logs = await db.select().from(s.commentLogs).where(eq(s.commentLogs.platform_comment_id, "cmt-w1"));
     expect(logs.length).toBe(1);
+  });
+
+  it("resolves and stores the post permalink, reusing it for later comments on the same post", async () => {
+    if (!TEST_DB) return;
+    provider.getPostUrl.mockClear();
+    const IG_CH = "eeeeeeee-0000-0000-0000-0000000000fd";
+    const IG_PAGE = "IG-PURL";
+    await db.insert(s.channels).values({ id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: IG_PAGE, token_encrypted: "x", webhook_secret: "spurl", status: "active" });
+    const post = "media-purl";
+    await w.processIncomingComment({ platform: "instagram", pageId: IG_PAGE, commentId: "cmt-purl-1", postId: post, senderId: "PURL-A", senderName: "A", text: "hi", timestamp: ts() }, helpers);
+    await w.processIncomingComment({ platform: "instagram", pageId: IG_PAGE, commentId: "cmt-purl-2", postId: post, senderId: "PURL-B", senderName: "B", text: "hi", timestamp: ts() }, helpers);
+    const logs = await db.select().from(s.commentLogs).where(eq(s.commentLogs.post_id, post));
+    expect(logs.length).toBe(2);
+    expect(logs.every((l) => l.post_url === `https://www.instagram.com/reel/${post}/`)).toBe(true);
+    // Second comment on the same post reuses the stored permalink instead of calling the API again.
+    expect(provider.getPostUrl).toHaveBeenCalledTimes(1);
   });
 
   // a comment on a fresh conversation is unread work for the operator; the inbox badge

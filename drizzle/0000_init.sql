@@ -170,6 +170,7 @@ CREATE TABLE "comment_logs" (
 	"channel_id" uuid NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"post_id" text,
+	"post_url" text,
 	"platform_comment_id" text NOT NULL,
 	"author_id" text,
 	"author_name" text,

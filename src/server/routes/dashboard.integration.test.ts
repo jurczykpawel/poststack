@@ -189,6 +189,27 @@ describe("dashboard inbox conversation controls", () => {
     expect(body).not.toContain("No messages yet");
   });
 
+  it("links an Instagram comment to its stored permalink (media id has no constructable URL)", async () => {
+    if (!TEST_DB) return;
+    const IG_CH = "dddddddd-0000-0000-0000-0000000000e1";
+    const IG_CONTACT = "dddddddd-0000-0000-0000-0000000000e2";
+    const IG_CONV = "dddddddd-0000-0000-0000-0000000000e3";
+    await db.insert(s.channels).values({ id: IG_CH, workspace_id: WS, platform: "instagram", platform_id: "IG-PERMA", display_name: "IG", token_encrypted: "x", webhook_secret: "se1", status: "active" });
+    await db.insert(s.contacts).values({ id: IG_CONTACT, workspace_id: WS, display_name: "Iga" });
+    await db.insert(s.conversations).values({
+      id: IG_CONV, workspace_id: WS, channel_id: IG_CH, contact_id: IG_CONTACT, platform: "instagram",
+      thread_type: "comment", thread_ref: "18115367134699712",
+    });
+    await db.insert(s.commentLogs).values({
+      channel_id: IG_CH, workspace_id: WS, conversation_id: IG_CONV, post_id: "18115367134699712",
+      post_url: "https://www.instagram.com/reel/DYuqTvIFHO2/",
+      platform_comment_id: "ig-cmt-1", author_id: "IG-SENDER", author_name: "iga", comment_text: "love this",
+    });
+    const body = await (await app.request(`/inbox/${IG_CONV}`, { headers: { cookie } })).text();
+    expect(body).toContain("love this");
+    expect(body).toContain("https://www.instagram.com/reel/DYuqTvIFHO2/"); // clickable permalink
+  });
+
   it("contacts view filters by channel + platform (auto-assignment)", async () => {
     if (!TEST_DB) return;
     const CH3 = "dddddddd-0000-0000-0000-0000000000d1";

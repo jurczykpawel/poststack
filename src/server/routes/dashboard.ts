@@ -197,8 +197,10 @@ type ThreadItem =
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
   | { kind: "comment"; id: string; text: string; postId: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
 
-/** A public URL for the post a comment was on, where the platform allows building one from the id.
- *  Instagram media ids don't map to a public URL without the shortcode (which we don't store). */
+/** Fallback public URL for the post a comment was on, built from the id alone. Used only when no
+ *  permalink was stored on the row (comment_logs.post_url). Facebook post ids resolve directly;
+ *  Instagram media ids carry no shortcode, so IG relies on the stored permalink (resolved at log
+ *  time by the incoming-comment worker) and gets no fallback here. */
 function postUrlFor(platform: string, postId: string | null): string | null {
   if (!postId) return null;
   if (platform === "youtube") return `https://www.youtube.com/watch?v=${encodeURIComponent(postId)}`;
@@ -367,13 +369,13 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       where: eq(commentLogs.conversation_id, conversationId),
       orderBy: desc(commentLogs.created_at),
       limit: 50,
-      columns: { id: true, comment_text: true, post_id: true, reply_text: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
+      columns: { id: true, comment_text: true, post_id: true, post_url: true, reply_text: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
     }),
   ]);
   const items: ThreadItem[] = [
     ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
-    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postUrl: postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
+    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];
   // Chronological ascending; interleaves comments, reactions and messages by time.
   return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());

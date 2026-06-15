@@ -131,6 +131,16 @@ export abstract class SocialProvider {
   ): Promise<void>;
 
   /**
+   * Resolve a post/media id to its public permalink.
+   * Optional — only platforms whose ids don't map to a URL by construction implement it
+   * (Instagram media ids carry no public-URL shortcode; Facebook post ids do, so it builds the
+   * URL at render time without a call). Best-effort: returns null when the platform has no
+   * permalink for the id. Used to make the "on post" link in the inbox clickable.
+   * @param postId - Platform-native post/media id
+   */
+  getPostUrl?(tokens: TokenData, postId: string): Promise<string | null>;
+
+  /**
    * Whether a user follows the connected business account.
    * Used by the follow-gate. Optional — only platforms with a follow graph
    * implement it (Instagram). Platforms without one leave the gate open.

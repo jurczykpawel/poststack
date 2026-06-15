@@ -41,3 +41,31 @@ describe("InstagramProvider.subscribePageWebhooks", () => {
     expect(fields).toContain("messaging_postbacks");
   });
 });
+
+describe("InstagramProvider.getPostUrl", () => {
+  it("resolves a media id to its public permalink", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify({ permalink: "https://www.instagram.com/reel/DYuqTvIFHO2/" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const ig = new InstagramProvider();
+    const url = await ig.getPostUrl({ access_token: "tok" }, "18115367134699712");
+
+    expect(url).toBe("https://www.instagram.com/reel/DYuqTvIFHO2/");
+    const call = calls.find((c) => c.url.includes("18115367134699712"))!;
+    expect(call.url).toContain("fields=permalink");
+    expect(call.url).toContain("access_token=tok");
+  });
+
+  it("returns null when the API omits a permalink", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: "18115367134699712" }), { status: 200, headers: { "content-type": "application/json" } }),
+    ) as typeof fetch;
+    const ig = new InstagramProvider();
+    expect(await ig.getPostUrl({ access_token: "tok" }, "18115367134699712")).toBeNull();
+  });
+});

@@ -248,6 +248,21 @@ export class InstagramProvider extends SocialProvider {
     return { platformMessageId: data.id ?? null };
   }
 
+  /**
+   * Resolve an IG media id to its public permalink (`https://www.instagram.com/(p|reel|tv)/<code>/`).
+   * IG media ids carry no shortcode, so the only reliable source is the API's `permalink` field.
+   */
+  override async getPostUrl(tokens: TokenData, mediaId: string): Promise<string | null> {
+    const res = await fetch(
+      `${GRAPH_API}/${mediaId}?` +
+        new URLSearchParams({ fields: "permalink", access_token: tokens.access_token }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    await assertMetaOk(res, "Instagram get post url");
+    const data = (await res.json().catch(() => ({}))) as { permalink?: string };
+    return data.permalink ?? null;
+  }
+
   override async sendPrivateReply(
     tokens: TokenData,
     commentId: string,
