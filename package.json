@@ -32,7 +32,7 @@
     "aws4fetch": "^1.0.20",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
-    "graphile-worker": "^0.16.6",
+    "graphile-worker": "^0.17.2",
     "hono": "^4.12.23",
     "jose": "6.2.3",
     "pg": "^8.20.0",
