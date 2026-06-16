@@ -2,7 +2,7 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, gt, asc, desc, ilike, like, exists, inArray, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, gt, asc, desc, ilike, like, exists, inArray, isNotNull, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
@@ -38,7 +38,8 @@ import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
-import { listBrands } from "@/lib/brands/service";
+import { listBrands, type BrandRow } from "@/lib/brands/service";
+import { btn } from "../ui/components/button";
 import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
@@ -810,8 +811,30 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features, products),
       );
     }
-    const [posts, dms] = await Promise.all([loadEngagement(a.workspaceId), loadMessageReactions(a.workspaceId)]);
-    return c.html(dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", renderEngagement(posts, dms), features, products));
+    const brandParam = c.req.query("brand") || "all";
+    const channelParam = c.req.query("channel") || "all";
+    const [wsChannels, brands] = await Promise.all([loadInboxChannels(a.workspaceId), listBrands(a.workspaceId)]);
+    // Resolve the brand/account filter to a concrete channel-id set (null = all, [] = nothing).
+    let channelIds: string[] | null = null;
+    if (channelParam !== "all") {
+      channelIds = wsChannels.some((ch) => ch.id === channelParam) ? [channelParam] : [];
+    } else if (brandParam !== "all") {
+      const key = brandParam === "__unassigned__" ? null : brandParam;
+      channelIds = wsChannels.filter((ch) => (ch.brand_key ?? null) === key).map((ch) => ch.id);
+    }
+    const [posts, dms] = await Promise.all([
+      loadEngagement(a.workspaceId, channelIds),
+      loadMessageReactions(a.workspaceId, channelIds),
+    ]);
+    return c.html(
+      dashboardDoc(
+        t("title.suffix", { section: "Engagement" }),
+        "/engagement",
+        renderEngagement(posts, dms, { channels: wsChannels, brands, brand: brandParam, channel: channelParam }),
+        features,
+        products,
+      ),
+    );
   });
 
   app.get("/contacts/list", guard, async (c) => {
@@ -1384,16 +1407,18 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // own channels so the log is tenant-correct.
     const wsChannels = await db.query.channels.findMany({
       where: eq(channels.workspace_id, a.workspaceId),
-      columns: { id: true },
+      columns: { id: true, display_name: true, username: true },
     });
     const channelIds = wsChannels.map((ch) => ch.id);
+    // Which connected account each event belongs to (webhook_events stores only channel_id).
+    const channelLabel = new Map(wsChannels.map((ch) => [ch.id, ch.display_name ?? ch.username ?? null] as const));
     const [rows, alertWebhook] = await Promise.all([
       channelIds.length
         ? db.query.webhookEvents.findMany({
             where: inArray(webhookEvents.channel_id, channelIds),
             orderBy: [desc(webhookEvents.received_at)],
             limit: 100,
-            columns: { id: true, platform: true, event_type: true, field: true, handling_status: true, received_at: true, error_detail: true },
+            columns: { id: true, channel_id: true, platform: true, event_type: true, field: true, handling_status: true, received_at: true, error_detail: true },
           })
         : Promise.resolve([]),
       getAlertWebhook(a.workspaceId),
@@ -1427,10 +1452,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="wh-detail"></div>
           ${rows.length === 0
             ? html`<p class="muted">No webhook events received yet. They appear here once your connected pages send activity.</p>`
-            : html`<table><thead><tr><th>Platform</th><th>Event</th><th>Status</th><th>Detail</th><th>When</th><th></th></tr></thead>
+            : html`<table><thead><tr><th>Platform</th><th>Channel</th><th>Event</th><th>Status</th><th>Detail</th><th>When</th><th></th></tr></thead>
                 <tbody>${rows.map(
                   (e) => html`<tr>
                     <td>${PLATFORM_LABELS[e.platform ?? ""] ?? e.platform ?? "—"}</td>
+                    <td class="muted" style="font-size:.82rem">${channelLabel.get(e.channel_id ?? "") ?? "—"}</td>
                     <td class="muted" style="font-size:.8rem">${e.event_type}${e.field ? ` · ${e.field}` : ""}</td>
                     <td><span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span></td>
                     <td class="muted" style="font-size:.78rem">${e.handling_status === "error" && e.error_detail ? html`<span style="color:var(--bad-text)">${e.error_detail}</span>` : e.field ? e.field : "—"}</td>
@@ -1813,54 +1839,83 @@ const REACTION_EMOJI: Record<string, string> = {
 
 type EngagementPost = { postId: string; channelName: string | null; total: number; lastAt: Date; byType: Array<{ type: string; n: number }>; reactors: string[] };
 
-/** Group post reactions by post → per-type counts + a few reactor names. Identity-free shape is
- *  not required here (Engagement IS the PRO view), but we cap the reactor list for readability. */
-async function loadEngagement(workspaceId: string): Promise<EngagementPost[]> {
-  const rows = await db
+/** Number of top posts (by reaction count) the Engagement table shows. */
+const ENGAGEMENT_POST_LIMIT = 200;
+
+/**
+ * Group post reactions by post → accurate per-type counts + a few reactor names, optionally scoped to
+ * a set of channels. Aggregated in SQL (`GROUP BY post_id, channel_id, reaction_type`) so the totals
+ * reflect EVERY reaction — the old "fetch latest 1000 raw rows, then group" undercounted any post with
+ * heavy engagement (e.g. 10k reactions across a few posts showed as ≤1000). `channelIds === null` =
+ * all channels; `[]` = filtered to nothing.
+ */
+async function loadEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
+  if (channelIds && channelIds.length === 0) return [];
+  const where = and(
+    eq(postReactions.workspace_id, workspaceId),
+    channelIds ? inArray(postReactions.channel_id, channelIds) : undefined,
+  );
+
+  const agg = await db
     .select({
-      post_id: postReactions.post_id,
-      reaction_type: postReactions.reaction_type,
-      reactor_name: postReactions.reactor_name,
-      created_at: postReactions.created_at,
+      postId: postReactions.post_id,
+      channelId: postReactions.channel_id,
+      type: postReactions.reaction_type,
+      n: sql<number>`count(*)::int`,
+      lastAt: sql<Date>`max(${postReactions.created_at})`,
     })
     .from(postReactions)
-    .where(eq(postReactions.workspace_id, workspaceId))
-    .orderBy(desc(postReactions.created_at))
-    .limit(1000);
+    .where(where)
+    .groupBy(postReactions.post_id, postReactions.channel_id, postReactions.reaction_type);
 
-  const byPost = new Map<string, { total: number; types: Map<string, number>; reactors: string[]; lastAt: Date }>();
-  for (const r of rows) {
-    let p = byPost.get(r.post_id);
-    if (!p) byPost.set(r.post_id, (p = { total: 0, types: new Map(), reactors: [], lastAt: r.created_at }));
-    p.total++;
-    if (r.created_at > p.lastAt) p.lastAt = r.created_at;
-    p.types.set(r.reaction_type, (p.types.get(r.reaction_type) ?? 0) + 1);
-    if (r.reactor_name && p.reactors.length < 8 && !p.reactors.includes(r.reactor_name)) p.reactors.push(r.reactor_name);
+  // A small sample of reactor names per post (distinct), for the "Who" column.
+  const reactorRows = await db
+    .selectDistinct({ postId: postReactions.post_id, name: postReactions.reactor_name })
+    .from(postReactions)
+    .where(and(where, isNotNull(postReactions.reactor_name)));
+  const reactorsByPost = new Map<string, string[]>();
+  for (const r of reactorRows) {
+    if (!r.name) continue;
+    const arr = reactorsByPost.get(r.postId) ?? [];
+    if (arr.length < 8) arr.push(r.name);
+    reactorsByPost.set(r.postId, arr);
   }
-  // Resolve the owning page for each post: FB post ids are `{pageId}_{postId}`, and the page id is a
-  // facebook channel's platform_id — so we can show the page name instead of just a raw id.
-  const fbChannels = await db.query.channels.findMany({
-    where: and(eq(channels.workspace_id, workspaceId), eq(channels.platform, "facebook")),
-    columns: { platform_id: true, display_name: true },
+
+  const byPost = new Map<string, { channelId: string; total: number; types: Map<string, number>; lastAt: Date }>();
+  for (const r of agg) {
+    let p = byPost.get(r.postId);
+    if (!p) byPost.set(r.postId, (p = { channelId: r.channelId, total: 0, types: new Map(), lastAt: r.lastAt }));
+    p.total += r.n;
+    p.types.set(r.type, (p.types.get(r.type) ?? 0) + r.n);
+    if (r.lastAt > p.lastAt) p.lastAt = r.lastAt;
+  }
+
+  // Resolve the owning channel name from channel_id (every post_reaction carries it).
+  const chans = await db.query.channels.findMany({
+    where: eq(channels.workspace_id, workspaceId),
+    columns: { id: true, display_name: true, username: true },
   });
-  const pageName = new Map(fbChannels.map((ch) => [ch.platform_id, ch.display_name] as const));
+  const chanName = new Map(chans.map((ch) => [ch.id, ch.display_name ?? ch.username ?? null] as const));
+
   return [...byPost.entries()]
     .map(([postId, p]) => ({
       postId,
-      channelName: pageName.get(postId.split("_")[0] ?? "") ?? null,
+      channelName: chanName.get(p.channelId) ?? null,
       total: p.total,
       lastAt: p.lastAt,
       byType: [...p.types.entries()].map(([type, n]) => ({ type, n })).sort((a, b) => b.n - a.n),
-      reactors: p.reactors,
+      reactors: reactorsByPost.get(postId) ?? [],
     }))
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => b.total - a.total)
+    .slice(0, ENGAGEMENT_POST_LIMIT);
 }
 
 type DmReaction = { who: string; platform: string; emoji: string; type: string; at: Date };
 
 /** Reactions left on OUR direct messages (the only reaction signal Instagram delivers over webhooks;
  *  Facebook DMs too). Joined to the contact for a display name and the channel for the platform. */
-async function loadMessageReactions(workspaceId: string): Promise<DmReaction[]> {
+async function loadMessageReactions(workspaceId: string, channelIds: string[] | null): Promise<DmReaction[]> {
+  if (channelIds && channelIds.length === 0) return [];
   const rows = await db
     .select({
       type: messageReactions.reaction_type,
@@ -1872,7 +1927,10 @@ async function loadMessageReactions(workspaceId: string): Promise<DmReaction[]> 
     .from(messageReactions)
     .leftJoin(contacts, eq(contacts.id, messageReactions.contact_id))
     .leftJoin(channels, eq(channels.id, messageReactions.channel_id))
-    .where(eq(messageReactions.workspace_id, workspaceId))
+    .where(and(
+      eq(messageReactions.workspace_id, workspaceId),
+      channelIds ? inArray(messageReactions.channel_id, channelIds) : undefined,
+    ))
     .orderBy(desc(messageReactions.created_at))
     .limit(50);
   return rows.map((r) => ({
@@ -1884,10 +1942,43 @@ async function loadMessageReactions(workspaceId: string): Promise<DmReaction[]> 
   }));
 }
 
-function renderEngagement(posts: EngagementPost[], dms: DmReaction[]): Html {
+interface EngagementFilter {
+  channels: InboxChannel[];
+  brands: BrandRow[];
+  brand: string;
+  channel: string;
+}
+
+/** Brand + account filter bar for Engagement. Plain GET form (CSP-safe, no inline JS): picking a
+ *  brand scopes to all its channels; picking a specific channel/account wins over the brand. */
+function engagementFilterBar(f: EngagementFilter): Html {
+  if (f.channels.length === 0) return html``;
+  const anyUnassigned = f.channels.some((ch) => !ch.brand_key);
+  return html`<form method="get" action="/engagement" class="row" style="gap:.5rem;align-items:center;margin:.5rem 0 1rem;flex-wrap:wrap">
+    <label class="muted" style="font-size:.82rem">Brand
+      <select name="brand" style="margin-left:.35rem">
+        <option value="all" ${f.brand === "all" ? "selected" : ""}>All brands</option>
+        ${f.brands.map((b) => html`<option value="${b.key}" ${f.brand === b.key ? "selected" : ""}>${b.name}</option>`)}
+        ${anyUnassigned ? html`<option value="__unassigned__" ${f.brand === "__unassigned__" ? "selected" : ""}>Unassigned</option>` : ""}
+      </select>
+    </label>
+    <label class="muted" style="font-size:.82rem">Account
+      <select name="channel" style="margin-left:.35rem">
+        <option value="all" ${f.channel === "all" ? "selected" : ""}>All accounts</option>
+        ${renderInboxChannelOptions(f.channels, f.channel)}
+      </select>
+    </label>
+    ${btn({ label: "Filter", variant: "secondary", size: "sm", attrs: 'type="submit"' })}
+    ${f.brand !== "all" || f.channel !== "all" ? html`<a class="btn btn-sm" href="/engagement">Clear</a>` : ""}
+  </form>`;
+}
+
+function renderEngagement(posts: EngagementPost[], dms: DmReaction[], filter: EngagementFilter): Html {
   return html`<div class="page">
     <h1>Engagement</h1>
     <p class="muted">Who reacted to your posts and messages.</p>
+
+    ${engagementFilterBar(filter)}
 
     <p class="muted" style="margin:.25rem 0 1rem">
       <strong>Platform coverage:</strong> Facebook delivers <em>post</em> reactions (shown below).

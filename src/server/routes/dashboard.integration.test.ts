@@ -711,4 +711,67 @@ describe("channels — managed connection section", () => {
     const derived = await db.query.channels.findMany({ where: eq(s.channels.source_id, src!.id) });
     expect(derived).toHaveLength(2);
   });
+
+  // ── ENGAGE2: webhooks channel column + engagement accurate totals + brand/account filter ────────
+  it("/webhooks shows which connected account each event belongs to", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ display_name: "Acme Page" }).where(eq(s.channels.id, CH));
+    await db.insert(s.webhookEvents).values({
+      event_key: `wh-${Date.now()}`,
+      channel_id: CH,
+      platform: "facebook",
+      event_type: "post_reaction",
+      field: "feed",
+      handling_status: "recorded",
+      raw: {},
+    });
+    const body = await (await app.request("/webhooks", { headers: { cookie } })).text();
+    expect(body).toContain("<th>Channel</th>");
+    expect(body).toContain("Acme Page");
+  });
+
+  it("/engagement totals reflect EVERY reaction, not a capped sample (the >1000 undercount bug)", async () => {
+    if (!TEST_DB) return;
+    const N = 1200;
+    await db.insert(s.postReactions).values(
+      Array.from({ length: N }, (_, i) => ({
+        workspace_id: WS,
+        channel_id: CH,
+        post_id: "PG-D_bigpost",
+        reactor_id: `r${i}`,
+        reactor_name: `User ${i}`,
+        reaction_type: "like",
+      })),
+    );
+    const body = await (await app.request("/engagement", { headers: { cookie } })).text();
+    // Old code fetched only the latest 1000 raw rows before grouping → total would cap at 1000.
+    expect(body).toContain("<strong>1200</strong>");
+  });
+
+  it("/engagement filters post reactions by account and by brand", async () => {
+    if (!TEST_DB) return;
+    const CH2 = "dddddddd-0000-0000-0000-0000000000b9";
+    await db.insert(s.brands).values([
+      { workspace_id: WS, key: "acme", name: "Acme" },
+      { workspace_id: WS, key: "globex", name: "Globex" },
+    ]);
+    await db.update(s.channels).set({ brand_key: "acme" }).where(eq(s.channels.id, CH));
+    await db.insert(s.channels).values({ id: CH2, workspace_id: WS, platform: "facebook", platform_id: "PG-E", display_name: "Globex Page", brand_key: "globex", token_encrypted: "x", webhook_secret: "s2", status: "active" });
+    await db.insert(s.postReactions).values([
+      { workspace_id: WS, channel_id: CH, post_id: "PG-D_acmepost", reactor_id: "a1", reaction_type: "like" },
+      { workspace_id: WS, channel_id: CH2, post_id: "PG-E_globexpost", reactor_id: "g1", reaction_type: "love" },
+    ]);
+
+    const all = await (await app.request("/engagement", { headers: { cookie } })).text();
+    expect(all).toContain("PG-D_acmepost");
+    expect(all).toContain("PG-E_globexpost");
+
+    const byAccount = await (await app.request(`/engagement?channel=${CH2}`, { headers: { cookie } })).text();
+    expect(byAccount).toContain("PG-E_globexpost");
+    expect(byAccount).not.toContain("PG-D_acmepost");
+
+    const byBrand = await (await app.request("/engagement?brand=acme", { headers: { cookie } })).text();
+    expect(byBrand).toContain("PG-D_acmepost");
+    expect(byBrand).not.toContain("PG-E_globexpost");
+  });
 });
