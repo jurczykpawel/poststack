@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@playwright/test": "^1.49.1",
+    "@playwright/test": "^1.61.0",
     "@types/node": "25.5.0",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
