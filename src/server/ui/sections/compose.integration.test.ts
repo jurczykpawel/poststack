@@ -168,6 +168,36 @@ describe("unified Compose section", () => {
     expect((p.auto_reply as { dmText?: string } | null)?.dmText).toBe("Here you go!");
   });
 
+  it("renders the Publish section (draft / now / schedule)", async () => {
+    if (!TEST_DB) return;
+    const out = await (await app.request("/compose", { headers: { cookie } })).text();
+    expect(out).toContain("Save as draft");
+    expect(out).toContain("Publish now");
+    expect(out).toContain("Schedule");
+  });
+
+  it("POST with publish.mode=now still creates the draft + redirects (publish attempted best-effort)", async () => {
+    if (!TEST_DB) return;
+    const payload = {
+      brand: "techskills.academy",
+      title: "Publish-from-compose",
+      contentType: "reel",
+      mediaUrl: "https://cdn/reel.mp4",
+      baseDescription: "Base",
+      posts: [{ platform: "instagram" }],
+      publish: { mode: "now" },
+    };
+    const res = await app.request("/compose", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ payload: JSON.stringify(payload) }),
+    });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toMatch(/^\/content\/[0-9a-f-]+$/);
+    const id = res.headers.get("location")!.split("/").pop()!;
+    expect((await db.query.posts.findMany({ where: eq(posts.content_id, id) }))).toHaveLength(1);
+  });
+
   it("rejects a malformed payload with 400", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/compose", {

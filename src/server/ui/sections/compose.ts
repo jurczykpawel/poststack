@@ -7,9 +7,9 @@ import { getInstanceLicense } from "@/lib/license/gate";
 import { listBrands } from "@/lib/brands/service";
 import { resolveBrandSlots } from "@/lib/brands/resolve";
 import { composeContent } from "@/lib/content/compose";
+import { publishPosts } from "@/lib/content/publish-batch";
 import { autoReplyInput } from "@/lib/content/schemas";
 import { renderPage } from "../layout";
-import { btn } from "../components/button";
 import { platformLabel } from "../components/platform";
 
 type Html = ReturnType<typeof html>;
@@ -35,6 +35,10 @@ const composeSchema = z.object({
       }),
     )
     .min(1),
+  // COMPOSE3: publish straight from the composer. "draft" just saves; "now"/"schedule" also publish.
+  publish: z
+    .object({ mode: z.enum(["draft", "now", "schedule"]).default("draft"), at: z.string().max(40).optional() })
+    .optional(),
 });
 
 const CONTENT_TYPES: [string, string][] = [
@@ -73,6 +77,9 @@ function composeScript(): Html {
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
         brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
         sel: {},
+        publishMode: "draft", scheduleAt: "",
+        minAt() { return new Date(Date.now() + 60000).toISOString().slice(0, 16); },
+        submitLabel() { return this.publishMode === "now" ? "Publish now →" : this.publishMode === "schedule" ? "Schedule →" : "Create & open publish →"; },
         get availPlatforms() { return this.brand && this.brands[this.brand] ? this.brands[this.brand].platforms : []; },
         get hasBrands() { return this.brandList.length > 0; },
         STORY: { facebook: true, instagram: true },
@@ -97,7 +104,7 @@ function composeScript(): Html {
         selectedPlatforms() { return this.availPlatforms.filter((p) => this.sel[p.platform] && this.sel[p.platform].on); },
         isImage() { return /\\.(png|jpe?g|gif|webp|avif)(\\?|$)/i.test(this.mediaUrl); },
         previewImg() { return this.coverUrl || (this.isImage() ? this.mediaUrl : ""); },
-        canSubmit() { return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length); },
+        canSubmit() { return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
         buildPayload() {
           return {
             brand: this.brand, title: this.title.trim(), contentType: this.type,
@@ -114,6 +121,7 @@ function composeScript(): Html {
               }
               return post;
             }),
+            publish: { mode: this.publishMode, at: this.publishMode === "schedule" ? new Date(this.scheduleAt).toISOString() : undefined },
           };
         },
         onSubmit(e) {
@@ -229,9 +237,21 @@ function composePage(
             </div>
           </section>
 
+          <section class="panel" x-show="brand" x-cloak>
+            <div class="panel-head"><h3>Publish</h3></div>
+            <div class="compose-publish">
+              <label class="compose-toggle"><input type="radio" name="pmode" value="draft" x-model="publishMode" /><span>Save as draft <small>— configure &amp; publish later</small></span></label>
+              <label class="compose-toggle"><input type="radio" name="pmode" value="now" x-model="publishMode" /><span>Publish now <small>— to every selected channel</small></span></label>
+              <label class="compose-toggle"><input type="radio" name="pmode" value="schedule" x-model="publishMode" /><span>Schedule</span></label>
+              <template x-if="publishMode === 'schedule'">
+                <label class="fld"><span>When</span><input type="datetime-local" x-model="scheduleAt" :min="minAt()" /></label>
+              </template>
+            </div>
+          </section>
+
           <div class="compose-actions">
-            ${btn({ label: "Create & open publish →", variant: "primary", attrs: 'type="submit" x-bind:disabled="!canSubmit()"' })}
-            <small class="compose-note">Saved as a draft — you publish or schedule on the next screen.</small>
+            <button class="btn btn-primary" type="submit" x-bind:disabled="!canSubmit()" x-text="submitLabel()"></button>
+            <small class="compose-note" x-text="publishMode === 'draft' ? 'Saved as a draft — you publish or schedule on the next screen.' : 'Automations (first comment, Auto-Story, auto-reply) fire on publish.'"></small>
           </div>
         </form>
 
@@ -282,7 +302,14 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     } catch {
       return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, "Could not read the form — please try again."), 400);
     }
-    const { contentId } = await composeContent(parsed, a.workspaceId);
+    const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
+    // COMPOSE3: publish straight from the composer when requested. Best-effort per post (the cockpit
+    // shows each post's resulting status); scheduling validates the timestamp in publishPost.
+    const mode = parsed.publish?.mode ?? "draft";
+    if (mode === "now" || mode === "schedule") {
+      const when = mode === "schedule" ? (parsed.publish?.at ?? "now") : "now";
+      await publishPosts(postIds, when, a.workspaceId);
+    }
     return c.redirect(`/content/${contentId}`, 303);
   });
 }

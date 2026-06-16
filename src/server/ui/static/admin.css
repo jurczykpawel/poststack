@@ -899,6 +899,7 @@ select.ps-native-hidden { display: none !important; }
 .compose-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-1); cursor: pointer; }
 .compose-toggle input { accent-color: var(--accent); }
 .compose-autoreply { display: flex; flex-direction: column; gap: 6px; }
+.compose-publish { display: flex; flex-direction: column; gap: 8px; }
 
 .compose-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 4px; }
 .compose-note { color: var(--text-3); }
