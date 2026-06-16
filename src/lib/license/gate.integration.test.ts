@@ -1,6 +1,9 @@
+import { createHash } from "crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { makeTestKey, makeClaims, type TestKey } from "@/lib/license/__fixtures__/keys";
 import type { JwksKey } from "@/lib/license/format";
+
+const sha256Hex = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
 // Real-Postgres integration for the license store + gate. Required env is set
 // before the dynamic imports so the validated env singleton picks it up.
@@ -19,12 +22,18 @@ let badKey: TestKey;
 function jwksFetch(keys: JwksKey[]): (url: string) => Promise<Response> {
   return async () => new Response(JSON.stringify({ keys }), { status: 200 });
 }
-// Routes by URL: the JWKS path gets keys, the revocation path gets the revoked-order list.
+// Routes by URL: the JWKS path gets keys, the revocation path gets the CRL bucket. Mirrors the
+// real server: hashes the revoked order ids and returns only those whose SHA-256 matches the
+// requested hex `prefix` (k-anonymity range query).
 function fetchWith(keys: JwksKey[], revoked: string[] = []): (url: string) => Promise<Response> {
-  return async (url: string) =>
-    url.includes("/revoked")
-      ? new Response(JSON.stringify({ orders: revoked }), { status: 200 })
-      : new Response(JSON.stringify({ keys }), { status: 200 });
+  return async (url: string) => {
+    if (url.includes("/revoked")) {
+      const prefix = new URL(url).searchParams.get("prefix") ?? "";
+      const order_hashes = revoked.map(sha256Hex).filter((h) => h.startsWith(prefix));
+      return new Response(JSON.stringify({ order_hashes }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ keys }), { status: 200 });
+  };
 }
 const failFetch = async () => {
   throw new Error("jwks unreachable");

@@ -5,7 +5,7 @@
 import { env } from "@/lib/env";
 import { verifyLicense, hostFromUrl, type JwksKey, type Claims } from "@/lib/license/format";
 import { getJwks, parseJwksJson } from "@/lib/license/jwks";
-import { getRevocations } from "@/lib/license/revocation";
+import { getRevocations, orderHash, REVOCATION_PREFIX_LENGTH } from "@/lib/license/revocation";
 import { tierFeatures, featureArea, proMessage, LIMITS, type Feature, type LimitKind } from "@/lib/license/features";
 import { normalizeTier } from "@/lib/license/tiers";
 import { AREAS, slugAreas, isArea, type Area } from "@/lib/license/areas";
@@ -113,8 +113,14 @@ async function jwksFallback(): Promise<JwksKey[]> {
  *  an unreachable CRL never revokes a valid token. Disabled when no revocation URL is set. */
 async function isRevoked(order: string, opts: RefreshOpts): Promise<boolean> {
   if (!env.LICENSE_REVOCATION_URL) return false;
-  const { orders } = await getRevocations({ url: env.LICENSE_REVOCATION_URL, fetchImpl: opts.fetchImpl });
-  return orders.has(order);
+  // k-anonymity: hash our own order, ask only for that hash's prefix bucket, match locally.
+  const hash = orderHash(order);
+  const { hashes } = await getRevocations({
+    url: env.LICENSE_REVOCATION_URL,
+    prefix: hash.slice(0, REVOCATION_PREFIX_LENGTH),
+    fetchImpl: opts.fetchImpl,
+  });
+  return hashes.has(hash);
 }
 
 /** Re-resolves and re-verifies the license from scratch, persists, and caches. */
