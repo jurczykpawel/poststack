@@ -398,6 +398,8 @@ CREATE TABLE "messages" (
 	"sent_by_flow_id" uuid,
 	"sent_by_user_id" uuid,
 	"status" "message_status" DEFAULT 'sent' NOT NULL,
+	"delivered_at" timestamp (3),
+	"read_at" timestamp (3),
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint

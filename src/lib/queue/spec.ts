@@ -17,6 +17,8 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   "outgoing-comment": 3,
   "outgoing-first-comment": 3,
   "publish-story": 3,
+  "incoming-echo": 3,
+  "incoming-receipt": 3,
   "outgoing-private-reply": 3,
   "follow-gate": 3,
   "token-refresh": 3,

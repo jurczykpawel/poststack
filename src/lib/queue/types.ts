@@ -60,6 +60,35 @@ export interface PublishStoryJob {
   idempotencyKey?: string;
 }
 
+/** THREADSYNC1: a message the PAGE sent that wasn't sent by us (FB app / Business Suite / n8n), echoed
+ *  back by Meta. Recorded as an OUTBOUND message in the thread so the conversation stays whole. Our own
+ *  sends are deduped away (we already recorded them) and confirmed against the delivery ledger. */
+export interface IncomingEchoJob {
+  platform: string;
+  pageId: string;
+  eventKey?: string;
+  /** The user the page messaged (recipient of the echoed message) — the thread this belongs to. */
+  recipientId: string;
+  /** Platform-native id of the echoed message. */
+  mid: string;
+  text: string | null;
+  timestamp: number;
+}
+
+/** THREADSYNC1: a Messenger delivery/read receipt — marks our OUTBOUND messages delivered/seen in the
+ *  thread. `watermark` (epoch ms) = everything up to it is delivered/read; `mids` (delivery only) are
+ *  specific delivered message ids. */
+export interface IncomingReceiptJob {
+  platform: string;
+  pageId: string;
+  eventKey?: string;
+  /** The user who received/read our messages — identifies the conversation. */
+  userId: string;
+  kind: "delivered" | "read";
+  watermark: number;
+  mids?: string[];
+}
+
 /** Comment-to-DM: a private reply addressed by comment_id (first-touch DM). */
 export interface OutgoingPrivateReplyJob {
   channelId: string;
@@ -195,6 +224,8 @@ export type TaskPayloadMap = {
   "outgoing-comment": OutgoingCommentJob;
   "outgoing-first-comment": OutgoingFirstCommentJob;
   "publish-story": PublishStoryJob;
+  "incoming-echo": IncomingEchoJob;
+  "incoming-receipt": IncomingReceiptJob;
   "outgoing-private-reply": OutgoingPrivateReplyJob;
   "follow-gate": FollowGateJob;
   "token-refresh": TokenRefreshJob;

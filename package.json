@@ -1,6 +1,6 @@
 {
   "name": "poststack",
-  "version": "0.4.14",
+  "version": "0.4.15",
   "private": false,
   "license": "AGPL-3.0",
   "description": "Self-hosted, open-source social media inbox automation. Alternative to ManyChat.",

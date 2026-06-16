@@ -7,6 +7,8 @@ import { processOutgoingMessage } from "@/lib/workers/outgoing-message-worker";
 import { processOutgoingComment } from "@/lib/workers/outgoing-comment-worker";
 import { processOutgoingFirstComment } from "@/lib/workers/outgoing-first-comment-worker";
 import { processPublishStory } from "@/lib/workers/publish-story-worker";
+import { processIncomingEcho } from "@/lib/workers/incoming-echo-worker";
+import { processIncomingReceipt } from "@/lib/workers/incoming-receipt-worker";
 import { processOutgoingPrivateReply } from "@/lib/workers/outgoing-private-reply-worker";
 import { processFollowGate } from "@/lib/workers/follow-gate-worker";
 import { processTokenRefresh } from "@/lib/workers/token-refresh-worker";
@@ -38,6 +40,10 @@ export function createTaskList(): TaskList {
       processOutgoingFirstComment(p as TaskPayloadMap["outgoing-first-comment"], h),
     "publish-story": (p, h) =>
       processPublishStory(p as TaskPayloadMap["publish-story"], h),
+    "incoming-echo": (p, h) =>
+      processIncomingEcho(p as TaskPayloadMap["incoming-echo"], h),
+    "incoming-receipt": (p, h) =>
+      processIncomingReceipt(p as TaskPayloadMap["incoming-receipt"], h),
     "outgoing-private-reply": (p, h) =>
       processOutgoingPrivateReply(p as TaskPayloadMap["outgoing-private-reply"], h),
     "follow-gate": (p, h) =>

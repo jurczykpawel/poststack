@@ -401,6 +401,10 @@ export const messages = pgTable("messages", {
 	sent_by_flow_id: uuid("sent_by_flow_id"),
 	sent_by_user_id: uuid("sent_by_user_id"),
 	status: messageStatus().default('sent').notNull(),
+	// THREADSYNC1: Messenger delivery/read receipts (message_deliveries / message_reads) stamp these on
+	// our OUTBOUND messages so the thread can show ✓✓ Delivered / Seen. NULL = not yet acknowledged.
+	delivered_at: timestamp("delivered_at", { precision: 3, mode: 'date' }),
+	read_at: timestamp("read_at", { precision: 3, mode: 'date' }),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	index("messages_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast(), table.created_at.asc().nullsLast()),

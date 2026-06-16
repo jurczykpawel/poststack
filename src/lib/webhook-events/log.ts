@@ -11,7 +11,10 @@ import type { Platform } from "@/db/schema";
 export interface ClassifiedEvent {
   log: LogEventInput;
   /** Set for handled types → enqueue this task with this jobKey; null → log only (no job). */
-  job: { task: "incoming-message" | "incoming-comment" | "incoming-reaction" | "incoming-post-reaction"; jobKey: string } | null;
+  job: {
+    task: "incoming-message" | "incoming-comment" | "incoming-reaction" | "incoming-post-reaction" | "incoming-echo" | "incoming-receipt";
+    jobKey: string;
+  } | null;
   /** When the logged row should land terminal immediately instead of `received`: `unhandled` for a
    *  recognized type with no handler, `ignored` for a malformed event that can't be processed. */
   terminalStatus?: "unhandled" | "ignored";
@@ -40,8 +43,8 @@ export interface MetaMessagingEvent {
   postback?: { payload: string; title?: string };
   reaction?: { mid: string; action: string; emoji?: string; reaction?: string };
   optin?: unknown;
-  read?: unknown;
-  delivery?: unknown;
+  read?: { watermark?: number };
+  delivery?: { mids?: string[]; watermark?: number };
 }
 
 export interface MetaChangeEvent {
@@ -72,12 +75,13 @@ export function classifyMessagingEvent(
   const recipientId = evt.recipient?.id ?? null;
   const base = { platform, object, sender_id: senderId, recipient_id: recipientId, raw: evt as unknown };
 
-  // Echo of one of OUR sent messages, echoed back by Meta. Logged for delivery confirmation, never
-  // enqueued as an inbound message.
+  // Echo of a message the PAGE sent, echoed back by Meta. THREADSYNC1: enqueued so the worker confirms
+  // our own delivery AND records a message sent from elsewhere (FB app / Business Suite / n8n) into the
+  // thread, keeping the conversation whole. The worker dedups our own already-recorded sends.
   if (evt.message?.is_echo) {
     return {
       log: { ...base, event_key: `echo-${evt.message.mid}`, event_type: "echo", platform_message_id: evt.message.mid, is_echo: true },
-      job: null,
+      job: { task: "incoming-echo", jobKey: `echo-${evt.message.mid}` },
     };
   }
 
@@ -125,11 +129,29 @@ export function classifyMessagingEvent(
     };
   }
 
-  // Recognized-but-unhandled messaging shapes (optin / read receipt / delivery receipt). Logged so
-  // support can inspect them; no handler exists, so no job. A synthetic key keeps the row unique.
+  // THREADSYNC1: read + delivery receipts mark our outbound messages seen / delivered in the thread.
+  // A receipt is only actionable with a sender (whose conversation it scopes) and a watermark.
+  if (evt.read) {
+    const key = `seen-${senderId}-${evt.timestamp}`;
+    const actionable = !!(senderId && typeof evt.read.watermark === "number");
+    return {
+      log: { ...base, event_key: key, event_type: "seen" },
+      job: actionable ? { task: "incoming-receipt", jobKey: key } : null,
+      ...(actionable ? {} : { terminalStatus: "unhandled" as const }),
+    };
+  }
+  if (evt.delivery) {
+    const key = `delivery-${senderId}-${evt.timestamp}`;
+    const actionable = !!(senderId && (typeof evt.delivery.watermark === "number" || (evt.delivery.mids?.length ?? 0) > 0));
+    return {
+      log: { ...base, event_key: key, event_type: "delivery" },
+      job: actionable ? { task: "incoming-receipt", jobKey: key } : null,
+      ...(actionable ? {} : { terminalStatus: "unhandled" as const }),
+    };
+  }
+
+  // Recognized-but-unhandled messaging shapes (optin). Logged for inspection; no handler.
   if (evt.optin) return unhandledMessaging(base, `optin-${senderId}-${evt.timestamp}`, "optin");
-  if (evt.read) return unhandledMessaging(base, `seen-${senderId}-${evt.timestamp}`, "seen");
-  if (evt.delivery) return unhandledMessaging(base, `delivery-${senderId}-${evt.timestamp}`, "delivery");
 
   // Anything else: a wholly-unknown messaging shape. Log it under a content hash so the row is
   // stable + unique, for later inspection. No job.

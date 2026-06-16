@@ -13,6 +13,7 @@ let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let POST: typeof import("./route").POST;
 let processIncomingMessage: typeof import("@/lib/workers/incoming-message-worker").processIncomingMessage;
+let processIncomingEcho: typeof import("@/lib/workers/incoming-echo-worker").processIncomingEcho;
 let processIncomingComment: typeof import("@/lib/workers/incoming-comment-worker").processIncomingComment;
 let processOutgoingPrivateReply: typeof import("@/lib/workers/outgoing-private-reply-worker").processOutgoingPrivateReply;
 let processFollowGate: typeof import("@/lib/workers/follow-gate-worker").processFollowGate;
@@ -43,6 +44,7 @@ beforeAll(async () => {
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ POST } = await import("./route"));
   ({ processIncomingMessage } = await import("@/lib/workers/incoming-message-worker"));
+  ({ processIncomingEcho } = await import("@/lib/workers/incoming-echo-worker"));
   ({ processIncomingComment } = await import("@/lib/workers/incoming-comment-worker"));
   ({ processOutgoingPrivateReply } = await import("@/lib/workers/outgoing-private-reply-worker"));
   ({ processFollowGate } = await import("@/lib/workers/follow-gate-worker"));
@@ -370,7 +372,7 @@ describe("webhook_events logging completeness (real Postgres)", () => {
     expect(all[0].platform_message_id).toBe("RMID");
   });
 
-  it("logs an echo as event_type=echo, is_echo=true, no incoming job", async () => {
+  it("logs an echo as event_type=echo and enqueues an incoming-echo job (THREADSYNC1)", async () => {
     if (!TEST_DB) return;
     await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: PAGE }, recipient: { id: PSID }, timestamp: 1_770_000_000_000, message: { mid: "ECHO_MID", text: "our reply", is_echo: true } }] }] }));
     const all = await rows();
@@ -378,10 +380,13 @@ describe("webhook_events logging completeness (real Postgres)", () => {
     expect(all[0].event_type).toBe("echo");
     expect(all[0].is_echo).toBe(true);
     expect(all[0].platform_message_id).toBe("ECHO_MID");
-    // an echo with no matching delivery is ignored (not a received message job).
-    expect(all[0].handling_status).toBe("ignored");
-    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
-    expect(job.rows[0].n).toBe(0);
+    // Echo now enqueues a worker job (confirm our send + record into the thread); the edge logs it
+    // `received` and the worker resolves it — no inline confirm at the edge.
+    expect(all[0].handling_status).toBe("received");
+    const echoJob = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-echo'");
+    expect(echoJob.rows[0].n).toBe(1);
+    const msgJob = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-message'");
+    expect(msgJob.rows[0].n).toBe(0);
   });
 
   it("logs an unreact as event_type=reaction_remove with handling_status=unhandled, no job", async () => {
@@ -439,14 +444,19 @@ describe("webhook_events logging completeness (real Postgres)", () => {
     }
   });
 
-  it("an echo whose mid matches a delivery confirms it + links + ignores", async () => {
+  it("an echo whose mid matches a delivery confirms it + links + ignores (via the incoming-echo worker)", async () => {
     if (!TEST_DB) return;
     // Seed a sent delivery with a known platform_message_id on this channel.
     await db.insert(outboundDeliveries).values({
       delivery_key: "dk-echo-1", workspace_id: WS, channel_id: CH, task_name: "outgoing-message",
       status: "sent", payload: {}, platform_message_id: "ECHO_MATCH",
     });
+    // Edge enqueues the incoming-echo job; the worker performs the confirmation (THREADSYNC1).
     await POST(signed({ object: "page", entry: [{ id: PAGE, messaging: [{ sender: { id: PAGE }, recipient: { id: PSID }, timestamp: 1_770_000_000_003, message: { mid: "ECHO_MATCH", text: "x", is_echo: true } }] }] }));
+    await runOnce({
+      connectionString: TEST_DB,
+      taskList: { "incoming-echo": async (p, h) => processIncomingEcho(p as Parameters<typeof processIncomingEcho>[0], h) },
+    });
     const del = await db.select().from(outboundDeliveries).where(eq(outboundDeliveries.delivery_key, "dk-echo-1"));
     expect(del[0].confirmed_by_echo_at).toBeTruthy();
     const ev = await db.select().from(webhookEvents).where(eq(webhookEvents.event_key, "echo-ECHO_MATCH"));

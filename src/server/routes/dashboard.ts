@@ -197,7 +197,7 @@ function renderInboxChannelOptions(chans: InboxChannel[], channelId: string): Ht
 // small centered note; a comment is the post-anchored event that may have triggered an auto-DM/reply;
 // a message is a DM bubble. New channels add item kinds without changing the renderer's shape.
 type ThreadItem =
-  | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date }
+  | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date; deliveredAt?: Date | null; readAt?: Date | null }
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
   | { kind: "comment"; id: string; text: string; postId: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
 
@@ -244,7 +244,16 @@ function renderMessages(items: ThreadItem[], threadType: "dm" | "comment" = "dm"
         </div>
       </div>`;
     }
-    return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div></div>`;
+    // THREADSYNC1: outbound delivery/read status from Messenger receipts (Seen wins over Delivered).
+    const receipt =
+      it.direction === "outbound"
+        ? it.readAt
+          ? html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">Seen ${timeAgo(it.readAt)}</div>`
+          : it.deliveredAt
+            ? html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">✓✓ Delivered</div>`
+            : html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">✓ Sent</div>`
+        : html``;
+    return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div>${receipt}</div>`;
   })}`;
 }
 
@@ -361,7 +370,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       where: eq(messages.conversation_id, conversationId),
       orderBy: desc(messages.created_at),
       limit: 50,
-      columns: { id: true, direction: true, text: true, created_at: true },
+      columns: { id: true, direction: true, text: true, created_at: true, delivered_at: true, read_at: true },
     }),
     db.query.messageReactions.findMany({
       where: eq(messageReactions.conversation_id, conversationId),
@@ -378,7 +387,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
     }),
   ]);
   const items: ThreadItem[] = [
-    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at })),
+    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
     ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];

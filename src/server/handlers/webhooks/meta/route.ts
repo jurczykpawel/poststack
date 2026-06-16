@@ -8,8 +8,7 @@ import { rateLimit } from "@/lib/api/rate-limit";
 import { addJob } from "@/lib/queue/client";
 import { logEvent, markEventStatus } from "@/lib/idempotency";
 import { classifyMessagingEvent, classifyChangeEvent } from "@/lib/webhook-events/log";
-import { confirmEcho } from "@/lib/webhook-events/echo";
-import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob, IncomingPostReactionJob } from "@/lib/queue/types";
+import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob, IncomingPostReactionJob, IncomingEchoJob, IncomingReceiptJob } from "@/lib/queue/types";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 export const runtime = "nodejs";
@@ -107,16 +106,14 @@ export async function POST(request: Request) {
   for (const entry of payload.entry ?? []) {
     const channelId = channelByPage.get(entry.id) ?? null;
 
-    // Every messaging event → one log row (handled, unhandled, echo) — never dropped.
+    // Every messaging event → one log row (handled, unhandled, echo) — never dropped. Echo +
+    // delivery/read receipts now enqueue jobs (THREADSYNC1: confirm/record into the thread), so the
+    // edge no longer needs a post-log step.
     for (const evt of entry.messaging ?? []) {
       const classified = classifyMessagingEvent(evt as Parameters<typeof classifyMessagingEvent>[0], platform, entry.id, payload.object);
       if (!classified) continue;
       const enqueueMessaging = () => enqueueFromClassified(classified, evt as MessagingEvent, entry.id, platform);
-      failed += await processClassified(classified, channelId, enqueueMessaging, async () => {
-        if (classified.log.event_type === "echo" && classified.log.platform_message_id) {
-          await confirmEcho(classified.log.event_key, classified.log.platform_message_id, channelId);
-        }
-      });
+      failed += await processClassified(classified, channelId, enqueueMessaging);
     }
 
     // Every change event (comments + everything else) → one log row.
@@ -226,6 +223,32 @@ async function enqueueFromClassified(
       timestamp: Math.floor(evt.timestamp / 1000),
     };
     await addJob("incoming-reaction", job, { jobKey: eventKey });
+    return;
+  }
+
+  // THREADSYNC1: echo of a page-sent message → record it into the thread (and confirm our own sends).
+  if (classified.log.event_type === "echo") {
+    const job: IncomingEchoJob = {
+      platform, pageId, eventKey,
+      recipientId: evt.recipient!.id,
+      mid: evt.message!.mid,
+      text: evt.message?.text ?? null,
+      timestamp: Math.floor(evt.timestamp / 1000),
+    };
+    await addJob("incoming-echo", job, { jobKey: eventKey });
+    return;
+  }
+
+  // THREADSYNC1: read / delivery receipt → mark our outbound messages seen / delivered.
+  if (classified.log.event_type === "seen" || classified.log.event_type === "delivery") {
+    const job: IncomingReceiptJob = {
+      platform, pageId, eventKey,
+      userId: evt.sender!.id,
+      kind: classified.log.event_type === "seen" ? "read" : "delivered",
+      watermark: evt.read?.watermark ?? evt.delivery?.watermark ?? 0,
+      mids: evt.delivery?.mids,
+    };
+    await addJob("incoming-receipt", job, { jobKey: eventKey });
     return;
   }
 
@@ -374,6 +397,8 @@ interface MessagingEvent {
     emoji?: string;
     reaction?: string;
   };
+  read?: { watermark?: number };
+  delivery?: { mids?: string[]; watermark?: number };
 }
 
 interface ChangeEvent {

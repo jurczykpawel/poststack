@@ -35,6 +35,8 @@ let w: {
   processFollowGate: typeof import("./follow-gate-worker").processFollowGate;
   processSequenceStep: typeof import("./sequence-step-worker").processSequenceStep;
   processTokenRefresh: typeof import("./token-refresh-worker").processTokenRefresh;
+  processIncomingEcho: typeof import("./incoming-echo-worker").processIncomingEcho;
+  processIncomingReceipt: typeof import("./incoming-receipt-worker").processIncomingReceipt;
 };
 let TokenInvalidError: typeof import("@/lib/platforms/errors").TokenInvalidError;
 let MessagingPolicyError: typeof import("@/lib/platforms/errors").MessagingPolicyError;
@@ -74,6 +76,8 @@ beforeAll(async () => {
     processFollowGate: (await import("./follow-gate-worker")).processFollowGate,
     processSequenceStep: (await import("./sequence-step-worker")).processSequenceStep,
     processTokenRefresh: (await import("./token-refresh-worker")).processTokenRefresh,
+    processIncomingEcho: (await import("./incoming-echo-worker")).processIncomingEcho,
+    processIncomingReceipt: (await import("./incoming-receipt-worker")).processIncomingReceipt,
   };
   ({ TokenInvalidError, MessagingPolicyError, RateLimitError } = await import("@/lib/platforms/errors"));
   ({ closeQueue } = await import("@/lib/queue/client"));
@@ -1842,5 +1846,56 @@ describe("alert triggers (real Postgres)", () => {
       ).rejects.toThrow();
     }
     expect(alerts.filter((a) => a.type === "delivery_failed" && a.channel_id === CH).length).toBe(1);
+  });
+});
+
+describe("incoming-echo worker (THREADSYNC1)", () => {
+  it("records a page-sent echo as an outbound message in the thread, idempotently", async () => {
+    if (!TEST_DB) return;
+    const job = { platform: "facebook", pageId: PAGE, recipientId: PSID, mid: "echo-1", text: "reply from the FB app", timestamp: ts() };
+    await w.processIncomingEcho(job as never, helpers);
+    await w.processIncomingEcho(job as never, helpers); // dedup
+
+    const rows = await db.query.messages.findMany({
+      where: and(eq(s.messages.conversation_id, CONV), eq(s.messages.platform_message_id, "echo-1")),
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.direction).toBe("outbound");
+    expect(rows[0]!.text).toBe("reply from the FB app");
+    expect(rows[0]!.delivered_at).not.toBeNull(); // an echo means it left Meta → delivered
+  });
+
+  it("does not duplicate one of our own already-recorded sends (same mid)", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.messages).values({ conversation_id: CONV, direction: "outbound", text: "our send", platform_message_id: "echo-2" });
+    await w.processIncomingEcho({ platform: "facebook", pageId: PAGE, recipientId: PSID, mid: "echo-2", text: "our send", timestamp: ts() } as never, helpers);
+    const rows = await db.query.messages.findMany({ where: and(eq(s.messages.conversation_id, CONV), eq(s.messages.platform_message_id, "echo-2")) });
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe("incoming-receipt worker (THREADSYNC1)", () => {
+  it("stamps delivered_at, then read_at (read implies delivered), on outbound messages", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.messages).values({ conversation_id: CONV, direction: "outbound", text: "hi there", platform_message_id: "out-r1" });
+    const future = Date.now() + 60_000;
+
+    await w.processIncomingReceipt({ platform: "facebook", pageId: PAGE, userId: PSID, kind: "delivered", watermark: future } as never, helpers);
+    let m = await db.query.messages.findFirst({ where: eq(s.messages.platform_message_id, "out-r1") });
+    expect(m!.delivered_at).not.toBeNull();
+    expect(m!.read_at).toBeNull();
+
+    await w.processIncomingReceipt({ platform: "facebook", pageId: PAGE, userId: PSID, kind: "read", watermark: future } as never, helpers);
+    m = await db.query.messages.findFirst({ where: eq(s.messages.platform_message_id, "out-r1") });
+    expect(m!.read_at).not.toBeNull();
+    expect(m!.delivered_at).not.toBeNull();
+  });
+
+  it("does not stamp inbound messages or messages newer than the watermark", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.messages).values({ conversation_id: CONV, direction: "inbound", text: "their msg", platform_message_id: "in-r1" });
+    await w.processIncomingReceipt({ platform: "facebook", pageId: PAGE, userId: PSID, kind: "read", watermark: Date.now() - 60_000 } as never, helpers);
+    const m = await db.query.messages.findFirst({ where: eq(s.messages.platform_message_id, "in-r1") });
+    expect(m!.read_at).toBeNull(); // inbound, and before-watermark guard
   });
 });
