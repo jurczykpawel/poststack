@@ -267,6 +267,21 @@ describe("dashboard inbox conversation controls", () => {
     expect(await res.text()).toContain("reacted ❤️");
   });
 
+  it("shows the Meta 24h-window heads-up in the composer when the window has closed", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ last_inbound_at: new Date(Date.now() - 48 * 60 * 60 * 1000) }).where(eq(s.conversations.id, CONV));
+    const body = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
+    expect(body).toContain("human-agent");
+  });
+
+  it("shows no window heads-up while the conversation is well within the 24h window", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ last_inbound_at: new Date() }).where(eq(s.conversations.id, CONV));
+    const body = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
+    expect(body).not.toContain("human-agent");
+    expect(body).not.toContain("window closes in");
+  });
+
   it("renders a comment in its thread (not 'No messages yet') with post + auto-DM status", async () => {
     if (!TEST_DB) return;
     const COMMENT_CONV = "dddddddd-0000-0000-0000-0000000000c1";

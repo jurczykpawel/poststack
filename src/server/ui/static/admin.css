@@ -1055,6 +1055,7 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .notice-err { background: var(--bad-bg); color: var(--bad-text); border: 1px solid var(--bad); }
 .notice-ok { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok); }
 .notice-info { background: var(--info-bg); color: var(--text-1); border: 1px solid var(--info); }
+.notice-warn { background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--warn); }
 .list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
 .list-row { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); }
 .list-row:last-child { border-bottom: 0; }

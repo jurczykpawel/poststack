@@ -994,6 +994,29 @@ describe("outgoing-message worker", () => {
     expect(sent[0].platform_message_id).toBe("PMID-1");
   });
 
+  // Meta 24h messaging window → HUMAN_AGENT tag for human replies sent past it.
+  it("manual reply WITHIN the 24h window → no HUMAN_AGENT tag (standard RESPONSE)", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ last_inbound_at: new Date() }).where(eq(s.conversations.id, CONV));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-win-in", isManual: true }) as never, helpers);
+    expect(provider.sendMessage).toHaveBeenCalled();
+    expect((provider.sendMessage.mock.calls[0] as unknown[])[3]).toBeUndefined();
+  });
+
+  it("manual reply PAST the 24h window → sends with the HUMAN_AGENT tag", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ last_inbound_at: new Date(Date.now() - 48 * 60 * 60 * 1000) }).where(eq(s.conversations.id, CONV));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-win-out", isManual: true }) as never, helpers);
+    expect((provider.sendMessage.mock.calls[0] as unknown[])[3]).toEqual({ messagingTag: "HUMAN_AGENT" });
+  });
+
+  it("automated reply past the window does NOT use the HUMAN_AGENT tag (bots stay RESPONSE)", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ last_inbound_at: new Date(Date.now() - 48 * 60 * 60 * 1000) }).where(eq(s.conversations.id, CONV));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-win-auto" }) as never, helpers);
+    expect((provider.sendMessage.mock.calls[0] as unknown[])[3]).toBeUndefined();
+  });
+
   it("holds (not fails) when the channel breaker is open (needs_reauth)", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ status: "needs_reauth" }).where(eq(s.channels.id, CH));

@@ -5,6 +5,7 @@ import {
   type ConnectedAccount,
   type MessageContent,
   type SentMessage,
+  type SendMessageOptions,
 } from "./base";
 import { expectedPageFields } from "./webhook-fields";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
@@ -144,11 +145,16 @@ export class FacebookProvider extends SocialProvider {
   async sendMessage(
     tokens: TokenData,
     recipientId: string,
-    content: MessageContent
+    content: MessageContent,
+    opts?: SendMessageOptions
   ): Promise<SentMessage> {
     const body: Record<string, unknown> = {
       recipient: { id: recipientId },
-      messaging_type: "RESPONSE",
+      // Outside the 24h window a human reply rides the HUMAN_AGENT tag (valid up to 7 days);
+      // otherwise the standard RESPONSE type. See ./messaging-window.
+      ...(opts?.messagingTag
+        ? { messaging_type: "MESSAGE_TAG", tag: opts.messagingTag }
+        : { messaging_type: "RESPONSE" }),
       // Messenger renders image_url on quick replies.
       message: buildMessageObject(content, { allowQuickReplyImages: true }),
     };

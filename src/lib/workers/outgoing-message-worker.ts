@@ -7,6 +7,7 @@ import { channels, messages, conversations, contacts } from "@/db/schema";
 import { encryptTokens } from "@/lib/crypto";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
+import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 
 /**
@@ -26,6 +27,21 @@ export async function processOutgoingMessage(
   // (set by the manual-reply endpoint) OR `sentByUserId` — an API-key reply nulls sentByUserId yet
   // is still a human action, so sentByUserId alone would wrongly gate it.
   const isHumanReply = !!isManual || !!sentByUserId;
+
+  // Meta 24h window: a human reply past the standard window must ride the HUMAN_AGENT tag (valid up
+  // to 7 days). Auto-replies always stay RESPONSE — bots may not use HUMAN_AGENT, and they fire
+  // inside the window anyway. Read the conversation's window anchor (`last_inbound_at`) at send time.
+  const conv = await db.query.conversations.findFirst({
+    where: eq(conversations.id, conversationId),
+    columns: { platform: true, thread_type: true, last_inbound_at: true },
+  });
+  const useHumanAgentTag =
+    isHumanReply &&
+    messagingWindowState({
+      platform: conv?.platform ?? "",
+      threadType: conv?.thread_type,
+      lastInboundAt: conv?.last_inbound_at ?? null,
+    }).useHumanAgentTag;
 
   // Consent re-check at delivery time: the contact may have unsubscribed in the window
   // between enqueue and send, so re-read it here — the other DM-producing paths (sequence-step,
@@ -88,7 +104,12 @@ export async function processOutgoingMessage(
         }
       }
 
-      const sent = await provider.sendMessage(tokens, recipientPlatformId, content);
+      const sent = await provider.sendMessage(
+        tokens,
+        recipientPlatformId,
+        content,
+        useHumanAgentTag ? { messagingTag: "HUMAN_AGENT" } : undefined,
+      );
       return { platformMessageId: sent.platformMessageId };
     },
     onSent: async (tx, platformMessageId) => {

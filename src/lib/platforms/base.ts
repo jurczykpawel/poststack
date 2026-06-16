@@ -47,6 +47,16 @@ export interface SentMessage {
   platformMessageId: string | null;
 }
 
+export interface SendMessageOptions {
+  /**
+   * Meta message tag. When set, the send uses `messaging_type: MESSAGE_TAG` with this tag instead
+   * of the default `RESPONSE`. `HUMAN_AGENT` lets a human operator reply up to 7 days after the
+   * user's last message (vs the 24h RESPONSE window) — see {@link ./messaging-window}. Non-Meta
+   * providers ignore it.
+   */
+  messagingTag?: "HUMAN_AGENT";
+}
+
 /**
  * Base class for all social media platform providers.
  * Each platform implements this interface.
@@ -101,7 +111,8 @@ export abstract class SocialProvider {
   abstract sendMessage(
     tokens: TokenData,
     recipientId: string,
-    content: MessageContent
+    content: MessageContent,
+    opts?: SendMessageOptions
   ): Promise<SentMessage>;
 
   /**

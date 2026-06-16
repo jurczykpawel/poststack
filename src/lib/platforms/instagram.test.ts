@@ -75,3 +75,23 @@ describe("InstagramProvider.getPostUrl", () => {
     expect(await ig.getPostUrl({ access_token: "tok" }, "18115367134699712")).toBeNull();
   });
 });
+
+describe("InstagramProvider.sendMessage messaging window", () => {
+  const send = (call: { init?: RequestInit }) => JSON.parse(call.init!.body as string);
+
+  it("defaults to messaging_type RESPONSE (within the 24h window)", async () => {
+    const ig = new InstagramProvider();
+    await ig.sendMessage({ access_token: "tok" }, "PSID-1", { text: "hi" });
+    const body = send(calls.find((c) => c.url.includes("/me/messages"))!);
+    expect(body.messaging_type).toBe("RESPONSE");
+    expect(body.tag).toBeUndefined();
+  });
+
+  it("uses MESSAGE_TAG + HUMAN_AGENT when the tag is requested (past the 24h window)", async () => {
+    const ig = new InstagramProvider();
+    await ig.sendMessage({ access_token: "tok" }, "PSID-1", { text: "late reply" }, { messagingTag: "HUMAN_AGENT" });
+    const body = send(calls.find((c) => c.url.includes("/me/messages"))!);
+    expect(body.messaging_type).toBe("MESSAGE_TAG");
+    expect(body.tag).toBe("HUMAN_AGENT");
+  });
+});

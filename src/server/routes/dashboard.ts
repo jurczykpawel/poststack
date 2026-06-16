@@ -9,6 +9,7 @@ import {
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
   pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, users,
 } from "@/db/schema";
+import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { truncateCodePoints } from "@/lib/text";
@@ -98,6 +99,8 @@ const CONV_QUERY = {
     last_message_preview: true, unread_count: true, thread_type: true, thread_ref: true,
     // Surfaced as inbox controls / indicators.
     is_automation_paused: true, needs_manual_reply: true, assigned_to: true,
+    // Meta 24h-window anchor — drives the composer window indicator.
+    last_inbound_at: true,
   },
   with: {
     channel: { columns: { id: true, display_name: true, platform: true } },
@@ -257,7 +260,7 @@ function renderMessages(items: ThreadItem[], threadType: "dm" | "comment" = "dm"
   })}`;
 }
 
-type ConvControls = { id: string; status: string; thread_type: "dm" | "comment"; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; channel: { display_name: string | null; platform: string } };
+type ConvControls = { id: string; platform: string; status: string; thread_type: "dm" | "comment"; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; last_inbound_at: Date | null; channel: { display_name: string | null; platform: string } };
 
 const STATUS_LABEL: Record<string, string> = { open: "Open", closed: "Closed", snoozed: "Snoozed" };
 const STATUS_TIP: Record<string, string> = {
@@ -301,10 +304,17 @@ function renderThread(
   opts: { error?: string; draft?: string; canReply?: boolean; upgradeUrl?: string } = {},
 ): Html {
   const canReply = opts.canReply ?? true;
+  // Meta 24h-window heads-up: warn when the standard window is closing/closed (the send still goes —
+  // a human reply past 24h rides the HUMAN_AGENT tag, see ./messaging-window + the outgoing worker).
+  const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at });
+  const windowNote = canReply && windowState.label
+    ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem">${windowState.label}</div>`
+    : html``;
   return html`<div class="thread-head">${contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
     ${renderConvControls(conv)}
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type)}</div>
+    ${windowNote}
     ${canReply
       ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
           <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
