@@ -39,6 +39,7 @@ import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
 import { listBrands, type BrandRow } from "@/lib/brands/service";
+import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSubscriptionStatus } from "@/lib/channels/subscription-status";
 import { btn } from "../ui/components/button";
 import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
@@ -1465,6 +1466,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   </tr>`,
                 )}</tbody></table>`}
 
+          <h2 style="margin-top:1.5rem">🔌 Subscriptions — what each connected account is set to receive</h2>
+          <p class="muted" style="font-size:.85rem">PostStack auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
+          <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML">
+            <p class="muted" style="font-size:.82rem">Checking subscriptions…</p>
+          </div>
+
           <h2 style="margin-top:1.5rem">⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
           <p class="muted" style="font-size:.85rem">A proactive POST we send to <em>your</em> endpoint (Slack, n8n, email relay…) when a connection needs re-auth or nears expiry — so you find out before publishing breaks.</p>
           ${!canAlerts
@@ -1489,6 +1496,27 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   // Clear the inbound-event detail panel (Close button).
   app.get("/webhooks/clear", guard, (c) => c.html(html``));
+
+  // WEBHOOKSUB1: per-account subscription status panel (lazy-loaded — does live Graph reads).
+  // Registered BEFORE /webhooks/:id so the static path isn't captured by the :id param.
+  app.get("/webhooks/subscriptions", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const statuses = await loadSubscriptionStatuses(a.workspaceId);
+    return c.html(renderSubscriptionPanel(statuses));
+  });
+
+  // Re-apply the canonical subscription for one channel (the Fix / Re-apply button), then re-render
+  // the whole panel so every row reflects the new state.
+  app.post("/webhooks/subscriptions/:id/fix", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return c.text("not found", 404);
+    await reconcileChannelSubscription(a.workspaceId, id).catch(() => {});
+    const statuses = await loadSubscriptionStatuses(a.workspaceId);
+    return c.html(renderSubscriptionPanel(statuses));
+  });
 
   // Full detail for one inbound webhook event — raw payload + what it triggered. Tenant-scoped: the
   // event must belong to one of this workspace's channels (webhook_events has no workspace_id).
@@ -2022,6 +2050,38 @@ function renderEngagement(posts: EngagementPost[], dms: DmReaction[], filter: En
             )}
           </tbody></table>`}
   </div>`;
+}
+
+/** WEBHOOKSUB1: per-account webhook subscription health (active vs missing fields) + a one-click Fix.
+ *  `message_reactions` may be subscribed yet undelivered by Meta until pages_messaging has Advanced
+ *  Access — so a present-but-noted hint is shown rather than implying a local misconfig. */
+function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
+  if (statuses.length === 0) {
+    return html`<p class="muted" style="font-size:.82rem">No Facebook/Instagram accounts connected yet.</p>`;
+  }
+  const fieldBadges = (fields: string[], tone: string) =>
+    fields.length ? html`${fields.map((f) => html`<span class="badge tone-${tone}" style="font-size:.7rem">${f}</span> `)}` : html`<span class="muted">—</span>`;
+  return html`<div id="wh-subs"><table><thead><tr><th>Account</th><th>Active</th><th>Missing</th><th></th></tr></thead>
+    <tbody>${statuses.map(
+      (s) => html`<tr>
+        <td>
+          <div style="font-weight:600">${PLATFORM_LABELS[s.platform] ?? s.platform} · ${s.displayName ?? s.channelId}</div>
+          ${s.error
+            ? html`<div class="muted" style="font-size:.72rem;color:var(--bad-text)">${s.error}</div>`
+            : s.ok
+              ? html`<div class="muted" style="font-size:.72rem">✅ Fully subscribed</div>`
+              : html`<div class="muted" style="font-size:.72rem">⚠️ Missing ${s.missing.length} field(s)</div>`}
+          ${s.active.includes("message_reactions")
+            ? html`<div class="muted" style="font-size:.68rem">ℹ️ message_reactions is subscribed but Meta only delivers it once <code>pages_messaging</code> has Advanced Access (App Review).</div>`
+            : ""}
+        </td>
+        <td style="max-width:22rem">${fieldBadges(s.active, "ok")}</td>
+        <td style="max-width:18rem">${fieldBadges(s.missing, "warn")}</td>
+        <td>${s.missing.length
+          ? html`<button class="btn btn-sm" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML">Fix</button>`
+          : html`<button class="btn btn-sm" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML" title="Re-apply the full subscription">Re-apply</button>`}</td>
+      </tr>`,
+    )}</tbody></table></div>`;
 }
 
 interface OverviewPublishing {

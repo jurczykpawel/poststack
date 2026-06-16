@@ -713,6 +713,17 @@ describe("channels — managed connection section", () => {
   });
 
   // ── ENGAGE2: webhooks channel column + engagement accurate totals + brand/account filter ────────
+  it("/webhooks/subscriptions renders the per-account subscription panel", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ display_name: "Acme Page" }).where(eq(s.channels.id, CH));
+    const res = await app.request("/webhooks/subscriptions", { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Acme Page"); // the FB channel appears in the panel
+    expect(body).toContain("Missing"); // header / status column present
+    // The seeded channel's token can't be decrypted (token_encrypted='x') → graceful error row, no Graph call.
+  });
+
   it("/webhooks shows which connected account each event belongs to", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ display_name: "Acme Page" }).where(eq(s.channels.id, CH));

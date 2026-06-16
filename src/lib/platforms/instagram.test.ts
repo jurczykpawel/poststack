@@ -29,18 +29,22 @@ afterEach(() => {
 });
 
 describe("InstagramProvider.subscribePageWebhooks", () => {
-  it("subscribes the `comments` field so IG media-comment automation fires", async () => {
+  it("subscribes the complete page-valid field set (echoes/reactions/receipts), without the invalid `comments` page field", async () => {
     const ig = new InstagramProvider();
     await ig.subscribePageWebhooks("PAGE-1", "page-token");
 
     const call = calls.find((c) => c.url.includes("/subscribed_apps"))!;
     expect(call).toBeDefined();
     const fields = JSON.parse(call.init!.body as string).subscribed_fields.split(",");
-    expect(fields).toContain("comments");
     expect(fields).toContain("messages");
     expect(fields).toContain("messaging_postbacks");
-    // ENGAGE3: DM-reaction webhooks (the only IG reaction signal) need this field subscribed.
     expect(fields).toContain("message_reactions");
+    expect(fields).toContain("message_echoes");
+    expect(fields).toContain("message_reads");
+    expect(fields).toContain("message_deliveries");
+    // `comments` is an `instagram`-object field, NOT a valid `page` field (Graph #100) — including it
+    // would fail the whole subscribed_apps POST. IG comments ride the app-level instagram subscription.
+    expect(fields).not.toContain("comments");
   });
 });
 

@@ -6,6 +6,7 @@ import {
   type MessageContent,
   type SentMessage,
 } from "./base";
+import { expectedPageFields } from "./webhook-fields";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { fetchAllManagedPages } from "./meta-graph";
@@ -265,15 +266,9 @@ export class FacebookProvider extends SocialProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        subscribed_fields: [
-          "messages",
-          "messaging_postbacks",
-          "messaging_optins",
-          // Reactions left on the DMs we send (the Engagement "Message reactions" signal). Without
-          // this field the page never delivers them, so message_reactions stays empty.
-          "message_reactions",
-          "feed",
-        ].join(","),
+        // WEBHOOKSUB1: complete page field set from the single source of truth, so a connect always
+        // auto-configures the full set (echoes / reactions / receipts), never a partial subscription.
+        subscribed_fields: expectedPageFields("facebook").join(","),
         access_token: pageAccessToken,
       }),
       redirect: "error",

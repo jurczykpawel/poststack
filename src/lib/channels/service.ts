@@ -14,6 +14,7 @@ import { MetaTokenError, inspectMetaToken } from "@/lib/platforms/meta-token";
 import { decryptTokens } from "@/lib/crypto";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { markChannelHealthy, markChannelNeedsReauth } from "@/lib/channels/health";
+import { reconcileChannelSubscription, isSubscribablePlatform } from "@/lib/channels/subscription-status";
 import { ApiError } from "@/lib/api/response";
 
 const META_HEALTH_PLATFORMS = new Set(["facebook", "instagram"]);
@@ -290,6 +291,11 @@ export async function runHealthCheck(workspaceId: string, id: string): Promise<C
     const token = decryptTokens(ch.token_encrypted).access_token;
     await inspectMetaToken(token); // throws MetaTokenError on confirmed-bad; null = transient → leave alone
     await markChannelHealthy(id);
+    // WEBHOOKSUB1: keep the inbound subscription auto-configured to the complete field set on every
+    // healthy check, so a self-hosted instance never silently drifts to a partial subscription.
+    if (isSubscribablePlatform(ch.platform)) {
+      await reconcileChannelSubscription(workspaceId, id).catch(() => {});
+    }
     return "active";
   } catch (err) {
     if (err instanceof MetaTokenError) {

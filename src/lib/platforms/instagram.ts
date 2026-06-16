@@ -6,6 +6,7 @@ import {
   type MessageContent,
   type SentMessage,
 } from "./base";
+import { expectedPageFields } from "./webhook-fields";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { fetchAllManagedPages } from "./meta-graph";
@@ -349,18 +350,11 @@ export class InstagramProvider extends SocialProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // `comments` is required for IG media-comment webhooks (comment→DM / comment_keyword);
-        // `feed` only covers Facebook-native feed comments, so without this IG comment
-        // automation silently never fires.
-        subscribed_fields: [
-          "messages",
-          "messaging_postbacks",
-          // Reactions on the DMs we send — the only reaction signal IG delivers (it sends no post
-          // likes). Without this the Engagement "Message reactions" section can never populate.
-          "message_reactions",
-          "comments",
-          "feed",
-        ].join(","),
+        // WEBHOOKSUB1: complete page field set from the single source of truth. NOTE: `comments` is a
+        // `page` field only on paper — Graph rejects it (#100), so IG media-comment webhooks instead
+        // ride the APP-level `instagram` object subscription, not a page field. Sending it here would
+        // fail the whole subscribed_apps POST atomically, so it is intentionally excluded.
+        subscribed_fields: expectedPageFields("instagram").join(","),
         access_token: pageAccessToken,
       }),
       redirect: "error",

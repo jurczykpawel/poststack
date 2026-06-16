@@ -1,0 +1,53 @@
+// WEBHOOKSUB1: single source of truth for which Page webhook fields each platform needs subscribed.
+// Both the connect-time subscriber (`subscribePageWebhooks`) and the reconcile/status check read from
+// here, so a self-hosted PRO instance always auto-configures the COMPLETE set — never the partial set
+// that left message_echoes / reactions / receipts undelivered and required a manual re-subscribe.
+//
+// IMPORTANT: these are `page`-object subscribed_apps fields. `comments` is NOT a valid page field
+// (Graph #100 — it belongs to the `instagram` object app-level subscription); including it makes the
+// whole subscribed_apps POST fail atomically. IG media-comment webhooks arrive via the app-level
+// `instagram` object subscription, not a page field — so it is intentionally absent here.
+
+/** Page webhook fields ReplyStack/PostStack relies on. Ordered for stable display. */
+export const FACEBOOK_PAGE_FIELDS = [
+  "messages",
+  "messaging_postbacks",
+  "messaging_optins",
+  "message_echoes", // a message sent from elsewhere (FB app / Business Suite / n8n) → keep the thread whole
+  "message_reactions", // emoji reactions on our DMs (Engagement) — needs pages_messaging Advanced Access to actually deliver
+  "message_reads", // read receipts → "Seen" in the thread
+  "message_deliveries", // delivery receipts → ✓✓ in the thread
+  "feed", // post comments + post reactions/likes
+] as const;
+
+/** Instagram messaging is delivered through the linked Page's subscription, so the same page-valid
+ *  fields apply. IG comments come via the app-level `instagram` object subscription (not a page field). */
+export const INSTAGRAM_PAGE_FIELDS = [
+  "messages",
+  "messaging_postbacks",
+  "message_echoes",
+  "message_reactions",
+  "message_reads",
+  "message_deliveries",
+  "feed",
+] as const;
+
+export type Platform = "facebook" | "instagram";
+
+/** The expected page subscribed_fields for a platform (the auto-config target + reconcile baseline). */
+export function expectedPageFields(platform: Platform): readonly string[] {
+  return platform === "instagram" ? INSTAGRAM_PAGE_FIELDS : FACEBOOK_PAGE_FIELDS;
+}
+
+/** Diff a page's currently-subscribed fields against what the platform expects. */
+export function diffSubscribedFields(
+  platform: Platform,
+  current: readonly string[],
+): { active: string[]; missing: string[] } {
+  const expected = expectedPageFields(platform);
+  const cur = new Set(current);
+  return {
+    active: expected.filter((f) => cur.has(f)),
+    missing: expected.filter((f) => !cur.has(f)),
+  };
+}
