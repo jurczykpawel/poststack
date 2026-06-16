@@ -1171,6 +1171,11 @@ export const posts = pgTable("posts", {
 	media_urls: jsonb("media_urls").default([]).notNull(),
 	asset_status: text("asset_status"),
 	asset_notes: text("asset_notes"),
+	// COMPOSE1: per-post overrides for publish-time automations. NULL = inherit the channel default
+	// (channels.default_first_comment / default_auto_story); a non-null value overrides it for THIS
+	// post only (an empty first_comment string = explicitly "no first comment").
+	first_comment: text("first_comment"),
+	auto_story: boolean("auto_story"),
 	// UNIFY P2.2 (REPLYSTACK1 native): optional comment→DM auto-reply attached to this published post.
 	// On publish, the loop-back provisions an `auto_reply_rules` row scoped to the resulting media id.
 	// Shape validated by `autoReplySchema` (lib/autoreply/provision.ts); null = no auto-reply.

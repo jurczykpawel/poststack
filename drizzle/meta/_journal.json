@@ -8,6 +8,13 @@
       "when": 1781380397832,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781645472271,
+      "tag": "0001_compose_post_automations",
+      "breakpoints": true
     }
   ]
 }

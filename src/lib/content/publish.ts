@@ -123,6 +123,10 @@ export async function publishPost(
     media: [{ mediaId: media.id }],
     ...(caption ? { caption } : {}),
     options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}) },
+    // COMPOSE1: per-post automation overrides. Only set when explicitly chosen on the post — a null
+    // column leaves the field absent so the publish-worker falls back to the channel default.
+    ...(post.first_comment != null ? { firstComment: post.first_comment } : {}),
+    ...(post.auto_story != null ? { autoStory: post.auto_story } : {}),
   };
   const scheduledAt = (input.when === "now" ? new Date() : new Date(input.when)).toISOString();
   if (Number.isNaN(Date.parse(scheduledAt))) throw new ApiError("invalid_request", "Invalid when", 422);
