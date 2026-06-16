@@ -8,6 +8,7 @@ import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { ensureConversation, resolveContactId } from "./resolve-contact";
+import { resolveContactProfile } from "@/lib/contacts/profile";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
@@ -47,7 +48,7 @@ export async function processIncomingMessage(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true, status: true },
+    columns: { id: true, workspace_id: true, platform: true, status: true, token_encrypted: true },
   });
 
   if (!channel) {
@@ -61,7 +62,11 @@ export async function processIncomingMessage(
   //    dead-lettered the loser on a 23505. Activity (last_interaction_at) is bumped later,
   //    only for a newly-ingested newest message, so a redelivery doesn't move it — hence the
   //    contact is created with messageDate and NOT bumped here.
-  const { contactId } = await resolveContactId(channel, senderId, { lastInteractionAt: messageDate });
+  const { contactId, created } = await resolveContactId(channel, senderId, { lastInteractionAt: messageDate });
+
+  // A Meta DM webhook carries only the sender's id, not their name — so for a brand-new contact,
+  // resolve the public profile (name/avatar) once, best-effort, so the inbox shows a nick not a PSID.
+  if (created) await resolveContactProfile(channel, contactId, senderId);
 
   // 3. Ensure the conversation exists WITHOUT mutating its lifecycle (status/stats); those
   //    change only for a genuinely new, newest message (steps 5/6), so a redelivery can't

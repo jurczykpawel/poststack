@@ -47,6 +47,15 @@ export interface SentMessage {
   platformMessageId: string | null;
 }
 
+export interface UserProfile {
+  /** Display name as Meta knows the messaging user. */
+  name?: string;
+  /** Handle, where the platform exposes one (Instagram). */
+  username?: string;
+  /** Avatar URL. */
+  profilePicture?: string;
+}
+
 export interface SendMessageOptions {
   /**
    * Meta message tag. When set, the send uses `messaging_type: MESSAGE_TAG` with this tag instead
@@ -114,6 +123,17 @@ export abstract class SocialProvider {
     content: MessageContent,
     opts?: SendMessageOptions
   ): Promise<SentMessage>;
+
+  /**
+   * Resolve a messaging user's public profile (name/avatar) from their platform-native id.
+   * Meta DM webhooks carry only the sender's PSID/IGSID — no name — so the inbox would otherwise
+   * show the raw id; this fills it in. Optional + best-effort: implementers return null on any
+   * failure (permission, deleted user, …) rather than throwing, and platforms without a profile
+   * lookup (Telegram inbound carries the name already) omit it.
+   * @param tokens - Decrypted channel tokens
+   * @param userId - Platform-native user id (PSID / IGSID)
+   */
+  getUserProfile?(tokens: TokenData, userId: string): Promise<UserProfile | null>;
 
   /**
    * Post a public comment reply.

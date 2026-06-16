@@ -95,3 +95,22 @@ describe("InstagramProvider.sendMessage messaging window", () => {
     expect(body.tag).toBe("HUMAN_AGENT");
   });
 });
+
+describe("InstagramProvider.getUserProfile", () => {
+  it("resolves name + username + avatar for an IGSID", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify({ name: "Ada", username: "ada_ig", profile_pic: "https://x/a.jpg" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const ig = new InstagramProvider();
+    const p = await ig.getUserProfile({ access_token: "tok" }, "IGSID-1");
+    expect(p).toEqual({ name: "Ada", username: "ada_ig", profilePicture: "https://x/a.jpg" });
+    expect(calls[0].url).toContain("/IGSID-1?fields=name,username,profile_pic");
+  });
+
+  it("returns null on failure (best-effort)", async () => {
+    globalThis.fetch = vi.fn(async () => { throw new Error("net"); }) as typeof fetch;
+    const ig = new InstagramProvider();
+    expect(await ig.getUserProfile({ access_token: "t" }, "IGSID-2")).toBeNull();
+  });
+});

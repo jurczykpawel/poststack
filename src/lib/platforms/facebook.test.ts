@@ -46,3 +46,23 @@ describe("FacebookProvider.sendMessage messaging window", () => {
     expect(body.tag).toBe("HUMAN_AGENT");
   });
 });
+
+describe("FacebookProvider.getUserProfile", () => {
+  it("resolves name + avatar for a PSID via the page token", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify({ name: "Jan Kowalski", profile_pic: "https://x/p.jpg" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const fb = new FacebookProvider();
+    const p = await fb.getUserProfile({ access_token: "pagetok" }, "PSID-9");
+    expect(p).toEqual({ name: "Jan Kowalski", profilePicture: "https://x/p.jpg" });
+    expect(calls[0].url).toContain("/PSID-9?fields=name,profile_pic");
+    expect(calls[0].url).toContain("access_token=pagetok");
+  });
+
+  it("returns null (best-effort) on a non-200 — never throws", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("nope", { status: 400 })) as typeof fetch;
+    const fb = new FacebookProvider();
+    expect(await fb.getUserProfile({ access_token: "t" }, "PSID-X")).toBeNull();
+  });
+});

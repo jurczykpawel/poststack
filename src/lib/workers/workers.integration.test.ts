@@ -11,6 +11,7 @@ const provider = {
   sendPrivateReply: vi.fn(async () => {}),
   checkFollowsBusiness: vi.fn(async () => true),
   getPostUrl: vi.fn(async (_t: unknown, postId: string) => `https://www.instagram.com/reel/${postId}/`),
+  getUserProfile: vi.fn(async () => ({ name: "Jan Testowy", profilePicture: "https://x/a.jpg" })),
   refreshToken: vi.fn(async (t: unknown) => t),
 };
 vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
@@ -150,6 +151,19 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(c1?.status).toBe("open");
     await w.processIncomingMessage(job, helpers); // redelivery
     expect((await conv())?.unread_count).toBe(1);
+  });
+
+  it("resolves a new contact's Meta profile name/avatar (inbox shows a nick, not the PSID)", async () => {
+    if (!TEST_DB) return;
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "profile-SENDER", recipientId: PAGE, mid: "mid-prof", text: "hi", timestamp: ts() }, helpers);
+    const cc = await db.query.contactChannels.findFirst({
+      where: and(eq(s.contactChannels.channel_id, CH), eq(s.contactChannels.platform_sender_id, "profile-SENDER")),
+      columns: { contact_id: true },
+    });
+    const contact = await db.query.contacts.findFirst({ where: eq(s.contacts.id, cc!.contact_id), columns: { display_name: true, avatar_url: true } });
+    expect(provider.getUserProfile).toHaveBeenCalled();
+    expect(contact?.display_name).toBe("Jan Testowy");
+    expect(contact?.avatar_url).toBe("https://x/a.jpg");
   });
 
   it("deduplicates per conversation, not globally — the same id in two conversations is stored once each", async () => {

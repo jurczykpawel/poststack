@@ -6,6 +6,7 @@ import {
   type MessageContent,
   type SentMessage,
   type SendMessageOptions,
+  type UserProfile,
 } from "./base";
 import { expectedPageFields } from "./webhook-fields";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
@@ -231,6 +232,23 @@ export class InstagramProvider extends SocialProvider {
     // after acceptance and trigger a retry/double-send; treat it as sent, id unknown.
     const data = (await res.json().catch(() => ({}))) as { message_id?: string };
     return { platformMessageId: data.message_id ?? null };
+  }
+
+  /** Resolve an IGSID's public profile (name/username/avatar). Best-effort: null on any failure so a
+   *  name lookup never blocks message processing. */
+  async getUserProfile(tokens: TokenData, userId: string): Promise<UserProfile | null> {
+    try {
+      const res = await fetch(
+        `${GRAPH_API}/${encodeURIComponent(userId)}?fields=name,username,profile_pic&access_token=${encodeURIComponent(tokens.access_token)}`,
+        { redirect: "error", signal: AbortSignal.timeout(10_000) },
+      );
+      if (!res.ok) return null;
+      const d = (await res.json().catch(() => null)) as { name?: string; username?: string; profile_pic?: string } | null;
+      if (!d?.name && !d?.username) return null;
+      return { name: d.name, username: d.username, profilePicture: d.profile_pic };
+    } catch {
+      return null;
+    }
   }
 
   async sendComment(

@@ -6,6 +6,7 @@ import {
   type MessageContent,
   type SentMessage,
   type SendMessageOptions,
+  type UserProfile,
 } from "./base";
 import { expectedPageFields } from "./webhook-fields";
 import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
@@ -174,6 +175,23 @@ export class FacebookProvider extends SocialProvider {
     // double-send), treating an unparseable body as sent with an unknown message id.
     const data = (await res.json().catch(() => ({}))) as { message_id?: string };
     return { platformMessageId: data.message_id ?? null };
+  }
+
+  /** Resolve a PSID's public profile (name + avatar) with the page token. Best-effort: null on any
+   *  failure so a name lookup never blocks message processing. */
+  async getUserProfile(tokens: TokenData, userId: string): Promise<UserProfile | null> {
+    try {
+      const res = await fetch(
+        `${GRAPH_API}/${encodeURIComponent(userId)}?fields=name,profile_pic&access_token=${encodeURIComponent(tokens.access_token)}`,
+        { redirect: "error", signal: AbortSignal.timeout(10_000) },
+      );
+      if (!res.ok) return null;
+      const d = (await res.json().catch(() => null)) as { name?: string; profile_pic?: string } | null;
+      if (!d?.name) return null;
+      return { name: d.name, profilePicture: d.profile_pic };
+    } catch {
+      return null;
+    }
   }
 
   async sendComment(
