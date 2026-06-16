@@ -36,6 +36,9 @@ export interface PublishRequest {
   /** FIRSTCOMMENT1: per-post override for the auto-posted first comment. Falls back to the channel's
    *  `default_first_comment` when omitted; empty/whitespace disables it for this post. */
   firstComment?: string;
+  /** STORY1: per-post override for the auto-Story. `true`/`false` wins over the channel's
+   *  `default_auto_story`; omitted = use the channel default. */
+  autoStory?: boolean;
 }
 
 export interface AccountInfo {
@@ -105,6 +108,18 @@ export interface Provider {
     request: PublishRequest;
     mediaUrls: string[];
     /** Channel-level provider data (e.g. Meta { subKind: "facebook_page" | "instagram" }) for routing. */
+    channelMetadata?: Record<string, unknown>;
+  }): Promise<PublishHandle>;
+  /**
+   * STORY1 (capability-gated, duck-typed): publish a pre-rendered 9:16 image as a Story to this
+   * account. IG = `media_type=STORIES` container → `media_publish`; FB Page = unpublished photo →
+   * `photo_stories`. `mediaUrl` MUST be a public URL the platform can pull. Absence = the platform
+   * has no Story-publish path (so the auto-Story hook skips it).
+   */
+  publishStory?(args: {
+    tokens: TokenSet;
+    accountId: string;
+    mediaUrl: string;
     channelMetadata?: Record<string, unknown>;
   }): Promise<PublishHandle>;
   publishStatus?(tokens: TokenSet, handle: PublishHandle): Promise<PublishStatus>;

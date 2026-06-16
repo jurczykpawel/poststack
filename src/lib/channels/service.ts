@@ -45,6 +45,8 @@ export interface PublicChannel {
   hidden_at: Date | null;
   /** FIRSTCOMMENT1: default first-comment text auto-posted under posts published to this channel. */
   default_first_comment: string | null;
+  /** STORY1: when true, every post published to this channel also auto-publishes a Story card. */
+  default_auto_story: boolean;
   metadata: Record<string, unknown> | null;
   created_at: Date;
 }
@@ -67,6 +69,7 @@ function toPublic(r: ChannelRow): PublicChannel {
     needs_reauth_reason: r.needs_reauth_reason,
     hidden_at: r.hidden_at,
     default_first_comment: r.default_first_comment,
+    default_auto_story: r.default_auto_story,
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
   };
@@ -245,6 +248,16 @@ export async function setChannelDefaultFirstComment(workspaceId: string, id: str
   await db
     .update(channels)
     .set({ default_first_comment: trimmed || null })
+    .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+}
+
+/** STORY1: enable / disable the per-channel default auto-Story (a generated Story card published
+ *  about every post). The per-post `autoStory` on the publish request overrides this. */
+export async function setChannelDefaultAutoStory(workspaceId: string, id: string, enabled: boolean): Promise<void> {
+  await ownChannelOr404(workspaceId, id);
+  await db
+    .update(channels)
+    .set({ default_auto_story: enabled })
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 

@@ -221,3 +221,68 @@ describe("meta.publish", () => {
     ).rejects.toBeInstanceOf(PermanentError);
   });
 });
+
+describe("meta.publishStory (STORY1)", () => {
+  it("IG: STORIES container -> status FINISHED -> media_publish", async () => {
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, body: String(init?.body ?? "") });
+        if (url.includes("/media_publish")) return new Response(JSON.stringify({ id: "story_ig_1" }), { status: 200 });
+        if (url.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "container_s1" }), { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publishStory!({
+      tokens,
+      accountId: "IGID",
+      mediaUrl: "https://cdn/card.jpg",
+      channelMetadata: { subKind: "instagram" },
+    });
+    expect(h.providerHandle).toBe("story_ig_1");
+    const create = calls.find((c) => c.url.includes("/IGID/media") && !c.url.includes("media_publish"));
+    expect(create?.body).toContain("media_type=STORIES");
+    expect(create?.body).toContain("image_url=");
+    expect(calls.every((c) => !c.url.includes("/photo_stories"))).toBe(true);
+  });
+
+  it("FB: unpublished photo -> photo_stories", async () => {
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, body: String(init?.body ?? "") });
+        if (url.includes("/photo_stories")) return new Response(JSON.stringify({ success: true, post_id: "fb_story_9" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "photo_77" }), { status: 200 });
+      }),
+    );
+    const h = await metaProvider.publishStory!({
+      tokens,
+      accountId: "PAGE",
+      mediaUrl: "https://cdn/card.jpg",
+      channelMetadata: { subKind: "facebook_page" },
+    });
+    expect(h.providerHandle).toBe("fb_story_9");
+    const photo = calls.find((c) => c.url.includes("/PAGE/photos"));
+    expect(photo?.body).toContain("published=false");
+    const story = calls.find((c) => c.url.includes("/photo_stories"));
+    expect(story?.body).toContain("photo_id=photo_77");
+  });
+
+  it("IG: surfaces a container ERROR as a permanent failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "ERROR" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "container_err" }), { status: 200 });
+      }),
+    );
+    await expect(
+      metaProvider.publishStory!({ tokens, accountId: "IGID", mediaUrl: "https://cdn/card.jpg", channelMetadata: { subKind: "instagram" } }),
+    ).rejects.toBeInstanceOf(PermanentError);
+  });
+});

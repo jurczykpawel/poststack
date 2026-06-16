@@ -10,6 +10,7 @@ const ALL_TASKS: TaskName[] = [
   "outgoing-message",
   "outgoing-comment",
   "outgoing-first-comment",
+  "publish-story",
   "outgoing-private-reply",
   "follow-gate",
   "token-refresh",

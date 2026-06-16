@@ -125,6 +125,29 @@ async function enqueueFirstComment(
 }
 
 /**
+ * STORY1: enqueue the auto-Story for a just-published post. Resolves the toggle (per-post `autoStory`
+ * override > channel `default_auto_story`), guards that the publish provider can post a Story, and
+ * keys the delivery to the publish (delivery) id so a retry / re-publish reuses the same ledger row
+ * instead of double-posting. Best-effort — the caller swallows failures so a Story hiccup never
+ * affects the published post.
+ */
+async function enqueueAutoStory(
+  channel: { id: string; platform: Platform; default_auto_story: boolean },
+  request: PublishRequest,
+  deliveryId: string,
+): Promise<void> {
+  const enabled = request.autoStory ?? channel.default_auto_story;
+  if (!enabled) return;
+  // Skip platforms whose publish provider has no Story-publish path (only meta/FB+IG today).
+  if (!getProviderForPlatform(channel.platform).publishStory) return;
+  await addJob(
+    "publish-story",
+    { channelId: channel.id, deliveryId, idempotencyKey: `auto-story:${deliveryId}` },
+    { jobKey: `auto-story:${deliveryId}` },
+  );
+}
+
+/**
  * Crash-safe publish (AUD27). Marks `sending` in its own commit before the external call; a
  * definitive failure is classified, a crash leaves `sending` for the retry to reconcile.
  */
@@ -255,6 +278,9 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     // FIRSTCOMMENT1: auto-post the configured first comment under the new post — separate best-effort
     // delivery so a comment failure never touches the published post.
     await enqueueFirstComment(channel, request, handle.providerHandle, postId).catch(() => {});
+    // STORY1: optionally auto-publish a generated Story about the new post — separate best-effort
+    // delivery so a Story failure never touches the published post.
+    await enqueueAutoStory(channel, request, postId).catch(() => {});
   } catch (err) {
     if (err instanceof TokenInvalidError) {
       // AUD48: leave the post reattemptable FIRST; the channel flag + event are best-effort.

@@ -49,6 +49,17 @@ export interface OutgoingFirstCommentJob {
   idempotencyKey?: string;
 }
 
+/** STORY1: auto-publish a generated Story card about a just-published post. Enqueued by the publish
+ *  worker after `post.published`; renders the card, uploads it to public storage, then publishes via
+ *  the platform's `publishStory`. Runs through the durable delivery state machine so a crash can't
+ *  double-post; best-effort — failing it never affects the published post itself. */
+export interface PublishStoryJob {
+  channelId: string;
+  /** The publish (deliveries) row id — source of the post's media + caption, and the idempotency anchor. */
+  deliveryId: string;
+  idempotencyKey?: string;
+}
+
 /** Comment-to-DM: a private reply addressed by comment_id (first-touch DM). */
 export interface OutgoingPrivateReplyJob {
   channelId: string;
@@ -183,6 +194,7 @@ export type TaskPayloadMap = {
   "outgoing-message": OutgoingMessageJob;
   "outgoing-comment": OutgoingCommentJob;
   "outgoing-first-comment": OutgoingFirstCommentJob;
+  "publish-story": PublishStoryJob;
   "outgoing-private-reply": OutgoingPrivateReplyJob;
   "follow-gate": FollowGateJob;
   "token-refresh": TokenRefreshJob;

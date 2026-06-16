@@ -199,6 +199,10 @@ export const channels = pgTable("channels", {
 	// PublishRequest overrides it. Only used on publishable platforms whose provider implements
 	// commentOnPost (facebook / instagram / youtube).
 	default_first_comment: text("default_first_comment"),
+	// STORY1: when true, every post published to this channel also auto-publishes a generated Story
+	// card about it (IG/FB). Off by default. A per-post `autoStory` on the PublishRequest overrides it.
+	// Only acts on platforms whose publish provider implements publishStory (facebook / instagram).
+	default_auto_story: boolean("default_auto_story").default(false).notNull(),
 	// Soft delete: a removed channel keeps its row but is excluded from every read.
 	deleted_at: timestamp("deleted_at", { precision: 3, mode: 'date' }),
 	// Hidden: stays connected but filtered out of the default list (e.g. sandbox/old test accounts).

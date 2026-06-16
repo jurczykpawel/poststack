@@ -94,6 +94,22 @@ async function setFacebookThumbnail(
   }
 }
 
+/** Poll an IG media container until it reports FINISHED (images resolve fast; bounded by env). Throws
+ *  PermanentError on ERROR and TransientError if it's still processing after the window (pre_commit —
+ *  nothing is public until media_publish, so the caller may safely re-run). */
+async function pollContainerFinished(containerId: string, encodedToken: string): Promise<void> {
+  const attempts = Number(process.env.META_PUBLISH_POLL_ATTEMPTS ?? 60);
+  const delayMs = Number(process.env.META_PUBLISH_POLL_DELAY_MS ?? 3000);
+  for (let i = 0; i < attempts; i++) {
+    const st = await fetch(`${GRAPH}/${containerId}?fields=status_code&access_token=${encodedToken}`);
+    const stj = (await st.json().catch(() => ({}))) as { status_code?: string };
+    if (stj.status_code === "FINISHED") return;
+    if (stj.status_code === "ERROR") throw new PermanentError("Meta story container processing failed");
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new TransientError("Meta story container still processing after poll window", "pre_commit");
+}
+
 export const metaProvider: Provider = {
   id: "meta",
   label: "Meta (Facebook / Instagram)",
@@ -353,5 +369,70 @@ export const metaProvider: Provider = {
     }
 
     throw new PermanentError(`meta.publish does not support format '${request.format}' yet`);
+  },
+
+  // STORY1: publish a pre-rendered 9:16 image as a Story. The image lives at a public URL (our CAS
+  // bucket); the platform pulls it. No interactive overlays are possible via the API — the card is
+  // composed server-side (StoryRenderer) and published flat.
+  async publishStory(args): Promise<PublishHandle> {
+    const { tokens, accountId, mediaUrl } = args;
+    const token = encodeURIComponent(tokens.accessToken);
+    const isFacebook = args.channelMetadata?.subKind === "facebook_page";
+
+    if (isFacebook) {
+      // FB Page Story (photo): upload an UNPUBLISHED photo, then promote it to a photo story. The
+      // story image must NOT already be in a published post — our card is a fresh, separate file.
+      const photoRes = await fetch(`${GRAPH}/${accountId}/photos`, {
+        method: "POST",
+        body: new URLSearchParams({ url: mediaUrl, published: "false", access_token: tokens.accessToken }),
+      });
+      const photoJson = (await photoRes.json().catch(() => ({}))) as {
+        id?: unknown;
+        error?: { code?: number; message?: string };
+      };
+      const photoId = asString(photoJson.id);
+      // Photo upload is pre-commit — a story isn't visible until photo_stories below.
+      if (!photoRes.ok || !photoId) throw classifyMetaError(photoRes.status, photoJson.error, "pre_commit");
+
+      const storyRes = await fetch(`${GRAPH}/${accountId}/photo_stories`, {
+        method: "POST",
+        body: new URLSearchParams({ photo_id: photoId, access_token: tokens.accessToken }),
+      });
+      const storyJson = (await storyRes.json().catch(() => ({}))) as {
+        success?: boolean;
+        post_id?: unknown;
+        id?: unknown;
+        error?: { code?: number; message?: string };
+      };
+      const handle = asString(storyJson.post_id) ?? asString(storyJson.id);
+      if (!storyRes.ok || storyJson.success === false || !handle) throw classifyMetaError(storyRes.status, storyJson.error);
+      return { providerHandle: handle };
+    }
+
+    // Instagram Story: create a STORIES container from the image, poll, then publish.
+    const create = await fetch(`${GRAPH}/${accountId}/media`, {
+      method: "POST",
+      body: new URLSearchParams({ media_type: "STORIES", image_url: mediaUrl, access_token: tokens.accessToken }),
+    });
+    const created = (await create.json().catch(() => ({}))) as {
+      id?: unknown;
+      error?: { code?: number; message?: string };
+    };
+    const containerId = asString(created.id);
+    if (!create.ok || !containerId) throw classifyMetaError(create.status, created.error, "pre_commit");
+
+    await pollContainerFinished(containerId, token);
+
+    const pub = await fetch(`${GRAPH}/${accountId}/media_publish`, {
+      method: "POST",
+      body: new URLSearchParams({ creation_id: containerId, access_token: tokens.accessToken }),
+    });
+    const pubj = (await pub.json().catch(() => ({}))) as {
+      id?: unknown;
+      error?: { code?: number; message?: string };
+    };
+    const handle = asString(pubj.id);
+    if (!pub.ok || !handle) throw classifyMetaError(pub.status, pubj.error);
+    return { providerHandle: handle };
   },
 };

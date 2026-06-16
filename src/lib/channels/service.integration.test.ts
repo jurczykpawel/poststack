@@ -158,6 +158,22 @@ describe("channels service — getChannel + mutations are workspace-scoped", () 
     await expect(svc.setChannelDefaultFirstComment(WS_A, idB, "x")).rejects.toThrow();
   });
 
+  it("STORY1: setChannelDefaultAutoStory toggles the per-channel default", async () => {
+    if (!TEST_DB) return;
+    const id = await makeChannel(WS_A, { platform: "instagram", platformId: "AS1" });
+    expect((await svc.getChannel(WS_A, id))?.default_auto_story).toBe(false);
+    await svc.setChannelDefaultAutoStory(WS_A, id, true);
+    expect((await svc.getChannel(WS_A, id))?.default_auto_story).toBe(true);
+    await svc.setChannelDefaultAutoStory(WS_A, id, false);
+    expect((await svc.getChannel(WS_A, id))?.default_auto_story).toBe(false);
+  });
+
+  it("STORY1: setChannelDefaultAutoStory refuses a cross-workspace id (404)", async () => {
+    if (!TEST_DB) return;
+    const idB = await makeChannel(WS_B, { platform: "instagram", platformId: "AS-B" });
+    await expect(svc.setChannelDefaultAutoStory(WS_A, idB, true)).rejects.toThrow();
+  });
+
   it("non-Meta health check marks the channel healthy", async () => {
     if (!TEST_DB) return;
     const id = await makeChannel(WS_A, { platform: "telegram", platformId: "TG", status: "needs_reauth" });

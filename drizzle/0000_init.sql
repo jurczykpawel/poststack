@@ -162,6 +162,7 @@ CREATE TABLE "channels" (
 	"brand_key" text,
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"default_first_comment" text,
+	"default_auto_story" boolean DEFAULT false NOT NULL,
 	"deleted_at" timestamp (3),
 	"hidden_at" timestamp (3)
 );

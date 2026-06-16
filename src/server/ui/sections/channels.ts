@@ -12,6 +12,7 @@ import {
   setChannelStatus,
   setChannelDisplayName,
   setChannelDefaultFirstComment,
+  setChannelDefaultAutoStory,
   setChannelHidden,
   deleteChannel,
   runHealthCheck,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/channels/service";
 import { can } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
+import { getProviderForPlatform } from "@/lib/providers";
 import type { Platform } from "@/db/schema";
 import { listDeliveries } from "@/lib/deliveries/service";
 import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/service";
@@ -443,6 +445,38 @@ function firstCommentPanel(ch: PublicChannel): Html {
   </section>`;
 }
 
+/** Whether the channel's platform can publish a Story (STORY1). Duck-typed off the PUBLISH provider
+ *  so a new Story-capable platform lights up the panel automatically. */
+function platformSupportsStory(platform: string): boolean {
+  try {
+    return getProviderForPlatform(platform).publishStory != null;
+  } catch {
+    return false;
+  }
+}
+
+/** STORY1: per-channel auto-Story toggle (shown only for platforms that can publish a Story). When on,
+ *  every published post also auto-publishes a generated Story card. The per-post override travels on
+ *  the publish request, not here. */
+function storyPanel(ch: PublicChannel): Html {
+  if (!platformSupportsStory(ch.platform)) return html``;
+  const on = ch.default_auto_story;
+  return html`<section class="panel">
+    <div class="panel-head"><h3>Auto-Story</h3></div>
+    <div class="panel-body">
+      <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+        Auto-publish a generated Story card (cover + caption) about every post published to this
+        channel. ${on ? "Currently on." : "Currently off."}
+      </p>
+      <form method="post" action="/channels/${ch.id}/auto-story"
+        hx-post="/channels/${ch.id}/auto-story" hx-target="#ch-detail-head" hx-swap="outerHTML">
+        <input type="hidden" name="enabled" value="${on ? "0" : "1"}" />
+        ${btn({ label: on ? "Turn off auto-Story" : "Turn on auto-Story", variant: on ? "danger" : "secondary", size: "sm" })}
+      </form>
+    </div>
+  </section>`;
+}
+
 function manualReconnectForm(ch: PublicChannel): Html {
   if (ch.connection_mode !== "manual_token") return html``;
   return html`<h3>Reconnect — paste a fresh token</h3>
@@ -561,6 +595,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
               </div></section>`
           : html`<section class="panel"><div class="panel-body muted" style="font-size:.82rem">📊 Channel stats (posts &amp; messages) are a PRO feature.</div></section>`}
         ${firstCommentPanel(ch)}
+        ${storyPanel(ch)}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
           <section class="panel">
@@ -617,6 +652,10 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.parseBody();
     await setChannelDefaultFirstComment(ws, id, String(form.firstComment ?? ""));
   }, (ch) => ch.default_first_comment ? "First comment saved" : "First comment turned off"));
+  r.post("/channels/:id/auto-story", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");
+  }, (ch) => ch.default_auto_story ? "Auto-Story turned on" : "Auto-Story turned off"));
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));
   r.post("/channels/:id/unhide", guard, action((ws, id) => setChannelHidden(ws, id, false), () => "Channel unhidden"));
   r.post("/channels/:id/reconnect", guard, action(async (ws, id, c) => {

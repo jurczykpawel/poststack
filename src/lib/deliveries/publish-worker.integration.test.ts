@@ -333,7 +333,19 @@ describe("publish worker (AUD27)", () => {
     return call ? { payload: call[1], opts: call[2] } : null;
   }
 
-  async function igScenario(opts: { defaultFirstComment?: string | null; firstCommentOverride?: string } = {}) {
+  function storyCall(spy: ReturnType<typeof vi.fn>) {
+    const call = spy.mock.calls.find((c) => c[0] === "publish-story");
+    return call ? { payload: call[1], opts: call[2] } : null;
+  }
+
+  async function igScenario(
+    opts: {
+      defaultFirstComment?: string | null;
+      firstCommentOverride?: string;
+      defaultAutoStory?: boolean;
+      autoStoryOverride?: boolean;
+    } = {},
+  ) {
     const [c] = await db
       .insert(schema.channels)
       .values({
@@ -345,6 +357,7 @@ describe("publish worker (AUD27)", () => {
         token_encrypted: encryptTokens({ access_token: "T" }),
         webhook_secret: "wh",
         default_first_comment: opts.defaultFirstComment ?? null,
+        default_auto_story: opts.defaultAutoStory ?? false,
       })
       .returning();
     const [m] = await db
@@ -353,6 +366,7 @@ describe("publish worker (AUD27)", () => {
       .returning();
     const payload: Record<string, unknown> = { format: "video", media: [{ mediaId: m!.id }], caption: "hi" };
     if (opts.firstCommentOverride !== undefined) payload.firstComment = opts.firstCommentOverride;
+    if (opts.autoStoryOverride !== undefined) payload.autoStory = opts.autoStoryOverride;
     const [p] = await db
       .insert(schema.deliveries)
       .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload, scheduled_at: new Date(), run_at: new Date() })
@@ -401,6 +415,67 @@ describe("publish worker (AUD27)", () => {
       await processPublish({ postId }, helpers);
       expect(await status(postId)).toBe("sent");
       expect(firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
+  // ── STORY1: auto-Story on publish ───────────────────────────────────────────────────────────
+  it("enqueues a publish-story keyed to the delivery when the channel default is on", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await igScenario({ defaultAutoStory: true });
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S1" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      const call = storyCall(enqueue as unknown as ReturnType<typeof vi.fn>);
+      expect(call?.payload).toEqual({ channelId, deliveryId: postId, idempotencyKey: `auto-story:${postId}` });
+      expect(call?.opts).toEqual({ jobKey: `auto-story:${postId}` });
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
+  it("per-post autoStory=true overrides a channel default of off", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await igScenario({ defaultAutoStory: false, autoStoryOverride: true });
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S2" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
+  it("per-post autoStory=false overrides a channel default of on", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await igScenario({ defaultAutoStory: true, autoStoryOverride: false });
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S3" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
+  it("does not enqueue a publish-story when auto-story is off (no default, no override)", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await igScenario();
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S4" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
     } finally {
       spy.mockRestore();
       enqueue.mockRestore();
