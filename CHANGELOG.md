@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.20] - 2026-06-16
+
+### Added
+
+- **Contact names in the inbox.** Meta DM webhooks deliver only the sender's PSID/IGSID, so a new contact showed as a raw numeric id. The inbox now resolves the sender's public profile (name + avatar; username on Instagram) via the Meta User Profile API when a contact is first created, and displays the name. Best-effort — a failed lookup never blocks message processing, and an existing name/avatar is never overwritten.
+
 ## [0.4.19] - 2026-06-16
 
 ### Added
