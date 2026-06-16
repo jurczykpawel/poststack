@@ -16,6 +16,18 @@ describe("orderHash", () => {
     expect(h).toBe(orderHash("cs_test_123"));
     expect(h).not.toBe(orderHash("cs_test_124"));
   });
+
+  // CROSS-REPO CONTRACT (golden vector). The seller (Sellf) publishes revoked orders as
+  //   encode(digest(convert_to(order_id, 'UTF8'), 'sha256'), 'hex')   -- lowercase hex SHA-256.
+  // This consumer must hash the token's `order` claim byte-identically, or a revoked license
+  // silently stops matching the CRL (fail-open) and keeps working. Do NOT change this expected
+  // value without changing Sellf's `seller_revoked_orders` SQL in lockstep — a drift on either
+  // side turns this red on the side that drifted.
+  it("matches the seller's published hash (golden vector — keep in sync with Sellf SQL)", () => {
+    expect(orderHash("cs_test_123")).toBe(
+      "9ee7e06645426cb1d3597dc641a1410e77e88a1d423b4e802948e427189f2df1",
+    );
+  });
 });
 
 describe("getRevocations", () => {
