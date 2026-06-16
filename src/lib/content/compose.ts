@@ -1,4 +1,5 @@
 import { createContent, createPost } from "./service";
+import type { AutoReplyInput } from "./schemas";
 
 const VIDEO_RE = /\.(mp4|mov|webm|m4v)(\?|$)/i;
 const VIDEO_TYPES = new Set(["reel", "short", "video", "story"]);
@@ -7,6 +8,10 @@ export interface ComposePostInput {
   platform: string;
   description?: string;
   hashtags?: string;
+  // COMPOSE2: per-post automation set at authoring time (null/absent = inherit the channel default).
+  firstComment?: string | null;
+  autoStory?: boolean | null;
+  autoReply?: AutoReplyInput | null;
 }
 
 export interface ComposeInput {
@@ -63,6 +68,11 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
         ...(video ? { videoUrl: input.mediaUrl } : { mediaUrl: input.mediaUrl }),
         coverUrl: input.coverUrl,
         status: "planned",
+        // COMPOSE2: per-post automation. Omit when absent so the column stays NULL (inherit default);
+        // pass an explicit value (incl. false / empty string) when the author set one.
+        ...(p.firstComment != null ? { firstComment: p.firstComment } : {}),
+        ...(p.autoStory != null ? { autoStory: p.autoStory } : {}),
+        ...(p.autoReply != null ? { autoReply: p.autoReply } : {}),
       },
       workspaceId,
     );

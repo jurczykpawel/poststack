@@ -129,6 +129,45 @@ describe("unified Compose section", () => {
     expect(ps.every((p) => p.video_url === "https://cdn/reel.mp4")).toBe(true);
   });
 
+  it("renders the per-platform Automation section (first comment, auto-story, auto-reply)", async () => {
+    if (!TEST_DB) return;
+    const out = await (await app.request("/compose", { headers: { cookie } })).text();
+    expect(out).toContain("Automation");
+    expect(out).toContain("First comment");
+    expect(out).toContain("Auto-Story");
+    expect(out).toContain("Auto-reply to comments");
+  });
+
+  it("POST persists per-post automation (first_comment, auto_story, auto_reply) onto the posts", async () => {
+    if (!TEST_DB) return;
+    const payload = {
+      brand: "techskills.academy",
+      title: "Automation post",
+      contentType: "reel",
+      mediaUrl: "https://cdn/reel.mp4",
+      baseDescription: "Base",
+      posts: [
+        {
+          platform: "instagram",
+          firstComment: "👇 Comment LINK",
+          autoStory: true,
+          autoReply: { keywords: [{ value: "LINK", matchType: "contains" }], dmText: "Here you go!", replyMode: "dm" },
+        },
+      ],
+    };
+    const res = await app.request("/compose", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ payload: JSON.stringify(payload) }),
+    });
+    expect(res.status).toBe(303);
+    const id = res.headers.get("location")!.split("/").pop()!;
+    const p = (await db.query.posts.findMany({ where: eq(posts.content_id, id) }))[0];
+    expect(p.first_comment).toBe("👇 Comment LINK");
+    expect(p.auto_story).toBe(true);
+    expect((p.auto_reply as { dmText?: string } | null)?.dmText).toBe("Here you go!");
+  });
+
   it("rejects a malformed payload with 400", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/compose", {

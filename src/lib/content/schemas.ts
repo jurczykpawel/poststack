@@ -46,6 +46,9 @@ export const postCreate = z.object({
   contentId: z.string().uuid().optional(),
   platform: z.string().min(1).max(LIMITS.line),
   autoReply: autoReplyInput.nullish(),
+  // COMPOSE1: per-post automation overrides (null/absent = inherit the channel default).
+  firstComment: z.string().max(LIMITS.text).nullish(),
+  autoStory: z.boolean().nullish(),
   description: z.string().max(LIMITS.text).optional(),
   hashtags: z.string().max(LIMITS.hashtags).optional(),
   ctaType: z.string().max(LIMITS.line).optional(),
@@ -63,6 +66,7 @@ export const postPatch = postCreate.partial();
 
 export type ContentCreate = z.infer<typeof contentCreate>;
 export type ContentPatch = z.infer<typeof contentPatch>;
+export type AutoReplyInput = z.infer<typeof autoReplyInput>;
 export type PostCreate = z.infer<typeof postCreate>;
 export type PostPatch = z.infer<typeof postPatch>;
 

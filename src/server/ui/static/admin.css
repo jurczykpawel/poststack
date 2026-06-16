@@ -893,6 +893,12 @@ select.ps-native-hidden { display: none !important; }
   background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-control); resize: vertical; }
 .compose-counter { align-self: flex-end; font-size: 0.72rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .compose-counter.over { color: var(--bad-text); font-weight: 700; }
+.compose-automation { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 8px; }
+.compose-automation-head { font-size: 0.78rem; font-weight: 600; color: var(--text-2); }
+.compose-automation-head small { font-weight: 400; color: var(--text-3); }
+.compose-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-1); cursor: pointer; }
+.compose-toggle input { accent-color: var(--accent); }
+.compose-autoreply { display: flex; flex-direction: column; gap: 6px; }
 
 .compose-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 4px; }
 .compose-note { color: var(--text-3); }

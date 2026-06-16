@@ -7,6 +7,7 @@ import { getInstanceLicense } from "@/lib/license/gate";
 import { listBrands } from "@/lib/brands/service";
 import { resolveBrandSlots } from "@/lib/brands/resolve";
 import { composeContent } from "@/lib/content/compose";
+import { autoReplyInput } from "@/lib/content/schemas";
 import { renderPage } from "../layout";
 import { btn } from "../components/button";
 import { platformLabel } from "../components/platform";
@@ -27,6 +28,10 @@ const composeSchema = z.object({
         platform: z.string().min(1).max(LIMITS.line),
         description: z.string().max(LIMITS.text).optional(),
         hashtags: z.string().max(LIMITS.hashtags).optional(),
+        // COMPOSE2: per-post automation configured in the composer.
+        firstComment: z.string().max(LIMITS.text).optional(),
+        autoStory: z.boolean().optional(),
+        autoReply: autoReplyInput.optional(),
       }),
     )
     .min(1),
@@ -70,9 +75,18 @@ function composeScript(): Html {
         sel: {},
         get availPlatforms() { return this.brand && this.brands[this.brand] ? this.brands[this.brand].platforms : []; },
         get hasBrands() { return this.brandList.length > 0; },
+        STORY: { facebook: true, instagram: true },
+        AUTOREPLY: { facebook: true, instagram: true },
+        COMMENT: { facebook: true, instagram: true, youtube: true },
+        canStory(p) { return !!this.STORY[p]; },
+        canAutoReply(p) { return !!this.AUTOREPLY[p]; },
+        canComment(p) { return !!this.COMMENT[p]; },
+        hasAutomation(p) { return this.canComment(p) || this.canStory(p) || this.canAutoReply(p); },
         onBrandChange() {
           var s = {};
-          this.availPlatforms.forEach(function (p) { s[p.platform] = { on: true, override: "" }; });
+          this.availPlatforms.forEach(function (p) {
+            s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, arEnabled: false, arKeyword: "", arDmText: "" };
+          });
           this.sel = s;
         },
         baseFull() { return [this.baseDescription, this.baseHashtags].filter(Boolean).join("\\n\\n"); },
@@ -89,7 +103,17 @@ function composeScript(): Html {
             brand: this.brand, title: this.title.trim(), contentType: this.type,
             mediaUrl: this.mediaUrl.trim(), coverUrl: this.coverUrl.trim() || undefined,
             baseDescription: this.baseDescription || undefined, baseHashtags: this.baseHashtags || undefined,
-            posts: this.selectedPlatforms().map((p) => ({ platform: p.platform, description: (this.sel[p.platform].override || "").trim() || undefined })),
+            posts: this.selectedPlatforms().map((p) => {
+              var s = this.sel[p.platform];
+              var post = { platform: p.platform, description: (s.override || "").trim() || undefined };
+              var fc = (s.firstComment || "").trim();
+              if (this.canComment(p.platform) && fc) post.firstComment = fc;
+              if (this.canStory(p.platform) && s.autoStory) post.autoStory = true;
+              if (this.canAutoReply(p.platform) && s.arEnabled && (s.arKeyword || "").trim() && (s.arDmText || "").trim()) {
+                post.autoReply = { keywords: [{ value: s.arKeyword.trim(), matchType: "contains" }], dmText: s.arDmText.trim(), replyMode: "dm" };
+              }
+              return post;
+            }),
           };
         },
         onSubmit(e) {
@@ -164,6 +188,40 @@ function composePage(
                     <div class="compose-plat-body">
                       <textarea x-model="sel[p.platform].override" rows="3" :placeholder="baseFull() || 'Caption for this platform…'"></textarea>
                       <div class="compose-counter" :class="over(p.platform) ? 'over' : ''"><span x-text="count(p.platform)"></span> / <span x-text="limit(p.platform)"></span></div>
+
+                      <template x-if="hasAutomation(p.platform)">
+                        <div class="compose-automation">
+                          <div class="compose-automation-head">Automation <small>— fires when this post publishes</small></div>
+
+                          <template x-if="canComment(p.platform)">
+                            <label class="fld"><span>First comment <small>(auto-posted under the post; empty = channel default)</small></span>
+                              <textarea x-model="sel[p.platform].firstComment" rows="2" placeholder="e.g. 👇 Comment WORD and I'll DM you the link"></textarea>
+                            </label>
+                          </template>
+
+                          <template x-if="canStory(p.platform)">
+                            <label class="compose-toggle">
+                              <input type="checkbox" x-model="sel[p.platform].autoStory" />
+                              <span>Auto-Story — share this post to your Story on publish</span>
+                            </label>
+                          </template>
+
+                          <template x-if="canAutoReply(p.platform)">
+                            <div class="compose-autoreply">
+                              <label class="compose-toggle">
+                                <input type="checkbox" x-model="sel[p.platform].arEnabled" />
+                                <span>Auto-reply to comments — DM people who comment a keyword</span>
+                              </label>
+                              <template x-if="sel[p.platform].arEnabled">
+                                <div class="fld-row">
+                                  <label class="fld"><span>Keyword</span><input type="text" x-model="sel[p.platform].arKeyword" maxlength="100" placeholder="LINK" /></label>
+                                  <label class="fld grow"><span>DM to send</span><input type="text" x-model="sel[p.platform].arDmText" maxlength="2000" placeholder="Here's the link you asked for: …" /></label>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
                     </div>
                   </template>
                 </div>
