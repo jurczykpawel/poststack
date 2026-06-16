@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.18] - 2026-06-16
+
+### Fixed
+
+- **License revocation now actually works.** The CRL consumer compared a token's raw `order` claim against an `orders` field the seller never publishes, so a revoked (e.g. refunded) license was never refused. It now hashes the `order` (SHA-256) and matches against the published `order_hashes`.
+
+### Changed
+
+- Consume the revocation list as a **k-anonymity prefix range query**: the gate sends only a short hex prefix of `SHA-256(order)` and checks full-hash membership locally, so the server never sees the full hash or the total revocation count. Cache is keyed per prefix bucket; fail-open semantics on a CRL outage are unchanged (never lock out a paying customer).
+
 ## [0.1.0] - 2026-06-06
 
 First public release.
