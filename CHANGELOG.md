@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.21] - 2026-06-16
+
+### Added
+
+- **Unified Compose.** The composer is now a single screen to author *and* publish a post with every content automation wired in:
+  - Per-platform **Automation** section — **first comment** (auto-posted under the post), **Auto-Story** (share to Story on publish, Meta), and **comment-keyword → DM auto-reply** — each capability-gated to the platforms that support it and stored on the post (`first_comment`, `auto_story`, `auto_reply`).
+  - **Publish section** — Save as draft, Publish now, or Schedule, straight from the composer (each post goes to its brand-resolved channel; the automations fire on publish).
+- Per-post overrides flow through the publish request, so a post can override the channel-level first-comment / Auto-Story defaults.
+
 ## [0.4.20] - 2026-06-16
 
 ### Added
