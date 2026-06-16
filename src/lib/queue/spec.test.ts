@@ -9,6 +9,7 @@ const ALL_TASKS: TaskName[] = [
   "incoming-post-reaction",
   "outgoing-message",
   "outgoing-comment",
+  "outgoing-first-comment",
   "outgoing-private-reply",
   "follow-gate",
   "token-refresh",

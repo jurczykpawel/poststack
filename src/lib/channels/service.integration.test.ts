@@ -141,6 +141,23 @@ describe("channels service — getChannel + mutations are workspace-scoped", () 
     expect(await svc.getChannel(WS_A, id)).toBeUndefined(); // soft-deleted → excluded from reads
   });
 
+  it("FIRSTCOMMENT1: setChannelDefaultFirstComment sets, trims, and clears the default", async () => {
+    if (!TEST_DB) return;
+    const id = await makeChannel(WS_A, { platform: "instagram", platformId: "FC1" });
+    expect((await svc.getChannel(WS_A, id))?.default_first_comment).toBeNull();
+    await svc.setChannelDefaultFirstComment(WS_A, id, "  Link in comments 👇  ");
+    expect((await svc.getChannel(WS_A, id))?.default_first_comment).toBe("Link in comments 👇");
+    // Empty / whitespace clears it back to off (NULL).
+    await svc.setChannelDefaultFirstComment(WS_A, id, "   ");
+    expect((await svc.getChannel(WS_A, id))?.default_first_comment).toBeNull();
+  });
+
+  it("FIRSTCOMMENT1: setChannelDefaultFirstComment refuses a cross-workspace id (404)", async () => {
+    if (!TEST_DB) return;
+    const idB = await makeChannel(WS_B, { platform: "instagram", platformId: "FC-B" });
+    await expect(svc.setChannelDefaultFirstComment(WS_A, idB, "x")).rejects.toThrow();
+  });
+
   it("non-Meta health check marks the channel healthy", async () => {
     if (!TEST_DB) return;
     const id = await makeChannel(WS_A, { platform: "telegram", platformId: "TG", status: "needs_reauth" });

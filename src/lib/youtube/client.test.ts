@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { pollCommentThreads, insertCommentReply, refreshGoogleAccessToken, getMyChannel, YouTubeApiError, googleAuthUrl, YOUTUBE_OAUTH_SCOPE } from "./client";
+import { pollCommentThreads, insertCommentReply, insertCommentThread, refreshGoogleAccessToken, getMyChannel, YouTubeApiError, googleAuthUrl, YOUTUBE_OAUTH_SCOPE } from "./client";
 
 describe("googleAuthUrl — YouTube-only consent", () => {
   const url = googleAuthUrl({ clientId: "cid", redirectUri: "https://app/cb", state: "st" });
@@ -122,6 +122,23 @@ describe("insertCommentReply", () => {
   it("throws YouTubeApiError on failure", async () => {
     const fetchImpl = vi.fn(async () => new Response("no", { status: 403 })) as unknown as typeof fetch;
     await expect(insertCommentReply({ parentId: "c1", text: "x", accessToken: "t", fetchImpl })).rejects.toBeInstanceOf(YouTubeApiError);
+  });
+});
+
+describe("insertCommentThread — top-level comment on a video", () => {
+  it("posts a NEW top-level comment on the video (NOT a reply) and returns the id", async () => {
+    const fetchImpl = vi.fn(async () => jsonRes({ id: "thread-1" }, 200)) as unknown as typeof fetch;
+    const r = await insertCommentThread({ videoId: "vid123", text: "link in bio 👇", accessToken: "t", fetchImpl });
+    expect(r.id).toBe("thread-1");
+    const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(url)).toContain("/commentThreads?part=snippet");
+    expect(JSON.parse(init.body as string)).toEqual({
+      snippet: { videoId: "vid123", topLevelComment: { snippet: { textOriginal: "link in bio 👇" } } },
+    });
+  });
+  it("throws YouTubeApiError on failure", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
+    await expect(insertCommentThread({ videoId: "v", text: "x", accessToken: "t", fetchImpl })).rejects.toBeInstanceOf(YouTubeApiError);
   });
 });
 

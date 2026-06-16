@@ -194,6 +194,11 @@ export const channels = pgTable("channels", {
 	// Provider-specific display extras (e.g. { subKind: 'instagram' | 'facebook' }). Capabilities are
 	// computed by the provider, never stored; this is for UI/identity hints only.
 	metadata: jsonb().default({}).notNull(),
+	// FIRSTCOMMENT1: default "first comment" auto-posted under every post published to this channel
+	// (link-in-first-comment / CTA / hashtags). NULL/empty = off. A per-post `firstComment` on the
+	// PublishRequest overrides it. Only used on publishable platforms whose provider implements
+	// commentOnPost (facebook / instagram / youtube).
+	default_first_comment: text("default_first_comment"),
 	// Soft delete: a removed channel keeps its row but is excluded from every read.
 	deleted_at: timestamp("deleted_at", { precision: 3, mode: 'date' }),
 	// Hidden: stays connected but filtered out of the default list (e.g. sandbox/old test accounts).

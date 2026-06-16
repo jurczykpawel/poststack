@@ -119,6 +119,24 @@ export abstract class SocialProvider {
   ): Promise<{ platformMessageId: string | null }>;
 
   /**
+   * Post a NEW top-level comment ON our own just-published post/media/video — the "first comment"
+   * (link-in-first-comment / CTA / hashtags). Distinct from {@link sendComment}, which replies UNDER
+   * an existing comment (IG `/{comment-id}/replies`, YouTube `comments.insert`). Top-level needs a
+   * DIFFERENT endpoint per platform:
+   *   - Facebook: `POST /{post-id}/comments`,
+   *   - Instagram: `POST /{ig-media-id}/comments` (NOT `/replies`),
+   *   - YouTube: `commentThreads.insert` (NOT `comments.insert`).
+   * Optional / duck-typed (like {@link sendComment}). This is the DRY extension point — a new
+   * publishing platform implements it and the first-comment worker picks it up with no other change.
+   * @param postId - Platform-native id of the just-published post/media/video
+   */
+  commentOnPost?(
+    tokens: TokenData,
+    postId: string,
+    message: string
+  ): Promise<{ platformMessageId: string | null }>;
+
+  /**
    * Send a private reply (comment-to-DM), addressed by comment_id.
    * Accepts full message content so first-touch DMs can carry quick replies /
    * buttons, not just text.
@@ -178,10 +196,12 @@ export abstract class SocialProvider {
    * Capability probe (duck-typed on optional method presence) so callers can
    * branch before enqueuing platform-specific work.
    */
-  supportsFeature(feature: "comments" | "private_reply" | "token_connect" | "follow_check"): boolean {
+  supportsFeature(feature: "comments" | "comment_on_post" | "private_reply" | "token_connect" | "follow_check"): boolean {
     switch (feature) {
       case "comments":
         return typeof this.sendComment === "function";
+      case "comment_on_post":
+        return typeof this.commentOnPost === "function";
       case "private_reply":
         return typeof this.sendPrivateReply === "function";
       case "token_connect":

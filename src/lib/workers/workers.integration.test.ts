@@ -7,6 +7,7 @@ const provider = {
   refreshBufferSeconds: vi.fn(() => 0),
   sendMessage: vi.fn(async () => ({ platformMessageId: "PMID-1" })),
   sendComment: vi.fn(async () => ({ platformMessageId: "CMT-PMID" })),
+  commentOnPost: vi.fn(async () => ({ platformMessageId: "FIRST-PMID" })),
   sendPrivateReply: vi.fn(async () => {}),
   checkFollowsBusiness: vi.fn(async () => true),
   getPostUrl: vi.fn(async (_t: unknown, postId: string) => `https://www.instagram.com/reel/${postId}/`),
@@ -29,6 +30,7 @@ let w: {
   processIncomingReaction: typeof import("./incoming-reaction-worker").processIncomingReaction;
   processOutgoingMessage: typeof import("./outgoing-message-worker").processOutgoingMessage;
   processOutgoingComment: typeof import("./outgoing-comment-worker").processOutgoingComment;
+  processOutgoingFirstComment: typeof import("./outgoing-first-comment-worker").processOutgoingFirstComment;
   processOutgoingPrivateReply: typeof import("./outgoing-private-reply-worker").processOutgoingPrivateReply;
   processFollowGate: typeof import("./follow-gate-worker").processFollowGate;
   processSequenceStep: typeof import("./sequence-step-worker").processSequenceStep;
@@ -67,6 +69,7 @@ beforeAll(async () => {
     processIncomingReaction: (await import("./incoming-reaction-worker")).processIncomingReaction,
     processOutgoingMessage: (await import("./outgoing-message-worker")).processOutgoingMessage,
     processOutgoingComment: (await import("./outgoing-comment-worker")).processOutgoingComment,
+    processOutgoingFirstComment: (await import("./outgoing-first-comment-worker")).processOutgoingFirstComment,
     processOutgoingPrivateReply: (await import("./outgoing-private-reply-worker")).processOutgoingPrivateReply,
     processFollowGate: (await import("./follow-gate-worker")).processFollowGate,
     processSequenceStep: (await import("./sequence-step-worker")).processSequenceStep,
@@ -1342,6 +1345,29 @@ describe("outgoing-comment worker", () => {
     // the posted comment's id is captured on the delivery ledger (reliably populated).
     const del = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-cmt-out") });
     expect(del?.platform_message_id).toBe("CMT-PMID");
+  });
+});
+
+describe("outgoing-first-comment worker (FIRSTCOMMENT1)", () => {
+  it("posts a top-level comment on the published post via commentOnPost and records the delivery", async () => {
+    if (!TEST_DB) return;
+    await w.processOutgoingFirstComment(
+      { channelId: CH, postId: "POST_PUB_1", text: "Link in comments 👇", idempotencyKey: "d-first-1" } as never,
+      helpers,
+    );
+    expect(provider.commentOnPost).toHaveBeenCalledWith({ access_token: "x" }, "POST_PUB_1", "Link in comments 👇");
+    const del = await db.query.outboundDeliveries.findFirst({ where: eq(s.outboundDeliveries.delivery_key, "d-first-1") });
+    expect(del?.status).toBe("sent");
+    expect(del?.task_name).toBe("outgoing-first-comment");
+    expect(del?.platform_message_id).toBe("FIRST-PMID");
+  });
+
+  it("is idempotent: re-running the same delivery key does not double-post", async () => {
+    if (!TEST_DB) return;
+    const job = { channelId: CH, postId: "POST_PUB_2", text: "First!", idempotencyKey: "d-first-2" } as never;
+    await w.processOutgoingFirstComment(job, helpers);
+    await w.processOutgoingFirstComment(job, helpers);
+    expect(provider.commentOnPost).toHaveBeenCalledTimes(1);
   });
 });
 

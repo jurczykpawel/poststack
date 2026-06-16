@@ -11,6 +11,7 @@ import {
   reconnectManualToken,
   setChannelStatus,
   setChannelDisplayName,
+  setChannelDefaultFirstComment,
   setChannelHidden,
   deleteChannel,
   runHealthCheck,
@@ -21,6 +22,8 @@ import {
   type PublicChannel,
 } from "@/lib/channels/service";
 import { can } from "@/lib/channels/capabilities";
+import { getProvider } from "@/lib/platforms/registry";
+import type { Platform } from "@/db/schema";
 import { listDeliveries } from "@/lib/deliveries/service";
 import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/service";
 import { ApiError } from "@/lib/api/response";
@@ -407,6 +410,39 @@ function actionBar(ch: PublicChannel): Html {
   </div>`;
 }
 
+/** Whether the channel's platform can post a top-level comment on a published post (FIRSTCOMMENT1).
+ *  Duck-typed off the provider so a new publishing platform lights up the panel automatically. */
+function platformSupportsFirstComment(platform: string): boolean {
+  try {
+    return getProvider(platform as Platform).supportsFeature("comment_on_post");
+  } catch {
+    return false;
+  }
+}
+
+/** FIRSTCOMMENT1: per-channel default first-comment editor (shown only for platforms that can
+ *  comment on their own posts). The per-post override travels on the publish request, not here. */
+function firstCommentPanel(ch: PublicChannel): Html {
+  if (!platformSupportsFirstComment(ch.platform)) return html``;
+  return html`<section class="panel">
+    <div class="panel-head"><h3>First comment</h3></div>
+    <div class="panel-body">
+      <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+        Auto-posted as the first comment under every post published to this channel
+        (e.g. “link in the comments 👇”). Leave empty to turn it off.
+      </p>
+      <form method="post" action="/channels/${ch.id}/first-comment"
+        hx-post="/channels/${ch.id}/first-comment" hx-target="#ch-detail-head" hx-swap="outerHTML">
+        <textarea name="firstComment" rows="3" maxlength="2000"
+          placeholder="e.g. Grab the free guide → https://…"
+          aria-label="Default first comment"
+          style="width:100%;resize:vertical;font:inherit">${ch.default_first_comment ?? ""}</textarea>
+        <div style="margin-top:.5rem">${btn({ label: "Save first comment", variant: "secondary", size: "sm" })}</div>
+      </form>
+    </div>
+  </section>`;
+}
+
 function manualReconnectForm(ch: PublicChannel): Html {
   if (ch.connection_mode !== "manual_token") return html``;
   return html`<h3>Reconnect — paste a fresh token</h3>
@@ -524,6 +560,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
                 <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.comments}</div><div class="muted" style="font-size:.72rem">Comments</div></div>
               </div></section>`
           : html`<section class="panel"><div class="panel-body muted" style="font-size:.82rem">📊 Channel stats (posts &amp; messages) are a PRO feature.</div></section>`}
+        ${firstCommentPanel(ch)}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
           <section class="panel">
@@ -576,6 +613,10 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.parseBody();
     await setChannelDisplayName(ws, id, String(form.displayName ?? ""));
   }, () => "Name updated"));
+  r.post("/channels/:id/first-comment", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    await setChannelDefaultFirstComment(ws, id, String(form.firstComment ?? ""));
+  }, (ch) => ch.default_first_comment ? "First comment saved" : "First comment turned off"));
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));
   r.post("/channels/:id/unhide", guard, action((ws, id) => setChannelHidden(ws, id, false), () => "Channel unhidden"));
   r.post("/channels/:id/reconnect", guard, action(async (ws, id, c) => {

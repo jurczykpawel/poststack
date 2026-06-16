@@ -161,6 +161,7 @@ CREATE TABLE "channels" (
 	"needs_reauth_reason" text,
 	"brand_key" text,
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"default_first_comment" text,
 	"deleted_at" timestamp (3),
 	"hidden_at" timestamp (3)
 );

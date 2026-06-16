@@ -348,6 +348,28 @@ describe("Meta Graph API Contract Tests", () => {
     });
   });
 
+  // commentOnPost = top-level "first comment" ON our own published object. FB hits the SAME
+  // /{post-id}/comments edge as sendComment; IG MUST hit /{media}/comments, never /{id}/replies.
+  describe("commentOnPost — first comment on a published post", () => {
+    it("Facebook posts to /{post-id}/comments and returns the new id", async () => {
+      const { FacebookProvider } = await import("./facebook");
+      const res = await new FacebookProvider().commentOnPost({ access_token: "tok" }, "111222333444_post", "Link in comments 👇");
+      const call = fetchCalls.find((c) => c.url.includes("/comments"))!;
+      expect(call.url).toContain("111222333444_post/comments");
+      expect(JSON.parse(call.init!.body as string).message).toBe("Link in comments 👇");
+      expect(res.platformMessageId).toBe("111222333444_987654321");
+    });
+
+    it("Instagram posts to /{media-id}/comments — NOT /replies (that's a comment reply)", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const res = await new InstagramProvider().commentOnPost({ access_token: "tok" }, "17900000000000000", "First!");
+      const call = fetchCalls.find((c) => c.url.includes("/comments"))!;
+      expect(call.url).toContain("17900000000000000/comments");
+      expect(call.url).not.toContain("/replies");
+      expect(res.platformMessageId).toBe("111222333444_987654321");
+    });
+  });
+
   // a 2xx send with an empty/non-JSON body (proxy/CDN) must be treated as sent, not throw
   // after acceptance (which would retry and double-send the DM).
   describe("non-JSON 2xx body", () => {

@@ -321,6 +321,92 @@ describe("publish worker (AUD27)", () => {
     expect(await status(postId)).toBe("unknown");
   });
 
+  // ── FIRSTCOMMENT1: auto first-comment on publish ────────────────────────────────────────────
+  // Capture the enqueue at the queue boundary (version-independent — the graphile `jobs` view does
+  // not expose the payload column) and skip the real add so no stray job leaks into later suites.
+  async function spyFirstCommentEnqueue() {
+    const qc = await import("@/lib/queue/client");
+    return vi.spyOn(qc, "addJob").mockResolvedValue(undefined);
+  }
+  function firstCommentCall(spy: ReturnType<typeof vi.fn>) {
+    const call = spy.mock.calls.find((c) => c[0] === "outgoing-first-comment");
+    return call ? { payload: call[1], opts: call[2] } : null;
+  }
+
+  async function igScenario(opts: { defaultFirstComment?: string | null; firstCommentOverride?: string } = {}) {
+    const [c] = await db
+      .insert(schema.channels)
+      .values({
+        workspace_id: WS,
+        platform: "instagram",
+        platform_id: `IGF-${Math.random()}`,
+        connection_mode: "derived",
+        status: "active",
+        token_encrypted: encryptTokens({ access_token: "T" }),
+        webhook_secret: "wh",
+        default_first_comment: opts.defaultFirstComment ?? null,
+      })
+      .returning();
+    const [m] = await db
+      .insert(schema.media)
+      .values({ workspace_id: WS, checksum: `c${Math.random()}`, storage_key: "k", url: "https://cdn/x.mp4", kind: "video" })
+      .returning();
+    const payload: Record<string, unknown> = { format: "video", media: [{ mediaId: m!.id }], caption: "hi" };
+    if (opts.firstCommentOverride !== undefined) payload.firstComment = opts.firstCommentOverride;
+    const [p] = await db
+      .insert(schema.deliveries)
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload, scheduled_at: new Date(), run_at: new Date() })
+      .returning();
+    return { channelId: c!.id, postId: p!.id };
+  }
+
+  it("enqueues a first-comment keyed to the publish handle when the channel has a default", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await igScenario({ defaultFirstComment: "Link in comments 👇" });
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_1" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      const call = firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>);
+      expect(call?.payload).toEqual({ channelId, postId: "IG_MEDIA_1", text: "Link in comments 👇", idempotencyKey: `first-comment:${postId}` });
+      expect(call?.opts).toEqual({ jobKey: `first-comment:${postId}` });
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
+  it("per-post firstComment override beats the channel default", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await igScenario({ defaultFirstComment: "channel default", firstCommentOverride: "per-post wins" });
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_2" });
+    try {
+      await processPublish({ postId }, helpers);
+      const call = firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>);
+      expect((call?.payload as { text: string }).text).toBe("per-post wins");
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
+  it("does not enqueue a first-comment when neither default nor override is set", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await igScenario();
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_3" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      expect(firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+    }
+  });
+
   it("redacts a token echoed in a provider error before persisting / emitting [PSA13]", async () => {
     if (!TEST_DB) return;
     const { postId } = await scenario();

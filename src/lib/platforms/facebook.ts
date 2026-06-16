@@ -191,6 +191,20 @@ export class FacebookProvider extends SocialProvider {
     return { platformMessageId: data.id ?? null };
   }
 
+  /**
+   * Post a NEW top-level comment on one of our own Page posts (the "first comment"). On Facebook the
+   * top-level edge is `POST /{post-id}/comments` — the SAME endpoint {@link sendComment} uses — so we
+   * delegate to it rather than duplicate the request (DRY). (On IG/YouTube the two diverge, which is
+   * why `commentOnPost` is its own method on the base class.)
+   */
+  override async commentOnPost(
+    tokens: TokenData,
+    postId: string,
+    message: string,
+  ): Promise<{ platformMessageId: string | null }> {
+    return this.sendComment(tokens, postId, message);
+  }
+
   override async sendPrivateReply(
     tokens: TokenData,
     commentId: string,

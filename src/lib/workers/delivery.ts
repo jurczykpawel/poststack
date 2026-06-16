@@ -19,7 +19,7 @@ const RATE_LIMIT_JITTER_CAP_MS = 30_000;
 /** A Drizzle db handle or an open transaction. */
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-export type DeliveryTaskName = "outgoing-message" | "outgoing-comment" | "outgoing-private-reply";
+export type DeliveryTaskName = "outgoing-message" | "outgoing-comment" | "outgoing-first-comment" | "outgoing-private-reply";
 
 /** The channel fields the delivery state machine needs. */
 export interface DeliveryChannel {

@@ -6,7 +6,7 @@ import {
   type SentMessage,
 } from "./base";
 import type { Capability } from "@/lib/channels/capabilities";
-import { insertCommentReply, refreshGoogleAccessToken } from "@/lib/youtube/client";
+import { insertCommentReply, insertCommentThread, refreshGoogleAccessToken } from "@/lib/youtube/client";
 
 /**
  * YouTube provider — comment automation only (no DMs on YouTube). Inbound comments are POLLED (see
@@ -55,6 +55,18 @@ export class YouTubeProvider extends SocialProvider {
   ): Promise<{ platformMessageId: string | null }> {
     const accessToken = await this.usableAccessToken(tokens);
     const { id } = await insertCommentReply({ parentId: objectId, text: message, accessToken });
+    return { platformMessageId: id };
+  }
+
+  /** Post a NEW top-level comment on one of our own videos (the "first comment"). Uses
+   *  commentThreads.insert (NOT comments.insert, which only replies UNDER an existing comment). */
+  override async commentOnPost(
+    tokens: TokenData,
+    videoId: string,
+    message: string,
+  ): Promise<{ platformMessageId: string | null }> {
+    const accessToken = await this.usableAccessToken(tokens);
+    const { id } = await insertCommentThread({ videoId, text: message, accessToken });
     return { platformMessageId: id };
   }
 

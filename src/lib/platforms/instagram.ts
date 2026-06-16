@@ -249,6 +249,28 @@ export class InstagramProvider extends SocialProvider {
   }
 
   /**
+   * Post a NEW top-level comment on one of our own IG media (the "first comment"). Uses
+   * `POST /{ig-media-id}/comments` — NOT `/{comment-id}/replies` (that's {@link sendComment},
+   * which replies under someone else's comment).
+   */
+  override async commentOnPost(
+    tokens: TokenData,
+    mediaId: string,
+    message: string,
+  ): Promise<{ platformMessageId: string | null }> {
+    const res = await fetch(`${GRAPH_API}/${mediaId}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, access_token: tokens.access_token }),
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+    await assertMetaOk(res, "Instagram comment on post");
+    const data = (await res.json().catch(() => ({}))) as { id?: string };
+    return { platformMessageId: data.id ?? null };
+  }
+
+  /**
    * Resolve an IG media id to its public permalink (`https://www.instagram.com/(p|reel|tv)/<code>/`).
    * IG media ids carry no shortcode, so the only reliable source is the API's `permalink` field.
    */

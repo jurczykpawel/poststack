@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
 import { and, count, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { deliveries, channels, posts } from "@/db/schema";
+import { deliveries, channels, posts, type Platform } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { toTokenSet } from "@/lib/providers/token-codec";
 import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
@@ -10,7 +10,8 @@ import { provisionAutoReply } from "@/lib/autoreply/provision";
 import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
-import { addJobTx } from "@/lib/queue/client";
+import { addJob, addJobTx } from "@/lib/queue/client";
+import { getProvider as getInboundProvider } from "@/lib/platforms/registry";
 import { processTokenRefresh } from "@/lib/channels/token-refresh";
 import { emitEventNow } from "@/lib/events";
 import type { PublishRequest } from "@/lib/providers/types";
@@ -97,6 +98,30 @@ async function withinDailyCap(channelId: string, perDay: number): Promise<boolea
       ),
     );
   return (row?.n ?? 0) < perDay;
+}
+
+/**
+ * FIRSTCOMMENT1: enqueue the auto first-comment for a just-published post. Resolves the text
+ * (per-post `firstComment` override > channel `default_first_comment`), guards that the platform can
+ * post a top-level comment, and keys the delivery to the publish (delivery) id so a retry or
+ * re-publish reuses the same ledger row instead of double-posting. Best-effort — the caller swallows
+ * failures so a first-comment hiccup never affects the published post.
+ */
+async function enqueueFirstComment(
+  channel: { id: string; platform: Platform; default_first_comment: string | null },
+  request: PublishRequest,
+  providerPostId: string,
+  deliveryId: string,
+): Promise<void> {
+  const text = (request.firstComment ?? channel.default_first_comment ?? "").trim();
+  if (!text || !providerPostId) return;
+  // Skip platforms whose inbound provider can't post a top-level comment (e.g. TikTok/X/LinkedIn).
+  if (!getInboundProvider(channel.platform).commentOnPost) return;
+  await addJob(
+    "outgoing-first-comment",
+    { channelId: channel.id, postId: providerPostId, text, idempotencyKey: `first-comment:${deliveryId}` },
+    { jobKey: `first-comment:${deliveryId}` },
+  );
 }
 
 /**
@@ -227,6 +252,9 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     // REPLYSTACK1 native (UNIFY P2.2): if the editorial post carries an auto-reply, provision the
     // comment→DM rule scoped to the just-published media id — in-process, idempotent, best-effort.
     await provisionAutoReply(postId, ws).catch(() => {});
+    // FIRSTCOMMENT1: auto-post the configured first comment under the new post — separate best-effort
+    // delivery so a comment failure never touches the published post.
+    await enqueueFirstComment(channel, request, handle.providerHandle, postId).catch(() => {});
   } catch (err) {
     if (err instanceof TokenInvalidError) {
       // AUD48: leave the post reattemptable FIRST; the channel flag + event are best-effort.

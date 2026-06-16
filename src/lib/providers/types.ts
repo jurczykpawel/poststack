@@ -33,6 +33,9 @@ export interface PublishRequest {
   caption?: string;
   title?: string;
   options?: Record<string, unknown>;
+  /** FIRSTCOMMENT1: per-post override for the auto-posted first comment. Falls back to the channel's
+   *  `default_first_comment` when omitted; empty/whitespace disables it for this post. */
+  firstComment?: string;
 }
 
 export interface AccountInfo {

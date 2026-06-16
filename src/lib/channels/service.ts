@@ -43,6 +43,8 @@ export interface PublicChannel {
   data_access_expires_at: Date | null;
   needs_reauth_reason: string | null;
   hidden_at: Date | null;
+  /** FIRSTCOMMENT1: default first-comment text auto-posted under posts published to this channel. */
+  default_first_comment: string | null;
   metadata: Record<string, unknown> | null;
   created_at: Date;
 }
@@ -64,6 +66,7 @@ function toPublic(r: ChannelRow): PublicChannel {
     data_access_expires_at: r.data_access_expires_at,
     needs_reauth_reason: r.needs_reauth_reason,
     hidden_at: r.hidden_at,
+    default_first_comment: r.default_first_comment,
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
   };
@@ -232,6 +235,17 @@ export async function setChannelDisplayName(workspaceId: string, id: string, dis
   await ownChannelOr404(workspaceId, id);
   const name = displayName.trim().slice(0, 200);
   await db.update(channels).set({ display_name: name || null }).where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+}
+
+/** FIRSTCOMMENT1: set (or clear) the default first-comment auto-posted under this channel's posts.
+ *  Empty / whitespace clears it (NULL = off). Capped to keep within platform comment limits. */
+export async function setChannelDefaultFirstComment(workspaceId: string, id: string, text: string): Promise<void> {
+  await ownChannelOr404(workspaceId, id);
+  const trimmed = text.trim().slice(0, 2000);
+  await db
+    .update(channels)
+    .set({ default_first_comment: trimmed || null })
+    .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
 /** Hide / unhide a channel (stays connected, filtered out of the default list). */

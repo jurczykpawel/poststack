@@ -6,6 +6,7 @@ vi.mock("@/lib/workers/incoming-reaction-worker", () => ({ processIncomingReacti
 vi.mock("@/lib/workers/incoming-post-reaction-worker", () => ({ processIncomingPostReaction: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-message-worker", () => ({ processOutgoingMessage: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-comment-worker", () => ({ processOutgoingComment: vi.fn() }));
+vi.mock("@/lib/workers/outgoing-first-comment-worker", () => ({ processOutgoingFirstComment: vi.fn() }));
 vi.mock("@/lib/workers/outgoing-private-reply-worker", () => ({ processOutgoingPrivateReply: vi.fn() }));
 vi.mock("@/lib/workers/follow-gate-worker", () => ({ processFollowGate: vi.fn() }));
 vi.mock("@/lib/workers/token-refresh-worker", () => ({ processTokenRefresh: vi.fn() }));
@@ -23,6 +24,7 @@ const EXPECTED_TASKS = [
   "incoming-post-reaction",
   "outgoing-message",
   "outgoing-comment",
+  "outgoing-first-comment",
   "outgoing-private-reply",
   "follow-gate",
   "token-refresh",

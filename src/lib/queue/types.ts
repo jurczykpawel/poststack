@@ -38,6 +38,17 @@ export interface OutgoingCommentJob {
   idempotencyKey?: string;
 }
 
+/** FIRSTCOMMENT1: auto-post the configured "first comment" UNDER a just-published post. Enqueued by
+ *  the publish worker after `post.published`; runs through the durable delivery state machine so a
+ *  crash can't double-post. Best-effort — failing it never affects the published post itself. */
+export interface OutgoingFirstCommentJob {
+  channelId: string;
+  /** Platform-native id of the just-published post/media/video (the publish handle). */
+  postId: string;
+  text: string;
+  idempotencyKey?: string;
+}
+
 /** Comment-to-DM: a private reply addressed by comment_id (first-touch DM). */
 export interface OutgoingPrivateReplyJob {
   channelId: string;
@@ -171,6 +182,7 @@ export type TaskPayloadMap = {
   "incoming-post-reaction": IncomingPostReactionJob;
   "outgoing-message": OutgoingMessageJob;
   "outgoing-comment": OutgoingCommentJob;
+  "outgoing-first-comment": OutgoingFirstCommentJob;
   "outgoing-private-reply": OutgoingPrivateReplyJob;
   "follow-gate": FollowGateJob;
   "token-refresh": TokenRefreshJob;

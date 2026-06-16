@@ -238,6 +238,35 @@ export async function insertCommentReply(opts: {
   return { id: data.id ?? null };
 }
 
+/**
+ * Post a NEW top-level comment on a video (commentThreads.insert, ~50 quota units). Distinct from
+ * {@link insertCommentReply} (comments.insert), which replies UNDER an existing comment — this is the
+ * "first comment on a freshly-published video" path. Returns the new top-level comment id.
+ */
+export async function insertCommentThread(opts: {
+  videoId: string;
+  text: string;
+  accessToken: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ id: string | null }> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const res = await fetchImpl(`${YT_API}/commentThreads?part=snippet`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${opts.accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      snippet: { videoId: opts.videoId, topLevelComment: { snippet: { textOriginal: opts.text } } },
+    }),
+    redirect: "error",
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new YouTubeApiError(res.status, `commentThreads.insert ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const data = (await res.json().catch(() => ({}))) as { id?: string };
+  return { id: data.id ?? null };
+}
+
 /** Exchange a refresh token for a fresh access token (Google access tokens expire in ~1h). */
 export async function refreshGoogleAccessToken(opts: {
   refreshToken: string;
