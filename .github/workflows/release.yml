@@ -132,7 +132,10 @@ jobs:
             ${{ secrets.DEPLOY_TEST_USER }}@${{ secrets.DEPLOY_TEST_HOST }} \
             'cd /opt/stacks/unify-test && \
               { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.ref_name }}/" .env || echo "IMAGE_TAG=${{ github.ref_name }}" >> .env; } && \
-              docker compose pull && docker compose up -d --force-recreate --remove-orphans && docker image prune -f'
+              docker compose pull && \
+              docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
+              docker compose up -d --no-deps --wait --wait-timeout 180 web worker && \
+              docker image prune -f'
       - name: Health gate (test)
         run: |
           for i in $(seq 1 30); do
@@ -159,7 +162,10 @@ jobs:
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
             'cd /opt/stacks/poststack-unified && \
               { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.event.inputs.tag }}/" .env || echo "IMAGE_TAG=${{ github.event.inputs.tag }}" >> .env; } && \
-              docker compose pull && docker compose up -d --force-recreate --remove-orphans && docker image prune -f'
+              docker compose pull && \
+              docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
+              docker compose up -d --no-deps --wait --wait-timeout 180 web worker && \
+              docker image prune -f'
       - name: Health gate (prod)
         run: |
           for i in $(seq 1 30); do
