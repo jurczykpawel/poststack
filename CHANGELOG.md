@@ -9,6 +9,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.19] - 2026-06-16
+
+### Added
+
+- **Meta 24h messaging-window handling.** A manual human reply sent after Meta's 24-hour standard messaging window now goes out with the `HUMAN_AGENT` message tag (allowed up to 7 days) instead of being rejected (`#10` / subcode `2018278`). Automated rule replies stay on `RESPONSE` (bots may not use `HUMAN_AGENT`, and they fire inside the window anyway).
+- **Inbox window indicator.** The reply composer shows a heads-up when the window is closing or closed: "24h reply window closes in Xh", "24h window closed — sending as a human-agent message (allowed up to 7 days)", or "outside the 7-day messaging window — Meta will likely reject this reply". Informational only — it never blocks sending.
+
 ## [0.4.18] - 2026-06-16
 
 ### Fixed
