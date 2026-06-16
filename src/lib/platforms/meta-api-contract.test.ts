@@ -852,6 +852,8 @@ describe("Meta Graph API Contract Tests", () => {
       expect(fields).toContain("messages");
       expect(fields).toContain("messaging_postbacks");
       expect(fields).toContain("feed");
+      // ENGAGE3: without this the page never sends DM-reaction webhooks (message_reactions stays empty).
+      expect(fields).toContain("message_reactions");
       expect(body.access_token).toBe("page-tok");
     });
   });

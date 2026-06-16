@@ -355,6 +355,9 @@ export class InstagramProvider extends SocialProvider {
         subscribed_fields: [
           "messages",
           "messaging_postbacks",
+          // Reactions on the DMs we send — the only reaction signal IG delivers (it sends no post
+          // likes). Without this the Engagement "Message reactions" section can never populate.
+          "message_reactions",
           "comments",
           "feed",
         ].join(","),

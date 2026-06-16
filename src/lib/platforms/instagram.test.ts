@@ -39,6 +39,8 @@ describe("InstagramProvider.subscribePageWebhooks", () => {
     expect(fields).toContain("comments");
     expect(fields).toContain("messages");
     expect(fields).toContain("messaging_postbacks");
+    // ENGAGE3: DM-reaction webhooks (the only IG reaction signal) need this field subscribed.
+    expect(fields).toContain("message_reactions");
   });
 });
 

@@ -269,6 +269,9 @@ export class FacebookProvider extends SocialProvider {
           "messages",
           "messaging_postbacks",
           "messaging_optins",
+          // Reactions left on the DMs we send (the Engagement "Message reactions" signal). Without
+          // this field the page never delivers them, so message_reactions stays empty.
+          "message_reactions",
           "feed",
         ].join(","),
         access_token: pageAccessToken,
