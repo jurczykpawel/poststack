@@ -122,16 +122,19 @@ Register an account, go to **Channels**, and connect your first Facebook Page or
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images from GHCR.
+This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images from GHCR. The `web` container runs database migrations on cold start before it serves.
+
+> **Full runbook.** See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the complete step-by-step guide — standing up a new instance, updating (simple and zero-blip), rollback, backups, and troubleshooting. The notes below are the essentials.
 
 > **Images & registry.** By default it pulls `ghcr.io/jurczykpawel/poststack` (and `-worker`). If the packages are private, run `docker login ghcr.io` first. Forks: set `IMAGE_REPO` in `.env` to your own registry path, and `IMAGE_TAG` to pin a version.
 
-> **Rollback.** A release re-pulls `IMAGE_TAG` (default `latest`) and recreates the containers, so if a deploy is bad the previous containers are already gone. To roll back, pin the last good version and bring the stack back up:
+> **Rollback.** Pin the last good version and bring the stack back up — pinning `IMAGE_TAG` to an explicit version (not `latest`) is what makes rollbacks predictable:
 > ```bash
-> echo "IMAGE_TAG=v0.1.0" >> .env   # the previous good tag
-> docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+> sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=v0.1.0/" .env   # the previous good tag
+> docker compose -f docker-compose.prod.yml pull
+> docker compose -f docker-compose.prod.yml up -d --no-deps --wait web worker
 > ```
-> For zero-surprise rollbacks, pin `IMAGE_TAG` to an explicit version (not `latest`) so each release is an intentional tag bump. Migrations are forward-only — a rollback assumes the schema is compatible (it is within a release line).
+> Migrations are forward-only — a rollback within a release line is safe (schema compatible); rolling back across a release that dropped/renamed columns requires restoring from a backup.
 
 ### Database connection sizing
 
