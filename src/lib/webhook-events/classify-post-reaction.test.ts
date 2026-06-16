@@ -24,6 +24,17 @@ describe("classifyChangeEvent — post reactions/likes", () => {
     expect(c?.job?.task).toBe("incoming-post-reaction");
   });
 
+  it("classifies a reaction EDIT (reactor swapped their reaction) as a job so the worker can update it", () => {
+    const c = classifyChangeEvent(
+      feed({ item: "reaction", verb: "edit", reaction_type: "haha", post_id: "P1", from: { id: "U1", name: "Ann" }, created_time: 1_700_000_000 }),
+      "facebook",
+      "page",
+    );
+    expect(c?.job?.task).toBe("incoming-post-reaction");
+    expect(c?.log.event_type).toBe("post_reaction");
+    expect(c?.log.event_key).toContain("edit"); // distinct log row from the original add
+  });
+
   it("does not classify a reaction missing the reactor id or post id as a job", () => {
     const noReactor = classifyChangeEvent(feed({ item: "reaction", verb: "add", reaction_type: "love", post_id: "P1" }), "facebook", "page");
     expect(noReactor?.job).toBeNull();

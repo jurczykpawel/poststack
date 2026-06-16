@@ -713,6 +713,19 @@ describe("channels — managed connection section", () => {
   });
 
   // ── ENGAGE2: webhooks channel column + engagement accurate totals + brand/account filter ────────
+  it("/inbox/:id renders the FULL page on a direct navigation, the bare thread for htmx", async () => {
+    if (!TEST_DB) return;
+    // Direct navigation (e.g. the deep-link from a webhook event) → full inbox page with chrome.
+    const full = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
+    expect(full).toContain('id="conv-panel"'); // full inbox layout present (not just the fragment)
+    expect(full).toContain("Type a reply"); // the thread is rendered inside it
+
+    // htmx swap → just the thread fragment, no page chrome.
+    const partial = await (await app.request(`/inbox/${CONV}`, { headers: { cookie, "hx-request": "true" } })).text();
+    expect(partial).not.toContain('id="conv-panel"');
+    expect(partial).toContain("Type a reply");
+  });
+
   it("/webhooks/subscriptions renders the per-account subscription panel", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ display_name: "Acme Page" }).where(eq(s.channels.id, CH));

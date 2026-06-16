@@ -666,15 +666,43 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   app.get("/inbox/:id", guard, async (c) => {
     const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const { features, upgradeUrl } = await getInstanceLicense();
+    if (!a) {
+      // A direct (non-htmx) navigation must land on the login page, not get a bare 401 fragment.
+      return c.req.header("hx-request") === "true" ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
+    }
+    const { features, products, upgradeUrl } = await getInstanceLicense();
     const id = c.req.param("id");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     // workspace_id alongside the PK keeps the unread reset tenant-scoped.
     await db.update(conversations).set({ unread_count: 0 }).where(and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId))).catch(() => {});
     const msgs = await loadMessages(id);
-    return c.html(renderThread(conv, msgs, { canReply: features.has("manual_reply"), upgradeUrl }));
+    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), upgradeUrl });
+
+    // htmx swaps the bare thread into #thread; a DIRECT navigation (e.g. the deep-link from a webhook
+    // event's "Conversation →") must render the FULL inbox page with this thread open — otherwise the
+    // user lands on an unstyled fragment.
+    if (c.req.header("hx-request") === "true") return c.html(thread);
+
+    const [convList, chans] = await Promise.all([
+      loadConversations(a.workspaceId, "all", "all", "all"),
+      loadInboxChannels(a.workspaceId),
+    ]);
+    return c.html(
+      dashboardDoc(
+        t("title.suffix", { section: "Inbox" }),
+        "/inbox",
+        html`<div class="inbox">
+          <div id="conv-panel" class="conv-list"
+            hx-get="/inbox/list?filter=all&channel=all&contact=all"
+            hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
+            hx-swap="innerHTML">${renderConvPanel(convList, "all", "all", chans)}</div>
+          <div id="thread" class="thread">${thread}</div>
+        </div>`,
+        features,
+        products,
+      ),
+    );
   });
 
   app.get("/inbox/:id/messages", guard, async (c) => {

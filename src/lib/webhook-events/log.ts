@@ -192,10 +192,11 @@ export function classifyChangeEvent(
     };
   }
 
-  // Facebook post reaction/like: field=feed, item=reaction|like, verb=add|remove. A reactor id +
-  // post id are required to record (and dedup) it; an unreact (remove) is handled so the worker can
-  // delete the row. Reactions on comments (which carry a comment_id) are not post reactions.
-  if (field === "feed" && (v.item === "reaction" || v.item === "like") && (v.verb === "add" || v.verb === "remove") && !v.comment_id) {
+  // Facebook post reaction/like: field=feed, item=reaction|like, verb=add|edit|remove. A reactor id +
+  // post id are required to record (and dedup) it; remove deletes the row, add/edit upsert the current
+  // reaction_type (edit = the reactor swapped e.g. 👍→😆). Reactions on comments (which carry a
+  // comment_id) are not post reactions.
+  if (field === "feed" && (v.item === "reaction" || v.item === "like") && (v.verb === "add" || v.verb === "edit" || v.verb === "remove") && !v.comment_id) {
     const reactorId = v.from?.id;
     if (reactorId && v.post_id) {
       const key = `postreact-${v.post_id}-${reactorId}-${v.verb}`;
