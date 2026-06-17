@@ -27,6 +27,12 @@ describe("worker cron schedule", () => {
     expect(Object.keys(cronTaskList)).toContain("license-refresh");
   });
 
+  it("schedules compact-history daily", async () => {
+    const { CRONTAB, cronTaskList } = await import("./cron");
+    expect(Object.keys(cronTaskList)).toContain("compact-history");
+    expect(CRONTAB).toMatch(/compact-history/);
+  });
+
   it("every crontab entry references a task that exists in the task list", async () => {
     const { CRONTAB, cronTaskList } = await import("./cron");
     const scheduled = CRONTAB.split("\n")

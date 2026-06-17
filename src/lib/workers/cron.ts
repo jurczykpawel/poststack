@@ -8,6 +8,7 @@ import { sweepChannelHealth } from "@/lib/channels/health-sweep";
 import { scanExpiringConnections } from "@/lib/channels/expiry-scan";
 import { sweepYouTubeChannels } from "@/lib/youtube/poll";
 import { stuckSendingSweep } from "@/lib/deliveries/publish-worker";
+import { runCompactHistory } from "@/lib/workers/compact-history-task";
 
 /**
  * Cron-only maintenance tasks. These are NOT enqueued via addJob — graphile-worker drives them
@@ -63,6 +64,11 @@ export const cronTaskList = {
   "stuck-sending-sweep": async () => {
     await stuckSendingSweep();
   },
+  // Daily history compaction: roll up webhook_events + post_reactions older than the retention
+  // window into per-day stat rows, then delete the raw rows. No-op when HISTORY_RETENTION_DAYS=0.
+  "compact-history": async () => {
+    await runCompactHistory();
+  },
 };
 
 /** graphile-worker crontab. Every line's trailing token must be a key in {@link cronTaskList}. */
@@ -76,4 +82,5 @@ export const CRONTAB = [
   "30 4 * * * managed-expiry-scan",
   "*/15 * * * * youtube-comment-poll",
   "*/5 * * * * stuck-sending-sweep",
+  "50 3 * * * compact-history",
 ].join("\n");
