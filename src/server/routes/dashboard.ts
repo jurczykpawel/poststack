@@ -7,8 +7,9 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, users,
+  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, webhookEventStats, users,
 } from "@/db/schema";
+import { mergeWebhookStatusCounts } from "@/lib/history/stats-read";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -512,17 +513,24 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
 interface WebhookStats { total: number; last24h: number; byStatus: Record<string, number> }
 
 /** Aggregate inbound-event counts for the workspace's channels — the PRO Webhooks-page stats. */
-async function loadWebhookStats(channelIds: string[]): Promise<WebhookStats> {
+export async function loadWebhookStats(channelIds: string[]): Promise<WebhookStats> {
   if (channelIds.length === 0) return { total: 0, last24h: 0, byStatus: {} };
   const since = new Date(Date.now() - 24 * 3600_000);
-  const grouped = await db
+  const live = await db
     .select({ status: webhookEvents.handling_status, n: count() })
     .from(webhookEvents)
     .where(inArray(webhookEvents.channel_id, channelIds))
     .groupBy(webhookEvents.handling_status);
-  const byStatus: Record<string, number> = {};
-  let total = 0;
-  for (const r of grouped) { byStatus[r.status] = Number(r.n); total += Number(r.n); }
+  const stats = await db
+    .select({ handling_status: webhookEventStats.handling_status, count: sql<number>`sum(${webhookEventStats.count})::int` })
+    .from(webhookEventStats)
+    .where(inArray(webhookEventStats.channel_id, channelIds))
+    .groupBy(webhookEventStats.handling_status);
+  const byStatus = mergeWebhookStatusCounts(
+    live.map((r) => ({ status: r.status, n: Number(r.n) })),
+    stats.map((r) => ({ handling_status: r.handling_status, count: Number(r.count) })),
+  );
+  const total = Object.values(byStatus).reduce((a, n) => a + n, 0);
   const [recent] = await db
     .select({ n: count() })
     .from(webhookEvents)
