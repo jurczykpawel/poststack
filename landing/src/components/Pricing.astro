@@ -42,6 +42,9 @@ import { pricing } from "../content/landing";
               {p.name}
             </h3>
             <div class="mt-3 flex items-baseline gap-1.5">
+              {"originalPrice" in p && p.originalPrice && (
+                <span class="text-lg font-semibold text-ink-3 line-through">{p.originalPrice}</span>
+              )}
               <span class="font-[var(--font-display)] text-4xl font-bold text-ink">{p.price}</span>
               {p.period && <span class="text-sm text-ink-3">{p.period}</span>}
             </div>
@@ -71,7 +74,8 @@ import { pricing } from "../content/landing";
     </div>
 
     <p class="mt-6 text-center text-sm text-ink-3" data-reveal>
-      Paid licenses are issued through Sellf — choose yearly or lifetime at checkout.
+      🚀 Launch pricing through 31 Jul 2026 — lock in the founding rate. Paid licenses are
+      issued through Sellf; choose yearly or lifetime at checkout.
     </p>
   </div>
 </section>

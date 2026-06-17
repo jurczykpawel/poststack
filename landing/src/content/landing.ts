@@ -10,7 +10,7 @@ export const site = {
     "Self-hosted social media management for Facebook, Instagram, YouTube & Telegram (more coming): unified inbox, keyword auto-replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",
   domain: "https://poststack.techskills.academy",
   appUrl: "https://app.poststack.techskills.academy",
-  ctaUrl: "https://sellf.techskills.academy/p/poststack",
+  ctaUrl: "https://sellf.techskills.academy/p/poststack-pro",
   docsUrl: "https://github.com/jurczykpawel/poststack",
   githubUrl: "https://github.com/jurczykpawel/poststack",
 };
@@ -261,12 +261,13 @@ export const pricing = [
   },
   {
     name: "PRO",
-    price: "zł499",
+    price: "zł349",
+    originalPrice: "zł499",
     period: "/ year",
     slug: "poststack-pro",
-    note: "Commercial license, priority support, and a year of updates.",
+    note: "Launch price. Commercial license, priority support, and a year of updates.",
     cta: "Get PRO",
-    href: "https://sellf.techskills.academy/p/poststack",
+    href: "https://sellf.techskills.academy/p/poststack-pro",
     featured: true,
     features: [
       "All product capabilities",
@@ -277,12 +278,13 @@ export const pricing = [
   },
   {
     name: "Lifetime",
-    price: "zł1,299",
+    price: "zł899",
+    originalPrice: "zł1,299",
     period: "once",
     slug: "poststack-lifetime",
-    note: "One-time license for teams who keep running their own stack.",
+    note: "Launch price. One-time license for teams who keep running their own stack.",
     cta: "Get lifetime",
-    href: "https://sellf.techskills.academy/p/poststack",
+    href: "https://sellf.techskills.academy/p/poststack-lifetime",
     badge: "Best value",
     features: [
       "Everything in PRO",
@@ -413,7 +415,7 @@ export const footer = {
       heading: "Get started",
       links: [
         { label: "Open the app", href: "https://app.poststack.techskills.academy" },
-        { label: "Get a license", href: "https://sellf.techskills.academy/p/poststack" },
+        { label: "Get a license", href: "https://sellf.techskills.academy/p/poststack-pro" },
       ],
     },
   ],

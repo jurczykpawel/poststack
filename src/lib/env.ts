@@ -102,7 +102,13 @@ const envSchema = z.object({
   // product's token from the same seller unlocking PostStack. Comma-separated allowlist:
   // a single install can accept several products (e.g. annual + lifetime PRO variants and
   // the business tier), each a distinct Sellf product, all valid here.
-  LICENSE_PRODUCT_SLUG: z.string().default("poststack"),
+  // Default accepts the whole PostStack product family so a self-hosted install validates a license
+  // from any of them out of the box: the annual (poststack-pro) and lifetime (poststack-lifetime)
+  // PRO variants, the legacy `poststack` product, and the pre-rebrand ReplyStack slugs that earlier
+  // customers' tokens still carry. An operator can override to narrow/extend this.
+  LICENSE_PRODUCT_SLUG: z
+    .string()
+    .default("poststack,poststack-pro,poststack-lifetime,replystack-pro,replystack-pro-lifetime,replystack-business"),
   // Seller-scoped revocation list (CRL). Licenses verify offline, so this is how a refunded /
   // revoked token is turned off: the gate refuses a token whose `order` claim is on the list.
   // Fails OPEN (a fetch outage never locks out a paying customer). Empty = revocation disabled.
