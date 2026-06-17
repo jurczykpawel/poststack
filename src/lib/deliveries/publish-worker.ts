@@ -7,6 +7,7 @@ import { toTokenSet } from "@/lib/providers/token-codec";
 import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
 import { can } from "@/lib/channels/capabilities";
 import { provisionAutoReply } from "@/lib/autoreply/provision";
+import { hasFeature } from "@/lib/license/gate";
 import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
@@ -115,6 +116,9 @@ async function enqueueFirstComment(
 ): Promise<void> {
   const text = (request.firstComment ?? channel.default_first_comment ?? "").trim();
   if (!text || !providerPostId) return;
+  // PRO feature (first_comment): a free instance never auto-comments, even if a toggle is still stored
+  // on from a lapsed license — the server is the authority, not the (stale) UI state.
+  if (!(await hasFeature("first_comment"))) return;
   // Skip platforms whose inbound provider can't post a top-level comment (e.g. TikTok/X/LinkedIn).
   if (!getInboundProvider(channel.platform).commentOnPost) return;
   await addJob(
@@ -138,6 +142,9 @@ async function enqueueAutoStory(
 ): Promise<void> {
   const enabled = request.autoStory ?? channel.default_auto_story;
   if (!enabled) return;
+  // PRO feature (auto_story): a free instance never auto-publishes a Story, even if the toggle is still
+  // stored on from a lapsed license — server-side authority, not the (stale) UI state.
+  if (!(await hasFeature("auto_story"))) return;
   // Skip platforms whose publish provider has no Story-publish path (only meta/FB+IG today).
   if (!getProviderForPlatform(channel.platform).publishStory) return;
   await addJob(

@@ -83,13 +83,15 @@ function composeScript(): Html {
     function psCompose() {
       var data = {};
       try { data = JSON.parse(document.getElementById("ps-compose-data").textContent); } catch (e) {}
-      var seqCfg = { canSequence: false, sequences: [] };
+      var seqCfg = { canSequence: false, sequences: [], canFirstComment: false, canAutoStory: false };
       try { seqCfg = JSON.parse(document.getElementById("ps-compose-seq").textContent); } catch (e) {}
       return {
         brands: data,
         brandList: Object.keys(data).map(function (k) { return { key: k, name: data[k].name }; }),
         canSequence: seqCfg.canSequence,
         sequences: seqCfg.sequences,
+        licFirstComment: seqCfg.canFirstComment,
+        licAutoStory: seqCfg.canAutoStory,
         hasSequences() { return this.canSequence && this.sequences.length > 0; },
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
         brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
@@ -131,8 +133,8 @@ function composeScript(): Html {
               var s = this.sel[p.platform];
               var post = { platform: p.platform, description: (s.override || "").trim() || undefined };
               var fc = (s.firstComment || "").trim();
-              if (this.canComment(p.platform) && fc) post.firstComment = fc;
-              if (this.canStory(p.platform) && s.autoStory) post.autoStory = true;
+              if (this.canComment(p.platform) && this.licFirstComment && fc) post.firstComment = fc;
+              if (this.canStory(p.platform) && this.licAutoStory && s.autoStory) post.autoStory = true;
               if (this.canAutoReply(p.platform) && s.arEnabled && (s.arKeyword || "").trim()) {
                 var kw = [{ value: s.arKeyword.trim(), matchType: "contains" }];
                 if (s.arResponse === "sequence" && this.hasSequences() && s.arSequenceId) {
@@ -164,7 +166,12 @@ function composePage(
 ): Html {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   // SEQTRIGGER1: a comment auto-reply can enroll into a drip — only when licensed AND a sequence exists.
-  const seqJson = JSON.stringify({ canSequence: features.has("sequences"), sequences }).replace(/</g, "\\u003c");
+  const seqJson = JSON.stringify({
+    canSequence: features.has("sequences"),
+    sequences,
+    canFirstComment: features.has("first_comment"),
+    canAutoStory: features.has("auto_story"),
+  }).replace(/</g, "\\u003c");
   const typeOpts = CONTENT_TYPES.map(([v, label]) => html`<option value="${v}">${label}</option>`);
   const brandOpts = Object.entries(data).map(([key, v]) => html`<option value="${key}">${v.name}</option>`);
   return renderPage({
@@ -226,17 +233,23 @@ function composePage(
                         <div class="compose-automation">
                           <div class="compose-automation-head">Automation <small>— fires when this post publishes</small></div>
 
-                          <template x-if="canComment(p.platform)">
+                          <template x-if="canComment(p.platform) && licFirstComment">
                             <label class="fld"><span>First comment <small>(auto-posted under the post; empty = channel default)</small></span>
                               <textarea x-model="sel[p.platform].firstComment" rows="2" placeholder="e.g. 👇 Comment WORD and I'll DM you the link"></textarea>
                             </label>
                           </template>
+                          <template x-if="canComment(p.platform) && !licFirstComment">
+                            <p class="card-hint"><small>🔒 First comment is a PRO feature.</small></p>
+                          </template>
 
-                          <template x-if="canStory(p.platform)">
+                          <template x-if="canStory(p.platform) && licAutoStory">
                             <label class="compose-toggle">
                               <input type="checkbox" x-model="sel[p.platform].autoStory" />
                               <span>Auto-Story — share this post to your Story on publish</span>
                             </label>
+                          </template>
+                          <template x-if="canStory(p.platform) && !licAutoStory">
+                            <p class="card-hint"><small>🔒 Auto-Story is a PRO feature.</small></p>
                           </template>
 
                           <template x-if="canAutoReply(p.platform)">

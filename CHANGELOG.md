@@ -9,7 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.4.25] - 2026-06-17
+## [0.4.26] - 2026-06-17
+
+### Changed
+
+- **Auto-Story and the automatic First comment are now PRO features** (publishing area). On a free instance the channel panels show a "🔒 (PRO)" upgrade prompt instead of the controls, the compose per-post overrides are hidden, and — the authoritative gate — the publish worker never enqueues a Story or first-comment for an unlicensed instance even if a toggle was left on from a lapsed license.
+
+### Fixed
+
+- **"Published posts" (and "Queue →") in the channel view now filter to that channel.** They linked to the unfiltered `/queue`; they now carry `?channel=<id>` so you see only that channel's posts (the queue already supported the filter).
 
 ### Fixed
 

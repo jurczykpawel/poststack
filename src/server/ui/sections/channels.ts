@@ -29,7 +29,8 @@ import type { Platform } from "@/db/schema";
 import { listDeliveries } from "@/lib/deliveries/service";
 import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/service";
 import { ApiError } from "@/lib/api/response";
-import { getInstanceLicense } from "@/lib/license/gate";
+import { getInstanceLicense, hasFeature } from "@/lib/license/gate";
+import { proMessage, type Feature } from "@/lib/license/features";
 import { renderPage } from "../layout";
 import { statusBadge, pill, dot, type Tone } from "../components/status";
 import { platformCell, platformLabel } from "../components/platform";
@@ -424,14 +425,12 @@ function platformSupportsFirstComment(platform: string): boolean {
 
 /** FIRSTCOMMENT1: per-channel default first-comment editor (shown only for platforms that can
  *  comment on their own posts). The per-post override travels on the publish request, not here. */
-function firstCommentPanel(ch: PublicChannel, oob = false): Html {
+function firstCommentPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
   if (!platformSupportsFirstComment(ch.platform)) return html``;
   // Same out-of-band pattern as the Auto-Story panel: the control lives here, not in #ch-detail-head,
   // so the save action re-renders this panel in place (reflecting the saved value), no page reload.
-  return html`<section class="panel" id="first-comment-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
-    <div class="panel-head"><h3>First comment</h3></div>
-    <div class="panel-body">
-      <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+  const body = licensed
+    ? html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
         Auto-posted as the first comment under every post published to this channel
         (e.g. “link in the comments 👇”). Leave empty to turn it off.
       </p>
@@ -442,8 +441,14 @@ function firstCommentPanel(ch: PublicChannel, oob = false): Html {
           aria-label="Default first comment"
           style="width:100%;resize:vertical;font:inherit">${ch.default_first_comment ?? ""}</textarea>
         <div style="margin-top:.5rem">${btn({ label: "Save first comment", variant: "secondary", size: "sm" })}</div>
-      </form>
-    </div>
+      </form>`
+    : html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+        Auto-post a first comment (e.g. “link in the comments 👇”) under every post published to this channel.
+      </p>
+      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 First comment (PRO)</a>`;
+  return html`<section class="panel" id="first-comment-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
+    <div class="panel-head"><h3>First comment</h3></div>
+    <div class="panel-body">${body}</div>
   </section>`;
 }
 
@@ -460,15 +465,13 @@ function platformSupportsStory(platform: string): boolean {
 /** STORY1: per-channel auto-Story toggle (shown only for platforms that can publish a Story). When on,
  *  every published post also auto-publishes a generated Story card. The per-post override travels on
  *  the publish request, not here. */
-function storyPanel(ch: PublicChannel, oob = false): Html {
+function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
   if (!platformSupportsStory(ch.platform)) return html``;
   const on = ch.default_auto_story;
   // The toggle lives in THIS panel (not in #ch-detail-head), so the action's response re-renders it
   // out-of-band (hx-swap-oob) — the button label + status flip in place, no page reload.
-  return html`<section class="panel" id="story-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
-    <div class="panel-head"><h3>Auto-Story</h3></div>
-    <div class="panel-body">
-      <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+  const body = licensed
+    ? html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
         Auto-publish a generated Story card (cover + caption) about every post published to this
         channel. ${on ? "Currently on." : "Currently off."}
       </p>
@@ -476,8 +479,14 @@ function storyPanel(ch: PublicChannel, oob = false): Html {
         hx-post="/channels/${ch.id}/auto-story" hx-target="#ch-detail-head" hx-swap="outerHTML">
         <input type="hidden" name="enabled" value="${on ? "0" : "1"}" />
         ${btn({ label: on ? "Turn off auto-Story" : "Turn on auto-Story", variant: on ? "danger" : "secondary", size: "sm" })}
-      </form>
-    </div>
+      </form>`
+    : html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+        Auto-publish a generated Story card (cover + caption) about every post published to this channel.
+      </p>
+      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 Auto-Story (PRO)</a>`;
+  return html`<section class="panel" id="story-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
+    <div class="panel-head"><h3>Auto-Story</h3></div>
+    <div class="panel-body">${body}</div>
   </section>`;
 }
 
@@ -587,7 +596,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
       body: html`${detailHead(ch)}
         <div class="action-bar" style="margin:.5rem 0">
           ${btn({ label: "View inbox", href: `/inbox?channel=${ch.id}`, variant: "secondary" })}
-          ${btn({ label: "Published posts", href: "/queue", variant: "secondary" })}
+          ${btn({ label: "Published posts", href: `/queue?channel=${ch.id}`, variant: "secondary" })}
         </div>
         ${stats
           ? html`<section class="panel"><div class="panel-head"><h3>Stats</h3></div>
@@ -598,12 +607,12 @@ async function channelDetailPage(c: Context): Promise<Response> {
                 <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.comments}</div><div class="muted" style="font-size:.72rem">Comments</div></div>
               </div></section>`
           : html`<section class="panel"><div class="panel-body muted" style="font-size:.82rem">📊 Channel stats (posts &amp; messages) are a PRO feature.</div></section>`}
-        ${firstCommentPanel(ch)}
-        ${storyPanel(ch)}
+        ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
+        ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
           <section class="panel">
-            <div class="panel-head"><h3>Recent posts</h3><a class="panel-more" href="/queue">Queue →</a></div>
+            <div class="panel-head"><h3>Recent posts</h3><a class="panel-more" href="/queue?channel=${ch.id}">Queue →</a></div>
             <div class="panel-body">${postRows}</div>
           </section>
           <section class="panel">
@@ -627,12 +636,16 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     run: (ws: string, id: string, c: Context) => Promise<unknown>,
     toast: (ch: PublicChannel) => string,
     oob?: (ch: PublicChannel) => Html,
+    feature?: Feature,
   ) {
     return async (c: Context) => {
       const a = await auth(c);
       if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
       const id = c.req.param("id");
       if (!id || !UUID_RE.test(id)) return c.text("not found", 404);
+      // PRO gate (defense-in-depth): the UI hides the control when unlicensed, but block the endpoint
+      // too so it can't be toggled out-of-band on a free instance.
+      if (feature && !(await hasFeature(feature))) return c.text(proMessage(feature), 402);
       try {
         await run(a.workspaceId, id, c);
       } catch (err) {
@@ -662,12 +675,12 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.parseBody();
     await setChannelDefaultFirstComment(ws, id, String(form.firstComment ?? ""));
   }, (ch) => ch.default_first_comment ? "First comment saved" : "First comment turned off",
-    (ch) => firstCommentPanel(ch, true)));
+    (ch) => firstCommentPanel(ch, true, "", true), "first_comment"));
   r.post("/channels/:id/auto-story", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");
   }, (ch) => ch.default_auto_story ? "Auto-Story turned on" : "Auto-Story turned off",
-    (ch) => storyPanel(ch, true)));
+    (ch) => storyPanel(ch, true, "", true), "auto_story"));
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));
   r.post("/channels/:id/unhide", guard, action((ws, id) => setChannelHidden(ws, id, false), () => "Channel unhidden"));
   r.post("/channels/:id/reconnect", guard, action(async (ws, id, c) => {

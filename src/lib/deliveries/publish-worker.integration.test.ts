@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import type { JobHelpers } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
+import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -28,6 +29,9 @@ beforeAll(async () => {
   ({ processPublish, stuckSendingSweep } = await import("./publish-worker"));
   ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
   WS = await seedWorkspace(db, schema, { slug: `pub-${Date.now()}` });
+  // first_comment + auto_story are PRO (publishing area) — license the instance so the enqueue
+  // tests exercise the licensed path; the negative (toggle-off) tests pass regardless.
+  await licenseInstance();
 });
 
 afterAll(async () => {
@@ -479,6 +483,28 @@ describe("publish worker (AUD27)", () => {
     } finally {
       spy.mockRestore();
       enqueue.mockRestore();
+    }
+  });
+
+  // PRO gate: first_comment + auto_story are publishing-area PRO features. On a FREE instance NEITHER
+  // fires even with the toggles on — the server is the authority, not a stale stored toggle.
+  it("does NOT enqueue first-comment or auto-story on a free (unlicensed) instance, toggles on", async () => {
+    if (!TEST_DB) return;
+    const gate = await import("@/lib/license/gate");
+    const { channelId, postId } = await igScenario({ defaultFirstComment: "Link 👇", defaultAutoStory: true });
+    const enqueue = await spyFirstCommentEnqueue();
+    const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_FREE" });
+    try {
+      await gate.clearLicense(); // revert to free
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent"); // the post still publishes
+      expect(firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull(); // but no PRO automations
+      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+      void channelId;
+    } finally {
+      spy.mockRestore();
+      enqueue.mockRestore();
+      await licenseInstance(); // restore PRO for any later tests
     }
   });
 
