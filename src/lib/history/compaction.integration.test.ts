@@ -52,6 +52,13 @@ async function ev(opts: { type: string; status: string; daysAgo: number; channel
     received_at: sql`now() - (${opts.daysAgo} || ' days')::interval`,
   });
 }
+async function rx(opts: { post: string; type: string; reactor: string; daysAgo: number }) {
+  await db.insert(schema.postReactions).values({
+    workspace_id: WS, channel_id: CH, post_id: opts.post,
+    reactor_id: opts.reactor, reactor_name: `name-${opts.reactor}`, reaction_type: opts.type,
+    created_at: sql`now() - (${opts.daysAgo} || ' days')::interval`,
+  });
+}
 const now = new Date();
 
 describe("compactWebhookEvents", () => {
@@ -122,5 +129,35 @@ describe("compactWebhookEvents — cutoff boundary under a non-UTC TZ", () => {
     await compaction.compactWebhookEvents({ now: new Date(), retentionDays: 60, batchSize: 100, executor: db });
     expect(await db.$count(schema.webhookEvents, eq(schema.webhookEvents.channel_id, CH))).toBe(1);
     expect((await db.query.webhookEventStats.findMany()).reduce((a, s) => a + s.count, 0)).toBe(1);
+  });
+});
+
+describe("compactPostReactions", () => {
+  it("folds old reactions into per-(post,type) totals; keeps in-window raw", async () => {
+    if (!TEST_DB) return;
+    await rx({ post: "p1", type: "like", reactor: "u1", daysAgo: 90 });
+    await rx({ post: "p1", type: "like", reactor: "u2", daysAgo: 80 });
+    await rx({ post: "p1", type: "love", reactor: "u3", daysAgo: 70 });
+    await rx({ post: "p1", type: "like", reactor: "u4", daysAgo: 5 }); // in-window
+    const res = await compaction.compactPostReactions({ now, retentionDays: 60, batchSize: 100, executor: db });
+    expect(res.compacted).toBe(3);
+    expect(await db.$count(schema.postReactions, eq(schema.postReactions.channel_id, CH))).toBe(1);
+    const stats = await db.query.postReactionStats.findMany({ where: eq(schema.postReactionStats.channel_id, CH) });
+    const like = stats.find((s) => s.reaction_type === "like")!;
+    const love = stats.find((s) => s.reaction_type === "love")!;
+    expect(like.count).toBe(2);
+    expect(love.count).toBe(1);
+  });
+
+  it("last_reacted_at is the GREATEST across runs (monotonic)", async () => {
+    if (!TEST_DB) return;
+    await rx({ post: "p2", type: "like", reactor: "a", daysAgo: 100 });
+    await compaction.compactPostReactions({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const first = (await db.query.postReactionStats.findFirst({ where: eq(schema.postReactionStats.post_id, "p2") }))!;
+    await rx({ post: "p2", type: "like", reactor: "b", daysAgo: 65 });
+    await compaction.compactPostReactions({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const second = (await db.query.postReactionStats.findFirst({ where: eq(schema.postReactionStats.post_id, "p2") }))!;
+    expect(second.count).toBe(2);
+    expect(second.last_reacted_at.getTime()).toBeGreaterThan(first.last_reacted_at.getTime());
   });
 });
