@@ -9,7 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.4.33] - 2026-06-17
+## [0.5.0] - 2026-06-17
+
+### Added
+
+- **Marketing homepage.** `poststack.techskills.academy` now serves the PostStack landing page at `/` (anonymous visitors see the marketing site; logged-in users go straight to the panel). The app, its login, and all OAuth/webhook endpoints keep their existing URLs — no domain change.
+- **PostStack PRO licenses on sale.** Two purchasable licenses wired into the landing: PRO annual and a one-time Lifetime, with introductory launch pricing through 31 Jul 2026. A self-hosted install validates a license from the whole PostStack product family out of the box.
 
 ### Added
 
