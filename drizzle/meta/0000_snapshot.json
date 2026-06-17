@@ -1,5 +1,5 @@
 {
-  "id": "c7c082d4-aef2-4957-9e62-db132385d074",
+  "id": "83cc07ba-255f-4ea0-b1f2-682092a41485",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1197,6 +1197,19 @@
           "notNull": true,
           "default": "'{}'::jsonb"
         },
+        "default_first_comment": {
+          "name": "default_first_comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_auto_story": {
+          "name": "default_auto_story",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp (3)",
@@ -1401,6 +1414,12 @@
         },
         "post_id": {
           "name": "post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "post_url": {
+          "name": "post_url",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -3324,6 +3343,38 @@
       },
       "isRLSEnabled": false
     },
+    "public.instance_settings": {
+      "name": "instance_settings",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "value_encrypted": {
+          "name": "value_encrypted",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.media": {
       "name": "media",
       "schema": "",
@@ -3705,6 +3756,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'sent'"
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -4484,6 +4547,18 @@
         "asset_notes": {
           "name": "asset_notes",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_comment": {
+          "name": "first_comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auto_story": {
+          "name": "auto_story",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": false
         },
@@ -6004,7 +6079,8 @@
         "paused",
         "ignored",
         "unhandled",
-        "error"
+        "error",
+        "recorded"
       ]
     },
     "public.workspace_member_role": {

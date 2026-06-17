@@ -357,6 +357,12 @@ CREATE TABLE "instance_license" (
 	CONSTRAINT "instance_license_singleton" CHECK ("instance_license"."id" = 'singleton')
 );
 --> statement-breakpoint
+CREATE TABLE "instance_settings" (
+	"key" text PRIMARY KEY NOT NULL,
+	"value_encrypted" text NOT NULL,
+	"updated_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "media" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
@@ -471,6 +477,8 @@ CREATE TABLE "posts" (
 	"media_urls" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"asset_status" text,
 	"asset_notes" text,
+	"first_comment" text,
+	"auto_story" boolean,
 	"auto_reply" jsonb,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL
