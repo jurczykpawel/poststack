@@ -1,9 +1,9 @@
 {
   "name": "poststack",
-  "version": "0.4.27",
+  "version": "0.4.28",
   "private": false,
-  "license": "AGPL-3.0",
-  "description": "Self-hosted, open-source social media inbox automation. Alternative to ManyChat.",
+  "license": "Elastic-2.0",
+  "description": "Self-hosted, source-available social media management for Facebook & Instagram — publish & schedule posts, auto-reply to DMs and comments, and run drip sequences from one place.",
   "homepage": "https://github.com/jurczykpawel/poststack",
   "repository": {
     "type": "git",

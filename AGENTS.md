@@ -1,15 +1,17 @@
-# AGENTS.md - ReplyStack
+# AGENTS.md - PostStack
 
 ## Project Overview
 
-**ReplyStack** — self-hosted, open-source Meta (Facebook + Instagram) inbox automation platform.
-AGPL-3.0. One-command startup via Docker Compose.
+**PostStack** — self-hosted, source-available Meta (Facebook + Instagram) social media
+management platform: publishing & scheduling + inbox auto-replies + drip sequences + CRM.
+**Elastic License 2.0** (source-available, NOT open-source/AGPL — see LICENSE + CLA.md).
+One-command startup via Docker Compose.
 
-Alternative to ManyChat / ZernFlow, without vendor lock-in.
+Alternative to ManyChat / Buffer / Hootsuite, without vendor lock-in.
 
 ## Task Tracking (private — never commit)
 
-All planned work lives as **one task per file** under `priv/tasks/*.md`. This directory is **gitignored** — it must never land in the AGPL public history.
+All planned work lives as **one task per file** under `priv/tasks/*.md`. This directory is **gitignored** — it must never land in the public history.
 
 **Always use this system. Do not invent ad-hoc TODO lists.**
 
@@ -55,7 +57,7 @@ Worker process (graphile-worker, on Bun):
 
 ## API-First Design
 
-ReplyStack is API-first. All features exposed via REST at `/api/v1/*`.
+PostStack is API-first. All features exposed via REST at `/api/v1/*`.
 
 - **Dual auth:** session JWT cookie (dashboard) + `Authorization: Bearer rs_live_<key>` (external)
 - **CORS:** enabled on all `/api/v1/*` routes
@@ -138,7 +140,7 @@ See `.env.example`. Required:
 - **Token encryption key has NO hardcoded fallback** — missing key = throw, never silent default
 - **Webhook handlers return 200 immediately** — enqueue job, process async (Meta retries on timeout)
 - **Every DB query scoped by workspace_id** — never query cross-workspace
-- **No secrets in commit messages** (AGPL project = public history)
+- **No secrets in commit messages** (public repo = public history)
 - **NEVER `npm install` on server** — always prebuild artifacts, deploy via Docker
 - **Schema: every status/state is an enum from day 1** — never a `String` with an enumerating comment, never a new boolean per state. Each `*_id` column has a Drizzle `foreignKey` with an explicit `onDelete`.
 
@@ -164,4 +166,4 @@ Pay special attention to: section 7a (Meta/OAuth/Webhooks), section 9 (AGPL).
 
 ## Brand
 
-Standalone open source project. No direct brand affiliation (Flowgrammer potential home).
+Standalone source-available project. No direct brand affiliation (Flowgrammer potential home).

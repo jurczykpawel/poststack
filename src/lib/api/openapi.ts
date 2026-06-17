@@ -13,10 +13,10 @@ export const openApiSpec = {
     title: `${BRAND.name} API`,
     version: "1.0.0",
     description:
-      "Self-hosted social media inbox automation API. " +
+      "Self-hosted social media management API — publishing, inbox auto-replies, and drip sequences for Facebook & Instagram. " +
       `Authenticate with an API key: \`Authorization: Bearer ${BRAND.idPrefix}...\`\n\n` +
       "Generate API keys in Settings > API Keys.",
-    license: { name: "AGPL-3.0", url: "https://www.gnu.org/licenses/agpl-3.0" },
+    license: { name: "Elastic License 2.0", url: "https://www.elastic.co/licensing/elastic-license" },
     contact: { url: "https://github.com/jurczykpawel/poststack" },
   },
   servers: [{ url: "/api/v1", description: "Current instance" }],

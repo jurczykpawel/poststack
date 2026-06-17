@@ -1,4 +1,4 @@
-# Contributing to ReplyStack
+# Contributing to PostStack
 
 ## Development Setup
 
@@ -52,7 +52,7 @@ See `src/lib/platforms/base.ts` for the full interface and JSDoc.
 - No `any` types
 - Every DB query must include `workspace_id` filter
 - OAuth tokens must always be encrypted before DB write (`encryptTokens()`)
-- No secrets in code or commit messages (AGPL = public history)
+- No secrets in code or commit messages (the repo is public — anything committed is public history)
 - Read `src/lib/platforms/base.ts` before implementing a provider
 
 ## Running Tests
@@ -77,6 +77,8 @@ npm run db:migrate   # applies pending migrations
 - Run `npm run lint && npm run typecheck && npm test` before submitting
 - CI must pass
 
-## License
+## License & Contributor Agreement
 
-By contributing, you agree your contributions are licensed under AGPL-3.0.
+PostStack is released under the [Elastic License 2.0](LICENSE) (source-available).
+
+By submitting a contribution you agree to the [Contributor License Agreement](CLA.md): you license your contribution under the project's license **and** grant the maintainer the right to relicense it in the future (so the project can, for example, move to a more permissive license later). You retain copyright to your contribution.

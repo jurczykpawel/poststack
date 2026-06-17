@@ -9,7 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.4.27] - 2026-06-17
+## [0.4.28] - 2026-06-17
+
+### Changed
+
+- **Relicensed from AGPL-3.0 to the Elastic License 2.0 (source-available).** You can still self-host, use, modify, and redistribute PostStack freely; the new limits are that you may not offer it to third parties as a hosted/managed service and may not circumvent the license-key functionality. Added a Contributor License Agreement (`CLA.md`) that lets the project relicense in the future (e.g. to a more permissive license).
+- **Repositioned the project as "PostStack"** — a self-hosted social media *management* platform (publishing & scheduling + inbox auto-replies + drip sequences + CRM), not just an inbox-automation / ManyChat alternative. Updated README, CONTRIBUTING, API docs, and the package description accordingly.
+
+
 
 ### Changed
 

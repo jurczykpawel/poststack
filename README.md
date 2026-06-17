@@ -1,20 +1,20 @@
-# ReplyStack
+# PostStack
 
-> Self-hosted Meta inbox automation -- auto-reply to messages and comments, manage conversations from one inbox.
+> Self-hosted social media management for Facebook & Instagram -- publish & schedule posts, auto-reply to DMs and comments, and run drip sequences, all from one place.
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: Elastic 2.0](https://img.shields.io/badge/License-Elastic_2.0-0077CC.svg)](LICENSE)
 [![CI](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml/badge.svg)](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Open Source](https://img.shields.io/badge/Open%20Source-100%25-brightgreen)](https://github.com/jurczykpawel/poststack)
+[![Source Available](https://img.shields.io/badge/source-available-brightgreen)](LICENSE)
 
 [API Docs](/api/docs) | [Issues](https://github.com/jurczykpawel/poststack/issues) | [Contributing](CONTRIBUTING.md)
 
 ---
 
-## Why ReplyStack?
+## Why PostStack?
 
 - **Self-hosted** -- your data stays on your server, not on someone else's SaaS
-- **No platform fees** -- ManyChat charges $15-65/mo per account. ReplyStack is free forever
+- **No per-contact fees** -- ManyChat charges $15-65/mo and scales with your audience. PostStack is a flat self-hosted cost, free to run yourself
 - **No vendor lock-in** -- export your data, switch providers, fork the code
 - **API-first** -- every feature available via REST API, build your own frontend or integrate with n8n/Zapier
 - **Extensible** -- add new platforms (Telegram, TikTok) by implementing one TypeScript class
@@ -204,7 +204,7 @@ Go to **Rules** and click **+ New Rule**:
 - **Priority** -- higher = checked first (rules are evaluated top to bottom)
 - **Cooldown** -- minimum seconds between fires for the same contact
 
-For comment automation, use "Keyword (Comment)" trigger -- when someone comments a keyword on your post, ReplyStack sends them a DM.
+For comment automation, use "Keyword (Comment)" trigger -- when someone comments a keyword on your post, PostStack sends them a DM.
 
 ### 3. View conversations
 
@@ -299,7 +299,7 @@ GET /api/cron/token-refresh      incoming-reaction   ──> reaction rule eval
 
 ## API
 
-ReplyStack is API-first. Every feature in the dashboard is available via REST API.
+PostStack is API-first. Every feature in the dashboard is available via REST API.
 
 **Docs:** `GET /api/docs` -- interactive Scalar UI
 
@@ -435,9 +435,9 @@ git commit -m "feat: your feature"
 
 ## License
 
-[AGPL-3.0](LICENSE)
+[Elastic License 2.0](LICENSE) — source-available.
 
-If you modify ReplyStack and offer it as a service, AGPL requires you to publish your modifications under the same license.
+You're free to self-host, use, modify, and redistribute PostStack. The only limits: you may **not** offer it to third parties as a hosted/managed service, and you may **not** circumvent the license-key functionality. Self-hosting it for your own business is always free. For a commercial/managed-service license, get in touch.
 
 ---
 
