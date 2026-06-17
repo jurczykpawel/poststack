@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.31] - 2026-06-17
+
+### Added
+
+- **More credentials configurable in Settings** (extends the Meta-only support): Google/YouTube OAuth (client id + secret), AI rephrase (OpenAI-compatible API key, base URL, model), the channel-alert and ReelStack webhook secrets, and the ALTCHA CAPTCHA key. Each is stored encrypted, overrides its env var, and is grouped by integration in Settings — set them from the dashboard instead of editing `.env`.
+
+### Changed
+
+- **Smoother UI motion.** Page navigations and htmx swaps now use the View Transitions API where supported (disabled under reduced-motion), and the binary on/off toggles render as switches.
+
+### Internal
+
+- Deploy housekeeping prunes unused images aggressively (the test host had been filling up with old tagged images); added publishing-layer Graph-API-version contract tests; squashed the migrations into a single baseline (pre-release).
+
 ## [0.4.30] - 2026-06-17
 
 ### Added
