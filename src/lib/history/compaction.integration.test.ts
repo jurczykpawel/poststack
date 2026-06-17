@@ -161,3 +161,26 @@ describe("compactPostReactions", () => {
     expect(second.last_reacted_at.getTime()).toBeGreaterThan(first.last_reacted_at.getTime());
   });
 });
+
+describe("compactHistory orchestrator", () => {
+  it("runs both compactors and returns combined counts", async () => {
+    if (!TEST_DB) return;
+    await ev({ type: "comments", status: "fired", daysAgo: 90 });
+    await rx({ post: "p1", type: "like", reactor: "u1", daysAgo: 90 });
+    const res = await compaction.compactHistory({ now, retentionDays: 60, batchSize: 100, executor: db });
+    expect(res.webhookEvents.compacted).toBe(1);
+    expect(res.postReactions.compacted).toBe(1);
+  });
+
+  it("deleting a compacted webhook_events row does NOT delete linked records", async () => {
+    if (!TEST_DB) return;
+    const [ct] = await db.insert(schema.contacts).values({ workspace_id: WS, display_name: "C" }).returning({ id: schema.contacts.id });
+    await db.insert(schema.webhookEvents).values({
+      event_key: `k-${Math.random()}`, event_type: "messages", raw: {}, channel_id: CH, platform: "instagram",
+      handling_status: "fired", contact_id: ct!.id, received_at: sql`now() - interval '90 days'`,
+    });
+    await compaction.compactHistory({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const stillThere = await db.query.contacts.findFirst({ where: eq(schema.contacts.id, ct!.id) });
+    expect(stillThere).toBeDefined();
+  });
+});

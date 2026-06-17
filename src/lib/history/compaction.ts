@@ -17,6 +17,8 @@ export interface CompactOpts {
 
 export interface CompactResult { compacted: number; orphansDeleted: number }
 
+export interface CompactHistoryResult { webhookEvents: CompactResult; postReactions: CompactResult }
+
 /** Fold webhook_events older than the window into webhook_event_stats, then delete the raw rows.
  *  Owned rows (channel_id NOT NULL) are aggregated; orphan rows (NULL) are deleted, never aggregated.
  *  Each batch's aggregate+delete commit atomically → a row is counted exactly once. */
@@ -116,4 +118,12 @@ export async function compactPostReactions(opts: CompactOpts): Promise<CompactRe
     if (n === 0) break;
   }
   return { compacted, orphansDeleted: 0 };
+}
+
+/** Run the full compaction pass (both tables). Disabled (retentionDays<=0) → both no-op. */
+export async function compactHistory(opts: CompactOpts): Promise<CompactHistoryResult> {
+  return {
+    webhookEvents: await compactWebhookEvents(opts),
+    postReactions: await compactPostReactions(opts),
+  };
 }
