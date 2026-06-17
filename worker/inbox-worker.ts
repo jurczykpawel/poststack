@@ -1,5 +1,5 @@
 /**
- * ReplyStack worker (graphile-worker)
+ * PostStack worker (graphile-worker)
  *
  * Run with: npm run worker
  * In production: separate Docker container using Dockerfile.worker
@@ -39,7 +39,7 @@ async function main() {
   });
 
   console.log(
-    `[worker] ReplyStack worker started. Tasks: ${Object.keys(taskList).join(", ")}`
+    `[worker] PostStack worker started. Tasks: ${Object.keys(taskList).join(", ")}`
   );
 
   const noteActivity = () => { lastActivityMs = Date.now(); };

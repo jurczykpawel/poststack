@@ -8,7 +8,7 @@
 // whole subscribed_apps POST fail atomically. IG media-comment webhooks arrive via the app-level
 // `instagram` object subscription, not a page field — so it is intentionally absent here.
 
-/** Page webhook fields ReplyStack/PostStack relies on. Ordered for stable display. */
+/** Page webhook fields PostStack relies on. Ordered for stable display. */
 export const FACEBOOK_PAGE_FIELDS = [
   "messages",
   "messaging_postbacks",

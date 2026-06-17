@@ -46,7 +46,7 @@ describe("telegram webhook delivery", () => {
   });
 
   // a group/supergroup chat collapses every member to one contact (chat.id is the group,
-  // not the member) and aims replies at the group. ReplyStack is a DM inbox: ignore non-private
+  // not the member) and aims replies at the group. PostStack is a DM inbox: ignore non-private
   // chats (200, not retried) and do NOT enqueue.
   it("ignores a non-private (group) chat without enqueuing", async () => {
     findMany.mockResolvedValue([{ id: "ch1", platform_id: "BOT", webhook_secret: "good-secret" }]);

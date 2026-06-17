@@ -1017,7 +1017,7 @@ export const workspaceMembers = pgTable("workspace_members", {
 
 export const instanceLicenseStatus = pgEnum("instance_license_status", ['none', 'active', 'expired', 'invalid'])
 
-// Instance-global license (NOT workspace-scoped). ReplyStack is sold per self-hosted
+// Instance-global license (NOT workspace-scoped). PostStack is sold per self-hosted
 // instance; one valid Sellf license unlocks PRO features for the whole instance, so this
 // is a deliberate exception to the "every table has workspace_id + FK" rule. Enforced as a
 // singleton via the `id = 'singleton'` check constraint.
