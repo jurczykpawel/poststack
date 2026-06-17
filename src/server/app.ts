@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { securityHeaders } from "./middleware/security-headers";
 import { publicRoutes } from "./routes/public";
+import { landingRoutes } from "./routes/landing";
 import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
@@ -50,6 +51,9 @@ export function buildApp(): Hono {
   });
 
   app.route("/", publicRoutes);
+  // LANDING1: marketing homepage at `/` (+ its assets). Mounted before `pages` so it owns `/`
+  // (which `pages` previously redirected to /overview). Logged-in visitors are redirected onward.
+  app.route("/", landingRoutes);
   app.route("/", special);
   // Inbound integration webhooks (HMAC-authenticated, NOT Bearer-auth) — mounted outside /api/v1 so
   // the API-key middleware does NOT apply. Off by default (requires REELSTACK_WEBHOOK_SECRET +

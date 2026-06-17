@@ -18,3 +18,7 @@ docker/*
 coverage/
 .turbo/
 .worktrees/
+# Landing build artifacts/deps — the landing Docker stage runs npm ci + build fresh.
+landing/node_modules
+landing/dist
+landing/.astro

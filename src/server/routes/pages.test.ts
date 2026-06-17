@@ -22,11 +22,8 @@ beforeAll(async () => {
 });
 
 describe("public pages", () => {
-  it("redirects / to /overview", async () => {
-    const res = await app.request("/");
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/overview");
-  });
+  // `/` moved to landingRoutes (LANDING1) — serves the marketing page to anon, redirects a
+  // logged-in session to /overview. Covered by landing.test.ts + landing.integration.test.ts.
 
   it("renders the login page", async () => {
     const res = await app.request("/login");

@@ -52,7 +52,8 @@ async function authPage(opts: { title: string; subtitle: string; action: string;
 
 // ─── auth + home ──────────────────────────────────────────────────────────────
 
-pages.get("/", (c) => c.redirect("/overview"));
+// `/` is served by landingRoutes (the marketing homepage); a logged-in visitor is redirected to
+// /overview there. See src/server/routes/landing.ts (LANDING1).
 
 pages.get("/login", async (c) =>
   c.html(
