@@ -25,6 +25,9 @@ beforeEach(async () => {
   delete process.env.META_APP_ID;
   delete process.env.META_APP_SECRET;
   delete process.env.META_WEBHOOK_VERIFY_TOKEN;
+  // Non-Meta groups (CONFIG1) exercised below — clear so a stray CI env var can't flip an assertion.
+  delete process.env.GOOGLE_CLIENT_ID;
+  delete process.env.OPENAI_API_KEY;
 });
 
 afterAll(async () => {
@@ -90,5 +93,42 @@ describe("instance settings config resolver (real Postgres)", () => {
 
     expect(verify.source).toBe("unset");
     expect(verify.preview).toBe("");
+  });
+
+  // CONFIG1: the same resolver/masking invariants must hold for the non-Meta groups too.
+  it("a non-secret non-Meta key (GOOGLE_CLIENT_ID): DB overrides env, shown in full, clears to env", async () => {
+    if (!TEST_DB) return;
+    process.env.GOOGLE_CLIENT_ID = "env-google-id";
+    cfg.invalidateConfigCache();
+    expect(await cfg.getConfig("GOOGLE_CLIENT_ID")).toBe("env-google-id");
+
+    await cfg.setConfig("GOOGLE_CLIENT_ID", "db-google-id");
+    expect(await cfg.getConfig("GOOGLE_CLIENT_ID")).toBe("db-google-id");
+
+    const status = await cfg.configStatus();
+    const google = status.find((s) => s.key === "GOOGLE_CLIENT_ID")!;
+    expect(google.source).toBe("db");
+    expect(google.secret).toBe(false);
+    expect(google.preview).toBe("db-google-id"); // non-secret shown in full
+
+    await cfg.clearConfig("GOOGLE_CLIENT_ID");
+    expect(await cfg.getConfig("GOOGLE_CLIENT_ID")).toBe("env-google-id");
+  });
+
+  it("a secret non-Meta key (OPENAI_API_KEY) round-trips encrypted and is masked, never plaintext", async () => {
+    if (!TEST_DB) return;
+    await cfg.setConfig("OPENAI_API_KEY", "sk-super-secret");
+    // encrypted at rest
+    const rows = await db.execute(sql`select value_encrypted from instance_settings where key = 'OPENAI_API_KEY'`);
+    const stored = (rows.rows[0] as { value_encrypted: string }).value_encrypted;
+    expect(stored).not.toContain("sk-super-secret");
+    // round-trips for the consumer
+    expect(await cfg.getConfig("OPENAI_API_KEY")).toBe("sk-super-secret");
+    // masked in the UI status — plaintext NEVER returned
+    const key = (await cfg.configStatus()).find((s) => s.key === "OPENAI_API_KEY")!;
+    expect(key.source).toBe("db");
+    expect(key.secret).toBe(true);
+    expect(key.preview).not.toContain("sk-super-secret");
+    expect(key.preview).toContain("set");
   });
 });

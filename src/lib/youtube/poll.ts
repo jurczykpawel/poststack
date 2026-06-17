@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, commentLogs, contacts, conversations } from "@/db/schema";
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import { encryptTokens, decryptTokens } from "@/lib/crypto";
 import { truncateCodePoints } from "@/lib/text";
 import { resolveContactConversation } from "@/lib/workers/resolve-contact";
@@ -53,8 +53,8 @@ export async function freshYouTubeAccessToken(channel: { id: string; token_encry
   if (!refreshToken) throw new YouTubeApiError(401, "No refresh token stored — reconnect the YouTube channel");
   const { accessToken, expiresAt: newExp } = await refreshGoogleAccessToken({
     refreshToken,
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    clientId: await getConfig("GOOGLE_CLIENT_ID"),
+    clientSecret: await getConfig("GOOGLE_CLIENT_SECRET"),
   });
   await db
     .update(channels)

@@ -9,6 +9,12 @@ import type { Storage } from "@/lib/storage/types";
 // we only need the env present to satisfy the import guards, hence the dynamic import after setup.
 let integrationsRoutes: typeof import("./integrations").integrationsRoutes;
 
+// CONFIG1: the route reads REELSTACK_WEBHOOK_SECRET via getConfig. Pure-unit test (no DB) → mock
+// getConfig to read process.env, preserving the per-case env control below and keeping the DB out.
+vi.mock("@/lib/settings/config", () => ({
+  getConfig: async (key: string) => process.env[key] ?? "",
+}));
+
 const SECRET = "test-secret-key";
 const WS = "00000000-0000-0000-0000-0000000000aa";
 

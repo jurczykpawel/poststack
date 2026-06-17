@@ -8,6 +8,7 @@ import { requireSession } from "../middleware/page-auth";
 import { registerDashboard } from "./dashboard";
 import { BRAND } from "@/lib/brand";
 import { t } from "@/lib/i18n";
+import { getConfig } from "@/lib/settings/config";
 
 export const pages = new Hono();
 
@@ -21,14 +22,15 @@ function htmxRedirect(from: Response, to: string): Response {
   return out;
 }
 
-function captchaWidget() {
-  if (!process.env.ALTCHA_HMAC_KEY) return html``;
+async function captchaWidget() {
+  if (!(await getConfig("ALTCHA_HMAC_KEY"))) return html``;
   return html`
     <altcha-widget name="captchaToken" challengeurl="/api/captcha/challenge" hidelogo hidefooter></altcha-widget>
     <script async defer type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>`;
 }
 
-function authPage(opts: { title: string; subtitle: string; action: string; submit: string; alt: ReturnType<typeof html>; nameField: boolean }) {
+async function authPage(opts: { title: string; subtitle: string; action: string; submit: string; alt: ReturnType<typeof html>; nameField: boolean }) {
+  const captcha = await captchaWidget();
   return doc(
     opts.title,
     html`<div class="auth-wrap"><div class="auth-card">
@@ -39,7 +41,7 @@ function authPage(opts: { title: string; subtitle: string; action: string; submi
       : html``}
     <div class="fld"><span>Email</span><input type="email" name="email" autocomplete="email" required /></div>
     <div class="fld"><span>Password</span><input type="password" name="password" autocomplete="${opts.nameField ? "new-password" : "current-password"}" required /></div>
-    <div class="row" style="justify-content:center">${captchaWidget()}</div>
+    <div class="row" style="justify-content:center">${captcha}</div>
     <div id="auth-error"></div>
     <button class="btn btn-primary" type="submit">${opts.submit}</button>
   </form>
@@ -52,9 +54,9 @@ function authPage(opts: { title: string; subtitle: string; action: string; submi
 
 pages.get("/", (c) => c.redirect("/overview"));
 
-pages.get("/login", (c) =>
+pages.get("/login", async (c) =>
   c.html(
-    authPage({
+    await authPage({
       title: t("title.signIn"),
       subtitle: "Sign in to your account",
       action: "/login",
@@ -65,9 +67,9 @@ pages.get("/login", (c) =>
   ),
 );
 
-pages.get("/register", (c) =>
+pages.get("/register", async (c) =>
   c.html(
-    authPage({
+    await authPage({
       title: t("title.register"),
       subtitle: "Create your account",
       action: "/register",

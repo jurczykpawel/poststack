@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import crypto from "node:crypto";
 import { ok, ApiError, apiErrorResponse, ApiErrors } from "@/lib/api/response";
 import { registerKnownMedia as defaultRegister } from "@/lib/media/service";
+import { getConfig } from "@/lib/settings/config";
 import { getStorage } from "@/lib/storage";
 import type { Storage } from "@/lib/storage/types";
 
@@ -36,7 +37,7 @@ export function integrationsRoutes(deps: IntegrationsDeps = {}) {
       onError: (c) => c.json({ data: null, error: { code: "payload_too_large", message: "Request body too large" } }, 413),
     }),
     async (c) => {
-      const secret = process.env.REELSTACK_WEBHOOK_SECRET;
+      const secret = await getConfig("REELSTACK_WEBHOOK_SECRET");
       const workspaceId = process.env.REELSTACK_WEBHOOK_WORKSPACE_ID;
       if (!secret || !workspaceId) throw new ApiError("not_found", "Integration disabled", 404); // off by default
 

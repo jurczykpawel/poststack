@@ -1,5 +1,6 @@
 import { isSafeAlertWebhookUrl } from "./webhook-url";
 import { rateLimit } from "@/lib/api/rate-limit";
+import { getConfig } from "@/lib/settings/config";
 import { getAlertWebhook } from "./alert-webhook";
 import { buildAlertBody, type PlaceholderContext } from "./alert-customization";
 
@@ -106,7 +107,7 @@ export async function dispatchAlert(alert: Alert): Promise<void> {
     }
   }
   if (!target) {
-    const url = process.env.CHANNEL_ALERT_WEBHOOK_URL;
+    const url = await getConfig("CHANNEL_ALERT_WEBHOOK_URL");
     if (!url) return;
     target = { url, headers: { "Content-Type": "application/json" }, payload: body };
   }

@@ -8,6 +8,12 @@ vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLim
 // exercise the global env fallback path. Mocking it also keeps the DB out of this unit suite.
 vi.mock("./alert-webhook", () => ({ getAlertWebhook: vi.fn().mockResolvedValue(null) }));
 
+// CONFIG1: dispatchAlert reads CHANNEL_ALERT_WEBHOOK_URL via getConfig. Pure-unit test (no DB) →
+// mock getConfig to read process.env, preserving the per-case env control below.
+vi.mock("@/lib/settings/config", () => ({
+  getConfig: async (key: string) => process.env[key] ?? "",
+}));
+
 import { dispatchAlert } from "./alert";
 
 let originalFetch: typeof fetch;

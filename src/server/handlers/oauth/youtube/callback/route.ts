@@ -3,6 +3,7 @@ import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { ProRequiredError } from "@/lib/license/gate";
 import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import { exchangeGoogleCode, getMyChannel } from "@/lib/youtube/client";
 
 export const runtime = "nodejs";
@@ -36,8 +37,8 @@ export async function GET(request: Request) {
     const redirectUri = `${env.APP_URL}/api/oauth/youtube/callback`;
     const { accessToken, refreshToken, expiresAt } = await exchangeGoogleCode({
       code,
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      clientId: await getConfig("GOOGLE_CLIENT_ID"),
+      clientSecret: await getConfig("GOOGLE_CLIENT_SECRET"),
       redirectUri,
     });
     // Without a refresh token we can't keep polling past the ~1h access-token life — force a re-consent.

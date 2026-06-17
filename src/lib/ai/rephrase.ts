@@ -1,4 +1,9 @@
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
+
+// Defaults mirror the env schema (env.ts), since getConfig falls back to raw process.env (no zod
+// defaults): an unset model/base-url resolves to "" here, so we apply the same defaults.
+const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
 export interface RephraseOptions {
   /** Full system prompt override. Takes precedence over `tone`. */
@@ -15,11 +20,11 @@ export interface RephraseOptions {
  * free of any provider-specific code.
  */
 export async function rephrase(baseText: string, opts: RephraseOptions = {}): Promise<string> {
-  const apiKey = env.OPENAI_API_KEY;
+  const apiKey = await getConfig("OPENAI_API_KEY");
   if (!apiKey) return baseText;
 
-  const model = env.AI_REPHRASE_MODEL;
-  const baseUrl = env.OPENAI_BASE_URL;
+  const model = (await getConfig("AI_REPHRASE_MODEL")) || DEFAULT_MODEL;
+  const baseUrl = (await getConfig("OPENAI_BASE_URL")) || DEFAULT_BASE_URL;
   const tone = opts.tone ?? "friendly and professional";
   const systemContent = opts.customPrompt
     ? opts.customPrompt

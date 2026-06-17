@@ -1,5 +1,6 @@
 import { verifySolution } from "altcha-lib";
 import { rateLimit } from "@/lib/api/rate-limit";
+import { getConfig } from "@/lib/settings/config";
 
 interface VerifyResult {
   success: boolean;
@@ -31,7 +32,7 @@ function challengeId(payload: string): string | null {
 export async function verifyCaptcha(
   payload: string | null | undefined
 ): Promise<VerifyResult> {
-  const hmacKey = process.env.ALTCHA_HMAC_KEY;
+  const hmacKey = await getConfig("ALTCHA_HMAC_KEY");
 
   // Dev mode: skip verification when not configured
   if (!hmacKey) return { success: true };

@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
-// rephrase now reads config via the validated env singleton, which is frozen at import.
-// To vary OPENAI_* per case we set process.env then reset the module registry and re-import, so
-// env.ts re-evaluates against the current process.env.
+// CONFIG1: rephrase now reads OPENAI_* via getConfig. This is a pure-unit test (no DB), so mock
+// getConfig to read straight from process.env — keeping the per-case env control below while
+// avoiding a lazy DB import. (Mirrors connect-token.test.ts / meta-api-contract.test.ts.)
+vi.mock("@/lib/settings/config", () => ({
+  getConfig: async (key: string) => process.env[key] ?? "",
+}));
+
 const originalFetch = globalThis.fetch;
 
 let lastUrl = "";
