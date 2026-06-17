@@ -101,6 +101,25 @@ describe("license gate (real Postgres)", () => {
     expect(resolved).toBe(token); // round-trips back to plaintext
   });
 
+  it("fail-safe: an undecryptable stored token falls back to free instead of throwing", async () => {
+    if (!TEST_DB) return;
+    const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro" }));
+    await gate.setLicense(token, { fetchImpl: jwksFetch([key.jwk]) });
+    // Simulate a rotated ENCRYPTION_KEY: the stored ciphertext can no longer be decrypted. Publishing
+    // resolves through the license check (BRANDLIMIT1) — a throw here would brick it, so it must degrade.
+    const prevKey = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = "different-key-at-least-32-characters-long!!";
+    try {
+      await expect(store.resolveTokenSource()).resolves.toMatchObject({ token: null, source: "none" });
+      gate.invalidateLicenseCache();
+      const state = await gate.refreshLicense({ fetchImpl: jwksFetch([key.jwk]) });
+      expect(state.tier).toBeNull();
+      expect(state.features.size).toBe(0);
+    } finally {
+      process.env.ENCRYPTION_KEY = prevKey;
+    }
+  });
+
   it("rejects a bad-signature token without storing it", async () => {
     if (!TEST_DB) return;
     const token = await badKey.sign(makeClaims({ kid: "kid-1" }));

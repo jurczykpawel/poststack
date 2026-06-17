@@ -8,7 +8,9 @@ import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
 import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
 import { resolveBrandSlots, EDITORIAL_PLATFORMS } from "@/lib/brands/resolve";
+import { lockedBrandKeys } from "@/lib/brands/access";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
+import { env } from "@/lib/env";
 import { createWithinLimit } from "@/lib/license/limit-guard";
 import { listChannels } from "@/lib/channels/service";
 import { renderPage } from "../layout";
@@ -107,13 +109,19 @@ async function brandSlots(workspaceId: string, brand: BrandRow, candidates: Reco
   return html`<div class="brand-slots">${rows}</div>`;
 }
 
-function brandCard(brand: BrandRow, slots: Html): Html {
+function brandCard(brand: BrandRow, slots: Html, locked = false): Html {
   const swatch = brand.accent ? html`<span class="brand-swatch" style="background:${brand.accent}"></span>` : "";
   const ico = brand.icon ? html`<span class="brand-ico">${brand.icon}</span>` : "";
   const cardId = `brand-${domSafe(brand.key)}`;
-  return html`<section class="panel brand-card" id="${cardId}">
+  // BRANDLIMIT1: brands beyond the free tier's limit stay visible but are flagged locked (PRO upsell)
+  // and won't publish — the runtime authority is resolveChannelForBrandPlatform.
+  const lockBadge = locked
+    ? html`<a class="badge badge-locked" href="${env.LICENSE_UPGRADE_URL}" target="_blank" rel="noopener"
+        title="Beyond your plan's brand limit — won't publish. Upgrade to activate.">🔒 PRO</a>`
+    : "";
+  return html`<section class="panel brand-card${locked ? " brand-locked" : ""}" id="${cardId}">
     <div class="panel-head brand-head">
-      <div class="brand-title">${ico}${swatch}<h3>${brand.name}</h3><code class="brand-key">${brand.key}</code></div>
+      <div class="brand-title">${ico}${swatch}<h3>${brand.name}</h3><code class="brand-key">${brand.key}</code>${lockBadge}</div>
       <form method="post" action="/brands/${brand.key}/delete" hx-post="/brands/${brand.key}/delete"
         hx-target="#${cardId}" hx-swap="outerHTML"
         hx-confirm="Delete brand '${brand.name}'? Its channels become unassigned (not deleted).">
@@ -135,16 +143,21 @@ function brandCard(brand: BrandRow, slots: Html): Html {
 }
 
 async function renderBrandCard(workspaceId: string, brand: BrandRow): Promise<Html> {
-  const candidates = await platformCandidates(workspaceId);
-  return brandCard(brand, await brandSlots(workspaceId, brand, candidates));
+  const [candidates, locked] = await Promise.all([platformCandidates(workspaceId), lockedBrandKeys(workspaceId)]);
+  return brandCard(brand, await brandSlots(workspaceId, brand, candidates), locked.has(brand.key));
 }
 
 async function brandsPage(c: Context, notice?: string, status = 200): Promise<Response> {
   const a = await auth(c);
   if (!a) return c.redirect("/login");
   const ws = a.workspaceId;
-  const [brands, candidates, lic] = await Promise.all([listBrands(ws), platformCandidates(ws), getInstanceLicense()]);
-  const cards = await Promise.all(brands.map(async (b) => brandCard(b, await brandSlots(ws, b, candidates))));
+  const [brands, candidates, lic, locked] = await Promise.all([
+    listBrands(ws),
+    platformCandidates(ws),
+    getInstanceLicense(),
+    lockedBrandKeys(ws),
+  ]);
+  const cards = await Promise.all(brands.map(async (b) => brandCard(b, await brandSlots(ws, b, candidates), locked.has(b.key))));
   const empty = brands.length === 0;
 
   return c.html(

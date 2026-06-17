@@ -121,6 +121,12 @@ describe("brand service (workspace-scoped)", () => {
 describe("brand → channel resolution (workspace-scoped)", () => {
   beforeEach(async () => {
     if (!TEST_DB) return;
+    // BRANDLIMIT1 routes resolution through the license check (free = 1-brand limit). The license is a
+    // global singleton (instance_license) + an in-memory cache — a prior file may have left a row/tier;
+    // clear both so these tests see the default free tier deterministically.
+    const gate = await import("@/lib/license/gate");
+    await db.delete(schema.instanceLicense);
+    gate.invalidateLicenseCache();
     await svc.createBrand({ key: "tsa", name: "TSA" }, WS);
   });
 
@@ -154,6 +160,17 @@ describe("brand → channel resolution (workspace-scoped)", () => {
     await makeChannel({ platform: "youtube", platformId: "UC1", brandKey: "tsa", status: "disabled" });
     await makeChannel({ platform: "youtube", platformId: "UC2", brandKey: "wir" });
     expect(await resolve.resolveChannelForBrandPlatform(WS, "tsa", "youtube")).toBeNull();
+  });
+
+  it("BRANDLIMIT1: on free tier a brand beyond the limit never resolves a channel (locked)", async () => {
+    if (!TEST_DB) return;
+    // `tsa` already exists (oldest). A second brand is beyond free's 1-brand limit → locked → no publish.
+    await svc.createBrand({ key: "wir", name: "WiR" }, WS);
+    await makeChannel({ platform: "youtube", platformId: "UC1", brandKey: "tsa", displayName: "TSA YT" });
+    await makeChannel({ platform: "youtube", platformId: "UC2", brandKey: "wir", displayName: "WiR YT" });
+    // Oldest brand still resolves; the locked one is gated to null even though its channel is unambiguous.
+    expect((await resolve.resolveChannelForBrandPlatform(WS, "tsa", "youtube"))!.label).toBe("TSA YT");
+    expect(await resolve.resolveChannelForBrandPlatform(WS, "wir", "youtube")).toBeNull();
   });
 
   it("resolveBrandSlots reports channel / null / ambiguous per platform", async () => {

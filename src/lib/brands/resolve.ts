@@ -2,6 +2,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
+import { isBrandLocked } from "./access";
 
 /** Editorial platforms a brand can designate a channel for. */
 export const EDITORIAL_PLATFORMS = [
@@ -47,6 +48,9 @@ export async function resolveChannelForBrandPlatform(
   brandKey: string,
   platform: string,
 ): Promise<ResolvedChannel | null> {
+  // BRANDLIMIT1: a brand locked beyond the tier limit never resolves a channel → never publishes.
+  // This is the runtime authority backing the UI lock (server-side, mirrors auto_story/first_comment).
+  if (await isBrandLocked(workspaceId, brandKey)) return null;
   const rows = await liveChannelsOfBrand(workspaceId, brandKey);
   const matches = rows.filter((c) => channelMatchesPlatform(platform, c));
   if (matches.length !== 1) return null;

@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.32] - 2026-06-17
+
+### Changed
+
+- **Brand limit is now enforced at runtime, not just when creating a brand.** On the free plan an instance that already had several brands (from a seed, migration, or a downgrade from Pro) kept publishing through all of them. Now brands beyond the plan's limit are shown as **🔒 PRO** on the Brands page (still visible, with an upgrade link) and are excluded from composing and publishing — the oldest brand stays active. Licensed plans are unaffected (unlimited brands).
+
+### Fixed
+
+- A stored license token that can no longer be decrypted (e.g. after rotating `ENCRYPTION_KEY`) no longer breaks the license check — it now falls back to the free plan instead of erroring, so publishing keeps working.
+
 ## [0.4.31] - 2026-06-17
 
 ### Added

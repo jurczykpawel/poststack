@@ -46,7 +46,16 @@ export async function resolveTokenSource(): Promise<{
   source: "db" | "env" | "none";
 }> {
   const row = await selectRow();
-  if (row?.token) return { token: decryptString(row.token), source: "db" };
+  if (row?.token) {
+    // Fail-safe: an undecryptable stored token (e.g. ENCRYPTION_KEY rotated) must NOT crash the license
+    // check — that would brick publishing, which now resolves through it. Treat it as no usable token
+    // and fall back to env/free, the same as a missing license.
+    try {
+      return { token: decryptString(row.token), source: "db" };
+    } catch {
+      // fall through
+    }
+  }
   if (env.LICENSE_KEY) return { token: env.LICENSE_KEY, source: "env" };
   return { token: null, source: "none" };
 }

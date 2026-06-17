@@ -111,6 +111,11 @@
   .badge.tone-bad { background: var(--bad-bg); color: var(--bad-text); }
   .badge.tone-info { background: var(--info-bg); color: var(--info); }
   .badge.tone-neutral { background: var(--surface-2); color: var(--text-2); }
+  /* BRANDLIMIT1: locked-brand upsell badge + dimmed card (still readable, clearly inactive). */
+  .badge.badge-locked { background: var(--warn-bg); color: var(--warn-text); text-decoration: none; cursor: pointer; }
+  .badge.badge-locked:hover { filter: brightness(1.1); }
+  .brand-card.brand-locked { opacity: 0.62; }
+  .brand-card.brand-locked:hover { opacity: 0.82; }
 
   .pill { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: var(--radius-pill);
     font-size: 10px; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;

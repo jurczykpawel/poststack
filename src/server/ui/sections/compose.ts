@@ -6,6 +6,7 @@ import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { listBrands } from "@/lib/brands/service";
 import { resolveBrandSlots } from "@/lib/brands/resolve";
+import { lockedBrandKeys } from "@/lib/brands/access";
 import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
 import { autoReplyInput } from "@/lib/content/schemas";
@@ -65,8 +66,11 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
 type PlatformOpt = { platform: string; name: string; label: string };
 async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
   const brands = await listBrands(workspaceId);
+  // BRANDLIMIT1: locked brands (beyond the tier limit) can't be composed/published — hide them here.
+  const locked = await lockedBrandKeys(workspaceId);
   const out: Record<string, { name: string; platforms: PlatformOpt[] }> = {};
   for (const b of brands) {
+    if (locked.has(b.key)) continue;
     const slots = await resolveBrandSlots(workspaceId, b.key);
     out[b.key] = {
       name: b.name,
