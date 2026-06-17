@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { isSafeAlertWebhookUrl } from "@/lib/notifications/webhook-url";
 
+// RETAIN1: compaction window. 0 = disabled. If > 0 it must be >= 30 so the only windowed UI read
+// (webhook "last 24h") always stays inside the window and never needs the aggregate.
+export const historyRetentionField = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .default(60)
+  .refine((n) => n === 0 || n >= 30, "HISTORY_RETENTION_DAYS must be 0 (off) or >= 30");
+
 const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1),
@@ -111,6 +120,9 @@ const envSchema = z.object({
   // explicitly when APP_URL is an internal/proxy URL that differs from the public domain the
   // license was issued for. Unbound (no domain claim) tokens ignore this entirely.
   LICENSE_DOMAIN: z.string().default(""),
+
+  // History compaction (RETAIN1). 0 = off; positive values must be >= 30.
+  HISTORY_RETENTION_DAYS: historyRetentionField,
 
   // Cron
   CRON_SECRET: z.string().min(32),
