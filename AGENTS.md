@@ -131,6 +131,7 @@ See `.env.example`. Required:
 | `META_APP_SECRET` | Facebook App Secret |
 | `APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
 | `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
+| `HISTORY_RETENTION_DAYS` | Optional. Compaction window in days; 0 = off; default 60; if set must be >= 30 |
 
 ## Important Rules
 
