@@ -86,7 +86,7 @@ export abstract class SocialProvider {
    * @param state - Random state string (store in session to verify on callback)
    * @param redirectUri - The callback URL registered in the platform's developer console
    */
-  abstract generateAuthUrl(state: string, redirectUri: string): string;
+  abstract generateAuthUrl(state: string, redirectUri: string): string | Promise<string>;
 
   /**
    * Exchange authorization code for tokens and fetch account info.

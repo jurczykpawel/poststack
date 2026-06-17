@@ -15,6 +15,13 @@
       "when": 1781645472271,
       "tag": "0001_compose_post_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781990000000,
+      "tag": "0002_instance_settings",
+      "breakpoints": true
     }
   ]
 }

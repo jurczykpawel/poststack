@@ -4,6 +4,13 @@ vi.mock("@/lib/env", () => ({
   env: { META_APP_ID: "test-app-id", META_APP_SECRET: "test-app-secret" },
 }));
 
+// CONFIG1: Meta creds resolve via getConfig (DB-or-env). Pure unit test (no DB) → mock the resolver
+// to return the same test creds, so inspectMetaToken runs the page-token path.
+vi.mock("@/lib/settings/config", () => ({
+  getConfig: async (key: string) =>
+    ({ META_APP_ID: "test-app-id", META_APP_SECRET: "test-app-secret" } as Record<string, string>)[key] ?? "",
+}));
+
 const fbPages = {
   data: [
     { id: "P1", name: "Page One", access_token: "PAGE_TOKEN_1", picture: { data: { url: "u1" } } },

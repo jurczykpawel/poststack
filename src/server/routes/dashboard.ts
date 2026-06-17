@@ -18,6 +18,8 @@ import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
+import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
+import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
@@ -1000,13 +1002,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </section>
           <section class="section">
             <h2>Meta App configuration</h2>
-            <p class="muted" style="margin-bottom:.75rem">Paste these into your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
+            <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
             ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
             ${metaConfigRow("Valid OAuth Redirect URI (Instagram)", `${env.APP_URL}/api/oauth/instagram/callback`)}
             ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
             ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
-            ${metaConfigRow("Webhook verify token", env.META_WEBHOOK_VERIFY_TOKEN || "— set META_WEBHOOK_VERIFY_TOKEN in your env —")}
-            ${metaConfigRow("App ID", env.META_APP_ID || "— set META_APP_ID in your env —")}
+            <h3 style="margin:1rem 0 .25rem">Your credentials</h3>
+            <p class="muted" style="margin-bottom:.75rem">Paste these <strong>from</strong> your Meta app here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>.</p>
+            ${renderCredentials(await configStatus())}
           </section>
           ${license.products.has("publishing") ? renderProvidersStatus() : ""}
           <section class="section">
@@ -1104,6 +1107,29 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   app.post("/settings/license/clear", guard, async (c) => {
     return c.html(renderLicense(await clearLicense(), "License removed.", true));
+  });
+
+  // CONFIG1: set / clear an instance integration credential (stored encrypted; overrides the env var).
+  app.post("/settings/credentials", guard, async (c) => {
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const key = typeof form.key === "string" ? form.key : "";
+    if (!CONFIG_KEYS.has(key)) {
+      return c.html(renderCredentials(await configStatus(), "Unknown setting."));
+    }
+    let msg = "";
+    if (form.clear === "1" || form.clear === true) {
+      await clearConfig(key as Parameters<typeof clearConfig>[0]);
+      msg = "Reverted to the environment variable.";
+    } else {
+      const value = typeof form.value === "string" ? form.value.trim() : "";
+      if (!value) {
+        // Empty save = no-op (don't silently wipe a secret); use Clear to revert.
+        return c.html(renderCredentials(await configStatus(), "Nothing changed — enter a value, or use Clear to revert to env."));
+      }
+      await setConfig(key as Parameters<typeof setConfig>[0], value);
+      msg = "Saved.";
+    }
+    return c.html(renderCredentials(await configStatus(), msg));
   });
 
   // Rules
@@ -1892,6 +1918,38 @@ function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awa
       <input type="hidden" name="scopes_json" :value="scopesJson()" />
     </form>
     <div id="keys-area">${renderKeys(keys)}</div>`;
+}
+
+/** CONFIG1: editable instance-credential rows (App ID/Secret/Verify token). A DB value overrides the
+ *  env var. Secrets are never echoed — only a masked "set" preview. Each row has a Save (set/change)
+ *  and, when DB-set, a Clear (revert to env) form, both swapping this block in place via htmx. */
+function renderCredentials(status: ConfigStatus[], msg?: string): Html {
+  const badge = (s: ConfigStatus["source"]) =>
+    s === "db" ? html`<span class="badge" style="background:var(--ok-bg);color:var(--ok-text)">set here</span>`
+    : s === "env" ? html`<span class="badge" style="background:var(--info-bg)">from env</span>`
+    : html`<span class="badge muted">not set</span>`;
+  return html`<div id="credentials">
+    ${msg ? html`<div class="notice notice-ok" style="margin-bottom:.5rem">${msg}</div>` : html``}
+    <div class="list">${status.map((f) => html`<div class="list-row">
+      <div class="grow">
+        <div style="font-weight:600">${f.label} ${badge(f.source)}</div>
+        <div class="muted" style="font-size:.72rem"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
+        ${f.help ? html`<div class="muted" style="font-size:.7rem;margin-top:.15rem">${f.help}</div>` : ""}
+      </div>
+      <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML" class="row" style="gap:.35rem">
+        <input type="hidden" name="key" value="${f.key}" />
+        <input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
+          placeholder="${f.secret ? "paste to set / change" : "value"}" style="width:15rem" />
+        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+      </form>
+      ${f.source === "db"
+        ? html`<form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
+            <input type="hidden" name="key" value="${f.key}" /><input type="hidden" name="clear" value="1" />
+            <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
+          </form>`
+        : html``}
+    </div>`)}</div>
+  </div>`;
 }
 
 // A small "🔒 PRO" link to the upgrade URL, for locking gated controls in forms.

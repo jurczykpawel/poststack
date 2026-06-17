@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import {
   SocialProvider,
   type TokenData,
@@ -44,9 +44,9 @@ export class InstagramProvider extends SocialProvider {
   readonly platform = "instagram" as const;
   readonly displayName = "Instagram";
 
-  generateAuthUrl(state: string, redirectUri: string): string {
+  async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     const params = new URLSearchParams({
-      client_id: env.META_APP_ID,
+      client_id: await getConfig("META_APP_ID"),
       redirect_uri: redirectUri,
       state,
       scope: [
@@ -66,8 +66,8 @@ export class InstagramProvider extends SocialProvider {
     const tokenRes = await fetch(
       `${GRAPH_API}/oauth/access_token?` +
         new URLSearchParams({
-          client_id: env.META_APP_ID,
-          client_secret: env.META_APP_SECRET,
+          client_id: await getConfig("META_APP_ID"),
+          client_secret: await getConfig("META_APP_SECRET"),
           redirect_uri: redirectUri,
           code,
         }),
@@ -84,8 +84,8 @@ export class InstagramProvider extends SocialProvider {
       `${GRAPH_API}/oauth/access_token?` +
         new URLSearchParams({
           grant_type: "fb_exchange_token",
-          client_id: env.META_APP_ID,
-          client_secret: env.META_APP_SECRET,
+          client_id: await getConfig("META_APP_ID"),
+          client_secret: await getConfig("META_APP_SECRET"),
           fb_exchange_token: userToken,
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) }
@@ -185,8 +185,8 @@ export class InstagramProvider extends SocialProvider {
       `${GRAPH_API}/oauth/access_token?` +
         new URLSearchParams({
           grant_type: "fb_exchange_token",
-          client_id: env.META_APP_ID,
-          client_secret: env.META_APP_SECRET,
+          client_id: await getConfig("META_APP_ID"),
+          client_secret: await getConfig("META_APP_SECRET"),
           fb_exchange_token: String(tokens.user_access_token ?? tokens.access_token),
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) }

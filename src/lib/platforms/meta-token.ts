@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import { GRAPH_API_BASE } from "./constants";
 
 /**
@@ -76,7 +76,9 @@ function classifyKind(data: DebugTokenData): MetaTokenKind {
  *    would otherwise work — we only reject on a confirmed bad token).
  */
 export async function inspectMetaToken(token: string): Promise<MetaTokenInfo | null> {
-  if (!env.META_APP_ID || !env.META_APP_SECRET) return null;
+  const appId = await getConfig("META_APP_ID");
+  const appSecret = await getConfig("META_APP_SECRET");
+  if (!appId || !appSecret) return null;
 
   let res: Response;
   try {
@@ -84,7 +86,7 @@ export async function inspectMetaToken(token: string): Promise<MetaTokenInfo | n
       `${GRAPH_API_BASE}/debug_token?` +
         new URLSearchParams({
           input_token: token,
-          access_token: `${env.META_APP_ID}|${env.META_APP_SECRET}`,
+          access_token: `${appId}|${appSecret}`,
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) },
     );
@@ -99,7 +101,7 @@ export async function inspectMetaToken(token: string): Promise<MetaTokenInfo | n
   if (data.is_valid === false) {
     throw new MetaTokenError("This access token is invalid or expired. Generate a fresh token and try again.");
   }
-  if (data.app_id && String(data.app_id) !== String(env.META_APP_ID)) {
+  if (data.app_id && String(data.app_id) !== String(appId)) {
     throw new MetaTokenError("This access token belongs to a different Facebook app. Generate a token for THIS app.");
   }
 

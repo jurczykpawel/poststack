@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { PermanentError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
 import { GRAPH_API_BASE } from "@/lib/platforms/constants";
+import { getConfig } from "@/lib/settings/config";
 import { safeFetch } from "@/lib/media/ssrf";
 import { assertAllowedHost } from "./follow";
 import { readProviderCover } from "./download";
@@ -23,9 +24,9 @@ const META_HOSTS = ["facebook.com", "fbcdn.net"];
  * confirms it's *a* valid Meta token — ANY Meta token from ANY app would pass and PostStack would mint
  * + persist Page tokens from it. So we hard-require app creds for the managed connection.
  */
-function debugTokenAccessToken(): string {
-  const id = process.env.META_APP_ID;
-  const secret = process.env.META_APP_SECRET;
+async function debugTokenAccessToken(): Promise<string> {
+  const id = await getConfig("META_APP_ID");
+  const secret = await getConfig("META_APP_SECRET");
   if (!id || !secret) {
     throw new TokenInvalidError("Meta managed connection requires META_APP_ID + META_APP_SECRET");
   }
@@ -151,7 +152,7 @@ export const metaProvider: Provider = {
   supportsSources: () => true,
 
   async inspectSource(master: TokenSet): Promise<SourceInfo> {
-    const at = encodeURIComponent(debugTokenAccessToken()); // throws unless app creds are configured
+    const at = encodeURIComponent(await debugTokenAccessToken()); // throws unless app creds are configured
     const res = await fetch(
       `${GRAPH}/debug_token?input_token=${encodeURIComponent(master.accessToken)}&access_token=${at}`,
     );

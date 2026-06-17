@@ -9,7 +9,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.4.28] - 2026-06-17
+## [0.4.29] - 2026-06-17
+
+### Added
+
+- **Set your Meta app credentials in the dashboard (no more editing `.env`).** Settings → *Meta App configuration → Your credentials* lets you paste your **App ID**, **App Secret**, and **Webhook Verify Token** straight into the app. Values are stored **encrypted** (AES-256-GCM) and a value set here **overrides** the matching environment variable, taking effect without a redeploy. Secrets are never shown back — only a masked "set" indicator — and a *Clear* button reverts a field to its env var. Existing env-based deploys keep working unchanged (a key with no dashboard value falls back to its env var). Foundation is generic — more credential groups (Google/YouTube, AI, webhooks) will follow on the same mechanism.
+
+
 
 ### Changed
 

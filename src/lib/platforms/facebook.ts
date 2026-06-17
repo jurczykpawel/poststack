@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import {
   SocialProvider,
   type TokenData,
@@ -41,9 +41,9 @@ export class FacebookProvider extends SocialProvider {
   readonly platform = "facebook" as const;
   readonly displayName = "Facebook";
 
-  generateAuthUrl(state: string, redirectUri: string): string {
+  async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     const params = new URLSearchParams({
-      client_id: env.META_APP_ID,
+      client_id: await getConfig("META_APP_ID"),
       redirect_uri: redirectUri,
       state,
       scope: [
@@ -62,8 +62,8 @@ export class FacebookProvider extends SocialProvider {
     const tokenRes = await fetch(
       `${GRAPH_API}/oauth/access_token?` +
         new URLSearchParams({
-          client_id: env.META_APP_ID,
-          client_secret: env.META_APP_SECRET,
+          client_id: await getConfig("META_APP_ID"),
+          client_secret: await getConfig("META_APP_SECRET"),
           redirect_uri: redirectUri,
           code,
         }),
@@ -260,11 +260,12 @@ export class FacebookProvider extends SocialProvider {
    * Returns expiry timestamp if available, else undefined.
    */
   async getTokenExpiry(pageToken: string): Promise<number | undefined> {
+    const appToken = `${await getConfig("META_APP_ID")}|${await getConfig("META_APP_SECRET")}`;
     const res = await fetch(
       `${GRAPH_API}/debug_token?` +
         new URLSearchParams({
           input_token: pageToken,
-          access_token: `${env.META_APP_ID}|${env.META_APP_SECRET}`,
+          access_token: appToken,
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) }
     );

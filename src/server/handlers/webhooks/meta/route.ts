@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "crypto";
 import { and, eq, ne } from "drizzle-orm";
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import { db } from "@/lib/db";
 import { channels, type Platform } from "@/db/schema";
 import { verifyMetaSignature } from "@/lib/crypto";
@@ -17,10 +17,11 @@ const VALID_PLATFORMS = new Set(["facebook", "instagram", "page"]);
 
 /** Constant-time string compare via fixed-length SHA-256 digests (matches the CRON/HMAC checks),
  *  so the verify-token compare doesn't leak length/prefix through timing. */
-function verifyTokenMatches(provided: string | null): boolean {
-  if (!env.META_WEBHOOK_VERIFY_TOKEN || provided == null) return false;
+async function verifyTokenMatches(provided: string | null): Promise<boolean> {
+  const expected = await getConfig("META_WEBHOOK_VERIFY_TOKEN");
+  if (!expected || provided == null) return false;
   const digest = (v: string) => createHash("sha256").update(v).digest();
-  return timingSafeEqual(digest(provided), digest(env.META_WEBHOOK_VERIFY_TOKEN));
+  return timingSafeEqual(digest(provided), digest(expected));
 }
 
 // ─── Hub Verification (GET) ────────────────────────────────────────────────
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode === "subscribe" && verifyTokenMatches(token)) {
+  if (mode === "subscribe" && (await verifyTokenMatches(token))) {
     return new Response(challenge, { status: 200 });
   }
 
@@ -58,11 +59,12 @@ export async function POST(request: Request) {
   }
   const signature = request.headers.get("x-hub-signature-256") ?? "";
 
-  if (!env.META_APP_SECRET) {
+  const appSecret = await getConfig("META_APP_SECRET");
+  if (!appSecret) {
     return new Response("Meta webhook not configured", { status: 503 });
   }
 
-  if (!verifyMetaSignature(rawBody, signature, env.META_APP_SECRET)) {
+  if (!verifyMetaSignature(rawBody, signature, appSecret)) {
     return new Response("Forbidden", { status: 403 });
   }
 

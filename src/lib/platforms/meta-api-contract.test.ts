@@ -27,6 +27,13 @@ vi.mock("@/lib/env", () => ({
   },
 }));
 
+// CONFIG1: the providers now resolve Meta creds via getConfig (DB-or-env). This is a pure unit test
+// with no DB, so mock the resolver to return the same test creds the env mock provided.
+vi.mock("@/lib/settings/config", () => ({
+  getConfig: async (key: string) =>
+    ({ META_APP_ID: "test-app-id", META_APP_SECRET: "test-app-secret", META_WEBHOOK_VERIFY_TOKEN: "test-verify-token" } as Record<string, string>)[key] ?? "",
+}));
+
 // Capture all fetch calls
 const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
 const originalFetch = globalThis.fetch;
@@ -392,7 +399,7 @@ describe("Meta Graph API Contract Tests", () => {
     it("OAuth dialog URL uses META_OAUTH_BASE", async () => {
       const { FacebookProvider } = await import("./facebook");
       const fb = new FacebookProvider();
-      const url = fb.generateAuthUrl("state123", "https://example.com/cb");
+      const url = await fb.generateAuthUrl("state123", "https://example.com/cb");
       expect(url).toMatch(new RegExp(`^${META_OAUTH_BASE.replace(/[/.]/g, '\\$&')}/dialog/oauth\\?`));
       expect(url).toContain("client_id=test-app-id");
       expect(url).toContain("response_type=code");
@@ -401,7 +408,7 @@ describe("Meta Graph API Contract Tests", () => {
     it("Instagram OAuth dialog URL uses META_OAUTH_BASE", async () => {
       const { InstagramProvider } = await import("./instagram");
       const ig = new InstagramProvider();
-      const url = ig.generateAuthUrl("state456", "https://example.com/cb");
+      const url = await ig.generateAuthUrl("state456", "https://example.com/cb");
       expect(url).toMatch(new RegExp(`^${META_OAUTH_BASE.replace(/[/.]/g, '\\$&')}/dialog/oauth\\?`));
     });
   });
@@ -449,7 +456,7 @@ describe("Meta Graph API Contract Tests", () => {
     it("requests correct OAuth scopes", async () => {
       const { FacebookProvider } = await import("./facebook");
       const fb = new FacebookProvider();
-      const url = fb.generateAuthUrl("state", "https://app.test/cb");
+      const url = await fb.generateAuthUrl("state", "https://app.test/cb");
       const params = new URL(url).searchParams;
       const scopes = params.get("scope")!.split(",");
       expect(scopes).toContain("pages_show_list");
@@ -510,7 +517,7 @@ describe("Meta Graph API Contract Tests", () => {
     it("requests correct Instagram OAuth scopes", async () => {
       const { InstagramProvider } = await import("./instagram");
       const ig = new InstagramProvider();
-      const url = ig.generateAuthUrl("state", "https://app.test/cb");
+      const url = await ig.generateAuthUrl("state", "https://app.test/cb");
       const scopes = new URL(url).searchParams.get("scope")!.split(",");
       expect(scopes).toContain("instagram_basic");
       expect(scopes).toContain("instagram_manage_messages");

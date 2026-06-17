@@ -1207,3 +1207,13 @@ export const events = pgTable("events", {
 	index("events_workspace_created_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.asc().nullsLast(), table.id.asc().nullsLast()),
 	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "events_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
 ]);
+
+// Instance-level configurable credentials/integration settings (CONFIG1). Lets the operator set
+// integration secrets (Meta app id/secret, etc.) from the dashboard instead of env vars. Values are
+// encrypted at rest (AES-256-GCM via crypto.ts) — never stored plaintext. Singleton-style key→value
+// store; resolution prefers a DB value over the matching env var (see lib/settings/config.ts).
+export const instanceSettings = pgTable("instance_settings", {
+	key: text("key").primaryKey().notNull(),
+	value_encrypted: text("value_encrypted").notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});

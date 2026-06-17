@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const { state, setCookie } = generateOAuthState();
   const provider = getProvider("instagram");
   const redirectUri = `${env.APP_URL}/api/oauth/instagram/callback`;
-  const url = provider.generateAuthUrl(state, redirectUri);
+  const url = await provider.generateAuthUrl(state, redirectUri);
 
   return new Response(null, { status: 302, headers: { Location: url, "Set-Cookie": setCookie } });
 }
