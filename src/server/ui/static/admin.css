@@ -1067,3 +1067,17 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .list-row { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--border); }
 .list-row:last-child { border-bottom: 0; }
 .avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; vertical-align: middle; }
+
+/* ── htmx in-flight feedback (UXPOLISH1) ────────────────────────────────────
+   Any control that issues an htmx request gets `.htmx-request` for the duration.
+   Globally: prepend a spinner, dim, and block re-clicks — so no action ever feels
+   "dead" while the request is in flight. Applies to every htmx button app-wide. */
+@keyframes ps-spin { to { transform: rotate(360deg); } }
+.btn.htmx-request, button.htmx-request { opacity: 0.7; pointer-events: none; }
+.btn.htmx-request::before, button.htmx-request::before {
+  content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: ps-spin 0.6s linear infinite; vertical-align: -1px;
+}
+/* Forms posting via htmx (no explicit indicator button) dim gently while in flight. */
+form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }

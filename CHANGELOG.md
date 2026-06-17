@@ -13,7 +13,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
-- **Channel Auto-Story toggle now updates in place — no page reload.** The toggle's form targeted `#ch-detail-head`, but the Auto-Story panel (its button + "Currently on/off" status) lives in a separate section, so toggling left it stale until a manual refresh. The action now also returns the Auto-Story panel as an htmx out-of-band swap, so the label and status flip immediately alongside the toast.
+- **Channel Auto-Story (and First comment) toggles now update in place — no page reload.** Their forms targeted `#ch-detail-head`, but the panels (button + "Currently on/off" status) live in separate sections, so toggling left them stale until a manual refresh. The actions now return the affected panel as an htmx out-of-band swap, so the label/status flip immediately alongside the toast.
+
+### Added
+
+- **In-flight feedback on every action.** Any control issuing an htmx request now shows a spinner, dims, and blocks re-clicks until the request completes — no more "dead" clicks where nothing visibly happens. Applies app-wide via a single `.htmx-request` style.
 
 ## [0.4.24] - 2026-06-17
 

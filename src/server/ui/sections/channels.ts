@@ -424,9 +424,11 @@ function platformSupportsFirstComment(platform: string): boolean {
 
 /** FIRSTCOMMENT1: per-channel default first-comment editor (shown only for platforms that can
  *  comment on their own posts). The per-post override travels on the publish request, not here. */
-function firstCommentPanel(ch: PublicChannel): Html {
+function firstCommentPanel(ch: PublicChannel, oob = false): Html {
   if (!platformSupportsFirstComment(ch.platform)) return html``;
-  return html`<section class="panel">
+  // Same out-of-band pattern as the Auto-Story panel: the control lives here, not in #ch-detail-head,
+  // so the save action re-renders this panel in place (reflecting the saved value), no page reload.
+  return html`<section class="panel" id="first-comment-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
     <div class="panel-head"><h3>First comment</h3></div>
     <div class="panel-body">
       <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
@@ -659,7 +661,8 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
   r.post("/channels/:id/first-comment", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     await setChannelDefaultFirstComment(ws, id, String(form.firstComment ?? ""));
-  }, (ch) => ch.default_first_comment ? "First comment saved" : "First comment turned off"));
+  }, (ch) => ch.default_first_comment ? "First comment saved" : "First comment turned off",
+    (ch) => firstCommentPanel(ch, true)));
   r.post("/channels/:id/auto-story", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");
