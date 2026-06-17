@@ -20,8 +20,11 @@ beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql`truncate table instance_settings`);
   cfg.invalidateConfigCache();
+  // Control the env precisely — CI sets some META_* vars in the job env, so clear all keys this
+  // suite reasons about (otherwise a stray env var flips an "unset" assertion to "env").
   delete process.env.META_APP_ID;
   delete process.env.META_APP_SECRET;
+  delete process.env.META_WEBHOOK_VERIFY_TOKEN;
 });
 
 afterAll(async () => {

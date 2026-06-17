@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to ReplyStack will be documented here.
+All notable changes to PostStack will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
@@ -9,27 +9,27 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.4.29] - 2026-06-17
+## [0.4.30] - 2026-06-17
 
 ### Added
 
 - **Set your Meta app credentials in the dashboard (no more editing `.env`).** Settings → *Meta App configuration → Your credentials* lets you paste your **App ID**, **App Secret**, and **Webhook Verify Token** straight into the app. Values are stored **encrypted** (AES-256-GCM) and a value set here **overrides** the matching environment variable, taking effect without a redeploy. Secrets are never shown back — only a masked "set" indicator — and a *Clear* button reverts a field to its env var. Existing env-based deploys keep working unchanged (a key with no dashboard value falls back to its env var). Foundation is generic — more credential groups (Google/YouTube, AI, webhooks) will follow on the same mechanism.
 
-
+## [0.4.28] - 2026-06-17
 
 ### Changed
 
 - **Relicensed from AGPL-3.0 to the Elastic License 2.0 (source-available).** You can still self-host, use, modify, and redistribute PostStack freely; the new limits are that you may not offer it to third parties as a hosted/managed service and may not circumvent the license-key functionality. Added a Contributor License Agreement (`CLA.md`) that lets the project relicense in the future (e.g. to a more permissive license).
 - **Repositioned the project as "PostStack"** — a self-hosted social media *management* platform (publishing & scheduling + inbox auto-replies + drip sequences + CRM), not just an inbox-automation / ManyChat alternative. Updated README, CONTRIBUTING, API docs, and the package description accordingly.
 
-
+## [0.4.27] - 2026-06-17
 
 ### Changed
 
 - **Filters apply instantly — no "Apply" click.** The filter bars on Content, Channels and Queue now apply on interaction (selects on change, the search box debounced as you type), like the inbox. The redundant "Apply" button is hidden (kept as a no-JS fallback).
 - **Content status filter is now a dropdown built from your actual statuses** instead of a free-text box you had to type into. Statuses are open-set (NocoDB import), so the options are derived from the statuses present in your workspace (plus a deep-linked value is always included).
 
-
+## [0.4.26] - 2026-06-17
 
 ### Changed
 
@@ -38,6 +38,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 
 - **"Published posts" (and "Queue →") in the channel view now filter to that channel.** They linked to the unfiltered `/queue`; they now carry `?channel=<id>` so you see only that channel's posts (the queue already supported the filter).
+
+## [0.4.25] - 2026-06-17
 
 ### Fixed
 
