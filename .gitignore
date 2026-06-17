@@ -66,3 +66,6 @@ priv/
 e2e/.auth/
 test-results/
 playwright-report/
+
+# Internal design specs/plans (kept private — repo is source-available)
+docs/superpowers/

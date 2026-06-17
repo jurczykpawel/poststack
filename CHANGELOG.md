@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic history compaction.** Webhook events and post reactions older than HISTORY_RETENTION_DAYS (default 60) are rolled into compact aggregates and deleted, keeping the database small on shared/limited Postgres — all-time counts and the Engagement view stay correct (only raw payloads and reactor identity are dropped). Set HISTORY_RETENTION_DAYS=0 to keep everything.
+
 ## [0.4.32] - 2026-06-17
 
 ### Changed

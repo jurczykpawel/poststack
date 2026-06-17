@@ -7,8 +7,9 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, users,
+  pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, webhookEventStats, postReactionStats, users,
 } from "@/db/schema";
+import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -512,17 +513,24 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
 interface WebhookStats { total: number; last24h: number; byStatus: Record<string, number> }
 
 /** Aggregate inbound-event counts for the workspace's channels — the PRO Webhooks-page stats. */
-async function loadWebhookStats(channelIds: string[]): Promise<WebhookStats> {
+export async function loadWebhookStats(channelIds: string[]): Promise<WebhookStats> {
   if (channelIds.length === 0) return { total: 0, last24h: 0, byStatus: {} };
   const since = new Date(Date.now() - 24 * 3600_000);
-  const grouped = await db
+  const live = await db
     .select({ status: webhookEvents.handling_status, n: count() })
     .from(webhookEvents)
     .where(inArray(webhookEvents.channel_id, channelIds))
     .groupBy(webhookEvents.handling_status);
-  const byStatus: Record<string, number> = {};
-  let total = 0;
-  for (const r of grouped) { byStatus[r.status] = Number(r.n); total += Number(r.n); }
+  const stats = await db
+    .select({ handling_status: webhookEventStats.handling_status, count: sql<number>`sum(${webhookEventStats.count})::int` })
+    .from(webhookEventStats)
+    .where(inArray(webhookEventStats.channel_id, channelIds))
+    .groupBy(webhookEventStats.handling_status);
+  const byStatus = mergeWebhookStatusCounts(
+    live.map((r) => ({ status: r.status, n: Number(r.n) })),
+    stats.map((r) => ({ handling_status: r.handling_status, count: Number(r.count) })),
+  );
+  const total = Object.values(byStatus).reduce((a, n) => a + n, 0);
   const [recent] = await db
     .select({ n: count() })
     .from(webhookEvents)
@@ -2004,7 +2012,7 @@ const ENGAGEMENT_POST_LIMIT = 200;
  * heavy engagement (e.g. 10k reactions across a few posts showed as ≤1000). `channelIds === null` =
  * all channels; `[]` = filtered to nothing.
  */
-async function loadEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
+export async function loadEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
   if (channelIds && channelIds.length === 0) return [];
   const where = and(
     eq(postReactions.workspace_id, workspaceId),
@@ -2023,6 +2031,18 @@ async function loadEngagement(workspaceId: string, channelIds: string[] | null):
     .where(where)
     .groupBy(postReactions.post_id, postReactions.channel_id, postReactions.reaction_type);
 
+  // Reactions older than the retention window live as aggregates in post_reaction_stats; merge so
+  // a fully-compacted post still shows accurate all-time totals (reactor identity is not retained).
+  const statRows = await db
+    .select({
+      post_id: postReactionStats.post_id, channel_id: postReactionStats.channel_id,
+      reaction_type: postReactionStats.reaction_type, count: postReactionStats.count,
+      last_reacted_at: postReactionStats.last_reacted_at,
+    })
+    .from(postReactionStats)
+    .where(and(eq(postReactionStats.workspace_id, workspaceId),
+      channelIds ? inArray(postReactionStats.channel_id, channelIds) : undefined));
+
   // A small sample of reactor names per post (distinct), for the "Who" column.
   const reactorRows = await db
     .selectDistinct({ postId: postReactions.post_id, name: postReactions.reactor_name })
@@ -2036,14 +2056,10 @@ async function loadEngagement(workspaceId: string, channelIds: string[] | null):
     reactorsByPost.set(r.postId, arr);
   }
 
-  const byPost = new Map<string, { channelId: string; total: number; types: Map<string, number>; lastAt: Date }>();
-  for (const r of agg) {
-    let p = byPost.get(r.postId);
-    if (!p) byPost.set(r.postId, (p = { channelId: r.channelId, total: 0, types: new Map(), lastAt: r.lastAt }));
-    p.total += r.n;
-    p.types.set(r.type, (p.types.get(r.type) ?? 0) + r.n);
-    if (r.lastAt > p.lastAt) p.lastAt = r.lastAt;
-  }
+  const byPost = mergePostReactionTotals(
+    agg.map((r) => ({ postId: r.postId, channelId: r.channelId, type: r.type, n: Number(r.n), lastAt: r.lastAt })),
+    statRows,
+  );
 
   // Resolve the owning channel name from channel_id (every post_reaction carries it).
   const chans = await db.query.channels.findMany({
