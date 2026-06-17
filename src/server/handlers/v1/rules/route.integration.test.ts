@@ -247,3 +247,69 @@ describe("rules active-rule cap", () => {
     expect(res.status).toBe(422);
   });
 });
+
+// SEQTRIGGER1: a rule may enroll the matched contact into a drip sequence.
+describe("rules validation — sequence response", () => {
+  const patch = (id: string, body: unknown) =>
+    rule.PATCH(
+      new Request("http://x", { method: "PATCH", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: JSON.stringify(body) }),
+      { params: Promise.resolve({ ruleId: id }) },
+    );
+  async function seedSequence(status = "active") {
+    const [seq] = await db.insert(s.sequences)
+      .values({ workspace_id: WS, name: "Drip", status: status as "active" | "draft" | "archived", steps: [{ type: "message", content: "hi" }] })
+      .returning({ id: s.sequences.id });
+    return seq.id;
+  }
+  const seqRule = (over: Record<string, unknown>) => ({
+    name: "Enroll",
+    trigger_type: "keyword",
+    trigger_config: { keywords: [{ value: "start", match_type: "contains" }] },
+    response_type: "sequence",
+    ...over,
+  });
+
+  it("creates a sequence rule pointing at an active sequence", async () => {
+    if (!TEST_DB) return;
+    const seqId = await seedSequence();
+    const res = await post(seqRule({ response_config: { sequence_id: seqId } }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.response_type).toBe("sequence");
+    expect(body.data.response_config.sequence_id).toBe(seqId);
+  });
+
+  it("rejects a sequence rule with no sequence_id (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await post(seqRule({ response_config: {} }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects a sequence rule pointing at a non-existent sequence (422)", async () => {
+    if (!TEST_DB) return;
+    const res = await post(seqRule({ response_config: { sequence_id: "ffffffff-0000-4000-8000-000000000999" } }));
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects a sequence rule pointing at a non-active sequence (422)", async () => {
+    if (!TEST_DB) return;
+    const seqId = await seedSequence("draft");
+    const res = await post(seqRule({ response_config: { sequence_id: seqId } }));
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH onto a sequence response also validates the target sequence", async () => {
+    if (!TEST_DB) return;
+    // A plain text rule we then switch to a sequence response.
+    const [r] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "T", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "start", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "hi" },
+    }).returning({ id: s.autoReplyRules.id });
+    const seqId = await seedSequence();
+    const ok = await patch(r.id, { response_type: "sequence", response_config: { sequence_id: seqId } });
+    expect(ok.status).toBe(200);
+    const bad = await patch(r.id, { response_type: "sequence", response_config: { sequence_id: "ffffffff-0000-4000-8000-000000000888" } });
+    expect(bad.status).toBe(422);
+  });
+});

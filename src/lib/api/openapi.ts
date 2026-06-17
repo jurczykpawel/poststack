@@ -140,10 +140,9 @@ export const openApiSpec = {
           trigger_config: { type: "object" },
           response_type: {
             type: "string",
-            // Mirrors the writable zod enum on create/patch (no `sequence`): rule-driven enrollment
-            // isn't shipped, so the API rejects `sequence` — advertising it here produced a docs/API
-            // mismatch where a client POSTing it (per Scalar) got a 400.
-            enum: ["text", "random_text", "none", "ai_rephrase", "follow_gate"],
+            // Mirrors the writable zod enum on create/patch. `sequence` enrolls the matched contact
+            // into a drip — it requires `response_config.sequence_id` pointing at an active sequence.
+            enum: ["text", "random_text", "none", "ai_rephrase", "follow_gate", "sequence"],
           },
           response_config: { type: "object" },
           cooldown_seconds: { type: "integer" },

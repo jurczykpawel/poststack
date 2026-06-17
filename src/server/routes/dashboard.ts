@@ -1115,7 +1115,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canInteractive = features.has("interactive_messages");
     const canPersonalize = features.has("personalization");
     const canReactionTrigger = features.has("reaction_trigger");
+    const canSequence = features.has("sequences");
     const ruleChannels = await loadInboxChannels(a.workspaceId);
+    // Active sequences a rule can enroll a matched contact into (SEQTRIGGER1).
+    const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Rules" }),
@@ -1164,8 +1167,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   ${canFollowGate
                     ? html`<option value="follow_gate">Follow-gate (unlock only after they follow)</option>`
                     : html`<option value="follow_gate" disabled>🔒 Follow-gate (PRO)</option>`}
+                  ${canSequence
+                    ? html`<option value="sequence">Enroll in a drip sequence</option>`
+                    : html`<option value="sequence" disabled>🔒 Enroll in a drip sequence (PRO)</option>`}
                 </select>
               </div>
+
+              ${sequenceResponseField(activeSequences, null)}
 
               <!-- Follow-gate branches -->
               <div x-show="responseMode === 'follow_gate'" class="stack">
@@ -1218,6 +1226,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const payloadValue = triggerType === "postback" ? (form.payload ?? "").trim() : "";
     const commentReply = (form.comment_reply_text ?? "").trim();
     const followGate = form.response_mode === "follow_gate";
+    const isSequence = form.response_mode === "sequence";
 
     const triggerConfig: Record<string, unknown> = {};
     if (triggerType === "postback") {
@@ -1231,7 +1240,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
     let responseType = "text";
     const responseConfig: Record<string, unknown> = {};
-    if (followGate) {
+    if (isSequence) {
+      responseType = "sequence";
+      if (form.sequence_id) responseConfig.sequence_id = form.sequence_id;
+    } else if (followGate) {
       responseType = "follow_gate";
       const claimLabel = (form.claim_label ?? "").trim() || "Chcę odebrać";
       const claimPayload = payloadValue || "CLAIM";
@@ -1303,7 +1315,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
     const { features, upgradeUrl } = await getInstanceLicense();
     const channels = await loadInboxChannels(a.workspaceId);
-    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels));
+    const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
+    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels, activeSequences));
   });
 
   app.post("/rules/:id", guard, async (c) => {
@@ -1327,6 +1340,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       else delete triggerConfig.post_id;
     }
     const responseConfig = { ...((existing.response_config ?? {}) as Record<string, unknown>) };
+    if (existing.response_type === "sequence") {
+      if (form.sequence_id) responseConfig.sequence_id = form.sequence_id;
+    }
     if (existing.response_type === "text") {
       responseConfig.text = form.text ?? "";
       if (existing.trigger_type === "comment_keyword") {
@@ -2267,7 +2283,24 @@ async function loadRules(workspaceId: string) {
     loadInboxChannels(workspaceId),
   ]);
   const label = new Map(chans.map((ch) => [ch.id, `${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}`]));
-  return rows.map((r) => ({ ...r, channelLabel: r.channel_id ? label.get(r.channel_id) ?? "Unknown channel" : "All channels" }));
+  // Resolve names for any sequence-response rules so the list shows the drip, not a bare uuid.
+  const seqIds = rows
+    .filter((r) => r.response_type === "sequence")
+    .map((r) => (r.response_config as Record<string, unknown> | null)?.sequence_id)
+    .filter((id): id is string => typeof id === "string");
+  const seqNames = seqIds.length
+    ? new Map(
+        (await db.query.sequences.findMany({ where: inArray(sequencesTbl.id, seqIds), columns: { id: true, name: true } })).map((seq) => [seq.id, seq.name]),
+      )
+    : new Map<string, string>();
+  return rows.map((r) => ({
+    ...r,
+    channelLabel: r.channel_id ? label.get(r.channel_id) ?? "Unknown channel" : "All channels",
+    sequenceName:
+      r.response_type === "sequence"
+        ? seqNames.get((r.response_config as Record<string, unknown> | null)?.sequence_id as string) ?? "(deleted sequence)"
+        : null,
+  }));
 }
 
 /** A human-readable one-line summary of what a rule actually does — keywords, post scope, reply mode,
@@ -2284,6 +2317,7 @@ function ruleSummary(r: Awaited<ReturnType<typeof loadRules>>[number]): Html {
     bits.push(html`📌 ${typeof tc.post_id === "string" && tc.post_id ? `post ${tc.post_id}` : "any post"}`);
     if (typeof rc.reply_mode === "string") bits.push(html`💬 ${rc.reply_mode}`);
   }
+  if (r.response_type === "sequence" && r.sequenceName) bits.push(html`🧵 enroll → ${r.sequenceName}`);
   if (typeof rc.text === "string" && rc.text.trim()) bits.push(html`↳ “${truncateCodePoints(rc.text, 60)}”`);
   const buttons = Array.isArray(rc.buttons) ? (rc.buttons as Array<{ title?: string; url?: string; payload?: string }>) : [];
   for (const b of buttons) bits.push(html`🔘 ${b.title ?? ""}${b.url ? html` → <a href="${b.url}" target="_blank" rel="noopener">${b.url}</a>` : b.payload ? ` (${b.payload})` : ""}`);
@@ -2331,6 +2365,25 @@ function ruleChannelSelect(chans: InboxChannel[], selected: string | null): Html
       ${chans.map((ch) => html`<option value="${ch.id}"${selected === ch.id ? raw(" selected") : raw("")}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`)}
     </select>
     <p class="muted" style="font-size:.7rem;margin-top:.2rem">Limit this rule to one channel (e.g. only YouTube), or leave "All channels" to apply everywhere.</p>
+  </div>`;
+}
+
+/** The sequence picker for a `sequence`-response rule (SEQTRIGGER1): the matched contact is enrolled
+ *  into the chosen drip. Shown only when responseMode === 'sequence'; requires the form's x-data to
+ *  expose `responseMode`. `selected` pre-selects the stored sequence on the edit form. */
+function sequenceResponseField(
+  activeSequences: Array<{ id: string; name: string; _count: { enrollments: number } }>,
+  selected: string | null,
+): Html {
+  return html`<div x-show="responseMode === 'sequence'" class="stack">
+    ${activeSequences.length === 0
+      ? html`<div class="card" style="font-size:.8rem"><span class="muted">No active sequences yet.</span> <a href="/sequences">Create one</a>, activate it, then pick it here.</div>`
+      : html`<div><label class="label">Sequence to enroll into</label>
+          <select class="input" name="sequence_id">
+            ${activeSequences.map((seq) => html`<option value="${seq.id}"${selected === seq.id ? raw(" selected") : raw("")}>${seq.name}</option>`)}
+          </select>
+          <p class="muted" style="font-size:.72rem;margin-top:.25rem">When this trigger fires, the contact is enrolled into the drip (once per contact). Manage steps &amp; delays in <a href="/sequences">Sequences</a>.</p>
+        </div>`}
   </div>`;
 }
 
@@ -2405,6 +2458,7 @@ function renderRuleEditForm(
   canInteractive: boolean,
   upgradeUrl: string,
   channels: InboxChannel[],
+  activeSequences: Array<{ id: string; name: string; _count: { enrollments: number } }> = [],
 ): Html {
   const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
   const rc = (r.response_config ?? {}) as Record<string, unknown>;
@@ -2416,16 +2470,21 @@ function renderRuleEditForm(
   const replyMode = typeof rc.reply_mode === "string" ? rc.reply_mode : "dm";
   const commentReply = typeof rc.comment_reply_text === "string" ? rc.comment_reply_text : "";
   const isText = r.response_type === "text";
+  const isSequence = r.response_type === "sequence";
+  const selectedSequence = typeof rc.sequence_id === "string" ? rc.sequence_id : null;
   const isKeyword = r.trigger_type === "keyword" || r.trigger_type === "comment_keyword";
   const isComment = r.trigger_type === "comment_keyword";
   const sel = (v: string) => (v === replyMode ? raw(" selected") : raw(""));
   const { quickReplies, buttons } = buttonsToEditor(rc);
   // Pre-fill the Alpine editor: the init arrays are interpolated as normal values so the html`` tag
   // HTML-escapes them (safe in the attribute, the browser un-escapes for Alpine); the methods are raw
-  // code (their `=>` / `{}` must not be escaped).
+  // code (their `=>` / `{}` must not be escaped). `responseMode` drives the x-show of the sequence
+  // picker (and the text editor); it never changes on the edit form (you can't switch response type).
   const xData = isText
     ? html` x-data="{ responseMode: 'text', quickReplies: ${JSON.stringify(quickReplies)}, buttons: ${JSON.stringify(buttons)}, ${raw(RULE_EDITOR_METHODS)} }"`
-    : html``;
+    : isSequence
+      ? html` x-data="{ responseMode: 'sequence' }"`
+      : html``;
   return html`<div class="card" style="margin-bottom:1rem">
     <h3 style="margin-top:0">Edit rule <span class="muted" style="font-weight:400;font-size:.8rem">${r.trigger_type} → ${r.response_type}</span></h3>
     <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack"${xData}>
@@ -2442,7 +2501,9 @@ function renderRuleEditForm(
         <p class="muted" style="font-size:.7rem;margin-top:.2rem">Buttons &amp; quick replies are delivered in the DM — set "DM only" or "Both" to send them.</p></div>` : ""}
       ${isText
         ? html`<div><label class="label">Reply text</label><textarea class="textarea" name="text" rows="2">${text}</textarea></div>`
-        : html`<p class="muted" style="font-size:.78rem">This rule's response type is <strong>${r.response_type}</strong>; its detailed configuration is preserved on save. To rebuild it, delete and recreate the rule.</p>`}
+        : isSequence
+          ? sequenceResponseField(activeSequences, selectedSequence)
+          : html`<p class="muted" style="font-size:.78rem">This rule's response type is <strong>${r.response_type}</strong>; its detailed configuration is preserved on save. To rebuild it, delete and recreate the rule.</p>`}
       ${isComment && isText ? html`<div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" value="${commentReply}" /></div>` : ""}
       ${isText ? html`${interactiveRuleFields(canInteractive, upgradeUrl)}
       ${canInteractive ? html`<input type="hidden" name="quick_replies_json" :value="qrJson()" /><input type="hidden" name="buttons_json" :value="btnJson()" />` : ""}` : ""}

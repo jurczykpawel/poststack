@@ -31,16 +31,29 @@ export const contentPatch = contentCreate.partial();
 
 // UNIFY P2.2: the user-writable auto-reply attached to a post (system-managed `ruleId`/`status` are
 // stamped by the publish loop-back, never accepted here — PSA8 mass-assignment guard).
-export const autoReplyInput = z.object({
-  keywords: z
-    .array(z.object({ value: z.string().min(1).max(100), matchType: z.enum(["exact", "contains", "starts_with"]).default("contains") }))
-    .min(1)
-    .max(100),
-  dmText: z.string().min(1).max(2000),
-  commentReplyText: z.string().min(1).max(2000).optional(),
-  replyMode: z.enum(["dm", "comment", "both"]).default("dm"),
-  cooldownSeconds: z.number().int().min(0).max(86400).optional(),
-});
+// SEQTRIGGER1: the comment trigger can either send a DM (`responseType: "text"`, the default) or
+// enroll the commenter into a drip sequence (`responseType: "sequence"` + `sequenceId`).
+export const autoReplyInput = z
+  .object({
+    keywords: z
+      .array(z.object({ value: z.string().min(1).max(100), matchType: z.enum(["exact", "contains", "starts_with"]).default("contains") }))
+      .min(1)
+      .max(100),
+    responseType: z.enum(["text", "sequence"]).default("text"),
+    dmText: z.string().min(1).max(2000).optional(),
+    sequenceId: z.string().uuid().optional(),
+    commentReplyText: z.string().min(1).max(2000).optional(),
+    replyMode: z.enum(["dm", "comment", "both"]).default("dm"),
+    cooldownSeconds: z.number().int().min(0).max(86400).optional(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.responseType === "text" && !d.dmText) {
+      ctx.addIssue({ code: "custom", path: ["dmText"], message: "dmText is required for a text auto-reply" });
+    }
+    if (d.responseType === "sequence" && !d.sequenceId) {
+      ctx.addIssue({ code: "custom", path: ["sequenceId"], message: "sequenceId is required for a sequence auto-reply" });
+    }
+  });
 
 export const postCreate = z.object({
   contentId: z.string().uuid().optional(),

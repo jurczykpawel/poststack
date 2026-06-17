@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
-import { users, workspaces, channels, brands, content, posts, rateLimitCounters } from "@/db/schema";
+import { users, workspaces, channels, brands, content, posts, rateLimitCounters, sequences } from "@/db/schema";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -166,6 +166,40 @@ describe("unified Compose section", () => {
     expect(p.first_comment).toBe("👇 Comment LINK");
     expect(p.auto_story).toBe(true);
     expect((p.auto_reply as { dmText?: string } | null)?.dmText).toBe("Here you go!");
+  });
+
+  // SEQTRIGGER1: an auto-reply can enroll the commenter into a drip sequence.
+  it("offers the sequence enroll option and persists a sequence auto_reply", async () => {
+    if (!TEST_DB) return;
+    const [seq] = await db.insert(sequences)
+      .values({ workspace_id: workspaceId, name: "Welcome drip", status: "active", steps: [{ type: "message", content: "hi" }] })
+      .returning({ id: sequences.id });
+
+    // The compose page advertises the enroll option + the active sequence in its embedded JSON.
+    const out = await (await app.request("/compose", { headers: { cookie } })).text();
+    expect(out).toContain("Enroll in a drip sequence");
+    expect(out).toContain("Welcome drip");
+
+    const payload = {
+      brand: "techskills.academy",
+      title: "Sequence enroll post",
+      contentType: "reel",
+      mediaUrl: "https://cdn/reel.mp4",
+      posts: [
+        { platform: "instagram", autoReply: { keywords: [{ value: "KURS", matchType: "contains" }], responseType: "sequence", sequenceId: seq!.id } },
+      ],
+    };
+    const res = await app.request("/compose", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ payload: JSON.stringify(payload) }),
+    });
+    expect(res.status).toBe(303);
+    const id = res.headers.get("location")!.split("/").pop()!;
+    const p = (await db.query.posts.findMany({ where: eq(posts.content_id, id) }))[0];
+    const ar = p.auto_reply as { responseType?: string; sequenceId?: string } | null;
+    expect(ar?.responseType).toBe("sequence");
+    expect(ar?.sequenceId).toBe(seq!.id);
   });
 
   it("renders the Publish section (draft / now / schedule)", async () => {

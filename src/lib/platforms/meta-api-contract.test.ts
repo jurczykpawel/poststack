@@ -10,7 +10,9 @@
  * 3. Update the mock responses below to match the new version's schema
  * 4. Run these tests — failures show exactly what broke
  *
- * Mock responses are based on real Meta Graph API v21.0 response shapes.
+ * Mock responses are based on real Meta Graph API response shapes (current target: see
+ * META_API_VERSION in constants.ts). These fixtures are what we ASSUME; the live version-probe
+ * (scripts/meta-version-probe.ts) is what confirms the real API still matches them on a bump.
  * See: https://developers.facebook.com/docs/graph-api/changelog
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -29,7 +31,7 @@ vi.mock("@/lib/env", () => ({
 const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
 const originalFetch = globalThis.fetch;
 
-// ─── Mock Response Fixtures (v21.0) ──────────────────────────────────────
+// ─── Mock Response Fixtures ───────────────────────────────────────────────
 // These represent the actual response shapes from the Meta Graph API.
 // When bumping API version, update these to match the new version's format.
 

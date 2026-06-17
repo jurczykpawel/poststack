@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { deliveries, posts, autoReplyRules } from "@/db/schema";
+import { deliveries, posts, autoReplyRules, sequences } from "@/db/schema";
 import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
 
 /**
@@ -10,20 +10,32 @@ import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
  * row scoped to the resulting media id — entirely in-process (NO HTTP self-call). camelCase on the
  * post; mapped to the rule engine's snake_case trigger/response config here.
  */
-export const autoReplySchema = z.object({
-  version: z.number().int().default(1),
-  keywords: z
-    .array(z.object({ value: z.string().min(1).max(100), matchType: z.enum(["exact", "contains", "starts_with"]).default("contains") }))
-    .max(100)
-    .default([]),
-  dmText: z.string().min(1).max(2000),
-  commentReplyText: z.string().min(1).max(2000).optional(),
-  replyMode: z.enum(["dm", "comment", "both"]).default("dm"),
-  cooldownSeconds: z.number().int().min(0).max(86400).optional(),
-  // Round-tripped state stamped back on the post after provisioning.
-  ruleId: z.string().uuid().optional(),
-  status: z.enum(["pending", "active", "skipped_unsupported", "skipped_unlicensed", "error"]).optional(),
-});
+export const autoReplySchema = z
+  .object({
+    version: z.number().int().default(1),
+    keywords: z
+      .array(z.object({ value: z.string().min(1).max(100), matchType: z.enum(["exact", "contains", "starts_with"]).default("contains") }))
+      .max(100)
+      .default([]),
+    // SEQTRIGGER1: "text" sends `dmText`; "sequence" enrolls the commenter into `sequenceId`.
+    responseType: z.enum(["text", "sequence"]).default("text"),
+    dmText: z.string().min(1).max(2000).optional(),
+    sequenceId: z.string().uuid().optional(),
+    commentReplyText: z.string().min(1).max(2000).optional(),
+    replyMode: z.enum(["dm", "comment", "both"]).default("dm"),
+    cooldownSeconds: z.number().int().min(0).max(86400).optional(),
+    // Round-tripped state stamped back on the post after provisioning.
+    ruleId: z.string().uuid().optional(),
+    status: z.enum(["pending", "active", "skipped_unsupported", "skipped_unlicensed", "error"]).optional(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.responseType === "text" && !d.dmText) {
+      ctx.addIssue({ code: "custom", path: ["dmText"], message: "dmText is required for a text auto-reply" });
+    }
+    if (d.responseType === "sequence" && !d.sequenceId) {
+      ctx.addIssue({ code: "custom", path: ["sequenceId"], message: "sequenceId is required for a sequence auto-reply" });
+    }
+  });
 
 export type AutoReplyConfig = z.infer<typeof autoReplySchema>;
 
@@ -80,15 +92,34 @@ export async function provisionAutoReply(deliveryId: string, workspaceId: string
     keywords: cfg.keywords.map((k) => ({ value: k.value, match_type: k.matchType })),
     post_id: mediaId,
   };
-  const responseConfig: Record<string, unknown> = {
-    text: cfg.dmText,
-    reply_mode: cfg.replyMode,
-    ...(cfg.commentReplyText ? { comment_reply_text: cfg.commentReplyText } : {}),
-  };
 
-  // Same authoring gate the HTTP rule-create uses: a PRO feature the instance lacks blocks it. As a
-  // background loop-back we skip (record it) rather than throw.
-  const missing = await firstUnlicensedRuleFeature({ responseType: "text", responseConfig, triggerType: "comment_keyword" });
+  // SEQTRIGGER1: a sequence auto-reply enrolls the commenter into a drip; a text auto-reply DMs them.
+  const isSequence = cfg.responseType === "sequence";
+  const responseType = isSequence ? ("sequence" as const) : ("text" as const);
+  const responseConfig: Record<string, unknown> = isSequence
+    ? { sequence_id: cfg.sequenceId }
+    : {
+        text: cfg.dmText,
+        reply_mode: cfg.replyMode,
+        ...(cfg.commentReplyText ? { comment_reply_text: cfg.commentReplyText } : {}),
+      };
+
+  // A sequence auto-reply must point at an ACTIVE sequence in this workspace (a draft/archived/missing
+  // one would never enroll) — validate before provisioning, recording it as an error on the post.
+  if (isSequence) {
+    const seq = await db.query.sequences.findFirst({
+      where: and(eq(sequences.id, cfg.sequenceId!), eq(sequences.workspace_id, workspaceId)),
+      columns: { id: true, status: true },
+    });
+    if (!seq || seq.status !== "active") {
+      await stamp(post.id, raw, { status: "error" });
+      return { status: "error" };
+    }
+  }
+
+  // Same authoring gate the HTTP rule-create uses: a PRO feature the instance lacks blocks it (a
+  // sequence auto-reply needs the `sequences` feature). As a background loop-back we skip (record it).
+  const missing = await firstUnlicensedRuleFeature({ responseType, responseConfig, triggerType: "comment_keyword" });
   if (missing) {
     await stamp(post.id, raw, { status: "skipped_unlicensed" });
     return { status: "skipped_unlicensed" };
@@ -100,7 +131,7 @@ export async function provisionAutoReply(deliveryId: string, workspaceId: string
     name: `Auto-reply · ${mediaId}`,
     trigger_type: "comment_keyword" as const,
     trigger_config: triggerConfig,
-    response_type: "text" as const,
+    response_type: responseType,
     response_config: responseConfig,
     cooldown_seconds: cfg.cooldownSeconds ?? 0,
     is_active: true,

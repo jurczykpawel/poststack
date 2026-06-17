@@ -27,6 +27,7 @@ export function requiredRuleFeatures(
   if (responseConfigHasPlaceholders(responseConfig)) feats.push("personalization");
   if (responseType === "ai_rephrase" || responseConfig.ai_rephrase === true) feats.push("ai_rephrase");
   if (responseType === "follow_gate") feats.push("follow_gate");
+  if (responseType === "sequence") feats.push("sequences"); // SEQTRIGGER1: trigger-driven drip enrollment
   if (hasInteractive(responseConfig)) feats.push("interactive_messages");
   return feats;
 }

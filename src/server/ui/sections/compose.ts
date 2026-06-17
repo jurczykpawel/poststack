@@ -9,6 +9,9 @@ import { resolveBrandSlots } from "@/lib/brands/resolve";
 import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
 import { autoReplyInput } from "@/lib/content/schemas";
+import { db } from "@/lib/db";
+import { sequences as sequencesTbl } from "@/db/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { renderPage } from "../layout";
 import { platformLabel } from "../components/platform";
 
@@ -50,6 +53,15 @@ async function auth(c: Context): Promise<AuthContext | null> {
   return authenticate(c.req.raw).catch(() => null);
 }
 
+/** Active sequences (id + name) a comment auto-reply can enroll into (SEQTRIGGER1). */
+function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; name: string }>> {
+  return db.query.sequences.findMany({
+    where: and(eq(sequencesTbl.workspace_id, workspaceId), eq(sequencesTbl.status, "active")),
+    orderBy: desc(sequencesTbl.created_at),
+    columns: { id: true, name: true },
+  });
+}
+
 type PlatformOpt = { platform: string; name: string; label: string };
 async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
   const brands = await listBrands(workspaceId);
@@ -71,9 +83,14 @@ function composeScript(): Html {
     function psCompose() {
       var data = {};
       try { data = JSON.parse(document.getElementById("ps-compose-data").textContent); } catch (e) {}
+      var seqCfg = { canSequence: false, sequences: [] };
+      try { seqCfg = JSON.parse(document.getElementById("ps-compose-seq").textContent); } catch (e) {}
       return {
         brands: data,
         brandList: Object.keys(data).map(function (k) { return { key: k, name: data[k].name }; }),
+        canSequence: seqCfg.canSequence,
+        sequences: seqCfg.sequences,
+        hasSequences() { return this.canSequence && this.sequences.length > 0; },
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
         brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
         sel: {},
@@ -92,7 +109,7 @@ function composeScript(): Html {
         onBrandChange() {
           var s = {};
           this.availPlatforms.forEach(function (p) {
-            s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, arEnabled: false, arKeyword: "", arDmText: "" };
+            s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, arEnabled: false, arKeyword: "", arDmText: "", arResponse: "dm", arSequenceId: "" };
           });
           this.sel = s;
         },
@@ -116,8 +133,13 @@ function composeScript(): Html {
               var fc = (s.firstComment || "").trim();
               if (this.canComment(p.platform) && fc) post.firstComment = fc;
               if (this.canStory(p.platform) && s.autoStory) post.autoStory = true;
-              if (this.canAutoReply(p.platform) && s.arEnabled && (s.arKeyword || "").trim() && (s.arDmText || "").trim()) {
-                post.autoReply = { keywords: [{ value: s.arKeyword.trim(), matchType: "contains" }], dmText: s.arDmText.trim(), replyMode: "dm" };
+              if (this.canAutoReply(p.platform) && s.arEnabled && (s.arKeyword || "").trim()) {
+                var kw = [{ value: s.arKeyword.trim(), matchType: "contains" }];
+                if (s.arResponse === "sequence" && this.hasSequences() && s.arSequenceId) {
+                  post.autoReply = { keywords: kw, responseType: "sequence", sequenceId: s.arSequenceId };
+                } else if ((s.arDmText || "").trim()) {
+                  post.autoReply = { keywords: kw, responseType: "text", dmText: s.arDmText.trim(), replyMode: "dm" };
+                }
               }
               return post;
             }),
@@ -137,9 +159,12 @@ function composePage(
   data: Awaited<ReturnType<typeof brandsData>>,
   features: Awaited<ReturnType<typeof getInstanceLicense>>["features"],
   products: Awaited<ReturnType<typeof getInstanceLicense>>["products"],
+  sequences: Array<{ id: string; name: string }> = [],
   error?: string,
 ): Html {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  // SEQTRIGGER1: a comment auto-reply can enroll into a drip — only when licensed AND a sequence exists.
+  const seqJson = JSON.stringify({ canSequence: features.has("sequences"), sequences }).replace(/</g, "\\u003c");
   const typeOpts = CONTENT_TYPES.map(([v, label]) => html`<option value="${v}">${label}</option>`);
   const brandOpts = Object.entries(data).map(([key, v]) => html`<option value="${key}">${v.name}</option>`);
   return renderPage({
@@ -221,9 +246,29 @@ function composePage(
                                 <span>Auto-reply to comments — DM people who comment a keyword</span>
                               </label>
                               <template x-if="sel[p.platform].arEnabled">
-                                <div class="fld-row">
+                                <div class="stack" style="gap:.5rem">
                                   <label class="fld"><span>Keyword</span><input type="text" x-model="sel[p.platform].arKeyword" maxlength="100" placeholder="LINK" /></label>
-                                  <label class="fld grow"><span>DM to send</span><input type="text" x-model="sel[p.platform].arDmText" maxlength="2000" placeholder="Here's the link you asked for: …" /></label>
+                                  <template x-if="hasSequences()">
+                                    <label class="fld"><span>Then</span>
+                                      <select x-model="sel[p.platform].arResponse">
+                                        <option value="dm">Send a DM</option>
+                                        <option value="sequence">Enroll in a drip sequence</option>
+                                      </select>
+                                    </label>
+                                  </template>
+                                  <template x-if="sel[p.platform].arResponse !== 'sequence' || !hasSequences()">
+                                    <label class="fld grow"><span>DM to send</span><input type="text" x-model="sel[p.platform].arDmText" maxlength="2000" placeholder="Here's the link you asked for: …" /></label>
+                                  </template>
+                                  <template x-if="sel[p.platform].arResponse === 'sequence' && hasSequences()">
+                                    <label class="fld grow"><span>Sequence to enroll into</span>
+                                      <select x-model="sel[p.platform].arSequenceId">
+                                        <option value="">— pick a sequence —</option>
+                                        <template x-for="seq in sequences" :key="seq.id">
+                                          <option :value="seq.id" x-text="seq.name"></option>
+                                        </template>
+                                      </select>
+                                    </label>
+                                  </template>
                                 </div>
                               </template>
                             </div>
@@ -279,6 +324,7 @@ function composePage(
         </aside>
       </div>
       <script id="ps-compose-data" type="application/json">${raw(json)}</script>
+      <script id="ps-compose-seq" type="application/json">${raw(seqJson)}</script>
       ${composeScript()}`,
   });
 }
@@ -288,7 +334,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const lic = await getInstanceLicense();
-    return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products));
+    return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId)));
   });
 
   r.post("/compose", guard, async (c) => {
@@ -300,7 +346,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     try {
       parsed = composeSchema.parse(JSON.parse(String(form.payload ?? "{}")));
     } catch {
-      return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, "Could not read the form — please try again."), 400);
+      return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Could not read the form — please try again."), 400);
     }
     const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
     // COMPOSE3: publish straight from the composer when requested. Best-effort per post (the cockpit

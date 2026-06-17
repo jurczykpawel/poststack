@@ -8,7 +8,7 @@ import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
 import { proMessage } from "@/lib/license/features";
 import { env } from "@/lib/env";
 import { z } from "zod";
-import { createRuleSchema } from "../route";
+import { createRuleSchema, invalidSequenceResponse } from "../route";
 
 export const runtime = "nodejs";
 
@@ -73,7 +73,7 @@ const patchSchema = z.object({
     .enum(["keyword", "comment_keyword", "postback", "welcome", "default", "story_reply", "story_mention", "reaction"])
     .optional(),
   trigger_config: z.record(z.string(), z.unknown()).optional(),
-  response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate"]).optional(),
+  response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate", "sequence"]).optional(),
   response_config: z.record(z.string(), z.unknown()).optional(),
   cooldown_seconds: z.number().int().min(0).max(31_536_000).optional(), // 1y cap — see create
   max_sends_per_contact: z.number().int().min(1).max(1_000_000).nullable().optional(),
@@ -226,6 +226,15 @@ export async function PATCH(
   if (missingFeature) {
     return ApiErrors.proRequired(missingFeature, env.LICENSE_UPGRADE_URL, proMessage(missingFeature));
   }
+
+  // SEQTRIGGER1: the EFFECTIVE rule (after the patch) must, if it's a sequence rule, target an
+  // active sequence in this workspace — same invariant the create path enforces.
+  const badSequence = await invalidSequenceResponse(
+    auth.workspaceId,
+    merged.response_type as string,
+    merged.response_config as Record<string, unknown>,
+  );
+  if (badSequence) return badSequence;
 
   const [updated] = await db
     .update(autoReplyRules)

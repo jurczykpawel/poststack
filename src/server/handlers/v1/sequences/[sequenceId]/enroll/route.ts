@@ -3,7 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { db, isUniqueViolation } from "@/lib/db";
 import { sequences, sequenceEnrollments, contacts, channels, contactChannels } from "@/db/schema";
 import { created, ApiErrors } from "@/lib/api/response";
-import { addJobTx } from "@/lib/queue/client";
+import { enrollContactInSequence } from "@/lib/sequences/enroll";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -73,43 +73,23 @@ export async function POST(
     return ApiErrors.conflict("Contact has already been enrolled in this sequence");
   }
 
-  const steps = (sequence.steps ?? []) as Array<{ type: string; delay_minutes?: number }>;
-  const firstStep = steps[0];
-  const delay = firstStep?.type === "delay" ? (firstStep.delay_minutes ?? 0) * 60 * 1000 : 0;
-
-  // Create the enrollment and schedule its first step in ONE transaction (a transactional
-  // outbox), so a failed enqueue can't leave an active enrollment with no first step queued —
-  // which a retry could never recover, because the unique (sequence, contact) constraint would
-  // reject re-enrolling. The enrollment pins an immutable snapshot of the steps so a
-  // later edit of the sequence definition can't change what this enrollment delivers.
-  let enrollment;
+  // Create the enrollment and schedule its first step in ONE transaction (a transactional outbox),
+  // via the shared helper — the same enroll logic the rule engine uses for trigger-driven enrollment
+  // (SEQTRIGGER1). The helper's `onConflictDoNothing` makes a lost race to the unique (sequence,
+  // contact) index return `{enrolled:false}` instead of a 500; surface that as the same clean 409.
+  let result;
   try {
-    enrollment = await db.transaction(async (tx) => {
-      const [row] = await tx
-        .insert(sequenceEnrollments)
-        .values({
-          sequence_id: sequenceId,
-          contact_id: parsed.data.contact_id,
-          channel_id: parsed.data.channel_id,
-          current_step_index: 0,
-          steps_snapshot: sequence.steps,
-          next_step_at: new Date(Date.now() + delay),
-        })
-        .returning();
-      await addJobTx(
-        tx,
-        "sequence-step",
-        { enrollmentId: row.id },
-        { jobKey: `seq-step:${row.id}:0`, runAt: new Date(Date.now() + delay) },
-      );
-      return row;
-    });
+    result = await db.transaction((tx) =>
+      enrollContactInSequence(tx, { sequence, contactId: parsed.data.contact_id, channelId: parsed.data.channel_id }),
+    );
   } catch (err) {
-    // A concurrent enroll for the same (sequence, contact) lost the race to the unique index —
-    // surface it as the same clean 409, not a 500.
     if (isUniqueViolation(err)) return ApiErrors.conflict("Contact has already been enrolled in this sequence");
     throw err;
   }
+  if (!result.enrolled) return ApiErrors.conflict("Contact has already been enrolled in this sequence");
 
+  const enrollment = await db.query.sequenceEnrollments.findFirst({
+    where: eq(sequenceEnrollments.id, result.enrollmentId!),
+  });
   return created(enrollment);
 }

@@ -55,15 +55,13 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
   });
 
   // the AutoReplyRule schema is the create/patch REQUEST contract (and the read response).
-  // It must mirror the writable zod enum: `sequence` is rejected on create/patch and no code path
-  // ever writes it, so advertising it made the docs promise a value that always 400s. (The prior
-  // "reads may return sequence" case is purely theoretical — only a manual out-of-band insert could
-  // produce such a row.)
-  it("AutoReplyRule.response_type enum mirrors the writable zod enum (no unwritable `sequence`)", () => {
+  // It must mirror the writable zod enum on create/patch. SEQTRIGGER1 shipped trigger-driven
+  // enrollment, so `sequence` is now a writable response_type (it requires response_config.sequence_id)
+  // and the spec advertises it alongside the others.
+  it("AutoReplyRule.response_type enum mirrors the writable zod enum (incl. `sequence`)", () => {
     const rule = (openApiSpec.components.schemas as unknown as Record<string, { properties: { response_type: { enum: string[] } } }>).AutoReplyRule;
-    expect(rule.properties.response_type.enum).not.toContain("sequence");
     expect(rule.properties.response_type.enum).toEqual(
-      expect.arrayContaining(["text", "random_text", "none", "ai_rephrase", "follow_gate"]),
+      expect.arrayContaining(["text", "random_text", "none", "ai_rephrase", "follow_gate", "sequence"]),
     );
   });
 });

@@ -1,7 +1,7 @@
 import { and, eq, asc, desc, count } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { autoReplyRules, channels } from "@/db/schema";
+import { autoReplyRules, channels, sequences } from "@/db/schema";
 import { ok, created, ApiErrors } from "@/lib/api/response";
 import { MAX_ACTIVE_RULES } from "@/lib/rules/executor";
 import { firstUnlicensedRuleFeature } from "@/lib/rules/feature-gate";
@@ -84,6 +84,7 @@ const responseConfigSchema = z
     buttons: z.array(buttonSchema).min(1).max(3).optional(),
     followed: gatedMessageSchema.optional(),      // follow_gate: sent when the user follows
     not_followed: gatedMessageSchema.optional(),  // follow_gate: sent when they do not (re-prompt)
+    sequence_id: z.string().uuid().optional(),    // sequence: the drip the trigger enrolls the contact into
   })
   .strict();
 
@@ -103,9 +104,9 @@ export const createRuleSchema = z
       "reaction",
     ]),
     trigger_config: triggerConfigSchema,
-    // `sequence` is rejected here until rule-driven enrollment is actually implemented —
-    // accepting it created a no-op rule that still consumed limits and blocked others.
-    response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate"]),
+    // `sequence` enrolls the matched contact into a drip (SEQTRIGGER1); it requires
+    // `response_config.sequence_id` (validated below) to point at an active sequence in the workspace.
+    response_type: z.enum(["text", "random_text", "ai_rephrase", "none", "follow_gate", "sequence"]),
     response_config: responseConfigSchema,
     // Bounded at a sane 1-year ceiling, well under Postgres's timestamp range: an extreme value
     // pushes the cooldown's `now() + N seconds` past Postgres's max timestamp → "timestamp out of
@@ -139,6 +140,9 @@ export const createRuleSchema = z
     }
     if (data.response_type === "random_text" && (r.messages?.length ?? 0) === 0) {
       ctx.addIssue({ code: "custom", path: ["response_config", "messages"], message: "random_text requires messages" });
+    }
+    if (data.response_type === "sequence" && !r.sequence_id) {
+      ctx.addIssue({ code: "custom", path: ["response_config", "sequence_id"], message: "sequence response requires sequence_id" });
     }
     if (data.response_type === "follow_gate") {
       if (!r.followed || !r.not_followed) {
@@ -175,6 +179,33 @@ export const createRuleSchema = z
       }
     }
   });
+
+/**
+ * SEQTRIGGER1: validate that a `sequence`-response rule points at a sequence that exists in this
+ * workspace and is ACTIVE (a draft/archived/missing sequence would silently never enroll). Returns
+ * a 422 Response on failure, or null when the rule isn't a sequence rule / the sequence is valid.
+ * Shared by the create (POST) and update (PATCH) paths so both enforce the same invariant.
+ */
+export async function invalidSequenceResponse(
+  workspaceId: string,
+  responseType: string,
+  responseConfig: Record<string, unknown>,
+): Promise<Response | null> {
+  if (responseType !== "sequence") return null;
+  const sequenceId = responseConfig.sequence_id;
+  if (typeof sequenceId !== "string") {
+    return ApiErrors.validationError({ "response_config.sequence_id": ["sequence response requires sequence_id"] });
+  }
+  const seq = await db.query.sequences.findFirst({
+    where: and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, workspaceId)),
+    columns: { id: true, status: true },
+  });
+  if (!seq) return ApiErrors.validationError({ "response_config.sequence_id": ["Sequence not found in this workspace"] });
+  if (seq.status !== "active") {
+    return ApiErrors.validationError({ "response_config.sequence_id": ["Sequence must be active to enroll contacts — activate it first"] });
+  }
+  return null;
+}
 
 // GET /api/v1/rules
 export async function GET(request: Request) {
@@ -224,6 +255,10 @@ export async function POST(request: Request) {
     });
     if (!channel) return ApiErrors.notFound("Channel");
   }
+
+  // SEQTRIGGER1: a sequence-response rule must target an active sequence in this workspace.
+  const badSequence = await invalidSequenceResponse(auth.workspaceId, parsed.data.response_type, parsed.data.response_config);
+  if (badSequence) return badSequence;
 
   // Gate PRO features a rule would use (personalization, AI rephrase, follow-gate, interactive)
   // at authoring time on an unlicensed instance.

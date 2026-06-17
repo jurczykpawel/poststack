@@ -8,6 +8,7 @@ import type {
   SubAccount,
 } from "./types";
 import { PermanentError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
+import { GRAPH_API_BASE } from "@/lib/platforms/constants";
 import { safeFetch } from "@/lib/media/ssrf";
 import { assertAllowedHost } from "./follow";
 import { readProviderCover } from "./download";
@@ -44,7 +45,10 @@ function classifyMetaError(
   return new PermanentError(`Meta publish failed (${status}): ${error?.message ?? "unknown"}`);
 }
 
-const GRAPH = "https://graph.facebook.com/v21.0";
+// Single source of truth for the Graph API version (constants.ts). The publishing layer MUST stay in
+// lockstep with the inbound/messaging layer — a divergent hardcoded version is exactly the drift the
+// version-bump probe (VPROBE1) exists to catch.
+const GRAPH = GRAPH_API_BASE;
 
 const CAPABILITIES: FormatCapability[] = [
   {

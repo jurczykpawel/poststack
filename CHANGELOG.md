@@ -9,6 +9,27 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.24] - 2026-06-17
+
+### Fixed
+
+- **Publishing now uses the same Graph API version as messaging.** The publishing layer (`providers/meta.ts` — post/reel/photo/video/story publish, media containers, token introspection) had a **hardcoded `v21.0`** while the inbound/messaging layer was on `v25.0`, so bumping `META_API_VERSION` silently left publishing two years behind. The publishing layer now derives its version from the single source of truth (`GRAPH_API_BASE`), and a guard test fails the build if any Meta module reintroduces a hardcoded version literal.
+
+### Added
+
+- **Meta Graph API version-bump verification.** `META_API_VERSION` lives in one place (`src/lib/platforms/constants.ts`). Two new tools de-risk bumping it:
+  - A **single-source-of-truth guard test** — fails if any platform/provider module hardcodes a `graph.facebook.com/vNN.N` literal instead of `GRAPH_API_BASE`.
+  - A **live version-probe** (`scripts/meta-version-probe.ts`, `npm run probe:meta`) — hits the real Graph API on a target version with real tokens and reports a deterministic PASS/FAIL per endpoint/field our parsers depend on (debug_token, `/me`, page node, `subscribed_apps`, feed, IG identity + follow check, and an opt-in publish→first-comment→DM→delete write cycle). Env-gated (skips cleanly without creds), exit code reflects failures — run it before bumping to see exactly what changed.
+
+## [0.4.23] - 2026-06-17
+
+### Added
+
+- **Rules can enroll a contact into a drip sequence.** A rule's response type can now be **"Enroll in a drip sequence"** (`response_type: "sequence"` + `response_config.sequence_id`): when the trigger (DM/comment keyword, postback, welcome, reaction, …) fires, the matched contact is enrolled into the chosen sequence and its first step is scheduled. Enrollment is once-per-contact (idempotent), respects the rule's cooldown/cap, and is gated to the `sequences` PRO feature. Previously a `sequence` rule was a no-op placeholder the API rejected.
+  - **Rules UI**: the response picker offers the sequence option (with a sequence selector) on create *and* edit; the rule list shows `🧵 enroll → <sequence>`.
+  - **Compose**: a comment auto-reply can choose **"Enroll in a drip sequence"** instead of sending a DM — the publish loop-back provisions a `sequence` rule scoped to the published media.
+  - **API**: `POST`/`PATCH /api/v1/rules` accept `sequence` and validate that `sequence_id` points at an *active* sequence in the workspace (422 otherwise). The enroll endpoint and the rule engine now share one transactional-outbox enrollment helper.
+
 ## [0.4.22] - 2026-06-17
 
 ### Fixed

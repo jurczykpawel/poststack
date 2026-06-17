@@ -1,6 +1,6 @@
 {
   "name": "poststack",
-  "version": "0.4.22",
+  "version": "0.4.24",
   "private": false,
   "license": "AGPL-3.0",
   "description": "Self-hosted, open-source social media inbox automation. Alternative to ManyChat.",
@@ -21,6 +21,8 @@
     "db:migrate:deploy": "bun scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
+    "probe:meta": "bun scripts/meta-version-probe.ts",
+    "probe:meta:webhook": "bun scripts/meta-webhook-e2e.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",

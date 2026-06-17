@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { autoReplyRules, pendingApprovals, contacts } from "@/db/schema";
+import { autoReplyRules, pendingApprovals, contacts, sequences } from "@/db/schema";
 import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEvent, isEventTerminal, type EventOutcomeLinks } from "@/lib/idempotency";
@@ -26,6 +26,7 @@ function platformSupportsDM(platform: string): boolean {
 }
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { hasFeature } from "@/lib/license/gate";
+import { enrollContactInSequence } from "@/lib/sequences/enroll";
 import { applyPersonalization, type PersonalizeContext } from "./personalization";
 
 /** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
@@ -235,11 +236,6 @@ export async function evaluateRules(
     }
     if (!matched) continue;
 
-    // `sequence` has no implemented effect yet, so it must not consume the event/limits or
-    // block a lower-priority rule that could actually answer — fall through. The
-    // write API also rejects creating new `sequence` rules.
-    if (rule.response_type === "sequence") continue;
-
     // Eligibility precheck (non-mutating): skip planning the reply for a rule that is
     // cooling down or at its cap, so it neither calls the AI nor blocks fallthrough to a
     // lower-priority rule that should answer. The transactional acquire below stays the
@@ -251,9 +247,19 @@ export async function evaluateRules(
     // any durable state. A failure here spends no cooldown/send-count and writes no
     // claim, so the event simply retries.
     const keyBase = eventKey ? `${eventKey}:${rule.id}` : null;
-    const commit: CommitFn = rule.requires_approval
-      ? await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize })
-      : await planResponse({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
+    let commit: CommitFn;
+    if (rule.response_type === "sequence") {
+      // SEQTRIGGER1: a `sequence` rule enrolls the contact into a drip on match. If the configured
+      // sequence is missing/inactive (or the instance isn't licensed for sequences), we plan nothing
+      // and fall through — the event isn't consumed and a lower-priority rule can still answer.
+      const planned = await planSequenceEnrollment({ rule: candidate, workspaceId, channelId, contactId });
+      if (!planned) continue;
+      commit = planned;
+    } else if (rule.requires_approval) {
+      commit = await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize });
+    } else {
+      commit = await planResponse({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
+    }
 
     // Commit the rule's side effects as one unit: the event claim, the cooldown and
     // send-count mutations, and the outbound enqueue (or the parked approval) all
@@ -336,6 +342,40 @@ async function planApproval(input: {
       recipient_platform_id: recipientPlatformId,
       proposed_content: JSON.parse(JSON.stringify({ content })),
     });
+  };
+}
+
+/**
+ * SEQTRIGGER1: plan a drip-sequence enrollment for a `sequence`-response rule. Resolves and validates
+ * the target sequence BEFORE the fire transaction (so a missing/inactive sequence spends no limits),
+ * returning a CommitFn that enrolls the contact inside the transaction, or null to fall through.
+ *
+ * Returns null (don't consume the event) when:
+ *  - the instance isn't licensed for `sequences` (a lapsed PRO rule degrades safely, like other
+ *    PRO responses), or
+ *  - `response_config.sequence_id` is absent/not a string, or
+ *  - no ACTIVE sequence with that id exists in the workspace (deleted/archived/cross-workspace).
+ *
+ * The enroll itself is idempotent (unique (sequence, contact) → onConflictDoNothing), so a contact
+ * already in the sequence is a no-op even though the rule still "fires" (claims the event / spends
+ * its cooldown), which is the intended once-per-contact drip behaviour.
+ */
+async function planSequenceEnrollment(input: {
+  rule: { id: string; response_config: Record<string, unknown> };
+  workspaceId: string;
+  channelId: string;
+  contactId: string;
+}): Promise<CommitFn | null> {
+  if (!(await hasFeature("sequences"))) return null;
+  const sequenceId = input.rule.response_config.sequence_id;
+  if (typeof sequenceId !== "string" || !sequenceId) return null;
+  const sequence = await db.query.sequences.findFirst({
+    where: and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, input.workspaceId), eq(sequences.status, "active")),
+    columns: { id: true, steps: true },
+  });
+  if (!sequence) return null;
+  return async (tx) => {
+    await enrollContactInSequence(tx, { sequence, contactId: input.contactId, channelId: input.channelId });
   };
 }
 

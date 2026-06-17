@@ -131,7 +131,7 @@ describe("editorial posts service (workspace-scoped)", () => {
   it("UNIFY P2.2: accepts + persists an auto_reply config on a post (camelCase round-trip)", async () => {
     if (!TEST_DB) return;
     const p = await svc.createPost(
-      { platform: "instagram", description: "reel", autoReply: { keywords: [{ value: "link", matchType: "contains" }], dmText: "DM!", replyMode: "dm" } },
+      { platform: "instagram", description: "reel", autoReply: { keywords: [{ value: "link", matchType: "contains" }], responseType: "text", dmText: "DM!", replyMode: "dm" } },
       WS,
     );
     const got = await svc.getPost(p.id, WS);
