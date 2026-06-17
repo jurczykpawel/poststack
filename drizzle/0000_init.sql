@@ -738,4 +738,29 @@ CREATE INDEX "webhook_events_event_type_idx" ON "webhook_events" USING btree ("e
 CREATE INDEX "webhook_events_platform_message_id_idx" ON "webhook_events" USING btree ("platform_message_id");--> statement-breakpoint
 CREATE INDEX "webhook_events_handling_status_idx" ON "webhook_events" USING btree ("handling_status");--> statement-breakpoint
 CREATE INDEX "workspace_members_user_id_idx" ON "workspace_members" USING btree ("user_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "workspaces_slug_key" ON "workspaces" USING btree ("slug");
+CREATE UNIQUE INDEX "workspaces_slug_key" ON "workspaces" USING btree ("slug");--> statement-breakpoint
+CREATE TABLE "post_reaction_stats" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"post_id" text NOT NULL,
+	"reaction_type" text NOT NULL,
+	"count" integer NOT NULL,
+	"last_reacted_at" timestamp (3) NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "webhook_event_stats" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"day" date NOT NULL,
+	"platform" "platform",
+	"event_type" text NOT NULL,
+	"handling_status" "webhook_event_handling_status" NOT NULL,
+	"count" integer NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "post_reaction_stats" ADD CONSTRAINT "post_reaction_stats_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "post_reaction_stats" ADD CONSTRAINT "post_reaction_stats_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "webhook_event_stats" ADD CONSTRAINT "webhook_event_stats_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+CREATE UNIQUE INDEX "post_reaction_stats_key" ON "post_reaction_stats" USING btree ("channel_id","post_id","reaction_type");--> statement-breakpoint
+CREATE UNIQUE INDEX "webhook_event_stats_key" ON "webhook_event_stats" USING btree ("channel_id","day","event_type","handling_status");

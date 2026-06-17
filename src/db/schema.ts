@@ -1,4 +1,4 @@
-import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check } from "drizzle-orm/pg-core"
+import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check, date } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
@@ -499,6 +499,47 @@ export const postReactions = pgTable("post_reactions", {
 			foreignColumns: [channels.id],
 			name: "post_reactions_channel_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// ── RETAIN1: compaction aggregates ────────────────────────────────────────────────────────────
+// webhook_events older than the retention window are folded into per-(channel, day, type, status)
+// counts here, then the raw rows are deleted. The all-time webhook stat tiles read live ∪ this.
+export const webhookEventStats = pgTable("webhook_event_stats", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	channel_id: uuid("channel_id").notNull(),
+	day: date("day", { mode: "string" }).notNull(),
+	// Functionally dependent on channel_id (a channel never changes platform) → deliberately NOT in
+	// the unique key, so it can't cause cross-platform bucket collisions. Nullable to mirror the
+	// source webhook_events.platform (a .notNull() here would reject an old row whose platform was null).
+	platform: platform("platform"),
+	event_type: text("event_type").notNull(),
+	handling_status: webhookEventHandlingStatus("handling_status").notNull(),
+	count: integer("count").notNull(),
+}, (table) => [
+	uniqueIndex("webhook_event_stats_key").using("btree",
+		table.channel_id.asc().nullsLast(), table.day.asc().nullsLast(),
+		table.event_type.asc().nullsLast(), table.handling_status.asc().nullsLast()),
+	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "webhook_event_stats_channel_id_fkey" })
+		.onUpdate("cascade").onDelete("cascade"),
+]);
+
+// post_reactions older than the window are folded into per-(channel, post, type) totals here.
+// /engagement reads live ∪ this. Reactor identity (PII) is dropped on compaction.
+export const postReactionStats = pgTable("post_reaction_stats", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	post_id: text("post_id").notNull(),
+	reaction_type: text("reaction_type").notNull(),
+	count: integer("count").notNull(),
+	last_reacted_at: timestamp("last_reacted_at", { precision: 3, mode: "date" }).notNull(),
+}, (table) => [
+	uniqueIndex("post_reaction_stats_key").using("btree",
+		table.channel_id.asc().nullsLast(), table.post_id.asc().nullsLast(), table.reaction_type.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "post_reaction_stats_workspace_id_fkey" })
+		.onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "post_reaction_stats_channel_id_fkey" })
+		.onUpdate("cascade").onDelete("cascade"),
 ]);
 
 export const flowSessions = pgTable("flow_sessions", {
