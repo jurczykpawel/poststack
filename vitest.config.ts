@@ -9,7 +9,7 @@ export default defineConfig({
     // keep them out of the default unit run so `npm test` stays infra-free. The e2e/ dir is the
     // Playwright browser suite (`npm run test:e2e`) — its *.spec.ts use Playwright's runner, not
     // vitest, so exclude it (vitest's default include matches *.spec.ts too).
-    exclude: [...configDefaults.exclude, "**/*.integration.test.ts", "e2e/**"],
+    exclude: [...configDefaults.exclude, "**/*.integration.test.ts", "e2e/**", ".claude/**"],
     coverage: {
       reporter: ["text", "lcov"],
     },

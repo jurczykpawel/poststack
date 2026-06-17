@@ -100,6 +100,8 @@ export function renderPage(o: PageOpts): Html {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- UXPOLISH1: animate htmx swaps with the View Transitions API (no-op where unsupported). -->
+    <meta name="htmx-config" content='{"globalViewTransitions":true}' />
     <title>${o.title}</title>
     ${themeBootScript()}
     <link rel="stylesheet" href="${assetUrl("tokens.css")}" />

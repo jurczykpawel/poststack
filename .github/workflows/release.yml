@@ -135,7 +135,7 @@ jobs:
               docker compose pull && \
               docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
               docker compose up -d --no-deps --wait --wait-timeout 180 web worker && \
-              docker image prune -f'
+              docker image prune -af && docker builder prune -af'
       - name: Health gate (test)
         run: |
           for i in $(seq 1 30); do
@@ -165,7 +165,7 @@ jobs:
               docker compose pull && \
               docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
               docker compose up -d --no-deps --wait --wait-timeout 180 web worker && \
-              docker image prune -f'
+              docker image prune -af && docker builder prune -af'
       - name: Health gate (prod)
         run: |
           for i in $(seq 1 30); do
