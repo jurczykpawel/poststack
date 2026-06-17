@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { createChallenge } from "altcha-lib";
 import { db } from "@/lib/db";
 import { openApiSpec } from "@/lib/api/openapi";
+import { getConfig } from "@/lib/settings/config";
 import { t } from "@/lib/i18n";
 import { serveAsset } from "../ui/assets";
 
@@ -46,7 +47,7 @@ publicRoutes.get("/api/docs", (c) =>
 publicRoutes.get("/api/v1", (c) => c.json(openApiSpec));
 
 publicRoutes.get("/api/captcha/challenge", async (c) => {
-  const hmacKey = process.env.ALTCHA_HMAC_KEY;
+  const hmacKey = await getConfig("ALTCHA_HMAC_KEY");
   if (!hmacKey) {
     return c.json({ error: "Captcha not configured" }, 503);
   }

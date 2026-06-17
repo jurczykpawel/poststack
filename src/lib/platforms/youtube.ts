@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { getConfig } from "@/lib/settings/config";
 import {
   SocialProvider,
   type TokenData,
@@ -18,7 +18,7 @@ export class YouTubeProvider extends SocialProvider {
   readonly platform = "youtube" as const;
   readonly displayName = "YouTube";
 
-  generateAuthUrl(): string {
+  async generateAuthUrl(): Promise<string> {
     // Google OAuth is handled by the dedicated connect flow, not the generic provider URL builder.
     throw new Error("YouTube uses the Google OAuth connect flow");
   }
@@ -32,8 +32,8 @@ export class YouTubeProvider extends SocialProvider {
     if (!refreshToken) throw new Error("No refresh token stored for this YouTube channel");
     const { accessToken, expiresAt } = await refreshGoogleAccessToken({
       refreshToken,
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      clientId: await getConfig("GOOGLE_CLIENT_ID"),
+      clientSecret: await getConfig("GOOGLE_CLIENT_SECRET"),
     });
     return { ...tokens, access_token: accessToken, expires_at: expiresAt };
   }

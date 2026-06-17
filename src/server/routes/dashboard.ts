@@ -1008,7 +1008,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
             ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
             <h3 style="margin:1rem 0 .25rem">Your credentials</h3>
-            <p class="muted" style="margin-bottom:.75rem">Paste these <strong>from</strong> your Meta app here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>.</p>
+            <p class="muted" style="margin-bottom:.75rem">Paste your integration credentials here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>. Grouped by integration below.</p>
             ${renderCredentials(await configStatus())}
           </section>
           ${license.products.has("publishing") ? renderProvidersStatus() : ""}
@@ -1928,9 +1928,11 @@ function renderCredentials(status: ConfigStatus[], msg?: string): Html {
     s === "db" ? html`<span class="badge" style="background:var(--ok-bg);color:var(--ok-text)">set here</span>`
     : s === "env" ? html`<span class="badge" style="background:var(--info-bg)">from env</span>`
     : html`<span class="badge muted">not set</span>`;
-  return html`<div id="credentials">
-    ${msg ? html`<div class="notice notice-ok" style="margin-bottom:.5rem">${msg}</div>` : html``}
-    <div class="list">${status.map((f) => html`<div class="list-row">
+  // Group rows by their integration group (preserving first-seen order) so e.g. Google / AI /
+  // Integrations / Security each get their own subheading and don't read as part of Meta.
+  const groups: string[] = [];
+  for (const f of status) if (!groups.includes(f.group)) groups.push(f.group);
+  const row = (f: ConfigStatus) => html`<div class="list-row">
       <div class="grow">
         <div style="font-weight:600">${f.label} ${badge(f.source)}</div>
         <div class="muted" style="font-size:.72rem"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
@@ -1948,7 +1950,11 @@ function renderCredentials(status: ConfigStatus[], msg?: string): Html {
             <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
           </form>`
         : html``}
-    </div>`)}</div>
+    </div>`;
+  return html`<div id="credentials">
+    ${msg ? html`<div class="notice notice-ok" style="margin-bottom:.5rem">${msg}</div>` : html``}
+    ${groups.map((g) => html`<h4 style="margin:.75rem 0 .25rem">${g}</h4>
+      <div class="list">${status.filter((f) => f.group === g).map(row)}</div>`)}
   </div>`;
 }
 

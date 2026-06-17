@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import type { Hono } from "hono";
+
+// CONFIG1: the login/register pages read ALTCHA_HMAC_KEY via getConfig (captchaWidget). Pure-unit
+// test (no DB) → mock getConfig to read process.env so the captcha-skip path stays DB-free.
+vi.mock("@/lib/settings/config", () => ({
+  getConfig: async (key: string) => process.env[key] ?? "",
+}));
 
 let app: Hono;
 
