@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.25] - 2026-06-17
+
+### Fixed
+
+- **Channel Auto-Story toggle now updates in place — no page reload.** The toggle's form targeted `#ch-detail-head`, but the Auto-Story panel (its button + "Currently on/off" status) lives in a separate section, so toggling left it stale until a manual refresh. The action now also returns the Auto-Story panel as an htmx out-of-band swap, so the label and status flip immediately alongside the toast.
+
 ## [0.4.24] - 2026-06-17
 
 ### Fixed

@@ -458,10 +458,12 @@ function platformSupportsStory(platform: string): boolean {
 /** STORY1: per-channel auto-Story toggle (shown only for platforms that can publish a Story). When on,
  *  every published post also auto-publishes a generated Story card. The per-post override travels on
  *  the publish request, not here. */
-function storyPanel(ch: PublicChannel): Html {
+function storyPanel(ch: PublicChannel, oob = false): Html {
   if (!platformSupportsStory(ch.platform)) return html``;
   const on = ch.default_auto_story;
-  return html`<section class="panel">
+  // The toggle lives in THIS panel (not in #ch-detail-head), so the action's response re-renders it
+  // out-of-band (hx-swap-oob) — the button label + status flip in place, no page reload.
+  return html`<section class="panel" id="story-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
     <div class="panel-head"><h3>Auto-Story</h3></div>
     <div class="panel-body">
       <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
@@ -617,7 +619,13 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
   r.get("/channels/:id", guard, channelDetailPage);
 
   // Operational actions: perform via the service, then respond (303 no-JS / detail-head swap + toast for HTMX).
-  function action(run: (ws: string, id: string, c: Context) => Promise<unknown>, toast: (ch: PublicChannel) => string) {
+  // `oob` lets a route whose control lives OUTSIDE #ch-detail-head (e.g. the Auto-Story panel) return
+  // an extra out-of-band fragment so that panel refreshes in place too — no full page reload.
+  function action(
+    run: (ws: string, id: string, c: Context) => Promise<unknown>,
+    toast: (ch: PublicChannel) => string,
+    oob?: (ch: PublicChannel) => Html,
+  ) {
     return async (c: Context) => {
       const a = await auth(c);
       if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -634,7 +642,7 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
       if (!ch) return c.text("not found", 404);
       const tone: ToastTone = ch.status === "active" ? "ok" : ch.status === "needs_reauth" ? "warn" : "info";
       toastHeader(c, tone, toast(ch));
-      return c.html(detailHead(ch));
+      return c.html(html`${detailHead(ch)}${oob ? oob(ch) : ""}`);
     };
   }
 
@@ -655,7 +663,8 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
   r.post("/channels/:id/auto-story", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");
-  }, (ch) => ch.default_auto_story ? "Auto-Story turned on" : "Auto-Story turned off"));
+  }, (ch) => ch.default_auto_story ? "Auto-Story turned on" : "Auto-Story turned off",
+    (ch) => storyPanel(ch, true)));
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));
   r.post("/channels/:id/unhide", guard, action((ws, id) => setChannelHidden(ws, id, false), () => "Channel unhidden"));
   r.post("/channels/:id/reconnect", guard, action(async (ws, id, c) => {
