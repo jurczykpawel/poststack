@@ -8,6 +8,15 @@ FROM base AS deps
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
+# LANDING1: build the Astro marketing site (served by the app at `/`). Isolated stage so its
+# dev-deps (astro, tailwind) never reach the runtime image — only the static dist is copied over.
+FROM node:22-alpine AS landing
+WORKDIR /landing
+COPY landing/package.json landing/package-lock.json* ./
+RUN npm ci
+COPY landing/ ./
+RUN npm run build
+
 # Production runner — Bun runs the TypeScript entrypoint directly (no build step).
 FROM base AS runner
 ENV NODE_ENV=production
@@ -24,6 +33,8 @@ COPY --chown=app:nodejs src ./src
 # Drizzle migrations + runner applied at startup by entrypoint.sh.
 COPY --chown=app:nodejs drizzle ./drizzle
 COPY --chown=app:nodejs scripts ./scripts
+# Built marketing site, served at `/` by src/server/routes/landing.ts (CWD=/app → landing/dist).
+COPY --from=landing --chown=app:nodejs /landing/dist ./landing/dist
 COPY --chown=app:nodejs entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 

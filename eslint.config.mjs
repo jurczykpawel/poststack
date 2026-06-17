@@ -2,7 +2,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default [
-  { ignores: ["node_modules/**", "dist/**", "coverage/**", ".next/**", "src/server/ui/static/vendor/**", ".claude/**"] },
+  { ignores: ["node_modules/**", "dist/**", "coverage/**", ".next/**", "src/server/ui/static/vendor/**", ".claude/**", "landing/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
