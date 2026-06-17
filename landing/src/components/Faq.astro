@@ -1,0 +1,39 @@
+---
+import { faq } from "../content/landing";
+---
+
+<section id="faq" class="py-[var(--spacing-section)]">
+  <div class="shell grid gap-12 lg:grid-cols-[0.8fr_1.2fr]">
+    <div data-reveal>
+      <span class="eyebrow">FAQ</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        Questions, <span class="grad">answered</span>
+      </h2>
+      <p class="mt-4 text-ink-2">
+        Still unsure? Open the source on
+        <a href="https://github.com/jurczykpawel/poststack" rel="noopener" class="text-blue underline-offset-4 hover:underline">GitHub</a>
+        or read the docs.
+      </p>
+    </div>
+
+    <div class="divide-y divide-border-subtle border-y border-border-subtle" data-reveal-group>
+      {
+        faq.map((item) => (
+          <details class="group" data-reveal>
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-left text-[1.02rem] font-medium text-ink transition-colors hover:text-blue">
+              {item.question}
+              <span class="grid size-7 shrink-0 place-items-center rounded-full border border-border-subtle text-ink-3 transition-transform duration-300 group-open:rotate-45 group-open:border-blue/40 group-open:text-blue">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                </svg>
+              </span>
+            </summary>
+            <p class="-mt-1 max-w-[44rem] pb-5 text-[0.95rem] leading-relaxed text-ink-2">
+              {item.answer}
+            </p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>

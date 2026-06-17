@@ -1,0 +1,125 @@
+---
+import { publishMorph } from "../content/landing";
+import { platformIcons } from "../lib/platform-icons";
+const { eyebrow, title, body, postText, channels } = publishMorph;
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="mx-auto max-w-[44rem] text-center" data-reveal>
+      <span class="eyebrow justify-center">{eyebrow}</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">{title}</h2>
+      <p class="mx-auto mt-4 max-w-[38rem] text-lg text-ink-2">{body}</p>
+    </div>
+
+    <div class="pub-stage mx-auto mt-12 max-w-[40rem]" data-inview-play data-reveal style="--reveal-delay:120ms">
+      <!-- compose card -->
+      <div class="mx-auto max-w-[22rem] rounded-2xl border border-border-medium bg-elevated p-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="grid size-7 place-items-center rounded-full bg-gradient-to-br from-blue to-purple text-xs font-semibold text-[#0a0a12]">B</span>
+            <span class="text-sm font-medium text-ink">Your post</span>
+          </div>
+          <span class="font-[var(--font-mono)] text-[0.6rem] text-ink-3">draft</span>
+        </div>
+        <p class="mt-3 text-sm text-ink-2">{postText}</p>
+        <div class="mt-3 aspect-[16/9] w-full rounded-lg bg-gradient-to-br from-blue/25 via-purple/20 to-base"></div>
+      </div>
+
+      <!-- fan-out connectors (desktop) -->
+      <svg class="pub-flow mt-1 hidden h-14 w-full sm:block" viewBox="0 0 400 56" fill="none" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="pub-grad" x1="0" y1="0" x2="0" y2="56" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#7aa2f7"></stop>
+            <stop offset="1" stop-color="#bb9af7"></stop>
+          </linearGradient>
+        </defs>
+        <g stroke="url(#pub-grad)" stroke-width="1.5" opacity="0.25">
+          <path d="M200 2 C200 30 50 26 50 54"></path>
+          <path d="M200 2 C200 30 150 26 150 54"></path>
+          <path d="M200 2 C200 30 250 26 250 54"></path>
+          <path d="M200 2 C200 30 350 26 350 54"></path>
+        </g>
+        <g stroke="url(#pub-grad)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 8">
+          <path d="M200 2 C200 30 50 26 50 54"></path>
+          <path d="M200 2 C200 30 150 26 150 54"></path>
+          <path d="M200 2 C200 30 250 26 250 54"></path>
+          <path d="M200 2 C200 30 350 26 350 54"></path>
+        </g>
+      </svg>
+
+      <!-- channel targets -->
+      <div class="mt-4 grid grid-cols-2 gap-3 sm:mt-0 sm:grid-cols-4">
+        {
+          channels.map((name, i) => (
+            <div class="pub-channel rounded-xl border border-border-subtle bg-elevated p-3.5 text-center" style={`--d:${i * 0.45}s`}>
+              <span class="mx-auto grid size-9 place-items-center rounded-lg border border-border-subtle bg-floating text-ink-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d={platformIcons[name]} />
+                </svg>
+              </span>
+              <p class="mt-2 text-xs font-medium text-ink">{name}</p>
+              <div class="pub-status relative mx-auto mt-2 h-[1.4rem]">
+                <span class="pub-q absolute inset-0 inline-flex items-center justify-center gap-1.5 text-[0.65rem] text-ink-3">
+                  <span class="size-1.5 rounded-full bg-warn"></span>
+                  Queued
+                </span>
+                <span class="pub-s absolute inset-0 inline-flex items-center justify-center gap-1 text-[0.65rem] font-medium text-ok">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3.5 8.5l3 3 6-7" stroke="#9ece6a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  Scheduled
+                </span>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* default + paused: show "Queued"; "Scheduled" hidden until the loop plays */
+  .pub-s {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  .pub-stage.is-playing .pub-q {
+    animation: pub-q 5.5s linear infinite;
+    animation-delay: var(--d, 0s);
+  }
+  .pub-stage.is-playing .pub-s {
+    animation: pub-s 5.5s linear infinite;
+    animation-delay: var(--d, 0s);
+  }
+  .pub-stage.is-playing .pub-flow g:last-child path {
+    animation: pub-dash 2.4s linear infinite;
+  }
+
+  @keyframes pub-q {
+    0%, 14% { opacity: 1; }
+    20%, 86% { opacity: 0; }
+    92%, 100% { opacity: 1; }
+  }
+  @keyframes pub-s {
+    0%, 14% { opacity: 0; transform: scale(0.8); }
+    20% { opacity: 1; transform: scale(1); }
+    86% { opacity: 1; transform: scale(1); }
+    92%, 100% { opacity: 0; transform: scale(0.8); }
+  }
+  @keyframes pub-dash {
+    to { stroke-dashoffset: -10; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* show the resolved end-state: everything scheduled */
+    .pub-q { opacity: 0; }
+    .pub-s { opacity: 1; transform: none; }
+    .pub-stage .pub-flow g:last-child {
+      opacity: 0.5;
+      stroke-dasharray: none;
+    }
+  }
+</style>

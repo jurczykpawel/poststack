@@ -1,0 +1,25 @@
+---
+import { useCases } from "../content/landing";
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="max-w-[44rem]" data-reveal>
+      <span class="eyebrow">Who it's for</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        Built for teams who <span class="grad">outgrew per-contact pricing</span>
+      </h2>
+    </div>
+
+    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-reveal-group>
+      {
+        useCases.map((u) => (
+          <article class="card flex flex-col p-6" data-reveal>
+            <h3 class="text-lg font-semibold text-ink">{u.title}</h3>
+            <p class="mt-3 text-[0.95rem] text-ink-2">{u.body}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

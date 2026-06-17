@@ -1,0 +1,77 @@
+---
+import { pricing } from "../content/landing";
+---
+
+<section id="pricing" class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="mx-auto max-w-[44rem] text-center" data-reveal>
+      <span class="eyebrow justify-center">Pricing</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        Run it free, or <span class="grad">own it for good</span>
+      </h2>
+      <p class="mt-4 text-lg text-ink-2">
+        Self-host the core at no cost. Pick a license when you want the full feature set
+        and support — yearly or one-time.
+      </p>
+    </div>
+
+    <div class="mt-12 grid items-start gap-5 lg:grid-cols-3" data-reveal-group>
+      {
+        pricing.map((p) => (
+          <div
+            class:list={[
+              "relative flex flex-col rounded-[var(--radius-card)] p-7",
+              p.featured
+                ? "border border-blue/40 bg-gradient-to-b from-blue/10 to-transparent lg:-mt-3 lg:pb-9"
+                : "card",
+            ]}
+            data-reveal
+          >
+            {p.badge && (
+              <span class="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-blue to-purple px-3 py-1 text-[0.65rem] font-semibold text-[#0a0a12]">
+                {p.badge}
+              </span>
+            )}
+            {p.featured && (
+              <span class="absolute -top-3 left-6 rounded-full border border-blue/40 bg-base px-3 py-1 text-[0.65rem] font-semibold text-blue">
+                Most popular
+              </span>
+            )}
+
+            <h3 class="text-sm font-[var(--font-mono)] uppercase tracking-widest text-ink-3">
+              {p.name}
+            </h3>
+            <div class="mt-3 flex items-baseline gap-1.5">
+              <span class="font-[var(--font-display)] text-4xl font-bold text-ink">{p.price}</span>
+              {p.period && <span class="text-sm text-ink-3">{p.period}</span>}
+            </div>
+            <p class="mt-2 text-sm text-ink-2">{p.note}</p>
+
+            <ul class="mt-6 flex-1 space-y-3">
+              {p.features.map((f) => (
+                <li class="flex items-start gap-2.5 text-sm text-ink-2">
+                  <svg class="mt-0.5 shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3.5 8.5l3 3 6-7" stroke="#9ece6a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  {f}
+                </li>
+              ))}
+            </ul>
+
+            <a
+              href={p.href}
+              rel="noopener"
+              class:list={["btn mt-7 w-full", p.featured ? "btn-primary" : "btn-ghost"]}
+            >
+              {p.cta}
+            </a>
+          </div>
+        ))
+      }
+    </div>
+
+    <p class="mt-6 text-center text-sm text-ink-3" data-reveal>
+      Paid licenses are issued through Sellf — choose yearly or lifetime at checkout.
+    </p>
+  </div>
+</section>

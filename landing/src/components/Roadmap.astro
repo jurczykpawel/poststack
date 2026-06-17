@@ -1,0 +1,81 @@
+---
+import { roadmap, site } from "../content/landing";
+const { eyebrow, title, note, lanes } = roadmap;
+
+const statusMeta: Record<string, { label: string; cls: string; dot: string }> = {
+  live: { label: "Shipping now", cls: "text-ok border-ok/30 bg-ok/10", dot: "rm-dot-live" },
+  next: { label: "In build", cls: "text-blue border-blue/30 bg-blue/10", dot: "rm-dot-next" },
+  planned: { label: "Planned", cls: "text-purple border-purple/30 bg-purple/10", dot: "rm-dot-planned" },
+};
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="mx-auto max-w-[44rem] text-center" data-reveal>
+      <span class="eyebrow justify-center">{eyebrow}</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">{title}</h2>
+    </div>
+
+    <div class="mt-12 grid gap-4 md:grid-cols-3" data-reveal-group>
+      {
+        lanes.map((lane) => {
+          const meta = statusMeta[lane.status];
+          return (
+            <div class="card flex flex-col p-6" data-reveal>
+              <span
+                class:list={[
+                  "inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+                  meta.cls,
+                ]}
+              >
+                <span class:list={["size-1.5 rounded-full", meta.dot]} />
+                {meta.label}
+              </span>
+              <p class="mt-4 font-[var(--font-display)] text-lg font-semibold text-ink">{lane.label}</p>
+              <ul class="mt-4 space-y-3">
+                {lane.items.map((item) => (
+                  <li class="flex items-start gap-2.5 text-[0.95rem] text-ink-2">
+                    <span class:list={["mt-1.5 size-1.5 shrink-0 rounded-full", meta.dot]} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })
+      }
+    </div>
+
+    <p class="mt-7 text-center text-sm text-ink-3" data-reveal>
+      {note}{" "}
+      <a href={site.githubUrl} rel="noopener" class="text-blue underline-offset-4 hover:underline">
+        Open GitHub →
+      </a>
+    </p>
+  </div>
+</section>
+
+<style>
+  .rm-dot-live {
+    background: var(--color-ok);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 70%, transparent);
+    animation: rm-pulse 2.4s var(--ease-spring) infinite;
+  }
+  .rm-dot-next {
+    background: var(--color-blue);
+  }
+  .rm-dot-planned {
+    background: transparent;
+    border: 1px solid var(--color-purple);
+  }
+
+  @keyframes rm-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 60%, transparent); }
+    70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-ok) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 0%, transparent); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rm-dot-live { animation: none; }
+  }
+</style>

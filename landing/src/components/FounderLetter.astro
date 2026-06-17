@@ -1,0 +1,26 @@
+---
+import { founderLetter } from "../content/landing";
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <figure
+      class="relative mx-auto max-w-[46rem] overflow-hidden rounded-[var(--radius-card)] border border-border-subtle bg-elevated p-8 md:p-12"
+      data-reveal
+    >
+      <div
+        class="glow"
+        style="width:300px;height:300px;bottom:-120px;left:-60px;background:radial-gradient(circle,#7aa2f7,transparent 65%);opacity:0.22"
+      >
+      </div>
+      <span class="eyebrow relative">From the makers</span>
+      <blockquote class="relative mt-5 space-y-4 text-pretty text-lg leading-relaxed text-ink-2 md:text-xl">
+        {founderLetter.body.map((p) => <p>{p}</p>)}
+      </blockquote>
+      <figcaption class="relative mt-6 flex items-center gap-3">
+        <span class="grid size-9 place-items-center rounded-full bg-gradient-to-br from-blue to-purple text-sm font-bold text-[#0a0a12]">P</span>
+        <span class="text-sm font-medium text-ink">{founderLetter.signoff}</span>
+      </figcaption>
+    </figure>
+  </div>
+</section>

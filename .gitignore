@@ -69,3 +69,8 @@ playwright-report/
 
 # Internal design specs/plans (kept private — repo is source-available)
 docs/superpowers/
+
+# Astro landing build artifacts
+landing/node_modules/
+landing/dist/
+landing/.astro/

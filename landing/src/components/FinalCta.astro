@@ -1,0 +1,36 @@
+---
+import { hero, site } from "../content/landing";
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div
+      class="relative overflow-hidden rounded-[28px] border border-border-medium bg-elevated px-6 py-16 text-center md:py-20"
+      data-reveal
+    >
+      <div
+        class="glow"
+        style="width:520px;height:520px;bottom:-280px;left:50%;transform:translateX(-50%);background:radial-gradient(circle,#7aa2f7,transparent 60%);opacity:0.5"
+      >
+      </div>
+      <div
+        class="glow"
+        style="width:300px;height:300px;top:-140px;right:8%;background:radial-gradient(circle,#bb9af7,transparent 60%);opacity:0.4"
+      >
+      </div>
+
+      <h2 class="relative mx-auto max-w-[34rem] text-[clamp(2rem,5vw,3.4rem)] font-bold">
+        Stop renting your <span class="grad">automation</span>
+      </h2>
+      <p class="relative mx-auto mt-4 max-w-[34rem] text-lg text-ink-2">
+        Get PostStack and run it on your own server today — no per-contact fees, no lock-in.
+      </p>
+      <div class="relative mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <a href="#pricing" class="btn btn-primary w-full sm:w-auto">{hero.primaryCta}</a>
+        <a href={site.githubUrl} rel="noopener" class="btn btn-ghost w-full sm:w-auto">
+          {hero.secondaryCta}
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

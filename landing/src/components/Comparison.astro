@@ -1,0 +1,40 @@
+---
+import { comparison } from "../content/landing";
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="mx-auto max-w-[52rem] text-center" data-reveal>
+      <span class="eyebrow">Where it fits</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        The right tool for the <span class="grad">whole funnel</span>
+      </h2>
+    </div>
+
+    <div class="mt-12 grid gap-4 md:grid-cols-3" data-reveal-group>
+      {
+        comparison.others.map((o) => (
+          <div class="card p-6" data-reveal>
+            <p class="font-[var(--font-mono)] text-xs uppercase tracking-widest text-ink-3">You use</p>
+            <p class="mt-2 text-xl font-semibold text-ink">{o.tool}</p>
+            <p class="mt-2 text-ink-2">{o.line}</p>
+          </div>
+        ))
+      }
+
+      <div
+        class="relative overflow-hidden rounded-[var(--radius-card)] border border-blue/30 bg-gradient-to-br from-blue/10 to-purple/10 p-6"
+        data-reveal
+      >
+        <div
+          class="glow"
+          style="width:240px;height:240px;top:-60px;right:-60px;background:radial-gradient(circle,#bb9af7,transparent 65%);opacity:0.4"
+        >
+        </div>
+        <p class="relative font-[var(--font-mono)] text-xs uppercase tracking-widest text-blue">You use</p>
+        <p class="relative mt-2 text-xl font-semibold text-ink">PostStack</p>
+        <p class="relative mt-2 text-ink-2">{comparison.us}</p>
+      </div>
+    </div>
+  </div>
+</section>

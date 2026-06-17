@@ -1,0 +1,59 @@
+---
+import { capabilities } from "../content/landing";
+
+// Lucide-style inline icon paths, indexed to capabilities order.
+const icons = [
+  "M3 5h18v11a2 2 0 0 1-2 2H8l-5 4z", // inbox / message
+  "M13 2L3 14h7l-1 8 10-12h-7z", // bolt / auto
+  "M4 6h16M4 12h10M4 18h6", // sequence / lines
+  "M4 4h16v12H4zM2 20h20", // publish / screen
+  "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20a8 8 0 0 1 16 0", // crm / contact
+  "M8 3L4 7l4 4M16 3l4 4-4 4M14 4l-4 16", // api / code
+];
+---
+
+<section id="capabilities" class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="max-w-[44rem]" data-reveal>
+      <span class="eyebrow">Capabilities</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        One system for <span class="grad">conversations, automation, and content</span>
+      </h2>
+      <p class="mt-4 text-lg text-ink-2">
+        Everything you'd otherwise stitch together from a scheduler, a chatbot, and a CRM —
+        built into a single self-hosted platform.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-3" data-reveal-group>
+      {
+        capabilities.map((c, i) => (
+          <article class="card group flex flex-col p-6" data-reveal>
+            <div class="flex items-center justify-between">
+              <span class="grid size-11 place-items-center rounded-xl border border-border-subtle bg-floating text-blue transition-colors group-hover:border-blue/40">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d={icons[i]}
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span class="rounded-full border border-border-subtle bg-base/50 px-2.5 py-1 font-[var(--font-mono)] text-[0.65rem] text-ink-3">
+                {c.metric}
+              </span>
+            </div>
+
+            <p class="mt-5 font-[var(--font-mono)] text-xs uppercase tracking-widest text-ink-3">
+              {c.kicker}
+            </p>
+            <h3 class="mt-2 text-lg font-semibold text-ink">{c.title}</h3>
+            <p class="mt-3 text-[0.95rem] leading-relaxed text-ink-2">{c.body}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

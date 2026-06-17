@@ -1,0 +1,44 @@
+---
+import Logo from "./Logo.astro";
+import { footer, site } from "../content/landing";
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-border-subtle py-14">
+  <div class="shell grid gap-10 md:grid-cols-[1.4fr_2fr]">
+    <div>
+      <Logo />
+      <p class="mt-4 max-w-[22rem] text-sm text-ink-2">{footer.tagline}</p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-8 sm:grid-cols-3">
+      {
+        footer.columns.map((col) => (
+          <nav aria-label={col.heading}>
+            <p class="font-[var(--font-mono)] text-xs uppercase tracking-widest text-ink-3">
+              {col.heading}
+            </p>
+            <ul class="mt-4 space-y-2.5">
+              {col.links.map((l) => (
+                <li>
+                  <a
+                    href={l.href}
+                    rel="noopener"
+                    class="text-sm text-ink-2 transition-colors hover:text-ink"
+                  >
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="shell mt-12 flex flex-col items-center justify-between gap-3 border-t border-border-subtle pt-6 text-xs text-ink-3 sm:flex-row">
+    <p>© {year} {site.name}. Source-available · Elastic License 2.0.</p>
+    <p>Self-hosted with care.</p>
+  </div>
+</footer>

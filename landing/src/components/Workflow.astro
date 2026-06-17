@@ -1,0 +1,35 @@
+---
+import { workflow } from "../content/landing";
+---
+
+<section id="workflow" class="relative py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="max-w-[44rem]" data-reveal>
+      <span class="eyebrow">How it works</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        From a comment to a customer, <span class="grad">on autopilot</span>
+      </h2>
+    </div>
+
+    <ol class="relative mt-14 grid gap-8 md:grid-cols-4" data-reveal-group>
+      <!-- connector line (desktop) -->
+      <div
+        class="absolute left-0 right-0 top-[1.35rem] hidden h-px bg-gradient-to-r from-blue/40 via-purple/30 to-transparent md:block"
+        aria-hidden="true"
+      >
+      </div>
+
+      {
+        workflow.map((w) => (
+          <li class="relative" data-reveal>
+            <span class="relative z-10 grid size-11 place-items-center rounded-full border border-border-medium bg-elevated font-[var(--font-mono)] text-sm font-semibold text-blue">
+              {w.step}
+            </span>
+            <h3 class="mt-5 text-base font-semibold text-ink">{w.title}</h3>
+            <p class="mt-2 text-[0.92rem] text-ink-2">{w.body}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>

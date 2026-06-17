@@ -1,0 +1,56 @@
+---
+import { testimonialModule } from "../content/landing";
+const { enabled, items, fallbackStats } = testimonialModule;
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell">
+    {
+      enabled ? (
+        <Fragment>
+          <div class="max-w-[44rem]" data-reveal>
+            <span class="eyebrow">Proof</span>
+            <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+              Loved by people who <span class="grad">own their stack</span>
+            </h2>
+          </div>
+          <div class="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-3" data-reveal-group>
+            {items.map((t) => (
+              <figure class="card flex flex-col p-6" data-reveal>
+                <blockquote class="text-ink-2">“{t.quote}”</blockquote>
+                <figcaption class="mt-5 text-sm">
+                  <span class="font-medium text-ink">{t.author}</span>
+                  <span class="text-ink-3"> · {t.role}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </Fragment>
+      ) : (
+        <div
+          class="relative overflow-hidden rounded-[var(--radius-card)] border border-border-subtle bg-elevated p-8 text-center md:p-12"
+          data-reveal
+        >
+          <div
+            class="glow"
+            style="width:420px;height:420px;top:-160px;left:50%;transform:translateX(-50%);background:radial-gradient(circle,#7aa2f7,transparent 65%);opacity:0.18"
+          />
+          <span class="eyebrow relative justify-center">Why teams switch</span>
+          <h2 class="relative mx-auto mt-4 max-w-[40rem] text-[clamp(1.6rem,3.4vw,2.5rem)] font-bold">
+            We lead with the product, <span class="grad">not invented reviews</span>
+          </h2>
+          <div class="relative mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-reveal-group>
+            {fallbackStats.map((s) => (
+              <div class="rounded-2xl border border-border-subtle bg-base/40 p-5" data-reveal>
+                <p class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-3xl font-bold text-transparent">
+                  {s.value}
+                </p>
+                <p class="mt-1 text-sm text-ink-2">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+  </div>
+</section>

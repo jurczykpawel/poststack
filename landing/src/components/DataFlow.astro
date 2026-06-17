@@ -1,0 +1,182 @@
+---
+import { dataFlow } from "../content/landing";
+const { eyebrow, title, body, nodes, lockin, ours } = dataFlow;
+---
+
+<section class="py-[var(--spacing-section)]">
+  <div class="shell grid items-center gap-12 lg:grid-cols-[0.85fr_1.15fr]">
+    <!-- copy -->
+    <div data-reveal>
+      <span class="eyebrow">{eyebrow}</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">{title}</h2>
+      <p class="mt-4 text-lg text-ink-2">{body}</p>
+
+      <div class="mt-7 space-y-2.5">
+        <p class="flex items-center gap-2.5 text-sm text-ink-3">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M5 5l6 6M11 5l-6 6" stroke="#f7768e" stroke-width="1.6" stroke-linecap="round"></path>
+          </svg>
+          {lockin}
+        </p>
+        <p class="flex items-center gap-2.5 text-sm text-ink">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3.5 8.5l3 3 6-7" stroke="#9ece6a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          {ours}
+        </p>
+      </div>
+    </div>
+
+    <!-- diagram -->
+    <div data-reveal style="--reveal-delay:120ms">
+      <div
+        class="dataflow relative mx-auto aspect-[620/360] w-full max-w-[34rem] rounded-2xl border border-border-subtle bg-elevated p-2"
+      >
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 620 360" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="df-grad" x1="0" y1="0" x2="620" y2="0" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#7aa2f7"></stop>
+              <stop offset="1" stop-color="#bb9af7"></stop>
+            </linearGradient>
+          </defs>
+          <!-- base connectors -->
+          <g stroke="url(#df-grad)" stroke-width="1.5" opacity="0.28">
+            <path d="M150 180 C195 180 215 180 255 180"></path>
+            <path d="M360 166 C415 140 455 116 472 104"></path>
+            <path d="M360 194 C415 220 455 244 472 256"></path>
+          </g>
+          <!-- animated current (forward dots) -->
+          <g
+            class="df-current"
+            stroke="url(#df-grad)"
+            stroke-width="3"
+            stroke-linecap="round"
+            pathLength="100"
+            stroke-dasharray="1.5 7"
+          >
+            <path d="M150 180 C195 180 215 180 255 180" style="--d:2.6s"></path>
+            <path d="M360 166 C415 140 455 116 472 104" style="--d:3.1s"></path>
+            <path d="M360 194 C415 220 455 244 472 256" style="--d:3.4s"></path>
+          </g>
+        </svg>
+
+        <!-- nodes -->
+        <div class="df-node" style="left:15.3%;top:50%">
+          <span class="df-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M3 11a9 9 0 0 1 18 0M6.5 11a5.5 5.5 0 0 1 11 0M12 11v8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+            </svg>
+          </span>
+          <span class="df-label">{nodes.source.label}</span>
+          <span class="df-sub">{nodes.source.sub}</span>
+        </div>
+
+        <div class="df-node df-hub" style="left:49.2%;top:50%">
+          <span class="df-icon df-icon-grad">
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+              <rect x="7" y="22.5" width="18" height="4" rx="2" fill="#0a0a12" opacity="0.45"></rect>
+              <rect x="5.5" y="16.5" width="21" height="4.5" rx="2.25" fill="#0a0a12" opacity="0.7"></rect>
+              <path d="M6 6.5C6 5.12 7.12 4 8.5 4h15C24.88 4 26 5.12 26 6.5v5C26 12.88 24.88 14 23.5 14H12.7l-3.5 2.8A1 1 0 0 1 7.6 16v-2H8.5C7.12 14 6 12.88 6 11.5v-5Z" fill="#0a0a12"></path>
+            </svg>
+          </span>
+          <span class="df-label">{nodes.hub.label}</span>
+          <span class="df-sub">{nodes.hub.sub}</span>
+        </div>
+
+        <div class="df-node" style="left:83%;top:26.7%">
+          <span class="df-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <ellipse cx="12" cy="5.5" rx="7" ry="2.8" stroke="currentColor" stroke-width="1.6"></ellipse>
+              <path d="M5 5.5v13c0 1.55 3.13 2.8 7 2.8s7-1.25 7-2.8v-13M5 12c0 1.55 3.13 2.8 7 2.8s7-1.25 7-2.8" stroke="currentColor" stroke-width="1.6"></path>
+            </svg>
+          </span>
+          <span class="df-label">{nodes.db.label}</span>
+          <span class="df-sub">{nodes.db.sub}</span>
+        </div>
+
+        <div class="df-node" style="left:83%;top:73.3%">
+          <span class="df-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M8 6l-5 6 5 6M16 6l5 6-5 6M14 4l-4 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </span>
+          <span class="df-label">{nodes.api.label}</span>
+          <span class="df-sub">{nodes.api.sub}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .df-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    width: max-content;
+    padding: 0.6rem 0.85rem;
+    border-radius: 14px;
+    border: 1px solid var(--color-border-medium);
+    background: color-mix(in srgb, var(--color-base) 85%, transparent);
+    backdrop-filter: blur(4px);
+    text-align: center;
+  }
+
+  .df-hub {
+    border-color: color-mix(in srgb, var(--color-blue) 45%, transparent);
+    box-shadow: 0 0 32px -8px color-mix(in srgb, var(--color-purple) 60%, transparent);
+  }
+
+  .df-icon {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 10px;
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-floating);
+    color: var(--color-blue);
+  }
+
+  .df-icon-grad {
+    border: 0;
+    background: linear-gradient(120deg, var(--color-blue), var(--color-purple));
+  }
+
+  .df-label {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+
+  .df-sub {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.05em;
+    color: var(--color-ink-3);
+  }
+
+  .df-current path {
+    animation: df-flow var(--d, 3s) linear infinite;
+  }
+
+  @keyframes df-flow {
+    to {
+      stroke-dashoffset: -8.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .df-current {
+      opacity: 0.55;
+    }
+    .df-current path {
+      animation: none;
+      stroke-dasharray: none;
+    }
+  }
+</style>

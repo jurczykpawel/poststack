@@ -1,0 +1,235 @@
+@import "tailwindcss";
+
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* ────────────────────────────────────────────────────────────────────────
+   PostStack — Tokyo Night Marketing design tokens
+   blue #7aa2f7 → purple #bb9af7 on near-black #09090f
+   ──────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-base: #09090f;
+  --color-elevated: #10111a;
+  --color-floating: #18181b;
+
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-medium: rgba(255, 255, 255, 0.1);
+
+  --color-ink: #ffffff;
+  --color-ink-2: #a3abd0;
+  --color-ink-3: #7e8299; /* WCAG AA: ~5.2:1 on --bg-base */
+
+  --color-blue: #7aa2f7;
+  --color-purple: #bb9af7;
+  --color-ok: #9ece6a;
+  --color-warn: #e0af68;
+  --color-bad: #f7768e;
+
+  --font-display: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --radius-card: 18px;
+  --radius-pill: 999px;
+
+  /* Major section rhythm */
+  --spacing-section: clamp(5rem, 10vw, 8.5rem);
+
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-base);
+    color: var(--color-ink-2);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.65;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    color: var(--color-ink);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-purple) 35%, transparent);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-blue);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+@layer components {
+  /* Content container */
+  .shell {
+    width: 100%;
+    max-width: 75rem; /* 1200px */
+    margin-inline: auto;
+    padding-inline: clamp(1.25rem, 4vw, 2.5rem);
+  }
+
+  /* Section label / eyebrow */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-blue);
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 1.75rem;
+    height: 1px;
+    background: linear-gradient(90deg, var(--color-blue), transparent);
+  }
+
+  /* Gradient text */
+  .grad {
+    background: linear-gradient(120deg, #fff 10%, var(--color-blue) 55%, var(--color-purple) 95%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Surface card */
+  .card {
+    background: var(--color-elevated);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    transition:
+      border-color 0.25s var(--ease-spring),
+      background 0.25s var(--ease-spring),
+      transform 0.25s var(--ease-spring);
+  }
+
+  .card:hover {
+    border-color: var(--color-border-medium);
+    background: #14151f;
+  }
+
+  /* Primary pill button */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 3rem;
+    padding-inline: 1.4rem;
+    border-radius: var(--radius-pill);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition:
+      transform 0.2s var(--ease-spring),
+      box-shadow 0.3s var(--ease-spring),
+      background 0.2s var(--ease-spring),
+      border-color 0.2s var(--ease-spring);
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    color: #0a0a12;
+    background: linear-gradient(120deg, var(--color-blue), var(--color-purple));
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-blue) 50%, transparent);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 34px -8px color-mix(in srgb, var(--color-purple) 65%, transparent);
+  }
+
+  .btn-ghost {
+    color: var(--color-ink);
+    background: var(--color-floating);
+    border-color: var(--color-border-medium);
+  }
+
+  .btn-ghost:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--color-blue) 50%, transparent);
+    background: #1f2030;
+  }
+
+  /* Soft radial glow used behind hero / CTA */
+  .glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 0;
+  }
+}
+
+/* ── Scroll reveal — fail-safe: content is VISIBLE by default.
+   JS opts into the hidden→reveal state by adding `.reveal-ready` to <html>,
+   so a missing/failed script or no-JS simply shows everything. ── */
+.reveal-ready [data-reveal] {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.7s var(--ease-spring),
+    transform 0.7s var(--ease-spring);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.reveal-ready [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .reveal-ready [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
