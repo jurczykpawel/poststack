@@ -111,6 +111,7 @@ export function renderPage(o: PageOpts): Html {
     <script defer src="${HTMX_SSE}"></script>
     <script defer src="${HTMX_JSON_ENC}"></script>
     <script defer src="${assetUrl("ps-select.js")}"></script>
+    <script defer src="${assetUrl("filter-bar.js")}"></script>
   </head>
   <body x-data>
     ${iconSprite()}

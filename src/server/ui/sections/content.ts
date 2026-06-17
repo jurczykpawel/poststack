@@ -1,8 +1,8 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { inArray, and, eq } from "drizzle-orm";
+import { inArray, and, eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { posts as postsTbl } from "@/db/schema";
+import { posts as postsTbl, content as contentTbl } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { listContent, getContent, getPost, patchPost, type PostRow } from "@/lib/content/service";
@@ -59,9 +59,20 @@ function contentRow(
   </tr>`;
 }
 
-function filterBar(brands: BrandRow[], active: { status?: string; profile?: string; q?: string }): Html {
+function filterBar(
+  brands: BrandRow[],
+  statuses: string[],
+  active: { status?: string; profile?: string; q?: string },
+): Html {
   const brandOpts = brands.map(
     (b) => html`<option value="${b.key}"${active.profile === b.key ? raw(" selected") : raw("")}>${b.name}</option>`,
+  );
+  // Status is open-set free text (NocoDB import), so the dropdown is built from the statuses actually
+  // present in this workspace — no guessing, no typing. The active value is included even if it somehow
+  // isn't in the distinct set, so a deep-linked filter never silently drops.
+  const statusValues = active.status && !statuses.includes(active.status) ? [active.status, ...statuses] : statuses;
+  const statusOpts = statusValues.map(
+    (s) => html`<option value="${s}"${active.status === s ? raw(" selected") : raw("")}>${s}</option>`,
   );
   return html`<form class="filter-bar" method="get" action="/content" role="search">
     <input type="search" name="q" value="${active.q ?? ""}" placeholder="Search title…" aria-label="Search content" />
@@ -69,7 +80,10 @@ function filterBar(brands: BrandRow[], active: { status?: string; profile?: stri
       <option value="">All brands</option>
       ${brandOpts}
     </select>
-    <input name="status" value="${active.status ?? ""}" placeholder="status" aria-label="Filter by status" />
+    <select name="status" aria-label="Filter by status">
+      <option value="">All statuses</option>
+      ${statusOpts}
+    </select>
     <button class="btn btn-secondary btn-sm" type="submit">Apply</button>
     ${active.status || active.profile || active.q ? html`<a class="filter-clear" href="/content">Clear</a>` : ""}
   </form>`;
@@ -84,11 +98,16 @@ async function listPage(c: Context): Promise<Response> {
   const profile = url.searchParams.get("profile")?.trim() || undefined;
   const q = url.searchParams.get("q")?.trim() || undefined;
 
-  const [brands, { items }, lic] = await Promise.all([
+  const [brands, { items }, lic, statusRows] = await Promise.all([
     listBrands(ws),
     listContent({ workspaceId: ws, limit: 200, status, profile, q }),
     getInstanceLicense(),
+    // Distinct statuses present in this workspace → drives the status dropdown (open-set, so derived
+    // from data, not a hardcoded enum).
+    db.selectDistinct({ status: contentTbl.status }).from(contentTbl)
+      .where(eq(contentTbl.workspace_id, ws)).orderBy(asc(contentTbl.status)),
   ]);
+  const statuses = statusRows.map((r) => r.status).filter((s): s is string => !!s);
   const nameByKey = new Map(brands.map((b) => [b.key, b.name] as const));
 
   const ids = items.map((i) => i.id);
@@ -132,7 +151,7 @@ async function listPage(c: Context): Promise<Response> {
       features: lic.features,
       products: lic.products,
       breadcrumb: `${items.length} shown`,
-      body: html`${filterBar(brands, { status, profile, q })}
+      body: html`${filterBar(brands, statuses, { status, profile, q })}
         <div class="table-wrap">
           <table class="data-table" aria-label="Content">
             <thead>

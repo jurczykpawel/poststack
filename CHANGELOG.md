@@ -9,7 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.4.26] - 2026-06-17
+## [0.4.27] - 2026-06-17
+
+### Changed
+
+- **Filters apply instantly — no "Apply" click.** The filter bars on Content, Channels and Queue now apply on interaction (selects on change, the search box debounced as you type), like the inbox. The redundant "Apply" button is hidden (kept as a no-JS fallback).
+- **Content status filter is now a dropdown built from your actual statuses** instead of a free-text box you had to type into. Statuses are open-set (NocoDB import), so the options are derived from the statuses present in your workspace (plus a deep-linked value is always included).
+
+
 
 ### Changed
 
