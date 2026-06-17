@@ -8,7 +8,7 @@ const provider = {
   sendMessage: vi.fn(async () => ({ platformMessageId: "PMID-1" })),
   sendComment: vi.fn(async () => ({ platformMessageId: "CMT-PMID" })),
   commentOnPost: vi.fn(async () => ({ platformMessageId: "FIRST-PMID" })),
-  sendPrivateReply: vi.fn(async () => {}),
+  sendPrivateReply: vi.fn(async () => ({ platformMessageId: "PR-PMID" })),
   checkFollowsBusiness: vi.fn(async () => true),
   getPostUrl: vi.fn(async (_t: unknown, postId: string) => `https://www.instagram.com/reel/${postId}/`),
   getUserProfile: vi.fn(async () => ({ name: "Jan Testowy", profilePicture: "https://x/a.jpg" })),
@@ -928,6 +928,8 @@ describe("outgoing-private-reply worker", () => {
     const sent = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
     expect(sent.length).toBe(1);
     expect(sent[0].text).toBe("hi via DM");
+    // Must store the provider message id so the inbound echo of this DM dedups against it (no dup row).
+    expect(sent[0].platform_message_id).toBe("PR-PMID");
   });
 
   // A comment-triggered DM must land in the contact's DM thread, NOT the comment thread it was

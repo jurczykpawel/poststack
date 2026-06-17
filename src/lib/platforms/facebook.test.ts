@@ -66,3 +66,12 @@ describe("FacebookProvider.getUserProfile", () => {
     expect(await fb.getUserProfile({ access_token: "t" }, "PSID-X")).toBeNull();
   });
 });
+
+describe("FacebookProvider.sendPrivateReply", () => {
+  it("returns the message id so the echo of our DM can be deduped", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ recipient_id: "u1", message_id: "m_PR123" }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const fb = new FacebookProvider();
+    const r = await fb.sendPrivateReply({ access_token: "t" }, "COMMENT-1", { text: "hi" });
+    expect(r).toEqual({ platformMessageId: "m_PR123" });
+  });
+});

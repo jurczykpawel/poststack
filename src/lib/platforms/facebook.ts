@@ -234,7 +234,7 @@ export class FacebookProvider extends SocialProvider {
     tokens: TokenData,
     commentId: string,
     content: MessageContent
-  ): Promise<void> {
+  ): Promise<SentMessage> {
     const res = await fetch(`${GRAPH_API}/me/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -248,6 +248,11 @@ export class FacebookProvider extends SocialProvider {
     });
 
     await assertMetaOk(res, "Facebook private reply");
+
+    // Capture the message id so the echo of our own send (THREADSYNC1) dedups against this row
+    // instead of being recorded as a duplicate outbound message. Parse defensively (see sendMessage).
+    const data = (await res.json().catch(() => ({}))) as { message_id?: string };
+    return { platformMessageId: data.message_id ?? null };
   }
 
   /**

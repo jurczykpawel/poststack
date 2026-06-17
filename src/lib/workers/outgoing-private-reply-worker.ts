@@ -76,8 +76,10 @@ export async function processOutgoingPrivateReply(
       if (!provider.sendPrivateReply) {
         throw new Error(`Platform ${channel.platform} does not support private replies`);
       }
-      await provider.sendPrivateReply(tokens, commentId, messageContent);
-      return { platformMessageId: null };
+      const sent = await provider.sendPrivateReply(tokens, commentId, messageContent);
+      // Store the returned id so the inbound echo of this very DM (THREADSYNC1) is deduped against
+      // this row rather than logged as a second outbound message in the thread.
+      return { platformMessageId: sent.platformMessageId };
     },
     onSent: async (tx, platformMessageId) => {
       if (heldMessageId) {

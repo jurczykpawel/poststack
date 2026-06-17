@@ -114,3 +114,12 @@ describe("InstagramProvider.getUserProfile", () => {
     expect(await ig.getUserProfile({ access_token: "t" }, "IGSID-2")).toBeNull();
   });
 });
+
+describe("InstagramProvider.sendPrivateReply", () => {
+  it("returns the message id so the echo of our DM can be deduped", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ recipient_id: "u1", message_id: "m_PRIG" }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const ig = new InstagramProvider();
+    const r = await ig.sendPrivateReply({ access_token: "t" }, "COMMENT-1", { text: "hi" });
+    expect(r).toEqual({ platformMessageId: "m_PRIG" });
+  });
+});

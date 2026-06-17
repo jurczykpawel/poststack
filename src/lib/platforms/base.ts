@@ -177,7 +177,7 @@ export abstract class SocialProvider {
     tokens: TokenData,
     commentId: string,
     content: MessageContent
-  ): Promise<void>;
+  ): Promise<SentMessage>;
 
   /**
    * Resolve a post/media id to its public permalink.
