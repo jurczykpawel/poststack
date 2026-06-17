@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.22] - 2026-06-17
+
+### Fixed
+
+- **Comment → DM auto-reply no longer leaves a duplicate row in the thread.** The private-reply send returned no message id, so the inbound echo of our own DM was logged as a second outbound message (cosmetic — the recipient still got a single DM). `sendPrivateReply` now returns the Graph `message_id` and the worker stores it, so the echo dedups correctly.
+
 ## [0.4.21] - 2026-06-16
 
 ### Added
