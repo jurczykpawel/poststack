@@ -70,22 +70,24 @@ There is no standalone deploy for this site. It ships with the app:
 So a normal PostStack release (tag → CI builds the GHCR image → deploy) ships the latest landing.
 Nothing to point at Cloudflare Pages.
 
-## Analytics & cookie consent (env)
+## Analytics & cookie consent (runtime env)
 
 The footer carries a cookie-consent manager + "Cookies"/"Privacy" links (see `Analytics.astro` and
-`src/lib/cookieconsent-init.ts`). Tracking is **off** unless these `PUBLIC_*` vars are present at
-**build time** (Astro inlines them; the build runs in the Docker `landing` stage, i.e. in CI):
+`src/lib/cookieconsent-init.ts`). Analytics is **runtime-configured** — nothing is baked into the
+image. The app (`src/server/ui/landing.ts`) reads its environment at request time and injects
+`window.__POSTSTACK_ANALYTICS__` into the served HTML; `Analytics.astro` reads that global.
 
-| Var | Purpose |
-|-----|---------|
-| `PUBLIC_UMAMI_WEBSITE_ID` | Umami site id → cookieless analytics (server at `stats.techskills.academy`) |
-| `PUBLIC_UMAMI_SRC` | optional; defaults to `https://stats.techskills.academy/script.js` |
-| `PUBLIC_GTM_ID` | `GTM-XXXXXXX` → GA4 + Meta via server-side GTM (needs sGTM at `t.poststack.techskills.academy`) |
+| App env var | Purpose |
+|-------------|---------|
+| `LANDING_UMAMI_WEBSITE_ID` | Umami site id → cookieless analytics (server at `stats.techskills.academy`) |
+| `LANDING_UMAMI_SRC` | optional; defaults to `https://stats.techskills.academy/script.js` |
+| `LANDING_GTM_ID` | `GTM-XXXXXXX` → GA4 + Meta via server-side GTM (needs sGTM at `t.poststack.techskills.academy`) |
 
-These are public (non-secret) values. They flow: **repo Variables → `release.yml` build job
-`build-args` → `Dockerfile` `landing` stage `ARG`/`ENV` → `npm run build`.** Set the repo Variables,
-cut a release, and analytics is baked into the served HTML. Without them the build stays green and the
-consent UI still works — it just doesn't load any tracker.
+Why runtime (not build-time): this image is **source-available** and shared — no TechSkills (or any
+operator's) IDs should be compiled in, and every self-hoster sets their own. It also means **test and
+prod differ only by their compose env** (no IDs on test ⇒ zero trackers, no banner; IDs on prod ⇒ full
+stack), with no per-environment build and no hostname hacks. Changing IDs needs no rebuild — just edit
+the env and restart.
 
 ## Assets
 

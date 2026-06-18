@@ -15,14 +15,8 @@ WORKDIR /landing
 COPY landing/package.json landing/package-lock.json* ./
 RUN npm ci
 COPY landing/ ./
-# Public (non-secret) analytics IDs — Astro inlines PUBLIC_* at build time. Passed as build-args
-# from CI (release.yml build job ← repo Variables). Empty by default → no tracker loads, build green.
-ARG PUBLIC_UMAMI_WEBSITE_ID=""
-ARG PUBLIC_UMAMI_SRC=""
-ARG PUBLIC_GTM_ID=""
-ENV PUBLIC_UMAMI_WEBSITE_ID=$PUBLIC_UMAMI_WEBSITE_ID \
-    PUBLIC_UMAMI_SRC=$PUBLIC_UMAMI_SRC \
-    PUBLIC_GTM_ID=$PUBLIC_GTM_ID
+# No analytics IDs baked at build time — the app injects them at request time from its env
+# (LANDING_GTM_ID / LANDING_UMAMI_WEBSITE_ID / LANDING_UMAMI_SRC; see src/server/ui/landing.ts).
 RUN npm run build
 
 # Production runner — Bun runs the TypeScript entrypoint directly (no build step).

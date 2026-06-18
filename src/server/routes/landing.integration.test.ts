@@ -22,9 +22,17 @@ beforeAll(async () => {
   if (!TEST_DB) return;
   dir = mkdtempSync(join(tmpdir(), "landing-it-"));
   process.env.LANDING_DIST_DIR = dir;
-  writeFileSync(join(dir, "index.html"), "<!doctype html><title>PostStack</title><h1>Landing marketing page</h1>");
+  writeFileSync(
+    join(dir, "index.html"),
+    "<!doctype html><html><head></head><body><h1>Landing marketing page</h1></body></html>",
+  );
   mkdirSync(join(dir, "_astro"));
   writeFileSync(join(dir, "_astro", "site.abc.css"), "body{}");
+  mkdirSync(join(dir, "privacy"));
+  writeFileSync(
+    join(dir, "privacy", "index.html"),
+    "<!doctype html><html><head></head><body><h1>Privacy Policy</h1></body></html>",
+  );
 
   process.env.DATABASE_URL = TEST_DB;
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
@@ -81,5 +89,32 @@ describe("LANDING1 route wiring", () => {
     const res = await app.request("/login");
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("</html>");
+  });
+
+  it("serves the /privacy sub-page", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/privacy");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("Privacy Policy");
+  });
+
+  it("injects window.__POSTSTACK_ANALYTICS__ only when analytics env is set", async () => {
+    if (!TEST_DB) return;
+    // No env → no injection.
+    expect(await (await app.request("/")).text()).not.toContain("__POSTSTACK_ANALYTICS__");
+
+    // Env set → config injected into <head> at request time (read live, no rebuild).
+    process.env.LANDING_UMAMI_WEBSITE_ID = "umami-test-id";
+    process.env.LANDING_GTM_ID = "GTM-TEST123";
+    try {
+      const body = await (await app.request("/")).text();
+      expect(body).toContain("window.__POSTSTACK_ANALYTICS__=");
+      expect(body).toContain("umami-test-id");
+      expect(body).toContain("GTM-TEST123");
+    } finally {
+      delete process.env.LANDING_UMAMI_WEBSITE_ID;
+      delete process.env.LANDING_GTM_ID;
+    }
   });
 });

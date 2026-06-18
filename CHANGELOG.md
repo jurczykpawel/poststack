@@ -9,16 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.6.2] - 2026-06-18
-
 ### Added
 
-- **Landing: TechSkills Academy ecosystem footer.** The marketing footer now links back to the hub ("Part of the TechSkills Academy ecosystem · All tools · Open source"), per the ecosystem-footer standard.
-- **Landing: cookie consent + privacy.** A consent manager (vanilla-cookieconsent) with "Cookies" and "Privacy" footer links and a `/privacy` page. Privacy-first analytics (cookieless Umami + optional server-side GTM/GA4/Meta) load only when their `PUBLIC_*` build vars are set; without them the consent UI still works and nothing is tracked.
-
-### Changed
-
-- **Landing analytics are baked at image-build time.** `PUBLIC_UMAMI_WEBSITE_ID` / `PUBLIC_UMAMI_SRC` / `PUBLIC_GTM_ID` flow from repo Variables → release build-args → the Dockerfile `landing` stage. README updated to reflect that the landing ships inside the app image (served at `/`), not a separate Cloudflare Pages deploy.
+- **Landing: TechSkills Academy ecosystem footer.** The marketing footer links back to the hub ("Part of the TechSkills Academy ecosystem · All tools · Open source"), per the ecosystem-footer standard.
+- **Landing: cookie consent + privacy.** A consent manager (vanilla-cookieconsent) with "Cookies" and "Privacy" footer links and a `/privacy` page (now served by the app).
+- **Landing: runtime-configured, privacy-first analytics.** Cookieless Umami + optional server-side GTM (GA4 + Meta CAPI). The app injects the config (`window.__POSTSTACK_ANALYTICS__`) into the served HTML from its environment — nothing is baked into the image. Set `LANDING_UMAMI_WEBSITE_ID` / `LANDING_GTM_ID` (+ optional `LANDING_UMAMI_SRC`) to enable; unset (e.g. on staging) ⇒ zero trackers, no banner. Self-hosters point it at their own analytics. Umami is cookieless; GTM loads only after consent.
 
 ## [0.6.1] - 2026-06-18
 
