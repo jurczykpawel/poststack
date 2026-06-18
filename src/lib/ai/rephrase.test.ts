@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
-// CONFIG1: rephrase now reads OPENAI_* via getConfig. This is a pure-unit test (no DB), so mock
-// getConfig to read straight from process.env — keeping the per-case env control below while
-// avoiding a lazy DB import. (Mirrors connect-token.test.ts / meta-api-contract.test.ts.)
+// CONFIG1: rephrase now reads the provider-neutral AI_* keys via getConfig. This is a pure-unit test
+// (no DB), so mock getConfig to read straight from process.env — keeping the per-case env control
+// below while avoiding a lazy DB import. (Legacy OPENAI_* alias resolution is exercised against a real
+// DB in settings/config.integration.test.ts.) Mirrors connect-token.test.ts / meta-api-contract.test.ts.
 vi.mock("@/lib/settings/config", () => ({
   getConfig: async (key: string) => process.env[key] ?? "",
 }));
@@ -35,9 +36,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  process.env.OPENAI_API_KEY = "test-key";
-  delete process.env.AI_REPHRASE_MODEL;
-  delete process.env.OPENAI_BASE_URL;
+  process.env.AI_API_KEY = "test-key";
+  delete process.env.AI_MODEL;
+  delete process.env.AI_BASE_URL;
   lastUrl = "";
   lastBody = null;
 });
@@ -49,7 +50,7 @@ afterEach(() => {
 
 describe("rephrase — AI adapter", () => {
   it("returns the base text when no API key is configured", async () => {
-    delete process.env.OPENAI_API_KEY;
+    delete process.env.AI_API_KEY;
     const rephrase = await loadRephrase();
     expect(await rephrase("Hello", {})).toBe("Hello");
   });
@@ -88,14 +89,14 @@ describe("rephrase — AI adapter", () => {
     expect(lastBody!.messages[1]).toEqual({ role: "user", content: "Base" });
   });
 
-  // the configured model + endpoint are honored (read through env.ts, not ignored).
-  it("honors AI_REPHRASE_MODEL and OPENAI_BASE_URL overrides", async () => {
-    process.env.AI_REPHRASE_MODEL = "gpt-4o";
-    process.env.OPENAI_BASE_URL = "https://proxy.test/v1";
+  // the configured model + endpoint are honored (a non-OpenAI OpenAI-compatible provider works).
+  it("honors AI_MODEL and AI_BASE_URL overrides (any OpenAI-compatible endpoint)", async () => {
+    process.env.AI_MODEL = "llama-3.3-70b-versatile";
+    process.env.AI_BASE_URL = "https://api.groq.com/openai/v1";
     const rephrase = await loadRephrase();
     mockFetchOk("ok");
     await rephrase("Base", {});
-    expect(lastBody!.model).toBe("gpt-4o");
-    expect(lastUrl).toBe("https://proxy.test/v1/chat/completions");
+    expect(lastBody!.model).toBe("llama-3.3-70b-versatile");
+    expect(lastUrl).toBe("https://api.groq.com/openai/v1/chat/completions");
   });
 });

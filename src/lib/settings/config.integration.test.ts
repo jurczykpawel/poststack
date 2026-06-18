@@ -4,6 +4,8 @@ import { sql } from "drizzle-orm";
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let cfg: typeof import("./config");
+let instanceSettings: typeof import("@/db/schema").instanceSettings;
+let encryptString: typeof import("@/lib/crypto").encryptString;
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -14,6 +16,8 @@ beforeAll(async () => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   ({ db } = await import("@/lib/db"));
   cfg = await import("./config");
+  ({ instanceSettings } = await import("@/db/schema"));
+  ({ encryptString } = await import("@/lib/crypto"));
 });
 
 beforeEach(async () => {
@@ -27,7 +31,10 @@ beforeEach(async () => {
   delete process.env.META_WEBHOOK_VERIFY_TOKEN;
   // Non-Meta groups (CONFIG1) exercised below — clear so a stray CI env var can't flip an assertion.
   delete process.env.GOOGLE_CLIENT_ID;
-  delete process.env.OPENAI_API_KEY;
+  delete process.env.AI_API_KEY;
+  delete process.env.AI_BASE_URL;
+  delete process.env.OPENAI_API_KEY; // legacy alias
+  delete process.env.OPENAI_BASE_URL; // legacy alias
 });
 
 afterAll(async () => {
@@ -115,20 +122,64 @@ describe("instance settings config resolver (real Postgres)", () => {
     expect(await cfg.getConfig("GOOGLE_CLIENT_ID")).toBe("env-google-id");
   });
 
-  it("a secret non-Meta key (OPENAI_API_KEY) round-trips encrypted and is masked, never plaintext", async () => {
+  it("a secret non-Meta key (AI_API_KEY) round-trips encrypted and is masked, never plaintext", async () => {
     if (!TEST_DB) return;
-    await cfg.setConfig("OPENAI_API_KEY", "sk-super-secret");
+    await cfg.setConfig("AI_API_KEY", "sk-super-secret");
     // encrypted at rest
-    const rows = await db.execute(sql`select value_encrypted from instance_settings where key = 'OPENAI_API_KEY'`);
+    const rows = await db.execute(sql`select value_encrypted from instance_settings where key = 'AI_API_KEY'`);
     const stored = (rows.rows[0] as { value_encrypted: string }).value_encrypted;
     expect(stored).not.toContain("sk-super-secret");
     // round-trips for the consumer
-    expect(await cfg.getConfig("OPENAI_API_KEY")).toBe("sk-super-secret");
+    expect(await cfg.getConfig("AI_API_KEY")).toBe("sk-super-secret");
     // masked in the UI status — plaintext NEVER returned
-    const key = (await cfg.configStatus()).find((s) => s.key === "OPENAI_API_KEY")!;
+    const key = (await cfg.configStatus()).find((s) => s.key === "AI_API_KEY")!;
     expect(key.source).toBe("db");
     expect(key.secret).toBe(true);
     expect(key.preview).not.toContain("sk-super-secret");
     expect(key.preview).toContain("set");
+  });
+
+  // AIPROV1: a renamed key (AI_API_KEY ← OPENAI_API_KEY) must still resolve from legacy config so
+  // existing deployments keep working, while a fresh save migrates the legacy storage away.
+  describe("legacy alias resolution (AI_API_KEY ← OPENAI_API_KEY)", () => {
+    it("resolves from a legacy ENV var when the canonical one is unset", async () => {
+      if (!TEST_DB) return;
+      process.env.OPENAI_API_KEY = "sk-legacy-env";
+      cfg.invalidateConfigCache();
+      expect(await cfg.getConfig("AI_API_KEY")).toBe("sk-legacy-env");
+      const status = (await cfg.configStatus()).find((s) => s.key === "AI_API_KEY")!;
+      expect(status.source).toBe("env");
+    });
+
+    it("resolves from a legacy DB row (stored under the old key name)", async () => {
+      if (!TEST_DB) return;
+      await db.insert(instanceSettings).values({ key: "OPENAI_API_KEY", value_encrypted: encryptString("sk-legacy-db"), updated_at: new Date() });
+      cfg.invalidateConfigCache();
+      expect(await cfg.getConfig("AI_API_KEY")).toBe("sk-legacy-db");
+      const status = (await cfg.configStatus()).find((s) => s.key === "AI_API_KEY")!;
+      expect(status.source).toBe("db");
+    });
+
+    it("the canonical key wins over a legacy value, and saving migrates the legacy row away", async () => {
+      if (!TEST_DB) return;
+      await db.insert(instanceSettings).values({ key: "OPENAI_API_KEY", value_encrypted: encryptString("sk-legacy"), updated_at: new Date() });
+      await cfg.setConfig("AI_API_KEY", "sk-new");
+      // canonical value resolves…
+      expect(await cfg.getConfig("AI_API_KEY")).toBe("sk-new");
+      // …and the legacy row is gone (so it can't resurface on a later clear).
+      const legacy = await db.execute(sql`select count(*)::int as n from instance_settings where key = 'OPENAI_API_KEY'`);
+      expect(Number((legacy.rows[0] as { n: number }).n)).toBe(0);
+    });
+
+    it("clearing the canonical key also removes a stale legacy DB row → falls back to env", async () => {
+      if (!TEST_DB) return;
+      process.env.OPENAI_API_KEY = "sk-env-fallback";
+      await db.insert(instanceSettings).values({ key: "AI_API_KEY", value_encrypted: encryptString("sk-db"), updated_at: new Date() });
+      await db.insert(instanceSettings).values({ key: "OPENAI_API_KEY", value_encrypted: encryptString("sk-stale-legacy-db"), updated_at: new Date() });
+      await cfg.clearConfig("AI_API_KEY");
+      const n = await db.execute(sql`select count(*)::int as n from instance_settings where key in ('AI_API_KEY','OPENAI_API_KEY')`);
+      expect(Number((n.rows[0] as { n: number }).n)).toBe(0);
+      expect(await cfg.getConfig("AI_API_KEY")).toBe("sk-env-fallback");
+    });
   });
 });

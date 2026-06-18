@@ -59,8 +59,15 @@ const envSchema = z.object({
   ALTCHA_HMAC_KEY: z.string().default(""),
 
   // AI rephrase (optional -- rule type "ai_rephrase" falls back to original text without key).
+  // ANY OpenAI-compatible chat-completions endpoint (OpenAI, OpenRouter, Groq, Together, Ollama, …).
   // Declared here (not read ad-hoc from process.env) so the model + endpoint are a single typed
   // source with defaults, and a malformed base URL fails at boot instead of silently.
+  // Provider-neutral names; the legacy OPENAI_* / AI_REPHRASE_MODEL names below remain valid as
+  // aliases (resolved by settings/config.ts) so existing deployments keep working unchanged.
+  AI_API_KEY: z.string().default(""),
+  AI_MODEL: z.string().default("gpt-4o-mini"),
+  AI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  // Legacy aliases (deprecated — kept so env-based configs still validate at boot).
   OPENAI_API_KEY: z.string().default(""),
   AI_REPHRASE_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),

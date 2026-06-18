@@ -20,11 +20,11 @@ export interface RephraseOptions {
  * free of any provider-specific code.
  */
 export async function rephrase(baseText: string, opts: RephraseOptions = {}): Promise<string> {
-  const apiKey = await getConfig("OPENAI_API_KEY");
+  const apiKey = await getConfig("AI_API_KEY");
   if (!apiKey) return baseText;
 
-  const model = (await getConfig("AI_REPHRASE_MODEL")) || DEFAULT_MODEL;
-  const baseUrl = (await getConfig("OPENAI_BASE_URL")) || DEFAULT_BASE_URL;
+  const model = (await getConfig("AI_MODEL")) || DEFAULT_MODEL;
+  const baseUrl = (await getConfig("AI_BASE_URL")) || DEFAULT_BASE_URL;
   const tone = opts.tone ?? "friendly and professional";
   const systemContent = opts.customPrompt
     ? opts.customPrompt

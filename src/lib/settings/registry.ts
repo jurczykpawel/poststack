@@ -10,6 +10,10 @@
 export interface ConfigField {
   /** Settings key — identical to the env var name it overrides. */
   key: string;
+  /** Legacy key names still honored on read (DB + env), in priority order after `key`. Lets a key be
+   *  renamed without breaking existing deployments: getConfig reads them as a fallback, setConfig
+   *  migrates them away. */
+  aliases?: readonly string[];
   /** UI group heading. */
   group: string;
   /** Human label. */
@@ -29,10 +33,12 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "GOOGLE_CLIENT_ID", group: "Google / YouTube", label: "OAuth Client ID", secret: false, help: "Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID." },
   { key: "GOOGLE_CLIENT_SECRET", group: "Google / YouTube", label: "OAuth Client Secret", secret: true, help: "The client secret for the same Google OAuth client." },
 
-  // AI rephrase — any OpenAI-compatible chat-completions endpoint.
-  { key: "OPENAI_API_KEY", group: "AI rephrase", label: "API Key", secret: true, help: "API key for your OpenAI-compatible provider. Leave unset to disable AI rephrasing." },
-  { key: "OPENAI_BASE_URL", group: "AI rephrase", label: "Base URL", secret: false, help: "Chat-completions base URL (e.g. https://api.openai.com/v1). Defaults to OpenAI if unset." },
-  { key: "AI_REPHRASE_MODEL", group: "AI rephrase", label: "Model", secret: false, help: "Model name used for rephrasing (e.g. gpt-4o-mini)." },
+  // AI rephrase — ANY OpenAI-compatible chat-completions endpoint (OpenAI, OpenRouter, Groq, Together,
+  // DeepSeek, local Ollama, …). Names are provider-neutral; the legacy OPENAI_* / AI_REPHRASE_MODEL
+  // names are still honored as aliases so existing configs keep working without a redeploy.
+  { key: "AI_API_KEY", aliases: ["OPENAI_API_KEY"], group: "AI rephrasing (OpenAI-compatible)", label: "API Key", secret: true, help: "Bearer API key for your OpenAI-compatible provider. Leave unset to disable AI rephrasing. (Legacy name OPENAI_API_KEY still works.)" },
+  { key: "AI_BASE_URL", aliases: ["OPENAI_BASE_URL"], group: "AI rephrasing (OpenAI-compatible)", label: "Base URL", secret: false, help: "Chat-completions base URL. Examples: OpenAI https://api.openai.com/v1 · OpenRouter https://openrouter.ai/api/v1 · Groq https://api.groq.com/openai/v1 · Ollama http://host:11434/v1. Defaults to OpenAI if unset." },
+  { key: "AI_MODEL", aliases: ["AI_REPHRASE_MODEL"], group: "AI rephrasing (OpenAI-compatible)", label: "Model", secret: false, help: "Model name for your provider. Examples: gpt-4o-mini · anthropic/claude-3.5-haiku (OpenRouter) · llama-3.3-70b-versatile (Groq). Defaults to gpt-4o-mini." },
 
   // Integrations — outbound alert webhook + inbound ReelStack webhook.
   { key: "CHANNEL_ALERT_WEBHOOK_URL", group: "Integrations", label: "Alert Webhook URL", secret: false, help: "Outbound POST when a channel needs re-auth or nears expiry (the ungated self-host fallback)." },

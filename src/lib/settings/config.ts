@@ -6,10 +6,15 @@
 // (short TTL + invalidate-on-write) so hot paths like webhook-signature verification don't hit the DB
 // per request.
 
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { instanceSettings } from "@/db/schema";
 import { encryptString, decryptString } from "@/lib/crypto";
-import { CONFIG_KEYS, CONFIG_FIELDS, type ConfigKey } from "./registry";
+import { CONFIG_KEYS, CONFIG_FIELDS, configField, type ConfigKey } from "./registry";
+
+/** A key plus its legacy aliases, in read-priority order (canonical first). */
+function keyWithAliases(key: string): string[] {
+  return [key, ...(configField(key)?.aliases ?? [])];
+}
 
 // Lazy db import: `@/lib/db` throws at module load when DATABASE_URL is unset (pure unit tests). By
 // importing it only inside the functions, this module stays import-safe — a config read without a DB
@@ -62,9 +67,19 @@ function envValue(key: string): string {
  * existing env-based deployments keep working unchanged, and a dashboard-set value overrides.
  */
 export async function getConfig(key: ConfigKey): Promise<string> {
-  const stored = (await loadAll()).get(key);
-  if (stored !== undefined && stored !== "") return stored;
-  return envValue(key);
+  const stored = await loadAll();
+  const keys = keyWithAliases(key);
+  // DB value (canonical, then any legacy alias) wins…
+  for (const k of keys) {
+    const v = stored.get(k);
+    if (v !== undefined && v !== "") return v;
+  }
+  // …otherwise fall back to the env var (canonical, then alias).
+  for (const k of keys) {
+    const v = envValue(k);
+    if (v) return v;
+  }
+  return "";
 }
 
 /** Store (encrypted) a settings value, overriding the env var. Empty string clears it (→ env fallback). */
@@ -75,15 +90,19 @@ export async function setConfig(key: ConfigKey, value: string): Promise<void> {
     return;
   }
   const value_encrypted = encryptString(value);
-  await (await getDb()).insert(instanceSettings)
+  const dbc = await getDb();
+  await dbc.insert(instanceSettings)
     .values({ key, value_encrypted, updated_at: new Date() })
     .onConflictDoUpdate({ target: instanceSettings.key, set: { value_encrypted, updated_at: new Date() } });
+  // Migrate away any legacy alias rows so they can't resurface on a later read/clear of the canonical key.
+  const aliases = configField(key)?.aliases ?? [];
+  if (aliases.length > 0) await dbc.delete(instanceSettings).where(inArray(instanceSettings.key, [...aliases]));
   invalidateConfigCache();
 }
 
-/** Remove a stored value → the key falls back to its env var. */
+/** Remove a stored value (and any legacy alias rows) → the key falls back to its env var. */
 export async function clearConfig(key: ConfigKey): Promise<void> {
-  await (await getDb()).delete(instanceSettings).where(eq(instanceSettings.key, key));
+  await (await getDb()).delete(instanceSettings).where(inArray(instanceSettings.key, keyWithAliases(key)));
   invalidateConfigCache();
 }
 
@@ -105,9 +124,11 @@ export interface ConfigStatus {
 export async function configStatus(): Promise<ConfigStatus[]> {
   const stored = await loadAll();
   return CONFIG_FIELDS.map((f) => {
-    const dbv = stored.get(f.key);
+    const keys = keyWithAliases(f.key);
+    // Resolve DB + env across the canonical key and its legacy aliases (canonical wins).
+    const dbv = keys.map((k) => stored.get(k)).find((v) => v !== undefined && v !== "");
     const hasDb = dbv !== undefined && dbv !== "";
-    const envv = envValue(f.key);
+    const envv = keys.map((k) => envValue(k)).find((v) => v) ?? "";
     const source: ConfigSource = hasDb ? "db" : envv ? "env" : "unset";
     const resolved = hasDb ? dbv! : envv;
     let preview = "";
