@@ -134,11 +134,16 @@ describe("Brands section", () => {
     expect(page).toContain('name="story_template"'); // picker present
     expect(page).toContain('<option value="phone" selected>'); // saved choice reflected
     expect(page).toContain("/brands/storybrand/story-preview"); // live preview <img>
+    expect(page).toContain('x-model="tpl"'); // picker drives Alpine state
+    expect(page).toContain("story-preview?template=' + tpl"); // preview <img> re-renders live on change
     // the preview endpoint renders a JPEG card
     const prev = await app.request("/brands/storybrand/story-preview", { headers: { cookie } });
     expect(prev.status).toBe(200);
     expect(prev.headers.get("content-type")).toBe("image/jpeg");
     expect((await prev.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    // ?template= override (live preview of an unsaved choice) + graceful fallback for a bogus id
+    expect((await app.request("/brands/storybrand/story-preview?template=fullbleed", { headers: { cookie } })).status).toBe(200);
+    expect((await app.request("/brands/storybrand/story-preview?template=bogus", { headers: { cookie } })).status).toBe(200);
   });
 
   it("assigns a channel to a brand+platform slot via PUT", async () => {

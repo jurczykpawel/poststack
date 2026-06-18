@@ -119,19 +119,22 @@ function storyTemplateField(brand: BrandRow): Html {
   const cur = brand.story_template ?? "";
   return html`<div class="brand-fld">
     <span>Auto-Story template <small>(card style when this brand auto-posts a Story about a post)</small></span>
-    <select name="story_template" aria-label="Auto-Story template">
+    <select name="story_template" aria-label="Auto-Story template" x-model="tpl">
       <option value=""${cur === "" ? raw(" selected") : raw("")}>Default (framed)</option>
       ${Object.keys(STORY_TEMPLATES).map((id) => html`<option value="${id}"${cur === id ? raw(" selected") : raw("")}>${STORY_TEMPLATE_LABELS[id] ?? id}</option>`)}
     </select>
   </div>`;
 }
-/** Live preview thumbnail of this brand's auto-Story card (busted on save via updated_at). */
+/** Live preview thumbnail. The `:src` re-renders the moment the picker changes (Alpine `tpl`), so you
+ *  see the chosen template BEFORE saving; the static `src` is the no-JS fallback (saved template). */
 function storyPreview(brand: BrandRow): Html {
   const v = brand.updated_at instanceof Date ? brand.updated_at.getTime() : Date.now();
   return html`<div class="brand-story-preview">
-    <span class="muted" style="font-size:.72rem">Auto-Story preview</span>
-    <img src="/brands/${brand.key}/story-preview?v=${v}" width="132" height="234" alt="Auto-Story preview"
-      loading="lazy" style="display:block;border-radius:10px;border:1px solid var(--border);margin-top:4px" />
+    <span class="muted" style="font-size:.72rem">Auto-Story preview <span x-show="tpl !== '${brand.story_template ?? ""}'" x-cloak class="muted">· unsaved</span></span>
+    <img src="/brands/${brand.key}/story-preview?v=${v}"
+      :src="'/brands/${brand.key}/story-preview?template=' + tpl + '&v=${v}'"
+      width="132" height="234" alt="Auto-Story preview"
+      style="display:block;border-radius:10px;border:1px solid var(--border);margin-top:4px" />
   </div>`;
 }
 
@@ -157,7 +160,8 @@ function brandCard(brand: BrandRow, slots: Html, locked = false): Html {
     <details class="brand-edit">
       <summary>Rename / recolor</summary>
       <form class="brand-edit-form" method="post" action="/brands/${brand.key}/edit"
-        hx-post="/brands/${brand.key}/edit" hx-target="#${cardId}" hx-swap="outerHTML">
+        hx-post="/brands/${brand.key}/edit" hx-target="#${cardId}" hx-swap="outerHTML"
+        x-data="{ tpl: '${brand.story_template ?? ""}' }">
         <input name="name" value="${brand.name}" aria-label="Brand name" required />
         ${accentField(brand.accent ?? "")}
         ${iconField(brand.icon ?? "")}
@@ -278,10 +282,15 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
     if (!a) return c.body(null, 401);
     const brand = await getBrand(a.workspaceId, c.req.param("key"));
     if (!brand) return c.notFound();
+    // ?template= lets the picker preview an unsaved choice live. Present (incl. empty → default) wins;
+    // absent → the saved template. Unknown id falls back to the renderer default (never throws).
+    const q = c.req.query("template");
+    const picked = q !== undefined ? (q || undefined) : (brand.story_template ?? undefined);
+    const template = picked && STORY_TEMPLATES[picked] ? picked : undefined;
     const cover = await samplePreviewCover(brand.accent ?? "#2f6df6");
     const bytes = await getStoryRenderer().render(
       { caption: PREVIEW_CAPTION, accountName: brand.name, thumbnail: cover },
-      { template: brand.story_template ?? undefined, accent: brand.accent ?? undefined, brandName: brand.name },
+      { template, accent: brand.accent ?? undefined, brandName: brand.name },
     );
     c.header("Content-Type", "image/jpeg");
     c.header("Cache-Control", "private, max-age=60");
