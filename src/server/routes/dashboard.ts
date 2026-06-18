@@ -45,7 +45,7 @@ import { registerBrands } from "../ui/sections/brands";
 import { listBrands, type BrandRow } from "@/lib/brands/service";
 import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSubscriptionStatus } from "@/lib/channels/subscription-status";
 import { btn } from "../ui/components/button";
-import { registerSources } from "../ui/sections/sources";
+import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, type Tone } from "../ui/components/status";
@@ -1024,13 +1024,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Settings" }),
         "/settings",
-        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','license','integrations','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
+        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Settings</h1>
           <p class="muted">Manage your workspace settings and integrations.</p>
           <nav class="settings-tabs" role="tablist">
             <button type="button" class="settings-tab" :class="{ active: tab==='account' }" @click="go('account')">Account</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='license' }" @click="go('license')">License</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='integrations' }" @click="go('integrations')">Integrations</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='sources' }" @click="go('sources')">Sources</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='automation' }" @click="go('automation')">Automation</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='data' }" @click="go('data')">Data</button>
           </nav>
@@ -1096,6 +1097,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             ${renderCredentials(await configStatus())}
           </section>
           ${license.products.has("publishing") ? renderProvidersStatus() : ""}
+          </div>
+          <div class="settings-panel" x-show="tab==='sources'" x-cloak>
+          <section class="section">
+            <h2>Sources — managed connections</h2>
+            ${await renderSourcesManager(a.workspaceId)}
+          </section>
           </div>
           <div class="settings-panel" x-show="tab==='automation'" x-cloak>
           <section class="section">
