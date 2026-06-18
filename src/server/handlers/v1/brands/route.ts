@@ -12,6 +12,7 @@ const brandCreate = z.object({
   name: z.string().min(1).max(LIMITS.name),
   accent: z.string().max(LIMITS.line).optional(),
   icon: z.string().max(LIMITS.line).optional(),
+  story_template: z.string().max(LIMITS.ref).nullable().optional(),
 });
 
 export async function GET(request: Request): Promise<Response> {

@@ -2,23 +2,33 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, isUniqueViolation } from "@/lib/db";
 import { brands, channels } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
+import { STORY_TEMPLATES } from "@/lib/stories";
 
 export type BrandRow = typeof brands.$inferSelect;
+
+/** A brand's auto-Story template id must be a known (built-in or registered) template. null/"" clears
+ *  it (→ the renderer's default). Validated against the live registry so PRO custom templates pass too. */
+function validateStoryTemplate(id: string | null | undefined): string | null {
+  if (id === undefined || id === null || id === "") return null;
+  if (!STORY_TEMPLATES[id]) throw new ApiError("invalid_request", `Unknown story template '${id}'`, 400);
+  return id;
+}
 
 /** A DB executor: the pool client or a transaction handle. */
 export type DbExec = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function createBrand(
-  input: { key: string; name: string; accent?: string | null; icon?: string | null },
+  input: { key: string; name: string; accent?: string | null; icon?: string | null; story_template?: string | null },
   workspaceId: string,
   exec: DbExec = db,
 ): Promise<BrandRow> {
   const key = input.key.trim();
   if (!key) throw new ApiError("invalid_request", "Brand key is required", 400);
   if (!input.name?.trim()) throw new ApiError("invalid_request", "Brand name is required", 400);
+  const story_template = validateStoryTemplate(input.story_template);
   const inserted = await exec
     .insert(brands)
-    .values({ workspace_id: workspaceId, key, name: input.name.trim(), accent: input.accent ?? null, icon: input.icon ?? null })
+    .values({ workspace_id: workspaceId, key, name: input.name.trim(), accent: input.accent ?? null, icon: input.icon ?? null, story_template })
     .returning()
     .catch((err: unknown) => {
       if (isUniqueViolation(err)) throw new ApiError("conflict", "This brand already exists", 409);
@@ -38,12 +48,13 @@ export async function getBrand(workspaceId: string, key: string): Promise<BrandR
 export async function updateBrand(
   workspaceId: string,
   key: string,
-  patch: { name?: string; accent?: string | null; icon?: string | null },
+  patch: { name?: string; accent?: string | null; icon?: string | null; story_template?: string | null },
 ): Promise<BrandRow> {
   const set: Partial<typeof brands.$inferInsert> = { updated_at: new Date() };
   if (patch.name !== undefined) set.name = patch.name;
   if (patch.accent !== undefined) set.accent = patch.accent;
   if (patch.icon !== undefined) set.icon = patch.icon;
+  if (patch.story_template !== undefined) set.story_template = validateStoryTemplate(patch.story_template);
   const [row] = await db
     .update(brands)
     .set(set)

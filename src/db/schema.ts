@@ -1091,6 +1091,10 @@ export const brands = pgTable("brands", {
 	name: text("name").notNull(),
 	accent: text("accent"), // UI chip color (hex or design token)
 	icon: text("icon"), // optional short mark / emoji
+	// STORYCFG1: which built-in auto-Story card template this brand publishes with (null = default).
+	// Free-form id (not an enum) on purpose — the template set is intentionally extensible (PRO custom
+	// templates register at runtime); the API validates it against the live registry on write.
+	story_template: text("story_template"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [

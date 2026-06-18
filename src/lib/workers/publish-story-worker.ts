@@ -77,11 +77,11 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
       // configuration seam — currently the built-in default; a future per-channel/per-post setting
       // (and PRO custom templates/styling) would supply it here without touching this flow.
       const brand = channel.brand_key
-        ? await db.query.brands.findFirst({ where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, channel.brand_key)), columns: { name: true, accent: true } })
+        ? await db.query.brands.findFirst({ where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, channel.brand_key)), columns: { name: true, accent: true, story_template: true } })
         : undefined;
       const bytes = await getStoryRenderer().render(
         { caption, accountName, thumbnail },
-        { accent: brand?.accent ?? undefined, brandName: brand?.name ?? accountName },
+        { template: brand?.story_template ?? undefined, accent: brand?.accent ?? undefined, brandName: brand?.name ?? accountName },
       );
 
       // Upload the fresh card to public storage (deterministic key → idempotent re-render on retry).

@@ -101,6 +101,7 @@ CREATE TABLE "brands" (
 	"name" text NOT NULL,
 	"accent" text,
 	"icon" text,
+	"story_template" text,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp (3) DEFAULT now() NOT NULL,
 	CONSTRAINT "brands_pkey" PRIMARY KEY("workspace_id","key")

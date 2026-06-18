@@ -725,6 +725,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "story_template": {
+          "name": "story_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3)",

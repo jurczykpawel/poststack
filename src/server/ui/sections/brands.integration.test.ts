@@ -125,6 +125,22 @@ describe("Brands section", () => {
     expect(page).not.toContain("slot-techskills.academy");
   });
 
+  it("sets a brand's auto-Story template via edit, shows it in the picker + a live preview image", async () => {
+    if (!TEST_DB) return;
+    await app.request("/brands", form({ key: "storybrand", name: "Story Brand" }));
+    const edited = await app.request("/brands/storybrand/edit", form({ name: "Story Brand", story_template: "phone" }));
+    expect(edited.status).toBeLessThan(400);
+    const page = await (await app.request("/brands", { headers: { cookie } })).text();
+    expect(page).toContain('name="story_template"'); // picker present
+    expect(page).toContain('<option value="phone" selected>'); // saved choice reflected
+    expect(page).toContain("/brands/storybrand/story-preview"); // live preview <img>
+    // the preview endpoint renders a JPEG card
+    const prev = await app.request("/brands/storybrand/story-preview", { headers: { cookie } });
+    expect(prev.status).toBe(200);
+    expect(prev.headers.get("content-type")).toBe("image/jpeg");
+    expect((await prev.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+  });
+
   it("assigns a channel to a brand+platform slot via PUT", async () => {
     if (!TEST_DB) return;
     await createBrandSvc({ key: "tsa", name: "TSA" }, workspaceId);

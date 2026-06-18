@@ -13,6 +13,7 @@ const brandPatch = z.object({
   name: z.string().min(1).max(LIMITS.name).optional(),
   accent: z.string().max(LIMITS.line).nullable().optional(),
   icon: z.string().max(LIMITS.line).nullable().optional(),
+  story_template: z.string().max(LIMITS.ref).nullable().optional(),
 });
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {

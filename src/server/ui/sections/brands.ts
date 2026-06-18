@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
 import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
+import { getStoryRenderer, STORY_TEMPLATES } from "@/lib/stories";
 import { resolveBrandSlots, EDITORIAL_PLATFORMS } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
@@ -109,6 +110,31 @@ async function brandSlots(workspaceId: string, brand: BrandRow, candidates: Reco
   return html`<div class="brand-slots">${rows}</div>`;
 }
 
+const STORY_TEMPLATE_LABELS: Record<string, string> = {
+  framed: "Framed (light)", phone: "Phone frame (dark)", fullbleed: "Full-bleed (photo cover)", classic: "Classic",
+};
+/** Auto-Story template picker for a brand (STORYCFG1). Options come from the live registry so a future
+ *  PRO custom template shows up automatically. "" = the renderer default. */
+function storyTemplateField(brand: BrandRow): Html {
+  const cur = brand.story_template ?? "";
+  return html`<div class="brand-fld">
+    <span>Auto-Story template <small>(card style when this brand auto-posts a Story about a post)</small></span>
+    <select name="story_template" aria-label="Auto-Story template">
+      <option value=""${cur === "" ? raw(" selected") : raw("")}>Default (framed)</option>
+      ${Object.keys(STORY_TEMPLATES).map((id) => html`<option value="${id}"${cur === id ? raw(" selected") : raw("")}>${STORY_TEMPLATE_LABELS[id] ?? id}</option>`)}
+    </select>
+  </div>`;
+}
+/** Live preview thumbnail of this brand's auto-Story card (busted on save via updated_at). */
+function storyPreview(brand: BrandRow): Html {
+  const v = brand.updated_at instanceof Date ? brand.updated_at.getTime() : Date.now();
+  return html`<div class="brand-story-preview">
+    <span class="muted" style="font-size:.72rem">Auto-Story preview</span>
+    <img src="/brands/${brand.key}/story-preview?v=${v}" width="132" height="234" alt="Auto-Story preview"
+      loading="lazy" style="display:block;border-radius:10px;border:1px solid var(--border);margin-top:4px" />
+  </div>`;
+}
+
 function brandCard(brand: BrandRow, slots: Html, locked = false): Html {
   const swatch = brand.accent ? html`<span class="brand-swatch" style="background:${brand.accent}"></span>` : "";
   const ico = brand.icon ? html`<span class="brand-ico">${brand.icon}</span>` : "";
@@ -135,6 +161,8 @@ function brandCard(brand: BrandRow, slots: Html, locked = false): Html {
         <input name="name" value="${brand.name}" aria-label="Brand name" required />
         ${accentField(brand.accent ?? "")}
         ${iconField(brand.icon ?? "")}
+        ${storyTemplateField(brand)}
+        ${storyPreview(brand)}
         ${btn({ label: "Save", variant: "secondary" })}
       </form>
     </details>
@@ -226,8 +254,39 @@ async function assignSlot(workspaceId: string, brandKey: string, platform: strin
   });
 }
 
+const PREVIEW_CAPTION = "Nowy post na profilu — zobacz zanim zniknie.";
+/** A placeholder 9:16 reel cover for the auto-Story preview (real publishes use the post's media). */
+async function samplePreviewCover(accent: string): Promise<Uint8Array> {
+  const safe = /^#[0-9a-fA-F]{3,8}$/.test(accent) ? accent : "#2f6df6";
+  const sharp = (await import("sharp")).default;
+  const w = 540, h = 960;
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${safe}"/><stop offset="1" stop-color="#0b1020"/></linearGradient></defs>
+    <rect width="${w}" height="${h}" fill="url(#g)"/>
+    <circle cx="${w / 2}" cy="${h / 2}" r="72" fill="rgba(0,0,0,0.4)"/>
+    <path d="M ${w / 2 - 22} ${h / 2 - 34} L ${w / 2 + 40} ${h / 2} L ${w / 2 - 22} ${h / 2 + 34} Z" fill="#fff"/>
+    <text x="${w / 2}" y="${h - 80}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="40" font-weight="800" fill="#fff" opacity="0.9">REEL</text></svg>`;
+  return new Uint8Array(await sharp(Buffer.from(svg)).jpeg().toBuffer());
+}
+
 export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
   r.get("/brands", guard, (c) => brandsPage(c));
+
+  // STORYCFG1: live preview of a brand's auto-Story card (rendered with its template + accent + name).
+  r.get("/brands/:key/story-preview", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401);
+    const brand = await getBrand(a.workspaceId, c.req.param("key"));
+    if (!brand) return c.notFound();
+    const cover = await samplePreviewCover(brand.accent ?? "#2f6df6");
+    const bytes = await getStoryRenderer().render(
+      { caption: PREVIEW_CAPTION, accountName: brand.name, thumbnail: cover },
+      { template: brand.story_template ?? undefined, accent: brand.accent ?? undefined, brandName: brand.name },
+    );
+    c.header("Content-Type", "image/jpeg");
+    c.header("Cache-Control", "private, max-age=60");
+    return c.body(bytes as unknown as ArrayBuffer);
+  });
 
   r.post("/brands", guard, async (c) => {
     const a = await auth(c);
@@ -271,6 +330,7 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
         name: String(form.name ?? ""),
         accent: form.accent ? String(form.accent) : null,
         icon: form.icon ? String(form.icon) : null,
+        story_template: form.story_template ? String(form.story_template) : null,
       });
     } catch (err) {
       if (err instanceof ApiError) return c.text(err.message, err.status as 400);
