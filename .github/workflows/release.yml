@@ -102,6 +102,12 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.ref_name }}
+          # Public (non-secret) landing analytics IDs, baked into the Astro build (landing stage).
+          # Source = repo Variables; empty when unset → no tracker, build stays green.
+          build-args: |
+            PUBLIC_UMAMI_WEBSITE_ID=${{ vars.PUBLIC_UMAMI_WEBSITE_ID }}
+            PUBLIC_UMAMI_SRC=${{ vars.PUBLIC_UMAMI_SRC }}
+            PUBLIC_GTM_ID=${{ vars.PUBLIC_GTM_ID }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build and push worker

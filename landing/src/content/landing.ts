@@ -393,6 +393,15 @@ export const faq = [
 
 export const footer = {
   tagline: "Self-hosted social automation for people who want to own their stack.",
+  // Part of the TechSkills Academy ecosystem — cross-links back to the hub so
+  // visitors can discover the sister tools. See techskills.academy ecosystem-footer-standard.
+  ecosystem: {
+    label: "Part of the TechSkills Academy ecosystem",
+    links: [
+      { label: "All tools", href: "https://techskills.academy/narzedzia" },
+      { label: "Open source", href: "https://techskills.academy/#ekosystem" },
+    ],
+  },
   columns: [
     {
       heading: "Product",

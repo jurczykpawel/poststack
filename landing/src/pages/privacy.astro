@@ -1,0 +1,181 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Footer from "../components/Footer.astro";
+
+const lastUpdated = "2026-06-18";
+---
+
+<BaseLayout
+  title="Privacy Policy — PostStack"
+  description="What the PostStack marketing website collects, the cookies it uses, and how to control them. The PostStack app itself is self-hosted — we never see your data."
+>
+  <main id="main" class="legal">
+    <div class="shell">
+      <h1>Privacy Policy</h1>
+      <p class="legal-meta">Last updated: {lastUpdated}</p>
+
+      <h2>The short version</h2>
+      <p>
+        PostStack is <strong>self-hosted</strong>. You run it on your own server, so we never
+        see your messages, contacts, tokens or any operational data — that all stays on your
+        infrastructure. This policy covers only this <strong>marketing website</strong>
+        (poststack.techskills.academy): the cookies it uses and the analytics behind them.
+        Everything beyond strictly necessary is <strong>denied by default</strong> until you
+        accept in the cookie banner.
+      </p>
+
+      <h2>1. Who we are</h2>
+      <p>
+        This site is operated by Paweł Jurczyk (TechSkills Academy), Poland. Contact:
+        <a href="mailto:kontakt@techskills.academy">kontakt@techskills.academy</a>.
+      </p>
+
+      <h2>2. Cookies this website uses</h2>
+      <p>
+        We keep a single strictly-necessary cookie to remember your consent choice. Analytics
+        and marketing cookies load only after you opt in, and you can withdraw consent any time
+        via the <strong>“Cookies”</strong> link in the footer.
+      </p>
+      <table class="cookie-table">
+        <thead>
+          <tr>
+            <th>Name</th><th>Purpose</th><th>Lifetime</th><th>Category</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>poststack_consent</code></td>
+            <td>Stores your cookie decision</td>
+            <td>365 days</td>
+            <td>Necessary</td>
+          </tr>
+          <tr>
+            <td><code>_ga</code>, <code>_ga_*</code></td>
+            <td>Google Analytics 4 client/session (server-side, first-party)</td>
+            <td>24 months</td>
+            <td>Analytics</td>
+          </tr>
+          <tr>
+            <td><code>_gid</code></td>
+            <td>GA daily session identifier</td>
+            <td>24 hours</td>
+            <td>Analytics</td>
+          </tr>
+          <tr>
+            <td><code>_fbp</code>, <code>_fbc</code></td>
+            <td>Meta Pixel / Conversions API identifiers (ad measurement)</td>
+            <td>90 days</td>
+            <td>Marketing</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>3. Analytics &amp; ad measurement</h2>
+      <p>
+        When you consent to analytics, we use Google Analytics 4 routed through a first-party
+        server endpoint (server-side Google Tag Manager) and, optionally, a self-hosted
+        <strong>Umami</strong> instance. Umami is cookieless and uses no persistent identifier.
+        When you consent to marketing, the Meta Pixel runs server-side via the Conversions API
+        to measure how our ads perform. Routing through our own server lets us strip PII and
+        anonymize IPs. We never sell or share this data.
+      </p>
+
+      <h2>4. The PostStack application</h2>
+      <p>
+        The product is source-available software you deploy yourself. We have no access to your
+        instance, its database, your social tokens, or the people you talk to. Your data
+        controller for the app is <em>you</em>.
+      </p>
+
+      <h2>5. Email</h2>
+      <p>
+        If you email us, your message is stored on our mail server only so we can reply. We do
+        not add you to any marketing list and we delete the thread once the matter is resolved,
+        unless you ask us to keep it.
+      </p>
+
+      <h2>6. Your rights (GDPR)</h2>
+      <p>
+        You can request access to, correction of, or deletion of any personal data we hold (for
+        the website, that is limited to consent state and any email correspondence). Write to
+        <a href="mailto:kontakt@techskills.academy">kontakt@techskills.academy</a> and we will
+        respond within 30 days. The supervisory authority in Poland is the
+        <a href="https://uodo.gov.pl/" rel="noopener">President of the Personal Data Protection
+        Office (UODO)</a>.
+      </p>
+
+      <h2>7. Changes</h2>
+      <p>
+        If this policy changes materially we will update the “Last updated” date above. Previous
+        versions live in this site’s git history.
+      </p>
+
+      <p class="legal-back"><a href="/">← Back to PostStack</a></p>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<style>
+  .legal {
+    padding: 8rem 0 5rem;
+  }
+  .legal h1 {
+    font-size: clamp(2rem, 4vw, 2.75rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-ink, #f4f4f7);
+  }
+  .legal-meta {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--color-ink-3, #8b8b96);
+  }
+  .legal h2 {
+    margin-top: 2.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--color-ink, #f4f4f7);
+  }
+  .legal p {
+    margin-top: 0.75rem;
+    max-width: 70ch;
+    line-height: 1.7;
+    color: var(--color-ink-2, #c4c4cf);
+  }
+  .legal a {
+    color: var(--color-blue, #5b8cff);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .legal a:hover {
+    color: var(--color-ink, #f4f4f7);
+  }
+  .legal code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85em;
+    color: var(--color-ink, #f4f4f7);
+  }
+  .cookie-table {
+    margin-top: 1.25rem;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .cookie-table th,
+  .cookie-table td {
+    border: 1px solid var(--color-border-subtle, #26262f);
+    padding: 0.55rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+    color: var(--color-ink-2, #c4c4cf);
+  }
+  .cookie-table th {
+    color: var(--color-ink, #f4f4f7);
+    font-weight: 600;
+  }
+  .legal-back {
+    margin-top: 3rem;
+  }
+</style>

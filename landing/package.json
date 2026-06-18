@@ -20,9 +20,9 @@
     "gsap": "^3.12.5",
     "lenis": "^1.1.18",
     "tailwindcss": "^4.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vanilla-cookieconsent": "^3.1.0"
   },
-  "devDependencies": {},
   "allowScripts": {
     "esbuild@0.27.7": true,
     "esbuild@0.25.12": true,

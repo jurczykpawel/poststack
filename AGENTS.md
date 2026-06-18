@@ -167,4 +167,4 @@ Pay special attention to: section 7a (Meta/OAuth/Webhooks), section 9 (AGPL).
 
 ## Brand
 
-Standalone source-available project. No direct brand affiliation (Flowgrammer potential home).
+Part of the **TechSkills Academy** ecosystem (`techskills.academy`) — listed under `/narzedzia`, footer links back to the hub. Source-available product, but not brand-orphaned: it lives under the TSA umbrella. (Flowgrammer is a TSA sub-brand, not a separate/peer brand.)

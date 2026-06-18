@@ -37,8 +37,41 @@ const year = new Date().getFullYear();
     </div>
   </div>
 
-  <div class="shell mt-12 flex flex-col items-center justify-between gap-3 border-t border-border-subtle pt-6 text-xs text-ink-3 sm:flex-row">
-    <p>© {year} {site.name}. Source-available · Elastic License 2.0.</p>
-    <p>Self-hosted with care.</p>
+  <div class="shell mt-12 border-t border-border-subtle pt-6 text-xs text-ink-3">
+    <p class="text-center">
+      {footer.ecosystem.label}
+      {
+        footer.ecosystem.links.map((l) => (
+          <>
+            {" · "}
+            <a
+              href={l.href}
+              rel="noopener"
+              class="text-ink-2 underline-offset-2 transition-colors hover:text-ink hover:underline"
+            >
+              {l.label}
+            </a>
+          </>
+        ))
+      }
+    </p>
+    <div class="mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row">
+      <p>© {year} {site.name}. Source-available · Elastic License 2.0.</p>
+      <div class="flex items-center gap-4">
+        <a
+          href="/privacy"
+          class="text-ink-2 transition-colors hover:text-ink"
+        >
+          Privacy
+        </a>
+        <a
+          href="#cookie-preferences"
+          data-cc="show-preferences"
+          class="text-ink-2 transition-colors hover:text-ink"
+        >
+          Cookies
+        </a>
+      </div>
+    </div>
   </div>
 </footer>

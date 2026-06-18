@@ -1,0 +1,130 @@
+---
+/**
+ * Analytics.astro — privacy-first analytics + consent for the PostStack landing.
+ *
+ * Flow (when configured):
+ *   browser → GTM Web Container → t.poststack.techskills.academy (sGTM CNAME → TrackStack)
+ *   → server-side: GA4 forward + Meta CAPI + optional Umami
+ *
+ * Render order (per GTM best practice):
+ *   1. <head> top: <Analytics location="head" /> — Consent Mode V2 defaults + consent manager
+ *   2. <body> top: <Analytics location="body" /> — GTM <noscript> fallback
+ *
+ * The cookie-consent manager ALWAYS loads, so the footer "Cookies" link and the
+ * banner work immediately. Tracking (GTM / Umami) only fires when its env var is
+ * set AND the visitor grants consent. Build stays green without any env vars.
+ *
+ * Env vars (Cloudflare Pages → Settings → Env variables):
+ *   PUBLIC_GTM_ID             e.g. GTM-XXXXXXX (Web Container public ID)
+ *   PUBLIC_UMAMI_WEBSITE_ID   Umami site id (cookieless, server at stats.techskills.academy)
+ *   PUBLIC_UMAMI_SRC          optional override for the Umami script URL
+ */
+
+export interface Props {
+  location: "head" | "body";
+}
+
+const { location } = Astro.props;
+
+const GTM_ID = import.meta.env.PUBLIC_GTM_ID ?? "";
+const gtmEnabled = GTM_ID.startsWith("GTM-") && GTM_ID !== "GTM-XXXXXXX";
+
+const UMAMI_WEBSITE_ID = import.meta.env.PUBLIC_UMAMI_WEBSITE_ID ?? "";
+// `||` (not `??`): the Docker build always sets these ENV vars, empty when unset — treat "" as absent.
+const UMAMI_SRC =
+  import.meta.env.PUBLIC_UMAMI_SRC || "https://stats.techskills.academy/script.js";
+const umamiEnabled = !!UMAMI_WEBSITE_ID;
+---
+
+{gtmEnabled && location === "head" && (
+  <script is:inline define:vars={{ GTM_ID }}>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){ dataLayer.push(arguments); }
+    window.gtag = gtag;
+    gtag('consent', 'default', {
+      'ad_storage': 'denied',
+      'ad_user_data': 'denied',
+      'ad_personalization': 'denied',
+      'analytics_storage': 'denied',
+      'functionality_storage': 'granted',
+      'personalization_storage': 'denied',
+      'security_storage': 'granted',
+      'wait_for_update': 500
+    });
+    window.dataLayer.push({ source_brand: 'poststack' });
+    window.__poststack_gtm_id = GTM_ID;
+  </script>
+)}
+
+{umamiEnabled && location === "head" && (
+  <script
+    is:inline
+    defer
+    src={UMAMI_SRC}
+    data-website-id={UMAMI_WEBSITE_ID}
+    data-domains="poststack.techskills.academy"
+  />
+)}
+
+{location === "head" && (
+  <script>
+    let loaded: Promise<typeof import("../lib/cookieconsent-init")> | null = null;
+    const loadCC = () => {
+      if (!loaded) {
+        loaded = import("../lib/cookieconsent-init").then(async (mod) => {
+          await mod.initCookieConsent();
+          return mod;
+        });
+      }
+      return loaded;
+    };
+    const hasConsent = () => {
+      if (document.cookie.includes("poststack_consent=")) return true;
+      try { return !!localStorage.getItem("poststack_cc_v1"); } catch { return false; }
+    };
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void;
+      }
+    ).requestIdleCallback;
+    const scheduleCC = () => {
+      if (hasConsent()) {
+        loadCC();
+      } else if (typeof ric === "function") {
+        ric(loadCC, { timeout: 10000 });
+      } else {
+        window.setTimeout(loadCC, 4000);
+      }
+    };
+    if (document.readyState === "complete") {
+      scheduleCC();
+    } else {
+      window.addEventListener("load", scheduleCC, { once: true });
+    }
+    document.addEventListener(
+      "click",
+      (e) => {
+        const t = e.target instanceof Element
+          ? e.target.closest('[data-cc="show-preferences"], a[href="#cookie-preferences"]')
+          : null;
+        if (t) {
+          e.preventDefault();
+          loadCC().then((mod) => mod.showCookiePreferences());
+        }
+      },
+      { capture: true },
+    );
+  </script>
+)}
+
+{gtmEnabled && location === "body" && (
+  <noscript>
+    <iframe
+      src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
+      height="0"
+      width="0"
+      style="display:none;visibility:hidden"
+      title="Google Tag Manager"
+    />
+  </noscript>
+)}

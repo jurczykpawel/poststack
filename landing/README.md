@@ -1,10 +1,13 @@
 # PostStack — Landing Page
 
 Premium, source-available marketing site for **PostStack** (self-hosted Facebook & Instagram
-management). Deploys independently from the Hono app.
+management).
 
-- **Marketing site:** `https://poststack.techskills.academy/` (this package → Cloudflare Pages)
-- **App:** `https://app.poststack.techskills.academy/` (the Hono dashboard, separate deploy)
+This is **not a separate deployment**. The Astro site is built into the PostStack Docker image
+(`docker/Dockerfile`, `landing` stage) and the Hono app serves it at `/` (feature **LANDING1**,
+`src/server/routes/landing.ts`): anonymous visitors get the marketing page, logged-in visitors are
+redirected to the panel. Same image, same container, same domain as the app
+(`https://poststack.techskills.academy/`).
 
 ## Stack
 
@@ -14,7 +17,7 @@ management). Deploys independently from the Hono app.
 | Styling | Tailwind CSS v4 (CSS-first `@theme` tokens) |
 | Motion | Lenis + GSAP ScrollTrigger (lazy-loaded, reduced-motion aware) |
 | Fonts | Self-hosted via `@fontsource-variable` (Plus Jakarta Sans, Inter, JetBrains Mono) |
-| Hosting | Cloudflare Pages |
+| Hosting | Built into the PostStack Docker image; served by the Hono app at `/` |
 
 ## Editing content
 
@@ -55,12 +58,34 @@ npm run build        # astro check (type-check) + static build → dist/
 npm run preview
 ```
 
-## Deploy (Cloudflare Pages)
+## Build & deploy
 
-- **Root directory:** `landing`
-- **Build command:** `npm run build`
-- **Output directory:** `dist`
-- Point `poststack.techskills.academy` at the Pages project; `app.` stays on the Hono app.
+There is no standalone deploy for this site. It ships with the app:
+
+1. `docker/Dockerfile` builds it in an isolated `landing` stage (`npm run build` → `dist/`), so its
+   dev-deps (Astro, Tailwind) never reach the runtime image.
+2. `COPY --from=landing /landing/dist ./landing/dist` puts the static output next to the app.
+3. The Hono app serves it at `/` and `/_astro/*` (`src/server/ui/landing.ts`, root = `landing/dist`).
+
+So a normal PostStack release (tag → CI builds the GHCR image → deploy) ships the latest landing.
+Nothing to point at Cloudflare Pages.
+
+## Analytics & cookie consent (env)
+
+The footer carries a cookie-consent manager + "Cookies"/"Privacy" links (see `Analytics.astro` and
+`src/lib/cookieconsent-init.ts`). Tracking is **off** unless these `PUBLIC_*` vars are present at
+**build time** (Astro inlines them; the build runs in the Docker `landing` stage, i.e. in CI):
+
+| Var | Purpose |
+|-----|---------|
+| `PUBLIC_UMAMI_WEBSITE_ID` | Umami site id → cookieless analytics (server at `stats.techskills.academy`) |
+| `PUBLIC_UMAMI_SRC` | optional; defaults to `https://stats.techskills.academy/script.js` |
+| `PUBLIC_GTM_ID` | `GTM-XXXXXXX` → GA4 + Meta via server-side GTM (needs sGTM at `t.poststack.techskills.academy`) |
+
+These are public (non-secret) values. They flow: **repo Variables → `release.yml` build job
+`build-args` → `Dockerfile` `landing` stage `ARG`/`ENV` → `npm run build`.** Set the repo Variables,
+cut a release, and analytics is baked into the served HTML. Without them the build stays green and the
+consent UI still works — it just doesn't load any tracker.
 
 ## Assets
 
