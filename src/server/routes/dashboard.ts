@@ -2,7 +2,7 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, gt, asc, desc, ilike, like, exists, inArray, isNotNull, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNotNull, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
@@ -158,18 +158,21 @@ function renderConvPanel(
   contactId = "all",
   search = "",
   since = "",
+  from = "",
+  to = "",
 ): Html {
-  // One form holds every filter (pills, contact-name search, date preset, channel) so they always
-  // compose — any change re-runs /inbox/list with the full state. Pills drive a hidden `filter` via
-  // Alpine; selects fire on change; the search box on debounced keyup.
+  // One form holds every filter (pills, contact-name search, date preset/range, channel) so they
+  // always compose — any change re-runs /inbox/list with the full state. Pills drive a hidden
+  // `filter` via Alpine; selects fire on change; the search box on debounced keyup. Picking
+  // "Custom range…" reveals from/to date inputs (Alpine `since` mirrors the select).
   const sinceOpt = (v: string, label: string) => html`<option value="${v}" ${since === v ? "selected" : ""}>${label}</option>`;
   return html`<div class="conv-head" style="display:flex;justify-content:space-between;align-items:center">
       <span>Inbox</span>
       <button type="submit" form="conv-filter-form" class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem">↻</button>
     </div>
-    <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}' }"
+    <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}', since: '${since}' }"
       hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
-      hx-trigger="submit, change from:find select, input changed delay:350ms from:find input[name='search']"
+      hx-trigger="submit, change from:find select, change from:find input[type='date'], input changed delay:350ms from:find input[name='search']"
       style="display:flex;flex-direction:column;gap:.4rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
       <input type="hidden" name="filter" :value="filter" />
       <input type="hidden" name="contact" value="${contactId}" />
@@ -181,9 +184,14 @@ function renderConvPanel(
       </div>
       <div style="display:flex;gap:.35rem">
         <input class="input input-sm" type="search" name="search" autocomplete="off" placeholder="Search contact name…" value="${search}" style="flex:1;min-width:0" />
-        <select class="input input-sm" name="since" title="Active since" style="flex:0 0 auto">
-          ${sinceOpt("", "Any time")}${sinceOpt("24h", "Last 24h")}${sinceOpt("7d", "Last 7 days")}${sinceOpt("30d", "Last 30 days")}${sinceOpt("90d", "Last 90 days")}
+        <select class="input input-sm" name="since" title="Active since" x-model="since" style="flex:0 0 auto">
+          ${sinceOpt("", "Any time")}${sinceOpt("24h", "Last 24h")}${sinceOpt("7d", "Last 7 days")}${sinceOpt("30d", "Last 30 days")}${sinceOpt("90d", "Last 90 days")}${sinceOpt("custom", "Custom range…")}
         </select>
+      </div>
+      <div x-show="since==='custom'" x-cloak style="display:flex;gap:.35rem;align-items:center">
+        <input class="input input-sm" type="date" name="from" value="${from}" title="From" style="flex:1;min-width:0" />
+        <span class="muted" style="flex:0 0 auto">→</span>
+        <input class="input input-sm" type="date" name="to" value="${to}" title="To" style="flex:1;min-width:0" />
       </div>
       ${chans.length > 1
         ? html`<select class="input input-sm" name="channel" style="width:100%">
@@ -352,7 +360,15 @@ const CONV_SINCE_PRESETS: Record<string, number> = {
   "90d": 90 * 86_400_000,
 };
 export function parseConvSince(v: string | undefined): string {
+  if (v === "custom") return "custom";
   return v && v in CONV_SINCE_PRESETS ? v : "";
+}
+
+/** Parse a YYYY-MM-DD form value to a UTC midnight Date (TZ=UTC is pinned), or null if malformed. */
+function parseYmd(v: string | undefined): Date | null {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function loadConversations(
@@ -362,6 +378,8 @@ function loadConversations(
   contactId = "all",
   search = "",
   since = "",
+  from = "",
+  to = "",
 ) {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
@@ -370,9 +388,16 @@ function loadConversations(
   else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
   if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
   if (contactId !== "all") where.push(eq(conversations.contact_id, contactId));
-  // Date filter: conversations whose last activity is within the rolling window.
-  const windowMs = CONV_SINCE_PRESETS[since];
-  if (windowMs) where.push(gt(conversations.last_message_at, new Date(Date.now() - windowMs)));
+  // Date filter: a rolling preset window, or a custom from–to range (inclusive of the "to" day).
+  if (since === "custom") {
+    const fromD = parseYmd(from);
+    const toD = parseYmd(to);
+    if (fromD) where.push(gte(conversations.last_message_at, fromD));
+    if (toD) where.push(lt(conversations.last_message_at, new Date(toD.getTime() + 86_400_000)));
+  } else {
+    const windowMs = CONV_SINCE_PRESETS[since];
+    if (windowMs) where.push(gt(conversations.last_message_at, new Date(Date.now() - windowMs)));
+  }
   // Contact-name search: match conversations whose contact's display name contains the query.
   const q = search.trim();
   if (q) {
@@ -699,8 +724,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const contactId = c.req.query("contact") || "all";
     const search = c.req.query("search") || "";
     const since = parseConvSince(c.req.query("since"));
+    const from = c.req.query("from") || "";
+    const to = c.req.query("to") || "";
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId, search, since),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
       loadInboxChannels(a.workspaceId),
     ]);
     return c.html(
@@ -709,9 +736,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/inbox",
         html`<div class="inbox">
           <div id="conv-panel" class="conv-list"
-            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since)}</div>
+            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,
@@ -729,11 +756,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const contactId = c.req.query("contact") || "all";
     const search = c.req.query("search") || "";
     const since = parseConvSince(c.req.query("since"));
+    const from = c.req.query("from") || "";
+    const to = c.req.query("to") || "";
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId, search, since),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
       loadInboxChannels(a.workspaceId),
     ]);
-    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since));
+    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -1013,10 +1042,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const [workspace, license, alertWebhook] = await Promise.all([
+    const [workspace, license, alertWebhook, keys] = await Promise.all([
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
       getInstanceLicense(),
       getAlertWebhook(a.workspaceId),
+      loadKeys(a.workspaceId),
     ]);
     const canAlerts = license.features.has("managed_connection");
     const upgradeUrl = license.upgradeUrl;
@@ -1024,22 +1054,26 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Settings" }),
         "/settings",
-        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
+        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','apikeys','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Settings</h1>
           <p class="muted">Manage your workspace settings and integrations.</p>
           <nav class="settings-tabs" role="tablist">
             <button type="button" class="settings-tab" :class="{ active: tab==='account' }" @click="go('account')">Account</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='apikeys' }" @click="go('apikeys')">API keys</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='license' }" @click="go('license')">License</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='integrations' }" @click="go('integrations')">Integrations</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='sources' }" @click="go('sources')">Sources</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='automation' }" @click="go('automation')">Automation</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='data' }" @click="go('data')">Data</button>
           </nav>
-          <div class="settings-panel" x-show="tab==='account'" x-cloak>
+          <div class="settings-panel" x-show="tab==='apikeys'" x-cloak>
           <section class="section">
-            <h2>API Keys</h2>
-            <p class="muted">Programmatic API access now lives on its own page. <a href="/api-keys">Open API Keys →</a></p>
+            <h2>API keys ${license.features.has("api_access") ? "" : proLink(upgradeUrl, "PRO")}</h2>
+            <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>.</p>
+            ${apiKeysSection(keys, license)}
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='account'" x-cloak>
           <section class="section">
             <h2>Change password</h2>
             <form hx-post="/settings/password" hx-ext="json-enc" hx-target="#password-msg" hx-swap="innerHTML" class="stack" style="max-width:24rem">
@@ -1725,24 +1759,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   });
 
   // API keys — its own top-level page (create + revoke + scopes). Settings links here.
-  app.get("/api-keys", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const [keys, license] = await Promise.all([loadKeys(a.workspaceId), getInstanceLicense()]);
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "API Keys" }),
-        "/api-keys",
-        html`<div class="page">
-          <h1>API Keys ${license.features.has("api_access") ? "" : proLink(license.upgradeUrl, "PRO")}</h1>
-          <p class="muted">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>.</p>
-          ${apiKeysSection(keys, license)}
-        </div>`,
-        license.features,
-        license.products,
-      ),
-    );
-  });
+  // API keys live in Settings → API keys now; redirect the old path so deep links still work.
+  app.get("/api-keys", guard, (c) => c.redirect("/settings#apikeys"));
 
   // Sequences
   app.get("/sequences", guard, async (c) => {

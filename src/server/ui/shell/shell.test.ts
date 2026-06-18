@@ -34,9 +34,11 @@ describe("unified nav config", () => {
       "overview", "channels", "brands", // overview (sources moved into Settings → Sources tab)
       "inbox", "rules", "contacts", "sequences", // replies
       "compose", "content", "queue", // publishing
-      "webhooks", "api-keys", "events", // delivery
+      "webhooks", "events", // delivery
     ]));
+    // sources + api-keys moved into Settings tabs, not top-level nav items.
     expect(keys).not.toContain("sources");
+    expect(keys).not.toContain("api-keys");
   });
   it("marks the current section active (key or href path)", () => {
     expect(isActive("channels", "/channels")).toBe(true);

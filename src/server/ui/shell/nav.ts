@@ -49,7 +49,7 @@ export const NAV_SECTIONS: NavSection[] = [
   ]},
   { section: "Delivery", items: [
     { key: "webhooks", label: "Webhooks", href: "/webhooks", icon: "webhooks", area: "core" },
-    { key: "api-keys", label: "API keys", href: "/api-keys", icon: "key", area: "core", feature: "api_access" },
+    // API keys live in Settings → API keys now, not a top-level nav item.
     { key: "events", label: "Events", href: "/events", icon: "events", area: "core" },
   ]},
 ];
