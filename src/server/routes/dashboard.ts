@@ -1555,11 +1555,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Webhooks" }),
         "/webhooks",
-        html`<div class="page">
+        html`<div class="page" x-data="{ tab: 'incoming', tabs: ['incoming','subscriptions','outgoing'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Webhooks</h1>
           <p class="muted">Two separate things share this name: events <strong>coming in</strong> from the platforms, and an alert we send <strong>out</strong> to you.</p>
-
-          <h2 style="margin-top:1rem">⬇ Incoming — from Meta / Telegram</h2>
+          <nav class="settings-tabs" role="tablist">
+            <button type="button" class="settings-tab" :class="{ active: tab==='incoming' }" @click="go('incoming')">⬇ Incoming</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='subscriptions' }" @click="go('subscriptions')">🔌 Subscriptions</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='outgoing' }" @click="go('outgoing')">⬆ Outgoing alert</button>
+          </nav>
+          <div class="settings-panel" x-show="tab==='incoming'" x-cloak>
+          <h2>⬇ Incoming — from Meta / Telegram</h2>
           <p class="muted" style="font-size:.85rem">The platforms POST here whenever someone messages, comments, or reacts. This is the log of what arrived and what the bot did with it.</p>
           ${stats
             ? renderWebhookStats(stats)
@@ -1589,14 +1594,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     <td><button class="btn btn-sm" hx-get="/webhooks/${e.id}" hx-target="#wh-detail" hx-swap="innerHTML" title="Full payload + what it triggered">View</button></td>
                   </tr>`,
                 )}</tbody></table>`}
-
-          <h2 style="margin-top:1.5rem">🔌 Subscriptions — what each connected account is set to receive</h2>
+          </div>
+          <div class="settings-panel" x-show="tab==='subscriptions'" x-cloak>
+          <h2>🔌 Subscriptions — what each connected account is set to receive</h2>
           <p class="muted" style="font-size:.85rem">PostStack auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
           <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML">
             <p class="muted" style="font-size:.82rem">Checking subscriptions…</p>
           </div>
-
-          <h2 style="margin-top:1.5rem">⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
+          </div>
+          <div class="settings-panel" x-show="tab==='outgoing'" x-cloak>
+          <h2>⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
           <p class="muted" style="font-size:.85rem">A proactive POST we send to <em>your</em> endpoint (Slack, n8n, email relay…) when a connection needs re-auth or nears expiry — so you find out before publishing breaks.</p>
           ${!canAlerts
             ? html`<div class="card"><p class="muted" style="font-size:.85rem">Configuring an outbound alert webhook is a ${proLink(upgradeUrl, "PRO")} feature.</p></div>`
@@ -1611,6 +1618,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   </p>
                 </div>`
               : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#alert">Set it up in Settings →</a></p></div>`}
+          </div>
         </div>`,
         features,
         products,
