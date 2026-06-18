@@ -1042,10 +1042,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
-    const [workspace, license, alertWebhook] = await Promise.all([
+    const [workspace, license, alertWebhook, keys] = await Promise.all([
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
       getInstanceLicense(),
       getAlertWebhook(a.workspaceId),
+      loadKeys(a.workspaceId),
     ]);
     const canAlerts = license.features.has("managed_connection");
     const upgradeUrl = license.upgradeUrl;
@@ -1053,22 +1054,26 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Settings" }),
         "/settings",
-        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
+        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','apikeys','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Settings</h1>
           <p class="muted">Manage your workspace settings and integrations.</p>
           <nav class="settings-tabs" role="tablist">
             <button type="button" class="settings-tab" :class="{ active: tab==='account' }" @click="go('account')">Account</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='apikeys' }" @click="go('apikeys')">API keys</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='license' }" @click="go('license')">License</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='integrations' }" @click="go('integrations')">Integrations</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='sources' }" @click="go('sources')">Sources</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='automation' }" @click="go('automation')">Automation</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='data' }" @click="go('data')">Data</button>
           </nav>
-          <div class="settings-panel" x-show="tab==='account'" x-cloak>
+          <div class="settings-panel" x-show="tab==='apikeys'" x-cloak>
           <section class="section">
-            <h2>API Keys</h2>
-            <p class="muted">Programmatic API access now lives on its own page. <a href="/api-keys">Open API Keys →</a></p>
+            <h2>API keys ${license.features.has("api_access") ? "" : proLink(upgradeUrl, "PRO")}</h2>
+            <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>.</p>
+            ${apiKeysSection(keys, license)}
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='account'" x-cloak>
           <section class="section">
             <h2>Change password</h2>
             <form hx-post="/settings/password" hx-ext="json-enc" hx-target="#password-msg" hx-swap="innerHTML" class="stack" style="max-width:24rem">
@@ -1754,24 +1759,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   });
 
   // API keys — its own top-level page (create + revoke + scopes). Settings links here.
-  app.get("/api-keys", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const [keys, license] = await Promise.all([loadKeys(a.workspaceId), getInstanceLicense()]);
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "API Keys" }),
-        "/api-keys",
-        html`<div class="page">
-          <h1>API Keys ${license.features.has("api_access") ? "" : proLink(license.upgradeUrl, "PRO")}</h1>
-          <p class="muted">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>.</p>
-          ${apiKeysSection(keys, license)}
-        </div>`,
-        license.features,
-        license.products,
-      ),
-    );
-  });
+  // API keys live in Settings → API keys now; redirect the old path so deep links still work.
+  app.get("/api-keys", guard, (c) => c.redirect("/settings#apikeys"));
 
   // Sequences
   app.get("/sequences", guard, async (c) => {

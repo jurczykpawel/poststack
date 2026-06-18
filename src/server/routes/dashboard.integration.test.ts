@@ -648,21 +648,19 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Acme");
   });
 
-  it("/api-keys is its own page (create form + key list), not a redirect to settings", async () => {
+  it("/api-keys redirects to the Settings API keys tab", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api-keys", { headers: { cookie } });
-    expect(res.status).toBe(200);
-    const body = await res.text();
-    expect(body).toContain("API Keys");
-    expect(body).toContain('hx-post="/settings/api-keys"'); // the create form lives here now
-    expect(body).toContain('id="keys-area"');
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/settings#apikeys");
   });
 
-  it("settings no longer embeds API keys — it links out to the dedicated page", async () => {
+  it("Settings → API keys tab embeds the create form + key list", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/settings", { headers: { cookie } })).text();
-    expect(body).not.toContain('hx-post="/settings/api-keys"');
-    expect(body).toContain('href="/api-keys"');
+    expect(body).toContain('hx-post="/settings/api-keys"'); // the create form lives in Settings now
+    expect(body).toContain('id="keys-area"');
+    expect(body).not.toContain('href="/api-keys"'); // no longer a link-out
   });
 
   it("renders the @handle + avatar from the username/profile_picture columns (not metadata)", async () => {
