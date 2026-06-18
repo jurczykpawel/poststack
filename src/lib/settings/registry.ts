@@ -39,7 +39,7 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "REELSTACK_WEBHOOK_SECRET", group: "Integrations", label: "ReelStack Webhook Secret", secret: true, help: "HMAC shared secret for the inbound ReelStack webhook (also requires REELSTACK_WEBHOOK_WORKSPACE_ID in env)." },
 
   // Security — ALTCHA proof-of-work HMAC key (enables CAPTCHA on login/register).
-  { key: "ALTCHA_HMAC_KEY", group: "Security", label: "ALTCHA HMAC Key", secret: true, help: "Enables the proof-of-work CAPTCHA on auth endpoints. Unset = CAPTCHA skipped (dev)." },
+  { key: "ALTCHA_HMAC_KEY", group: "Security", label: "ALTCHA HMAC Key", secret: true, help: "Enables the proof-of-work CAPTCHA on auth endpoints. Unset = CAPTCHA skipped (dev). Generate a key with: openssl rand -hex 32" },
 
   // NOTE (CONFIG1): STORAGE_* is deferred (its client is a sync singleton needing a separate refactor).
   // New groups follow the same pattern: a registry entry here + swapping the consumer from `env.X` /

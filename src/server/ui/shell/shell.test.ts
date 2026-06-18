@@ -31,11 +31,12 @@ describe("unified nav config", () => {
     expect(names).toEqual(["Overview", "Replies", "Publishing", "Delivery"]);
     const keys = NAV_SECTIONS.flatMap((x) => x.items.map((i) => i.key));
     expect(keys).toEqual(expect.arrayContaining([
-      "overview", "channels", "brands", "sources", // overview
+      "overview", "channels", "brands", // overview (sources moved into Settings → Sources tab)
       "inbox", "rules", "contacts", "sequences", // replies
       "compose", "content", "queue", // publishing
       "webhooks", "api-keys", "events", // delivery
     ]));
+    expect(keys).not.toContain("sources");
   });
   it("marks the current section active (key or href path)", () => {
     expect(isActive("channels", "/channels")).toBe(true);

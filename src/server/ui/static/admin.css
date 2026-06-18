@@ -1034,6 +1034,38 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .section > h2 { font-size: 14px; font-weight: 600; color: var(--text-1); margin: 0 0 12px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 13px 15px; }
 
+/* ── Settings: horizontal tab bar ────────────────────────────────────────── */
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 18px 0 22px;
+  border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.settings-tab { appearance: none; background: transparent; border: 0; cursor: pointer;
+  color: var(--text-2); font-size: 13px; font-weight: 500; padding: 9px 14px;
+  border-radius: var(--radius-control) var(--radius-control) 0 0; position: relative;
+  transition: color .15s ease, background .15s ease; white-space: nowrap; }
+.settings-tab:hover { color: var(--text-1); background: var(--surface-2); }
+.settings-tab.active { color: var(--accent); }
+.settings-tab.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px;
+  height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
+.settings-panel { animation: settings-fade .18s ease; }
+@keyframes settings-fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .settings-panel { animation: none; } }
+.settings-panel > .section:first-child { margin-top: 0; }
+
+/* ── Settings: credential / config rows (replaces the cramped list-row) ──── */
+.cred-list { display: flex; flex-direction: column; gap: 10px; }
+.cred-row { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-card); padding: 13px 15px; }
+.cred-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cred-label { font-weight: 600; color: var(--text-1); font-size: 13px; }
+.cred-meta { color: var(--text-3); font-size: 11px; margin-top: 3px; }
+.cred-meta code { font-size: 11px; }
+.cred-help { color: var(--text-2); font-size: 12px; margin-top: 6px; line-height: 1.45; }
+.cred-form { display: flex; gap: 8px; margin-top: 11px; align-items: center; }
+.cred-form form { display: contents; } /* let the Save + Clear forms' controls share one flex row */
+.cred-form .input { flex: 1; min-width: 0; }
+.cred-subhead { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-3); margin: 18px 0 9px; }
+.cred-subhead:first-child { margin-top: 4px; }
+
 /* ── Inbox (replies wing — ReplyStack-lineage pages; classes had no CSS after the shell port) ─── */
 .inbox {
   display: grid;

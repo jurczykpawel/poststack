@@ -678,17 +678,19 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("https://example.com/pic.jpg");
   });
 
-  it("the /sources section renders the managed-connection form + System User guide on PRO", async () => {
+  it("the Settings → Sources tab renders the managed-connection form + System User guide on PRO", async () => {
     if (!TEST_DB) return;
-    const body = await (await app.request("/sources", { headers: { cookie } })).text();
-    expect(body).toContain("Connect a master token");
+    // Managed connections moved into Settings → Sources (the tab is rendered in the settings HTML).
+    const body = await (await app.request("/settings", { headers: { cookie } })).text();
+    expect(body).toContain("Sources — managed connections");
+    expect(body).toContain("Connect all"); // the master-token form
     expect(body).toContain("System User"); // the guide CTA
-    // The Meta callback / redirect URLs live here now (moved off /channels).
+    // The Meta callback / redirect URLs live in Settings → Integrations.
     expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
     expect(body).toContain("http://localhost:3000/api/webhooks/meta");
   });
 
-  it("/sources groups a master source's channels by platform with per-platform counts", async () => {
+  it("Settings → Sources groups a master source's channels by platform with per-platform counts", async () => {
     if (!TEST_DB) return;
     const SRC = "dddddddd-0000-0000-0000-0000000000d1";
     await db.insert(s.accountSources).values({
@@ -700,7 +702,7 @@ describe("channels — managed connection section", () => {
       { workspace_id: WS, source_id: SRC, platform: "instagram", platform_id: "IG-G2", display_name: "IG Two", token_encrypted: "x", webhook_secret: "g2", status: "active", connection_mode: "derived" },
       { workspace_id: WS, source_id: SRC, platform: "facebook", platform_id: "FB-G1", display_name: "FB One", token_encrypted: "x", webhook_secret: "g3", status: "active", connection_mode: "derived" },
     ]);
-    const body = await (await app.request("/sources", { headers: { cookie } })).text();
+    const body = await (await app.request("/settings", { headers: { cookie } })).text();
     expect(body).toContain("Big Master");
     expect(body).toContain("<details"); // collapsible platform groups
     expect(body).toContain("Instagram <span class=\"muted\" style=\"font-weight:400\">· 2");

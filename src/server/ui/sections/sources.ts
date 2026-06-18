@@ -5,11 +5,9 @@ import { db } from "@/lib/db";
 import { accountSources, channels } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
-import { env } from "@/lib/env";
 import * as sourcesApi from "@/server/handlers/v1/sources/route";
 import * as sourceApi from "@/server/handlers/v1/sources/[sourceId]/route";
 import * as sourceSyncApi from "@/server/handlers/v1/sources/[sourceId]/sync/route";
-import { renderPage } from "../layout";
 import { platformLabel } from "../components/platform";
 
 type Html = ReturnType<typeof html>;
@@ -119,69 +117,46 @@ async function noticeFrom(res: Response | null, fallback: string): Promise<strin
   return body?.error?.message ?? fallback;
 }
 
-function metaConfigRow(label: string, value: string): Html {
-  return html`<div class="meta-row"><dt>${label}</dt><dd><code class="meta-mono">${value}</code></dd></div>`;
-}
-
-async function sourcesPage(c: Context): Promise<Response> {
-  const a = await auth(c);
-  if (!a) return c.redirect("/login");
+/** The managed-connection (sources) manager body — rendered inside the Settings → Sources tab.
+ *  PRO-gated; on free it shows an upgrade prompt. The app-setup OAuth/callback URLs are NOT
+ *  duplicated here — they live in Settings → Integrations. */
+export async function renderSourcesManager(workspaceId: string): Promise<Html> {
   const lic = await getInstanceLicense();
   const canManaged = lic.features.has("managed_connection");
-  const srcs = canManaged ? await loadSources(a.workspaceId) : [];
-
-  return c.html(
-    renderPage({
-      title: "Sources",
-      nav: "sources",
-      features: lic.features,
-      products: lic.products,
-      breadcrumb: "Managed connection",
-      body: html`<p class="section-intro">One master token connects <strong>all</strong> your Pages + Instagram accounts at once, auto-syncs new ones, and warns you before access expires.</p>
-        ${canManaged
-          ? html`<section class="panel">
-              <div class="panel-head"><h3>Connect a master token</h3></div>
-              <div x-data="{ guide: false }">
-                <form hx-post="/sources" hx-ext="json-enc" hx-target="#sources-list" hx-swap="innerHTML">
-                  <textarea class="textarea mono" name="token" rows="3" placeholder="Paste a User or System User access token" required></textarea>
-                  <div class="row" style="gap:.5rem">
-                    <button class="btn btn-primary" type="submit">Connect all</button>
-                    <button class="btn btn-sm btn-secondary" type="button" @click="guide = !guide">How do I get a permanent token?</button>
-                  </div>
-                </form>
-                <div x-show="guide" x-cloak class="panel" style="margin-top:.75rem;font-size:.8rem;line-height:1.5;padding:.75rem">
-                  <strong>Generate a permanent System User token (never expires):</strong>
-                  <ol style="margin:.4rem 0 0 1rem;padding:0">
-                    <li>Open <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">Business Manager → Business settings</a>.</li>
-                    <li>Users → <strong>System Users</strong> → Add → create an <em>Admin</em> system user.</li>
-                    <li>Assign your Pages (and linked Instagram accounts) to it with full control.</li>
-                    <li>Click <strong>Generate new token</strong>, pick this app, set expiry to <strong>Never</strong>.</li>
-                    <li>Grant scopes: <code>pages_show_list</code>, <code>pages_messaging</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>instagram_basic</code>, <code>instagram_manage_messages</code>, <code>instagram_manage_comments</code>.</li>
-                    <li>Copy the token and paste it above.</li>
-                  </ol>
-                </div>
-                <div id="sources-list" style="margin-top:1rem">${renderSources(srcs)}</div>
-              </div>
-            </section>`
-          : html`<div class="banner banner-pro panel" style="padding:1rem">
-              <strong>PRO feature</strong> — a managed connection connects one master FB/IG token and auto-enumerates all your Pages + linked Instagram accounts.
-              <a class="btn btn-primary btn-sm" href="${lic.upgradeUrl}" target="_blank" rel="noopener">Upgrade →</a>
-            </div>`}
-        <section class="panel" style="margin-top:1rem">
-          <div class="panel-head"><h3>App setup — OAuth redirect / callback URLs</h3></div>
-          <dl class="meta-list">
-            ${metaConfigRow("OAuth Redirect URI — Facebook", `${env.APP_URL}/api/oauth/facebook/callback`)}
-            ${metaConfigRow("OAuth Redirect URI — Instagram", `${env.APP_URL}/api/oauth/instagram/callback`)}
-            ${metaConfigRow("Authorized redirect URI — YouTube", `${env.APP_URL}/api/oauth/youtube/callback`)}
-            ${metaConfigRow("Webhook callback URL — Meta", `${env.APP_URL}/api/webhooks/meta`)}
-          </dl>
-        </section>`,
-    }),
-  );
+  const srcs = canManaged ? await loadSources(workspaceId) : [];
+  return html`<p class="muted" style="margin-bottom:1rem">One master token connects <strong>all</strong> your Pages + Instagram accounts at once, auto-syncs new ones, and warns you before access expires.</p>
+    ${canManaged
+      ? html`<div x-data="{ guide: false }">
+          <form hx-post="/sources" hx-ext="json-enc" hx-target="#sources-list" hx-swap="innerHTML">
+            <textarea class="textarea mono" name="token" rows="3" placeholder="Paste a User or System User access token" required></textarea>
+            <div class="row" style="gap:.5rem">
+              <button class="btn btn-primary" type="submit">Connect all</button>
+              <button class="btn btn-sm btn-secondary" type="button" @click="guide = !guide">How do I get a permanent token?</button>
+            </div>
+          </form>
+          <div x-show="guide" x-cloak class="panel" style="margin-top:.75rem;font-size:.8rem;line-height:1.5;padding:.75rem">
+            <strong>Generate a permanent System User token (never expires):</strong>
+            <ol style="margin:.4rem 0 0 1rem;padding:0">
+              <li>Open <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">Business Manager → Business settings</a>.</li>
+              <li>Users → <strong>System Users</strong> → Add → create an <em>Admin</em> system user.</li>
+              <li>Assign your Pages (and linked Instagram accounts) to it with full control.</li>
+              <li>Click <strong>Generate new token</strong>, pick this app, set expiry to <strong>Never</strong>.</li>
+              <li>Grant scopes: <code>pages_show_list</code>, <code>pages_messaging</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>instagram_basic</code>, <code>instagram_manage_messages</code>, <code>instagram_manage_comments</code>.</li>
+              <li>Copy the token and paste it above.</li>
+            </ol>
+          </div>
+          <div id="sources-list" style="margin-top:1rem">${renderSources(srcs)}</div>
+        </div>`
+      : html`<div class="banner banner-pro panel" style="padding:1rem">
+          <strong>PRO feature</strong> — a managed connection connects one master FB/IG token and auto-enumerates all your Pages + linked Instagram accounts.
+          <a class="btn btn-primary btn-sm" href="${lic.upgradeUrl}" target="_blank" rel="noopener">Upgrade →</a>
+        </div>`}`;
 }
 
 export function registerSources(r: Hono, guard: MiddlewareHandler): void {
-  r.get("/sources", guard, sourcesPage);
+  // Managed connections now live in Settings → Sources; keep the path as a redirect so existing
+  // links ("Reconnect master →", deep links) land on the tab. The POST/sync/delete endpoints stay.
+  r.get("/sources", guard, (c) => c.redirect("/settings#sources"));
 
   r.post("/sources", guard, async (c) => {
     const a = await auth(c);

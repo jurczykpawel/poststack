@@ -30,7 +30,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // ungated — otherwise a free user can pick a brand on /channels but can't open /brands to manage
     // their one brand (the page route is only session-guarded; the page renders for everyone).
     { key: "brands", label: "Brands", href: "/brands", icon: "brands", area: "core" },
-    { key: "sources", label: "Sources", href: "/sources", icon: "sources", area: "core", feature: "managed_connection" },
+    // Managed connections (sources) live in Settings → Sources now, not a top-level nav item.
   ]},
   { section: "Replies", items: [
     // Inbox READING is free (basic incoming-message info; rules auto-reply for free). The human-reply

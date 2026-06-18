@@ -45,7 +45,7 @@ import { registerBrands } from "../ui/sections/brands";
 import { listBrands, type BrandRow } from "@/lib/brands/service";
 import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSubscriptionStatus } from "@/lib/channels/subscription-status";
 import { btn } from "../ui/components/button";
-import { registerSources } from "../ui/sections/sources";
+import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, type Tone } from "../ui/components/status";
@@ -155,28 +155,43 @@ function renderConvPanel(
   filter: ConvFilter,
   channelId: string,
   chans: InboxChannel[],
+  contactId = "all",
+  search = "",
+  since = "",
 ): Html {
+  // One form holds every filter (pills, contact-name search, date preset, channel) so they always
+  // compose — any change re-runs /inbox/list with the full state. Pills drive a hidden `filter` via
+  // Alpine; selects fire on change; the search box on debounced keyup.
+  const sinceOpt = (v: string, label: string) => html`<option value="${v}" ${since === v ? "selected" : ""}>${label}</option>`;
   return html`<div class="conv-head" style="display:flex;justify-content:space-between;align-items:center">
       <span>Inbox</span>
-      <button class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem"
-        hx-get="/inbox/list?filter=${filter}&channel=${channelId}" hx-target="#conv-panel" hx-swap="innerHTML">↻</button>
+      <button type="submit" form="conv-filter-form" class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem">↻</button>
     </div>
-    <div class="conv-filters" style="display:flex;gap:.25rem;flex-wrap:wrap;padding:.4rem .5rem;border-bottom:1px solid var(--border,#222)">
-      ${CONV_FILTERS.map(
-        (f) => html`<button class="btn btn-sm ${f.id === filter ? "btn-primary" : ""}" style="font-size:.72rem;padding:.15rem .5rem"
-          hx-get="/inbox/list?filter=${f.id}&channel=${channelId}" hx-target="#conv-panel" hx-swap="innerHTML">${f.label}</button>`,
-      )}
-    </div>
-    ${chans.length > 1
-      ? html`<div style="padding:.35rem .5rem;border-bottom:1px solid var(--border,#222)">
-          <select class="input" name="channel" style="font-size:.75rem;width:100%;padding:.25rem"
-            hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML" hx-trigger="change"
-            hx-vals='${`{"filter":"${filter}"}`}'>
+    <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}' }"
+      hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
+      hx-trigger="submit, change from:find select, input changed delay:350ms from:find input[name='search']"
+      style="display:flex;flex-direction:column;gap:.4rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
+      <input type="hidden" name="filter" :value="filter" />
+      <input type="hidden" name="contact" value="${contactId}" />
+      <div style="display:flex;gap:.25rem;flex-wrap:wrap">
+        ${CONV_FILTERS.map(
+          (f) => html`<button type="button" class="btn btn-sm" :class="{ 'btn-primary': filter==='${f.id}' }" style="font-size:.72rem;padding:.15rem .5rem"
+            @click="filter='${f.id}'; $nextTick(() => window.htmx.trigger($root, 'submit'))">${f.label}</button>`,
+        )}
+      </div>
+      <div style="display:flex;gap:.35rem">
+        <input class="input input-sm" type="search" name="search" autocomplete="off" placeholder="Search contact name…" value="${search}" style="flex:1;min-width:0" />
+        <select class="input input-sm" name="since" title="Active since" style="flex:0 0 auto">
+          ${sinceOpt("", "Any time")}${sinceOpt("24h", "Last 24h")}${sinceOpt("7d", "Last 7 days")}${sinceOpt("30d", "Last 30 days")}${sinceOpt("90d", "Last 90 days")}
+        </select>
+      </div>
+      ${chans.length > 1
+        ? html`<select class="input input-sm" name="channel" style="width:100%">
             <option value="all" ${channelId === "all" ? "selected" : ""}>All channels</option>
             ${renderInboxChannelOptions(chans, channelId)}
-          </select>
-        </div>`
-      : html``}
+          </select>`
+        : html`<input type="hidden" name="channel" value="${channelId}" />`}
+    </form>
     <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
 }
 
@@ -329,7 +344,25 @@ function renderThread(
         </div>`}`;
 }
 
-function loadConversations(workspaceId: string, filter: ConvFilter = "all", channelId = "all", contactId = "all") {
+// Inbox "active since" presets → rolling window in ms (last_message_at cutoff). "" = any time.
+const CONV_SINCE_PRESETS: Record<string, number> = {
+  "24h": 24 * 3_600_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+  "90d": 90 * 86_400_000,
+};
+export function parseConvSince(v: string | undefined): string {
+  return v && v in CONV_SINCE_PRESETS ? v : "";
+}
+
+function loadConversations(
+  workspaceId: string,
+  filter: ConvFilter = "all",
+  channelId = "all",
+  contactId = "all",
+  search = "",
+  since = "",
+) {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
   else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
@@ -337,6 +370,21 @@ function loadConversations(workspaceId: string, filter: ConvFilter = "all", chan
   else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
   if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
   if (contactId !== "all") where.push(eq(conversations.contact_id, contactId));
+  // Date filter: conversations whose last activity is within the rolling window.
+  const windowMs = CONV_SINCE_PRESETS[since];
+  if (windowMs) where.push(gt(conversations.last_message_at, new Date(Date.now() - windowMs)));
+  // Contact-name search: match conversations whose contact's display name contains the query.
+  const q = search.trim();
+  if (q) {
+    where.push(
+      inArray(
+        conversations.contact_id,
+        db.select({ id: contacts.id }).from(contacts).where(
+          and(eq(contacts.workspace_id, workspaceId), ilike(contacts.display_name, `%${q}%`)),
+        ),
+      ),
+    );
+  }
   return db.query.conversations.findMany({
     where: and(...where),
     orderBy: desc(conversations.last_message_at),
@@ -649,8 +697,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
     const contactId = c.req.query("contact") || "all";
+    const search = c.req.query("search") || "";
+    const since = parseConvSince(c.req.query("since"));
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since),
       loadInboxChannels(a.workspaceId),
     ]);
     return c.html(
@@ -659,9 +709,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/inbox",
         html`<div class="inbox">
           <div id="conv-panel" class="conv-list"
-            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans)}</div>
+            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,
@@ -677,11 +727,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
     const contactId = c.req.query("contact") || "all";
+    const search = c.req.query("search") || "";
+    const since = parseConvSince(c.req.query("since"));
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since),
       loadInboxChannels(a.workspaceId),
     ]);
-    return c.html(renderConvPanel(conversations, filter, channelId, chans));
+    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -972,9 +1024,18 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Settings" }),
         "/settings",
-        html`<div class="page">
+        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Settings</h1>
-          <p class="muted">Manage your workspace settings and API access.</p>
+          <p class="muted">Manage your workspace settings and integrations.</p>
+          <nav class="settings-tabs" role="tablist">
+            <button type="button" class="settings-tab" :class="{ active: tab==='account' }" @click="go('account')">Account</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='license' }" @click="go('license')">License</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='integrations' }" @click="go('integrations')">Integrations</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='sources' }" @click="go('sources')">Sources</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='automation' }" @click="go('automation')">Automation</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='data' }" @click="go('data')">Data</button>
+          </nav>
+          <div class="settings-panel" x-show="tab==='account'" x-cloak>
           <section class="section">
             <h2>API Keys</h2>
             <p class="muted">Programmatic API access now lives on its own page. <a href="/api-keys">Open API Keys →</a></p>
@@ -988,17 +1049,31 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </form>
             <p id="password-msg" class="muted" style="margin-top:.5rem"></p>
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='data'" x-cloak>
           <section class="section">
             <h2>Data retention</h2>
             <p class="muted" style="margin-bottom:1rem">Delete messages older than N days (runs daily). Blank = keep forever. Pending messages are never deleted.</p>
-            <form hx-post="/settings/retention" hx-ext="json-enc" hx-target="#retention-msg" hx-swap="innerHTML" class="row">
-              <input class="input" style="width:140px" type="number" min="1" name="message_retention_days" placeholder="Keep forever"
+            <form hx-post="/settings/retention" hx-ext="json-enc" hx-target="#retention-msg" hx-swap="innerHTML" style="display:flex;flex-direction:row;align-items:center;gap:.5rem;flex-wrap:nowrap">
+              <input class="input" style="width:7rem;flex:0 0 auto" type="number" min="1" name="message_retention_days" placeholder="Keep forever"
                 value="${workspace?.message_retention_days ?? ""}" />
-              <span class="muted">days</span>
-              <button class="btn btn-primary" type="submit">Save</button>
+              <span class="muted" style="flex:0 0 auto">days</span>
+              <button class="btn btn-primary" type="submit" style="flex:0 0 auto">Save</button>
             </form>
             <p id="retention-msg" class="muted" style="margin-top:.5rem"></p>
+            <p class="muted" style="margin-top:1rem;font-size:.85rem">
+              ${env.HISTORY_RETENTION_DAYS > 0
+                ? html`Webhook events and post reactions are compacted automatically after
+                    <strong>${env.HISTORY_RETENTION_DAYS} days</strong> — rolled into aggregates (all-time
+                    counts and the Engagement view stay correct) and the raw rows are removed, so the
+                    database stays small. Configured by the operator via <code>HISTORY_RETENTION_DAYS</code>.`
+                : html`Automatic compaction of webhook events and post reactions is
+                    <strong>disabled</strong> (<code>HISTORY_RETENTION_DAYS=0</code>) — those tables grow
+                    without bound. Set a value (≥ 30 days) to keep the database small.`}
+            </p>
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='license'" x-cloak>
           <section class="section">
             <h2>License</h2>
             <p class="muted" style="margin-bottom:1rem">Unlock PRO features with a license token from Sellf. A free instance keeps all free features.</p>
@@ -1008,6 +1083,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </form>
             <div id="license-area">${renderLicense(license)}</div>
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='integrations'" x-cloak>
           <section class="section">
             <h2>Meta App configuration</h2>
             <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
@@ -1020,6 +1097,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             ${renderCredentials(await configStatus())}
           </section>
           ${license.products.has("publishing") ? renderProvidersStatus() : ""}
+          </div>
+          <div class="settings-panel" x-show="tab==='sources'" x-cloak>
+          <section class="section">
+            <h2>Sources — managed connections</h2>
+            ${await renderSourcesManager(a.workspaceId)}
+          </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='automation'" x-cloak>
           <section class="section">
             <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
               <h2 style="margin:0">Alert webhook</h2>
@@ -1028,6 +1113,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
             <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
           </section>
+          </div>
         </div>`,
         license.features,
         license.products,
@@ -1528,11 +1614,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Webhooks" }),
         "/webhooks",
-        html`<div class="page">
+        html`<div class="page" x-data="{ tab: 'incoming', tabs: ['incoming','subscriptions','outgoing'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Webhooks</h1>
           <p class="muted">Two separate things share this name: events <strong>coming in</strong> from the platforms, and an alert we send <strong>out</strong> to you.</p>
-
-          <h2 style="margin-top:1rem">⬇ Incoming — from Meta / Telegram</h2>
+          <nav class="settings-tabs" role="tablist">
+            <button type="button" class="settings-tab" :class="{ active: tab==='incoming' }" @click="go('incoming')">⬇ Incoming</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='subscriptions' }" @click="go('subscriptions')">🔌 Subscriptions</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='outgoing' }" @click="go('outgoing')">⬆ Outgoing alert</button>
+          </nav>
+          <div class="settings-panel" x-show="tab==='incoming'" x-cloak>
+          <h2>⬇ Incoming — from Meta / Telegram</h2>
           <p class="muted" style="font-size:.85rem">The platforms POST here whenever someone messages, comments, or reacts. This is the log of what arrived and what the bot did with it.</p>
           ${stats
             ? renderWebhookStats(stats)
@@ -1562,14 +1653,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     <td><button class="btn btn-sm" hx-get="/webhooks/${e.id}" hx-target="#wh-detail" hx-swap="innerHTML" title="Full payload + what it triggered">View</button></td>
                   </tr>`,
                 )}</tbody></table>`}
-
-          <h2 style="margin-top:1.5rem">🔌 Subscriptions — what each connected account is set to receive</h2>
+          </div>
+          <div class="settings-panel" x-show="tab==='subscriptions'" x-cloak>
+          <h2>🔌 Subscriptions — what each connected account is set to receive</h2>
           <p class="muted" style="font-size:.85rem">PostStack auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
           <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML">
             <p class="muted" style="font-size:.82rem">Checking subscriptions…</p>
           </div>
-
-          <h2 style="margin-top:1.5rem">⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
+          </div>
+          <div class="settings-panel" x-show="tab==='outgoing'" x-cloak>
+          <h2>⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
           <p class="muted" style="font-size:.85rem">A proactive POST we send to <em>your</em> endpoint (Slack, n8n, email relay…) when a connection needs re-auth or nears expiry — so you find out before publishing breaks.</p>
           ${!canAlerts
             ? html`<div class="card"><p class="muted" style="font-size:.85rem">Configuring an outbound alert webhook is a ${proLink(upgradeUrl, "PRO")} feature.</p></div>`
@@ -1584,6 +1677,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   </p>
                 </div>`
               : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#alert">Set it up in Settings →</a></p></div>`}
+          </div>
         </div>`,
         features,
         products,
@@ -1933,36 +2027,36 @@ function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awa
  *  and, when DB-set, a Clear (revert to env) form, both swapping this block in place via htmx. */
 function renderCredentials(status: ConfigStatus[], msg?: string): Html {
   const badge = (s: ConfigStatus["source"]) =>
-    s === "db" ? html`<span class="badge" style="background:var(--ok-bg);color:var(--ok-text)">set here</span>`
-    : s === "env" ? html`<span class="badge" style="background:var(--info-bg)">from env</span>`
-    : html`<span class="badge muted">not set</span>`;
+    s === "db" ? html`<span class="badge tone-ok">set here</span>`
+    : s === "env" ? html`<span class="badge tone-info">from env</span>`
+    : html`<span class="badge tone-neutral">not set</span>`;
   // Group rows by their integration group (preserving first-seen order) so e.g. Google / AI /
   // Integrations / Security each get their own subheading and don't read as part of Meta.
   const groups: string[] = [];
   for (const f of status) if (!groups.includes(f.group)) groups.push(f.group);
-  const row = (f: ConfigStatus) => html`<div class="list-row">
-      <div class="grow">
-        <div style="font-weight:600">${f.label} ${badge(f.source)}</div>
-        <div class="muted" style="font-size:.72rem"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
-        ${f.help ? html`<div class="muted" style="font-size:.7rem;margin-top:.15rem">${f.help}</div>` : ""}
+  const row = (f: ConfigStatus) => html`<div class="cred-row">
+      <div class="cred-head"><span class="cred-label">${f.label}</span>${badge(f.source)}</div>
+      <div class="cred-meta"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
+      ${f.help ? html`<div class="cred-help">${f.help}</div>` : ""}
+      <div class="cred-form">
+        <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
+          <input type="hidden" name="key" value="${f.key}" />
+          <input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
+            placeholder="${f.secret ? "paste to set / change" : "value"}" />
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+        </form>
+        ${f.source === "db"
+          ? html`<form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
+              <input type="hidden" name="key" value="${f.key}" /><input type="hidden" name="clear" value="1" />
+              <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
+            </form>`
+          : html``}
       </div>
-      <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML" class="row" style="gap:.35rem">
-        <input type="hidden" name="key" value="${f.key}" />
-        <input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
-          placeholder="${f.secret ? "paste to set / change" : "value"}" style="width:15rem" />
-        <button class="btn btn-sm btn-primary" type="submit">Save</button>
-      </form>
-      ${f.source === "db"
-        ? html`<form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
-            <input type="hidden" name="key" value="${f.key}" /><input type="hidden" name="clear" value="1" />
-            <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
-          </form>`
-        : html``}
     </div>`;
   return html`<div id="credentials">
     ${msg ? html`<div class="notice notice-ok" style="margin-bottom:.5rem">${msg}</div>` : html``}
-    ${groups.map((g) => html`<h4 style="margin:.75rem 0 .25rem">${g}</h4>
-      <div class="list">${status.filter((f) => f.group === g).map(row)}</div>`)}
+    ${groups.map((g) => html`<div class="cred-subhead">${g}</div>
+      <div class="cred-list">${status.filter((f) => f.group === g).map(row)}</div>`)}
   </div>`;
 }
 
