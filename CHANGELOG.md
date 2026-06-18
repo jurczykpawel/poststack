@@ -9,6 +9,21 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-18
+
+### Added
+
+- **Auto-Story templates.** Auto-published Story cards now use a selectable template — `framed`, `phone`, `fullbleed` or `classic` — chosen per brand, styled with the brand's accent + name, with a live preview on the Brands page. (Custom/imported templates are a planned PRO extension.)
+- **AI rephrasing for any OpenAI-compatible provider.** Provider-neutral settings (`AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL`; legacy `OPENAI_*` still honored) so you can point rephrasing at OpenAI, OpenRouter, Groq, a local Ollama, etc. A "rephrase with AI" toggle is now available directly in the rule editor.
+- **Approvals: public comment + DM together.** A comment-triggered rule (`reply_mode` comment/both) held for approval now parks BOTH the public comment reply and the DM, and approving sends both. Approvals also gained a "Recently resolved" history (sent/rejected) and an "open in inbox" deep-link.
+- **Inbox search & date filters.** Filter conversations by contact name, a rolling date window, or a custom from–to range.
+
+### Changed
+
+- **Approvals redesigned** into scannable cards showing who the reply goes to, the triggering message, and the exact comment/DM that will be sent.
+- **Settings reorganized into tabs** (Account · API keys · License · Integrations · Sources · Automation · Data); Sources and API keys now live under Settings. The Webhooks page is reorganized into tabs. Credential rows redesigned for readability.
+- **`.env.example`** rewritten to document every supported variable.
+
 ## [0.5.0] - 2026-06-17
 
 ### Added

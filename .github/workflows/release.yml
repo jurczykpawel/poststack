@@ -1,9 +1,11 @@
 name: Release & Deploy
 
 # Two flows:
-#  • push a tag `v*`  → verify → build+push GHCR images → AUTO deploy to TEST (poststack.tojest.dev)
-#  • workflow_dispatch → MANUAL deploy of an existing tag to PROD (poststack.techskills.academy)
+#  • push a tag `v*`  → verify → build+push GHCR images → AUTO deploy to the TEST environment
+#  • workflow_dispatch → MANUAL deploy of an existing tag to the PROD environment
 # Prod is never deployed automatically. Images are GHCR-pulled on the servers (docker login persisted).
+# Deploy targets are configured via repo secrets (host/user/port/key) + repo variables
+# (TEST_DEPLOY_PATH / PROD_DEPLOY_PATH / TEST_HEALTH_URL / PROD_HEALTH_URL) — no infra in this file.
 on:
   push:
     tags: ['v*']
@@ -121,7 +123,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy over SSH (piotr / unify-test)
+      - name: Deploy over SSH (TEST environment)
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
@@ -130,7 +132,7 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
             -p ${{ secrets.DEPLOY_TEST_PORT }} \
             ${{ secrets.DEPLOY_TEST_USER }}@${{ secrets.DEPLOY_TEST_HOST }} \
-            'cd /opt/stacks/unify-test && \
+            'cd ${{ vars.TEST_DEPLOY_PATH }} && \
               { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.ref_name }}/" .env || echo "IMAGE_TAG=${{ github.ref_name }}" >> .env; } && \
               docker compose pull && \
               docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
@@ -139,7 +141,7 @@ jobs:
       - name: Health gate (test)
         run: |
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" https://poststack.tojest.dev/api/health || true)
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.TEST_HEALTH_URL }}" || true)
             if [ "$code" = "200" ]; then echo "test healthy"; exit 0; fi
             echo "waiting ($i) — got $code"; sleep 5
           done
@@ -151,7 +153,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Deploy over SSH (steve160 / poststack-unified)
+      - name: Deploy over SSH (PROD environment)
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
@@ -160,7 +162,7 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
             -p ${{ secrets.DEPLOY_PORT }} \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            'cd /opt/stacks/poststack-unified && \
+            'cd ${{ vars.PROD_DEPLOY_PATH }} && \
               { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.event.inputs.tag }}/" .env || echo "IMAGE_TAG=${{ github.event.inputs.tag }}" >> .env; } && \
               docker compose pull && \
               docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
@@ -169,7 +171,7 @@ jobs:
       - name: Health gate (prod)
         run: |
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" https://poststack.techskills.academy/api/health || true)
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.PROD_HEALTH_URL }}" || true)
             if [ "$code" = "200" ]; then echo "prod healthy"; exit 0; fi
             echo "waiting ($i) — got $code"; sleep 5
           done

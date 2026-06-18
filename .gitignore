@@ -74,3 +74,6 @@ docs/superpowers/
 landing/node_modules/
 landing/dist/
 landing/.astro/
+
+# Local agent config (machine-specific paths) — not part of the product
+.claude/
