@@ -998,6 +998,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <button class="btn btn-primary" type="submit">Save</button>
             </form>
             <p id="retention-msg" class="muted" style="margin-top:.5rem"></p>
+            <p class="muted" style="margin-top:1rem;font-size:.85rem">
+              ${env.HISTORY_RETENTION_DAYS > 0
+                ? html`Webhook events and post reactions are compacted automatically after
+                    <strong>${env.HISTORY_RETENTION_DAYS} days</strong> — rolled into aggregates (all-time
+                    counts and the Engagement view stay correct) and the raw rows are removed, so the
+                    database stays small. Configured by the operator via <code>HISTORY_RETENTION_DAYS</code>.`
+                : html`Automatic compaction of webhook events and post reactions is
+                    <strong>disabled</strong> (<code>HISTORY_RETENTION_DAYS=0</code>) — those tables grow
+                    without bound. Set a value (≥ 30 days) to keep the database small.`}
+            </p>
           </section>
           <section class="section">
             <h2>License</h2>
