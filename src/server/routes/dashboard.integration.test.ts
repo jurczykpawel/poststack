@@ -146,6 +146,14 @@ describe("dashboard action error surfacing", () => {
     expect(body).toContain("Cześć Ola! Oto link 📩"); // the DM that will be sent
     expect(body).toContain("Public comment"); // labelled separately from the DM
     expect(body).toContain("1 button");
+    expect(body).toContain(`/inbox?open=${CONV}`); // deep-link to the conversation in the inbox
+  });
+
+  it("inbox deep-link (?open=) self-loads the target conversation thread", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request(`/inbox?open=${CONV}`, { headers: { cookie } })).text();
+    expect(body).toContain(`hx-get="/inbox/${CONV}"`);
+    expect(body).toContain('hx-trigger="load"');
   });
 });
 

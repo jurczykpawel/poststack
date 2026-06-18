@@ -726,6 +726,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const since = parseConvSince(c.req.query("since"));
     const from = c.req.query("from") || "";
     const to = c.req.query("to") || "";
+    // Deep-link to a specific thread (e.g. "open in inbox" from Approvals): the #thread pane
+    // self-loads that conversation on page load. The /inbox/:id endpoint scopes it to the workspace.
+    const open = (c.req.query("open") || "").trim();
     const [conversations, chans] = await Promise.all([
       loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
       loadInboxChannels(a.workspaceId),
@@ -739,7 +742,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
             hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to)}</div>
-          <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
+          ${open
+            ? html`<div id="thread" class="thread" hx-get="/inbox/${open}" hx-trigger="load" hx-swap="innerHTML"><div class="thread-empty">Loading…</div></div>`
+            : html`<div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>`}
         </div>`,
         features,
         products,
@@ -2741,6 +2746,7 @@ function loadApprovals(workspaceId: string) {
   return db
     .select({
       id: pendingApprovals.id,
+      conversationId: pendingApprovals.conversation_id,
       recipient: pendingApprovals.recipient_platform_id,
       proposed: pendingApprovals.proposed_content,
       created_at: pendingApprovals.created_at,
@@ -2781,7 +2787,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?
       <div class="appr-top">
         <div>
           <div class="appr-who">${who}</div>
-          <div class="appr-meta">${meta}</div>
+          <div class="appr-meta">${meta} · <a href="/inbox?open=${a.conversationId}">open in inbox →</a></div>
         </div>
         <div class="appr-actions">
           <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
