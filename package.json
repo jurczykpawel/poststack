@@ -1,6 +1,6 @@
 {
   "name": "poststack",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": false,
   "license": "Elastic-2.0",
   "description": "Self-hosted, source-available social media management for Facebook & Instagram — publish & schedule posts, auto-reply to DMs and comments, and run drip sequences from one place.",
