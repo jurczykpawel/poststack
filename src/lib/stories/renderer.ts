@@ -180,8 +180,30 @@ const phone: StoryTemplate = {
   },
 };
 
+/** fullbleed — the reel cover fills the whole canvas; a top scrim carries the teaser, a bottom scrim
+ *  the CTA pill + brand mark. No arrow (the cover IS the background). Text ellipsizes to stay readable. */
+const fullbleed: StoryTemplate = {
+  id: "fullbleed",
+  plan(card, style, hasThumbnail) {
+    const lines = wrapLines(stripEmoji(card.caption ?? ""), 27, 4);
+    const bgSvg = `<svg width="${STORY_WIDTH}" height="${STORY_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#181f3a"/><stop offset="1" stop-color="#0b1020"/></linearGradient></defs>
+      ${hasThumbnail ? "" : `<rect width="${STORY_WIDTH}" height="${STORY_HEIGHT}" fill="url(#bg)"/>`}</svg>`;
+    const overlaySvg = `<svg width="${STORY_WIDTH}" height="${STORY_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs>
+      <linearGradient id="top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.78"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient>
+      <linearGradient id="bot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.85"/></linearGradient></defs>
+      <rect width="${STORY_WIDTH}" height="640" fill="url(#top)"/>
+      <rect y="${STORY_HEIGHT - 520}" width="${STORY_WIDTH}" height="520" fill="url(#bot)"/>
+      <rect x="80" y="160" width="64" height="8" rx="4" fill="${style.accent}"/>
+      <text x="80" y="252" font-family="Helvetica,Arial,sans-serif" font-size="52" font-weight="800" fill="#fff">${tspans(lines, 80, 68)}</text>
+      ${reelPill(STORY_WIDTH / 2, STORY_HEIGHT - 240, style.ctaLabel)}
+      ${brandMark(80, STORY_HEIGHT - 100, "#fff", style.accent, style.brandName)}</svg>`;
+    return { bg: { r: 11, g: 16, b: 32 }, bgSvg, cover: hasThumbnail ? { x: 0, y: 0, w: STORY_WIDTH, h: STORY_HEIGHT, radius: 0 } : undefined, overlaySvg };
+  },
+};
+
 /** Built-in template registry. PRO custom templates register into this map (see registerStoryTemplate). */
-export const STORY_TEMPLATES: Record<string, StoryTemplate> = { classic, framed, phone };
+export const STORY_TEMPLATES: Record<string, StoryTemplate> = { classic, framed, phone, fullbleed };
 
 /** Extensibility seam (reserved for a PRO "custom story templates" feature): register a template by id.
  *  Not wired to any UI yet — the boundary exists so custom templates plug in without renderer changes. */

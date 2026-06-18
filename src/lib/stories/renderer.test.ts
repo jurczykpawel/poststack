@@ -80,6 +80,17 @@ describe("story template registry (STORYCFG1)", () => {
     expect(p.overlaySvg).toContain("Zobacz rolkę");
   });
 
+  it("ships all three designed templates (framed, phone, fullbleed) plus classic", () => {
+    expect(Object.keys(STORY_TEMPLATES)).toEqual(expect.arrayContaining(["classic", "framed", "phone", "fullbleed"]));
+  });
+
+  it("fullbleed covers the whole canvas with the reel cover when a thumbnail is present", () => {
+    const p = STORY_TEMPLATES.fullbleed!.plan({ caption: "Tracisz leady" }, style, true);
+    expect(p.cover).toEqual({ x: 0, y: 0, w: 1080, h: 1920, radius: 0 });
+    expect(p.overlaySvg).toContain("Zobacz rolkę");
+    expect(p.overlaySvg).toContain("Acme Brand");
+  });
+
   it("strips emoji from rendered caption (libvips has no colour-emoji font)", () => {
     const p = STORY_TEMPLATES.framed!.plan({ caption: "Tracisz leady 🔥👇 czas" }, style, false);
     expect(p.bgSvg).not.toContain("🔥");
