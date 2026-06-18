@@ -1150,6 +1150,11 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .appr-reply-text { color: var(--text-1); font-size: 0.9rem; white-space: pre-wrap; }
 .appr-reply-text.is-empty { color: var(--text-3); font-style: italic; }
 @media (max-width: 640px) { .appr-top { flex-direction: column; } .appr-actions { width: 100%; } }
+.appr-resolved { margin-top: 14px; }
+.appr-resolved > summary { cursor: pointer; font-weight: 600; font-size: 0.82rem; color: var(--text-2); padding: 4px 0; }
+.appr-resolved-row { display: flex; align-items: center; gap: 9px; padding: 7px 2px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--text-2); }
+.appr-resolved-snippet { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appr-resolved-time { margin-left: auto; color: var(--text-3); font-size: 0.72rem; white-space: nowrap; flex: 0 0 auto; }
 
 /* ── htmx in-flight feedback (UXPOLISH1) ────────────────────────────────────
    Any control that issues an htmx request gets `.htmx-request` for the duration.

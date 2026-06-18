@@ -2,7 +2,7 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNotNull, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNotNull, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
@@ -1571,7 +1571,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         html`<div class="page">
           <h1>Approvals</h1>
           <p class="muted">Replies from rules marked “hold for approval” wait here. Approve to send, or reject to discard.</p>
-          <div id="approvals-list">${renderApprovals(await loadApprovals(a.workspaceId))}</div>
+          <div id="approvals-list">${await renderApprovalsView(a.workspaceId)}</div>
         </div>`,
         features,
         products,
@@ -1586,7 +1586,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     // Most impactful swallow: if the enqueue tx failed the approval stays pending and nothing was
     // sent — the operator must see that, not a silent re-render.
-    return c.html(renderApprovals(await loadApprovals(a.workspaceId), await noticeFrom(res, "Could not approve — the reply was not sent.")));
+    return c.html(await renderApprovalsView(a.workspaceId, await noticeFrom(res, "Could not approve — the reply was not sent.")));
   });
 
   app.post("/approvals/:id/reject", guard, async (c) => {
@@ -1594,7 +1594,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const res = await approvalReject.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    return c.html(renderApprovals(await loadApprovals(a.workspaceId), await noticeFrom(res, "Could not reject the reply.")));
+    return c.html(await renderApprovalsView(a.workspaceId, await noticeFrom(res, "Could not reject the reply.")));
   });
 
   // Events — the workspace activity log (a nav target). Read-only, identity-free type/time rows.
@@ -2769,9 +2769,61 @@ function loadApprovals(workspaceId: string) {
     .limit(100);
 }
 
-function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?: string): Html {
+/** Recently resolved (approved / rejected) approvals — the audit trail. Kept until maintenance prunes
+ *  resolved rows past the ledger window, so this shows what was sent vs discarded in the recent past. */
+function loadResolvedApprovals(workspaceId: string) {
+  return db
+    .select({
+      id: pendingApprovals.id,
+      status: pendingApprovals.status,
+      proposed: pendingApprovals.proposed_content,
+      resolved_at: pendingApprovals.resolved_at,
+      ruleName: autoReplyRules.name,
+      contactName: contacts.display_name,
+      recipient: pendingApprovals.recipient_platform_id,
+      threadType: conversations.thread_type,
+    })
+    .from(pendingApprovals)
+    .leftJoin(autoReplyRules, eq(autoReplyRules.id, pendingApprovals.rule_id))
+    .leftJoin(contacts, eq(contacts.id, pendingApprovals.contact_id))
+    .leftJoin(conversations, eq(conversations.id, pendingApprovals.conversation_id))
+    .where(and(eq(pendingApprovals.workspace_id, workspaceId), ne(pendingApprovals.status, "pending")))
+    .orderBy(desc(pendingApprovals.resolved_at))
+    .limit(25);
+}
+
+/** Load both queues + render — shared by the page and the approve/reject htmx swaps so a just-resolved
+ *  item drops straight into the history. */
+async function renderApprovalsView(workspaceId: string, error?: string): Promise<Html> {
+  const [pending, resolved] = await Promise.all([loadApprovals(workspaceId), loadResolvedApprovals(workspaceId)]);
+  return renderApprovals(pending, resolved, error);
+}
+
+function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApprovals>>): Html {
+  if (list.length === 0) return html``;
+  const snippet = (p: unknown) => {
+    const pc = p as { content?: { text?: string } | null; comment?: { text?: string } | null } | null;
+    return pc?.comment?.text ?? pc?.content?.text ?? "";
+  };
+  return html`<details class="appr-resolved">
+    <summary>Recently resolved (${list.length})</summary>
+    ${list.map((r) => {
+      const who = r.contactName ?? r.recipient;
+      const tone = r.status === "approved" ? "tone-ok" : "tone-bad";
+      const txt = snippet(r.proposed);
+      return html`<div class="appr-resolved-row">
+        <span class="badge ${tone}">${r.status === "approved" ? "Sent" : "Rejected"}</span>
+        <span>${who}</span>
+        ${txt ? html`<span class="appr-resolved-snippet">“${truncateCodePoints(txt, 60)}”</span>` : html``}
+        <span class="appr-resolved-time">${r.resolved_at ? timeAgo(r.resolved_at) : ""}</span>
+      </div>`;
+    })}
+  </details>`;
+}
+
+function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolved: Awaited<ReturnType<typeof loadResolvedApprovals>> = [], error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>`;
+  if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>${renderResolvedApprovals(resolved)}`;
   return html`${notice}<div class="appr-list">${list.map((a) => {
     const proposed = a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } | null; comment?: { text?: string } | null } | null;
     const content = proposed?.content ?? {};
@@ -2806,7 +2858,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?
         </div>` : (!commentText ? html`<div class="appr-reply"><div class="appr-reply-text is-empty">(no reply text)</div></div>` : html``)}
       </div>
     </div>`;
-  })}</div>`;
+  })}</div>${renderResolvedApprovals(resolved)}`;
 }
 
 async function loadSequences(workspaceId: string) {

@@ -149,6 +149,25 @@ describe("dashboard action error surfacing", () => {
     expect(body).toContain(`/inbox?open=${CONV}`); // deep-link to the conversation in the inbox
   });
 
+  it("approvals page shows a 'Recently resolved' history of approved/rejected replies", async () => {
+    if (!TEST_DB) return;
+    const [rule] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Hist rule", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "x" }, requires_approval: true,
+    }).returning({ id: s.autoReplyRules.id });
+    await db.update(s.contacts).set({ display_name: "Historia Klient" }).where(eq(s.contacts.id, CONTACT));
+    await db.insert(s.pendingApprovals).values([
+      { workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH, recipient_platform_id: "P1", status: "approved", resolved_at: new Date(), proposed_content: { content: { text: "Wysłana odpowiedź" } } },
+      { workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH, recipient_platform_id: "P2", status: "rejected", resolved_at: new Date(), proposed_content: { content: { text: "Odrzucona odpowiedź" } } },
+    ]);
+    const body = await (await app.request("/approvals", { headers: { cookie } })).text();
+    expect(body).toContain("Recently resolved");
+    expect(body).toContain("Sent"); // approved badge
+    expect(body).toContain("Rejected"); // rejected badge
+    expect(body).toContain("Odrzucona odpowiedź"); // the rejected text is visible in history
+  });
+
   it("inbox deep-link (?open=) self-loads the target conversation thread", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request(`/inbox?open=${CONV}`, { headers: { cookie } })).text();
