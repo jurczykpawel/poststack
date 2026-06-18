@@ -972,9 +972,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Settings" }),
         "/settings",
-        html`<div class="page">
+        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','license','integrations','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Settings</h1>
-          <p class="muted">Manage your workspace settings and API access.</p>
+          <p class="muted">Manage your workspace settings and integrations.</p>
+          <nav class="settings-tabs" role="tablist">
+            <button type="button" class="settings-tab" :class="{ active: tab==='account' }" @click="go('account')">Account</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='license' }" @click="go('license')">License</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='integrations' }" @click="go('integrations')">Integrations</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='automation' }" @click="go('automation')">Automation</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='data' }" @click="go('data')">Data</button>
+          </nav>
+          <div class="settings-panel" x-show="tab==='account'" x-cloak>
           <section class="section">
             <h2>API Keys</h2>
             <p class="muted">Programmatic API access now lives on its own page. <a href="/api-keys">Open API Keys →</a></p>
@@ -988,14 +996,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </form>
             <p id="password-msg" class="muted" style="margin-top:.5rem"></p>
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='data'" x-cloak>
           <section class="section">
             <h2>Data retention</h2>
             <p class="muted" style="margin-bottom:1rem">Delete messages older than N days (runs daily). Blank = keep forever. Pending messages are never deleted.</p>
-            <form hx-post="/settings/retention" hx-ext="json-enc" hx-target="#retention-msg" hx-swap="innerHTML" class="row">
-              <input class="input" style="width:140px" type="number" min="1" name="message_retention_days" placeholder="Keep forever"
+            <form hx-post="/settings/retention" hx-ext="json-enc" hx-target="#retention-msg" hx-swap="innerHTML" style="display:flex;flex-direction:row;align-items:center;gap:.5rem;flex-wrap:nowrap">
+              <input class="input" style="width:7rem;flex:0 0 auto" type="number" min="1" name="message_retention_days" placeholder="Keep forever"
                 value="${workspace?.message_retention_days ?? ""}" />
-              <span class="muted">days</span>
-              <button class="btn btn-primary" type="submit">Save</button>
+              <span class="muted" style="flex:0 0 auto">days</span>
+              <button class="btn btn-primary" type="submit" style="flex:0 0 auto">Save</button>
             </form>
             <p id="retention-msg" class="muted" style="margin-top:.5rem"></p>
             <p class="muted" style="margin-top:1rem;font-size:.85rem">
@@ -1009,6 +1019,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     without bound. Set a value (≥ 30 days) to keep the database small.`}
             </p>
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='license'" x-cloak>
           <section class="section">
             <h2>License</h2>
             <p class="muted" style="margin-bottom:1rem">Unlock PRO features with a license token from Sellf. A free instance keeps all free features.</p>
@@ -1018,6 +1030,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </form>
             <div id="license-area">${renderLicense(license)}</div>
           </section>
+          </div>
+          <div class="settings-panel" x-show="tab==='integrations'" x-cloak>
           <section class="section">
             <h2>Meta App configuration</h2>
             <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
@@ -1030,6 +1044,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             ${renderCredentials(await configStatus())}
           </section>
           ${license.products.has("publishing") ? renderProvidersStatus() : ""}
+          </div>
+          <div class="settings-panel" x-show="tab==='automation'" x-cloak>
           <section class="section">
             <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
               <h2 style="margin:0">Alert webhook</h2>
@@ -1038,6 +1054,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
             <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
           </section>
+          </div>
         </div>`,
         license.features,
         license.products,
@@ -1943,36 +1960,36 @@ function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awa
  *  and, when DB-set, a Clear (revert to env) form, both swapping this block in place via htmx. */
 function renderCredentials(status: ConfigStatus[], msg?: string): Html {
   const badge = (s: ConfigStatus["source"]) =>
-    s === "db" ? html`<span class="badge" style="background:var(--ok-bg);color:var(--ok-text)">set here</span>`
-    : s === "env" ? html`<span class="badge" style="background:var(--info-bg)">from env</span>`
-    : html`<span class="badge muted">not set</span>`;
+    s === "db" ? html`<span class="badge tone-ok">set here</span>`
+    : s === "env" ? html`<span class="badge tone-info">from env</span>`
+    : html`<span class="badge tone-neutral">not set</span>`;
   // Group rows by their integration group (preserving first-seen order) so e.g. Google / AI /
   // Integrations / Security each get their own subheading and don't read as part of Meta.
   const groups: string[] = [];
   for (const f of status) if (!groups.includes(f.group)) groups.push(f.group);
-  const row = (f: ConfigStatus) => html`<div class="list-row">
-      <div class="grow">
-        <div style="font-weight:600">${f.label} ${badge(f.source)}</div>
-        <div class="muted" style="font-size:.72rem"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
-        ${f.help ? html`<div class="muted" style="font-size:.7rem;margin-top:.15rem">${f.help}</div>` : ""}
+  const row = (f: ConfigStatus) => html`<div class="cred-row">
+      <div class="cred-head"><span class="cred-label">${f.label}</span>${badge(f.source)}</div>
+      <div class="cred-meta"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
+      ${f.help ? html`<div class="cred-help">${f.help}</div>` : ""}
+      <div class="cred-form">
+        <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
+          <input type="hidden" name="key" value="${f.key}" />
+          <input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
+            placeholder="${f.secret ? "paste to set / change" : "value"}" />
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+        </form>
+        ${f.source === "db"
+          ? html`<form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
+              <input type="hidden" name="key" value="${f.key}" /><input type="hidden" name="clear" value="1" />
+              <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
+            </form>`
+          : html``}
       </div>
-      <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML" class="row" style="gap:.35rem">
-        <input type="hidden" name="key" value="${f.key}" />
-        <input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
-          placeholder="${f.secret ? "paste to set / change" : "value"}" style="width:15rem" />
-        <button class="btn btn-sm btn-primary" type="submit">Save</button>
-      </form>
-      ${f.source === "db"
-        ? html`<form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
-            <input type="hidden" name="key" value="${f.key}" /><input type="hidden" name="clear" value="1" />
-            <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
-          </form>`
-        : html``}
     </div>`;
   return html`<div id="credentials">
     ${msg ? html`<div class="notice notice-ok" style="margin-bottom:.5rem">${msg}</div>` : html``}
-    ${groups.map((g) => html`<h4 style="margin:.75rem 0 .25rem">${g}</h4>
-      <div class="list">${status.filter((f) => f.group === g).map(row)}</div>`)}
+    ${groups.map((g) => html`<div class="cred-subhead">${g}</div>
+      <div class="cred-list">${status.filter((f) => f.group === g).map(row)}</div>`)}
   </div>`;
 }
 
