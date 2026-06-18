@@ -306,4 +306,22 @@ describe("evaluateRules (real Postgres)", () => {
     // Parks the resolved, ready-to-send content (approve-what-you-see), not the raw config.
     expect((approvals[0].proposed_content as { content: { text: string } }).content.text).toBe("hello");
   });
+
+  it("parks BOTH the public comment and the DM when a reply_mode:both rule requires approval", async () => {
+    if (!TEST_DB) return;
+    const id = await seedRule({
+      requires_approval: true,
+      trigger_type: "comment_keyword",
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_config: { text: "DM body here", reply_mode: "both", comment_reply_text: "See your DMs 🙌" },
+    });
+    const fired = await evaluateRules({ ...baseInput, text: "info please", eventType: "comment", commentId: "CMT-APPR" });
+    expect(fired.ruleId).toBe(id);
+    expect(await outgoingJobCount()).toBe(0); // nothing sent yet — parked for approval
+    const [appr] = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
+    const pc = appr.proposed_content as { content?: { text?: string }; comment?: { text?: string; commentId?: string } };
+    expect(pc.content?.text).toBe("DM body here"); // the DM to send on approve
+    expect(pc.comment?.text).toBe("See your DMs 🙌"); // the public comment reply
+    expect(pc.comment?.commentId).toBe("CMT-APPR"); // addressed to the triggering comment
+  });
 });

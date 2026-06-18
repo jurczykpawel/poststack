@@ -2767,19 +2767,24 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>`;
   return html`${notice}<div class="list">${list.map((a) => {
-    const content = ((a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } } | null)?.content) ?? {};
-    const preview = content.text ?? "(no reply text)";
+    const proposed = a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } | null; comment?: { text?: string } | null } | null;
+    const content = proposed?.content ?? {};
+    const commentText = proposed?.comment?.text;
+    const dmText = content.text;
     const extras = [
       content.buttons?.length ? `${content.buttons.length} button(s)` : null,
       content.quick_replies?.length ? `${content.quick_replies.length} quick repl(ies)` : null,
     ].filter(Boolean).join(" · ");
     const who = a.contactName ?? a.recipient;
     const via = [a.channelName, a.threadType === "comment" ? "comment" : "DM"].filter(Boolean).join(" · ");
+    const label = (t: string) => html`<span class="muted" style="font-size:.72rem">${t} → </span>`;
     return html`<div class="list-row">
       <div class="grow">
         <div style="font-weight:600">${who} <span class="muted" style="font-size:.75rem">· ${via} · ${a.ruleName ?? "rule"} · ${timeAgo(a.created_at)}</span></div>
         ${a.trigger ? html`<div class="muted" style="font-size:.8rem">↩ in reply to: “${a.trigger}”</div>` : html``}
-        <div style="font-size:.875rem;white-space:pre-wrap"><span class="muted" style="font-size:.72rem">will send → </span>${preview}</div>
+        ${commentText ? html`<div style="font-size:.875rem;white-space:pre-wrap">${label("public comment")}${commentText}</div>` : html``}
+        ${dmText ? html`<div style="font-size:.875rem;white-space:pre-wrap">${label("DM")}${dmText}</div>`
+          : (!commentText ? html`<div class="muted" style="font-size:.875rem">(no reply text)</div>` : html``)}
         ${extras ? html`<div class="muted" style="font-size:.7rem">${extras}</div>` : html``}
       </div>
       <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>

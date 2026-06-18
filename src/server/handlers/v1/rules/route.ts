@@ -165,17 +165,13 @@ export const createRuleSchema = z
       }
     }
     // Approval gate parks a single PSID-addressed DM, so it only applies to
-    // DM-producing responses and not to comment triggers (whose first-touch DM
-    // is addressed by comment_id, which the approval does not carry).
+    // text-family responses (the approval parks resolved text/buttons; follow_gate/sequence aren't
+    // held). Comment triggers and reply_mode comment/both ARE supported: the approval parks the
+    // public comment AND the DM, and Approve sends both (the comment-triggered DM goes out as a
+    // private reply addressed by comment_id).
     if (data.requires_approval) {
       if (!["text", "random_text", "ai_rephrase"].includes(data.response_type)) {
         ctx.addIssue({ code: "custom", path: ["requires_approval"], message: "requires_approval is only supported for text, random_text or ai_rephrase responses" });
-      }
-      if (data.trigger_type === "comment_keyword") {
-        ctx.addIssue({ code: "custom", path: ["requires_approval"], message: "requires_approval is not supported for comment triggers" });
-      }
-      if (r.reply_mode && r.reply_mode !== "dm") {
-        ctx.addIssue({ code: "custom", path: ["response_config", "reply_mode"], message: "requires_approval only supports reply_mode dm" });
       }
     }
   });

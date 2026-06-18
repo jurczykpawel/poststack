@@ -388,7 +388,7 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     expect(res.status).toBe(422);
   });
 
-  it("PATCH cannot turn on approval for a non-dm reply mode", async () => {
+  it("PATCH can turn on approval for a non-dm reply mode (comment + DM both parked)", async () => {
     if (!TEST_DB) return;
     const created = await rules.POST(post({
       name: "Cmt", trigger_type: "comment_keyword",
@@ -398,20 +398,20 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     expect(created.status).toBe(201);
     const id = (await created.json()).data.id;
     const res = await rule.PATCH(post({ requires_approval: true }), { params: Promise.resolve({ ruleId: id }) });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(200);
   });
 
-  it("rejects requires_approval on a comment trigger (422)", async () => {
+  it("allows requires_approval on a comment trigger (201)", async () => {
     if (!TEST_DB) return;
     const res = await rules.POST(post({
       name: "CmtApproval", trigger_type: "comment_keyword",
       trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
       response_type: "text", response_config: { text: "hi", reply_mode: "dm" }, requires_approval: true,
     }));
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(201);
   });
 
-  it("PATCH cannot turn on approval for a comment-trigger rule", async () => {
+  it("PATCH can turn on approval for a comment-trigger rule", async () => {
     if (!TEST_DB) return;
     const created = await rules.POST(post({
       name: "CmtDm", trigger_type: "comment_keyword",
@@ -421,7 +421,7 @@ describe("rule config exposure: post scoping + reply mode + AI prompt (real Post
     expect(created.status).toBe(201);
     const id = (await created.json()).data.id;
     const res = await rule.PATCH(post({ requires_approval: true }), { params: Promise.resolve({ ruleId: id }) });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(200);
   });
 
   it("PATCH allows a legitimate change on an approval-gated rule", async () => {

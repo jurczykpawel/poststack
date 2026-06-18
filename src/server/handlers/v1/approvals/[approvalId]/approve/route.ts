@@ -6,7 +6,7 @@ import { acquireCooldown, incrementSendCount } from "@/lib/rules/limits";
 import { TASK_MAX_ATTEMPTS } from "@/lib/queue/spec";
 import { ok, ApiErrors } from "@/lib/api/response";
 import type { MessageContent } from "@/lib/platforms/base";
-import type { OutgoingMessageJob } from "@/lib/queue/types";
+import type { OutgoingMessageJob, OutgoingCommentJob, OutgoingPrivateReplyJob } from "@/lib/queue/types";
 
 export const runtime = "nodejs";
 
@@ -53,8 +53,12 @@ export async function POST(
       return existing ? { kind: "conflict", status: existing.status } : { kind: "notfound" };
     }
 
-    const content = (row.proposed_content as { content?: MessageContent | null }).content ?? null;
-    const hasSomething = !!content && (!!content.text || !!content.buttons?.length || !!content.quick_replies?.length);
+    const proposed = row.proposed_content as { content?: MessageContent | null; comment?: { text?: string; commentId?: string } | null };
+    const content = proposed.content ?? null;
+    const comment = proposed.comment ?? null;
+    const hasDm = !!content && (!!content.text || !!content.buttons?.length || !!content.quick_replies?.length);
+    const hasComment = !!comment?.text && !!comment?.commentId;
+    const hasSomething = hasDm || hasComment;
 
     // Consent gate at the actual send: the contact may have unsubscribed AFTER the reply
     // was parked — and an approval can sit pending for an unbounded time, a wider window than a
@@ -85,25 +89,71 @@ export async function POST(
         }
       }
 
-      const job: OutgoingMessageJob = {
-        channelId: row.channel_id,
-        conversationId: row.conversation_id,
-        contactId: row.contact_id,
-        recipientPlatformId: row.recipient_platform_id,
-        content: content!,
-        sentByRuleId: row.rule_id,
-        idempotencyKey: `approval:${row.id}`,
-      };
-      // Same transaction as the status flip → atomic outbox: if this fails, the
-      // flip rolls back and the approval stays pending (retryable).
-      await tx.execute(sql`
-        select graphile_worker.add_job(
-          'outgoing-message',
-          ${JSON.stringify(job)}::json,
-          max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-message"]},
-          job_key => ${`approval-${row.id}`}
-        )
-      `);
+      // Public comment reply (reply_mode comment/both). Distinct job_key + idempotency key from the
+      // DM so both can be enqueued in this one transaction without clobbering each other.
+      if (hasComment) {
+        const commentJob: OutgoingCommentJob = {
+          channelId: row.channel_id,
+          contactId: row.contact_id,
+          commentId: comment!.commentId!,
+          text: comment!.text!,
+          sentByRuleId: row.rule_id,
+          idempotencyKey: `approval:${row.id}:comment`,
+        };
+        await tx.execute(sql`
+          select graphile_worker.add_job(
+            'outgoing-comment',
+            ${JSON.stringify(commentJob)}::json,
+            max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-comment"]},
+            job_key => ${`approval-${row.id}-comment`}
+          )
+        `);
+      }
+
+      if (hasDm) {
+        // A comment-triggered DM must be addressed by comment_id (private reply) — a first-touch
+        // commenter has no usable PSID yet. A plain keyword/DM approval (no commentId) sends by PSID.
+        // Same transaction as the status flip → atomic outbox: a failed enqueue rolls the flip back
+        // and the approval stays pending (retryable).
+        if (comment?.commentId) {
+          const job: OutgoingPrivateReplyJob = {
+            channelId: row.channel_id,
+            conversationId: row.conversation_id,
+            contactId: row.contact_id,
+            commentId: comment.commentId,
+            text: content!.text ?? "",
+            content: content!,
+            sentByRuleId: row.rule_id,
+            idempotencyKey: `approval:${row.id}`,
+          };
+          await tx.execute(sql`
+            select graphile_worker.add_job(
+              'outgoing-private-reply',
+              ${JSON.stringify(job)}::json,
+              max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-private-reply"]},
+              job_key => ${`approval-${row.id}`}
+            )
+          `);
+        } else {
+          const job: OutgoingMessageJob = {
+            channelId: row.channel_id,
+            conversationId: row.conversation_id,
+            contactId: row.contact_id,
+            recipientPlatformId: row.recipient_platform_id,
+            content: content!,
+            sentByRuleId: row.rule_id,
+            idempotencyKey: `approval:${row.id}`,
+          };
+          await tx.execute(sql`
+            select graphile_worker.add_job(
+              'outgoing-message',
+              ${JSON.stringify(job)}::json,
+              max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-message"]},
+              job_key => ${`approval-${row.id}`}
+            )
+          `);
+        }
+      }
     }
 
     return { kind: "ok", queued: hasSomething && consented };

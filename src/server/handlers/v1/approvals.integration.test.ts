@@ -106,14 +106,14 @@ describe("approval workflow (real Postgres)", () => {
     expect(res.status).toBe(422);
   });
 
-  it("rejects requires_approval with a non-dm reply mode (422)", async () => {
+  it("allows requires_approval on a comment trigger with reply_mode both (comment + DM are both parked)", async () => {
     if (!TEST_DB) return;
     const res = await rules.POST(post({
-      name: "BadMode", trigger_type: "comment_keyword",
+      name: "GatedBoth", trigger_type: "comment_keyword",
       trigger_config: { keywords: [{ value: "hi", match_type: "contains" }] },
-      response_type: "text", response_config: { text: "hi", reply_mode: "comment" }, requires_approval: true,
+      response_type: "text", response_config: { text: "hi", reply_mode: "both", comment_reply_text: "Check DMs" }, requires_approval: true,
     }));
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(201);
   });
 
   it("lists pending approvals (and not resolved ones)", async () => {
@@ -142,6 +142,22 @@ describe("approval workflow (real Postgres)", () => {
     const row = await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) });
     expect(row?.status).toBe("approved");
     expect(row?.resolved_at).toBeTruthy();
+  });
+
+  it("approve of a comment+DM proposal sends BOTH the public comment and the DM (as a private reply)", async () => {
+    if (!TEST_DB) return;
+    const id = await seedApproval(
+      { proposed_content: { content: { text: "Check your DMs 📩" }, comment: { text: "Sent you a DM 🙌", commentId: "CMT-9" } } },
+    );
+    const res = await approve.POST(post({}), ctx(id));
+    expect(res.status).toBe(200);
+    const jobs = await db.execute(sql`select j.task_identifier, pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id`);
+    const byTask = new Map((jobs.rows as { task_identifier: string; payload: Record<string, unknown> }[]).map((r) => [r.task_identifier, r.payload]));
+    // Public comment reply, addressed to the triggering comment.
+    expect(byTask.get("outgoing-comment")).toMatchObject({ commentId: "CMT-9", text: "Sent you a DM 🙌" });
+    // The DM goes out as a private reply (by comment_id), NOT a PSID-addressed outgoing-message.
+    expect(byTask.get("outgoing-private-reply")).toMatchObject({ commentId: "CMT-9", text: "Check your DMs 📩" });
+    expect(byTask.has("outgoing-message")).toBe(false);
   });
 
   it("reject discards the parked reply without sending", async () => {

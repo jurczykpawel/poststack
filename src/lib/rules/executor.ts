@@ -256,7 +256,7 @@ export async function evaluateRules(
       if (!planned) continue;
       commit = planned;
     } else if (rule.requires_approval) {
-      commit = await planApproval({ rule: candidate, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize });
+      commit = await planApproval({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, personalize });
     } else {
       commit = await planResponse({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
     }
@@ -323,15 +323,37 @@ async function planApproval(input: {
   rule: { id: string; response_type: string; response_config: Record<string, unknown> };
   workspaceId: string;
   channelId: string;
+  platform: string;
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
+  commentId?: string;
   personalize: PersonalizeContext;
 }): Promise<CommitFn> {
-  const { rule, workspaceId, channelId, conversationId, contactId, recipientPlatformId, personalize } = input;
-  const content = await resolveReplyContent(workspaceId, rule.response_type, rule.response_config);
-  // Park the exact wording the approver will send — personalized (or safely stripped).
-  if (content?.text) content.text = applyPersonalization(content.text, personalize);
+  const { rule, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, personalize } = input;
+  const replyMode = (rule.response_config.reply_mode as string) ?? "dm";
+  const canDM = platformSupportsDM(platform);
+
+  // The DM body (text + interactive add-ons), personalized — exactly what Approve will send.
+  const dmContent = await resolveReplyContent(workspaceId, rule.response_type, rule.response_config);
+  if (dmContent?.text) dmContent.text = applyPersonalization(dmContent.text, personalize);
+
+  // Public comment reply (reply_mode comment/both, or any no-DM platform) — mirrors planResponse so
+  // a "both" rule held for approval parks the comment AND the DM, and Approve sends both.
+  const pickedComment = pickText(
+    rule.response_config.comment_reply_text as string | undefined,
+    rule.response_config.comment_reply_texts as string[] | undefined,
+  );
+  const commentReplyText = (pickedComment != null ? applyPersonalization(pickedComment, personalize) : undefined) ?? dmContent?.text ?? undefined;
+  const sendComment = (!canDM || replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
+  const shouldDM = canDM && (replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !sendComment)) && !!dmContent?.text;
+
+  const proposed: { content?: MessageContent | null; comment?: { text: string; commentId: string } } = {};
+  if (shouldDM) proposed.content = dmContent;
+  if (sendComment) proposed.comment = { text: commentReplyText!, commentId: commentId! };
+  // Never park an empty proposal (e.g. an unresolvable config) — keep the DM body as a fallback.
+  if (!proposed.content && !proposed.comment) proposed.content = dmContent;
+
   return async (tx) => {
     await tx.insert(pendingApprovals).values({
       workspace_id: workspaceId,
@@ -340,7 +362,7 @@ async function planApproval(input: {
       contact_id: contactId,
       channel_id: channelId,
       recipient_platform_id: recipientPlatformId,
-      proposed_content: JSON.parse(JSON.stringify({ content })),
+      proposed_content: JSON.parse(JSON.stringify(proposed)),
     });
   };
 }

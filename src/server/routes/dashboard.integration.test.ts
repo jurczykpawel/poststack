@@ -133,13 +133,18 @@ describe("dashboard action error surfacing", () => {
     await db.insert(s.pendingApprovals).values({
       workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH,
       recipient_platform_id: "PSID-D",
-      proposed_content: { content: { text: "Cześć Ola! Oto link 📩", buttons: [{ title: "Pobierz", url: "https://example.com/x" }] } },
+      proposed_content: {
+        content: { text: "Cześć Ola! Oto link 📩", buttons: [{ title: "Pobierz", url: "https://example.com/x" }] },
+        comment: { text: "Sprawdź DM 🙌", commentId: "cmt-1" },
+      },
     });
     const body = await (await app.request("/approvals", { headers: { cookie } })).text();
     expect(body).toContain("Ola Klient"); // the contact, not the raw PSID
     expect(body).not.toContain("PSID-D");
     expect(body).toContain("Czy kurs jest dostępny?"); // the message being replied to
-    expect(body).toContain("Cześć Ola! Oto link 📩"); // the exact reply that will be sent
+    expect(body).toContain("Sprawdź DM 🙌"); // the public comment reply (reply_mode both)
+    expect(body).toContain("Cześć Ola! Oto link 📩"); // the DM that will be sent
+    expect(body).toContain("public comment"); // labelled separately from the DM
     expect(body).toContain("1 button(s)");
   });
 });
