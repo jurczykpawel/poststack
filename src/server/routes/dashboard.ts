@@ -155,28 +155,43 @@ function renderConvPanel(
   filter: ConvFilter,
   channelId: string,
   chans: InboxChannel[],
+  contactId = "all",
+  search = "",
+  since = "",
 ): Html {
+  // One form holds every filter (pills, contact-name search, date preset, channel) so they always
+  // compose — any change re-runs /inbox/list with the full state. Pills drive a hidden `filter` via
+  // Alpine; selects fire on change; the search box on debounced keyup.
+  const sinceOpt = (v: string, label: string) => html`<option value="${v}" ${since === v ? "selected" : ""}>${label}</option>`;
   return html`<div class="conv-head" style="display:flex;justify-content:space-between;align-items:center">
       <span>Inbox</span>
-      <button class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem"
-        hx-get="/inbox/list?filter=${filter}&channel=${channelId}" hx-target="#conv-panel" hx-swap="innerHTML">↻</button>
+      <button type="submit" form="conv-filter-form" class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem">↻</button>
     </div>
-    <div class="conv-filters" style="display:flex;gap:.25rem;flex-wrap:wrap;padding:.4rem .5rem;border-bottom:1px solid var(--border,#222)">
-      ${CONV_FILTERS.map(
-        (f) => html`<button class="btn btn-sm ${f.id === filter ? "btn-primary" : ""}" style="font-size:.72rem;padding:.15rem .5rem"
-          hx-get="/inbox/list?filter=${f.id}&channel=${channelId}" hx-target="#conv-panel" hx-swap="innerHTML">${f.label}</button>`,
-      )}
-    </div>
-    ${chans.length > 1
-      ? html`<div style="padding:.35rem .5rem;border-bottom:1px solid var(--border,#222)">
-          <select class="input" name="channel" style="font-size:.75rem;width:100%;padding:.25rem"
-            hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML" hx-trigger="change"
-            hx-vals='${`{"filter":"${filter}"}`}'>
+    <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}' }"
+      hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
+      hx-trigger="submit, change from:find select, input changed delay:350ms from:find input[name='search']"
+      style="display:flex;flex-direction:column;gap:.4rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
+      <input type="hidden" name="filter" :value="filter" />
+      <input type="hidden" name="contact" value="${contactId}" />
+      <div style="display:flex;gap:.25rem;flex-wrap:wrap">
+        ${CONV_FILTERS.map(
+          (f) => html`<button type="button" class="btn btn-sm" :class="{ 'btn-primary': filter==='${f.id}' }" style="font-size:.72rem;padding:.15rem .5rem"
+            @click="filter='${f.id}'; $nextTick(() => window.htmx.trigger($root, 'submit'))">${f.label}</button>`,
+        )}
+      </div>
+      <div style="display:flex;gap:.35rem">
+        <input class="input input-sm" type="search" name="search" autocomplete="off" placeholder="Search contact name…" value="${search}" style="flex:1;min-width:0" />
+        <select class="input input-sm" name="since" title="Active since" style="flex:0 0 auto">
+          ${sinceOpt("", "Any time")}${sinceOpt("24h", "Last 24h")}${sinceOpt("7d", "Last 7 days")}${sinceOpt("30d", "Last 30 days")}${sinceOpt("90d", "Last 90 days")}
+        </select>
+      </div>
+      ${chans.length > 1
+        ? html`<select class="input input-sm" name="channel" style="width:100%">
             <option value="all" ${channelId === "all" ? "selected" : ""}>All channels</option>
             ${renderInboxChannelOptions(chans, channelId)}
-          </select>
-        </div>`
-      : html``}
+          </select>`
+        : html`<input type="hidden" name="channel" value="${channelId}" />`}
+    </form>
     <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
 }
 
@@ -329,7 +344,25 @@ function renderThread(
         </div>`}`;
 }
 
-function loadConversations(workspaceId: string, filter: ConvFilter = "all", channelId = "all", contactId = "all") {
+// Inbox "active since" presets → rolling window in ms (last_message_at cutoff). "" = any time.
+const CONV_SINCE_PRESETS: Record<string, number> = {
+  "24h": 24 * 3_600_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+  "90d": 90 * 86_400_000,
+};
+export function parseConvSince(v: string | undefined): string {
+  return v && v in CONV_SINCE_PRESETS ? v : "";
+}
+
+function loadConversations(
+  workspaceId: string,
+  filter: ConvFilter = "all",
+  channelId = "all",
+  contactId = "all",
+  search = "",
+  since = "",
+) {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
   else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
@@ -337,6 +370,21 @@ function loadConversations(workspaceId: string, filter: ConvFilter = "all", chan
   else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
   if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
   if (contactId !== "all") where.push(eq(conversations.contact_id, contactId));
+  // Date filter: conversations whose last activity is within the rolling window.
+  const windowMs = CONV_SINCE_PRESETS[since];
+  if (windowMs) where.push(gt(conversations.last_message_at, new Date(Date.now() - windowMs)));
+  // Contact-name search: match conversations whose contact's display name contains the query.
+  const q = search.trim();
+  if (q) {
+    where.push(
+      inArray(
+        conversations.contact_id,
+        db.select({ id: contacts.id }).from(contacts).where(
+          and(eq(contacts.workspace_id, workspaceId), ilike(contacts.display_name, `%${q}%`)),
+        ),
+      ),
+    );
+  }
   return db.query.conversations.findMany({
     where: and(...where),
     orderBy: desc(conversations.last_message_at),
@@ -649,8 +697,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
     const contactId = c.req.query("contact") || "all";
+    const search = c.req.query("search") || "";
+    const since = parseConvSince(c.req.query("since"));
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since),
       loadInboxChannels(a.workspaceId),
     ]);
     return c.html(
@@ -659,9 +709,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/inbox",
         html`<div class="inbox">
           <div id="conv-panel" class="conv-list"
-            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans)}</div>
+            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since)}</div>
           <div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>
         </div>`,
         features,
@@ -677,11 +727,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const filter = parseConvFilter(c.req.query("filter"));
     const channelId = c.req.query("channel") || "all";
     const contactId = c.req.query("contact") || "all";
+    const search = c.req.query("search") || "";
+    const since = parseConvSince(c.req.query("since"));
     const [conversations, chans] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since),
       loadInboxChannels(a.workspaceId),
     ]);
-    return c.html(renderConvPanel(conversations, filter, channelId, chans));
+    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
