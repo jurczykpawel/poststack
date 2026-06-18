@@ -14,5 +14,5 @@ export function __setStoryRenderer(r: StoryRenderer | null): void {
   cached = r;
 }
 
-export type { StoryRenderer, StoryCard } from "./renderer";
-export { STORY_WIDTH, STORY_HEIGHT } from "./renderer";
+export type { StoryRenderer, StoryCard, StoryStyle, StoryTemplate, StoryPlan } from "./renderer";
+export { STORY_WIDTH, STORY_HEIGHT, STORY_TEMPLATES, DEFAULT_STORY_TEMPLATE, registerStoryTemplate, resolveStoryTemplate } from "./renderer";

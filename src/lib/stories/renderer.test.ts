@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { SharpStoryRenderer, STORY_WIDTH, STORY_HEIGHT } from "./renderer";
+import { SharpStoryRenderer, STORY_WIDTH, STORY_HEIGHT, STORY_TEMPLATES, DEFAULT_STORY_TEMPLATE, resolveStoryTemplate, registerStoryTemplate } from "./renderer";
 
 describe("SharpStoryRenderer", () => {
   const renderer = new SharpStoryRenderer();
@@ -46,5 +46,49 @@ describe("SharpStoryRenderer", () => {
     const meta = await sharp(Buffer.from(bytes)).metadata();
     expect(meta.width).toBe(STORY_WIDTH);
     expect(meta.height).toBe(STORY_HEIGHT);
+  });
+
+  it("renders the phone template when requested", async () => {
+    const bytes = await renderer.render({ caption: "Phone look" }, { template: "phone", accent: "#7aa2f7", brandName: "TSA" });
+    expect((await sharp(Buffer.from(bytes)).metadata()).height).toBe(STORY_HEIGHT);
+  });
+});
+
+// STORYCFG1 — pure layout tests on the template registry (no sharp): the seam that PRO custom
+// templates/styling will plug into.
+describe("story template registry (STORYCFG1)", () => {
+  const style = { accent: "#123abc", brandName: "Acme Brand", ctaLabel: "Zobacz rolkę" };
+
+  it("resolves the default template and falls back for an unknown id", () => {
+    expect(resolveStoryTemplate().id).toBe(DEFAULT_STORY_TEMPLATE);
+    expect(resolveStoryTemplate("does-not-exist").id).toBe(DEFAULT_STORY_TEMPLATE);
+    expect(resolveStoryTemplate("phone").id).toBe("phone");
+  });
+
+  it("framed plan carries accent, brand name, CTA label, the caption and a cover rect", () => {
+    const p = STORY_TEMPLATES.framed!.plan({ caption: "Twój profil dostaje DM-y gdy śpisz" }, style, true);
+    expect(p.bgSvg).toContain("#123abc"); // accent bar
+    expect(p.bgSvg).toContain("Twój profil"); // teaser text
+    expect(p.overlaySvg).toContain("Acme Brand"); // brand mark
+    expect(p.overlaySvg).toContain("Zobacz rolkę"); // CTA pill
+    expect(p.cover).toBeTruthy(); // reel cover gets framed
+  });
+
+  it("phone plan draws a device frame + CTA and a cover rect", () => {
+    const p = STORY_TEMPLATES.phone!.plan({ caption: "x" }, style, true);
+    expect(p.cover).toBeTruthy();
+    expect(p.overlaySvg).toContain("Zobacz rolkę");
+  });
+
+  it("strips emoji from rendered caption (libvips has no colour-emoji font)", () => {
+    const p = STORY_TEMPLATES.framed!.plan({ caption: "Tracisz leady 🔥👇 czas" }, style, false);
+    expect(p.bgSvg).not.toContain("🔥");
+    expect(p.bgSvg).not.toContain("👇");
+    expect(p.bgSvg).toContain("Tracisz");
+  });
+
+  it("registerStoryTemplate adds a custom template (the PRO extensibility seam)", () => {
+    registerStoryTemplate({ id: "custom-test", plan: () => ({ bg: { r: 0, g: 0, b: 0 }, bgSvg: "<svg/>", overlaySvg: "<svg/>" }) });
+    expect(resolveStoryTemplate("custom-test").id).toBe("custom-test");
   });
 });

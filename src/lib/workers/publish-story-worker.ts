@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { deliveries, channels } from "@/db/schema";
+import { deliveries, channels, brands } from "@/db/schema";
 import type { PublishStoryJob } from "@/lib/queue/types";
 import type { PublishRequest } from "@/lib/providers/types";
 import { decryptTokens } from "@/lib/crypto";
@@ -73,7 +73,16 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
       const caption = (request.caption ?? request.title ?? "").trim();
       const accountName = channel.display_name ?? channel.username ?? undefined;
 
-      const bytes = await getStoryRenderer().render({ caption, accountName, thumbnail });
+      // STORYCFG1: brand the card from the channel's brand (accent + name). The template id is the
+      // configuration seam — currently the built-in default; a future per-channel/per-post setting
+      // (and PRO custom templates/styling) would supply it here without touching this flow.
+      const brand = channel.brand_key
+        ? await db.query.brands.findFirst({ where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, channel.brand_key)), columns: { name: true, accent: true } })
+        : undefined;
+      const bytes = await getStoryRenderer().render(
+        { caption, accountName, thumbnail },
+        { accent: brand?.accent ?? undefined, brandName: brand?.name ?? accountName },
+      );
 
       // Upload the fresh card to public storage (deterministic key → idempotent re-render on retry).
       // The platform pulls the Story image from this public URL.
