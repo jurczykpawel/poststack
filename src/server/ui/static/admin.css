@@ -178,6 +178,11 @@
   form input { width: 100%; padding: 9px 12px; font: inherit; font-size: 13px;
     color: var(--text-1); background: var(--bg);
     border: 1px solid var(--border-strong); border-radius: var(--radius-control); }
+  /* The blanket `form input { width:100% }` above is meant for text inputs. Checkboxes/radios must
+     NEVER stretch — a 100%-wide checkbox shoves its label to the far right (and staggers radio rows).
+     Reset them globally instead of per-context (.chk-inline/.evt-opt/.theme-opt did this piecemeal).
+     Lower specificity than .compose-toggle's switch + .accent-field's colour swatch, so those win. */
+  form input[type="checkbox"], form input[type="radio"] { width: auto; flex: 0 0 auto; padding: 0; accent-color: var(--accent); }
   form input::placeholder { color: var(--text-3); }
   form input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
   form button[type="submit"], form button:not([class]) { align-self: flex-start; }
@@ -1115,6 +1120,10 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
   padding: 7px 10px; font: inherit; resize: vertical;
 }
 .textarea:focus, .input:focus { outline: none; border-color: var(--accent); }
+/* Inline control row (checkbox/radio + label). Display lives in this class — NOT inline — because
+   Alpine x-show toggles the element's inline `display`, which would wipe an inline `display:flex`
+   when it shows the element (leaving it `inline` and visually broken). gap can be overridden inline. */
+.row-center { display: flex; align-items: center; gap: 8px; }
 .notice { padding: 9px 12px; border-radius: var(--radius-control); margin: 8px 0; font-size: 13px; }
 .notice-err { background: var(--bad-bg); color: var(--bad-text); border: 1px solid var(--bad); }
 .notice-ok { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok); }

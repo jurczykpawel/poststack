@@ -188,7 +188,7 @@ function renderConvPanel(
           ${sinceOpt("", "Any time")}${sinceOpt("24h", "Last 24h")}${sinceOpt("7d", "Last 7 days")}${sinceOpt("30d", "Last 30 days")}${sinceOpt("90d", "Last 90 days")}${sinceOpt("custom", "Custom range…")}
         </select>
       </div>
-      <div x-show="since==='custom'" x-cloak style="display:flex;gap:.35rem;align-items:center">
+      <div x-show="since==='custom'" x-cloak class="row-center" style="gap:.35rem">
         <input class="input input-sm" type="date" name="from" value="${from}" title="From" style="flex:1;min-width:0" />
         <span class="muted" style="flex:0 0 auto">→</span>
         <input class="input input-sm" type="date" name="to" value="${to}" title="To" style="flex:1;min-width:0" />
@@ -1270,6 +1270,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canPersonalize = features.has("personalization");
     const canReactionTrigger = features.has("reaction_trigger");
     const canSequence = features.has("sequences");
+    const canAiRephrase = features.has("ai_rephrase");
     const ruleChannels = await loadInboxChannels(a.workspaceId);
     // Active sequences a rule can enroll a matched contact into (SEQTRIGGER1).
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
@@ -1287,6 +1288,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 quickReplies: [],
                 buttons: [],
                 requiresApproval: false,
+                aiRephrase: false,
                 triggerType: 'keyword',
                 responseMode: 'text',
                 ${raw(RULE_EDITOR_METHODS)}
@@ -1342,17 +1344,25 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   ? html`Personalization: <code>{imie}</code> = first name, <code>{name}</code> = full name.`
                   : html`Personalization (<code>{imie}</code>/<code>{name}</code>) — ${proLink(upgradeUrl)}`}</p>
               </div>
+              <label x-show="responseMode === 'text'" class="row-center" style="font-size:.875rem;cursor:pointer">
+                ${canAiRephrase
+                  ? html`<input type="checkbox" x-model="aiRephrase" />
+                      <span>Rephrase with AI for variety <small class="muted">— sends a reworded version each time (needs an AI provider in Settings)</small></span>`
+                  : html`<input type="checkbox" disabled />
+                      <span class="muted">🔒 Rephrase with AI for variety — ${proLink(upgradeUrl)}</span>`}
+              </label>
               <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
               ${interactiveRuleFields(canInteractive, upgradeUrl)}
 
-              <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
+              <label class="row-center" style="font-size:.875rem;cursor:pointer">
                 <input type="checkbox" x-model="requiresApproval" />
                 Hold for human approval before sending (review in Approvals)
               </label>
 
               <input type="hidden" name="quick_replies_json" :value="qrJson()" />
               <input type="hidden" name="buttons_json" :value="btnJson()" />
+              <input type="hidden" name="ai_rephrase" :value="aiRephrase" />
               <input type="hidden" name="requires_approval" :value="requiresApproval" />
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create rule</button>
             </form>
@@ -1405,6 +1415,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       responseConfig.not_followed = { text: form.not_followed_text ?? "", buttons: [{ title: claimLabel, payload: claimPayload }] };
     } else {
       responseConfig.text = form.text ?? "";
+      // AI rephrase is a flag on a text reply (not a distinct response_type). The API gates it to the
+      // ai_rephrase PRO feature and 402s if unlicensed; the UI also hides the toggle on free.
+      if (form.ai_rephrase === "true") responseConfig.ai_rephrase = true;
       if (triggerType === "comment_keyword") {
         responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
         if (commentReply) responseConfig.comment_reply_text = commentReply;
@@ -1470,7 +1483,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, upgradeUrl } = await getInstanceLicense();
     const channels = await loadInboxChannels(a.workspaceId);
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
-    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels, activeSequences));
+    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels, activeSequences, features.has("ai_rephrase")));
   });
 
   app.post("/rules/:id", guard, async (c) => {
@@ -1499,6 +1512,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     }
     if (existing.response_type === "text") {
       responseConfig.text = form.text ?? "";
+      // ai_rephrase toggle: the field is sent (Alpine-bound "true"/"false") only when the editor
+      // renders it (licensed). Absent (free instance) → leave the stored value untouched.
+      if (form.ai_rephrase !== undefined) {
+        if (form.ai_rephrase === "true") responseConfig.ai_rephrase = true;
+        else delete responseConfig.ai_rephrase;
+      }
       if (existing.trigger_type === "comment_keyword") {
         responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
         const cr = (form.comment_reply_text ?? "").trim();
@@ -2511,6 +2530,7 @@ function ruleSummary(r: Awaited<ReturnType<typeof loadRules>>[number]): Html {
   }
   if (r.response_type === "sequence" && r.sequenceName) bits.push(html`🧵 enroll → ${r.sequenceName}`);
   if (typeof rc.text === "string" && rc.text.trim()) bits.push(html`↳ “${truncateCodePoints(rc.text, 60)}”`);
+  if (rc.ai_rephrase === true) bits.push(html`🤖 AI rephrase`);
   const buttons = Array.isArray(rc.buttons) ? (rc.buttons as Array<{ title?: string; url?: string; payload?: string }>) : [];
   for (const b of buttons) bits.push(html`🔘 ${b.title ?? ""}${b.url ? html` → <a href="${b.url}" target="_blank" rel="noopener">${b.url}</a>` : b.payload ? ` (${b.payload})` : ""}`);
   const qr = Array.isArray(rc.quick_replies) ? (rc.quick_replies as Array<{ content_type?: string; title?: string }>) : [];
@@ -2651,6 +2671,7 @@ function renderRuleEditForm(
   upgradeUrl: string,
   channels: InboxChannel[],
   activeSequences: Array<{ id: string; name: string; _count: { enrollments: number } }> = [],
+  canAiRephrase = false,
 ): Html {
   const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
   const rc = (r.response_config ?? {}) as Record<string, unknown>;
@@ -2673,7 +2694,7 @@ function renderRuleEditForm(
   // code (their `=>` / `{}` must not be escaped). `responseMode` drives the x-show of the sequence
   // picker (and the text editor); it never changes on the edit form (you can't switch response type).
   const xData = isText
-    ? html` x-data="{ responseMode: 'text', quickReplies: ${JSON.stringify(quickReplies)}, buttons: ${JSON.stringify(buttons)}, ${raw(RULE_EDITOR_METHODS)} }"`
+    ? html` x-data="{ responseMode: 'text', aiRephrase: ${rc.ai_rephrase === true ? raw("true") : raw("false")}, quickReplies: ${JSON.stringify(quickReplies)}, buttons: ${JSON.stringify(buttons)}, ${raw(RULE_EDITOR_METHODS)} }"`
     : isSequence
       ? html` x-data="{ responseMode: 'sequence' }"`
       : html``;
@@ -2699,7 +2720,12 @@ function renderRuleEditForm(
       ${isComment && isText ? html`<div><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" value="${commentReply}" /></div>` : ""}
       ${isText ? html`${interactiveRuleFields(canInteractive, upgradeUrl)}
       ${canInteractive ? html`<input type="hidden" name="quick_replies_json" :value="qrJson()" /><input type="hidden" name="buttons_json" :value="btnJson()" />` : ""}` : ""}
-      <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
+      ${isText && canAiRephrase ? html`<label class="row-center" style="font-size:.875rem;cursor:pointer">
+        <input type="checkbox" x-model="aiRephrase" />
+        <span>Rephrase with AI for variety <small class="muted">— sends a reworded version each time</small></span>
+      </label>
+      <input type="hidden" name="ai_rephrase" :value="aiRephrase" />` : ""}
+      <label class="row-center" style="font-size:.875rem;cursor:pointer">
         <input type="checkbox" name="requires_approval" value="true"${r.requires_approval ? raw(" checked") : raw("")} />
         Hold for human approval before sending
       </label>

@@ -200,6 +200,34 @@ describe("dashboard rule builder", () => {
     expect(rc.quick_replies).toEqual([{ content_type: "user_phone_number" }]);
   });
 
+  it("AI rephrase toggle: create sets response_config.ai_rephrase, edit can turn it off", async () => {
+    if (!TEST_DB) return;
+    // Licensed instance (licenseInstance in beforeAll) → the create form renders the rephrase toggle.
+    const form = await (await app.request("/rules", { headers: { cookie } })).text();
+    expect(form).toContain("Rephrase with AI for variety");
+
+    const created = await app.request("/rules", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Rephrased", trigger_type: "keyword", keywords: "hi", text: "hello", ai_rephrase: "true" }),
+    });
+    expect(created.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.name, "Rephrased") });
+    expect((rule!.response_config as Record<string, unknown>).ai_rephrase).toBe(true);
+    // The list summary flags it.
+    expect(await (await app.request("/rules", { headers: { cookie } })).text()).toContain("AI rephrase");
+
+    // Editing with the toggle off removes the flag.
+    const edited = await app.request(`/rules/${rule!.id}`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Rephrased", keywords: "hi", text: "hello", ai_rephrase: "false" }),
+    });
+    expect(edited.status).toBe(200);
+    const after = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.id, rule!.id) });
+    expect((after!.response_config as Record<string, unknown>).ai_rephrase).toBeUndefined();
+  });
+
   it("rules list shows what each rule does — keywords, reply text and button link", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({
