@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-18
+
+### Changed
+
+- **Dependency bumps.** graphile-worker 0.17, zod 4.4, pg 8.21, @hono/node-server 2.0.5, @playwright/test 1.61, and the Docker build GitHub Actions (build-push v7, setup-buildx v4, login v4). No functional changes.
+
 ## [0.6.0] - 2026-06-18
 
 ### Added
