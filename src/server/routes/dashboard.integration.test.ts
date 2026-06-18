@@ -120,6 +120,28 @@ describe("dashboard action error surfacing", () => {
     expect(res.status).toBe(200); // htmx swap renders the list
     expect(await res.text()).toContain("notice-err");
   });
+
+  it("approvals list shows who, the triggering message and the exact reply that will be sent", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ display_name: "Ola Klient" }).where(eq(s.contacts.id, CONTACT));
+    await db.update(s.conversations).set({ last_message_preview: "Czy kurs jest dostępny?" }).where(eq(s.conversations.id, CONV));
+    const [rule] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Approve-me rule", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "kurs", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "x" }, requires_approval: true,
+    }).returning({ id: s.autoReplyRules.id });
+    await db.insert(s.pendingApprovals).values({
+      workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH,
+      recipient_platform_id: "PSID-D",
+      proposed_content: { content: { text: "Cześć Ola! Oto link 📩", buttons: [{ title: "Pobierz", url: "https://example.com/x" }] } },
+    });
+    const body = await (await app.request("/approvals", { headers: { cookie } })).text();
+    expect(body).toContain("Ola Klient"); // the contact, not the raw PSID
+    expect(body).not.toContain("PSID-D");
+    expect(body).toContain("Czy kurs jest dostępny?"); // the message being replied to
+    expect(body).toContain("Cześć Ola! Oto link 📩"); // the exact reply that will be sent
+    expect(body).toContain("1 button(s)");
+  });
 });
 
 describe("dashboard rule builder", () => {

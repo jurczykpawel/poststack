@@ -2745,9 +2745,19 @@ function loadApprovals(workspaceId: string) {
       proposed: pendingApprovals.proposed_content,
       created_at: pendingApprovals.created_at,
       ruleName: autoReplyRules.name,
+      // Who the reply goes to + which channel + what they said — so the approver sees the full
+      // context (not a raw psid). leftJoins so a deleted contact/channel/conversation still renders.
+      contactName: contacts.display_name,
+      channelName: channels.display_name,
+      platform: channels.platform,
+      threadType: conversations.thread_type,
+      trigger: conversations.last_message_preview,
     })
     .from(pendingApprovals)
     .leftJoin(autoReplyRules, eq(autoReplyRules.id, pendingApprovals.rule_id))
+    .leftJoin(contacts, eq(contacts.id, pendingApprovals.contact_id))
+    .leftJoin(channels, eq(channels.id, pendingApprovals.channel_id))
+    .leftJoin(conversations, eq(conversations.id, pendingApprovals.conversation_id))
     .where(and(eq(pendingApprovals.workspace_id, workspaceId), eq(pendingApprovals.status, "pending")))
     .orderBy(desc(pendingApprovals.created_at))
     .limit(100);
@@ -2758,15 +2768,18 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?
   if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>`;
   return html`${notice}<div class="list">${list.map((a) => {
     const content = ((a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } } | null)?.content) ?? {};
-    const preview = content.text ?? "(no text)";
+    const preview = content.text ?? "(no reply text)";
     const extras = [
       content.buttons?.length ? `${content.buttons.length} button(s)` : null,
       content.quick_replies?.length ? `${content.quick_replies.length} quick repl(ies)` : null,
     ].filter(Boolean).join(" · ");
+    const who = a.contactName ?? a.recipient;
+    const via = [a.channelName, a.threadType === "comment" ? "comment" : "DM"].filter(Boolean).join(" · ");
     return html`<div class="list-row">
       <div class="grow">
-        <div style="font-weight:600">${a.ruleName ?? "rule"} <span class="muted" style="font-size:.75rem">→ ${a.recipient} · ${timeAgo(a.created_at)}</span></div>
-        <div style="font-size:.875rem;white-space:pre-wrap">${preview}</div>
+        <div style="font-weight:600">${who} <span class="muted" style="font-size:.75rem">· ${via} · ${a.ruleName ?? "rule"} · ${timeAgo(a.created_at)}</span></div>
+        ${a.trigger ? html`<div class="muted" style="font-size:.8rem">↩ in reply to: “${a.trigger}”</div>` : html``}
+        <div style="font-size:.875rem;white-space:pre-wrap"><span class="muted" style="font-size:.72rem">will send → </span>${preview}</div>
         ${extras ? html`<div class="muted" style="font-size:.7rem">${extras}</div>` : html``}
       </div>
       <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
