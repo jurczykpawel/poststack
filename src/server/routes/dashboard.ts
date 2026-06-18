@@ -2766,29 +2766,39 @@ function loadApprovals(workspaceId: string) {
 function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>`;
-  return html`${notice}<div class="list">${list.map((a) => {
+  return html`${notice}<div class="appr-list">${list.map((a) => {
     const proposed = a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } | null; comment?: { text?: string } | null } | null;
     const content = proposed?.content ?? {};
     const commentText = proposed?.comment?.text;
     const dmText = content.text;
-    const extras = [
-      content.buttons?.length ? `${content.buttons.length} button(s)` : null,
-      content.quick_replies?.length ? `${content.quick_replies.length} quick repl(ies)` : null,
-    ].filter(Boolean).join(" · ");
+    const nBtn = content.buttons?.length ?? 0;
+    const nQr = content.quick_replies?.length ?? 0;
+    const dmExtra = [nBtn ? `${nBtn} button${nBtn === 1 ? "" : "s"}` : null, nQr ? `${nQr} quick repl${nQr === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
     const who = a.contactName ?? a.recipient;
-    const via = [a.channelName, a.threadType === "comment" ? "comment" : "DM"].filter(Boolean).join(" · ");
-    const label = (t: string) => html`<span class="muted" style="font-size:.72rem">${t} → </span>`;
-    return html`<div class="list-row">
-      <div class="grow">
-        <div style="font-weight:600">${who} <span class="muted" style="font-size:.75rem">· ${via} · ${a.ruleName ?? "rule"} · ${timeAgo(a.created_at)}</span></div>
-        ${a.trigger ? html`<div class="muted" style="font-size:.8rem">↩ in reply to: “${a.trigger}”</div>` : html``}
-        ${commentText ? html`<div style="font-size:.875rem;white-space:pre-wrap">${label("public comment")}${commentText}</div>` : html``}
-        ${dmText ? html`<div style="font-size:.875rem;white-space:pre-wrap">${label("DM")}${dmText}</div>`
-          : (!commentText ? html`<div class="muted" style="font-size:.875rem">(no reply text)</div>` : html``)}
-        ${extras ? html`<div class="muted" style="font-size:.7rem">${extras}</div>` : html``}
+    const channel = a.threadType === "comment" ? "comment" : "DM";
+    const meta = [a.channelName, channel, a.ruleName ?? "rule", timeAgo(a.created_at)].filter(Boolean).join(" · ");
+    return html`<div class="appr">
+      <div class="appr-top">
+        <div>
+          <div class="appr-who">${who}</div>
+          <div class="appr-meta">${meta}</div>
+        </div>
+        <div class="appr-actions">
+          <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
+          <button class="btn btn-sm btn-danger" hx-post="/approvals/${a.id}/reject" hx-target="#approvals-list" hx-swap="innerHTML">Reject</button>
+        </div>
       </div>
-      <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
-      <button class="btn btn-sm btn-danger" hx-post="/approvals/${a.id}/reject" hx-target="#approvals-list" hx-swap="innerHTML">Reject</button>
+      ${a.trigger ? html`<blockquote class="appr-trigger">${a.trigger}</blockquote>` : html``}
+      <div class="appr-replies">
+        ${commentText ? html`<div class="appr-reply">
+          <div class="appr-reply-head"><span class="badge tone-info">Public comment</span></div>
+          <div class="appr-reply-text">${commentText}</div>
+        </div>` : html``}
+        ${dmText ? html`<div class="appr-reply">
+          <div class="appr-reply-head"><span class="badge tone-neutral">DM</span>${dmExtra ? html`<span class="appr-reply-extra">${dmExtra}</span>` : html``}</div>
+          <div class="appr-reply-text">${dmText}</div>
+        </div>` : (!commentText ? html`<div class="appr-reply"><div class="appr-reply-text is-empty">(no reply text)</div></div>` : html``)}
+      </div>
     </div>`;
   })}</div>`;
 }

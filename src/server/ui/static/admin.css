@@ -1134,6 +1134,23 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .list-row:last-child { border-bottom: 0; }
 .avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; vertical-align: middle; }
 
+/* Approvals — one scannable card per pending reply: header + actions, the quoted trigger, then the
+   outgoing message(s) (public comment / DM) as distinct labelled blocks. */
+.appr-list { display: flex; flex-direction: column; gap: 10px; }
+.appr { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.appr-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.appr-who { font-weight: 600; color: var(--text-1); }
+.appr-meta { font-size: 0.74rem; color: var(--text-3); margin-top: 2px; }
+.appr-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.appr-trigger { margin: 0; padding: 2px 0 2px 12px; border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: 0.84rem; }
+.appr-replies { display: flex; flex-direction: column; gap: 8px; }
+.appr-reply { display: flex; flex-direction: column; gap: 4px; padding: 8px 11px; background: var(--surface); border-radius: var(--radius-control); }
+.appr-reply-head { display: flex; align-items: center; gap: 8px; }
+.appr-reply-extra { font-size: 0.7rem; color: var(--text-3); }
+.appr-reply-text { color: var(--text-1); font-size: 0.9rem; white-space: pre-wrap; }
+.appr-reply-text.is-empty { color: var(--text-3); font-style: italic; }
+@media (max-width: 640px) { .appr-top { flex-direction: column; } .appr-actions { width: 100%; } }
+
 /* ── htmx in-flight feedback (UXPOLISH1) ────────────────────────────────────
    Any control that issues an htmx request gets `.htmx-request` for the duration.
    Globally: prepend a spinner, dim, and block re-clicks — so no action ever feels

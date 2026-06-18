@@ -144,8 +144,8 @@ describe("dashboard action error surfacing", () => {
     expect(body).toContain("Czy kurs jest dostępny?"); // the message being replied to
     expect(body).toContain("Sprawdź DM 🙌"); // the public comment reply (reply_mode both)
     expect(body).toContain("Cześć Ola! Oto link 📩"); // the DM that will be sent
-    expect(body).toContain("public comment"); // labelled separately from the DM
-    expect(body).toContain("1 button(s)");
+    expect(body).toContain("Public comment"); // labelled separately from the DM
+    expect(body).toContain("1 button");
   });
 });
 
