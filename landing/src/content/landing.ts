@@ -348,6 +348,26 @@ export const testimonialModule = {
   ],
 };
 
+/**
+ * Live fleet stats — aggregate numbers fetched client-side from the public telemetry endpoint.
+ * The section is hidden until a successful fetch returns active_instances > 0, so a slow/down
+ * endpoint or a zero-instance fleet shows nothing (no layout shift, no zeros, no error text).
+ * Only labels live here; the numbers come from the endpoint at runtime.
+ */
+export const fleetStats = {
+  endpoint: "https://telemetry.techskills.academy/public/stats/poststack",
+  eyebrow: "Live fleet",
+  title: "Running in the wild, right now",
+  subtitle: "Aggregate, anonymous numbers from PostStack instances reporting in — no per-instance data.",
+  metrics: [
+    { key: "active_instances", label: "Active instances" },
+    { key: "total_channels", label: "Connected channels" },
+    { key: "total_messages_processed", label: "Messages processed" },
+    { key: "total_webhooks_processed", label: "Webhooks processed" },
+    { key: "avg_response_time_ms", label: "Avg. first response", kind: "duration" },
+  ],
+};
+
 export const faq = [
   {
     question: "Do I need my own server to run PostStack?",

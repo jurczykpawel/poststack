@@ -1,0 +1,117 @@
+---
+/**
+ * FleetStats.astro — live aggregate numbers fetched client-side from the public telemetry endpoint.
+ *
+ * Hidden by default (the <section> carries `hidden`); it is revealed only after a successful fetch
+ * returns active_instances > 0. If the endpoint is unreachable (e.g. in dev), times out, errors, or
+ * reports zero instances, the section stays hidden — no layout shift, no zeros, no error text.
+ *
+ * Only the labels live in content (landing.ts); the numbers come from the endpoint at runtime.
+ */
+import { fleetStats } from "../content/landing";
+const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
+---
+
+<section
+  id="fleet-stats"
+  class="py-[var(--spacing-section)]"
+  data-fleet
+  data-fleet-endpoint={endpoint}
+  hidden
+  aria-hidden="true"
+>
+  <div class="shell">
+    <div
+      class="relative overflow-hidden rounded-[var(--radius-card)] border border-border-subtle bg-elevated p-8 text-center md:p-12"
+      data-reveal
+    >
+      <div
+        class="glow"
+        style="width:420px;height:420px;top:-160px;left:50%;transform:translateX(-50%);background:radial-gradient(circle,#7aa2f7,transparent 65%);opacity:0.18"
+      >
+      </div>
+      <span class="eyebrow relative justify-center">{eyebrow}</span>
+      <h2 class="relative mx-auto mt-4 max-w-[40rem] text-[clamp(1.6rem,3.4vw,2.5rem)] font-bold">
+        {title}
+      </h2>
+      <p class="relative mx-auto mt-4 max-w-[34rem] text-ink-2">{subtitle}</p>
+      <dl class="relative mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-reveal-group>
+        {
+          metrics.map((m) => (
+            <div class="rounded-2xl border border-border-subtle bg-base/40 p-5" data-reveal>
+              <dd
+                class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-3xl font-bold text-transparent"
+                data-fleet-value={m.key}
+                data-fleet-kind={"kind" in m ? m.kind : "count"}
+              >
+                —
+              </dd>
+              <dt class="mt-1 text-sm text-ink-2">{m.label}</dt>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+  </div>
+</section>
+
+<script>
+  interface FleetResponse {
+    active_instances?: number;
+    total_messages_processed?: number;
+    total_webhooks_processed?: number;
+    total_channels?: number;
+    avg_response_time_ms?: number;
+  }
+
+  const section = document.querySelector<HTMLElement>("[data-fleet]");
+  if (section) {
+    const endpoint = section.dataset.fleetEndpoint;
+
+    // Locale-aware thousands separators for whole counts.
+    const fmtCount = (n: number): string => Math.round(n).toLocaleString();
+
+    // Human-friendly first-response time: ~Ns under a minute, ~Nm above.
+    const fmtDuration = (ms: number): string => {
+      if (ms < 1000) return `~${Math.round(ms)}ms`;
+      const seconds = ms / 1000;
+      if (seconds < 60) return `~${Math.round(seconds)}s`;
+      return `~${Math.round(seconds / 60)}m`;
+    };
+
+    const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+    const reveal = (data: FleetResponse) => {
+      for (const el of section.querySelectorAll<HTMLElement>("[data-fleet-value]")) {
+        const key = el.dataset.fleetValue as keyof FleetResponse | undefined;
+        const raw = key ? data[key] : undefined;
+        if (!isFiniteNumber(raw)) {
+          // A missing/invalid field collapses its own card rather than showing a placeholder.
+          el.parentElement?.style.setProperty("display", "none");
+          continue;
+        }
+        el.textContent = el.dataset.fleetKind === "duration" ? fmtDuration(raw) : fmtCount(raw);
+      }
+      section.hidden = false;
+      section.removeAttribute("aria-hidden");
+    };
+
+    const load = async () => {
+      if (!endpoint) return;
+      try {
+        const res = await fetch(endpoint, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as FleetResponse;
+        // Only reveal on real adoption — a down endpoint or an empty fleet shows nothing.
+        if (isFiniteNumber(data.active_instances) && data.active_instances > 0) reveal(data);
+      } catch {
+        // Unreachable / timeout / bad JSON — stay hidden, no error surfaced to the visitor.
+      }
+    };
+
+    void load();
+  }
+</script>
