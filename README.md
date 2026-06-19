@@ -75,9 +75,14 @@ PostStack sends a small **anonymous** usage report to the maintainer once per da
 
 **Prerequisites:** Docker, Docker Compose (for local development without Docker: [Bun](https://bun.sh) + Node.js for tooling)
 
+> **Running it for real (self-host)?** Skip straight to **[Production](#production)** below — it
+> pulls the public prebuilt images (no build, no toolchain) and the **[full runbook](docs/DEPLOY.md)**
+> walks you through every step (HTTPS, Meta app, admin bootstrap). The Quick Start here is for trying
+> it locally / developing.
+
 ```bash
 git clone https://github.com/jurczykpawel/poststack.git
-cd replystack
+cd poststack
 cp .env.example .env
 ```
 
@@ -126,11 +131,17 @@ Register an account, go to **Channels**, and connect your first Facebook Page or
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with pre-built images from GHCR. The `web` container runs database migrations on cold start before it serves.
+This runs nginx (port 80) + the Hono web server + graphile-worker + PostgreSQL with **public prebuilt images** from GHCR — no build, no `docker login`, no toolchain. The `web` container runs database migrations on cold start before it serves. First start just pulls the images (a minute or two).
 
 > **Full runbook.** See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the complete step-by-step guide — standing up a new instance, updating (simple and zero-blip), rollback, backups, and troubleshooting. The notes below are the essentials.
 
-> **Images & registry.** By default it pulls `ghcr.io/jurczykpawel/poststack` (and `-worker`). If the packages are private, run `docker login ghcr.io` first. Forks: set `IMAGE_REPO` in `.env` to your own registry path, and `IMAGE_TAG` to pin a version.
+> **⚠️ HTTPS is required.** The bundled nginx serves plain **HTTP on port 80** — Meta OAuth **and** webhooks only work over public **HTTPS**, so you must terminate TLS in front of it. Easiest options:
+> - **Cloudflare** — point the (proxied/orange-cloud) DNS record at your host; Cloudflare gives free TLS at the edge and forwards to `:80`. Then set `TRUSTED_PROXY=cloudflare` in `.env` so per-IP rate limiting reads the real client IP.
+> - **A TLS reverse proxy** (Caddy / Traefik / nginx with certs) in front, forwarding `https://your-domain → http://host:80`.
+>
+> Either way, set `APP_URL` to the public **`https://`** URL — it drives the OAuth redirect URIs and the webhook callback. Don't expose the app/nginx directly on the internet without TLS + a proxy that overwrites the client-IP headers.
+
+> **Images & registry.** Pulls the public images `ghcr.io/jurczykpawel/poststack` and `…-worker` — no auth needed. **Pin `IMAGE_TAG`** to a released version (e.g. `v0.7.1`, not `latest`) so upgrades and rollbacks are intentional and predictable. Forks: set `IMAGE_REPO` in `.env` to your own registry path.
 
 > **Rollback.** Pin the last good version and bring the stack back up — pinning `IMAGE_TAG` to an explicit version (not `latest`) is what makes rollbacks predictable:
 > ```bash
@@ -181,13 +192,15 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 ## Meta App Setup
 
-1. Go to [developers.facebook.com](https://developers.facebook.com) and create a new App (Business type)
-2. Add **Messenger** and **Instagram** products
-3. In Webhooks, set the callback URL to `https://your-domain.com/api/webhooks/meta`
-4. Set the verify token to match `META_WEBHOOK_VERIFY_TOKEN` in your `.env`
-5. Subscribe to: `messages`, `messaging_postbacks`, `feed`
+1. Go to [developers.facebook.com](https://developers.facebook.com) and create a new App (Business type).
+2. Copy the **App ID** and **App Secret** into `META_APP_ID` / `META_APP_SECRET` in your `.env` (or set them in Settings → Meta App after first login).
+3. Add the **Facebook Login** product and, under its settings, add these to **Valid OAuth Redirect URIs** (replace with your real `APP_URL`) — without them the dashboard's **Connect channel** flow is rejected by Meta:
+   - `https://your-domain.com/api/oauth/facebook/callback`
+   - `https://your-domain.com/api/oauth/instagram/callback`
+4. Add the **Messenger** and **Instagram** products.
+5. In **Webhooks**, set the callback URL to `https://your-domain.com/api/webhooks/meta` and the verify token to match `META_WEBHOOK_VERIFY_TOKEN` in your `.env`, then subscribe to: `messages`, `messaging_postbacks`, `feed` (PostStack auto-subscribes each connected Page to the fields it needs; check **Webhooks → Subscriptions** in the dashboard for active-vs-expected status).
 
-**Note:** Some permissions require Meta App Review for production use. In development mode, you can test with your own accounts without review.
+**Note:** your `APP_URL` must be public **HTTPS** (see [Production → HTTPS](#production)) — Meta rejects `http://` and `localhost` for OAuth redirects and webhooks. For local testing, expose your dev server with a tunnel (`cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`) and use that HTTPS URL. Some permissions require Meta App Review for production; in development mode you can test with your own accounts without review.
 
 ---
 
@@ -383,8 +396,8 @@ See [Quick Start - Option B](#option-b-local-development) for setup. Additional 
 ```bash
 npm run lint              # ESLint
 npm run typecheck         # TypeScript (tsc --noEmit; Bun runs the TS entrypoint directly, no build artifact)
-npm test                  # Vitest unit (212 tests)
-npm run test:integration  # Vitest integration (127 tests, needs a Postgres on :5433)
+npm test                  # Vitest unit
+npm run test:integration  # Vitest integration (needs a Postgres; set TEST_DATABASE_URL)
 ```
 
 ---

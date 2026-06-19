@@ -7,8 +7,8 @@ exact command and an expected result. For local development see the [README Quic
 > **Self-host model.** A production instance is a single Docker Compose stack — `nginx` →
 > `web` (Hono) + `worker` (graphile-worker) + `postgres`. All state lives in Postgres
 > (the `postgres_data` volume); there is no other store. Images are pulled from GHCR
-> (`ghcr.io/jurczykpawel/poststack` and `…-poststack-worker`), built and published by the
-> `release.yml` GitHub Actions workflow on every `v*` tag.
+> (`ghcr.io/jurczykpawel/poststack` and `ghcr.io/jurczykpawel/poststack-worker`), built and published
+> by the `release.yml` GitHub Actions workflow on every `v*` tag.
 
 ---
 
@@ -17,9 +17,15 @@ exact command and an expected result. For local development see the [README Quic
 ### 1.1 Prerequisites
 
 - Docker + Docker Compose v2 on the target host.
-- Network access to GHCR. If the packages are private: `docker login ghcr.io` first
-  (a Personal Access Token with `read:packages`).
-- A public HTTPS URL pointing at the host (reverse proxy / tunnel) — Meta webhooks require HTTPS.
+- Network access to GHCR. The images are **public** — no login needed. (Private forks only:
+  `docker login ghcr.io` with a PAT that has `read:packages`.)
+- **A public HTTPS endpoint in front of the stack.** The bundled `nginx` serves plain **HTTP on
+  port 80**; Meta OAuth **and** webhooks only work over HTTPS, so you must terminate TLS in front:
+  - **Cloudflare** (simplest): a proxied DNS record at your host → free edge TLS forwarding to `:80`.
+    Set `TRUSTED_PROXY=cloudflare` in `.env` so per-IP rate limiting reads the real client IP.
+  - **or a TLS reverse proxy** (Caddy / Traefik / nginx-with-certs) forwarding `https://your-domain`
+    → `http://host:80`.
+  `APP_URL` (below) must be that public `https://` URL.
 
 ### 1.2 Get the code and configure
 
@@ -46,7 +52,7 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 intentional bump:
 
 ```bash
-echo "IMAGE_TAG=v0.4.17" >> .env   # the version you intend to run
+echo "IMAGE_TAG=v0.7.1" >> .env   # the version you intend to run (latest release)
 ```
 
 > **Forks / private registry:** set `IMAGE_REPO` in `.env` to your own registry path.
