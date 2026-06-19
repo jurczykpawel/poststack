@@ -7,6 +7,7 @@ import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { addJob } from "@/lib/queue/client";
 import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
+import { recordFirstResponse } from "@/lib/metrics/capture";
 
 /** Stop re-enqueueing a perpetually rate-limited delivery once the ledger has counted this many
  *  attempts, so it fails (dead-letters) rather than rescheduling forever. */
@@ -259,6 +260,12 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
     throw e;
   }
 
+  // TIMING2/4: a measurable first-response carries the inbound trigger's identity. Read it off the
+  // stored payload so the `sent` write can fill the metric's first-response latency in the same tx.
+  const measurable = payload.measurable === true;
+  const triggerEventId = typeof payload.triggerEventId === "string" ? payload.triggerEventId : null;
+  const triggerReceivedAt = typeof payload.triggerReceivedAt === "string" ? new Date(payload.triggerReceivedAt) : null;
+
   // 5. Record success and local state atomically (closes the claim↔persist window).
   await db.transaction(async (tx) => {
     await tx
@@ -266,6 +273,12 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       .set({ status: "sent", platform_message_id: platformMessageId, last_error: null })
       .where(eq(outboundDeliveries.delivery_key, deliveryKey));
     await onSent(tx, platformMessageId);
+    // TIMING4: fill first_response_ms for the FIRST measurable send to this trigger. first-write-wins
+    // (the `first_response_ms IS NULL` guard) means a later sequence message or a graphile retry is a
+    // no-op; a missing/absent metric row is a no-op too (never fabricate a partial row here).
+    if (measurable && triggerEventId && triggerReceivedAt && !Number.isNaN(triggerReceivedAt.getTime())) {
+      await recordFirstResponse(tx, { triggerEventId, triggerReceivedAt, sentAt: new Date() });
+    }
   });
 
   helpers.logger.info(`delivery ${deliveryKey} sent platformMessageId=${platformMessageId}`);
