@@ -137,6 +137,14 @@ const envSchema = z.object({
   // History compaction (RETAIN1). 0 = off; positive values must be >= 30.
   HISTORY_RETENTION_DAYS: historyRetentionField,
 
+  // Anonymous usage telemetry (TELEMETRY1). ON by default (opt-out, n8n-style): either
+  // POSTSTACK_TELEMETRY_DISABLED=true or POSTSTACK_TELEMETRY_ENABLED=false turns it off. Both raw
+  // flags are parsed here; loadEnv() folds them into the single resolved TELEMETRY_ENABLED boolean
+  // the app reads. TELEMETRY_URL is where reports are POSTed.
+  POSTSTACK_TELEMETRY_DISABLED: z.string().default("false"),
+  POSTSTACK_TELEMETRY_ENABLED: z.string().default("true"),
+  TELEMETRY_URL: z.string().url().default("https://telemetry.techskills.academy/v1/ingest"),
+
   // Cron
   CRON_SECRET: z.string().min(32),
 
@@ -170,7 +178,13 @@ function loadEnv() {
     }
   }
 
-  return parsed.data;
+  // Fold the two opt-out flags into one resolved boolean. Telemetry is ON unless EITHER flag says
+  // off (DISABLED=true OR ENABLED=false). "true"/"1"/"yes" are truthy, anything else falsy.
+  const truthy = (v: string) => ["true", "1", "yes", "on"].includes(v.trim().toLowerCase());
+  const TELEMETRY_ENABLED =
+    !truthy(parsed.data.POSTSTACK_TELEMETRY_DISABLED) && truthy(parsed.data.POSTSTACK_TELEMETRY_ENABLED);
+
+  return { ...parsed.data, TELEMETRY_ENABLED };
 }
 
 export const env = loadEnv();

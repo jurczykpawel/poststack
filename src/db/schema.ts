@@ -1338,3 +1338,17 @@ export const responseMetricStats = pgTable("response_metric_stats", {
 	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "response_metric_stats_workspace_id_fkey" })
 		.onUpdate("cascade").onDelete("cascade"),
 ]);
+
+// ─── TELEMETRY1: anonymous usage telemetry ──────────────────────────────────────────────────────
+// Instance-global telemetry identity (NOT workspace-scoped), like instance_license: one row per
+// self-hosted instance. instance_id is a stable random uuid generated once and reported with each
+// anonymous usage report; last_sent_at tracks the most recent successful send. Enforced as a
+// singleton via the `id = 'singleton'` check constraint.
+export const telemetryState = pgTable("telemetry_state", {
+	id: text("id").primaryKey().default('singleton'),
+	instance_id: uuid("instance_id").notNull(),
+	last_sent_at: timestamp("last_sent_at", { precision: 3, mode: 'date' }),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	check("telemetry_state_singleton", sql`${table.id} = 'singleton'`),
+]);

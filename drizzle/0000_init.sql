@@ -597,6 +597,14 @@ CREATE TABLE "tags" (
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "telemetry_state" (
+	"id" text PRIMARY KEY DEFAULT 'singleton' NOT NULL,
+	"instance_id" uuid NOT NULL,
+	"last_sent_at" timestamp (3),
+	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT "telemetry_state_singleton" CHECK ("telemetry_state"."id" = 'singleton')
+);
+--> statement-breakpoint
 CREATE TABLE "users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"email" text NOT NULL,
