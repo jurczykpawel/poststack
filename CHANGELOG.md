@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-19
+
 ### Added
 
 - **Landing: TechSkills Academy ecosystem footer.** The marketing footer links back to the hub ("Part of the TechSkills Academy ecosystem · All tools · Open source"), per the ecosystem-footer standard.
