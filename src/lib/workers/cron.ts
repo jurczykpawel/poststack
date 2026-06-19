@@ -9,6 +9,8 @@ import { scanExpiringConnections } from "@/lib/channels/expiry-scan";
 import { sweepYouTubeChannels } from "@/lib/youtube/poll";
 import { stuckSendingSweep } from "@/lib/deliveries/publish-worker";
 import { runCompactHistory } from "@/lib/workers/compact-history-task";
+import { sendTelemetry } from "@/lib/telemetry/send";
+import { db } from "@/lib/db";
 
 /**
  * Cron-only maintenance tasks. These are NOT enqueued via addJob — graphile-worker drives them
@@ -70,6 +72,11 @@ export const cronTaskList = {
   "compact-history": async () => {
     await runCompactHistory();
   },
+  // Daily anonymous usage telemetry send. No-op when telemetry is disabled; best-effort (never throws)
+  // so a telemetry outage can't fail the cron tick.
+  "telemetry-send": async () => {
+    await sendTelemetry(db);
+  },
 };
 
 /** graphile-worker crontab. Every line's trailing token must be a key in {@link cronTaskList}. */
@@ -77,6 +84,7 @@ export const CRONTAB = [
   "0 * * * * prune-expired",
   "30 3 * * * prune-old-messages",
   "15 * * * * token-refresh-scan",
+  "40 3 * * * telemetry-send",
   "45 3 * * * license-refresh",
   "0 4 * * * source-sync-sweep",
   "20 * * * * channel-health-sweep",

@@ -13,6 +13,8 @@ import { writeFileSync } from "fs";
 import { run } from "graphile-worker";
 import { createTaskList } from "../src/lib/queue/tasks";
 import { cronTaskList, CRONTAB } from "../src/lib/workers/cron";
+import { db } from "../src/lib/db";
+import { sendTelemetryOnBoot } from "../src/lib/telemetry/send";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
@@ -41,6 +43,10 @@ async function main() {
   console.log(
     `[worker] PostStack worker started. Tasks: ${Object.keys(taskList).join(", ")}`
   );
+
+  // Anonymous usage telemetry: log the enabled notice and fire a debounced boot send (fire-and-forget,
+  // never blocks startup). No-op when telemetry is disabled.
+  void sendTelemetryOnBoot(db);
 
   const noteActivity = () => { lastActivityMs = Date.now(); };
   // Tick only on evidence the worker SUCCESSFULLY reached the DB, never on a poll attempt:
