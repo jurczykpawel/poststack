@@ -4,6 +4,7 @@ import {
   webhookEvents, webhookEventStats, postReactions, postReactionStats,
   responseMetrics, responseMetricStats, type MetricOutcome,
 } from "@/db/schema";
+import { bucketForMs } from "@/lib/metrics/buckets";
 
 type Executor = typeof defaultDb;
 
@@ -165,18 +166,6 @@ const OUTCOME_COLUMN: Record<MetricOutcome, keyof Pick<MetricAgg,
   error: "error_count",
 };
 
-/** Pick the single mutually-exclusive bucket for a first-response latency, ascending. */
-function bucketColumn(ms: number): keyof Pick<MetricAgg,
-  "bucket_lt_1m" | "bucket_lt_5m" | "bucket_lt_15m" | "bucket_lt_1h" | "bucket_lt_6h" | "bucket_lt_24h" | "bucket_gte_24h"> {
-  if (ms < 60_000) return "bucket_lt_1m";
-  if (ms < 300_000) return "bucket_lt_5m";
-  if (ms < 900_000) return "bucket_lt_15m";
-  if (ms < 3_600_000) return "bucket_lt_1h";
-  if (ms < 21_600_000) return "bucket_lt_6h";
-  if (ms < 86_400_000) return "bucket_lt_24h";
-  return "bucket_gte_24h";
-}
-
 function newMetricAgg(r: Pick<MetricAgg, "workspace_id" | "day" | "platform" | "thread_type">): MetricAgg {
   return {
     ...r,
@@ -235,7 +224,7 @@ export async function compactResponseMetrics(opts: CompactOpts): Promise<Compact
           cur.count_first_response++;
           cur.min_first_response_ms = cur.min_first_response_ms == null ? fr : Math.min(cur.min_first_response_ms, fr);
           cur.max_first_response_ms = cur.max_first_response_ms == null ? fr : Math.max(cur.max_first_response_ms, fr);
-          cur[bucketColumn(fr)]++;
+          cur[bucketForMs(fr)]++;
         }
       }
 
