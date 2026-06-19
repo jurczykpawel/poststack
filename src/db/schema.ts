@@ -1,4 +1,4 @@
-import { pgTable, timestamp, text, integer, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check, date } from "drizzle-orm/pg-core"
+import { pgTable, timestamp, text, integer, bigint, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check, date } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
@@ -1262,3 +1262,77 @@ export const instanceSettings = pgTable("instance_settings", {
 	value_encrypted: text("value_encrypted").notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// ─── TIMING1: response-time telemetry ──────────────────────────────────────────────────────────
+// How a handled inbound trigger event resolved. Mirrors the rule/webhook outcomes that matter for
+// response-time reporting: `answered` = a reply went out, `no_match` = no rule fired, `paused` =
+// automation was paused, `ignored` = recognized but intentionally not acted on, `error` = handling
+// failed after retries.
+export const metricOutcome = pgEnum("metric_outcome", ['answered', 'no_match', 'paused', 'ignored', 'error'])
+
+// One row per handled inbound trigger event, capturing how long it took us to handle/answer it.
+// The capture path upserts per trigger_event_id (UNIQUE) so it is idempotent under redelivery. The
+// trigger_event FK is SET NULL (not cascade): webhook_events get pruned by retention, but the metric
+// must survive — handling_ms/first_response_ms are already materialized at capture time.
+export const responseMetrics = pgTable("response_metrics", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id"),
+	platform: platform().notNull(),
+	thread_type: conversationThreadType("thread_type").notNull(),
+	trigger_event_id: uuid("trigger_event_id"),
+	received_at: timestamp("received_at", { precision: 3, mode: 'date' }).notNull(),
+	handled_at: timestamp("handled_at", { precision: 3, mode: 'date' }).notNull(),
+	first_sent_at: timestamp("first_sent_at", { precision: 3, mode: 'date' }),
+	handling_ms: integer("handling_ms").notNull(),
+	first_response_ms: integer("first_response_ms"),
+	outcome: metricOutcome().notNull(),
+	via_sequence: boolean("via_sequence").default(false).notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	index("response_metrics_workspace_id_received_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.received_at.desc().nullsFirst()),
+	index("response_metrics_channel_id_received_at_idx").using("btree", table.channel_id.asc().nullsLast(), table.received_at.desc().nullsFirst()),
+	uniqueIndex("response_metrics_trigger_event_id_key").using("btree", table.trigger_event_id.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "response_metrics_workspace_id_fkey" })
+		.onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "response_metrics_channel_id_fkey" })
+		.onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.trigger_event_id], foreignColumns: [webhookEvents.id], name: "response_metrics_trigger_event_id_fkey" })
+		.onUpdate("cascade").onDelete("set null"),
+]);
+
+// Daily rollup of response_metrics per (workspace, day, platform, thread_type). Mirrors
+// webhook_event_stats: a date `day`, a single unique key, cascade FK to workspaces. sum_* are bigint
+// to avoid integer overflow on busy instances; the histogram buckets count first-response latency.
+export const responseMetricStats = pgTable("response_metric_stats", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	day: date("day", { mode: "string" }).notNull(),
+	platform: platform("platform").notNull(),
+	thread_type: conversationThreadType("thread_type").notNull(),
+	answered_count: integer("answered_count").default(0).notNull(),
+	no_match_count: integer("no_match_count").default(0).notNull(),
+	paused_count: integer("paused_count").default(0).notNull(),
+	ignored_count: integer("ignored_count").default(0).notNull(),
+	error_count: integer("error_count").default(0).notNull(),
+	total_count: integer("total_count").default(0).notNull(),
+	sum_handling_ms: bigint("sum_handling_ms", { mode: "number" }).default(0).notNull(),
+	count_handling: integer("count_handling").default(0).notNull(),
+	sum_first_response_ms: bigint("sum_first_response_ms", { mode: "number" }).default(0).notNull(),
+	count_first_response: integer("count_first_response").default(0).notNull(),
+	min_first_response_ms: integer("min_first_response_ms"),
+	max_first_response_ms: integer("max_first_response_ms"),
+	bucket_lt_1m: integer("bucket_lt_1m").default(0).notNull(),
+	bucket_lt_5m: integer("bucket_lt_5m").default(0).notNull(),
+	bucket_lt_15m: integer("bucket_lt_15m").default(0).notNull(),
+	bucket_lt_1h: integer("bucket_lt_1h").default(0).notNull(),
+	bucket_lt_6h: integer("bucket_lt_6h").default(0).notNull(),
+	bucket_lt_24h: integer("bucket_lt_24h").default(0).notNull(),
+	bucket_gte_24h: integer("bucket_gte_24h").default(0).notNull(),
+}, (table) => [
+	uniqueIndex("response_metric_stats_key").using("btree",
+		table.workspace_id.asc().nullsLast(), table.day.asc().nullsLast(),
+		table.platform.asc().nullsLast(), table.thread_type.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "response_metric_stats_workspace_id_fkey" })
+		.onUpdate("cascade").onDelete("cascade"),
+]);
