@@ -88,28 +88,34 @@ async function seedActivity() {
     sum_first_response_ms: 9_000, count_first_response: 3, bucket_lt_1m: 3,
   });
 
-  // Live webhook events + a rolled-up webhook_event_stats row → the union total is live + stats.
+  // Live webhook events + rolled-up webhook_event_stats rows → the union total is live + stats.
+  // Spread across both platforms so the per-platform breakdown is exercised: instagram 1 live + 5
+  // stats = 6, facebook 1 live + 1 stats = 2.
   await db.insert(schema.webhookEvents).values([
     { event_key: `k-${Math.random()}`, event_type: "messages", channel_id: CH_IG, platform: "instagram", handling_status: "fired", raw: { a: 1 }, received_at: sql`now() - interval '2 hours'` },
-    { event_key: `k-${Math.random()}`, event_type: "messages", channel_id: CH_IG, platform: "instagram", handling_status: "no_match", raw: { a: 2 }, received_at: sql`now() - interval '2 hours'` },
+    { event_key: `k-${Math.random()}`, event_type: "messages", channel_id: CH_FB, platform: "facebook", handling_status: "no_match", raw: { a: 2 }, received_at: sql`now() - interval '2 hours'` },
   ]);
-  await db.insert(schema.webhookEventStats).values({
-    channel_id: CH_IG, day: new Date(Date.now() - 80 * 86_400_000).toISOString().slice(0, 10),
-    platform: "instagram", event_type: "messages", handling_status: "fired", count: 5,
-  });
+  await db.insert(schema.webhookEventStats).values([
+    { channel_id: CH_IG, day: new Date(Date.now() - 80 * 86_400_000).toISOString().slice(0, 10), platform: "instagram", event_type: "messages", handling_status: "fired", count: 5 },
+    { channel_id: CH_FB, day: new Date(Date.now() - 80 * 86_400_000).toISOString().slice(0, 10), platform: "facebook", event_type: "messages", handling_status: "fired", count: 1 },
+  ]);
 
-  // Outbound deliveries: 2 sent (one recent) + 1 failed (must not count toward messages_sent.total).
+  // Outbound deliveries: instagram 2 sent + 1 failed, facebook 1 sent. Only sent count toward
+  // messages_sent.total (+3) and the per-platform breakdown (instagram 2, facebook 1).
   await db.insert(schema.outboundDeliveries).values([
     { workspace_id: WS, channel_id: CH_IG, delivery_key: `d-${Math.random()}`, task_name: "outgoing-message", status: "sent", payload: {} },
     { workspace_id: WS, channel_id: CH_IG, delivery_key: `d-${Math.random()}`, task_name: "outgoing-message", status: "sent", payload: {} },
     { workspace_id: WS, channel_id: CH_IG, delivery_key: `d-${Math.random()}`, task_name: "outgoing-message", status: "failed", payload: {} },
+    { workspace_id: WS, channel_id: CH_FB, delivery_key: `d-${Math.random()}`, task_name: "outgoing-message", status: "sent", payload: {} },
   ]);
 
-  // Comment logs: 2 with a public reply sent + 1 without.
+  // Comment logs: facebook 2 with a public reply sent + 1 without, instagram 1 with a reply sent.
+  // comments_replied.total (+3); per-platform breakdown facebook 2, instagram 1.
   await db.insert(schema.commentLogs).values([
     { workspace_id: WS, channel_id: CH_FB, platform_comment_id: `c-${Math.random()}`, comment_text: "hi", reply_sent: true },
     { workspace_id: WS, channel_id: CH_FB, platform_comment_id: `c-${Math.random()}`, comment_text: "yo", reply_sent: true },
     { workspace_id: WS, channel_id: CH_FB, platform_comment_id: `c-${Math.random()}`, comment_text: "no reply", reply_sent: false },
+    { workspace_id: WS, channel_id: CH_IG, platform_comment_id: `c-${Math.random()}`, comment_text: "hey", reply_sent: true },
   ]);
 }
 
@@ -130,9 +136,36 @@ describe("collectMetrics (real Postgres)", () => {
     const before = await collectMetrics(db);
     await seedActivity();
     const after = await collectMetrics(db);
-    expect(after.messages_sent.total - before.messages_sent.total).toBe(2);
-    expect(after.messages_sent.last_24h - before.messages_sent.last_24h).toBe(2);
-    expect(after.comments_replied.total - before.comments_replied.total).toBe(2);
+    expect(after.messages_sent.total - before.messages_sent.total).toBe(3);
+    expect(after.messages_sent.last_24h - before.messages_sent.last_24h).toBe(3);
+    expect(after.comments_replied.total - before.comments_replied.total).toBe(3);
+  });
+
+  it("messages_sent.by_platform groups sent deliveries by channel platform, summing to total", async () => {
+    if (!TEST_DB) return;
+    const before = await collectMetrics(db);
+    await seedActivity();
+    const after = await collectMetrics(db);
+    const ig = (after.messages_sent.by_platform.instagram ?? 0) - (before.messages_sent.by_platform.instagram ?? 0);
+    const fb = (after.messages_sent.by_platform.facebook ?? 0) - (before.messages_sent.by_platform.facebook ?? 0);
+    expect(ig).toBe(2);
+    expect(fb).toBe(1);
+    // The breakdown sums to the total (no sent delivery is unattributed).
+    const sum = Object.values(after.messages_sent.by_platform).reduce((a, n) => a + n, 0);
+    expect(sum).toBe(after.messages_sent.total);
+  });
+
+  it("comments_replied.by_platform groups replies by channel platform, summing to total", async () => {
+    if (!TEST_DB) return;
+    const before = await collectMetrics(db);
+    await seedActivity();
+    const after = await collectMetrics(db);
+    const fb = (after.comments_replied.by_platform.facebook ?? 0) - (before.comments_replied.by_platform.facebook ?? 0);
+    const ig = (after.comments_replied.by_platform.instagram ?? 0) - (before.comments_replied.by_platform.instagram ?? 0);
+    expect(fb).toBe(2);
+    expect(ig).toBe(1);
+    const sum = Object.values(after.comments_replied.by_platform).reduce((a, n) => a + n, 0);
+    expect(sum).toBe(after.comments_replied.total);
   });
 
   it("webhooks_processed.total reflects the live∪stats union", async () => {
@@ -140,11 +173,29 @@ describe("collectMetrics (real Postgres)", () => {
     const before = await collectMetrics(db);
     await seedActivity();
     const after = await collectMetrics(db);
-    // 2 live events + 5 in the rolled-up stats row = +7 all-time.
-    expect(after.webhooks_processed.total - before.webhooks_processed.total).toBe(7);
+    // 2 live events + 6 across the rolled-up stats rows = +8 all-time.
+    expect(after.webhooks_processed.total - before.webhooks_processed.total).toBe(8);
     // last_24h counts only the live rows in the window (+2).
     expect(after.webhooks_processed.last_24h - before.webhooks_processed.last_24h).toBe(2);
-    expect((after.webhooks_processed.by_status.fired ?? 0) - (before.webhooks_processed.by_status.fired ?? 0)).toBe(6); // 1 live + 5 stats
+    expect((after.webhooks_processed.by_status.fired ?? 0) - (before.webhooks_processed.by_status.fired ?? 0)).toBe(7); // ig: 1 live + 5 stats; fb: 1 stats
+  });
+
+  it("webhooks_processed.by_platform unions live∪stats per platform, summing to total", async () => {
+    if (!TEST_DB) return;
+    const before = await collectMetrics(db);
+    await seedActivity();
+    const after = await collectMetrics(db);
+    // instagram: 1 live + 5 stats = +6; facebook: 1 live + 1 stats = +2.
+    const ig = (after.webhooks_processed.by_platform.instagram ?? 0) - (before.webhooks_processed.by_platform.instagram ?? 0);
+    const fb = (after.webhooks_processed.by_platform.facebook ?? 0) - (before.webhooks_processed.by_platform.facebook ?? 0);
+    expect(ig).toBe(6);
+    expect(fb).toBe(2);
+    // The breakdown sums to ≤ total: an old event whose page→channel was never resolved has a null
+    // platform and is unattributed (dropped from the breakdown), so the breakdown can trail the total.
+    const sum = Object.values(after.webhooks_processed.by_platform).reduce((a, n) => a + n, 0);
+    expect(sum).toBeLessThanOrEqual(after.webhooks_processed.total);
+    // The seeded delta, however, is fully attributed: +6 ig +2 fb = +8, matching the total delta.
+    expect(sum - Object.values(before.webhooks_processed.by_platform).reduce((a, n) => a + n, 0)).toBe(8);
   });
 
   it("response_times are populated and instance-wide", async () => {

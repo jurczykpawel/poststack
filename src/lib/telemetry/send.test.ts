@@ -32,9 +32,9 @@ const ENVELOPE: TelemetryEnvelope = {
     conversations: 0,
     rules: 0,
     sequences: 0,
-    webhooks_processed: { total: 0, last_24h: 0, by_status: {} },
-    messages_sent: { total: 0, last_24h: 0 },
-    comments_replied: { total: 0 },
+    webhooks_processed: { total: 0, last_24h: 0, by_status: {}, by_platform: {} },
+    messages_sent: { total: 0, last_24h: 0, by_platform: {} },
+    comments_replied: { total: 0, by_platform: {} },
     response_times: {
       window_days: 30,
       answer_rate_pct: 0,

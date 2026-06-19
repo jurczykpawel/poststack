@@ -23,7 +23,7 @@ import {
   webhookEventStats,
   type Platform,
 } from "@/db/schema";
-import { mergeWebhookStatusCounts } from "@/lib/history/stats-read";
+import { mergeWebhookStatusCounts, mergeWebhookPlatformCounts } from "@/lib/history/stats-read";
 import { getInstanceResponseTimeStats, DEFAULT_WINDOW_DAYS } from "@/lib/metrics/response-times";
 import { env } from "@/lib/env";
 import { ensureInstanceId, domainHash, getLicenseIdentity } from "./identity";
@@ -130,9 +130,9 @@ export interface MetricsInfo {
   conversations: number;
   rules: number;
   sequences: number;
-  webhooks_processed: { total: number; last_24h: number; by_status: Record<string, number> };
-  messages_sent: { total: number; last_24h: number };
-  comments_replied: { total: number };
+  webhooks_processed: { total: number; last_24h: number; by_status: Record<string, number>; by_platform: Record<string, number> };
+  messages_sent: { total: number; last_24h: number; by_platform: Record<string, number> };
+  comments_replied: { total: number; by_platform: Record<string, number> };
   response_times: {
     window_days: number;
     answer_rate_pct: number;
@@ -172,8 +172,12 @@ export async function collectMetrics(exec: Executor, now: Date = new Date()): Pr
     messagesSentLast24h,
     commentsRepliedTotal,
     channelByPlatform,
+    messagesSentByPlatform,
+    commentsRepliedByPlatform,
     liveWebhookByStatus,
     statsWebhookByStatus,
+    liveWebhookByPlatform,
+    statsWebhookByPlatform,
     webhookLast24h,
     responseTimes,
   ] = await Promise.all([
@@ -189,9 +193,22 @@ export async function collectMetrics(exec: Executor, now: Date = new Date()): Pr
     countRows(exec, commentLogs, eq(commentLogs.reply_sent, true)),
     // One grouped query for channels-by-platform (no N+1).
     exec.select({ platform: channels.platform, n: sql<number>`count(*)::int` }).from(channels).groupBy(channels.platform),
-    // All-time webhook counts: live grouped ∪ rolled-up stats, reusing the existing merge helper.
+    // Sent outbound + sent comment replies, grouped by the channel's platform (a single join, no N+1).
+    exec.select({ platform: channels.platform, n: sql<number>`count(*)::int` })
+      .from(outboundDeliveries)
+      .innerJoin(channels, eq(outboundDeliveries.channel_id, channels.id))
+      .where(eq(outboundDeliveries.status, "sent"))
+      .groupBy(channels.platform),
+    exec.select({ platform: channels.platform, n: sql<number>`count(*)::int` })
+      .from(commentLogs)
+      .innerJoin(channels, eq(commentLogs.channel_id, channels.id))
+      .where(eq(commentLogs.reply_sent, true))
+      .groupBy(channels.platform),
+    // All-time webhook counts: live grouped ∪ rolled-up stats, reusing the existing merge helpers.
     exec.select({ status: webhookEvents.handling_status, n: sql<number>`count(*)::int` }).from(webhookEvents).groupBy(webhookEvents.handling_status),
     exec.select({ handling_status: webhookEventStats.handling_status, count: sql<number>`sum(${webhookEventStats.count})::int` }).from(webhookEventStats).groupBy(webhookEventStats.handling_status),
+    exec.select({ platform: webhookEvents.platform, n: sql<number>`count(*)::int` }).from(webhookEvents).groupBy(webhookEvents.platform),
+    exec.select({ platform: webhookEventStats.platform, count: sql<number>`sum(${webhookEventStats.count})::int` }).from(webhookEventStats).groupBy(webhookEventStats.platform),
     exec.select({ n: sql<number>`count(*)::int` }).from(webhookEvents).where(gt(webhookEvents.received_at, since24h)),
     getInstanceResponseTimeStats(exec, { windowDays: DEFAULT_WINDOW_DAYS, now }),
   ]);
@@ -199,11 +216,23 @@ export async function collectMetrics(exec: Executor, now: Date = new Date()): Pr
   const byPlatform: Partial<Record<Platform, number>> = {};
   for (const r of channelByPlatform) byPlatform[r.platform] = Number(r.n);
 
+  const platformCounts = (rows: { platform: Platform | null; n: number }[]): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const r of rows) if (r.platform) out[r.platform] = Number(r.n);
+    return out;
+  };
+  const messagesSentPlatform = platformCounts(messagesSentByPlatform);
+  const commentsRepliedPlatform = platformCounts(commentsRepliedByPlatform);
+
   const byStatus = mergeWebhookStatusCounts(
     liveWebhookByStatus.map((r) => ({ status: r.status, n: Number(r.n) })),
     statsWebhookByStatus.map((r) => ({ handling_status: r.handling_status, count: Number(r.count) })),
   );
   const webhookTotal = Object.values(byStatus).reduce((a, n) => a + n, 0);
+  const webhookByPlatform = mergeWebhookPlatformCounts(
+    liveWebhookByPlatform.map((r) => ({ platform: r.platform, n: Number(r.n) })),
+    statsWebhookByPlatform.map((r) => ({ platform: r.platform, count: Number(r.count) })),
+  );
 
   const byThreadType: MetricsInfo["response_times"]["by_thread_type"] = {};
   for (const [k, v] of Object.entries(responseTimes.by_thread_type)) {
@@ -221,9 +250,10 @@ export async function collectMetrics(exec: Executor, now: Date = new Date()): Pr
       total: webhookTotal,
       last_24h: Number(webhookLast24h[0]?.n ?? 0),
       by_status: byStatus,
+      by_platform: webhookByPlatform,
     },
-    messages_sent: { total: messagesSentTotal, last_24h: messagesSentLast24h },
-    comments_replied: { total: commentsRepliedTotal },
+    messages_sent: { total: messagesSentTotal, last_24h: messagesSentLast24h, by_platform: messagesSentPlatform },
+    comments_replied: { total: commentsRepliedTotal, by_platform: commentsRepliedPlatform },
     response_times: {
       window_days: responseTimes.window_days,
       answer_rate_pct: responseTimes.overall.answer_rate_pct,

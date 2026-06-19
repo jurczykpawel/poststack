@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeWebhookStatusCounts, mergePostReactionTotals } from "./stats-read";
+import { mergeWebhookStatusCounts, mergeWebhookPlatformCounts, mergePostReactionTotals } from "./stats-read";
 
 describe("mergeWebhookStatusCounts", () => {
   it("adds live + stat counts per status", () => {
@@ -11,6 +11,26 @@ describe("mergeWebhookStatusCounts", () => {
   });
   it("handles empty inputs", () => {
     expect(mergeWebhookStatusCounts([], [])).toEqual({});
+  });
+});
+
+describe("mergeWebhookPlatformCounts", () => {
+  it("adds live + stat counts per platform", () => {
+    const out = mergeWebhookPlatformCounts(
+      [{ platform: "instagram", n: 3 }, { platform: "facebook", n: 5 }],
+      [{ platform: "instagram", count: 10 }, { platform: "facebook", count: 2 }],
+    );
+    expect(out).toEqual({ instagram: 13, facebook: 7 });
+  });
+  it("drops null-platform rows (unresolved page→channel) from the breakdown", () => {
+    const out = mergeWebhookPlatformCounts(
+      [{ platform: null, n: 4 }, { platform: "facebook", n: 1 }],
+      [{ platform: null, count: 9 }, { platform: "facebook", count: 2 }],
+    );
+    expect(out).toEqual({ facebook: 3 });
+  });
+  it("handles empty inputs", () => {
+    expect(mergeWebhookPlatformCounts([], [])).toEqual({});
   });
 });
 

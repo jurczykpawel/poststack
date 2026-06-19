@@ -65,9 +65,17 @@ const metrics = z
       total: z.number(),
       last_24h: z.number(),
       by_status: z.record(z.string(), z.number()),
+      by_platform: z.record(z.string(), z.number()),
     }),
-    messages_sent: z.object({ total: z.number(), last_24h: z.number() }),
-    comments_replied: z.object({ total: z.number() }),
+    messages_sent: z.object({
+      total: z.number(),
+      last_24h: z.number(),
+      by_platform: z.record(z.string(), z.number()),
+    }),
+    comments_replied: z.object({
+      total: z.number(),
+      by_platform: z.record(z.string(), z.number()),
+    }),
     response_times: z.object({
       window_days: z.number(),
       answer_rate_pct: z.number(),

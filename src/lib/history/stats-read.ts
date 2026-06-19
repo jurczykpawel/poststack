@@ -12,6 +12,18 @@ export function mergeWebhookStatusCounts(live: LiveStatusRow[], stats: WebhookSt
   return out;
 }
 
+export interface LivePlatformRow { platform: string | null; n: number }
+export interface PlatformStatRow { platform: string | null; count: number }
+
+/** All-time count per platform = live grouped counts + aggregate counts. Rows whose platform is null
+ *  (an old event whose page→channel was never resolved) are unattributed and dropped from the breakdown. */
+export function mergeWebhookPlatformCounts(live: LivePlatformRow[], stats: PlatformStatRow[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of live) if (r.platform) out[r.platform] = (out[r.platform] ?? 0) + Number(r.n);
+  for (const r of stats) if (r.platform) out[r.platform] = (out[r.platform] ?? 0) + Number(r.count);
+  return out;
+}
+
 export interface LiveReactionAgg { postId: string; channelId: string; type: string; n: number; lastAt: Date }
 export interface ReactionStatRow { post_id: string; channel_id: string; reaction_type: string; count: number; last_reacted_at: Date }
 export interface MergedPost { channelId: string; total: number; types: Map<string, number>; lastAt: Date }
