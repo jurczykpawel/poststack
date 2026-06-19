@@ -151,7 +151,7 @@ interface GroupedRow {
  *  `answered` collapses the live `outcome = 'answered'` flag and the rolled-up `answered_count`; the
  *  bucket columns come straight off the stats table, and from the live rows are derived by binning
  *  first_response_ms with the same thresholds as compaction (kept DRY via the CASE below). */
-function liveGrouped(exec: Executor, workspaceId: string, since: Date) {
+function liveGrouped(exec: Executor, workspaceId: string | undefined, since: Date) {
   // The bucket CASE mirrors BUCKETS exactly; the thresholds are the same constants compaction uses.
   const bucketSum = (label: BucketLabel) => {
     const ranges: Record<BucketLabel, string> = {
@@ -184,12 +184,19 @@ function liveGrouped(exec: Executor, workspaceId: string, since: Date) {
       bucket_gte_24h: bucketSum("bucket_gte_24h"),
     })
     .from(responseMetrics)
-    .where(and(eq(responseMetrics.workspace_id, workspaceId), gte(responseMetrics.received_at, since)))
+    // workspaceId undefined ⇒ instance-wide (every workspace), used by anonymous telemetry; a string
+    // scopes the read to one tenant. The window predicate always applies.
+    .where(
+      and(
+        ...(workspaceId === undefined ? [] : [eq(responseMetrics.workspace_id, workspaceId)]),
+        gte(responseMetrics.received_at, since),
+      ),
+    )
     .groupBy(responseMetrics.platform, responseMetrics.thread_type);
 }
 
 /** The rolled-up source: pre-summed counters per (platform, thread_type), filtered to the window. */
-function statsGrouped(exec: Executor, workspaceId: string, sinceDay: string) {
+function statsGrouped(exec: Executor, workspaceId: string | undefined, sinceDay: string) {
   return exec
     .select({
       platform: responseMetricStats.platform,
@@ -209,7 +216,12 @@ function statsGrouped(exec: Executor, workspaceId: string, sinceDay: string) {
       bucket_gte_24h: sql<number>`coalesce(sum(${responseMetricStats.bucket_gte_24h}), 0)::int`,
     })
     .from(responseMetricStats)
-    .where(and(eq(responseMetricStats.workspace_id, workspaceId), gte(responseMetricStats.day, sinceDay)))
+    .where(
+      and(
+        ...(workspaceId === undefined ? [] : [eq(responseMetricStats.workspace_id, workspaceId)]),
+        gte(responseMetricStats.day, sinceDay),
+      ),
+    )
     .groupBy(responseMetricStats.platform, responseMetricStats.thread_type);
 }
 
@@ -234,13 +246,13 @@ function rowToCounters(r: Record<string, unknown>): MetricGroupCounters {
 }
 
 /**
- * Compute response-time stats for a workspace over the trailing `windowDays`. Unions the live raw
- * metrics with the rolled-up daily stats so compaction never changes the numbers. Returns the overall
- * summary plus per-thread-type and per-platform breakdowns. Every query is scoped to `workspaceId`.
+ * Shared core: union the live raw metrics with the rolled-up daily stats over the trailing window and
+ * derive the overall + per-thread-type + per-platform summaries. `workspaceId` undefined reads every
+ * workspace (instance-wide); a string scopes to one tenant. Compaction never changes the numbers.
  */
-export async function getResponseTimeStats(
+async function computeResponseTimeStats(
   exec: Executor,
-  opts: { workspaceId: string; windowDays?: number; now?: Date },
+  opts: { workspaceId?: string; windowDays?: number; now?: Date },
 ): Promise<ResponseTimeStats> {
   const windowDays = clampWindowDays(opts.windowDays ?? DEFAULT_WINDOW_DAYS);
   const now = opts.now ?? new Date();
@@ -294,4 +306,28 @@ export async function getResponseTimeStats(
     by_thread_type,
     by_platform,
   };
+}
+
+/**
+ * Compute response-time stats for a single workspace over the trailing `windowDays`. Returns the
+ * overall summary plus per-thread-type and per-platform breakdowns. Every query is scoped to
+ * `workspaceId`.
+ */
+export function getResponseTimeStats(
+  exec: Executor,
+  opts: { workspaceId: string; windowDays?: number; now?: Date },
+): Promise<ResponseTimeStats> {
+  return computeResponseTimeStats(exec, opts);
+}
+
+/**
+ * Instance-wide response-time stats: the same union/derivation summed across EVERY workspace, for
+ * anonymous usage telemetry. No tenant scope — the numbers are deliberately aggregate, never
+ * identifying any one workspace.
+ */
+export function getInstanceResponseTimeStats(
+  exec: Executor,
+  opts: { windowDays?: number; now?: Date } = {},
+): Promise<ResponseTimeStats> {
+  return computeResponseTimeStats(exec, opts);
 }

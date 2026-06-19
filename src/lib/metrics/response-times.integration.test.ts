@@ -12,6 +12,7 @@ let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let seedWorkspace: typeof import("../../../tests/helpers/workspace").seedWorkspace;
 let compaction: typeof import("@/lib/history/compaction");
 let getResponseTimeStats: typeof import("./response-times").getResponseTimeStats;
+let getInstanceResponseTimeStats: typeof import("./response-times").getInstanceResponseTimeStats;
 let app: Hono;
 
 let WS = "", WS_OTHER = "", CH = "";
@@ -28,7 +29,7 @@ beforeAll(async () => {
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
   compaction = await import("@/lib/history/compaction");
-  ({ getResponseTimeStats } = await import("./response-times"));
+  ({ getResponseTimeStats, getInstanceResponseTimeStats } = await import("./response-times"));
   const { buildApp } = await import("@/server/app");
   app = buildApp();
 });
@@ -123,6 +124,32 @@ describe("getResponseTimeStats — live ∪ stats union (real Postgres)", () => 
     await liveMetric({ workspaceId: WS, daysAgo: 200 });
     const s = await getResponseTimeStats(db, { workspaceId: WS, windowDays: 30 });
     expect(s.overall.total_count).toBe(1);
+  });
+});
+
+describe("getInstanceResponseTimeStats — across all workspaces (real Postgres)", () => {
+  it("counts rows from every workspace (delta over a shared DB)", async () => {
+    if (!TEST_DB) return;
+    // Delta against whatever else lives in the shared DB: add a known number of rows in TWO
+    // workspaces and assert the instance-wide total rises by exactly that many.
+    const before = await getInstanceResponseTimeStats(db, { windowDays: 30 });
+    await liveMetric({ workspaceId: WS, daysAgo: 1, firstResponseMs: 1_000 });
+    await liveMetric({ workspaceId: WS, daysAgo: 1, firstResponseMs: 2_000 });
+    await liveMetric({ workspaceId: WS_OTHER, daysAgo: 1, firstResponseMs: 3_000 });
+    const after = await getInstanceResponseTimeStats(db, { windowDays: 30 });
+    expect(after.overall.total_count - before.overall.total_count).toBe(3);
+    expect(after.overall.count_first_response - before.overall.count_first_response).toBe(3);
+  });
+
+  it("a single-workspace read is a subset of the instance-wide read", async () => {
+    if (!TEST_DB) return;
+    await liveMetric({ workspaceId: WS, daysAgo: 1, firstResponseMs: 1_000 });
+    await liveMetric({ workspaceId: WS_OTHER, daysAgo: 1, firstResponseMs: 2_000 });
+    const ws = await getResponseTimeStats(db, { workspaceId: WS, windowDays: 30 });
+    const instance = await getInstanceResponseTimeStats(db, { windowDays: 30 });
+    expect(ws.overall.total_count).toBe(1);
+    // Instance-wide includes WS, WS_OTHER, and any other workspaces in the shared DB.
+    expect(instance.overall.total_count).toBeGreaterThanOrEqual(2);
   });
 });
 
