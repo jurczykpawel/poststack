@@ -5,6 +5,8 @@ import { autoReplyRules, pendingApprovals, contacts, sequences } from "@/db/sche
 import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEvent, isEventTerminal, type EventOutcomeLinks } from "@/lib/idempotency";
+import { recordResponseMetric, type RecordedMetric } from "@/lib/metrics/capture";
+import type { ConversationThreadType, Platform } from "@/db/schema";
 import { rephrase } from "@/lib/ai/rephrase";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { truncateCodePoints } from "@/lib/text";
@@ -37,8 +39,10 @@ export const MAX_ACTIVE_RULES = 1000;
 
 /** The transaction handle passed to db.transaction's callback. */
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-/** A deferred unit of DB work — runs inside the fire transaction (enqueue or park). */
-type CommitFn = (tx: DbTx) => Promise<void>;
+/** A deferred unit of DB work — runs inside the fire transaction (enqueue or park). Receives the
+ *  captured trigger stamp (TIMING2) so the FIRST outbound response can carry it; null when the
+ *  event has no logged metric anchor (a direct worker invocation that skipped the edge log). */
+type CommitFn = (tx: DbTx, stamp: RecordedMetric | null) => Promise<void>;
 
 /**
  * The terminal result of evaluating an event:
@@ -151,6 +155,26 @@ export async function evaluateRules(
 ): Promise<EvaluateOutcome> {
   const { workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
 
+  // TIMING3: a comment lives in a comment thread; a DM / reaction in a dm thread (mirrors how the
+  // workers resolve the conversation thread_type), so the metric's thread_type is derivable here
+  // without re-reading the conversation row.
+  const threadType: ConversationThreadType = eventType === "comment" ? "comment" : "dm";
+  // Write one response_metrics row for a terminal handling decision, on the SAME executor that took
+  // the terminal claim (so it commits/rolls back atomically with it). Only when the event was logged
+  // (has an eventKey) — a direct/test invocation with no edge row has no metric anchor.
+  const writeMetric = (executor: Parameters<typeof recordResponseMetric>[0], status: "fired" | "no_match", viaSequence = false) =>
+    eventKey
+      ? recordResponseMetric(executor, {
+          eventKey,
+          workspaceId,
+          channelId,
+          platform: platform as Platform,
+          threadType,
+          status,
+          viaSequence,
+        })
+      : Promise.resolve(null);
+
   const rules = await db.query.autoReplyRules.findMany({
     where: and(
       eq(autoReplyRules.workspace_id, workspaceId),
@@ -199,6 +223,9 @@ export async function evaluateRules(
   if (!contact?.is_subscribed) {
     if (eventKey) {
       const claimed = await claimEvent(eventKey, "no_match", links, db, { event_type: eventType });
+      // Capture the metric only when THIS call won the claim (it set handled_at); a lost race means
+      // a concurrent delivery already recorded the outcome, and the ON CONFLICT would no-op anyway.
+      if (claimed) await writeMetric(db, "no_match");
       return { outcome: claimed ? "no_match" : "already", ruleId: null };
     }
     return { outcome: "no_match", ruleId: null };
@@ -248,6 +275,9 @@ export async function evaluateRules(
     // claim, so the event simply retries.
     const keyBase = eventKey ? `${eventKey}:${rule.id}` : null;
     let commit: CommitFn;
+    // The fired response rides a sequence drip (the metric records via_sequence=true) only for a
+    // `sequence` rule — every other response type is a direct reply.
+    const viaSequence = rule.response_type === "sequence";
     if (rule.response_type === "sequence") {
       // SEQTRIGGER1: a `sequence` rule enrolls the contact into a drip on match. If the configured
       // sequence is missing/inactive (or the instance isn't licensed for sequences), we plan nothing
@@ -290,7 +320,11 @@ export async function evaluateRules(
             throw new NotFired("skip");
           }
         }
-        await commit(tx);
+        // TIMING3: capture the answered metric in the fire tx (after the claim set handled_at, so
+        // handling_ms is exact), then hand its stamp to the commit so the FIRST outbound response
+        // can carry it (TIMING2). A parked approval is not a sent response — its stamp is unused.
+        const stamp = await writeMetric(tx, "fired", viaSequence);
+        await commit(tx, stamp);
       });
     } catch (e) {
       if (!(e instanceof NotFired)) throw e; // a real failure → rolled back; let the job retry
@@ -307,6 +341,7 @@ export async function evaluateRules(
   // reply to an old event. A lost claim race means a concurrent delivery already handled it.
   if (eventKey) {
     const claimed = await claimEvent(eventKey, "no_match", links, db, { event_type: eventType });
+    if (claimed) await writeMetric(db, "no_match");
     return { outcome: claimed ? "no_match" : "already", ruleId: null };
   }
   return { outcome: "no_match", ruleId: null };
@@ -354,6 +389,8 @@ async function planApproval(input: {
   // Never park an empty proposal (e.g. an unresolvable config) — keep the DM body as a fallback.
   if (!proposed.content && !proposed.comment) proposed.content = dmContent;
 
+  // The stamp is intentionally unused: a parked approval is not yet a sent response, so first-
+  // response latency is only stamped when the approved message is actually enqueued downstream.
   return async (tx) => {
     await tx.insert(pendingApprovals).values({
       workspace_id: workspaceId,
@@ -396,8 +433,15 @@ async function planSequenceEnrollment(input: {
     columns: { id: true, steps: true },
   });
   if (!sequence) return null;
-  return async (tx) => {
-    await enrollContactInSequence(tx, { sequence, contactId: input.contactId, channelId: input.channelId });
+  return async (tx, stamp) => {
+    // Carry the trigger stamp into the enrollment so the FIRST sequence message (a step-0 `message`)
+    // is measurable; the enroll helper forwards it onto the step-0 job only.
+    await enrollContactInSequence(tx, {
+      sequence,
+      contactId: input.contactId,
+      channelId: input.channelId,
+      trigger: stamp ? { eventId: stamp.triggerEventId, receivedAt: stamp.triggerReceivedAt } : undefined,
+    });
   };
 }
 
@@ -418,6 +462,14 @@ interface PlanResponseInput {
   /** `${eventKey}:${ruleId}` when the event has a stable identity, else null. */
   keyBase: string | null;
   personalize: PersonalizeContext;
+}
+
+/** TIMING2: turn a captured metric stamp into the three optional first-response payload fields. A
+ *  direct reply is the first (and only first) response to its trigger, so it is always measurable;
+ *  an absent stamp (no logged event) yields an empty object that omits the fields entirely. */
+function firstResponseStamp(stamp: RecordedMetric | null): { triggerEventId?: string; triggerReceivedAt?: string; measurable?: boolean } {
+  if (!stamp) return {};
+  return { triggerEventId: stamp.triggerEventId, triggerReceivedAt: stamp.triggerReceivedAt.toISOString(), measurable: true };
 }
 
 /** Build outbound content from a follow-gate branch config ({ text, quick_replies?, buttons? }). */
@@ -446,7 +498,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
   // sends the appropriate branch or a re-prompt. Stateless — driven by each tap.
   if (rule.response_type === "follow_gate") {
     const key = idemKey("gate");
-    return async (tx) => {
+    return async (tx, stamp) => {
       await addJobTx(tx, "follow-gate", {
         channelId,
         conversationId,
@@ -456,6 +508,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
         notFollowed: gatedContent(rule.response_config.not_followed, personalize),
         sentByRuleId: rule.id,
         idempotencyKey: key,
+        ...firstResponseStamp(stamp),
       }, { jobKey: jobKeyFor(key) });
     };
   }
@@ -489,7 +542,11 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
   const shouldDM =
     canDM && (replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !sendComment)) && !!dmText;
 
-  return async (tx) => {
+  return async (tx, stamp) => {
+    // A rule firing both a public comment AND a DM produces two responses to one trigger; both are
+    // stamped measurable, and the first to reach `sent` wins first_response_ms (the `IS NULL` guard
+    // makes the later one a no-op) — so the metric records the genuine first-response latency.
+    const stampFields = firstResponseStamp(stamp);
     if (sendComment) {
       const key = idemKey("comment");
       await addJobTx(tx, "outgoing-comment", {
@@ -499,6 +556,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
         text: commentReplyText!,
         sentByRuleId: rule.id,
         idempotencyKey: key,
+        ...stampFields,
       }, { jobKey: jobKeyFor(key) });
     }
 
@@ -514,6 +572,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
           text: dmText!,
           ...(hasInteractive ? { content: { text: dmText!, ...interactive } } : {}),
           sentByRuleId: rule.id,
+          ...stampFields,
           idempotencyKey: key,
         }, { jobKey: jobKeyFor(key) });
       } else {
@@ -526,6 +585,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
           content: { text: dmText!, ...interactive },
           sentByRuleId: rule.id,
           idempotencyKey: key,
+          ...stampFields,
         }, { jobKey: jobKeyFor(key) });
       }
     }

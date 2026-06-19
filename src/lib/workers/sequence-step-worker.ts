@@ -135,6 +135,10 @@ export async function processSequenceStep(
     if (advanced.length === 0) return;
 
     if (outgoing) {
+      // TIMING2: the FIRST sequence message is measurable only when it is step 0 AND the step-0 job
+      // carried the trigger stamp (enroll forwards it only to step 0). A delay-first sequence reaches
+      // its first message at step >= 1, so it is never measured — matching the spec.
+      const measurable = stepIndex === 0 && !!payload.triggerEventId;
       await addJobTx(
         tx,
         "outgoing-message",
@@ -145,10 +149,16 @@ export async function processSequenceStep(
           recipientPlatformId: outgoing.recipientPlatformId,
           content: { text: step.content },
           idempotencyKey: `seq-msg:${enrollmentId}:${stepIndex}`,
+          ...(measurable
+            ? { triggerEventId: payload.triggerEventId, triggerReceivedAt: payload.triggerReceivedAt, measurable: true }
+            : {}),
         },
         { jobKey: `seq-msg:${enrollmentId}:${stepIndex}` },
       );
     }
+
+    // The next step's job deliberately omits the trigger stamp — only the step-0 job (scheduled at
+    // enrollment) carries it, so only the first sequence message can ever be measured.
 
     if (!isLast) {
       await addJobTx(

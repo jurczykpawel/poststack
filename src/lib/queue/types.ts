@@ -1,5 +1,20 @@
 import type { MessageContent } from "@/lib/platforms/base";
 
+/**
+ * TIMING2: stamp carried by the FIRST outbound response to an inbound trigger, so the delivery
+ * worker can fill `response_metrics.first_response_ms` when the send reaches `sent`. Optional on
+ * every outbound payload — absence means "don't measure this send" (backward compatible). Only the
+ * first measurable response per trigger ever sets the metric (first-write-wins in the delivery).
+ */
+export interface FirstResponseStamp {
+  /** webhook_events.id of the inbound event that triggered this response. */
+  triggerEventId?: string;
+  /** The trigger event's received_at, as an ISO-8601 string — the clock the latency measures from. */
+  triggerReceivedAt?: string;
+  /** True only for the first response to the trigger (a direct reply, or a sequence's step-0 message). */
+  measurable?: boolean;
+}
+
 export interface IncomingMessageJob {
   /** "facebook" | "instagram" | "telegram" */
   platform: string;
@@ -27,7 +42,7 @@ export interface IncomingMessageJob {
   timestamp: number;
 }
 
-export interface OutgoingCommentJob {
+export interface OutgoingCommentJob extends FirstResponseStamp {
   channelId: string;
   /** The addressed contact — stamped on the delivery ledger so erasure cascades + the queue
    *  PII scrub reach the (personalized) public-reply text too. */
@@ -90,7 +105,7 @@ export interface IncomingReceiptJob {
 }
 
 /** Comment-to-DM: a private reply addressed by comment_id (first-touch DM). */
-export interface OutgoingPrivateReplyJob {
+export interface OutgoingPrivateReplyJob extends FirstResponseStamp {
   channelId: string;
   conversationId: string;
   /** The addressed contact — stamped on the delivery ledger so erasure cascades + the queue
@@ -153,7 +168,7 @@ export interface IncomingPostReactionJob {
   timestamp?: number;
 }
 
-export interface OutgoingMessageJob {
+export interface OutgoingMessageJob extends FirstResponseStamp {
   channelId: string;
   conversationId: string;
   contactId: string;
@@ -183,6 +198,11 @@ export interface PublishJob {
 
 export interface SequenceStepJob {
   enrollmentId: string;
+  /** TIMING2: present only on the step-0 job scheduled at enrollment, carrying the inbound trigger's
+   *  identity. The worker stamps it onto the FIRST sequence message (a step-0 `message`) so the
+   *  delivery can measure first-response latency; subsequent step jobs omit it (never measured). */
+  triggerEventId?: string;
+  triggerReceivedAt?: string;
 }
 
 export interface DrainChannelJob {
@@ -201,7 +221,7 @@ export interface ResumeChannelEnrollmentsJob {
  * send the gated content accordingly (the lead magnet when they follow, a
  * re-prompt otherwise). Stateless — each tap re-checks live.
  */
-export interface FollowGateJob {
+export interface FollowGateJob extends FirstResponseStamp {
   channelId: string;
   conversationId: string;
   contactId: string;

@@ -8,6 +8,7 @@ import { decryptTokens } from "@/lib/crypto";
 import { getProvider } from "@/lib/platforms/registry";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, markEventStatus, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
+import { recordResponseMetric } from "@/lib/metrics/capture";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
@@ -171,6 +172,8 @@ export async function processIncomingComment(
     // A paused conversation OR a manually paused channel runs no automation, but the event
     // is still terminally claimed so a redelivery after unpause doesn't reply late.
     await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversationId, comment_log_id: loggedId }, db, { event_type: "comment" });
+    // TIMING3: record the paused outcome (a comment lives in a comment thread). After the claim.
+    await recordResponseMetric(db, { eventKey, workspaceId: channel.workspace_id, channelId: channel.id, platform: channel.platform, threadType: "comment", status: "paused" });
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying`);
     return;
   }

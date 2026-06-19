@@ -31,7 +31,15 @@ export interface EnrollResult {
  */
 export async function enrollContactInSequence(
   tx: Executor,
-  opts: { sequence: EnrollableSequence; contactId: string; channelId: string; now?: Date },
+  opts: {
+    sequence: EnrollableSequence;
+    contactId: string;
+    channelId: string;
+    now?: Date;
+    /** TIMING2: the inbound trigger that started this enrollment. Stamped onto the step-0 job only,
+     *  so the FIRST sequence message (a step-0 `message`) is measurable; later steps are not. */
+    trigger?: { eventId: string; receivedAt: Date };
+  },
 ): Promise<EnrollResult> {
   const now = opts.now ?? new Date();
   const steps = (opts.sequence.steps ?? []) as Array<{ type?: string; delay_minutes?: number }>;
@@ -56,6 +64,16 @@ export async function enrollContactInSequence(
   // Conflict (already enrolled) → no row returned → schedule nothing.
   if (!row) return { enrolled: false };
 
-  await addJobTx(tx, "sequence-step", { enrollmentId: row.id }, { jobKey: `seq-step:${row.id}:0`, runAt });
+  await addJobTx(
+    tx,
+    "sequence-step",
+    {
+      enrollmentId: row.id,
+      ...(opts.trigger
+        ? { triggerEventId: opts.trigger.eventId, triggerReceivedAt: opts.trigger.receivedAt.toISOString() }
+        : {}),
+    },
+    { jobKey: `seq-step:${row.id}:0`, runAt },
+  );
   return { enrolled: true, enrollmentId: row.id };
 }

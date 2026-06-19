@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { channels, contacts, conversations, messages } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, linkEventOutcome, markEventOnTerminalFailure } from "@/lib/idempotency";
+import { recordResponseMetric } from "@/lib/metrics/capture";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { resolveContactProfile } from "@/lib/contacts/profile";
@@ -142,6 +143,8 @@ export async function processIncomingMessage(
   // same handling as a per-conversation pause: surface a new DM for a human, don't auto-reply.
   if (conversation.is_automation_paused || channel.status === "paused") {
     await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversation.id, message_id: messageId }, db, { event_type: "message" });
+    // TIMING3: record the paused outcome (a DM lives in a dm thread). After the claim set handled_at.
+    await recordResponseMetric(db, { eventKey, workspaceId: channel.workspace_id, channelId: channel.id, platform: channel.platform, threadType: "dm", status: "paused" });
     if (isNewMessage) await ifLatest({ needs_manual_reply: true });
     return;
   }

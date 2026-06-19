@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { channels, messageReactions } from "@/db/schema";
 import { evaluateRules } from "@/lib/rules/executor";
 import { claimEvent, isEventTerminal, markEventStatus, markEventOnTerminalFailure } from "@/lib/idempotency";
+import { recordResponseMetric } from "@/lib/metrics/capture";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
@@ -106,6 +107,8 @@ export async function processIncomingReaction(
     // Paused conversation OR manually paused channel: no automation, but still terminally
     // claim so a redelivery after unpause doesn't fire on an old reaction.
     await claimEvent(eventKey, "paused", { contact_id: contactId, conversation_id: conversationId }, db, { event_type: "reaction" });
+    // TIMING3: record the paused outcome (a reaction lives in the contact's dm thread). After the claim.
+    await recordResponseMetric(db, { eventKey, workspaceId: channel.workspace_id, channelId: channel.id, platform: channel.platform, threadType: "dm", status: "paused" });
     helpers.logger.info(`Automation paused for conversation=${conversationId}, not replying to reaction`);
     return;
   }

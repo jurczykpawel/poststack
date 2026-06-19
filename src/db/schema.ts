@@ -14,6 +14,7 @@ export const accountSourceStatus = pgEnum("account_source_status", ['active', 'n
 // = one thread per post the contact commented on (thread_ref = post id). Extensible (email, …) without
 // touching the inbox: a new channel plugs in as dm-style (ref '') or topic-style (ref = some id).
 export const conversationThreadType = pgEnum("conversation_thread_type", ['dm', 'comment'])
+export type ConversationThreadType = (typeof conversationThreadType.enumValues)[number]
 export const channelStatus = pgEnum("channel_status", ['active', 'needs_reauth', 'paused', 'disabled'])
 export const conversationStatus = pgEnum("conversation_status", ['open', 'closed', 'snoozed'])
 export const flowSessionStatus = pgEnum("flow_session_status", ['active', 'completed', 'expired', 'cancelled'])
@@ -1269,6 +1270,7 @@ export const instanceSettings = pgTable("instance_settings", {
 // automation was paused, `ignored` = recognized but intentionally not acted on, `error` = handling
 // failed after retries.
 export const metricOutcome = pgEnum("metric_outcome", ['answered', 'no_match', 'paused', 'ignored', 'error'])
+export type MetricOutcome = (typeof metricOutcome.enumValues)[number]
 
 // One row per handled inbound trigger event, capturing how long it took us to handle/answer it.
 // The capture path upserts per trigger_event_id (UNIQUE) so it is idempotent under redelivery. The
