@@ -24,6 +24,7 @@ import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
+import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
 import * as conversationMessages from "@/server/handlers/v1/conversations/[conversationId]/messages/route";
@@ -696,7 +697,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl, products } = await getInstanceLicense();
-    const ov = await loadOverview(a.workspaceId);
+    const [ov, responseTimes] = await Promise.all([
+      loadOverview(a.workspaceId),
+      getResponseTimeStats(db, { workspaceId: a.workspaceId, windowDays: DEFAULT_WINDOW_DAYS }),
+    ]);
     // When the publishing wing is entitled, fold its KPIs (attention / upcoming / events) into the
     // unified overview alongside the reply stats (workspace-scoped). Otherwise it's the reply landing.
     const pub = products.has("publishing")
@@ -709,7 +713,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           return { attention, upcoming, recent };
         })()
       : null;
-    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub), features, products));
+    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub, responseTimes), features, products));
   });
 
   // Inbox — READING incoming conversations is free (basic info; rules auto-reply for free). Only the
@@ -2407,8 +2411,11 @@ function relTimeShort(at: Date): string {
   return ms >= 0 ? `in ${v}` : `${v} ago`;
 }
 
-function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string, pub: OverviewPublishing | null = null): Html {
+function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string, pub: OverviewPublishing | null = null, responseTimes: ResponseTimeStats | null = null): Html {
   const locked = !features.has("contacts_crm");
+  const rt = responseTimes?.overall;
+  // Only meaningful once we've handled something; otherwise the tiles would read "0% / —".
+  const showRt = rt != null && rt.total_count > 0;
   return html`<div class="page">
     <h1>Overview</h1>
     <p class="section-intro">Your automation at a glance.${locked ? html` Replying to conversations by hand is ${proLink(upgradeUrl, "PRO")} — your rules auto-reply for free.` : html``}</p>
@@ -2418,6 +2425,10 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
       ${kpi({ label: "Failed", value: ov.failed, tone: ov.failed > 0 ? "bad" : "neutral" })}
       ${kpi({ label: "Held", value: ov.held, tone: ov.held > 0 ? "warn" : "neutral" })}
       ${kpi({ label: "Contacts", value: ov.contactCount, tone: "neutral" })}
+      ${showRt
+        ? html`${kpi({ label: `Avg first reply (${DEFAULT_WINDOW_DAYS}d)`, value: formatLatencyMs(rt!.avg_first_response_ms), tone: "info" })}
+            ${kpi({ label: `Answer rate (${DEFAULT_WINDOW_DAYS}d)`, value: `${rt!.answer_rate_pct}%`, tone: rt!.answer_rate_pct >= 80 ? "ok" : "neutral" })}`
+        : ""}
     </div>
     ${pub ? renderPublishingOverview(pub) : ""}
     <section class="section">

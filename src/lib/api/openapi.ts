@@ -814,6 +814,21 @@ export const openApiSpec = {
     },
 
     // ─── Audit log, retention, workspace, tags ────────────────────────────────
+    "/stats/response-times": {
+      get: {
+        tags: ["Stats"],
+        summary: "Response-time stats: answer rate, average latency and first-response percentiles",
+        description:
+          "Overall plus per-thread-type and per-platform breakdowns over a trailing window. Numbers union the live metrics with the rolled-up daily stats, so they are unaffected by history compaction.",
+        parameters: [
+          { name: "window", in: "query", description: "Trailing window in days", schema: { type: "integer", default: 30, minimum: 1, maximum: 365 } },
+        ],
+        responses: {
+          "200": { description: "Response-time stats" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
     "/audit-log": {
       get: {
         tags: ["Workspace"],
@@ -929,5 +944,6 @@ export const openApiSpec = {
     { name: "Approvals", description: "Human-in-the-loop review before sending" },
     { name: "API Keys", description: "Programmatic access tokens" },
     { name: "Workspace", description: "Settings, retention, audit log" },
+    { name: "Stats", description: "Aggregate metrics (response times, answer rate)" },
   ],
 };

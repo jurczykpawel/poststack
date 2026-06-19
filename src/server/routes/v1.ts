@@ -38,6 +38,7 @@ import * as postPublish from "@/server/handlers/v1/posts/[postId]/publish/route"
 import * as mediaRegister from "@/server/handlers/v1/media/route";
 import * as brandsList from "@/server/handlers/v1/brands/route";
 import * as brandItem from "@/server/handlers/v1/brands/[brandKey]/route";
+import * as statsResponseTimes from "@/server/handlers/v1/stats/response-times/route";
 
 export const v1 = new Hono();
 
@@ -147,6 +148,9 @@ v1.post("/api-keys", (c) => apiKeys.POST(c.req.raw));
 v1.delete("/api-keys/:keyId", (c) =>
   apiKey.DELETE(c.req.raw, { params: Promise.resolve({ keyId: c.req.param("keyId") }) }),
 );
+
+// Stats
+v1.get("/stats/response-times", (c) => statsResponseTimes.GET(c.req.raw));
 
 // Audit log, retention, workspace, tags
 v1.get("/audit-log", (c) => auditLog.GET(c.req.raw));
