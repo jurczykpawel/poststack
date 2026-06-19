@@ -5,6 +5,8 @@ import type { Hono } from "hono";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "sk_live_response_times_key_abcdef0123";
+// A key scoped to a different resource — must not be able to read response-time stats.
+const SCOPED_KEY = "sk_live_response_times_scoped_abcd01";
 
 let db: typeof import("@/lib/db").db;
 let schema: typeof import("@/db/schema");
@@ -51,11 +53,18 @@ beforeEach(async () => {
     token_encrypted: encryptTokens({ access_token: "T" }), webhook_secret: "wh",
   }).returning({ id: schema.channels.id });
   CH = c!.id;
-  await db.insert(schema.apiKeys).values({
-    workspace_id: WS, name: "rt key",
-    key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-    key_prefix: "sk_live_resp",
-  });
+  await db.insert(schema.apiKeys).values([
+    {
+      workspace_id: WS, name: "rt key",
+      key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
+      key_prefix: "sk_live_resp",
+    },
+    {
+      workspace_id: WS, name: "rt scoped key",
+      key_hash: createHash("sha256").update(SCOPED_KEY).digest("hex"),
+      key_prefix: "sk_live_rsco", scopes: ["contacts:read"],
+    },
+  ]);
 });
 
 /** Insert a live response_metrics row `daysAgo` old. */
@@ -179,5 +188,16 @@ describe("GET /api/v1/stats/response-times", () => {
     });
     const body = await res.json();
     expect(body.data.window_days).toBe(365);
+  });
+
+  it("rejects a key whose scopes do not include stats:read", async () => {
+    if (!TEST_DB) return;
+    await liveMetric({ workspaceId: WS, daysAgo: 1, firstResponseMs: 2_000 });
+    const res = await app.request("/api/v1/stats/response-times?window=30", {
+      headers: { authorization: `Bearer ${SCOPED_KEY}` },
+    });
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.data).toBeNull();
   });
 });

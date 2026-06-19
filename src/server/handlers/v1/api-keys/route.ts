@@ -44,6 +44,7 @@ export const VALID_SCOPES = [
   "tags:read", "tags:write",
   "settings:read", "settings:write",
   "sources:read", "sources:write",
+  "stats:read",
 ] as const;
 
 const createSchema = z.object({
