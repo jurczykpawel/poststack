@@ -65,6 +65,10 @@
 - **Contact search & non-ASCII case-folding** — the dashboard contact search uses `ILIKE`, whose case-insensitivity for non-ASCII letters (e.g. Polish `Ó`/`ó`) depends on the database locale. The bundled `postgres:alpine` initializes with the `C` locale, where `ILIKE` only case-folds ASCII — so searching `józek` won't match a stored `JÓZEK`. For correct Polish (or any non-ASCII) case-insensitive search, initialize Postgres with a UTF-8/ICU locale (e.g. set `POSTGRES_INITDB_ARGS` to use `--locale-provider=icu --icu-locale=und` on a **fresh** data volume) or add the `unaccent` extension. Keyword/automation matching is unaffected (it folds + NFC-normalizes in the app). The same `ILIKE '%term%'` search is also non-sargable (a sequential scan per keystroke); fine for small workspaces, but at scale add a `pg_trgm` GIN index on the searched columns.
 - **Conversation status `snoozed`** — `snoozed` is currently a manual, permanent state (like `closed`): there is **no auto-reopen timer** (no `snoozed_until` / scheduled un-snooze), and the inbox lists conversations of all statuses, so closed/snoozed threads still appear in the list. Treat snooze as "mark resolved-for-now" rather than "remind me later". A timed snooze + status filtering/tabs in the inbox are planned.
 
+### Telemetry & privacy
+
+PostStack sends a small **anonymous** usage report to the maintainer once per day (and once on startup). It contains only aggregate counts (workspaces, channels, messages sent, webhooks processed, response-time aggregates…) and deployment shape (app version, runtime, OS/arch, which platforms are connected, integration on/off flags). It carries no message content, no contact data, no tokens or secrets, and no raw domain — the only identifiers are a random instance id and salted one-way hashes. Telemetry is on by default; disable it any time with `POSTSTACK_TELEMETRY_DISABLED=true`. Full detail: [docs/PRIVACY.md](docs/PRIVACY.md).
+
 ---
 
 ## Quick Start
