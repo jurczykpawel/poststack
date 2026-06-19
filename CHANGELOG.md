@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-19
+
+### Added
+
+- **Telemetry: per-platform breakdown.** The anonymous daily usage snapshot now includes a per-platform breakdown of messages sent and webhooks processed (and comment replies) — counts only, grouped by platform (e.g. Facebook, Instagram). Still no message content, contact data, tokens, or secrets.
+
 ## [0.7.0] - 2026-06-19
 
 ### Added
