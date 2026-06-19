@@ -162,14 +162,199 @@ describe("compactPostReactions", () => {
   });
 });
 
+async function rm(opts: {
+  platform?: typeof schema.responseMetrics.$inferInsert.platform;
+  threadType?: typeof schema.responseMetrics.$inferInsert.thread_type;
+  outcome: typeof schema.responseMetrics.$inferInsert.outcome;
+  handlingMs: number;
+  firstResponseMs: number | null;
+  daysAgo: number;
+}) {
+  const platform = opts.platform ?? "instagram";
+  const threadType = opts.threadType ?? "dm";
+  await db.insert(schema.responseMetrics).values({
+    workspace_id: WS,
+    channel_id: CH,
+    platform,
+    thread_type: threadType,
+    received_at: sql`now() - (${opts.daysAgo} || ' days')::interval`,
+    handled_at: sql`now() - (${opts.daysAgo} || ' days')::interval`,
+    handling_ms: opts.handlingMs,
+    first_response_ms: opts.firstResponseMs,
+    outcome: opts.outcome,
+  });
+}
+// `received_at - N days` lands on distinct calendar days, so a group can span several day-rows in
+// response_metric_stats (unique key includes `day`). Fold them back into one shape for assertions:
+// counters/sums/buckets add; min/max take the extreme; null when no day-row carried a value.
+async function statsFor(tt: "dm" | "comment", platform = "instagram") {
+  const rows = await db.query.responseMetricStats.findMany({
+    where: sql`workspace_id = ${WS} AND thread_type = ${tt} AND platform = ${platform}`,
+  });
+  if (rows.length === 0) return undefined;
+  const add = (k: keyof (typeof rows)[number]) => rows.reduce((a, r) => a + (r[k] as number), 0);
+  const ext = (k: "min_first_response_ms" | "max_first_response_ms", fn: (...n: number[]) => number) => {
+    const vals = rows.map((r) => r[k]).filter((v): v is number => v != null);
+    return vals.length === 0 ? null : fn(...vals);
+  };
+  return {
+    answered_count: add("answered_count"), no_match_count: add("no_match_count"),
+    paused_count: add("paused_count"), ignored_count: add("ignored_count"), error_count: add("error_count"),
+    total_count: add("total_count"),
+    sum_handling_ms: add("sum_handling_ms"), count_handling: add("count_handling"),
+    sum_first_response_ms: add("sum_first_response_ms"), count_first_response: add("count_first_response"),
+    min_first_response_ms: ext("min_first_response_ms", Math.min),
+    max_first_response_ms: ext("max_first_response_ms", Math.max),
+    bucket_lt_1m: add("bucket_lt_1m"), bucket_lt_5m: add("bucket_lt_5m"), bucket_lt_15m: add("bucket_lt_15m"),
+    bucket_lt_1h: add("bucket_lt_1h"), bucket_lt_6h: add("bucket_lt_6h"), bucket_lt_24h: add("bucket_lt_24h"),
+    bucket_gte_24h: add("bucket_gte_24h"),
+  };
+}
+
+describe("compactResponseMetrics", () => {
+  it("folds old rows into per-(platform,thread_type,day) stats with full counters/sums/buckets; raw deleted", async () => {
+    if (!TEST_DB) return;
+    // DM group: mix of outcomes + first_response spanning several buckets + one null.
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 1000, firstResponseMs: 30_000, daysAgo: 90 }); // <1m
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 2000, firstResponseMs: 200_000, daysAgo: 88 }); // <5m
+    await rm({ threadType: "dm", outcome: "no_match", handlingMs: 500, firstResponseMs: 600_000, daysAgo: 85 }); // <15m
+    await rm({ threadType: "dm", outcome: "error", handlingMs: 3000, firstResponseMs: null, daysAgo: 80 }); // null fr
+    // comment group: distinct buckets + paused/ignored counters.
+    await rm({ threadType: "comment", outcome: "paused", handlingMs: 100, firstResponseMs: 2_000_000, daysAgo: 75 }); // <1h
+    await rm({ threadType: "comment", outcome: "ignored", handlingMs: 200, firstResponseMs: 10_000_000, daysAgo: 70 }); // <6h
+    await rm({ threadType: "comment", outcome: "answered", handlingMs: 300, firstResponseMs: 50_000_000, daysAgo: 65 }); // <24h
+    await rm({ threadType: "comment", outcome: "answered", handlingMs: 400, firstResponseMs: 100_000_000, daysAgo: 64 }); // >=24h
+
+    const res = await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    expect(res.compacted).toBe(8);
+    expect(await db.$count(schema.responseMetrics, eq(schema.responseMetrics.workspace_id, WS))).toBe(0);
+
+    const dm = (await statsFor("dm"))!;
+    expect(dm.answered_count).toBe(2);
+    expect(dm.no_match_count).toBe(1);
+    expect(dm.error_count).toBe(1);
+    expect(dm.paused_count).toBe(0);
+    expect(dm.ignored_count).toBe(0);
+    expect(dm.total_count).toBe(4);
+    expect(dm.sum_handling_ms).toBe(1000 + 2000 + 500 + 3000);
+    expect(dm.count_handling).toBe(4);
+    expect(dm.sum_first_response_ms).toBe(30_000 + 200_000 + 600_000);
+    expect(dm.count_first_response).toBe(3);
+    expect(dm.min_first_response_ms).toBe(30_000);
+    expect(dm.max_first_response_ms).toBe(600_000);
+    expect(dm.bucket_lt_1m).toBe(1);
+    expect(dm.bucket_lt_5m).toBe(1);
+    expect(dm.bucket_lt_15m).toBe(1);
+    expect(dm.bucket_lt_1h).toBe(0);
+    expect(dm.bucket_lt_6h).toBe(0);
+    expect(dm.bucket_lt_24h).toBe(0);
+    expect(dm.bucket_gte_24h).toBe(0);
+
+    const cm = (await statsFor("comment"))!;
+    expect(cm.paused_count).toBe(1);
+    expect(cm.ignored_count).toBe(1);
+    expect(cm.answered_count).toBe(2);
+    expect(cm.total_count).toBe(4);
+    expect(cm.sum_handling_ms).toBe(100 + 200 + 300 + 400);
+    expect(cm.count_handling).toBe(4);
+    expect(cm.sum_first_response_ms).toBe(2_000_000 + 10_000_000 + 50_000_000 + 100_000_000);
+    expect(cm.count_first_response).toBe(4);
+    expect(cm.min_first_response_ms).toBe(2_000_000);
+    expect(cm.max_first_response_ms).toBe(100_000_000);
+    expect(cm.bucket_lt_1m).toBe(0);
+    expect(cm.bucket_lt_5m).toBe(0);
+    expect(cm.bucket_lt_15m).toBe(0);
+    expect(cm.bucket_lt_1h).toBe(1);
+    expect(cm.bucket_lt_6h).toBe(1);
+    expect(cm.bucket_lt_24h).toBe(1);
+    expect(cm.bucket_gte_24h).toBe(1);
+  });
+
+  it("leaves in-window rows untouched (not rolled up, not deleted)", async () => {
+    if (!TEST_DB) return;
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 1000, firstResponseMs: 30_000, daysAgo: 5 });
+    await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    expect(await db.$count(schema.responseMetrics, eq(schema.responseMetrics.workspace_id, WS))).toBe(1);
+    expect(await statsFor("dm")).toBeUndefined();
+  });
+
+  it("idempotent: a second run does not double-count", async () => {
+    if (!TEST_DB) return;
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 1000, firstResponseMs: 30_000, daysAgo: 90 });
+    await rm({ threadType: "dm", outcome: "no_match", handlingMs: 2000, firstResponseMs: 600_000, daysAgo: 80 });
+    await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const after1 = (await statsFor("dm"))!;
+    await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const after2 = (await statsFor("dm"))!;
+    expect(after2).toEqual(after1);
+    expect(await db.$count(schema.responseMetrics, eq(schema.responseMetrics.workspace_id, WS))).toBe(0);
+  });
+
+  it("group with all first_response null → fr count/sums 0, min/max null, buckets 0; handling + outcomes still set", async () => {
+    if (!TEST_DB) return;
+    await rm({ threadType: "dm", outcome: "error", handlingMs: 1000, firstResponseMs: null, daysAgo: 90 });
+    await rm({ threadType: "dm", outcome: "paused", handlingMs: 2000, firstResponseMs: null, daysAgo: 85 });
+    await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const dm = (await statsFor("dm"))!;
+    expect(dm.error_count).toBe(1);
+    expect(dm.paused_count).toBe(1);
+    expect(dm.total_count).toBe(2);
+    expect(dm.sum_handling_ms).toBe(3000);
+    expect(dm.count_handling).toBe(2);
+    expect(dm.count_first_response).toBe(0);
+    expect(dm.sum_first_response_ms).toBe(0);
+    expect(dm.min_first_response_ms).toBeNull();
+    expect(dm.max_first_response_ms).toBeNull();
+    expect(dm.bucket_lt_1m).toBe(0);
+    expect(dm.bucket_lt_5m).toBe(0);
+    expect(dm.bucket_lt_15m).toBe(0);
+    expect(dm.bucket_lt_1h).toBe(0);
+    expect(dm.bucket_lt_6h).toBe(0);
+    expect(dm.bucket_lt_24h).toBe(0);
+    expect(dm.bucket_gte_24h).toBe(0);
+  });
+
+  it("partial pre-existing rollup: a second compaction pass ADDS to existing day/group correctly (min/max)", async () => {
+    if (!TEST_DB) return;
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 1000, firstResponseMs: 200_000, daysAgo: 90 }); // <5m
+    await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    // A later-arriving (still old) row for the SAME (workspace,platform,thread_type) but a new day.
+    await rm({ threadType: "dm", outcome: "no_match", handlingMs: 500, firstResponseMs: 30_000, daysAgo: 90 }); // <1m, lower fr
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 700, firstResponseMs: 600_000, daysAgo: 90 }); // <15m, higher fr
+    await compaction.compactResponseMetrics({ now, retentionDays: 60, batchSize: 100, executor: db });
+    const dm = (await statsFor("dm"))!;
+    expect(dm.answered_count).toBe(2);
+    expect(dm.no_match_count).toBe(1);
+    expect(dm.total_count).toBe(3);
+    expect(dm.sum_handling_ms).toBe(1000 + 500 + 700);
+    expect(dm.count_handling).toBe(3);
+    expect(dm.count_first_response).toBe(3);
+    expect(dm.min_first_response_ms).toBe(30_000);
+    expect(dm.max_first_response_ms).toBe(600_000);
+    expect(dm.bucket_lt_1m).toBe(1);
+    expect(dm.bucket_lt_5m).toBe(1);
+    expect(dm.bucket_lt_15m).toBe(1);
+  });
+
+  it("disabled (retentionDays=0) is a no-op", async () => {
+    if (!TEST_DB) return;
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 1000, firstResponseMs: 30_000, daysAgo: 90 });
+    await compaction.compactResponseMetrics({ now, retentionDays: 0, batchSize: 100, executor: db });
+    expect(await db.$count(schema.responseMetrics, eq(schema.responseMetrics.workspace_id, WS))).toBe(1);
+    expect(await statsFor("dm")).toBeUndefined();
+  });
+});
+
 describe("compactHistory orchestrator", () => {
-  it("runs both compactors and returns combined counts", async () => {
+  it("runs all compactors and returns combined counts", async () => {
     if (!TEST_DB) return;
     await ev({ type: "comments", status: "fired", daysAgo: 90 });
     await rx({ post: "p1", type: "like", reactor: "u1", daysAgo: 90 });
+    await rm({ threadType: "dm", outcome: "answered", handlingMs: 1000, firstResponseMs: 30_000, daysAgo: 90 });
     const res = await compaction.compactHistory({ now, retentionDays: 60, batchSize: 100, executor: db });
     expect(res.webhookEvents.compacted).toBe(1);
     expect(res.postReactions.compacted).toBe(1);
+    expect(res.responseMetrics.compacted).toBe(1);
   });
 
   it("deleting a compacted webhook_events row does NOT delete linked records", async () => {

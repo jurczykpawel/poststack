@@ -17,6 +17,7 @@ export async function runCompactHistory(): Promise<void> {
     webhookEventsCompacted: res.webhookEvents.compacted,
     orphansDeleted: res.webhookEvents.orphansDeleted,
     postReactionsCompacted: res.postReactions.compacted,
+    responseMetricsCompacted: res.responseMetrics.compacted,
     retentionDays,
   });
 }

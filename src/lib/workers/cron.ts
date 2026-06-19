@@ -64,8 +64,9 @@ export const cronTaskList = {
   "stuck-sending-sweep": async () => {
     await stuckSendingSweep();
   },
-  // Daily history compaction: roll up webhook_events + post_reactions older than the retention
-  // window into per-day stat rows, then delete the raw rows. No-op when HISTORY_RETENTION_DAYS=0.
+  // Daily history compaction: roll up webhook_events + post_reactions + response_metrics older than
+  // the retention window into per-day stat rows, then delete the raw rows. No-op when
+  // HISTORY_RETENTION_DAYS=0.
   "compact-history": async () => {
     await runCompactHistory();
   },
