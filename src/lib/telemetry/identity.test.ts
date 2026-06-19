@@ -49,3 +49,19 @@ describe("licenseHash", () => {
     expect(licenseHash("ord_123")).not.toBe(licenseHash("ord_456"));
   });
 });
+
+// Frozen vectors — these break loudly if TELEMETRY_HASH_PEPPER or the hash algorithm ever changes.
+// The receiver pins the SAME `order-test-vector-001` value, so both sides must agree byte-for-byte.
+describe("hash test vectors (frozen)", () => {
+  it("licenseHash of the canonical vector matches the pinned hex", () => {
+    expect(licenseHash("order-test-vector-001")).toBe(
+      "74633b0958d059f172c39ffcc50aa3662d6af817700db5c923bea5b0f79034f2",
+    );
+  });
+
+  it("domainHash of https://example.com matches the pinned hex", () => {
+    expect(domainHash("https://example.com")).toBe(
+      "f261dc3fdda379dfcff088f91d9c0ec7ccfc8b6abc37d42671c551733dee5057",
+    );
+  });
+});

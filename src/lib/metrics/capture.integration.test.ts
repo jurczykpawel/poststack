@@ -31,6 +31,8 @@ let w: {
   processSequenceStep: typeof import("@/lib/workers/sequence-step-worker").processSequenceStep;
 };
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
+let recordResponseMetric: typeof import("@/lib/metrics/capture").recordResponseMetric;
+let recordFirstResponse: typeof import("@/lib/metrics/capture").recordFirstResponse;
 
 const WS = "dddddddd-0000-0000-0000-0000000000a1";
 const CH = "dddddddd-0000-0000-0000-0000000000a2";
@@ -81,6 +83,7 @@ beforeAll(async () => {
     processSequenceStep: (await import("@/lib/workers/sequence-step-worker")).processSequenceStep,
   };
   ({ closeQueue } = await import("@/lib/queue/client"));
+  ({ recordResponseMetric, recordFirstResponse } = await import("@/lib/metrics/capture"));
 });
 
 beforeEach(async () => {
@@ -339,5 +342,46 @@ describe("response_metrics capture (real Postgres)", () => {
     expect(metric).toBeDefined();
     expect(metric!.outcome).toBe("answered");
     expect(metric!.thread_type).toBe("comment");
+  });
+});
+
+describe("recordFirstResponse first-write-wins under concurrency (real Postgres)", () => {
+  // Two sends for the same trigger land at the same instant: only the first measurable write may set
+  // first_response_ms, and once set it must never flip. The `first_response_ms IS NULL` guard has to
+  // hold even when both updates run concurrently (Promise.all) against the one metric row.
+  it("two concurrent sends with different timestamps leave exactly one non-null first_response_ms that never flips", async () => {
+    if (!TEST_DB) return;
+    const received = new Date(Date.now() - 10_000);
+    const key = await loggedAt("m-race", "message", "MR", received);
+    // Seed the metric row exactly as a terminal handling claim would (id/received_at copied off the event).
+    const recorded = await recordResponseMetric(db, {
+      eventKey: key, workspaceId: WS, channelId: CH, platform: "facebook", threadType: "dm", status: "fired",
+    });
+    expect(recorded).not.toBeNull();
+    expect((await metricFor(key))!.first_response_ms).toBeNull();
+
+    // Two distinct send timestamps → two distinct candidate latencies. Whichever update wins the race
+    // sets the value; the other's guard (first_response_ms IS NULL) sees a filled row and is a no-op.
+    const early = new Date(received.getTime() + 1_000); // first_response_ms candidate = 1000
+    const late = new Date(received.getTime() + 5_000); //  first_response_ms candidate = 5000
+    await Promise.all([
+      recordFirstResponse(db, { triggerEventId: recorded!.triggerEventId, triggerReceivedAt: received, sentAt: early }),
+      recordFirstResponse(db, { triggerEventId: recorded!.triggerEventId, triggerReceivedAt: received, sentAt: late }),
+    ]);
+
+    // Exactly one row, with a single non-null latency that is one of the two candidates.
+    const rows = await metricsFor(key);
+    expect(rows.length).toBe(1);
+    const settled = rows[0]!.first_response_ms;
+    expect(settled).not.toBeNull();
+    expect([1_000, 5_000]).toContain(settled);
+    const settledSentAt = rows[0]!.first_sent_at;
+    expect(settledSentAt).not.toBeNull();
+
+    // A further send for the same trigger must NOT flip the already-settled value.
+    await recordFirstResponse(db, { triggerEventId: recorded!.triggerEventId, triggerReceivedAt: received, sentAt: new Date(received.getTime() + 9_000) });
+    const after = await metricFor(key);
+    expect(after!.first_response_ms).toBe(settled);
+    expect(after!.first_sent_at!.getTime()).toBe(settledSentAt!.getTime());
   });
 });

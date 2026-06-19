@@ -56,42 +56,37 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
 </section>
 
 <script>
-  interface FleetResponse {
-    active_instances?: number;
-    total_messages_processed?: number;
-    total_webhooks_processed?: number;
-    total_channels?: number;
-    avg_response_time_ms?: number;
-  }
+  import {
+    selectMetrics,
+    shouldReveal,
+    type FleetMetricDef,
+    type FleetMetricKind,
+    type FleetResponse,
+  } from "../lib/fleet-stats";
 
   const section = document.querySelector<HTMLElement>("[data-fleet]");
   if (section) {
     const endpoint = section.dataset.fleetEndpoint;
 
-    // Locale-aware thousands separators for whole counts.
-    const fmtCount = (n: number): string => Math.round(n).toLocaleString();
-
-    // Human-friendly first-response time: ~Ns under a minute, ~Nm above.
-    const fmtDuration = (ms: number): string => {
-      if (ms < 1000) return `~${Math.round(ms)}ms`;
-      const seconds = ms / 1000;
-      if (seconds < 60) return `~${Math.round(seconds)}s`;
-      return `~${Math.round(seconds / 60)}m`;
-    };
-
-    const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+    // The configured metric cards, read off the rendered DOM (key + render kind).
+    const cells = [...section.querySelectorAll<HTMLElement>("[data-fleet-value]")];
+    const defs: FleetMetricDef[] = cells.map((el) => ({
+      key: el.dataset.fleetValue as keyof FleetResponse,
+      kind: (el.dataset.fleetKind as FleetMetricKind) ?? "count",
+    }));
 
     const reveal = (data: FleetResponse) => {
-      for (const el of section.querySelectorAll<HTMLElement>("[data-fleet-value]")) {
-        const key = el.dataset.fleetValue as keyof FleetResponse | undefined;
-        const raw = key ? data[key] : undefined;
-        if (!isFiniteNumber(raw)) {
+      const rows = selectMetrics(data, defs);
+      rows.forEach((row, i) => {
+        const el = cells[i];
+        if (!el) return;
+        if (!row.visible) {
           // A missing/invalid field collapses its own card rather than showing a placeholder.
           el.parentElement?.style.setProperty("display", "none");
-          continue;
+          return;
         }
-        el.textContent = el.dataset.fleetKind === "duration" ? fmtDuration(raw) : fmtCount(raw);
-      }
+        el.textContent = row.text;
+      });
       section.hidden = false;
       section.removeAttribute("aria-hidden");
     };
@@ -106,7 +101,7 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
         if (!res.ok) return;
         const data = (await res.json()) as FleetResponse;
         // Only reveal on real adoption — a down endpoint or an empty fleet shows nothing.
-        if (isFiniteNumber(data.active_instances) && data.active_instances > 0) reveal(data);
+        if (shouldReveal(data)) reveal(data);
       } catch {
         // Unreachable / timeout / bad JSON — stay hidden, no error surfaced to the visitor.
       }
