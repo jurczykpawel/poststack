@@ -86,6 +86,31 @@ const lastUpdated = "2026-06-18";
         instance, its database, your social tokens, or the people you talk to. Your data
         controller for the app is <em>you</em>.
       </p>
+      <p>
+        The one thing an instance sends back is <strong>anonymous usage telemetry</strong> — a
+        once-daily aggregate snapshot that helps us understand how PostStack is used and prioritise
+        the roadmap. It is <strong>on by default (opt-out)</strong>, the same model as many
+        self-hosted tools. What a snapshot contains:
+      </p>
+      <ul>
+        <li>a <strong>random instance id</strong> (a UUID generated once on first run — not tied to you);</li>
+        <li>a <strong>salted hash of your domain</strong> — never the domain itself;</li>
+        <li><strong>deployment shape</strong>: version numbers and on/off feature &amp; integration flags;</li>
+        <li>
+          <strong>aggregate counts only</strong> — totals such as connected channels, processed
+          webhooks and messages, plus the per-platform channel breakdown shown in the “Live fleet”
+          section on our homepage.
+        </li>
+      </ul>
+      <p>
+        It <strong>never</strong> contains message content, contact or audience data, social tokens,
+        your raw domain, or anything that identifies a specific person. You can turn it off
+        completely by setting <code>POSTSTACK_TELEMETRY_DISABLED=true</code> in your environment —
+        then no snapshot is built and no network call is made. The exact fields, with examples, are
+        documented in
+        <a href="https://github.com/jurczykpawel/poststack/blob/main/docs/PRIVACY.md" rel="noopener">
+          docs/PRIVACY.md</a> in the source repository.
+      </p>
 
       <h2>5. Email</h2>
       <p>
