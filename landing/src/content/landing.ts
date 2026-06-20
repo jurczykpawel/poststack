@@ -369,7 +369,7 @@ export const fleetStats = {
   platformsTitle: "Connected channels by platform",
   note: "Anonymous and opt-out — see exactly what is shared on the",
   noteLinkLabel: "privacy page",
-  noteLinkHref: "/privacy",
+  noteLinkHref: "/privacy#telemetry",
 };
 
 export const faq = [
