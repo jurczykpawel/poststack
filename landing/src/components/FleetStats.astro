@@ -48,8 +48,12 @@ const { endpoint, eyebrow, title, subtitle, metrics, platformsTitle, note, noteL
       </h2>
       <p class="relative mx-auto mt-4 max-w-[34rem] text-ink-2">{subtitle}</p>
 
-      {/* Headline counters — flex-wrap so a collapsed (missing) metric re-centers the row. */}
-      <dl class="relative mt-10 flex flex-wrap justify-center gap-4" data-reveal-group>
+      {/* Headline counters — 2-up grid on mobile; flex-wrap centered on sm+ so a collapsed
+          (missing) metric re-centers the row instead of leaving a gap. */}
+      <dl
+        class="relative mt-10 grid grid-cols-2 gap-4 sm:flex sm:flex-wrap sm:justify-center"
+        data-reveal-group
+      >
         {
           metrics.map((m) => (
             <div
@@ -57,7 +61,7 @@ const { endpoint, eyebrow, title, subtitle, metrics, platformsTitle, note, noteL
               data-reveal
             >
               <dd
-                class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-3xl font-bold tabular-nums text-transparent"
+                class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-2xl font-bold tabular-nums text-transparent sm:text-3xl"
                 data-fleet-value={m.key}
                 data-fleet-kind={"kind" in m ? m.kind : "count"}
               >
