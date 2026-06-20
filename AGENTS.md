@@ -55,6 +55,23 @@ Worker process (graphile-worker, on Bun):
   - sequence-steps worker     → deliver drip sequence messages
 ```
 
+## Landing / marketing site (READ THIS before "deploying the landing")
+
+The `landing/` Astro site is **NOT a separate deployment** and does **NOT** live on a separate
+domain or Cloudflare Pages. It is **built into the app Docker image** and served by the app itself:
+
+- `docker/Dockerfile` has a `landing` build stage (`npm run build` in `landing/`) and copies
+  `landing/dist` into the runtime image.
+- `src/server/routes/landing.ts` (`serveLandingFile`) serves it at `/` and `/privacy` (+ `/_astro/*`).
+  Logged-out visitors see the marketing site; logged-in visitors are redirected to `/overview`.
+
+**So the landing and the app are one deployment, on one domain (`poststack.techskills.academy`).**
+To ship landing changes, **cut a normal app release** (bump version → tag `v*` → `release.yml` builds the
+image incl. the fresh `landing/dist` → auto-deploy TEST → manual PROD). There is no CF Pages step and no
+DNS cutover. (The `app.poststack.techskills.academy` split mentioned in some marketing copy was an
+abandoned plan — a cert issue on the subdomain — so the app currently lives on the apex; treat any
+"app on a subdomain / deploys independently" wording as stale.)
+
 ## API-First Design
 
 PostStack is API-first. All features exposed via REST at `/api/v1/*`.
