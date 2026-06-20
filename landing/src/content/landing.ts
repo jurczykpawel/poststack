@@ -9,7 +9,8 @@ export const site = {
   description:
     "Self-hosted social media management for Facebook, Instagram, YouTube & Telegram (more coming): unified inbox, keyword auto-replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",
   domain: "https://poststack.techskills.academy",
-  appUrl: "https://app.poststack.techskills.academy",
+  // The app and its marketing page are one deployment on the same domain; /login is the app entry.
+  appUrl: "https://poststack.techskills.academy/login",
   ctaUrl: "https://sellf.techskills.academy/p/poststack-pro",
   docsUrl: "https://github.com/jurczykpawel/poststack",
   githubUrl: "https://github.com/jurczykpawel/poststack",
@@ -376,7 +377,7 @@ export const faq = [
   {
     question: "Do I need my own server to run PostStack?",
     answer:
-      "Yes for self-hosting. The target setup is Docker Compose on a VPS. Marketing lives on poststack.techskills.academy and the app on app.poststack.techskills.academy — they deploy independently.",
+      "Yes for self-hosting. The target setup is Docker Compose on a VPS — a single deployment that serves both the dashboard and its marketing page from the same domain.",
   },
   {
     question: "Is this a subscription or a one-time purchase?",
@@ -447,7 +448,7 @@ export const footer = {
     {
       heading: "Get started",
       links: [
-        { label: "Open the app", href: "https://app.poststack.techskills.academy" },
+        { label: "Open the app", href: "https://poststack.techskills.academy/login" },
         { label: "Get a license", href: "https://sellf.techskills.academy/p/poststack-pro" },
       ],
     },

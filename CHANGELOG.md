@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-06-21
+
+### Fixed
+
+- **Landing: point app links at the real domain.** The marketing site referenced a separate `app.poststack.techskills.academy` host that does not exist (its “Open the app” links were dead). The app and its marketing page are a single deployment on one domain, so those links now point at `https://poststack.techskills.academy/login` and the FAQ wording was corrected.
+
 ## [0.7.3] - 2026-06-21
 
 ### Added
