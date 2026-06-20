@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-06-21
+
+### Added
+
+- **Landing: per-platform fleet breakdown.** The “Live fleet” section now shows a per-platform breakdown of connected channels (animated bars with platform glyphs) alongside the headline counters, drawn from the public telemetry endpoint’s aggregate data. Reveals only when there are reporting instances.
+
+### Changed
+
+- **Landing: privacy page now discloses telemetry.** Added an “Anonymous usage telemetry” section to the privacy page (what an aggregate snapshot contains, what it never contains, the opt-out env var, and a link to `docs/PRIVACY.md`); the fleet section deep-links to it. Mobile fleet cards render 2-up.
+
 ## [0.7.2] - 2026-06-20
 
 ### Added
