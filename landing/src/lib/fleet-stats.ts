@@ -2,13 +2,15 @@
 // without a DOM. The component's inline script imports these; behavior must stay identical.
 
 /** The aggregate, anonymous numbers the public telemetry endpoint returns. All fields optional —
- *  a down/old endpoint may omit any of them, and selectMetrics is robust to that. */
+ *  a down/old endpoint may omit any of them, and the selectors are robust to that. */
 export interface FleetResponse {
   active_instances?: number;
   total_messages_processed?: number;
   total_webhooks_processed?: number;
   total_channels?: number;
   avg_response_time_ms?: number;
+  /** Connected channels grouped by platform (e.g. { facebook: 24, instagram: 14 }). Counts only. */
+  by_platform?: Record<string, number>;
 }
 
 /** How a metric's number is rendered: a plain count, or a human-friendly duration. */
@@ -58,4 +60,53 @@ export function selectMetrics(stats: FleetResponse, defs: readonly FleetMetricDe
     const text = def.kind === "duration" ? formatLatency(raw) : formatCount(raw);
     return { key: def.key, visible: true, text };
   });
+}
+
+/** One platform's share of the connected-channel fleet, ready to render as a labelled bar. */
+export interface PlatformBar {
+  /** Lowercase platform id from the API (e.g. "facebook") — used for the icon lookup. */
+  key: string;
+  /** Display label (Title Case), e.g. "Facebook". */
+  label: string;
+  /** Channel count on this platform. */
+  count: number;
+  /** Formatted count with thousands separators. */
+  text: string;
+  /** Bar width as a percentage of the largest platform (0–100), so the leader fills the track. */
+  pct: number;
+}
+
+/** Title-case a lowercase platform id for display ("youtube" → "Youtube"); known multi-case brands
+ *  (YouTube, LinkedIn, TikTok) are special-cased so the label reads right. */
+export function platformLabel(key: string): string {
+  const special: Record<string, string> = {
+    youtube: "YouTube",
+    linkedin: "LinkedIn",
+    tiktok: "TikTok",
+    x: "X",
+    twitter: "X",
+  };
+  return special[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+/** Turn `by_platform` into sorted, normalised bars (largest first). Non-finite or non-positive
+ *  counts are dropped; widths are relative to the largest so the leader always fills the track.
+ *  Returns [] when there is no usable platform data (the component then hides the breakdown). */
+export function selectPlatformBars(stats: FleetResponse, opts: { maxBars?: number } = {}): PlatformBar[] {
+  const raw = stats.by_platform;
+  if (!raw || typeof raw !== "object") return [];
+  const rows = Object.entries(raw)
+    .filter(([, v]) => isFiniteNumber(v) && v > 0)
+    .map(([key, count]) => ({ key, count: count as number }))
+    .sort((a, b) => b.count - a.count);
+  if (rows.length === 0) return [];
+  const max = rows[0]!.count;
+  const limited = typeof opts.maxBars === "number" ? rows.slice(0, opts.maxBars) : rows;
+  return limited.map(({ key, count }) => ({
+    key,
+    label: platformLabel(key),
+    count,
+    text: formatCount(count),
+    pct: Math.max(6, Math.round((count / max) * 100)), // floor of 6% so the smallest bar stays visible
+  }));
 }
