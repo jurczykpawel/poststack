@@ -137,6 +137,12 @@ const envSchema = z.object({
   // History compaction (RETAIN1). 0 = off; positive values must be >= 30.
   HISTORY_RETENTION_DAYS: historyRetentionField,
 
+  // In-process TTL for the dashboard stats memo (STATSCACHE1). Repeated dashboard loads reuse the
+  // last aggregate over the hot raw tables (webhook_events / post_reactions) instead of re-scanning
+  // on every request. 0 = off (always compute fresh); positive = max staleness in milliseconds.
+  // Default 30s: stats tiles tolerate brief staleness, and it bounds DB work under a refresh storm.
+  STATS_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),
+
   // Anonymous usage telemetry (TELEMETRY1). ON by default (opt-out, n8n-style): either
   // POSTSTACK_TELEMETRY_DISABLED=true or POSTSTACK_TELEMETRY_ENABLED=false turns it off. Both raw
   // flags are parsed here; loadEnv() folds them into the single resolved TELEMETRY_ENABLED boolean

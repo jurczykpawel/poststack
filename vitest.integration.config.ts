@@ -8,6 +8,10 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["**/*.integration.test.ts"],
+    // STATSCACHE1: stats memo OFF by default so live∪stats merge tests read real DB state. The
+    // caching wiring is proven with the cache ON in dashboard-stats-cache.integration.test.ts, which
+    // sets STATS_CACHE_TTL_MS itself (before importing dashboard) to override this.
+    env: { STATS_CACHE_TTL_MS: "0" },
     // Integration tests share one Postgres + graphile queue; run files serially
     // so worker-draining suites don't consume each other's enqueued jobs.
     fileParallelism: false,

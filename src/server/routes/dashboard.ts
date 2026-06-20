@@ -10,6 +10,7 @@ import {
   pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, webhookEventStats, postReactionStats, users,
 } from "@/db/schema";
 import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
+import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -586,9 +587,20 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
 
 interface WebhookStats { total: number; last24h: number; byStatus: Record<string, number> }
 
+// STATSCACHE1: short-lived memo over the hot raw tables. Keyed by the channel set so each workspace
+// gets its own entry; TTL from env (0 disables → always fresh). The web container is one process,
+// so a module-level cache is process-wide. A stable key needs the channel ids sorted (call sites may
+// pass them in any order).
+const webhookStatsCache = createTtlCache<WebhookStats>({ ttlMs: env.STATS_CACHE_TTL_MS });
+const channelKey = (channelIds: string[]): string => [...channelIds].sort().join(",");
+
 /** Aggregate inbound-event counts for the workspace's channels — the PRO Webhooks-page stats. */
 export async function loadWebhookStats(channelIds: string[]): Promise<WebhookStats> {
   if (channelIds.length === 0) return { total: 0, last24h: 0, byStatus: {} };
+  return webhookStatsCache.getOrCompute(channelKey(channelIds), () => computeWebhookStats(channelIds));
+}
+
+async function computeWebhookStats(channelIds: string[]): Promise<WebhookStats> {
   const since = new Date(Date.now() - 24 * 3600_000);
   const live = await db
     .select({ status: webhookEvents.handling_status, n: count() })
@@ -2152,8 +2164,17 @@ const ENGAGEMENT_POST_LIMIT = 200;
  * heavy engagement (e.g. 10k reactions across a few posts showed as ≤1000). `channelIds === null` =
  * all channels; `[]` = filtered to nothing.
  */
+// STATSCACHE1: same short-lived memo for the engagement view (a grouped scan over post_reactions).
+// Key includes the workspace and the channel scope ("all" when unfiltered).
+const engagementCache = createTtlCache<EngagementPost[]>({ ttlMs: env.STATS_CACHE_TTL_MS });
+
 export async function loadEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
   if (channelIds && channelIds.length === 0) return [];
+  const key = `${workspaceId}|${channelIds ? channelKey(channelIds) : "all"}`;
+  return engagementCache.getOrCompute(key, () => computeEngagement(workspaceId, channelIds));
+}
+
+async function computeEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
   const where = and(
     eq(postReactions.workspace_id, workspaceId),
     channelIds ? inArray(postReactions.channel_id, channelIds) : undefined,
