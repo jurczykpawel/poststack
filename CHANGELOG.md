@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-20
+
+### Added
+
+- **Dashboard stats caching.** The webhook and engagement stats tiles now reuse their last computed aggregate for a short window instead of re-scanning the underlying tables on every dashboard load. Configurable via `STATS_CACHE_TTL_MS` (default 30000 ms; set `0` to always compute live). No schema change.
+
+### Changed
+
+- **Self-hosting docs.** Sharpened the README + deploy guide for self-hosters (prebuilt images, HTTPS-in-front guidance, Meta OAuth redirect URIs).
+
 ## [0.7.1] - 2026-06-19
 
 ### Added
