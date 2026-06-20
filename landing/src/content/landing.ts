@@ -366,6 +366,10 @@ export const fleetStats = {
     { key: "total_webhooks_processed", label: "Webhooks processed" },
     { key: "avg_response_time_ms", label: "Avg. first response", kind: "duration" },
   ],
+  platformsTitle: "Connected channels by platform",
+  note: "Anonymous and opt-out — see exactly what is shared on the",
+  noteLinkLabel: "privacy page",
+  noteLinkHref: "/privacy",
 };
 
 export const faq = [

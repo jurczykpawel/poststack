@@ -6,10 +6,14 @@
  * returns active_instances > 0. If the endpoint is unreachable (e.g. in dev), times out, errors, or
  * reports zero instances, the section stays hidden — no layout shift, no zeros, no error text.
  *
- * Only the labels live in content (landing.ts); the numbers come from the endpoint at runtime.
+ * Two layers of data, both anonymous and aggregate:
+ *   1. headline counters (instances / channels / messages / webhooks / avg first response)
+ *   2. a per-platform breakdown of connected channels, drawn as animated bars
+ * Only labels live in content (landing.ts); the numbers come from the endpoint at runtime.
  */
 import { fleetStats } from "../content/landing";
-const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
+const { endpoint, eyebrow, title, subtitle, metrics, platformsTitle, note, noteLinkLabel, noteLinkHref } =
+  fleetStats;
 ---
 
 <section
@@ -30,17 +34,30 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
         style="width:420px;height:420px;top:-160px;left:50%;transform:translateX(-50%);background:radial-gradient(circle,#7aa2f7,transparent 65%);opacity:0.18"
       >
       </div>
-      <span class="eyebrow relative justify-center">{eyebrow}</span>
+
+      <span class="eyebrow relative justify-center">
+        <span class="relative mr-2 inline-flex h-2 w-2">
+          <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue opacity-75"></span>
+          <span class="relative inline-flex h-2 w-2 rounded-full bg-blue"></span>
+        </span>
+        {eyebrow}
+      </span>
+
       <h2 class="relative mx-auto mt-4 max-w-[40rem] text-[clamp(1.6rem,3.4vw,2.5rem)] font-bold">
         {title}
       </h2>
       <p class="relative mx-auto mt-4 max-w-[34rem] text-ink-2">{subtitle}</p>
-      <dl class="relative mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-reveal-group>
+
+      {/* Headline counters — flex-wrap so a collapsed (missing) metric re-centers the row. */}
+      <dl class="relative mt-10 flex flex-wrap justify-center gap-4" data-reveal-group>
         {
           metrics.map((m) => (
-            <div class="rounded-2xl border border-border-subtle bg-base/40 p-5" data-reveal>
+            <div
+              class="min-w-[8.5rem] max-w-[14rem] flex-1 rounded-2xl border border-border-subtle bg-base/40 p-5"
+              data-reveal
+            >
               <dd
-                class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-3xl font-bold text-transparent"
+                class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-3xl font-bold tabular-nums text-transparent"
                 data-fleet-value={m.key}
                 data-fleet-kind={"kind" in m ? m.kind : "count"}
               >
@@ -51,6 +68,31 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
           ))
         }
       </dl>
+
+      {/* Per-platform breakdown — populated client-side; hidden until there is usable data. */}
+      <div
+        class="relative mx-auto mt-10 max-w-[34rem] rounded-2xl border border-border-subtle bg-base/40 p-6 text-left md:p-7"
+        data-fleet-platforms-block
+        hidden
+        data-reveal
+      >
+        <p class="mb-5 text-center text-xs font-semibold uppercase tracking-[0.14em] text-ink-3">
+          {platformsTitle}
+        </p>
+        <ul class="flex flex-col gap-4" data-fleet-platforms></ul>
+      </div>
+
+      {
+        note && (
+          <p class="relative mt-8 text-xs text-ink-3">
+            {note}{" "}
+            <a class="text-blue underline-offset-2 hover:underline" href={noteLinkHref}>
+              {noteLinkLabel}
+            </a>
+            .
+          </p>
+        )
+      }
     </div>
   </div>
 </section>
@@ -58,15 +100,18 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
 <script>
   import {
     selectMetrics,
+    selectPlatformBars,
     shouldReveal,
     type FleetMetricDef,
     type FleetMetricKind,
     type FleetResponse,
   } from "../lib/fleet-stats";
+  import { platformIconPath } from "../lib/platform-icons";
 
   const section = document.querySelector<HTMLElement>("[data-fleet]");
   if (section) {
     const endpoint = section.dataset.fleetEndpoint;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     // The configured metric cards, read off the rendered DOM (key + render kind).
     const cells = [...section.querySelectorAll<HTMLElement>("[data-fleet-value]")];
@@ -75,9 +120,8 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
       kind: (el.dataset.fleetKind as FleetMetricKind) ?? "count",
     }));
 
-    const reveal = (data: FleetResponse) => {
-      const rows = selectMetrics(data, defs);
-      rows.forEach((row, i) => {
+    const fillMetrics = (data: FleetResponse) => {
+      selectMetrics(data, defs).forEach((row, i) => {
         const el = cells[i];
         if (!el) return;
         if (!row.visible) {
@@ -87,6 +131,75 @@ const { endpoint, eyebrow, title, subtitle, metrics } = fleetStats;
         }
         el.textContent = row.text;
       });
+    };
+
+    const renderPlatforms = (data: FleetResponse) => {
+      const block = section.querySelector<HTMLElement>("[data-fleet-platforms-block]");
+      const list = section.querySelector<HTMLElement>("[data-fleet-platforms]");
+      if (!block || !list) return;
+      const bars = selectPlatformBars(data, { maxBars: 8 });
+      if (bars.length === 0) return; // no usable breakdown → leave the block hidden
+
+      const fills: HTMLElement[] = [];
+      for (const bar of bars) {
+        const li = document.createElement("li");
+        li.className = "flex items-center gap-3 sm:gap-4";
+
+        const chip = document.createElement("span");
+        chip.className =
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-base/70 text-ink-2";
+        const path = platformIconPath(bar.label);
+        if (path) {
+          chip.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${path}"/></svg>`;
+        } else {
+          chip.textContent = bar.label.charAt(0);
+          chip.classList.add("text-sm", "font-semibold");
+        }
+
+        const body = document.createElement("div");
+        body.className = "min-w-0 flex-1";
+
+        const top = document.createElement("div");
+        top.className = "mb-1.5 flex items-baseline justify-between gap-2";
+        const label = document.createElement("span");
+        label.className = "truncate text-sm font-medium text-ink";
+        label.textContent = bar.label;
+        const count = document.createElement("span");
+        count.className = "shrink-0 font-[var(--font-display)] text-sm font-semibold tabular-nums text-ink-2";
+        count.textContent = bar.text;
+        top.append(label, count);
+
+        const track = document.createElement("div");
+        track.className = "h-2 w-full overflow-hidden rounded-full bg-base/80";
+        const fill = document.createElement("div");
+        fill.className = "h-full rounded-full bg-gradient-to-r from-blue to-purple";
+        fill.style.width = reduceMotion ? `${bar.pct}%` : "0%";
+        if (!reduceMotion) {
+          fill.style.transition = `width 1100ms cubic-bezier(.22,1,.36,1) ${fills.length * 70}ms`;
+          fill.dataset.target = String(bar.pct);
+        }
+        track.append(fill);
+
+        body.append(top, track);
+        li.append(chip, body);
+        list.append(li);
+        fills.push(fill);
+      }
+
+      block.hidden = false;
+      if (!reduceMotion) {
+        // Next frame: flip widths 0 → target so the bars animate in (staggered via the per-bar delay).
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            for (const f of fills) f.style.width = `${f.dataset.target}%`;
+          }),
+        );
+      }
+    };
+
+    const reveal = (data: FleetResponse) => {
+      fillMetrics(data);
+      renderPlatforms(data);
       section.hidden = false;
       section.removeAttribute("aria-hidden");
     };

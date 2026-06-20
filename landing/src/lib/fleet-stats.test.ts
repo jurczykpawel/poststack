@@ -4,6 +4,8 @@ import {
   formatLatency,
   shouldReveal,
   selectMetrics,
+  selectPlatformBars,
+  platformLabel,
   type FleetMetricDef,
   type FleetResponse,
 } from "./fleet-stats";
@@ -106,5 +108,57 @@ describe("selectMetrics", () => {
     const rows = selectMetrics(stats, defs);
     expect(rows[1]!.visible).toBe(false);
     expect(rows[4]!.visible).toBe(false);
+  });
+});
+
+describe("platformLabel", () => {
+  it("special-cases known multi-case brands", () => {
+    expect(platformLabel("youtube")).toBe("YouTube");
+    expect(platformLabel("linkedin")).toBe("LinkedIn");
+    expect(platformLabel("tiktok")).toBe("TikTok");
+    expect(platformLabel("twitter")).toBe("X");
+    expect(platformLabel("x")).toBe("X");
+  });
+
+  it("title-cases anything else", () => {
+    expect(platformLabel("facebook")).toBe("Facebook");
+    expect(platformLabel("threads")).toBe("Threads");
+  });
+});
+
+describe("selectPlatformBars", () => {
+  it("sorts platforms by count descending and scales bars to the leader", () => {
+    const stats: FleetResponse = {
+      by_platform: { instagram: 14, facebook: 24, youtube: 12 },
+    };
+    const bars = selectPlatformBars(stats);
+    expect(bars.map((b) => b.key)).toEqual(["facebook", "instagram", "youtube"]);
+    expect(bars[0]!.pct).toBe(100); // leader fills the track
+    expect(bars[0]!.text).toBe((24).toLocaleString());
+    expect(bars[1]!.pct).toBe(Math.round((14 / 24) * 100));
+    expect(bars[0]!.label).toBe("Facebook");
+  });
+
+  it("floors tiny shares at 6% so the smallest bar stays visible", () => {
+    const stats: FleetResponse = { by_platform: { facebook: 1000, threads: 1 } };
+    const bars = selectPlatformBars(stats);
+    expect(bars[1]!.pct).toBe(6); // 0.1% would be invisible — floored
+  });
+
+  it("drops non-positive / non-finite counts", () => {
+    const stats = { by_platform: { facebook: 10, x: 0, y: -3, z: Number.NaN } } as FleetResponse;
+    const bars = selectPlatformBars(stats);
+    expect(bars.map((b) => b.key)).toEqual(["facebook"]);
+  });
+
+  it("respects maxBars", () => {
+    const stats: FleetResponse = { by_platform: { a: 5, b: 4, c: 3, d: 2 } };
+    expect(selectPlatformBars(stats, { maxBars: 2 }).map((b) => b.key)).toEqual(["a", "b"]);
+  });
+
+  it("returns [] when there is no usable platform data", () => {
+    expect(selectPlatformBars({})).toEqual([]);
+    expect(selectPlatformBars({ by_platform: {} })).toEqual([]);
+    expect(selectPlatformBars({ by_platform: { a: 0 } })).toEqual([]);
   });
 });
