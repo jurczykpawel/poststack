@@ -63,7 +63,8 @@ export function buildContentSecurityPolicy(a: AnalyticsCspEnv = {}): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     `connect-src ${dedupe(connectSrc).join(" ")}`,
-    "font-src 'self'",
+    // The landing inlines its webfonts as base64 data: URIs (@fontsource), so allow data: fonts.
+    "font-src 'self' data:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

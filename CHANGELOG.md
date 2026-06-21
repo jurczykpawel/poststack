@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-06-21
+
+### Fixed
+
+- **Landing: webfonts no longer blocked by CSP.** The landing inlines its fonts as base64 `data:` URIs, which `font-src 'self'` blocked (the page silently fell back to system fonts). `font-src` now allows `data:`.
+
 ## [0.7.6] - 2026-06-21
 
 ### Fixed

@@ -62,6 +62,11 @@ describe("buildContentSecurityPolicy", () => {
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("frame-ancestors 'none'");
   });
+
+  it("allows data: fonts (the landing inlines its webfonts as base64) — regression guard", () => {
+    // Without this the browser blocks the inlined @fontsource woff2 and falls back to system fonts.
+    expect(directive(buildContentSecurityPolicy(), "font-src")).toContain("data:");
+  });
 });
 
 /** Build a minimal app with the middleware mounted, and return the response for `path`. */
