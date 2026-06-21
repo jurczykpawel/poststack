@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-06-21
+
+### Fixed
+
+- **Landing: the “Live fleet” stats now actually appear.** The section fetches the public telemetry endpoint client-side, but the app’s Content-Security-Policy (`connect-src 'self'`) silently blocked the cross-origin request, so the section stayed hidden. `connect-src` now allows `https://telemetry.techskills.academy`.
+
 ## [0.7.4] - 2026-06-21
 
 ### Fixed

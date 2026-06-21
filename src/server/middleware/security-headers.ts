@@ -14,7 +14,9 @@ const SECURITY_HEADERS: Record<string, string> = {
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
-    "connect-src 'self'",
+    // 'self' for the app's own XHR/fetch; the public telemetry host lets the marketing landing's
+    // "Live fleet" section read the aggregate stats endpoint client-side (it is otherwise blocked).
+    "connect-src 'self' https://telemetry.techskills.academy",
     "font-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
