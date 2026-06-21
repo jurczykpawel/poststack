@@ -1,13 +1,13 @@
 import type { MiddlewareHandler } from "hono";
 
-// The marketing landing (served by the app at `/`) loads a few cross-origin resources at runtime:
-//   • the "Live fleet" section fetches the public telemetry stats endpoint (always);
-//   • Umami analytics (script + beacon) when LANDING_UMAMI_WEBSITE_ID is configured;
-//   • Google Tag Manager (gtm.js + GA/server-side collection) when LANDING_GTM_ID is configured.
-// A bare `connect-src 'self'` (and `script-src` without these hosts) silently blocks them, so the
-// fleet numbers never appear and analytics never loads. We build the CSP from the same env the
-// landing injection reads, so the policy stays tight when a host is NOT configured (self-hosters
-// without analytics get no loosening beyond the public telemetry endpoint the stock landing uses).
+// Two Content-Security-Policies:
+//   • the APP policy (tight) governs the dashboard, the API and everything else — connect-src 'self',
+//     no third-party scripts beyond the altcha CDN, no data: fonts;
+//   • the LANDING policy (slightly wider) governs ONLY the marketing landing's HTML documents, which
+//     load a few cross-origin extras: the public telemetry stats endpoint (Live fleet section),
+//     Umami + Google Tag Manager analytics (when configured), and inlined @fontsource data: webfonts.
+// The landing is served by this app (built Astro in landing/dist), but only its documents need the
+// extra allowances — so we scope the relaxation to those paths instead of loosening the whole app.
 
 /** Public telemetry stats endpoint the landing's Live fleet section reads (hardcoded in the landing). */
 const TELEMETRY_ORIGIN = "https://telemetry.techskills.academy";
@@ -22,10 +22,17 @@ const GTM_COLLECT_ORIGINS = [
   "https://t.poststack.techskills.academy",
 ];
 
-export interface AnalyticsCspEnv {
+export interface LandingAnalyticsEnv {
   umamiWebsiteId?: string;
   umamiSrc?: string;
   gtmId?: string;
+}
+
+export interface CspOptions {
+  /** When true, widen script/connect/font for the marketing landing's analytics, telemetry + webfonts. */
+  landing?: boolean;
+  /** Analytics config (read from env) — only consulted when `landing` is true. */
+  analytics?: LandingAnalyticsEnv;
 }
 
 const present = (v: string | undefined): boolean => !!v && v.trim().length > 0;
@@ -41,20 +48,28 @@ function originOf(url: string | undefined): string | null {
   }
 }
 
-/** Build the Content-Security-Policy, widening script/connect only for the analytics that are
- *  actually configured. Pure (env passed in) so it is unit-testable. */
-export function buildContentSecurityPolicy(a: AnalyticsCspEnv = {}): string {
+/** Build a Content-Security-Policy. The base is tight; `landing: true` adds only what the marketing
+ *  documents need (and only for the analytics that are actually configured). Pure → unit-testable. */
+export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
+  // cdn.jsdelivr.net stays in the base: the app loads the altcha widget from it on its own forms.
   const scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"];
-  const connectSrc = ["'self'", TELEMETRY_ORIGIN];
+  const connectSrc = ["'self'"];
+  const fontSrc = ["'self'"];
 
-  if (present(a.umamiWebsiteId)) {
-    const umami = originOf(a.umamiSrc) ?? UMAMI_DEFAULT_ORIGIN;
-    scriptSrc.push(umami);
-    connectSrc.push(umami);
-  }
-  if (present(a.gtmId)) {
-    scriptSrc.push(GTM_SCRIPT_ORIGIN);
-    connectSrc.push(...GTM_COLLECT_ORIGINS);
+  if (opts.landing) {
+    connectSrc.push(TELEMETRY_ORIGIN); // Live fleet section reads the public stats endpoint
+    fontSrc.push("data:"); // the landing inlines its webfonts as base64 data: URIs (@fontsource)
+
+    const a = opts.analytics ?? {};
+    if (present(a.umamiWebsiteId)) {
+      const umami = originOf(a.umamiSrc) ?? UMAMI_DEFAULT_ORIGIN;
+      scriptSrc.push(umami);
+      connectSrc.push(umami);
+    }
+    if (present(a.gtmId)) {
+      scriptSrc.push(GTM_SCRIPT_ORIGIN);
+      connectSrc.push(...GTM_COLLECT_ORIGINS);
+    }
   }
 
   return [
@@ -63,15 +78,14 @@ export function buildContentSecurityPolicy(a: AnalyticsCspEnv = {}): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     `connect-src ${dedupe(connectSrc).join(" ")}`,
-    // The landing inlines its webfonts as base64 data: URIs (@fontsource), so allow data: fonts.
-    "font-src 'self' data:",
+    `font-src ${dedupe(fontSrc).join(" ")}`,
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
   ].join("; ");
 }
 
-const SECURITY_HEADERS: Record<string, string> = {
+const STATIC_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -80,19 +94,33 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
-  "Content-Security-Policy": buildContentSecurityPolicy({
+};
+
+// Precompute both policies once. Only the landing's HTML documents get the relaxed one; assets
+// (_astro/*, og.png, …) don't need it — a document's own CSP governs what it may load, not the CSP
+// on the sub-resource responses.
+const APP_CSP = buildContentSecurityPolicy({ landing: false });
+const LANDING_CSP = buildContentSecurityPolicy({
+  landing: true,
+  analytics: {
     umamiWebsiteId: process.env.LANDING_UMAMI_WEBSITE_ID,
     umamiSrc: process.env.LANDING_UMAMI_SRC,
     gtmId: process.env.LANDING_GTM_ID,
-  }),
-};
+  },
+});
+
+/** The landing's HTML documents (see src/server/routes/landing.ts). These — and only these — get the
+ *  wider CSP; the dashboard, API and static assets keep the tight app CSP. */
+export const LANDING_DOCUMENT_PATHS = new Set(["/", "/privacy", "/privacy/"]);
 
 export function securityHeaders(): MiddlewareHandler {
   return async (c, next) => {
     await next();
-    for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    for (const [key, value] of Object.entries(STATIC_HEADERS)) {
       c.res.headers.set(key, value);
     }
+    const csp = LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : APP_CSP;
+    c.res.headers.set("Content-Security-Policy", csp);
     if (c.req.path.startsWith("/api/")) {
       c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
     }

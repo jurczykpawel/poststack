@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-06-21
+
+### Changed
+
+- **Scope the relaxed CSP to the marketing landing only.** The analytics/telemetry/webfont allowances added in 0.7.6–0.7.7 were applied app-wide; they now apply only to the landing's HTML documents (`/`, `/privacy`). The dashboard, API and static assets keep a tight policy (`connect-src 'self'`, `font-src 'self'`, no third-party analytics hosts).
+
 ## [0.7.7] - 2026-06-21
 
 ### Fixed
