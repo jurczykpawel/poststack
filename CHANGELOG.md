@@ -9,11 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-06-21
+
+### Fixed
+
+- **Landing: Content-Security-Policy now allows everything the landing loads.** Building on 0.7.5 (which only unblocked the telemetry fetch), the CSP now also allows the analytics the landing actually loads at runtime — Umami (`stats.techskills.academy`, script + beacon) and Google Tag Manager (gtm.js + GA/server-side collection) — but only the hosts that are configured (`LANDING_UMAMI_WEBSITE_ID` / `LANDING_GTM_ID`), so self-hosters without analytics keep a tight policy. The “Live fleet” stats and analytics were previously blocked by CSP and silently failed.
+
 ## [0.7.5] - 2026-06-21
 
 ### Fixed
 
-- **Landing: the “Live fleet” stats now actually appear.** The section fetches the public telemetry endpoint client-side, but the app’s Content-Security-Policy (`connect-src 'self'`) silently blocked the cross-origin request, so the section stayed hidden. `connect-src` now allows `https://telemetry.techskills.academy`.
+- **Landing: the “Live fleet” stats now actually appear.** The section fetches the public telemetry endpoint client-side, but the app’s Content-Security-Policy (`connect-src 'self'`) silently blocked the cross-origin request, so the section stayed hidden. `connect-src` now allows `https://telemetry.techskills.academy`. (Completed in 0.7.6, which also unblocks analytics.)
 
 ## [0.7.4] - 2026-06-21
 
