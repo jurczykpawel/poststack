@@ -4,6 +4,10 @@ import { jwksFallbackJson } from "./fixtures/keys";
 
 export const E2E_PORT = 3099;
 export const E2E_BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
+// A second server, identical but with the captcha enabled, so the login captcha (which the main
+// sweep server runs with captcha OFF) can be exercised end-to-end in a real browser.
+export const CAPTCHA_E2E_PORT = 3100;
+export const CAPTCHA_E2E_BASE_URL = `http://127.0.0.1:${CAPTCHA_E2E_PORT}`;
 // Dedicated e2e database on the shared test Postgres (:5433) — isolated from the integration gate's
 // `test` DB. global-setup creates it if missing.
 export const E2E_DATABASE_URL = "postgres://test:test@localhost:5433/unify_e2e";
@@ -32,5 +36,16 @@ export function serverEnv(): Record<string, string> {
     // No revocation in e2e (empty disables it).
     LICENSE_REVOCATION_URL: "",
     // Storage falls back to in-memory; Meta/OAuth unconfigured (UI tests don't publish).
+  };
+}
+
+/** Same as {@link serverEnv} but on its own port with the captcha enabled, so the login captcha
+ *  widget actually renders and its challenge endpoint works. Shares the e2e DB (read-only here). */
+export function captchaServerEnv(): Record<string, string> {
+  return {
+    ...serverEnv(),
+    PORT: String(CAPTCHA_E2E_PORT),
+    APP_URL: CAPTCHA_E2E_BASE_URL,
+    ALTCHA_HMAC_KEY: "e2e-altcha-hmac-key-0123456789abcdef0123456789",
   };
 }
