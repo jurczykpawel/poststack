@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-06-21
+
+### Fixed
+
+- **Sign-in no longer hangs on “Verifying…”.** The login/register captcha widget runs its proof-of-work in a `blob:` web worker. The app CSP tightened in 0.7.8 declared no `worker-src`, so the worker fell back to `default-src 'self'` and was blocked — the captcha never completed and nobody could sign in. Added `worker-src 'self' blob:`. A test now asserts the served `/login` page is delivered under a CSP the captcha widget can actually run in, so this can't silently regress again.
+
 ## [0.7.8] - 2026-06-21
 
 ### Changed

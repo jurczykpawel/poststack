@@ -79,6 +79,8 @@ export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
     "img-src 'self' data: https:",
     `connect-src ${dedupe(connectSrc).join(" ")}`,
     `font-src ${dedupe(fontSrc).join(" ")}`,
+    // The captcha widget runs its proof-of-work in a blob: worker on both the app and landing forms.
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

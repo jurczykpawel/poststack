@@ -75,6 +75,14 @@ describe("buildContentSecurityPolicy — landing (relaxed)", () => {
       expect(csp).toContain("frame-ancestors 'none'");
     }
   });
+
+  it("allows blob: web workers in both modes (the captcha widget runs its proof-of-work in one)", () => {
+    for (const landing of [true, false]) {
+      const worker = directive(buildContentSecurityPolicy({ landing }), "worker-src");
+      expect(worker).toContain("'self'");
+      expect(worker).toContain("blob:");
+    }
+  });
 });
 
 /** Build a minimal app with the middleware mounted, and return the response for `path`. */

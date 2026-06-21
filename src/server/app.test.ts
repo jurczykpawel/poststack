@@ -60,4 +60,34 @@ describe("Hono app skeleton — public routes + global middleware", () => {
     const res = await app.request("/api/nope");
     expect(res.status).toBe(404);
   });
+
+  // Regression guard: the login/register pages render the captcha widget, which runs its
+  // proof-of-work in a blob: worker. The served CSP must permit that worker (and the widget's
+  // CDN script) — otherwise the checkbox hangs on "Verifying..." and nobody can sign in. This is
+  // asserted on the real served response (not the policy builder) so a CSP change can't silently
+  // break login again.
+  it("serves /login under a CSP the captcha widget can actually run in", async () => {
+    // Render the page with captcha enabled (no DB in this test → getConfig falls back to env).
+    process.env.ALTCHA_HMAC_KEY = "test-altcha-hmac-key-at-least-32-characters-long";
+    const { invalidateConfigCache } = await import("@/lib/settings/config");
+    invalidateConfigCache();
+
+    const res = await app.request("/login");
+    expect(res.status).toBe(200);
+
+    const html = await res.text();
+    expect(html).toContain("<altcha-widget");
+    expect(html).toContain("cdn.jsdelivr.net/npm/altcha");
+
+    const csp = res.headers.get("content-security-policy") ?? "";
+    const directive = (name: string): string[] => {
+      const d = csp
+        .split(";")
+        .map((s) => s.trim())
+        .find((s) => s.startsWith(`${name} `));
+      return d ? d.slice(name.length + 1).split(/\s+/) : [];
+    };
+    expect(directive("worker-src")).toContain("blob:");
+    expect(directive("script-src")).toContain("https://cdn.jsdelivr.net");
+  });
 });
