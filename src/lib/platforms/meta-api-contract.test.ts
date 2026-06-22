@@ -866,6 +866,8 @@ describe("Meta Graph API Contract Tests", () => {
       expect(fields).toContain("message_echoes");
       expect(fields).toContain("message_reads");
       expect(fields).toContain("message_deliveries");
+      // WHSUBOPTIN1: optin is unhandled and Meta won't durably hold it — keep it out of the POST.
+      expect(fields).not.toContain("messaging_optins");
       expect(body.access_token).toBe("page-tok");
     });
   });

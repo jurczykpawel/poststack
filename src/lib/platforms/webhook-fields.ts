@@ -7,12 +7,15 @@
 // (Graph #100 — it belongs to the `instagram` object app-level subscription); including it makes the
 // whole subscribed_apps POST fail atomically. IG media-comment webhooks arrive via the app-level
 // `instagram` object subscription, not a page field — so it is intentionally absent here.
+//
+// WHSUBOPTIN1: only subscribe to fields PostStack actually consumes. `messaging_optins` is omitted —
+// no handler consumes optin events and Meta won't durably hold that subscription for this app, so
+// requiring it produced a permanent false "missing" that re-subscribing could never clear.
 
 /** Page webhook fields PostStack relies on. Ordered for stable display. */
 export const FACEBOOK_PAGE_FIELDS = [
   "messages",
   "messaging_postbacks",
-  "messaging_optins",
   "message_echoes", // a message sent from elsewhere (FB app / Business Suite / n8n) → keep the thread whole
   "message_reactions", // emoji reactions on our DMs (Engagement) — needs pages_messaging Advanced Access to actually deliver
   "message_reads", // read receipts → "Seen" in the thread

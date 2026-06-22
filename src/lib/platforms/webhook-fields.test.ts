@@ -11,6 +11,9 @@ describe("webhook-fields (WEBHOOKSUB1 source of truth)", () => {
       expect(f).toContain("message_reads");
       expect(f).toContain("message_deliveries");
       expect(f).not.toContain("comments"); // instagram-object field, not a valid page field (#100)
+      // WHSUBOPTIN1: no consumer for optin events + Meta won't durably hold the subscription,
+      // so it must not be a required field (it flapped as a permanent false "missing").
+      expect(f).not.toContain("messaging_optins");
     }
   });
 

@@ -47,7 +47,7 @@ describe("channelSubscriptionStatus (WEBHOOKSUB1)", () => {
     };
     const st = await channelSubscriptionStatus(
       ch,
-      fakeFetch(["messages", "messaging_postbacks", "messaging_optins", "message_echoes", "message_reactions", "message_reads", "message_deliveries", "feed"]),
+      fakeFetch(["messages", "messaging_postbacks", "message_echoes", "message_reactions", "message_reads", "message_deliveries", "feed"]),
     );
     expect(st.ok).toBe(true);
     expect(st.missing).toEqual([]);

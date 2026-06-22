@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.11] - 2026-06-22
+
+### Fixed
+
+- **Webhook subscriptions panel no longer flags a Facebook page as permanently “Missing 1 field(s).”** The required Facebook page-field set listed `messaging_optins`, but PostStack has no handler for opt-in events and Meta doesn’t durably keep that field in a page’s subscription — so clicking “Fix” cleared the warning only until the next live check, when it returned. The required set now contains only the fields PostStack actually consumes (matching the Instagram set), so the subscription health check is accurate and the warning stays cleared. Regression tests assert `messaging_optins` is neither required nor sent in the subscribe request.
+
 ## [0.7.10] - 2026-06-22
 
 ### Changed
