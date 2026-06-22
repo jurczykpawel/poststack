@@ -1,24 +1,37 @@
 import { test, expect } from "@playwright/test";
 import { watchConsole } from "./helpers";
 
-// Regression guard for the login captcha. The widget solves its proof-of-work in a blob: web worker;
-// if the app CSP does not allow that worker, the checkbox hangs on "Verifying…" and nobody can sign
-// in. This drives the REAL widget in a browser against a captcha-enabled server, so it catches any
-// future CSP / integration breakage — not just the specific directive the unit tests happen to name.
-test("login captcha completes — its blob: worker is allowed by the CSP", async ({ page }) => {
+// Regression guard for the login captcha. The widget is INVISIBLE and auto-solves its proof-of-work
+// in a blob: web worker when the form gains focus (no checkbox to click). Two things must hold and
+// both are exercised in a real browser against a captcha-enabled server:
+//   1. the widget renders but is not visible (invisible mode), and
+//   2. focusing the form produces a captchaToken the form will submit — which only happens if the CSP
+//      lets the blob: worker run. A CSP that blocks the worker leaves the token empty (the regression).
+test("invisible login captcha auto-solves on focus and submits a token", async ({ page }) => {
   const { errors } = watchConsole(page);
 
   await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await expect(page.locator("altcha-widget")).toBeVisible();
 
-  // Start the proof-of-work.
-  await page.getByRole("checkbox", { name: /robot/i }).click();
+  const widget = page.locator("altcha-widget");
+  await expect(widget).toBeAttached();
+  await expect(widget, "captcha must be invisible (no checkbox)").toBeHidden();
 
-  // It shows "Verifying…" while the worker runs; under a CSP that blocks the worker it stays there
-  // forever. Success replaces it (the widget verifies).
-  await expect(page.getByText("Verifying", { exact: false })).toBeHidden({ timeout: 15_000 });
+  // Focus the form — this is what triggers the background proof-of-work (auto="onfocus").
+  await page.locator('input[name="email"]').click();
 
-  // The definitive signal: the blob: worker was never blocked by CSP.
+  // The solved token lands on the form (form-associated), so it submits with the credentials. Reading
+  // it via FormData is implementation-agnostic (light DOM or shadow). Empty under a worker-blocking CSP.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const form = document.querySelector("form");
+          return form ? new FormData(form).get("captchaToken") : null;
+        }),
+      { timeout: 15_000, message: "captcha never produced a token (worker blocked?)" },
+    )
+    .toBeTruthy();
+
   const cspWorkerErrors = errors.filter((e) => /worker|content security policy|blob:/i.test(e));
   expect(cspWorkerErrors, cspWorkerErrors.join("\n")).toEqual([]);
 });

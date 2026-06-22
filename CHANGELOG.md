@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-06-22
+
+### Changed
+
+- **Login/register captcha is now invisible.** The altcha widget no longer shows an “I’m not a robot” checkbox. It stays hidden and solves its proof-of-work in the background as soon as the sign-in form gains focus (`auto="onfocus"`), then submits the token with the form — no click required. The browser e2e was updated to drive this invisible flow (and still fails if the CSP blocks the worker).
+
 ## [0.7.9] - 2026-06-21
 
 ### Fixed

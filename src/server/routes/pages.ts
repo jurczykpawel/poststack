@@ -24,8 +24,10 @@ function htmxRedirect(from: Response, to: string): Response {
 
 async function captchaWidget() {
   if (!(await getConfig("ALTCHA_HMAC_KEY"))) return html``;
+  // Invisible: auto-solves its proof-of-work in the background when the form gains focus (no checkbox
+  // to click). The widget stays in the DOM (hidden) so it still contributes captchaToken to the form.
   return html`
-    <altcha-widget name="captchaToken" challengeurl="/api/captcha/challenge" hidelogo hidefooter></altcha-widget>
+    <altcha-widget name="captchaToken" challengeurl="/api/captcha/challenge" auto="onfocus" hidelogo hidefooter style="display:none"></altcha-widget>
     <script async defer type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>`;
 }
 
