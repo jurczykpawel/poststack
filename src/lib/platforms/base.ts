@@ -64,6 +64,13 @@ export interface SendMessageOptions {
    * providers ignore it.
    */
   messagingTag?: "HUMAN_AGENT";
+
+  /**
+   * Email reply context for email-transport providers (Gmail). The outgoing-message worker
+   * populates this for email channels so the provider can thread the reply (Gmail `threadId` +
+   * RFC822 `In-Reply-To`/`References`) and carry a subject. Non-email providers ignore it.
+   */
+  email?: { threadId?: string; inReplyTo?: string; subject?: string };
 }
 
 /**

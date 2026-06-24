@@ -1,6 +1,7 @@
 import type { Platform } from "@/db/schema";
 import type { SocialProvider } from "./base";
 import { FacebookProvider } from "./facebook";
+import { GmailProvider } from "./gmail";
 import { InstagramProvider } from "./instagram";
 import { TelegramProvider } from "./telegram";
 import { YouTubeProvider } from "./youtube";
@@ -37,3 +38,4 @@ registerProvider("facebook", () => new FacebookProvider());
 registerProvider("instagram", () => new InstagramProvider());
 registerProvider("telegram", () => new TelegramProvider());
 registerProvider("youtube", () => new YouTubeProvider());
+registerProvider("gmail", () => new GmailProvider());
