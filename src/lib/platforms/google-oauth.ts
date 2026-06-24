@@ -37,6 +37,7 @@ export function exchangeGoogleCode(code: string, redirectUri: string, app: Googl
   }), fetchImpl);
 }
 
+// Google omits refresh_token on refresh — callers must preserve the existing stored value (do not persist undefined).
 export function refreshGoogleToken(refreshToken: string, app: GoogleApp, fetchImpl = fetch): Promise<TokenData> {
   return tokenRequest(new URLSearchParams({
     refresh_token: refreshToken, client_id: app.clientId, client_secret: app.clientSecret,
