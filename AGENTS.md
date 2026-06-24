@@ -2,8 +2,9 @@
 
 ## Project Overview
 
-**PostStack** — self-hosted, source-available Meta (Facebook + Instagram) social media
-management platform: publishing & scheduling + inbox auto-replies + drip sequences + CRM.
+**PostStack** — self-hosted, source-available multi-channel social media management platform
+(Facebook, Instagram, YouTube, Telegram + Gmail reply/inbox; extensible via the provider pattern):
+publishing & scheduling + inbox auto-replies + drip sequences + CRM.
 **Elastic License 2.0** (source-available, NOT open-source/AGPL — see LICENSE + CLA.md).
 One-command startup via Docker Compose.
 

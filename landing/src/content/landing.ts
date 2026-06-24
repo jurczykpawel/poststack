@@ -7,7 +7,7 @@ export const site = {
   name: "PostStack",
   title: "PostStack — own your social automation",
   description:
-    "Self-hosted social media management for Facebook, Instagram, YouTube & Telegram (more coming): unified inbox, keyword auto-replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",
+    "Self-hosted social media management for Facebook, Instagram, YouTube, Telegram & Gmail (more coming): unified inbox, keyword auto-replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",
   domain: "https://poststack.techskills.academy",
   // The app and its marketing page are one deployment on the same domain; /login is the app entry.
   appUrl: "https://poststack.techskills.academy/login",
@@ -28,7 +28,7 @@ export const hero = {
   titleLead: "Own your",
   titleAccent: "social automation",
   subtitle:
-    "PostStack is a self-hosted platform for Facebook, Instagram, YouTube & Telegram — with more channels on the way. Auto-reply to DMs and comments, run drip sequences, manage contacts, and publish — all from one place, on your server.",
+    "PostStack is a self-hosted platform for Facebook, Instagram, YouTube, Telegram & Gmail — with more channels on the way. Auto-reply to DMs and comments, run drip sequences, manage contacts, and publish — all from one place, on your server.",
   primaryCta: "Get PostStack",
   secondaryCta: "Self-host for free",
 };
@@ -40,7 +40,7 @@ export const hero = {
 export const platforms = {
   eyebrow: "One platform, every channel",
   title: "Connect the channels you already use",
-  live: ["Facebook", "Instagram", "YouTube", "Telegram"],
+  live: ["Facebook", "Instagram", "YouTube", "Telegram", "Gmail"],
   planned: ["TikTok", "X / Twitter", "LinkedIn", "Threads", "Discord"],
   note: "Every channel is one TypeScript provider class — the list keeps growing, and you can add your own.",
 };
@@ -59,7 +59,7 @@ export const comparison = {
     { tool: "Buffer", line: "when you only need a clean scheduler." },
     { tool: "ManyChat", line: "when basic DM automation is enough." },
   ],
-  us: "when you need scheduling, auto-reply, comment-to-DM funnels, drip sequences, CRM, and a REST API across Facebook, Instagram, YouTube & Telegram — on your own server, with no per-contact fees.",
+  us: "when you need scheduling, auto-reply, comment-to-DM funnels, drip sequences, CRM, and a REST API across Facebook, Instagram, YouTube, Telegram & Gmail — on your own server, with no per-contact fees.",
 };
 
 /**
@@ -92,8 +92,8 @@ export const capabilities = [
   {
     kicker: "Unified inbox",
     title: "Every DM, comment, and contact in one operational view.",
-    body: "Handle DMs, comments, and messages across Facebook, Instagram, YouTube and Telegram — manual replies, tags, subscriptions, and contact history without jumping between tools.",
-    metric: "4 channels live",
+    body: "Handle DMs, comments, messages and emails across Facebook, Instagram, YouTube, Telegram and Gmail — manual replies, tags, subscriptions, and contact history without jumping between tools.",
+    metric: "5 channels live",
   },
   {
     kicker: "Auto-reply rules",
@@ -168,7 +168,7 @@ export const workflow = [
   {
     step: "01",
     title: "Connect your channels",
-    body: "Attach Facebook, Instagram, YouTube and Telegram accounts, then pull DMs, comments and messages into a single inbox.",
+    body: "Attach Facebook, Instagram, YouTube, Telegram and Gmail accounts, then pull DMs, comments, messages and emails into a single inbox.",
   },
   {
     step: "02",
@@ -225,9 +225,9 @@ export const useCases = [
 export const dataFlow = {
   eyebrow: "Your data, your rules",
   title: "Every event lands on your infrastructure",
-  body: "A comment, DM or message hits a channel webhook, PostStack processes it, and writes it straight into your Postgres and your REST API — not into someone else's SaaS where your audience sits behind a per-contact paywall.",
+  body: "A comment, DM, message or email arrives, PostStack processes it, and writes it straight into your Postgres and your REST API — not into someone else's SaaS where your audience sits behind a per-contact paywall.",
   nodes: {
-    source: { label: "Channels", sub: "FB · IG · YT · TG" },
+    source: { label: "Channels", sub: "FB · IG · YT · TG · Gmail" },
     hub: { label: "PostStack", sub: "your server" },
     db: { label: "Postgres", sub: "your database" },
     api: { label: "/api/v1", sub: "your REST API" },
@@ -310,7 +310,7 @@ export const roadmap = {
       label: "Live now",
       status: "live" as const,
       items: [
-        "Facebook, Instagram, YouTube & Telegram",
+        "Facebook, Instagram, YouTube, Telegram & Gmail",
         "Inbox, auto-reply & comment-to-DM",
         "Drip sequences, CRM & publishing",
         "REST API + docs",
@@ -319,7 +319,7 @@ export const roadmap = {
     {
       label: "Up next",
       status: "next" as const,
-      items: ["WhatsApp", "Email & Gmail", "SMS", "TikTok, X, LinkedIn, Threads, Discord"],
+      items: ["WhatsApp", "Email (IMAP/SMTP)", "SMS", "TikTok, X, LinkedIn, Threads, Discord"],
     },
     {
       label: "On the roadmap",
@@ -387,7 +387,7 @@ export const faq = [
   {
     question: "Which platforms can I connect?",
     answer:
-      "Facebook, Instagram, YouTube and Telegram are live today, and you can connect multiple accounts of each. TikTok, X/Twitter, LinkedIn, Threads and Discord are reserved and arriving next — each new channel ships as one provider class, so the list keeps growing.",
+      "Facebook, Instagram, YouTube, Telegram and Gmail are live today, and you can connect multiple accounts of each. Gmail joins as a two-way reply/inbox channel (filter by label or query, read-only on your mailbox). WhatsApp, SMS, generic email (IMAP/SMTP), TikTok, X/Twitter, LinkedIn, Threads and Discord are arriving next — each new channel ships as one provider class, so the list keeps growing.",
   },
   {
     question: "What happens to my data?",

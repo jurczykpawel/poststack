@@ -1,6 +1,6 @@
 # PostStack
 
-> Self-hosted social media management for Facebook & Instagram -- publish & schedule posts, auto-reply to DMs and comments, and run drip sequences, all from one place.
+> Self-hosted social media management for Facebook, Instagram, YouTube, Telegram & Gmail -- publish & schedule posts, auto-reply to DMs, comments and emails, and run drip sequences, all from one place.
 
 [![License: Elastic 2.0](https://img.shields.io/badge/License-Elastic_2.0-0077CC.svg)](LICENSE)
 [![CI](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml/badge.svg)](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml)
@@ -40,7 +40,7 @@
 - **Conversation history** -- full message thread with sent/failed status tracking
 
 ### Platform
-- **Multi-platform** -- Facebook Pages and Instagram Business on launch, extensible to Telegram, TikTok, and more
+- **Multi-platform** -- Facebook, Instagram, YouTube, Telegram, and Gmail (two-way reply/inbox channel) live today, extensible to WhatsApp, SMS, generic email and more by implementing one TypeScript provider class
 - **One-command startup** -- `docker compose up`
 - **NocoDB integration** -- optional spreadsheet view of all your data (rules, contacts, messages)
 - **API-first** -- 15 REST endpoints with Bearer token auth and interactive Scalar docs
