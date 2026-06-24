@@ -49,6 +49,12 @@ function decodeBase64Url(data?: string): string {
 
 /** RFC 2047 encoded-word for a header value carrying non-ASCII (e.g. Polish diacritics in a Subject).
  *  Pure-ASCII values are left as-is so they stay human-readable on the wire. */
+/** Defense-in-depth: strip CR/LF from RFC822 header values to prevent header injection.
+ *  This normalizes both ASCII and encoded-word paths. */
+function stripCrlf(value: string): string {
+  return value.replace(/[\r\n]+/g, " ");
+}
+
 function encodeHeaderWord(value: string): string {
   if (/^[\x20-\x7e]*$/.test(value)) return value;
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
@@ -135,11 +141,11 @@ export class GmailProvider extends EmailProvider {
     references?: string;
   }): { raw: string } {
     const headers = [
-      `To: ${m.to}`,
-      `Subject: ${encodeHeaderWord(m.subject)}`,
+      `To: ${stripCrlf(m.to)}`,
+      `Subject: ${encodeHeaderWord(stripCrlf(m.subject))}`,
       "Content-Type: text/plain; charset=UTF-8",
-      ...(m.inReplyTo ? [`In-Reply-To: ${m.inReplyTo}`] : []),
-      ...(m.references ? [`References: ${m.references}`] : []),
+      ...(m.inReplyTo ? [`In-Reply-To: ${stripCrlf(m.inReplyTo)}`] : []),
+      ...(m.references ? [`References: ${stripCrlf(m.references)}`] : []),
     ];
     const raw = Buffer.from(`${headers.join("\r\n")}\r\n\r\n${m.text}`, "utf8").toString("base64url");
     return { raw };

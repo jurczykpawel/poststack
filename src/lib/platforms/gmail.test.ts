@@ -57,6 +57,40 @@ describe("GmailProvider", () => {
     expect(decoded).not.toContain("References:");
   });
 
+  it("stripCrlf prevents header injection in to address", () => {
+    const { raw } = p.buildRawMessage({
+      to: "jan@x.pl\r\nBcc: evil@attacker.com",
+      subject: "Hi",
+      text: "hello",
+    });
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    expect(decoded).toContain("To: jan@x.pl Bcc: evil@attacker.com");
+    expect(decoded).not.match(/^Bcc:/m);
+  });
+
+  it("stripCrlf prevents header injection in subject", () => {
+    const { raw } = p.buildRawMessage({
+      to: "jan@x.pl",
+      subject: "Hi\r\nBcc: evil@attacker.com",
+      text: "hello",
+    });
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    // subject becomes encoded due to the space from CRLF stripping
+    expect(decoded).not.match(/^Bcc:/m);
+  });
+
+  it("stripCrlf prevents header injection in inReplyTo", () => {
+    const { raw } = p.buildRawMessage({
+      to: "jan@x.pl",
+      subject: "Re: Hi",
+      text: "hello",
+      inReplyTo: "<abc@mail>\r\nBcc: evil@attacker.com",
+    });
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    expect(decoded).toContain("In-Reply-To: <abc@mail> Bcc: evil@attacker.com");
+    expect(decoded).not.match(/^Bcc:/m);
+  });
+
   it("requiresTokenRefresh is true", () => {
     expect(p.requiresTokenRefresh()).toBe(true);
   });
