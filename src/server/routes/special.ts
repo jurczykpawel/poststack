@@ -8,6 +8,7 @@ import * as oauthInstagram from "@/server/handlers/oauth/instagram/route";
 import * as oauthInstagramCallback from "@/server/handlers/oauth/instagram/callback/route";
 import * as oauthYouTube from "@/server/handlers/oauth/youtube/route";
 import * as oauthYouTubeCallback from "@/server/handlers/oauth/youtube/callback/route";
+import * as oauthGmailCallback from "@/server/handlers/oauth/gmail/callback/route";
 import * as oauthConnect from "@/server/handlers/oauth/connect/route";
 import * as oauthConnectCallback from "@/server/handlers/oauth/connect/callback/route";
 import * as webhook from "@/server/handlers/webhooks/meta/route";
@@ -32,6 +33,7 @@ special.get("/api/oauth/instagram", (c) => oauthInstagram.GET(c.req.raw));
 special.get("/api/oauth/instagram/callback", (c) => oauthInstagramCallback.GET(c.req.raw));
 special.get("/api/oauth/youtube", (c) => oauthYouTube.GET(c.req.raw));
 special.get("/api/oauth/youtube/callback", (c) => oauthYouTubeCallback.GET(c.req.raw));
+special.get("/api/oauth/gmail/callback", (c) => oauthGmailCallback.GET(c.req.raw));
 // Generic publish-provider connect (TikTok, X, LinkedIn, Threads) — one handler, platform in the path.
 special.get("/api/oauth/connect/:platform", (c) => oauthConnect.GET(c.req.raw, c.req.param("platform")));
 special.get("/api/oauth/connect/:platform/callback", (c) => oauthConnectCallback.GET(c.req.raw, c.req.param("platform")));
