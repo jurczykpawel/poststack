@@ -84,6 +84,11 @@ describe("token refresh is atomic with the health flip", () => {
     if (!TEST_DB) return;
     await processTokenRefresh({ channelId: CH }, helpers);
     expect(await storedToken()).toEqual({ access_token: "new", status: "active" });
+    // The surfaced token_expires_at must track the refreshed token (refreshToken returned now+5_000_000s),
+    // not stay frozen at the connect-time value (now+10s) — otherwise the UI/scan see a stale expiry.
+    const c = await db.query.channels.findFirst({ where: eq(s.channels.id, CH), columns: { token_expires_at: true } });
+    expect(c!.token_expires_at).toBeTruthy();
+    expect(c!.token_expires_at!.getTime()).toBeGreaterThan(Date.now() + 1_000_000_000);
     expect(addJobTx).toHaveBeenLastCalledWith(
       expect.anything(), "drain-channel", { channelId: CH }, expect.objectContaining({ jobKey: `drain-channel:${CH}` }),
     );

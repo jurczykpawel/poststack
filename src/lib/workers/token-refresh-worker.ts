@@ -65,8 +65,17 @@ export async function processTokenRefresh(
   // Persist the new token AND flip the channel healthy in ONE transaction. A crash/failure
   // between them previously left the new token saved but the status stuck needs_reauth with no
   // drain enqueued — held messages would strand behind a token that had actually recovered.
+  // Surface the refreshed expiry too: token_expires_at drives the UI badge + the expiry scan, so a
+  // refresh that updated only the encrypted blob left the column frozen at the connect-time value.
+  const refreshedExpiresAt =
+    typeof refreshedTokens.expires_at === "number" && refreshedTokens.expires_at > 0
+      ? new Date(refreshedTokens.expires_at * 1000)
+      : null;
   await db.transaction(async (tx) => {
-    await tx.update(channels).set({ token_encrypted: encryptTokens(refreshedTokens) }).where(eq(channels.id, channelId));
+    await tx
+      .update(channels)
+      .set({ token_encrypted: encryptTokens(refreshedTokens), token_expires_at: refreshedExpiresAt })
+      .where(eq(channels.id, channelId));
     await markChannelHealthy(channelId, new Date(), tx);
   });
 
