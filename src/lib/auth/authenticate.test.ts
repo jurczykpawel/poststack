@@ -60,7 +60,7 @@ describe("authenticate (no-DB paths)", () => {
   });
 
   it("no longer accepts a legacy rs_ Bearer token (clean cut)", async () => {
-    // Old ReplyStack keys were rs_live_*; the prefix is now sk_live_. A rs_ bearer must not even
+    // Old keys were rs_live_*; the prefix is now sk_live_. A rs_ bearer must not even
     // reach the API-key lookup — the prefix gate rejects it outright.
     const { authenticate } = await import("./index");
     const request = new Request("http://localhost/api/v1/test", {

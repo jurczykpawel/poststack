@@ -2,7 +2,7 @@ import type { IconName } from "../components/icons";
 import type { Area } from "@/lib/license/areas";
 import type { Feature } from "@/lib/license/features";
 
-// One unified navigation across the publishing wing (PostStack) and the replies wing (ReplyStack).
+// One unified navigation across the publishing wing and the replies wing.
 // Each item lives in a section and carries:
 //   - `area`:    the functional product it belongs to (publishing / replies / core). When the instance
 //                license does not entitle that area, the item is hidden (a replies-only license hides

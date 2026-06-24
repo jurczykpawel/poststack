@@ -111,7 +111,7 @@ const envSchema = z.object({
   // the business tier), each a distinct Sellf product, all valid here.
   // Default accepts the whole PostStack product family so a self-hosted install validates a license
   // from any of them out of the box: the annual (poststack-pro) and lifetime (poststack-lifetime)
-  // PRO variants, the legacy `poststack` product, and the pre-rebrand ReplyStack slugs that earlier
+  // PRO variants, the legacy `poststack` product, and the pre-rebrand `replystack-*` slugs that earlier
   // customers' tokens still carry. An operator can override to narrow/extend this.
   LICENSE_PRODUCT_SLUG: z
     .string()

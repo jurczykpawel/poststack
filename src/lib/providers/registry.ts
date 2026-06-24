@@ -21,7 +21,7 @@ export function createRegistry() {
   };
 }
 
-/** The process-wide registry (static — no lazy init; avoids ReplyStack FIX1 race). */
+/** The process-wide registry (static — no lazy init; avoids the FIX1 init race). */
 export const providers = createRegistry();
 export const getProvider = (id: string) => providers.get(id);
 export const isProvider = (id: string) => providers.has(id);

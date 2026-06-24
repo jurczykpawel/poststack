@@ -21,7 +21,7 @@ export interface FeatureDef {
 }
 
 export const FEATURES = [
-  // ── replies wing (the ReplyStack feature set) ───────────────────────────────────────────────
+  // ── replies wing (the reply/inbox feature set) ──────────────────────────────────────────────
   { key: "personalization", area: "replies", minTier: "pro", status: "live", label: "Personalization placeholders ({imie}/{name})", description: "Insert the contact's name into auto-replies." },
   { key: "ai_rephrase", area: "replies", minTier: "pro", status: "live", label: "AI rephrasing", description: "Rephrase replies with an LLM for variety." },
   { key: "sequences", area: "replies", minTier: "pro", status: "live", label: "Drip sequences", description: "Automated multi-step message sequences." },
