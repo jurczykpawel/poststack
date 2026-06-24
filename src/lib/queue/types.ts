@@ -40,6 +40,12 @@ export interface IncomingMessageJob {
   /** Story being replied to (when isStoryReply) */
   storyId?: string;
   timestamp: number;
+  /** Thread kind for channels that carry non-DM threading (e.g. email). */
+  threadType?: "dm" | "comment" | "email";
+  /** Platform-native thread id (e.g. Gmail threadId). */
+  threadId?: string;
+  /** Email subject — carried so the poller can pass it to ensureConversation. */
+  subject?: string;
 }
 
 export interface OutgoingCommentJob extends FirstResponseStamp {

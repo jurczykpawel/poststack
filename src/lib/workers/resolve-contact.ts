@@ -33,9 +33,9 @@ function refOf(thread: ThreadKey): string {
 export async function ensureConversation(
   channel: { id: string; workspace_id: string; platform: Platform },
   contactId: string,
-  initial: { last_message_at: Date; last_message_preview: string | null },
+  initial: { last_message_at: Date; last_message_preview: string | null; subject?: string | null },
   thread: ThreadKey = DM_THREAD,
-): Promise<{ id: string; is_automation_paused: boolean }> {
+): Promise<{ id: string; is_automation_paused: boolean; thread_type: string; thread_ref: string; subject: string | null }> {
   const ref = refOf(thread);
   const [created] = await db
     .insert(conversations)
@@ -48,10 +48,11 @@ export async function ensureConversation(
       thread_ref: ref,
       last_message_at: initial.last_message_at,
       last_message_preview: initial.last_message_preview,
+      subject: initial.subject ?? null,
       unread_count: 0,
     })
     .onConflictDoNothing({ target: [conversations.channel_id, conversations.contact_id, conversations.thread_type, conversations.thread_ref] })
-    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
+    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused, thread_type: conversations.thread_type, thread_ref: conversations.thread_ref, subject: conversations.subject });
   if (created) return created;
   const existing = await db.query.conversations.findFirst({
     where: and(
@@ -60,7 +61,7 @@ export async function ensureConversation(
       eq(conversations.thread_type, thread.type),
       eq(conversations.thread_ref, ref),
     ),
-    columns: { id: true, is_automation_paused: true },
+    columns: { id: true, is_automation_paused: true, thread_type: true, thread_ref: true, subject: true },
   });
   return existing!;
 }
