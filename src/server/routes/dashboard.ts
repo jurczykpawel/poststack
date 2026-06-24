@@ -345,7 +345,7 @@ export function renderThread(
     : html``;
   const isEmail = conv.platform === "gmail";
   const emailHeader = isEmail
-    ? html`<div class="thread-email-meta"><div class="thread-subject">${conv.subject || "(no subject)"}</div><div class="muted" style="font-size:.8rem">From: ${contactName(conv)}</div></div>`
+    ? html`<div class="thread-email-meta"><div class="muted" style="font-size:.8rem">From: ${contactName(conv)}</div></div>`
     : html``;
   return html`<div class="thread-head">${isEmail ? (conv.subject || "(no subject)") : contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
     ${emailHeader}

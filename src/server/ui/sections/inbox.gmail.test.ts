@@ -79,7 +79,7 @@ describe("renderThread — email conversation", () => {
     const conv = makeConv({ platform: "facebook", thread_type: "dm" as const, subject: null });
     const out = s(await renderThread(conv, []));
     expect(out).not.toContain("no subject");
-    expect(out).not.toContain("subject");
+    expect(out).not.toContain("From: Alice");
   });
 });
 
