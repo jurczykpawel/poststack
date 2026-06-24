@@ -62,6 +62,7 @@ beforeEach(async () => {
     id: CH, workspace_id: WS, platform: "gmail", platform_id: INBOX, display_name: "Support",
     token_encrypted: encryptTokens({ access_token: "at", refresh_token: "rt", expires_at: Math.floor(Date.now() / 1000) + 3600 }),
     webhook_secret: "s", status: "active", gmail_query: "in:inbox",
+    gmail_sync_cursor: "1700000000000", // already past first connect → normal poll path
   });
 });
 
@@ -120,6 +121,21 @@ describe("pollEmailChannel (real Postgres)", () => {
     expect(r2.ingested).toBe(0);
     // second call received the advanced cursor, not null.
     expect(list.mock.calls[1][1]).toBe("1700000001000");
+  });
+
+  it("first poll after connect (null cursor) establishes a forward-only baseline, ingests nothing historical", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ gmail_sync_cursor: null }).where(eq(s.channels.id, CH));
+    const list = vi.spyOn(GmailProvider.prototype, "listNewMessages").mockResolvedValue(["a", "b"]);
+    const before = Date.now();
+
+    const r = await poll.pollEmailChannel(CH);
+
+    expect(r.ingested).toBe(0); // no inbox backfill
+    expect(list).not.toHaveBeenCalled(); // never even listed historical mail
+    expect((await pendingJobs()).filter((j) => j.task_identifier === "incoming-message")).toHaveLength(0);
+    const ch = await db.query.channels.findFirst({ where: eq(s.channels.id, CH), columns: { gmail_sync_cursor: true } });
+    expect(Number(ch!.gmail_sync_cursor)).toBeGreaterThanOrEqual(before); // baseline = now
   });
 });
 

@@ -20,6 +20,15 @@ export async function pollEmailChannel(channelId: string): Promise<{ ingested: n
     columns: { id: true, platform: true, platform_id: true, gmail_query: true, gmail_sync_cursor: true, token_encrypted: true, workspace_id: true },
   });
   if (!ch) return { ingested: 0, cursor: "" };
+
+  // First poll after connect: establish a forward-only baseline (cursor = now) and ingest nothing
+  // historical — a freshly connected mailbox must not backfill its existing inbox.
+  if (!ch.gmail_sync_cursor) {
+    const baseline = String(Date.now());
+    await db.update(channels).set({ gmail_sync_cursor: baseline }).where(eq(channels.id, ch.id));
+    return { ingested: 0, cursor: baseline };
+  }
+
   const provider = getProvider(ch.platform) as EmailProvider;
   const ids = await provider.listNewMessages(ch, ch.gmail_sync_cursor);
 
