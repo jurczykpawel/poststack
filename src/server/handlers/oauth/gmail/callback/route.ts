@@ -37,6 +37,8 @@ export async function GET(request: Request) {
     const redirectUri = `${env.APP_URL}/api/oauth/gmail/callback`;
     const accounts = await provider.authenticate(code, redirectUri);
 
+    if (accounts.length === 0) return redirect("/channels?error=no_gmail_accounts");
+
     await assertChannelsAllowed(auth.workspaceId, "gmail", accounts);
     await upsertChannels(auth.workspaceId, "gmail", accounts);
 

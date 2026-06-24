@@ -142,4 +142,14 @@ describe("GET /api/oauth/gmail/callback", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("http://localhost:3000/channels?connected=gmail&count=2");
   });
+
+  it("redirects /channels?error=no_gmail_accounts when provider.authenticate resolves to empty array", async () => {
+    mockProviderAuthenticate.mockResolvedValueOnce([]);
+    const req = makeRequest({ code: "authcode", state: "validstate" }, "rs_oauth_state=validstate");
+    const res = await GET(req);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("http://localhost:3000/channels?error=no_gmail_accounts");
+    expect(mockUpsertChannels).not.toHaveBeenCalled();
+    expect(mockAssertChannelsAllowed).not.toHaveBeenCalled();
+  });
 });
