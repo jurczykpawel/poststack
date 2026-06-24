@@ -47,6 +47,13 @@ function decodeBase64Url(data?: string): string {
   return Buffer.from(data, "base64url").toString("utf8");
 }
 
+/** RFC 2047 encoded-word for a header value carrying non-ASCII (e.g. Polish diacritics in a Subject).
+ *  Pure-ASCII values are left as-is so they stay human-readable on the wire. */
+function encodeHeaderWord(value: string): string {
+  if (/^[\x20-\x7e]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
 /** Recursive MIME walker: collects the first text/plain and text/html across the part tree,
  *  including the single-part case where the body sits on the payload itself. */
 function extractBodies(part?: GmailPart): { plain?: string; html?: string } {
@@ -129,7 +136,7 @@ export class GmailProvider extends EmailProvider {
   }): { raw: string } {
     const headers = [
       `To: ${m.to}`,
-      `Subject: ${m.subject}`,
+      `Subject: ${encodeHeaderWord(m.subject)}`,
       "Content-Type: text/plain; charset=UTF-8",
       ...(m.inReplyTo ? [`In-Reply-To: ${m.inReplyTo}`] : []),
       ...(m.references ? [`References: ${m.references}`] : []),

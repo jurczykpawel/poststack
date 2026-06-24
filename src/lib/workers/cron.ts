@@ -7,6 +7,7 @@ import { sweepAccountSources } from "@/lib/channels/account-source";
 import { sweepChannelHealth } from "@/lib/channels/health-sweep";
 import { scanExpiringConnections } from "@/lib/channels/expiry-scan";
 import { sweepYouTubeChannels } from "@/lib/youtube/poll";
+import { sweepEmailChannels } from "@/lib/email/poll";
 import { stuckSendingSweep } from "@/lib/deliveries/publish-worker";
 import { runCompactHistory } from "@/lib/workers/compact-history-task";
 import { sendTelemetry } from "@/lib/telemetry/send";
@@ -60,6 +61,11 @@ export const cronTaskList = {
   "youtube-comment-poll": async () => {
     await sweepYouTubeChannels();
   },
+  // Email (Gmail) has no inbound webhook, so poll each active email channel on a schedule and ingest
+  // filtered mail into the incoming-message pipeline. Cheap (Gmail list with `after:` cursor).
+  "email-poll": async () => {
+    await sweepEmailChannels();
+  },
   // AUD27 recovery: surface any publish delivery stuck in `sending` past the window as `unknown`
   // (with an event), so a worker crash between publish() and the `sent` commit is never a silent
   // black-hole. Runs every 5 minutes; the window is 15 min.
@@ -90,6 +96,7 @@ export const CRONTAB = [
   "20 * * * * channel-health-sweep",
   "30 4 * * * managed-expiry-scan",
   "*/15 * * * * youtube-comment-poll",
+  "*/2 * * * * email-poll",
   "*/5 * * * * stuck-sending-sweep",
   "50 3 * * * compact-history",
 ].join("\n");

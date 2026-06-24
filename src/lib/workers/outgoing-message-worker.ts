@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, messages, conversations, contacts } from "@/db/schema";
 import { encryptTokens } from "@/lib/crypto";
@@ -33,7 +33,7 @@ export async function processOutgoingMessage(
   // inside the window anyway. Read the conversation's window anchor (`last_inbound_at`) at send time.
   const conv = await db.query.conversations.findFirst({
     where: eq(conversations.id, conversationId),
-    columns: { platform: true, thread_type: true, last_inbound_at: true },
+    columns: { platform: true, thread_type: true, last_inbound_at: true, thread_ref: true, subject: true },
   });
   const useHumanAgentTag =
     isHumanReply &&
@@ -42,6 +42,21 @@ export async function processOutgoingMessage(
       threadType: conv?.thread_type,
       lastInboundAt: conv?.last_inbound_at ?? null,
     }).useHumanAgentTag;
+
+  // Email reply context: thread via the Gmail threadId (thread_ref) and carry the subject. In-Reply-To
+  // uses the last inbound message's stored platform_message_id — which IS the RFC Message-ID
+  // (`<...@mail>`) when the source mail carried one; set it only then, else rely on threadId alone.
+  let emailReply: { threadId?: string; inReplyTo?: string; subject?: string } | undefined;
+  if (conv?.thread_type === "email") {
+    const lastInbound = await db.query.messages.findFirst({
+      where: and(eq(messages.conversation_id, conversationId), eq(messages.direction, "inbound")),
+      orderBy: [desc(messages.created_at)],
+      columns: { platform_message_id: true },
+    });
+    const rfcMessageId = lastInbound?.platform_message_id;
+    const inReplyTo = rfcMessageId && rfcMessageId.startsWith("<") ? rfcMessageId : undefined;
+    emailReply = { threadId: conv.thread_ref || undefined, subject: conv.subject ?? undefined, inReplyTo };
+  }
 
   // Consent re-check at delivery time: the contact may have unsubscribed in the window
   // between enqueue and send, so re-read it here — the other DM-producing paths (sequence-step,
@@ -108,7 +123,11 @@ export async function processOutgoingMessage(
         tokens,
         recipientPlatformId,
         content,
-        useHumanAgentTag ? { messagingTag: "HUMAN_AGENT" } : undefined,
+        emailReply
+          ? { email: emailReply }
+          : useHumanAgentTag
+            ? { messagingTag: "HUMAN_AGENT" }
+            : undefined,
       );
       return { platformMessageId: sent.platformMessageId };
     },

@@ -36,6 +36,20 @@ describe("GmailProvider", () => {
     expect(decoded).toContain("hello");
   });
 
+  it("buildRawMessage RFC 2047-encodes a non-ASCII (Polish) subject so it isn't mojibake", () => {
+    const { raw } = p.buildRawMessage({ to: "jan@firma.pl", subject: "Zażółć gęślą", text: "cześć" });
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    const b64 = Buffer.from("Zażółć gęślą", "utf8").toString("base64");
+    expect(decoded).toContain(`Subject: =?UTF-8?B?${b64}?=`);
+    expect(decoded).not.toContain("Subject: Zażółć gęślą");
+  });
+
+  it("buildRawMessage leaves a pure-ASCII subject unencoded", () => {
+    const { raw } = p.buildRawMessage({ to: "jan@firma.pl", subject: "Re: Hello", text: "hi" });
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    expect(decoded).toContain("Subject: Re: Hello");
+  });
+
   it("buildRawMessage omits threading headers for a fresh send", () => {
     const { raw } = p.buildRawMessage({ to: "jan@firma.pl", subject: "Hi", text: "hello" });
     const decoded = Buffer.from(raw, "base64url").toString("utf8");

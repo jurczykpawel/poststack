@@ -67,13 +67,23 @@ export async function processIncomingMessage(
 
   // A Meta DM webhook carries only the sender's id, not their name — so for a brand-new contact,
   // resolve the public profile (name/avatar) once, best-effort, so the inbox shows a nick not a PSID.
-  if (created) await resolveContactProfile(channel, contactId, senderId);
+  // Email carries the address as the sender id (already human-readable), so skip the Meta lookup.
+  const isEmail = payload.threadType === "email";
+  if (created && !isEmail) await resolveContactProfile(channel, contactId, senderId);
 
   // 3. Ensure the conversation exists WITHOUT mutating its lifecycle (status/stats); those
   //    change only for a genuinely new, newest message (steps 5/6), so a redelivery can't
-  //    reopen a closed conversation or move the inbox backwards.
+  //    reopen a closed conversation or move the inbox backwards. Email threads per Gmail threadId
+  //    (thread_ref) and carries the subject (set INSERT-only on a new conversation).
   const preview = text ? truncateCodePoints(text, 255) : null;
-  const conversation = await ensureConversation(channel, contactId, { last_message_at: messageDate, last_message_preview: preview });
+  const conversation = isEmail
+    ? await ensureConversation(
+        channel,
+        contactId,
+        { last_message_at: messageDate, last_message_preview: preview, subject: payload.subject },
+        { type: "email", ref: payload.threadId ?? "" },
+      )
+    : await ensureConversation(channel, contactId, { last_message_at: messageDate, last_message_preview: preview });
 
   const eventKey = claimKeyOf(conversation.id);
 
