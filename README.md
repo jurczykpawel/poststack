@@ -438,9 +438,9 @@ npm run test:integration  # Vitest integration (needs a Postgres; set TEST_DATAB
 - [x] API key management + token refresh
 - [x] Rate limiting, JWT invalidation, outgoing message idempotency (all Postgres-backed, no Redis)
 - [x] CI/CD (lint, typecheck, test, Docker build + push)
-- [ ] Gmail support (Google OAuth2, Gmail API, Pub/Sub push)
+- [x] Gmail support (Google OAuth2, Gmail API, cron polling, per-mailbox ingest filter)
+- [x] Telegram support
 - [ ] Discord support (Bot API, Gateway WebSocket)
-- [ ] Telegram support
 - [ ] Visual flow builder (v2)
 - [ ] Broadcast campaigns
 - [ ] Webhook events (outbound notifications)

@@ -89,11 +89,11 @@ export interface DeploymentInfo {
 const truthy = (v: string) => ["true", "1", "yes", "on"].includes(v.trim().toLowerCase());
 
 /** The platforms the instance is configured to use, used only as a fallback when no channel is yet
- *  connected. Tied to actual config: Meta unlocks facebook+instagram, Google unlocks youtube. */
+ *  connected. Tied to actual config: Meta unlocks facebook+instagram, Google unlocks youtube+gmail. */
 function configuredPlatforms(): string[] {
   const out: string[] = [];
   if (env.META_APP_ID) out.push("facebook", "instagram");
-  if (env.GOOGLE_CLIENT_ID) out.push("youtube");
+  if (env.GOOGLE_CLIENT_ID) out.push("youtube", "gmail");
   return out;
 }
 
