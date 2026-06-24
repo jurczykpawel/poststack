@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-24
+
+### Added
+- **Gmail channel** — connect a Gmail mailbox as a two-way reply/inbox channel. Filtered ingest via a per-mailbox Gmail search query (labels, `from:`, `subject:`, …; default `in:inbox`), unified inbox showing the email subject + sender, threaded replies, and the full auto-reply rules + approval workflow. Read-only on the mailbox (OAuth scopes `gmail.readonly` + `gmail.send`); ingested by a cron poller, forward-only on connect (no inbox backfill). See README → Gmail Setup.
+- Pluggable `EmailProvider` base class so further mailbox providers (IMAP/SMTP, Outlook, …) can be added as a single provider class. See `docs/ADDING_A_MAILBOX_PROVIDER.md`.
+
+### Changed
+- Inbox conversation list now shows the email subject for email threads.
+- Telemetry's configured-platforms list is registry-driven — newly added channels self-register without touching the collector.
+- On-demand OAuth token refresh now also runs inside the email poll (shared with the send path), and a refreshed token's new expiry is surfaced on the channel.
+
 ## [0.7.11] - 2026-06-22
 
 ### Fixed
