@@ -7,6 +7,7 @@ let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let poll: typeof import("./poll");
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
+let decryptTokens: typeof import("@/lib/crypto").decryptTokens;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 let GmailProvider: typeof import("@/lib/platforms/gmail").GmailProvider;
 
@@ -48,7 +49,7 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   poll = await import("./poll");
-  ({ encryptTokens } = await import("@/lib/crypto"));
+  ({ encryptTokens, decryptTokens } = await import("@/lib/crypto"));
   ({ closeQueue } = await import("@/lib/queue/client"));
   ({ GmailProvider } = await import("@/lib/platforms/gmail"));
 });
@@ -60,7 +61,7 @@ beforeEach(async () => {
   await db.insert(s.workspaces).values({ id: WS, name: "GM", slug: `gm-${WS}` });
   await db.insert(s.channels).values({
     id: CH, workspace_id: WS, platform: "gmail", platform_id: INBOX, display_name: "Support",
-    token_encrypted: encryptTokens({ access_token: "at", refresh_token: "rt", expires_at: Math.floor(Date.now() / 1000) + 3600 }),
+    token_encrypted: encryptTokens({ access_token: "at", refresh_token: "rt", expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }),
     webhook_secret: "s", status: "active", gmail_query: "in:inbox",
     gmail_sync_cursor: "1700000000000", // already past first connect → normal poll path
   });
@@ -153,6 +154,24 @@ describe("pollEmailChannel (real Postgres)", () => {
     expect(jobs).toHaveLength(1);
     expect((jobs[0].payload as Record<string, unknown>).senderId).toBe("client@x.pl");
     expect(r.cursor).toBe("1700000004000"); // cursor still advances past the skipped self-send
+  });
+
+  it("refreshes the token on-demand when near expiry, before hitting the API", async () => {
+    if (!TEST_DB) return;
+    // expired token → near expiry → the poll must refresh + persist before listing
+    await db.update(s.channels).set({
+      token_encrypted: encryptTokens({ access_token: "stale", refresh_token: "rt", expires_at: Math.floor(Date.now() / 1000) - 10 }),
+    }).where(eq(s.channels.id, CH));
+    const refresh = vi.spyOn(GmailProvider.prototype, "refreshToken").mockResolvedValue({
+      access_token: "fresh", refresh_token: "rt", expires_at: Math.floor(Date.now() / 1000) + 3600,
+    });
+    vi.spyOn(GmailProvider.prototype, "listNewMessages").mockResolvedValue([]);
+
+    await poll.pollEmailChannel(CH);
+
+    expect(refresh).toHaveBeenCalledOnce();
+    const ch = await db.query.channels.findFirst({ where: eq(s.channels.id, CH), columns: { token_encrypted: true } });
+    expect(decryptTokens(ch!.token_encrypted).access_token).toBe("fresh"); // refreshed token persisted
   });
 });
 

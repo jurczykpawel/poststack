@@ -5,6 +5,8 @@ import { getProvider } from "@/lib/platforms/registry";
 import type { EmailProvider } from "@/lib/platforms/email";
 import { addJob } from "@/lib/queue/client";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { decryptTokens, encryptTokens } from "@/lib/crypto";
+import { refreshIfNearExpiry } from "@/lib/channels/refresh-if-near-expiry";
 
 const EMAIL_PLATFORMS: Platform[] = ["gmail"];
 
@@ -30,13 +32,17 @@ export async function pollEmailChannel(channelId: string): Promise<{ ingested: n
   }
 
   const provider = getProvider(ch.platform) as EmailProvider;
-  const ids = await provider.listNewMessages(ch, ch.gmail_sync_cursor);
+  // Refresh the token on-demand if near expiry so the poll never hits the API with a dead token
+  // (Gmail's access token lives ~1h; the hourly scan + send-path refresh otherwise leave a window).
+  const { tokens } = await refreshIfNearExpiry(ch.id, provider, decryptTokens(ch.token_encrypted));
+  const chApi = { ...ch, token_encrypted: encryptTokens(tokens) };
+  const ids = await provider.listNewMessages(chApi, ch.gmail_sync_cursor);
 
   const account = provider.canonicalizeAddress(ch.platform_id);
   let maxDate = Number(ch.gmail_sync_cursor ?? 0);
   let ingested = 0;
   for (const id of ids) {
-    const m = await provider.fetchMessage(ch, id);
+    const m = await provider.fetchMessage(chApi, id);
     if (m.internalDate > maxDate) maxDate = m.internalDate;
     // Skip the mailbox's own sent messages: a broad filter (or a thread query) also matches the Sent
     // copy of our replies; ingesting those as inbound would echo into the inbox and could loop auto-replies.

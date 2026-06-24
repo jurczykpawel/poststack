@@ -3,10 +3,10 @@ import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, messages, conversations, contacts } from "@/db/schema";
-import { encryptTokens } from "@/lib/crypto";
+import { messages, conversations, contacts } from "@/db/schema";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
+import { refreshIfNearExpiry } from "@/lib/channels/refresh-if-near-expiry";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 
@@ -104,28 +104,10 @@ export async function processOutgoingMessage(
       let tokens = decryptChannelToken(channel.token_encrypted);
       const provider = getProvider(channel.platform);
 
-      // On-demand token refresh if near expiry.
-      if (provider.requiresTokenRefresh() && tokens.expires_at) {
-        const expiresAt = tokens.expires_at as number;
-        const bufferSeconds = provider.refreshBufferSeconds();
-        if (Date.now() / 1000 >= expiresAt - bufferSeconds) {
-          try {
-            tokens = await provider.refreshToken(tokens);
-            await db
-              .update(channels)
-              .set({
-                token_encrypted: encryptTokens(tokens),
-                // surface the refreshed expiry too (consistency with the scheduled refresh worker)
-                token_expires_at:
-                  typeof tokens.expires_at === "number" && tokens.expires_at > 0 ? new Date(tokens.expires_at * 1000) : null,
-              })
-              .where(eq(channels.id, channelId));
-            helpers.logger.info("Token refreshed on-demand before send");
-          } catch (err) {
-            helpers.logger.info(`Token refresh failed, using existing: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      }
+      // On-demand token refresh if near expiry (shared helper, also used by the email poll).
+      const refresh = await refreshIfNearExpiry(channelId, provider, tokens);
+      tokens = refresh.tokens;
+      if (refresh.refreshed) helpers.logger.info("Token refreshed on-demand before send");
 
       const sent = await provider.sendMessage(
         tokens,
