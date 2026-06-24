@@ -32,10 +32,15 @@ export async function pollEmailChannel(channelId: string): Promise<{ ingested: n
   const provider = getProvider(ch.platform) as EmailProvider;
   const ids = await provider.listNewMessages(ch, ch.gmail_sync_cursor);
 
+  const account = provider.canonicalizeAddress(ch.platform_id);
   let maxDate = Number(ch.gmail_sync_cursor ?? 0);
   let ingested = 0;
   for (const id of ids) {
     const m = await provider.fetchMessage(ch, id);
+    if (m.internalDate > maxDate) maxDate = m.internalDate;
+    // Skip the mailbox's own sent messages: a broad filter (or a thread query) also matches the Sent
+    // copy of our replies; ingesting those as inbound would echo into the inbox and could loop auto-replies.
+    if (provider.canonicalizeAddress(m.fromEmail) === account) continue;
     await addJob("incoming-message", {
       platform: "gmail",
       channelId: ch.id,
@@ -49,11 +54,12 @@ export async function pollEmailChannel(channelId: string): Promise<{ ingested: n
       threadId: m.threadId,
       subject: m.subject,
     });
-    if (m.internalDate > maxDate) maxDate = m.internalDate;
     ingested++;
   }
 
-  if (ingested) {
+  // Advance the cursor whenever we fetched anything (even if all were self-sent / skipped), so the next
+  // poll resumes after them instead of re-scanning the same messages forever.
+  if (ids.length) {
     await db.update(channels).set({ gmail_sync_cursor: String(maxDate) }).where(eq(channels.id, ch.id));
   }
   return { ingested, cursor: String(maxDate) };

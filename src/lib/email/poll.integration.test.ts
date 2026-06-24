@@ -137,6 +137,23 @@ describe("pollEmailChannel (real Postgres)", () => {
     const ch = await db.query.channels.findFirst({ where: eq(s.channels.id, CH), columns: { gmail_sync_cursor: true } });
     expect(Number(ch!.gmail_sync_cursor)).toBeGreaterThanOrEqual(before); // baseline = now
   });
+
+  it("skips the mailbox's own sent messages (no self-echo / auto-reply loop) but advances the cursor", async () => {
+    if (!TEST_DB) return;
+    // A broad filter matches the Sent copy of our own reply (from = the channel's own address).
+    const own = email("own", INBOX, 1700000003000, "Re: hi");
+    const fromClient = email("c", "client@x.pl", 1700000004000, "hi");
+    vi.spyOn(GmailProvider.prototype, "listNewMessages").mockResolvedValue(["own", "c"]);
+    vi.spyOn(GmailProvider.prototype, "fetchMessage").mockImplementation(async (_ch, id) => (id === "own" ? own : fromClient));
+
+    const r = await poll.pollEmailChannel(CH);
+
+    expect(r.ingested).toBe(1); // only the client mail, not our own send
+    const jobs = (await pendingJobs()).filter((j) => j.task_identifier === "incoming-message");
+    expect(jobs).toHaveLength(1);
+    expect((jobs[0].payload as Record<string, unknown>).senderId).toBe("client@x.pl");
+    expect(r.cursor).toBe("1700000004000"); // cursor still advances past the skipped self-send
+  });
 });
 
 describe("sweepEmailChannels", () => {
