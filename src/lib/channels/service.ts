@@ -50,6 +50,8 @@ export interface PublicChannel {
   default_auto_story: boolean;
   metadata: Record<string, unknown> | null;
   created_at: Date;
+  /** Gmail-channel ingest filter (raw Gmail query string). NULL = use default "in:inbox". */
+  gmail_query: string | null;
 }
 
 type ChannelRow = typeof channels.$inferSelect;
@@ -73,6 +75,7 @@ function toPublic(r: ChannelRow): PublicChannel {
     default_auto_story: r.default_auto_story,
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
+    gmail_query: r.gmail_query,
   };
 }
 
@@ -266,6 +269,15 @@ export async function setChannelDefaultAutoStory(workspaceId: string, id: string
 export async function setChannelHidden(workspaceId: string, id: string, hidden: boolean): Promise<void> {
   await ownChannelOr404(workspaceId, id);
   await db.update(channels).set({ hidden_at: hidden ? new Date() : null }).where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+}
+
+/** Save the Gmail ingest filter query for a Gmail channel. Empty string clears it (reverts to default). */
+export async function setChannelGmailQuery(workspaceId: string, id: string, query: string): Promise<void> {
+  await ownChannelOr404(workspaceId, id);
+  await db
+    .update(channels)
+    .set({ gmail_query: query || null })
+    .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
 /** Soft-delete a channel (row kept, excluded from every read). */

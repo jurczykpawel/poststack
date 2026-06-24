@@ -5,6 +5,7 @@ import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/r
 import * as channelPosts from "@/server/handlers/v1/channels/[channelId]/posts/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
+import * as channelGmailFilter from "@/server/handlers/v1/channels/gmail-filter/route";
 import * as sources from "@/server/handlers/v1/sources/route";
 import * as source from "@/server/handlers/v1/sources/[sourceId]/route";
 import * as sourceSync from "@/server/handlers/v1/sources/[sourceId]/sync/route";
@@ -46,6 +47,9 @@ export const v1 = new Hono();
 v1.get("/channels", (c) => channels.GET(c.req.raw));
 v1.post("/channels/connect-token", (c) => channelConnectToken.POST(c.req.raw));
 v1.post("/channels/telegram/connect", (c) => channelTelegram.POST(c.req.raw));
+v1.post("/channels/:channelId/gmail-filter", (c) =>
+  channelGmailFilter.POST(c.req.raw, { params: Promise.resolve({ id: c.req.param("channelId") }) }),
+);
 v1.get("/channels/:channelId", (c) =>
   channel.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
 );

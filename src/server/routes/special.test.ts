@@ -58,6 +58,11 @@ describe("oauth routes", () => {
     expect(res.status).toBe(401);
   });
 
+  it("gmail oauth initiate requires authentication (401)", async () => {
+    const res = await app.request("/api/oauth/gmail");
+    expect(res.status).toBe(401);
+  });
+
   it("oauth callback redirects to /channels on missing params", async () => {
     const res = await app.request("/api/oauth/facebook/callback");
     expect([302, 307, 308]).toContain(res.status);

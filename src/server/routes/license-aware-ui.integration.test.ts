@@ -86,11 +86,11 @@ describe("license-aware dashboard UI", () => {
     expect(body).toContain("Create sequence");
   });
 
-  it("free /channels locks Telegram and shows Gmail soon", async () => {
+  it("free /channels locks Telegram and Gmail (PRO)", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/channels")).text();
     expect(body).toContain("🔒 Telegram (PRO)");
-    expect(body).toContain("Gmail — soon");
+    expect(body).toContain("🔒 Gmail (PRO)");
     expect(body).not.toContain("@click=\"tg = !tg\""); // telegram connect toggle hidden
   });
 

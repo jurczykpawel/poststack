@@ -14,6 +14,7 @@ import {
   setChannelDefaultFirstComment,
   setChannelDefaultAutoStory,
   setChannelHidden,
+  setChannelGmailQuery,
   deleteChannel,
   runHealthCheck,
   isChannelSort,
@@ -303,7 +304,7 @@ async function channelsPage(c: Context): Promise<Response> {
             ${canNonMeta
               ? html`<button class="btn btn-secondary" type="button" @click="tg = !tg">+ Telegram</button>`
               : proConnect("Telegram")}
-            <a class="btn btn-secondary" style="opacity:.6;pointer-events:none" title="Coming soon">+ Gmail — soon</a>
+            ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/gmail">+ Gmail</a>` : proConnect("Gmail")}
           </div>
           ${(hasFb || hasIg) && !canMultiChannel
             ? html`<p><small>Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</small></p>`
@@ -490,6 +491,30 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
   </section>`;
 }
 
+/** Gmail-channel ingest filter panel — shown only for Gmail channels.
+ *  Saves gmail_query via POST /api/v1/channels/:id/gmail-filter. */
+function gmailFilterPanel(ch: PublicChannel, oob = false): Html {
+  if (ch.platform !== "gmail") return html``;
+  return html`<section class="panel" id="gmail-filter-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
+    <div class="panel-head"><h3>Ingest filter</h3></div>
+    <div class="panel-body">
+      <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+        Gmail search query that controls which messages PostStack pulls in.
+        Leave empty to use the default (<code>in:inbox</code>).
+      </p>
+      <form method="post" action="/channels/${ch.id}/gmail-filter"
+        hx-post="/channels/${ch.id}/gmail-filter" hx-target="#ch-detail-head" hx-swap="outerHTML">
+        <input name="query" type="text" maxlength="1000"
+          placeholder="e.g. label:Support from:vip@x.com"
+          value="${ch.gmail_query ?? ""}"
+          aria-label="Gmail ingest query"
+          style="width:100%;font:inherit" />
+        <div style="margin-top:.5rem">${btn({ label: "Save filter", variant: "secondary", size: "sm" })}</div>
+      </form>
+    </div>
+  </section>`;
+}
+
 function manualReconnectForm(ch: PublicChannel): Html {
   if (ch.connection_mode !== "manual_token") return html``;
   return html`<h3>Reconnect — paste a fresh token</h3>
@@ -609,6 +634,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
           : html`<section class="panel"><div class="panel-body muted" style="font-size:.82rem">📊 Channel stats (posts &amp; messages) are a PRO feature.</div></section>`}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
+        ${gmailFilterPanel(ch)}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
           <section class="panel">
@@ -681,6 +707,12 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");
   }, (ch) => ch.default_auto_story ? "Auto-Story turned on" : "Auto-Story turned off",
     (ch) => storyPanel(ch, true, "", true), "auto_story"));
+  r.post("/channels/:id/gmail-filter", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    const q = String(form.query ?? "").slice(0, 1000);
+    await setChannelGmailQuery(ws, id, q);
+  }, (ch) => ch.gmail_query ? "Filter saved" : "Filter cleared",
+    (ch) => gmailFilterPanel(ch, true)));
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));
   r.post("/channels/:id/unhide", guard, action((ws, id) => setChannelHidden(ws, id, false), () => "Channel unhidden"));
   r.post("/channels/:id/reconnect", guard, action(async (ws, id, c) => {

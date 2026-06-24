@@ -6,6 +6,7 @@ export function oauthStartHref(platform: string): string | null {
   if (platform === "facebook") return "/api/oauth/facebook";
   if (platform === "instagram") return "/api/oauth/instagram";
   if (platform === "youtube") return "/api/oauth/youtube";
+  if (platform === "gmail") return "/api/oauth/gmail";
   return null;
 }
 

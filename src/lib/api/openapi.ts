@@ -558,6 +558,31 @@ export const openApiSpec = {
         },
       },
     },
+    "/channels/{channelId}/gmail-filter": {
+      post: {
+        tags: ["Channels"],
+        summary: "Save the Gmail ingest filter query for a Gmail channel",
+        parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["query"],
+                properties: { query: { type: "string", maxLength: 1000, description: "Raw Gmail search query (e.g. 'label:Support from:vip@x.com'). Empty string clears the filter." } },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Filter saved" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "422": { description: "Validation error — query not a string or exceeds 1000 characters" },
+        },
+      },
+    },
     "/channels/{channelId}/posts": {
       get: {
         tags: ["Channels"],

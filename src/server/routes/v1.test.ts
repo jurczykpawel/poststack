@@ -22,6 +22,7 @@ const ENDPOINTS: Array<[string, string]> = [
   ["PATCH", "/api/v1/channels/abc"],
   ["DELETE", "/api/v1/channels/abc"],
   ["POST", "/api/v1/channels/connect-token"],
+  ["POST", "/api/v1/channels/abc/gmail-filter"],
   ["POST", "/api/v1/channels/abc/drain"],
   ["GET", "/api/v1/channels/abc/posts"],
   ["GET", "/api/v1/contacts"],
