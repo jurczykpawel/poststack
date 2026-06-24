@@ -43,6 +43,7 @@ interface LongLivedToken {
 export class InstagramProvider extends SocialProvider {
   readonly platform = "instagram" as const;
   readonly displayName = "Instagram";
+  readonly appConfigEnvVar = "META_APP_ID";
 
   async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     const params = new URLSearchParams({

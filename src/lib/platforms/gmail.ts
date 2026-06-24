@@ -80,6 +80,7 @@ function extractBodies(part?: GmailPart): { plain?: string; html?: string } {
 export class GmailProvider extends EmailProvider {
   readonly platform = "gmail" as const satisfies Platform;
   readonly displayName = "Gmail";
+  readonly appConfigEnvVar = "GOOGLE_CLIENT_ID";
 
   async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     // resolveGoogleApp ignores workspaceId in v1 (instance-level env) — "" is fine.

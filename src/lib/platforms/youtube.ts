@@ -17,6 +17,7 @@ import { insertCommentReply, insertCommentThread, refreshGoogleAccessToken } fro
 export class YouTubeProvider extends SocialProvider {
   readonly platform = "youtube" as const;
   readonly displayName = "YouTube";
+  readonly appConfigEnvVar = "GOOGLE_CLIENT_ID";
 
   async generateAuthUrl(): Promise<string> {
     // Google OAuth is handled by the dedicated connect flow, not the generic provider URL builder.

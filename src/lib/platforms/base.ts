@@ -89,6 +89,13 @@ export abstract class SocialProvider {
   abstract readonly displayName: string;
 
   /**
+   * Instance-level env var that must be set for this platform to be connectable at all (e.g. an OAuth
+   * app id). `undefined` = always available (token-paste platforms like Telegram). Lets telemetry's
+   * "configured platforms" list self-update from the provider registry — no hardcoded platform list.
+   */
+  readonly appConfigEnvVar?: string;
+
+  /**
    * Generate the OAuth authorization URL to redirect the user to.
    * @param state - Random state string (store in session to verify on callback)
    * @param redirectUri - The callback URL registered in the platform's developer console

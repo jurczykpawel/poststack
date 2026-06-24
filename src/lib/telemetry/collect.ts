@@ -26,6 +26,7 @@ import {
 import { mergeWebhookStatusCounts, mergeWebhookPlatformCounts } from "@/lib/history/stats-read";
 import { getInstanceResponseTimeStats, DEFAULT_WINDOW_DAYS } from "@/lib/metrics/response-times";
 import { env } from "@/lib/env";
+import { getSupportedPlatforms, getProvider } from "@/lib/platforms/registry";
 import { ensureInstanceId, domainHash, getLicenseIdentity } from "./identity";
 import { TELEMETRY_PROJECT } from "./constants";
 
@@ -89,12 +90,15 @@ export interface DeploymentInfo {
 const truthy = (v: string) => ["true", "1", "yes", "on"].includes(v.trim().toLowerCase());
 
 /** The platforms the instance is configured to use, used only as a fallback when no channel is yet
- *  connected. Tied to actual config: Meta unlocks facebook+instagram, Google unlocks youtube+gmail. */
+ *  connected. Registry-driven: each provider declares the env var that unlocks it (`appConfigEnvVar`),
+ *  so a newly registered platform self-joins this list with no edit here. `undefined` = always
+ *  available (token-paste platforms like Telegram). */
 function configuredPlatforms(): string[] {
-  const out: string[] = [];
-  if (env.META_APP_ID) out.push("facebook", "instagram");
-  if (env.GOOGLE_CLIENT_ID) out.push("youtube", "gmail");
-  return out;
+  const envRec = env as unknown as Record<string, string | undefined>;
+  return getSupportedPlatforms().filter((p) => {
+    const required = getProvider(p).appConfigEnvVar;
+    return !required || !!envRec[required];
+  });
 }
 
 /**

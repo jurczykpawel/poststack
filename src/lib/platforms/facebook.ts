@@ -40,6 +40,7 @@ interface FbDebugToken {
 export class FacebookProvider extends SocialProvider {
   readonly platform = "facebook" as const;
   readonly displayName = "Facebook";
+  readonly appConfigEnvVar = "META_APP_ID";
 
   async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     const params = new URLSearchParams({
