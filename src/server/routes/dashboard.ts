@@ -107,6 +107,8 @@ const CONV_QUERY = {
     is_automation_paused: true, needs_manual_reply: true, assigned_to: true,
     // Meta 24h-window anchor — drives the composer window indicator.
     last_inbound_at: true,
+    // Email thread subject line (gmail only).
+    subject: true,
   },
   with: {
     channel: { columns: { id: true, display_name: true, platform: true } },
@@ -246,11 +248,13 @@ function postUrlFor(platform: string, postId: string | null): string | null {
 
 /** The thread timeline. `threadType` shapes the empty-state copy (a comment thread with no follow-up
  *  DM is a normal state, not an error). */
-function renderMessages(items: ThreadItem[], threadType: ConversationThreadType = "dm"): Html {
+export function renderMessages(items: ThreadItem[], threadType: ConversationThreadType = "dm"): Html {
   if (items.length === 0) {
     return html`<p class="muted">${threadType === "comment"
       ? "This comment thread has no messages yet — reply below to start a DM."
-      : "No messages yet — say hello below."}</p>`;
+      : threadType === "email"
+        ? "No emails yet — replies will appear here."
+        : "No messages yet — say hello below."}</p>`;
   }
   return html`${items.map((it) => {
     if (it.kind === "reaction") return html`<div class="msg-reaction muted">reacted ${it.emoji ?? it.reactionType}</div>`;
@@ -289,7 +293,7 @@ function renderMessages(items: ThreadItem[], threadType: ConversationThreadType 
   })}`;
 }
 
-type ConvControls = { id: string; platform: string; status: string; thread_type: ConversationThreadType; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; last_inbound_at: Date | null; channel: { display_name: string | null; platform: string } };
+type ConvControls = { id: string; platform: string; status: string; thread_type: ConversationThreadType; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; last_inbound_at: Date | null; subject: string | null; channel: { display_name: string | null; platform: string } };
 
 const STATUS_LABEL: Record<string, string> = { open: "Open", closed: "Closed", snoozed: "Snoozed" };
 const STATUS_TIP: Record<string, string> = {
@@ -324,7 +328,7 @@ function renderConvControls(conv: ConvControls): Html {
   </div>`;
 }
 
-function renderThread(
+export function renderThread(
   conv: ConvName & ConvControls,
   messages: ThreadItem[],
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
@@ -339,7 +343,12 @@ function renderThread(
   const windowNote = canReply && windowState.label
     ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem">${windowState.label}</div>`
     : html``;
-  return html`<div class="thread-head">${contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
+  const isEmail = conv.platform === "gmail";
+  const emailHeader = isEmail
+    ? html`<div class="thread-email-meta"><div class="thread-subject">${conv.subject || "(no subject)"}</div><div class="muted" style="font-size:.8rem">From: ${contactName(conv)}</div></div>`
+    : html``;
+  return html`<div class="thread-head">${isEmail ? (conv.subject || "(no subject)") : contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
+    ${emailHeader}
     ${renderConvControls(conv)}
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type)}</div>
