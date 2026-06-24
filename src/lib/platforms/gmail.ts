@@ -99,9 +99,10 @@ export class GmailProvider extends EmailProvider {
     }
     return [
       {
+        // Email has no @handle — platformId/displayName are the address; leave username unset
+        // so the UI shows the address once, not as a redundant "@email" line too.
         platformId: profile.emailAddress,
         displayName: profile.emailAddress,
-        username: profile.emailAddress,
         tokens,
       },
     ];

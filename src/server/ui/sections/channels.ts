@@ -544,7 +544,7 @@ function detailHead(ch: PublicChannel): Html {
           <span class="mode-tag">${ch.connection_mode}</span>
           ${capabilityBadges(ch)}
           ${handleBit}
-          <code class="detail-acct">${ch.provider_account_id}</code>
+          ${ch.provider_account_id === ch.display_name ? "" : html`<code class="detail-acct">${ch.provider_account_id}</code>`}
         </div>
         <details class="ch-rename">
           <summary>Rename</summary>
