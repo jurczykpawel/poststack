@@ -8,6 +8,7 @@ import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
   pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, webhookEventStats, postReactionStats, users,
+  type ConversationThreadType,
 } from "@/db/schema";
 import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
 import { createTtlCache } from "@/lib/cache/ttl-cache";
@@ -245,7 +246,7 @@ function postUrlFor(platform: string, postId: string | null): string | null {
 
 /** The thread timeline. `threadType` shapes the empty-state copy (a comment thread with no follow-up
  *  DM is a normal state, not an error). */
-function renderMessages(items: ThreadItem[], threadType: "dm" | "comment" = "dm"): Html {
+function renderMessages(items: ThreadItem[], threadType: ConversationThreadType = "dm"): Html {
   if (items.length === 0) {
     return html`<p class="muted">${threadType === "comment"
       ? "This comment thread has no messages yet — reply below to start a DM."
@@ -288,7 +289,7 @@ function renderMessages(items: ThreadItem[], threadType: "dm" | "comment" = "dm"
   })}`;
 }
 
-type ConvControls = { id: string; platform: string; status: string; thread_type: "dm" | "comment"; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; last_inbound_at: Date | null; channel: { display_name: string | null; platform: string } };
+type ConvControls = { id: string; platform: string; status: string; thread_type: ConversationThreadType; thread_ref: string; is_automation_paused: boolean; needs_manual_reply: boolean; assigned_to: string | null; last_inbound_at: Date | null; channel: { display_name: string | null; platform: string } };
 
 const STATUS_LABEL: Record<string, string> = { open: "Open", closed: "Closed", snoozed: "Snoozed" };
 const STATUS_TIP: Record<string, string> = {

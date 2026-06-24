@@ -13,7 +13,7 @@ export const accountSourceStatus = pgEnum("account_source_status", ['active', 'n
 // How a conversation thread is grouped. `dm` = one ongoing thread per contact (thread_ref ''); `comment`
 // = one thread per post the contact commented on (thread_ref = post id). Extensible (email, …) without
 // touching the inbox: a new channel plugs in as dm-style (ref '') or topic-style (ref = some id).
-export const conversationThreadType = pgEnum("conversation_thread_type", ['dm', 'comment'])
+export const conversationThreadType = pgEnum("conversation_thread_type", ['dm', 'comment', 'email'])
 export type ConversationThreadType = (typeof conversationThreadType.enumValues)[number]
 export const channelStatus = pgEnum("channel_status", ['active', 'needs_reauth', 'paused', 'disabled'])
 export const conversationStatus = pgEnum("conversation_status", ['open', 'closed', 'snoozed'])
@@ -70,6 +70,7 @@ export const conversations = pgTable("conversations", {
 	// Universal threading: dm = per-contact thread (ref ''); comment = per-post thread (ref = post id).
 	thread_type: conversationThreadType("thread_type").default('dm').notNull(),
 	thread_ref: text("thread_ref").default('').notNull(),
+	subject: text("subject"),
 }, (table) => [
 	// One thread per (channel, contact, type, ref). thread_ref is NOT NULL (default '') so DM threads
 	// dedup correctly — a NULL-bearing unique index would treat every DM row as distinct.
@@ -208,6 +209,8 @@ export const channels = pgTable("channels", {
 	deleted_at: timestamp("deleted_at", { precision: 3, mode: 'date' }),
 	// Hidden: stays connected but filtered out of the default list (e.g. sandbox/old test accounts).
 	hidden_at: timestamp("hidden_at", { precision: 3, mode: 'date' }),
+	gmail_query: text("gmail_query"),
+	gmail_sync_cursor: text("gmail_sync_cursor"),
 }, (table) => [
 	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
 	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
