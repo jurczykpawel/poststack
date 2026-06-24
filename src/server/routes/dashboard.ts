@@ -138,12 +138,14 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
   }
   return html`${conversations.map((conv) => {
     const isComment = conv.thread_type === "comment";
+    const isEmail = conv.thread_type === "email";
     return html`<button class="conv-item" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
       <div class="conv-top">
-        <span class="conv-name ${conv.unread_count > 0 ? "unread" : ""}"><span title="${isComment ? "Comment thread" : "Direct message"}">${isComment ? "💬" : "✉️"}</span> ${contactName(conv)}</span>
+        <span class="conv-name ${conv.unread_count > 0 ? "unread" : ""}"><span title="${isComment ? "Comment thread" : isEmail ? "Email thread" : "Direct message"}">${isComment ? "💬" : "✉️"}</span> ${contactName(conv)}</span>
         <span class="conv-time">${timeAgo(conv.last_message_at)}</span>
       </div>
       ${isComment ? html`<div class="muted" style="font-size:.68rem">comment${conv.needs_manual_reply ? " · ⚠ needs reply" : ""}</div>` : conv.needs_manual_reply ? html`<div class="muted" style="font-size:.68rem">⚠ needs reply</div>` : html``}
+      ${isEmail ? html`<div class="conv-subject" style="font-size:.74rem;font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${conv.subject ?? "(no subject)"}</div>` : html``}
       <div class="conv-preview">${conv.last_message_preview ?? "No messages"}</div>
       ${conv.unread_count > 0 ? html`<span class="badge">${conv.unread_count}</span>` : html``}
     </button>`;

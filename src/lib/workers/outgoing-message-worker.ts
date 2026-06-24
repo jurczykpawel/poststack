@@ -111,7 +111,15 @@ export async function processOutgoingMessage(
         if (Date.now() / 1000 >= expiresAt - bufferSeconds) {
           try {
             tokens = await provider.refreshToken(tokens);
-            await db.update(channels).set({ token_encrypted: encryptTokens(tokens) }).where(eq(channels.id, channelId));
+            await db
+              .update(channels)
+              .set({
+                token_encrypted: encryptTokens(tokens),
+                // surface the refreshed expiry too (consistency with the scheduled refresh worker)
+                token_expires_at:
+                  typeof tokens.expires_at === "number" && tokens.expires_at > 0 ? new Date(tokens.expires_at * 1000) : null,
+              })
+              .where(eq(channels.id, channelId));
             helpers.logger.info("Token refreshed on-demand before send");
           } catch (err) {
             helpers.logger.info(`Token refresh failed, using existing: ${err instanceof Error ? err.message : String(err)}`);
