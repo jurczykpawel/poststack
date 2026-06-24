@@ -36,7 +36,7 @@ src/db/
 └── relations.ts      # Drizzle relations
 ```
 
-## Adding a New Platform
+## Adding a New Platform (Social Media)
 
 1. Create `src/lib/platforms/{platform}.ts` extending `SocialProvider`
 2. Implement: `generateAuthUrl()`, `authenticate()`, `refreshToken()`, `sendMessage()`, `sendComment()`
@@ -45,6 +45,10 @@ src/db/
 5. Add to the `platform` enum in `src/db/schema.ts`, then run `npm run db:generate`
 
 See `src/lib/platforms/base.ts` for the full interface and JSDoc.
+
+## Adding a New Mailbox Provider (Email)
+
+PostStack extensibly supports email (Gmail, Outlook, ProtonMail, etc.) by implementing the `EmailProvider` base class. See [docs/ADDING_A_MAILBOX_PROVIDER.md](docs/ADDING_A_MAILBOX_PROVIDER.md) for a complete step-by-step guide — it covers OAuth flow, message polling, sending, and threading integration.
 
 ## Code Style
 

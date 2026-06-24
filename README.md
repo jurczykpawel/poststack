@@ -204,6 +204,26 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 ---
 
+## Gmail Setup
+
+To enable Gmail mailbox support, create a Google Cloud OAuth app:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) and create a new project.
+2. Enable the **Gmail API** in your project (APIs & Services → Library → search "Gmail").
+3. Create an OAuth 2.0 Client ID (APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID):
+   - **Application type:** Web application
+   - **Authorized redirect URIs:** add `https://your-domain.com/api/oauth/gmail/callback` (use your real `APP_URL`)
+4. Copy the **Client ID** and **Client Secret** into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in your `.env` (or set them in Settings → OAuth after first login).
+5. **OAuth scope:** PostStack requests `openid`, `email`, `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/gmail.send` — read-only ingest and send.
+
+**Verification note:** Google restricts these scopes. An **unverified app** can only authorize the developer's own Gmail account + ~100 test users. To **serve external mailboxes** (real multi-tenant usage), your Google app must pass **OAuth verification** and **Google's CASA security assessment** (annual; separate fee). For **self-hosting your own team's Gmail**, add your account as a test user — no assessment needed.
+
+**Optional:** each Gmail channel can use an ingest filter (e.g. `label:support`, `is:unread`, `-category:promotions`) to narrow the messages PostStack polls. Set it in the dashboard or via the API when connecting the channel.
+
+The same Google app can also serve **YouTube** (`youtube` platform) — just add the YouTube channel to the app and use the same `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+
+---
+
 ## Usage
 
 ### 1. Connect a channel
