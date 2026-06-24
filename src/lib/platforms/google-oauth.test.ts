@@ -26,3 +26,21 @@ describe("buildGoogleAuthUrl", () => {
     expect(url).toContain("state=state123");
   });
 });
+
+describe("exchangeGoogleCode", () => {
+  it("returns expires_at in UNIX SECONDS, not milliseconds", async () => {
+    const fakeFetch = async () =>
+      new Response(JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tokens = await mod.exchangeGoogleCode("code", "https://app/cb", { clientId: "c", clientSecret: "s" }, fakeFetch);
+    expect(tokens.access_token).toBe("at");
+    expect(tokens.refresh_token).toBe("rt");
+    // seconds → ~1.7e9, not ms (~1.7e12). Within an hour of now + 3600s.
+    expect(tokens.expires_at).toBeGreaterThanOrEqual(nowSec + 3600 - 5);
+    expect(tokens.expires_at).toBeLessThanOrEqual(nowSec + 3600 + 5);
+    expect(tokens.expires_at).toBeLessThan(1e12);
+  });
+});

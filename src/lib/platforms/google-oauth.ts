@@ -26,7 +26,8 @@ async function tokenRequest(body: URLSearchParams, fetchImpl = fetch): Promise<T
   return {
     access_token: j.access_token,
     refresh_token: j.refresh_token,
-    expires_at: j.expires_in ? Date.now() + j.expires_in * 1000 : undefined,
+    // expires_at convention is UNIX SECONDS (consumers do new Date(expires_at * 1000)), NOT ms.
+    expires_at: j.expires_in ? Math.floor(Date.now() / 1000) + j.expires_in : undefined,
   };
 }
 
