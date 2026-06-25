@@ -25,7 +25,7 @@ export async function processIncomingMessage(
   payload: IncomingMessageJob,
   helpers: JobHelpers,
 ): Promise<void> {
-  const { platform, channelId, pageId, senderId, mid, text, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, timestamp } = payload;
+  const { platform, channelId, pageId, senderId, senderName, mid, text, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, timestamp } = payload;
   // The fire-claim CAS key: prefer the event_key the edge logged this event under, so the claim
   // lands on that exact webhook_events row. Fall back to a per-(conversation, mid) key for a direct
   // worker invocation that skipped the edge log (tests / replays) — per-conversation so a shared
@@ -63,13 +63,20 @@ export async function processIncomingMessage(
   //    dead-lettered the loser on a 23505. Activity (last_interaction_at) is bumped later,
   //    only for a newly-ingested newest message, so a redelivery doesn't move it — hence the
   //    contact is created with messageDate and NOT bumped here.
-  const { contactId, created } = await resolveContactId(channel, senderId, { lastInteractionAt: messageDate });
+  // `senderName` is the inline name some webhooks carry (Telegram first_name/username); it sets the
+  // new contact's display_name on insert. Meta omits it (id-only webhook) → null here, filled by the
+  // getUserProfile lookup below.
+  const { contactId, created } = await resolveContactId(channel, senderId, {
+    displayName: senderName ?? null,
+    lastInteractionAt: messageDate,
+  });
 
   // A Meta DM webhook carries only the sender's id, not their name — so for a brand-new contact,
   // resolve the public profile (name/avatar) once, best-effort, so the inbox shows a nick not a PSID.
-  // Email carries the address as the sender id (already human-readable), so skip the Meta lookup.
+  // Skip when we already have an inline name (Telegram) or the address-as-id is human-readable (email);
+  // resolveContactProfile is a no-op anyway for a platform without getUserProfile.
   const isEmail = payload.threadType === "email";
-  if (created && !isEmail) await resolveContactProfile(channel, contactId, senderId);
+  if (created && !isEmail && !senderName) await resolveContactProfile(channel, contactId, senderId);
 
   // 3. Ensure the conversation exists WITHOUT mutating its lifecycle (status/stats); those
   //    change only for a genuinely new, newest message (steps 5/6), so a redelivery can't

@@ -828,10 +828,11 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
       [`tg-${BOT}-${CHAT}-99`],
     );
     expect(enq.rows).toHaveLength(1);
-    const jp = enq.rows[0].payload as { channelId: string; mid: string; timestamp: number; pageId: string };
+    const jp = enq.rows[0].payload as { channelId: string; mid: string; timestamp: number; pageId: string; senderName?: string };
     expect(jp.channelId).toBe(TG_CH);
     expect(jp.mid).toBe(`${BOT}-${CHAT}-99`);
     expect(jp.timestamp).toBe(1_770_000_000); // seconds, not pre-multiplied
+    expect(jp.senderName).toBe("Jan"); // TGNAME1: webhook carries msg.from.first_name inline
 
     await runOnce({
       connectionString: TEST_DB,
@@ -840,8 +841,9 @@ describe("Telegram E2E: webhook → worker → reply (real Postgres)", () => {
     expect((await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'outgoing-message'")).rows[0].n).toBe(1);
 
     // contact's last interaction reflects the event time, not processing time.
-    const contact = await db.query.contacts.findFirst({ where: eq(contacts.workspace_id, WS), columns: { last_interaction_at: true } });
+    const contact = await db.query.contacts.findFirst({ where: eq(contacts.workspace_id, WS), columns: { last_interaction_at: true, display_name: true } });
     expect(contact?.last_interaction_at?.getTime()).toBe(1_770_000_000_000);
+    expect(contact?.display_name).toBe("Jan"); // TGNAME1: inline name set the contact display_name (no getUserProfile on Telegram)
 
     const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
     const realFetch = globalThis.fetch;

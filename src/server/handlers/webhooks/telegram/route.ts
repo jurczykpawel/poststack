@@ -119,6 +119,9 @@ export async function POST(request: Request): Promise<Response> {
         pageId: channel.platform_id,
         eventKey,
         senderId: String(msg.chat.id),
+        // Telegram's inbound carries the sender name inline (no profile-lookup API for a bot), so pass
+        // it through to set the new contact's display_name — else the inbox shows a bare chat id.
+        senderName: msg.from?.first_name || msg.from?.username || undefined,
         recipientId: channel.platform_id,
         mid: identity,
         text: msg.text ?? null,

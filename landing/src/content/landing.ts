@@ -365,7 +365,7 @@ export const fleetStats = {
     { key: "total_channels", label: "Connected channels" },
     { key: "total_messages_processed", label: "Messages processed" },
     { key: "total_webhooks_processed", label: "Webhooks processed" },
-    { key: "avg_response_time_ms", label: "Avg. first response", kind: "duration" },
+    { key: "avg_response_time_ms", label: "Avg. auto-reply time", kind: "duration" },
   ],
   platformsTitle: "Connected channels by platform",
   note: "Anonymous and opt-out — see exactly what is shared on the",

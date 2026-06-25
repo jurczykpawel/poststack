@@ -24,6 +24,10 @@ export interface IncomingMessageJob {
   pageId: string;
   /** Platform-native sender PSID / IG user ID */
   senderId: string;
+  /** Human-readable sender name carried inline by the webhook (Telegram first_name/username). Platforms
+   *  whose webhook has only an id (Meta) omit it and rely on getUserProfile; used to set the new
+   *  contact's display_name so the inbox shows a name, not the raw id. */
+  senderName?: string;
   recipientId: string;
   /** Platform message ID — used for deduplication */
   mid: string;
