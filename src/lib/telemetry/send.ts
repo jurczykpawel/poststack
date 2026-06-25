@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import type { db as Db } from "@/lib/db";
 import { telemetryState } from "@/db/schema";
 import { env } from "@/lib/env";
+import { hostFromUrl } from "@/lib/license/format";
 import { buildEnvelope } from "./collect";
 
 const SINGLETON = "singleton";
@@ -18,6 +19,26 @@ const RETRY_DELAY_MS = 2_000;
 const BOOT_DEBOUNCE_MS = 20 * 60 * 60 * 1000; // ~20h
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * True when APP_URL points at a non-deployment host — localhost, a loopback ip, 0.0.0.0, an empty
+ * host, or a *.local / *.localhost mDNS name. Telemetry is suppressed for these so local dev, CI and
+ * test runs never phone home: each such run mints a fresh instance id and would otherwise inflate the
+ * public fleet's "active instances" with throwaway entries (all hashing to the `localhost` domain).
+ * A genuine self-host on a real domain still reports normally.
+ */
+export function isNonDeploymentHost(appUrl: string | undefined): boolean {
+  const host = (hostFromUrl(appUrl ?? "") ?? "").toLowerCase();
+  return (
+    host === "" ||
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".local") ||
+    host.endsWith(".localhost")
+  );
+}
 
 /** One POST attempt. Resolves true on a 2xx response, false otherwise (non-2xx or thrown). */
 async function postOnce(body: string): Promise<boolean> {
@@ -41,7 +62,7 @@ async function postOnce(body: string): Promise<boolean> {
  * by a telemetry outage.
  */
 export async function sendTelemetry(db: typeof Db): Promise<void> {
-  if (!env.TELEMETRY_ENABLED) return;
+  if (!env.TELEMETRY_ENABLED || isNonDeploymentHost(env.APP_URL)) return;
 
   try {
     const envelope = await buildEnvelope(db);
@@ -76,7 +97,7 @@ export async function sendTelemetry(db: typeof Db): Promise<void> {
  * or broken by it. No-op (and no log) when telemetry is disabled.
  */
 export async function sendTelemetryOnBoot(db: typeof Db): Promise<void> {
-  if (!env.TELEMETRY_ENABLED) return;
+  if (!env.TELEMETRY_ENABLED || isNonDeploymentHost(env.APP_URL)) return;
 
   console.log(
     "[telemetry] Telemetry enabled (anonymous usage stats). Disable with POSTSTACK_TELEMETRY_DISABLED=true",

@@ -284,3 +284,34 @@ describe("sendTelemetryOnBoot", () => {
     await expect(sendTelemetryOnBoot(db as never)).resolves.toBeUndefined();
   });
 });
+
+// TELEM-LOCALHOST1: local dev / CI / test runs (APP_URL on a localhost-ish host) must not phone home,
+// or each fresh instance id inflates the public fleet's "active instances".
+describe("isNonDeploymentHost", () => {
+  it("suppresses localhost, loopback, wildcard, empty and *.local hosts", async () => {
+    const { isNonDeploymentHost } = await loadSend({});
+    for (const url of [
+      undefined,
+      "",
+      "http://localhost:3000",
+      "http://localhost",
+      "http://127.0.0.1:3000",
+      "http://0.0.0.0:8080",
+      "https://app.localhost",
+      "https://poststack.local",
+    ]) {
+      expect(isNonDeploymentHost(url)).toBe(true);
+    }
+  });
+
+  it("allows a real deployment domain to report", async () => {
+    const { isNonDeploymentHost } = await loadSend({});
+    for (const url of [
+      "https://poststack.techskills.academy",
+      "https://poststack.tojest.dev",
+      "https://social.example.com",
+    ]) {
+      expect(isNonDeploymentHost(url)).toBe(false);
+    }
+  });
+});
