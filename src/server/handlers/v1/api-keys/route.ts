@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   }
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   const { plaintext, prefix, hash } = generateApiKey();

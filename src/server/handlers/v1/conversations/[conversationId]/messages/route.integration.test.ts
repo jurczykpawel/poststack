@@ -142,7 +142,7 @@ describe("manual reply — PRO gate (manual_reply)", () => {
     try {
       const res = await POST(postReq(), ctx);
       expect(res.status).toBe(402);
-      expect((await res.json()).error.code).toBe("PRO_REQUIRED");
+      expect((await res.json()).error.code).toBe("pro_required");
       expect(addJobTx).not.toHaveBeenCalled(); // nothing was sent
     } finally {
       await licenseInstance(); // restore PRO for any later work

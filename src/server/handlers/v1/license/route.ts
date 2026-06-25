@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const parsed = postSchema.safeParse(body);
-  if (!parsed.success) return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) return ApiErrors.validationError(parsed.error);
 
   const result = await setLicense(parsed.data.token.trim());
   if (!result.ok) {

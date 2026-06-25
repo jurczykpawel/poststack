@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   // Drip sequences are a PRO feature.

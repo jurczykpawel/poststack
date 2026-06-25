@@ -31,7 +31,7 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const parsed = enrollSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   // Verify contact and channel belong to this workspace

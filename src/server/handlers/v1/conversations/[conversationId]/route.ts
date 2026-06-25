@@ -72,7 +72,7 @@ export async function PATCH(
   const body = await request.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
   // An empty body (or unknown-keys-only, which zod strips to {}) would reach `.set({})` →
   // Drizzle "No values to set" → 500. Return a 422 validation error (ApiErrors.validationError),
@@ -81,7 +81,7 @@ export async function PATCH(
   // legitimate no-row-change; these endpoints have no such secondary field, so an empty body is a
   // genuine client error.
   if (Object.keys(parsed.data).length === 0) {
-    return ApiErrors.validationError({ _errors: ["No fields to update"] });
+    return ApiErrors.validationError([{ path: "", message: "No fields to update" }]);
   }
 
   // assigned_to references users globally; only allow assigning to a member of THIS workspace
@@ -91,7 +91,7 @@ export async function PATCH(
       where: and(eq(workspaceMembers.workspace_id, auth.workspaceId), eq(workspaceMembers.user_id, parsed.data.assigned_to)),
       columns: { user_id: true },
     });
-    if (!member) return ApiErrors.validationError({ assigned_to: ["User is not a member of this workspace"] });
+    if (!member) return ApiErrors.validationError([{ path: "assigned_to", message: "User is not a member of this workspace" }]);
   }
 
   const updated = await db.transaction(async (tx) => {

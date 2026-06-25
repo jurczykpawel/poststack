@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const { tagId } = await params;
   const body = await request.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
-  if (!parsed.success) return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) return ApiErrors.validationError(parsed.error);
 
   const existing = await db.query.tags.findFirst({
     where: and(eq(tags.id, tagId), eq(tags.workspace_id, auth.workspaceId)),

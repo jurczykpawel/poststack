@@ -75,7 +75,7 @@ describe("multitenancy gate on registration (real Postgres)", () => {
     const second = await register("second@example.test");
     expect(second.status).toBe(402);
     const body = await second.json();
-    expect(body.error.code).toBe("PRO_REQUIRED");
+    expect(body.error.code).toBe("pro_required");
     expect(body.error.details.feature).toBe("multi_workspace");
 
     const { rows } = await pool.query("select count(*)::int as n from workspaces");

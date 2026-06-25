@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const parsed = connectSchema.safeParse(body);
-  if (!parsed.success) return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) return ApiErrors.validationError(parsed.error);
 
   let result;
   try {

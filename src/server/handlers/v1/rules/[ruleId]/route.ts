@@ -111,12 +111,12 @@ export async function PATCH(
   const body = await request.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
   // An empty body would reach `.set({})` → Drizzle "No values to set" → 500; return a 422 validation
   // error instead (consistent with this endpoint's other bad-body responses).
   if (Object.keys(parsed.data).length === 0) {
-    return ApiErrors.validationError({ _errors: ["No fields to update"] });
+    return ApiErrors.validationError([{ path: "", message: "No fields to update" }]);
   }
 
   // Scoping a rule to a channel: the channel must belong to this workspace (defense-in-depth — the
@@ -126,7 +126,7 @@ export async function PATCH(
       where: and(eq(channels.id, parsed.data.channel_id), eq(channels.workspace_id, auth.workspaceId)),
       columns: { id: true },
     });
-    if (!owned) return ApiErrors.validationError({ channel_id: ["Channel not found in this workspace"] });
+    if (!owned) return ApiErrors.validationError([{ path: "channel_id", message: "Channel not found in this workspace" }]);
   }
 
   // Re-apply the active-rule cap on a re-activation: the cap is enforced at create, but
@@ -138,7 +138,7 @@ export async function PATCH(
       .from(autoReplyRules)
       .where(and(eq(autoReplyRules.workspace_id, auth.workspaceId), eq(autoReplyRules.is_active, true)));
     if (activeRuleCount >= MAX_ACTIVE_RULES) {
-      return ApiErrors.validationError({ _errors: [`Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules`] });
+      return ApiErrors.validationError([{ path: "", message: `Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules` }]);
     }
   }
 
@@ -207,12 +207,9 @@ export async function PATCH(
       return !unchangedAtPath(iss.path);
     });
     if (introduced.length > 0) {
-      const fieldErrors: Record<string, string[]> = {};
-      for (const iss of introduced) {
-        const key = iss.path.length ? String(iss.path[0]) : "_errors";
-        (fieldErrors[key] ??= []).push(iss.message);
-      }
-      return ApiErrors.validationError(fieldErrors);
+      return ApiErrors.validationError(
+        introduced.map((iss) => ({ path: iss.path.join("."), message: iss.message })),
+      );
     }
   }
 

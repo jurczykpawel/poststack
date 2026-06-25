@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   const result = await pruneWorkspaceWebhookEvents(auth.workspaceId, parsed.data.older_than_days);

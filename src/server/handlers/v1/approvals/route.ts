@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse(Object.fromEntries(searchParams));
-  if (!parsed.success) return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) return ApiErrors.validationError(parsed.error);
 
   const rows = await db.query.pendingApprovals.findMany({
     where: and(

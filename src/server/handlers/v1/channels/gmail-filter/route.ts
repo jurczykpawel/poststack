@@ -22,7 +22,7 @@ export async function POST(
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) return ApiErrors.validationError(parsed.error);
 
   const [updated] = await db
     .update(channels)

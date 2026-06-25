@@ -36,7 +36,7 @@ export async function PATCH(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   const [updated] = await db

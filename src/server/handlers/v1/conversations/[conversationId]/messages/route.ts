@@ -38,7 +38,7 @@ export async function GET(
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse(Object.fromEntries(searchParams));
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
   const { limit, cursor } = parsed.data;
 
@@ -95,7 +95,7 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const parsed = sendSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   const contactChannel = await db.query.contactChannels.findFirst({

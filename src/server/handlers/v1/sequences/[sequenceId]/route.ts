@@ -59,12 +59,12 @@ export async function PATCH(
   const body = await request.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
   // An empty body would reach `.set({})` → Drizzle "No values to set" → 500; return a 422 validation
   // error instead (consistent with this endpoint's other bad-body responses).
   if (Object.keys(parsed.data).length === 0) {
-    return ApiErrors.validationError({ _errors: ["No fields to update"] });
+    return ApiErrors.validationError([{ path: "", message: "No fields to update" }]);
   }
 
   const [updated] = await db

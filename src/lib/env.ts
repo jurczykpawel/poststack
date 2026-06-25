@@ -166,7 +166,7 @@ function loadEnv() {
   if (!parsed.success) {
     console.error(
       "Invalid environment variables:\n",
-      parsed.error.flatten().fieldErrors
+      parsed.error
     );
     throw new Error("Invalid environment variables. Check your .env file.");
   }

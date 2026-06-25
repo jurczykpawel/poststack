@@ -55,11 +55,11 @@ export function apiErrorResponse(e: ApiError): Response {
   return err(e.code, e.message, e.status, e.details && e.details.length ? e.details : undefined);
 }
 
-export type PaginationMeta = {
-  page: number;
-  limit: number;
-  total: number;
+/** Meta returned by cursor-paginated list endpoints. `next_cursor` is the opaque cursor to pass back
+ *  as `?cursor=` for the next page, or null on the last page. */
+export type CursorMeta = {
   has_more: boolean;
+  next_cursor: string | null;
 };
 
 export function ok<T>(data: T, meta?: Record<string, unknown>, status = 200): Response {
@@ -81,33 +81,43 @@ export function err(code: string, message: string, status: number, details?: unk
   );
 }
 
-// Convenience error constructors
+/**
+ * Convenience error constructors. The `error.code` vocabulary is the public contract — clients switch
+ * on it — so every code is **lowercase snake_case** (Stripe/GitHub convention) and stable. Keep this
+ * list and the service-layer `ApiError` codes in the same casing; the canonical set is:
+ *   unauthorized · forbidden · not_found · conflict · bad_request · validation_error ·
+ *   rate_limited · pro_required · internal_error  (+ specific service codes like `invalid_request`).
+ * `validation_error` always carries `details: Detail[]` (`[{ path, message }]`). `pro_required`
+ * carries `{ feature, upgrade_url }`.
+ */
 export const ApiErrors = {
   unauthorized: (msg = "Authentication required") =>
-    err("UNAUTHORIZED", msg, 401),
+    err("unauthorized", msg, 401),
 
   forbidden: (msg = "Access denied") =>
-    err("FORBIDDEN", msg, 403),
+    err("forbidden", msg, 403),
 
   notFound: (resource = "Resource") =>
-    err("NOT_FOUND", `${resource} not found`, 404),
+    err("not_found", `${resource} not found`, 404),
 
   conflict: (msg: string) =>
-    err("CONFLICT", msg, 409),
+    err("conflict", msg, 409),
 
   badRequest: (msg: string, details?: unknown) =>
-    err("BAD_REQUEST", msg, 400, details),
+    err("bad_request", msg, 400, details),
 
-  validationError: (details: unknown) =>
-    err("VALIDATION_ERROR", "Invalid request data", 422, details),
+  // 422: input validation. Accepts a ZodError or a ready Detail[] and always emits the canonical
+  // `details: [{ path, message }]` array, so every endpoint reports validation errors identically.
+  validationError: (input: ZodError | Detail[]) =>
+    err("validation_error", "Invalid request data", 422, Array.isArray(input) ? input : zodDetails(input)),
 
   tooManyRequests: (msg = "Rate limit exceeded") =>
-    err("TOO_MANY_REQUESTS", msg, 429),
+    err("rate_limited", msg, 429),
 
   // 402: a valid PRO license is required to use this feature.
   proRequired: (feature: string, upgradeUrl: string, msg = "This feature requires a PRO license") =>
-    err("PRO_REQUIRED", msg, 402, { feature, upgrade_url: upgradeUrl }),
+    err("pro_required", msg, 402, { feature, upgrade_url: upgradeUrl }),
 
   internal: (msg = "Internal server error") =>
-    err("INTERNAL_ERROR", msg, 500),
+    err("internal_error", msg, 500),
 };

@@ -107,9 +107,11 @@ pages.post("/logout", async (c) => {
 function authErrorMessage(body: unknown, fallback: string): string {
   const error = (body as { error?: { message?: string; details?: unknown } } | null)?.error;
   if (!error) return fallback;
-  if (error.details && typeof error.details === "object") {
-    const messages = Object.values(error.details as Record<string, unknown>)
-      .flat()
+  // validation_error carries `details: [{ path, message }]` — surface the field messages so the
+  // form shows e.g. "Password must be at least 8 characters" rather than the generic envelope text.
+  if (Array.isArray(error.details)) {
+    const messages = (error.details as Array<{ message?: unknown }>)
+      .map((d) => d?.message)
       .filter((m): m is string => typeof m === "string");
     if (messages.length > 0) return messages.join(". ");
   }

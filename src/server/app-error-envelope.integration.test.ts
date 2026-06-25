@@ -66,7 +66,7 @@ describe("API error envelope", () => {
     expect(res.headers.get("content-type")).toContain("application/json");
     const body = await res.json();
     expect(body.data).toBeNull();
-    expect(body.error?.code).toBe("INTERNAL_ERROR");
+    expect(body.error?.code).toBe("internal_error");
     expect(JSON.stringify(body)).not.toContain("secret-connection-string"); // no leak
   });
 });

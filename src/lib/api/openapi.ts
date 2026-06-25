@@ -42,20 +42,29 @@ export const openApiSpec = {
             type: "object",
             required: ["code", "message"],
             properties: {
-              code: { type: "string", example: "NOT_FOUND" },
+              code: {
+                type: "string",
+                description:
+                  "Stable machine-readable code (lowercase snake_case). Common values: unauthorized, " +
+                  "forbidden, not_found, conflict, bad_request, validation_error, rate_limited, " +
+                  "pro_required, internal_error (plus endpoint-specific codes).",
+                example: "not_found",
+              },
               message: { type: "string", example: "Resource not found" },
-              details: {},
+              details: {
+                description:
+                  "On validation_error: an array of { path, message }. On pro_required: { feature, upgrade_url }. Absent otherwise.",
+              },
             },
           },
         },
       },
       Pagination: {
         type: "object",
+        description: "Cursor pagination meta. Pass next_cursor back as ?cursor= for the next page.",
         properties: {
-          page: { type: "integer", example: 1 },
-          limit: { type: "integer", example: 20 },
-          total: { type: "integer", example: 142 },
           has_more: { type: "boolean", example: true },
+          next_cursor: { type: "string", nullable: true, example: "eyJ0IjoiMjAyNi0wNi0yNVQxMjowMDowMC4wMDBaIiwiaSI6Ii4uLiJ9" },
         },
       },
       Channel: {

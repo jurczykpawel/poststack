@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) return ApiErrors.validationError(parsed.error);
 
   const provider = getProvider("telegram") as TelegramProvider;
   let accounts;

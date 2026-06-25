@@ -81,7 +81,7 @@ describe("/api/v1/sources — managed_connection PRO gate", () => {
     if (!TEST_DB) return;
     const res = await connect();
     expect(res.status).toBe(402);
-    expect((await res.json()).error.code).toBe("PRO_REQUIRED");
+    expect((await res.json()).error.code).toBe("pro_required");
   });
 
   it("blocks listing without a PRO license (402)", async () => {

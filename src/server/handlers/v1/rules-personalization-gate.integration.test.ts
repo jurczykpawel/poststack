@@ -76,7 +76,7 @@ describe("personalization authoring gate on POST /api/v1/rules", () => {
     const res = await rules.POST(post(rule("Cześć {imie}!")));
     expect(res.status).toBe(402);
     const body = await res.json();
-    expect(body.error.code).toBe("PRO_REQUIRED");
+    expect(body.error.code).toBe("pro_required");
     expect(body.error.details.feature).toBe("personalization");
     const remaining = await db.select({ id: s.autoReplyRules.id }).from(s.autoReplyRules).where(eq(s.autoReplyRules.workspace_id, WS));
     expect(remaining.length).toBe(0); // no rule persisted

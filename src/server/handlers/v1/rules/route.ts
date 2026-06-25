@@ -193,15 +193,15 @@ export async function invalidSequenceResponse(
   if (responseType !== "sequence") return null;
   const sequenceId = responseConfig.sequence_id;
   if (typeof sequenceId !== "string") {
-    return ApiErrors.validationError({ "response_config.sequence_id": ["sequence response requires sequence_id"] });
+    return ApiErrors.validationError([{ path: "response_config.sequence_id", message: "sequence response requires sequence_id" }]);
   }
   const seq = await db.query.sequences.findFirst({
     where: and(eq(sequences.id, sequenceId), eq(sequences.workspace_id, workspaceId)),
     columns: { id: true, status: true },
   });
-  if (!seq) return ApiErrors.validationError({ "response_config.sequence_id": ["Sequence not found in this workspace"] });
+  if (!seq) return ApiErrors.validationError([{ path: "response_config.sequence_id", message: "Sequence not found in this workspace" }]);
   if (seq.status !== "active") {
-    return ApiErrors.validationError({ "response_config.sequence_id": ["Sequence must be active to enroll contacts — activate it first"] });
+    return ApiErrors.validationError([{ path: "response_config.sequence_id", message: "Sequence must be active to enroll contacts — activate it first" }]);
   }
   return null;
 }
@@ -243,7 +243,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = createRuleSchema.safeParse(body);
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
 
   // Verify channel belongs to this workspace if provided
@@ -277,7 +277,7 @@ export async function POST(request: Request) {
     .from(autoReplyRules)
     .where(and(eq(autoReplyRules.workspace_id, auth.workspaceId), eq(autoReplyRules.is_active, true)));
   if (activeRuleCount >= MAX_ACTIVE_RULES) {
-    return ApiErrors.validationError({ _errors: [`Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules`] });
+    return ApiErrors.validationError([{ path: "", message: `Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules` }]);
   }
 
   const [rule] = await db

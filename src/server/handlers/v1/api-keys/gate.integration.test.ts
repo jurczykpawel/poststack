@@ -64,7 +64,7 @@ describe("POST /api/v1/api-keys — api_access PRO gate", () => {
     const res = await route.POST(postKey());
     expect(res.status).toBe(402);
     const body = await res.json();
-    expect(body.error.code).toBe("PRO_REQUIRED");
+    expect(body.error.code).toBe("pro_required");
     const keys = await db.query.apiKeys.findMany({ where: eq(s.apiKeys.workspace_id, WS) });
     expect(keys).toHaveLength(0);
   });

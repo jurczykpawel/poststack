@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse(Object.fromEntries(searchParams));
   if (!parsed.success) {
-    return ApiErrors.validationError(parsed.error.flatten().fieldErrors);
+    return ApiErrors.validationError(parsed.error);
   }
   const { q, tag, limit, cursor } = parsed.data;
 
@@ -87,7 +87,7 @@ export async function GET(request: Request) {
 
   if (cursor) {
     const cur = decodeCursor(cursor);
-    if (!cur) return ApiErrors.validationError({ cursor: ["invalid cursor"] });
+    if (!cur) return ApiErrors.validationError([{ path: "cursor", message: "invalid cursor" }]);
     // Rows ordered AFTER the cursor under (last_interaction_at DESC NULLS LAST, id DESC).
     conds.push(
       cur.ts !== null
