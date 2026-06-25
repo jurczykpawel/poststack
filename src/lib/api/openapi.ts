@@ -90,6 +90,23 @@ export const openApiSpec = {
           created_at: { type: "string", format: "date-time" },
         },
       },
+      ContactImport: {
+        type: "object",
+        required: ["channel_id"],
+        description:
+          "One contact to import. Provide platform_sender_id, or platform_username when only a handle " +
+          "is known (it is keyed as a placeholder sender id until the contact's first inbound event).",
+        properties: {
+          channel_id: { type: "string", format: "uuid" },
+          platform_sender_id: { type: "string" },
+          platform_username: { type: "string" },
+          display_name: { type: "string", nullable: true },
+          email: { type: "string", format: "email", nullable: true },
+          is_subscribed: { type: "boolean", default: true },
+          metadata: { type: "object", additionalProperties: true, description: "Custom fields, merged on re-import" },
+          tags: { type: "array", items: { type: "string" }, description: "Tag names; created if missing" },
+        },
+      },
       Tag: {
         type: "object",
         properties: {
@@ -361,6 +378,64 @@ export const openApiSpec = {
             },
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+      post: {
+        tags: ["Contacts"],
+        summary: "Create or import contacts",
+        description:
+          "Create or update one contact, or a batch (send an array, up to 1000). Idempotent: dedup is by " +
+          "channel + sender id, so re-running the same payload updates instead of duplicating. Intended for " +
+          "migrating a subscriber list (e.g. a ManyChat audience export). Requires the contacts CRM (Pro).",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                oneOf: [
+                  { $ref: "#/components/schemas/ContactImport" },
+                  { type: "array", items: { $ref: "#/components/schemas/ContactImport" }, minItems: 1, maxItems: 1000 },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Import summary (per-row results; unknown channels are reported, not fatal)",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "object",
+                      properties: {
+                        created: { type: "integer" },
+                        updated: { type: "integer" },
+                        failed: { type: "integer" },
+                        results: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              index: { type: "integer" },
+                              status: { type: "string", enum: ["created", "updated", "error"] },
+                              contact_id: { type: "string", format: "uuid" },
+                              error: { type: "string" },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    error: { type: "null" },
+                  },
+                },
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "422": { description: "Validation error" },
         },
       },
     },

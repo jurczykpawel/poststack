@@ -26,6 +26,7 @@ const ENDPOINTS: Array<[string, string]> = [
   ["POST", "/api/v1/channels/abc/drain"],
   ["GET", "/api/v1/channels/abc/posts"],
   ["GET", "/api/v1/contacts"],
+  ["POST", "/api/v1/contacts"],
   ["GET", "/api/v1/contacts/abc"],
   ["PATCH", "/api/v1/contacts/abc"],
   ["DELETE", "/api/v1/contacts/abc"],

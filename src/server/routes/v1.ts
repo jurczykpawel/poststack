@@ -78,6 +78,7 @@ v1.post("/sources/:sourceId/sync", (c) =>
 
 // Contacts
 v1.get("/contacts", (c) => contacts.GET(c.req.raw));
+v1.post("/contacts", (c) => contacts.POST(c.req.raw));
 v1.get("/contacts/:contactId", (c) =>
   contact.GET(c.req.raw, { params: Promise.resolve({ contactId: c.req.param("contactId") }) }),
 );

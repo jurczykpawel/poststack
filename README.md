@@ -289,7 +289,7 @@ Activate the sequence, then enroll contacts via the API:
 
 ```bash
 curl -X POST https://your-domain.com/api/v1/sequences/{id}/enroll \
-  -H "Authorization: Bearer rs_live_your-key" \
+  -H "Authorization: Bearer sk_live_your-key" \
   -H "Content-Type: application/json" \
   -d '{"contact_id": "...", "channel_id": "..."}'
 ```
@@ -301,11 +301,11 @@ Go to **Settings** and create an API key. Use it with any HTTP client:
 ```bash
 # List contacts
 curl https://your-domain.com/api/v1/contacts \
-  -H "Authorization: Bearer rs_live_your-key"
+  -H "Authorization: Bearer sk_live_your-key"
 
 # Send a manual reply
 curl -X POST https://your-domain.com/api/v1/conversations/{id}/messages \
-  -H "Authorization: Bearer rs_live_your-key" \
+  -H "Authorization: Bearer sk_live_your-key" \
   -H "Content-Type: application/json" \
   -d '{"text": "Thanks for reaching out!"}'
 ```
@@ -366,7 +366,7 @@ PostStack is API-first. Every feature in the dashboard is available via REST API
 
 **Docs:** `GET /api/docs` -- interactive Scalar UI
 
-**Auth:** `Authorization: Bearer rs_live_<key>` (generate in Settings > API Keys)
+**Auth:** `Authorization: Bearer sk_live_<key>` (generate in Settings > API Keys)
 
 | Endpoint | Methods | Description |
 |----------|---------|-------------|
@@ -388,10 +388,16 @@ PostStack is API-first. Every feature in the dashboard is available via REST API
 
 ```bash
 curl https://your-domain.com/api/v1/contacts \
-  -H "Authorization: Bearer rs_live_your-key-here"
+  -H "Authorization: Bearer sk_live_your-key-here"
 ```
 
 All responses follow the shape `{ data, error, meta? }`.
+
+### Migrating from another tool
+
+Coming from Buffer, Hootsuite, Later, Publer, SocialBee, or ManyChat? See
+[docs/migration](docs/migration/README.md) for step-by-step guides and a reference import script — bring
+your scheduled posts, subscribers, and tags into your own instance, no per-contact fees.
 
 ---
 

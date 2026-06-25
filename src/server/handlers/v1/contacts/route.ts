@@ -2,8 +2,9 @@ import { and, or, eq, lt, isNull, ilike, like, desc, exists, sql, type SQL } fro
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { contacts, contactChannels, contactTags, tags } from "@/db/schema";
-import { ok, ApiErrors } from "@/lib/api/response";
+import { ok, created, ApiErrors, zodDetails } from "@/lib/api/response";
 import { proGate } from "@/lib/api/pro-gate";
+import { upsertImportedContacts } from "@/lib/contacts/import";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -132,4 +133,40 @@ export async function GET(request: Request) {
   const nextCursor = hasMore && last ? encodeCursor(last.last_interaction_at ?? null, last.id) : null;
 
   return ok(items, { has_more: hasMore, next_cursor: nextCursor });
+}
+
+// A single import row, or a batch of them. Identity on the channel is either the native sender id or
+// (for tools that export only a handle, e.g. ManyChat) the username, keyed as a placeholder sender id.
+const importRow = z
+  .object({
+    channel_id: z.string().uuid(),
+    platform_sender_id: z.string().min(1).max(255).optional(),
+    platform_username: z.string().min(1).max(255).optional(),
+    display_name: z.string().min(1).max(200).nullable().optional(),
+    email: z.string().email().nullable().optional(),
+    is_subscribed: z.boolean().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    tags: z.array(z.string().min(1).max(50)).max(100).optional(),
+  })
+  .refine((r) => !!(r.platform_sender_id || r.platform_username), {
+    message: "platform_sender_id or platform_username is required",
+  });
+
+const createBody = z.union([importRow, z.array(importRow).min(1).max(1000)]);
+
+// POST /api/v1/contacts — create or update one or many contacts (bulk import). Idempotent: re-running
+// the same payload updates rather than duplicates (dedup by channel + sender id).
+export async function POST(request: Request) {
+  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  if (!auth) return ApiErrors.unauthorized();
+  const gate = await proGate("contacts_crm");
+  if (gate) return gate;
+
+  const body = await request.json().catch(() => null);
+  const parsed = createBody.safeParse(body);
+  if (!parsed.success) return ApiErrors.validationError(zodDetails(parsed.error));
+
+  const rows = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
+  const summary = await upsertImportedContacts(rows, auth.workspaceId);
+  return created(summary);
 }
