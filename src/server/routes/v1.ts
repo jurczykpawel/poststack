@@ -28,6 +28,7 @@ import * as webhookEventsPrune from "@/server/handlers/v1/webhook-events/prune/r
 import * as workspace from "@/server/handlers/v1/workspace/route";
 import * as license from "@/server/handlers/v1/license/route";
 import * as tags from "@/server/handlers/v1/tags/route";
+import * as tag from "@/server/handlers/v1/tags/[tagId]/route";
 import * as approvals from "@/server/handlers/v1/approvals/route";
 import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
 import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
@@ -171,6 +172,12 @@ v1.post("/license", (c) => license.POST(c.req.raw));
 v1.delete("/license", (c) => license.DELETE(c.req.raw));
 v1.get("/tags", (c) => tags.GET(c.req.raw));
 v1.post("/tags", (c) => tags.POST(c.req.raw));
+v1.patch("/tags/:tagId", (c) =>
+  tag.PATCH(c.req.raw, { params: Promise.resolve({ tagId: c.req.param("tagId") }) }),
+);
+v1.delete("/tags/:tagId", (c) =>
+  tag.DELETE(c.req.raw, { params: Promise.resolve({ tagId: c.req.param("tagId") }) }),
+);
 
 // ── Publishing: editorial content + posts + media + brands ──────────────────────
 v1.get("/content", (c) => contentList.GET(c.req.raw));

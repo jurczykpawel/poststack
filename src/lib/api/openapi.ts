@@ -1041,7 +1041,33 @@ export const openApiSpec = {
         responses: {
           "201": { description: "Created" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "409": { description: "A tag with this name already exists" },
           "422": { description: "Validation error" },
+        },
+      },
+    },
+    "/tags/{tagId}": {
+      patch: {
+        tags: ["Contacts"],
+        summary: "Rename or recolor a tag",
+        parameters: [{ name: "tagId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, color: { type: "string", example: "#6366f1" } } } } } },
+        responses: {
+          "200": { description: "Updated", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Tag" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "A tag with this name already exists" },
+          "422": { description: "Validation error" },
+        },
+      },
+      delete: {
+        tags: ["Contacts"],
+        summary: "Delete a tag (removes it from all contacts)",
+        parameters: [{ name: "tagId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
         },
       },
     },

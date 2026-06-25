@@ -56,6 +56,8 @@ const ENDPOINTS: Array<[string, string]> = [
   ["PATCH", "/api/v1/workspace"],
   ["GET", "/api/v1/tags"],
   ["POST", "/api/v1/tags"],
+  ["PATCH", "/api/v1/tags/abc"],
+  ["DELETE", "/api/v1/tags/abc"],
   ["GET", "/api/v1/webhooks"],
   ["POST", "/api/v1/webhooks"],
   ["GET", "/api/v1/webhooks/abc"],
