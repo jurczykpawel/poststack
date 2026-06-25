@@ -85,6 +85,9 @@ const responseConfigSchema = z
     followed: gatedMessageSchema.optional(),      // follow_gate: sent when the user follows
     not_followed: gatedMessageSchema.optional(),  // follow_gate: sent when they do not (re-prompt)
     sequence_id: z.string().uuid().optional(),    // sequence: the drip the trigger enrolls the contact into
+    // CRMTAG1: tag names applied to the contact when the rule fires (created if missing). Orthogonal to
+    // response_type — works with `none` for a tag-only rule (segment without replying).
+    add_tags: z.array(z.string().min(1).max(50)).max(50).optional(),
   })
   .strict();
 

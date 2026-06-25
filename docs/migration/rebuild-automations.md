@@ -93,6 +93,27 @@ curl -s -X POST https://your-instance/api/v1/rules \
   }'
 ```
 
+## Auto-tagging (segment contacts like ManyChat)
+
+Any rule can tag the contact when it fires — add `add_tags` (names, created if missing) to
+`response_config`. It works with every `response_type`, including `none` for a **tag-only** rule that
+segments without replying:
+
+```bash
+curl -s -X POST https://your-instance/api/v1/rules \
+  -H "Authorization: Bearer sk_live_your_key" -H "Content-Type: application/json" \
+  -d '{
+    "name": "Tag interested leads",
+    "trigger_type": "keyword",
+    "trigger_config": { "keywords": [{ "value": "demo", "match_type": "contains" }] },
+    "response_type": "none",
+    "response_config": { "add_tags": ["interested", "demo-requested"] }
+  }'
+```
+
+Tagging is additive and idempotent — re-firing never duplicates a tag. Combine with a `text` response to
+both reply and tag in one rule.
+
 ## Useful options on any rule
 
 - `cooldown_seconds` — minimum gap before the same contact can trigger this rule again.

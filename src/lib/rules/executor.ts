@@ -11,6 +11,7 @@ import { rephrase } from "@/lib/ai/rephrase";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { truncateCodePoints } from "@/lib/text";
 import { env } from "@/lib/env";
+import { applyTagsByName } from "@/lib/contacts/tags";
 import { matchRule } from "./matcher";
 import type { EventType } from "./matcher";
 import { selectResponse, buildInteractiveContent, pickText } from "./response";
@@ -325,6 +326,9 @@ export async function evaluateRules(
         // can carry it (TIMING2). A parked approval is not a sent response — its stamp is unused.
         const stamp = await writeMetric(tx, "fired", viaSequence);
         await commit(tx, stamp);
+        // CRMTAG1: a fired rule may tag the contact (segment on keyword/comment/etc.). In the fire tx
+        // so it commits/rolls back atomically with the send — a skipped/already-handled rule tags nothing.
+        await applyTagsByName(tx, workspaceId, contactId, candidate.response_config.add_tags as string[] | undefined);
       });
     } catch (e) {
       if (!(e instanceof NotFired)) throw e; // a real failure → rolled back; let the job retry

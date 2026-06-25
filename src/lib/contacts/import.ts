@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { contacts, contactChannels, channels, tags, contactTags } from "@/db/schema";
+import { contacts, contactChannels, channels } from "@/db/schema";
+import { applyTagsByName } from "@/lib/contacts/tags";
 
 export interface ImportContactInput {
   channel_id: string;
@@ -27,32 +28,11 @@ export interface ImportSummary {
   results: ImportContactResult[];
 }
 
-// Upsert tag NAMES → ids for the workspace in one pass (import gives names, not ids). Missing names are
-// created; the (workspace_id, name) unique index arbitrates concurrent inserts via onConflictDoNothing.
-async function resolveTagIds(workspaceId: string, names: string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(names)];
-  const map = new Map<string, string>();
-  if (unique.length === 0) return map;
-  await db
-    .insert(tags)
-    .values(unique.map((name) => ({ workspace_id: workspaceId, name })))
-    .onConflictDoNothing({ target: [tags.workspace_id, tags.name] });
-  const rows = await db
-    .select({ id: tags.id, name: tags.name })
-    .from(tags)
-    .where(and(eq(tags.workspace_id, workspaceId), inArray(tags.name, unique)));
-  for (const r of rows) map.set(r.name, r.id);
-  return map;
-}
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // Only the explicitly-provided fields are written (merge, not overwrite): metadata is a race-free
 // jsonb concat so a re-import adds keys without clobbering existing ones.
-async function applyContactFields(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  contactId: string,
-  workspaceId: string,
-  row: ImportContactInput,
-): Promise<void> {
+async function applyContactFields(tx: Tx, contactId: string, workspaceId: string, row: ImportContactInput): Promise<void> {
   const set = {
     ...(row.display_name !== undefined ? { display_name: row.display_name } : {}),
     ...(row.email !== undefined ? { email: row.email } : {}),
@@ -66,24 +46,10 @@ async function applyContactFields(
   await tx.update(contacts).set(set).where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, workspaceId)));
 }
 
-async function linkTags(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  contactId: string,
-  names: string[] | undefined,
-  tagIds: Map<string, string>,
-): Promise<void> {
-  if (!names?.length) return;
-  const ids = [...new Set(names)].map((n) => tagIds.get(n)).filter((x): x is string => !!x);
-  if (ids.length === 0) return;
-  // Additive: existing tags stay, the (contact_id, tag_id) PK no-ops a re-link.
-  await tx.insert(contactTags).values(ids.map((tag_id) => ({ contact_id: contactId, tag_id }))).onConflictDoNothing();
-}
-
 async function upsertOne(
   row: ImportContactInput,
   senderId: string,
   workspaceId: string,
-  tagIds: Map<string, string>,
 ): Promise<{ status: "created" | "updated"; contactId: string }> {
   const existing = await db.query.contactChannels.findFirst({
     where: and(eq(contactChannels.channel_id, row.channel_id), eq(contactChannels.platform_sender_id, senderId)),
@@ -99,7 +65,7 @@ async function upsertOne(
           .set({ platform_username: row.platform_username })
           .where(and(eq(contactChannels.channel_id, row.channel_id), eq(contactChannels.platform_sender_id, senderId)));
       }
-      await linkTags(tx, existing.contact_id, row.tags, tagIds);
+      await applyTagsByName(tx, workspaceId, existing.contact_id, row.tags);
     });
     return { status: "updated", contactId: existing.contact_id };
   }
@@ -126,7 +92,7 @@ async function upsertOne(
         .onConflictDoNothing({ target: [contactChannels.channel_id, contactChannels.platform_sender_id] })
         .returning({ contact_id: contactChannels.contact_id });
       if (!link) throw LOST_RACE;
-      await linkTags(tx, contact.id, row.tags, tagIds);
+      await applyTagsByName(tx, workspaceId, contact.id, row.tags);
       return contact.id;
     });
     return { status: "created", contactId };
@@ -138,7 +104,7 @@ async function upsertOne(
     });
     await db.transaction(async (tx) => {
       await applyContactFields(tx, winner!.contact_id, workspaceId, row);
-      await linkTags(tx, winner!.contact_id, row.tags, tagIds);
+      await applyTagsByName(tx, workspaceId, winner!.contact_id, row.tags);
     });
     return { status: "updated", contactId: winner!.contact_id };
   }
@@ -162,8 +128,6 @@ export async function upsertImportedContacts(rows: ImportContactInput[], workspa
     ).map((c) => c.id),
   );
 
-  const tagIds = await resolveTagIds(workspaceId, rows.flatMap((r) => r.tags ?? []));
-
   const results: ImportContactResult[] = [];
   let created = 0;
   let updated = 0;
@@ -183,7 +147,7 @@ export async function upsertImportedContacts(rows: ImportContactInput[], workspa
       continue;
     }
     try {
-      const res = await upsertOne(row, senderId, workspaceId, tagIds);
+      const res = await upsertOne(row, senderId, workspaceId);
       results.push({ index: i, status: res.status, contact_id: res.contactId });
       if (res.status === "created") created++;
       else updated++;
