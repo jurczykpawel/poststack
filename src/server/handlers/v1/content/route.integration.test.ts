@@ -1,0 +1,112 @@
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { createHash } from "crypto";
+import { eq } from "drizzle-orm";
+import type { Hono } from "hono";
+
+const TEST_DB = process.env.TEST_DATABASE_URL;
+const KEY = "sk_live_content_key_abcd0000000001";
+const OTHER_KEY = "sk_live_content_other_abcd000000002";
+
+let db: typeof import("@/lib/db").db;
+let s: typeof import("@/db/schema");
+let app: Hono;
+
+const WS = "c0ffee07-0000-4000-8000-000000000c01";
+const OTHER_WS = "c0ffee07-0000-4000-8000-000000000c02";
+
+beforeAll(async () => {
+  if (!TEST_DB) return;
+  process.env.DATABASE_URL = TEST_DB;
+  process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
+  process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
+  process.env.APP_URL = "http://localhost:3000";
+  process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
+  ({ db } = await import("@/lib/db"));
+  s = await import("@/db/schema");
+  const { buildApp } = await import("@/server/app");
+  app = buildApp();
+});
+
+beforeEach(async () => {
+  if (!TEST_DB) return;
+  for (const ws of [WS, OTHER_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, ws));
+  await db.insert(s.workspaces).values([
+    { id: WS, name: "W", slug: `w-${WS}` },
+    { id: OTHER_WS, name: "O", slug: `o-${OTHER_WS}` },
+  ]);
+  const hash = (k: string) => createHash("sha256").update(k).digest("hex");
+  await db.insert(s.apiKeys).values([
+    { workspace_id: WS, name: "k", key_hash: hash(KEY), key_prefix: "sk_live_ct" },
+    { workspace_id: OTHER_WS, name: "o", key_hash: hash(OTHER_KEY), key_prefix: "sk_live_co" },
+  ]);
+});
+
+afterAll(async () => {
+  if (!TEST_DB) return;
+  for (const ws of [WS, OTHER_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, ws));
+  await db.$client.end();
+});
+
+function call(method: string, path: string, body?: unknown, key: string | null = KEY) {
+  return app.request(`/api/v1${path}`, {
+    method,
+    headers: { "content-type": "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+async function createOne(title = "My idea", key = KEY) {
+  const res = await call("POST", "/content", { title, script: "hello", profile: "reel" }, key);
+  return { res, json: await res.json() };
+}
+
+describe.skipIf(!TEST_DB)("/api/v1/content", () => {
+  it("creates content (camelCase body) and returns it", async () => {
+    const { res, json } = await createOne();
+    expect(res.status).toBe(201);
+    expect(json.data).toMatchObject({ title: "My idea", script: "hello" });
+    expect(json.data.id).toBeTruthy();
+  });
+
+  it("rejects content with no title (422)", async () => {
+    expect((await call("POST", "/content", { script: "no title" })).status).toBe(422);
+  });
+
+  it("lists content scoped to the workspace", async () => {
+    const { json } = await createOne();
+    await createOne("other ws", OTHER_KEY);
+    const list = await (await call("GET", "/content")).json();
+    expect(Array.isArray(list.data.items)).toBe(true);
+    const ids = list.data.items.map((c: { id: string }) => c.id);
+    expect(ids).toContain(json.data.id);
+    expect(ids).toHaveLength(1); // OTHER_WS content excluded
+  });
+
+  it("GET item returns it; PATCH updates; 404 on unknown", async () => {
+    const { json } = await createOne();
+    const got = await call("GET", `/content/${json.data.id}`);
+    expect(got.status).toBe(200);
+    const patched = await call("PATCH", `/content/${json.data.id}`, { title: "Renamed" });
+    expect(patched.status).toBe(200);
+    expect((await patched.json()).data.title).toBe("Renamed");
+    expect((await call("GET", "/content/00000000-0000-4000-8000-000000000000")).status).toBe(404);
+  });
+
+  it("DELETE removes it (then GET is 404)", async () => {
+    const { json } = await createOne();
+    expect((await call("DELETE", `/content/${json.data.id}`)).status).toBe(204);
+    expect((await call("GET", `/content/${json.data.id}`)).status).toBe(404);
+  });
+
+  it("is tenant-isolated: another workspace cannot read, patch, or delete (404)", async () => {
+    const { json } = await createOne();
+    expect((await call("GET", `/content/${json.data.id}`, undefined, OTHER_KEY)).status).toBe(404);
+    expect((await call("PATCH", `/content/${json.data.id}`, { title: "x" }, OTHER_KEY)).status).toBe(404);
+    expect((await call("DELETE", `/content/${json.data.id}`, undefined, OTHER_KEY)).status).toBe(404);
+    expect(await db.query.content.findFirst({ where: eq(s.content.id, json.data.id) })).toBeTruthy();
+  });
+
+  it("401 without auth", async () => {
+    expect((await call("GET", "/content", undefined, null)).status).toBe(401);
+  });
+});
