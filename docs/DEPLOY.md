@@ -12,6 +12,42 @@ exact command and an expected result. For local development see the [README Quic
 
 ---
 
+## 0. Easiest path: StackPilot (managed, one command)
+
+If you'd rather not hand-edit `.env`, generate secrets, or stand up a TLS proxy yourself, use
+**[StackPilot](https://github.com/jurczykpawel/stackpilot)** — a self-host toolbox that does the
+whole §1 below for you in one command, **including the HTTPS front (Cloudflare/Caddy + TLS)** that
+Meta requires.
+
+```bash
+# Fully managed: installs the stack AND configures a Cloudflare/Caddy domain with TLS.
+./local/deploy.sh poststack --domain-type=cloudflare --domain=inbox.example.com
+
+# Or run on the target server (installs the stack with auto-generated secrets; you then
+# put your own reverse proxy / Cloudflare in front for HTTPS):
+curl -fsSL https://stackpilot.techskills.academy/poststack | bash
+```
+
+What it does for you, with no questions asked:
+
+- Generates and stores all secrets in `/opt/stacks/poststack/.env` (`chmod 600`):
+  `POSTGRES_PASSWORD`, `ENCRYPTION_KEY`, `JWT_SECRET`, `CRON_SECRET`, `ALTCHA_HMAC_KEY`.
+- Sets `APP_URL` from `--domain`, `NODE_ENV=production`, and `TRUSTED_PROXY`
+  (`cloudflare` for `--domain-type=cloudflare`, otherwise `proxy`).
+- Brings up the full `nginx + web + worker + postgres` stack from the public GHCR images and
+  runs migrations on cold start.
+
+After it finishes, open `APP_URL/register` to create the owner account (§1.5), then connect Meta
+(§1.6). Re-running the installer **preserves the existing `.env`** (so `ENCRYPTION_KEY` stays stable
+and stored tokens keep decrypting). Update later with `./local/deploy.sh poststack --update`. What
+StackPilot does **not** decide for you — Meta/Google app credentials and a PRO license — are set in
+the dashboard afterward.
+
+Everything below (§1–§5) is the **manual equivalent**: do it by hand when you want full control over
+the proxy, the registry, or the host, or when you're not using StackPilot.
+
+---
+
 ## 1. New instance
 
 ### 1.1 Prerequisites

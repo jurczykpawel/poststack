@@ -125,7 +125,33 @@ Register an account, go to **Channels**, and connect your first Facebook Page or
 > Run `cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`, then set the
 > displayed URL as your webhook endpoint in the Meta App Dashboard.
 
-### Production
+### Easiest: one command with StackPilot
+
+If you don't want to manage `.env`, secrets, and a TLS proxy by hand, deploy with
+**[StackPilot](https://github.com/jurczykpawel/stackpilot)** — a self-host toolbox that installs
+PostStack and **wires up Cloudflare/Caddy + HTTPS for you** (so the TLS requirement below is handled
+automatically). It generates every secret (`ENCRYPTION_KEY`, `JWT_SECRET`, `CRON_SECRET`,
+`ALTCHA_HMAC_KEY`, the Postgres password), brings up the full stack (nginx + web + worker +
+PostgreSQL) from the public GHCR images, and runs the database migrations:
+
+```bash
+# Fully managed — app + a Cloudflare/Caddy domain with TLS, in one command:
+./local/deploy.sh poststack --domain-type=cloudflare --domain=inbox.example.com
+
+# Or, on the server itself (installs the stack with auto-generated secrets;
+# then point your own reverse proxy / Cloudflare at it for HTTPS):
+curl -fsSL https://stackpilot.techskills.academy/poststack | bash
+```
+
+Then open `https://inbox.example.com/register` to create the owner account and connect Meta in
+**Settings** — no `.env` editing, no manual TLS. Re-running the installer preserves your existing
+`.env` (so `ENCRYPTION_KEY` stays stable and stored tokens keep decrypting), and
+`./local/deploy.sh poststack --update` pulls the latest image. Connect a Meta app and Google/YouTube
+later from the dashboard.
+
+Prefer to wire everything yourself? Use the manual flow below.
+
+### Production (manual)
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
