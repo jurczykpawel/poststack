@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-06-25
+
+### Changed
+- Anonymous telemetry is no longer sent from a non-deployment host (localhost, loopback, `0.0.0.0`, `*.local`). Only a real deployment domain reports in, so the public fleet's instance count isn't inflated by local development, CI or test runs. A genuine self-host on a domain is unaffected.
+
+### Dependencies
+- Bumped hono 4.12.27, sharp 0.35.2, dotenv 17.4.2, @types/node, typescript-eslint, actions/checkout v7, trufflehog 3.95.6.
+
 ## [0.8.1] - 2026-06-25
 
 ### Fixed
