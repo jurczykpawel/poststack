@@ -17,6 +17,7 @@ vi.mock("@/lib/workers/sequence-step-worker", () => ({ processSequenceStep: vi.f
 vi.mock("@/lib/channels/drain", () => ({ drainChannel: vi.fn() }));
 vi.mock("@/lib/sequences/resume", () => ({ resumeChannelEnrollments: vi.fn() }));
 vi.mock("@/lib/deliveries/publish-worker", () => ({ processPublish: vi.fn() }));
+vi.mock("@/lib/webhooks/dispatch", () => ({ processEventDispatch: vi.fn(), processWebhookDelivery: vi.fn() }));
 
 import { createTaskList } from "./tasks";
 
@@ -38,6 +39,8 @@ const EXPECTED_TASKS = [
   "drain-channel",
   "resume-channel-enrollments",
   "publish",
+  "event-dispatch",
+  "webhook-delivery",
 ];
 
 describe("createTaskList", () => {

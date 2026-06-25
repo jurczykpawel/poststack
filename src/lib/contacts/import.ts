@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { contacts, contactChannels, channels } from "@/db/schema";
 import { applyTagsByName } from "@/lib/contacts/tags";
+import { emitEvent } from "@/lib/events";
 
 export interface ImportContactInput {
   channel_id: string;
@@ -93,6 +94,10 @@ async function upsertOne(
         .returning({ contact_id: contactChannels.contact_id });
       if (!link) throw LOST_RACE;
       await applyTagsByName(tx, workspaceId, contact.id, row.tags);
+      // contact.created fires only when THIS call inserted the surviving contact (a re-import that
+      // updates an existing one is not a creation). Emitted in-tx so the outbound-webhook fan-out
+      // (WHOUT1) commits atomically with the contact — integrators get "new contact" without polling.
+      await emitEvent(tx, workspaceId, "contact.created", { type: "contact", id: contact.id });
       return contact.id;
     });
     return { status: "created", contactId };

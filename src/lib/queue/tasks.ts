@@ -16,6 +16,7 @@ import { processSequenceStep } from "@/lib/workers/sequence-step-worker";
 import { drainChannel } from "@/lib/channels/drain";
 import { resumeChannelEnrollments } from "@/lib/sequences/resume";
 import { processPublish } from "@/lib/deliveries/publish-worker";
+import { processEventDispatch, processWebhookDelivery } from "@/lib/webhooks/dispatch";
 import type { TaskPayloadMap } from "./types";
 
 /**
@@ -57,5 +58,9 @@ export function createTaskList(): TaskList {
     "resume-channel-enrollments": (p) =>
       resumeChannelEnrollments((p as TaskPayloadMap["resume-channel-enrollments"]).channelId).then(() => undefined),
     publish: (p, h) => processPublish(p as TaskPayloadMap["publish"], h),
+    "event-dispatch": (p, h) =>
+      processEventDispatch(p as TaskPayloadMap["event-dispatch"], h),
+    "webhook-delivery": (p, h) =>
+      processWebhookDelivery(p as TaskPayloadMap["webhook-delivery"], h),
   };
 }

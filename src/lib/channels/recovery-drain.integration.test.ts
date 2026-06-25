@@ -97,7 +97,9 @@ describe("recovery → drain is atomic", () => {
     await upsert.upsertChannels(WS, "instagram", [account("Renamed")]);
     const after = await db.query.channels.findFirst({ where: eq(s.channels.platform_id, PAGE), columns: { status: true } });
     expect(after?.status).toBe("active");
-    expect(addJobTx).toHaveBeenLastCalledWith(
+    // Enqueued atomically with the recovery; no longer necessarily the LAST queue op, since the
+    // channel.reconnected emit on this path also enqueues an event-dispatch job (WHOUT1).
+    expect(addJobTx).toHaveBeenCalledWith(
       expect.anything(), "drain-channel", expect.objectContaining({ channelId: expect.any(String) }), expect.objectContaining({ jobKey: expect.stringContaining("drain-channel:") }),
     );
   });

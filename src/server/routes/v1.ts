@@ -40,6 +40,9 @@ import * as mediaRegister from "@/server/handlers/v1/media/route";
 import * as brandsList from "@/server/handlers/v1/brands/route";
 import * as brandItem from "@/server/handlers/v1/brands/[brandKey]/route";
 import * as statsResponseTimes from "@/server/handlers/v1/stats/response-times/route";
+import * as webhooksList from "@/server/handlers/v1/webhooks/route";
+import * as webhookItem from "@/server/handlers/v1/webhooks/[webhookId]/route";
+import * as webhookRotate from "@/server/handlers/v1/webhooks/[webhookId]/rotate-secret/route";
 
 export const v1 = new Hono();
 
@@ -203,4 +206,20 @@ v1.patch("/brands/:brandKey", (c) =>
 );
 v1.delete("/brands/:brandKey", (c) =>
   brandItem.DELETE(c.req.raw, { params: Promise.resolve({ brandKey: c.req.param("brandKey") }) }),
+);
+
+// Outbound webhooks (WHOUT1)
+v1.get("/webhooks", (c) => webhooksList.GET(c.req.raw));
+v1.post("/webhooks", (c) => webhooksList.POST(c.req.raw));
+v1.get("/webhooks/:webhookId", (c) =>
+  webhookItem.GET(c.req.raw, { params: Promise.resolve({ webhookId: c.req.param("webhookId") }) }),
+);
+v1.patch("/webhooks/:webhookId", (c) =>
+  webhookItem.PATCH(c.req.raw, { params: Promise.resolve({ webhookId: c.req.param("webhookId") }) }),
+);
+v1.delete("/webhooks/:webhookId", (c) =>
+  webhookItem.DELETE(c.req.raw, { params: Promise.resolve({ webhookId: c.req.param("webhookId") }) }),
+);
+v1.post("/webhooks/:webhookId/rotate-secret", (c) =>
+  webhookRotate.POST(c.req.raw, { params: Promise.resolve({ webhookId: c.req.param("webhookId") }) }),
 );

@@ -44,6 +44,7 @@ export const VALID_SCOPES = [
   "tags:read", "tags:write",
   "settings:read", "settings:write",
   "sources:read", "sources:write",
+  "webhooks:read", "webhooks:write",
   "stats:read",
 ] as const;
 

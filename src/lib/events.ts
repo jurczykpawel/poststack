@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { events } from "@/db/schema";
+import { addJobTx } from "@/lib/queue/client";
 
 /**
  * Realtime hint (REALTIME1 · R1): fire a `pg_notify('realtime', …)` carrying the workspace + a coarse
@@ -37,6 +38,7 @@ export const EVENT_TYPES = [
   "source.synced",
   "source.needs_reauth",
   "source.data_access_expiring",
+  "contact.created",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -50,8 +52,10 @@ export function isKnownEventType(type: string): type is EventType {
 
 type TxLike = { insert: typeof db.insert; execute: typeof db.execute };
 
-/** Emit an event inside the caller's transaction (outbox semantics with the surrounding write), and
- *  fire the realtime NOTIFY so the live UI is signalled on commit. */
+/** Emit an event inside the caller's transaction (outbox semantics with the surrounding write):
+ *  writes the `events` row, enqueues the outbound-webhook fan-out job (WHOUT1) — both committing
+ *  atomically with the surrounding write — and fires the realtime NOTIFY so the live UI is signalled
+ *  on commit. The dispatch job is a no-op when no endpoint subscribes, so it's safe on every emit. */
 export async function emitEvent(
   tx: TxLike,
   workspaceId: string,
@@ -59,9 +63,11 @@ export async function emitEvent(
   subject: { type: string; id: string },
   payload: Record<string, unknown> = {},
 ): Promise<void> {
-  await tx
+  const [e] = await tx
     .insert(events)
-    .values({ workspace_id: workspaceId, type, subject_type: subject.type, subject_id: subject.id, payload });
+    .values({ workspace_id: workspaceId, type, subject_type: subject.type, subject_id: subject.id, payload })
+    .returning({ id: events.id });
+  await addJobTx(tx, "event-dispatch", { eventId: e!.id });
   await notifyRealtime(tx, workspaceId, type, subject.id);
 }
 

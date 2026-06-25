@@ -44,6 +44,11 @@ export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword'
 // guard, echo with no matching delivery, non-private TG chat); `fired`/`no_match`/`paused` mirror the
 // rule outcomes; `error` = the handler threw after exhausting retries.
 export const webhookEventHandlingStatus = pgEnum("webhook_event_handling_status", ['received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error', 'recorded'])
+// Lifecycle of one outbound webhook delivery (a single event fanned out to a single endpoint).
+// `pending` = enqueued, not yet attempted; `delivering` = in flight / retrying after a transient
+// failure; `delivered` = the endpoint returned 2xx; `failed` = retries exhausted (dead-letter).
+export const webhookDeliveryStatus = pgEnum("webhook_delivery_status", ['pending', 'delivering', 'delivered', 'failed'])
+export type WebhookDeliveryStatus = (typeof webhookDeliveryStatus.enumValues)[number]
 // Only `owner` for now: role-based authorization isn't enforced yet, and `admin`/`agent`
 // would be misleading dead values. Re-add richer roles together with member invitations +
 // `requireRole()` enforcement.
@@ -1255,6 +1260,49 @@ export const events = pgTable("events", {
 }, (table) => [
 	index("events_workspace_created_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.asc().nullsLast(), table.id.asc().nullsLast()),
 	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "events_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// WHOUT1: outbound webhook subscriptions. A workspace registers an endpoint (URL + signing secret +
+// the event types it wants); the dispatcher fans matching `events` rows out to it, HMAC-signed, with
+// retry + dead-letter. The signing secret is AES-256-GCM-encrypted at rest (like OAuth tokens) — the
+// service layer is the only place it's decrypted. `event_types` empty = subscribe to ALL types.
+export const webhookEndpoints = pgTable("webhook_endpoints", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	url: text().notNull(),
+	// AES-256-GCM ciphertext of the `whsec_…` signing secret. Never returned in plaintext from the DB.
+	secret: text().notNull(),
+	// Previous secret kept valid during a rotation grace window (also ciphertext). NULL = not rotated.
+	secret_secondary: text("secret_secondary"),
+	event_types: text("event_types").array().notNull().default([]),
+	active: boolean().default(true).notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	index("webhook_endpoints_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "webhook_endpoints_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// WHOUT1: one row per (event, endpoint) fan-out. The UNIQUE (event_id, endpoint_id) makes a
+// re-dispatch (mid-loop throw / graphile retry) idempotent — the already-fanned-out endpoint inserts
+// nothing, so the event is never POSTed twice. `attempts`/`last_error` track the delivery worker's
+// retry/dead-letter state. workspace_id is denormalized for direct workspace-scoped reads/cleanup.
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	event_id: uuid("event_id").notNull(),
+	endpoint_id: uuid("endpoint_id").notNull(),
+	status: webhookDeliveryStatus().default('pending').notNull(),
+	attempts: integer().default(0).notNull(),
+	last_error: text("last_error"),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+	uniqueIndex("webhook_deliveries_event_id_endpoint_id_key").using("btree", table.event_id.asc().nullsLast(), table.endpoint_id.asc().nullsLast()),
+	index("webhook_deliveries_endpoint_id_idx").using("btree", table.endpoint_id.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "webhook_deliveries_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.event_id], foreignColumns: [events.id], name: "webhook_deliveries_event_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.endpoint_id], foreignColumns: [webhookEndpoints.id], name: "webhook_deliveries_endpoint_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
 ]);
 
 // Instance-level configurable credentials/integration settings (CONFIG1). Lets the operator set

@@ -107,6 +107,22 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
     expect(tagLinks).toHaveLength(2); // lead + vip, additive
   });
 
+  it("emits contact.created on a create but NOT on a re-import (update)", async () => {
+    await post({ channel_id: CH, platform_username: "carol" });
+    const afterCreate = await db
+      .select()
+      .from(s.events)
+      .where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "contact.created")));
+    expect(afterCreate).toHaveLength(1);
+
+    await post({ channel_id: CH, platform_username: "carol", email: "carol@example.com" }); // update
+    const afterReimport = await db
+      .select()
+      .from(s.events)
+      .where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "contact.created")));
+    expect(afterReimport).toHaveLength(1); // unchanged — a re-import is not a creation
+  });
+
   it("reports per-row errors without aborting the batch (unknown / cross-tenant channel)", async () => {
     const res = await post([
       { channel_id: CH, platform_username: "ok_one" },

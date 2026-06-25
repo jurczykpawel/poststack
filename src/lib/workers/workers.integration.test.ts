@@ -248,7 +248,11 @@ describe("incoming-message worker (real Postgres)", () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     const qc = await import("@/lib/queue/client");
-    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent"));
+    // Fail the reply enqueue, but stay transparent to the contact.created fan-out (WHOUT1: emitting
+    // an event now enqueues event-dispatch via addJobTx — that must not be the failure under test).
+    const spy = vi.spyOn(qc, "addJobTx").mockImplementation(async (_tx, task) => {
+      if (task !== "event-dispatch") throw new Error("permanent");
+    });
     try {
       const job = { platform: "facebook", pageId: PAGE, senderId: "DM-LAST", recipientId: PAGE, mid: "mid-last", text: "hello", timestamp: ts() };
       await expect(w.processIncomingMessage(job, helpersJob(3, 3))).rejects.toThrow();
@@ -262,7 +266,9 @@ describe("incoming-message worker (real Postgres)", () => {
     if (!TEST_DB) return;
     await seedDefaultDmRule();
     const qc = await import("@/lib/queue/client");
-    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("transient"));
+    const spy = vi.spyOn(qc, "addJobTx").mockImplementation(async (_tx, task) => {
+      if (task !== "event-dispatch") throw new Error("transient"); // transparent to the contact.created fan-out
+    });
     try {
       const job = { platform: "facebook", pageId: PAGE, senderId: "DM-MID", recipientId: PAGE, mid: "mid-mid", text: "hello", timestamp: ts() };
       await expect(w.processIncomingMessage(job, helpersJob(1, 3))).rejects.toThrow();
@@ -344,10 +350,20 @@ describe("incoming-message worker (real Postgres)", () => {
     const OLD_TS = 1_770_000_900;
     const NEW_TS = 1_770_001_000;
     const qc = await import("@/lib/queue/client");
+    // Script applies to the REAL (reply) enqueues only; the contact.created fan-out (event-dispatch)
+    // is transparent so it doesn't consume a step (WHOUT1: emit now enqueues event-dispatch).
     const spy = vi.spyOn(qc, "addJobTx");
-    spy.mockRejectedValueOnce(new Error("transient")); // old msg, attempt 1: fails (non-final)
-    spy.mockResolvedValueOnce(undefined); // newer msg: auto-reply succeeds, resolves the conversation
-    spy.mockRejectedValue(new Error("permanent")); // old msg, final attempt: fails for good
+    const script = [
+      () => { throw new Error("transient"); }, // old msg, attempt 1: fails (non-final)
+      () => undefined, // newer msg: auto-reply succeeds, resolves the conversation
+    ];
+    let step = 0;
+    spy.mockImplementation(async (_tx, task) => {
+      if (task === "event-dispatch") return;
+      const fn = script[step] ?? (() => { throw new Error("permanent"); }); // old msg, final attempt: fails for good
+      step++;
+      return fn();
+    });
     try {
       const oldJob = { platform: "facebook", pageId: PAGE, senderId: SENDER, recipientId: PAGE, mid: "mid-old", text: "hello", timestamp: OLD_TS };
       await expect(w.processIncomingMessage(oldJob, helpersJob(1, 3))).rejects.toThrow();
@@ -1794,7 +1810,9 @@ describe("webhook_events handling outcome (real Postgres)", () => {
     if (!TEST_DB) return;
     await seedDmRule();
     const qc = await import("@/lib/queue/client");
-    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent enqueue failure"));
+    const spy = vi.spyOn(qc, "addJobTx").mockImplementation(async (_tx, task) => {
+      if (task !== "event-dispatch") throw new Error("permanent enqueue failure"); // transparent to contact.created fan-out
+    });
     const key = "msg-evt-error";
     await logged(key, "message", { sender_id: "EVT-E" });
     try {
@@ -1862,7 +1880,9 @@ describe("alert triggers (real Postgres)", () => {
       trigger_config: {}, response_type: "text", response_config: { text: "hi" },
     });
     const qc = await import("@/lib/queue/client");
-    const spy = vi.spyOn(qc, "addJobTx").mockRejectedValue(new Error("permanent"));
+    const spy = vi.spyOn(qc, "addJobTx").mockImplementation(async (_tx, task) => {
+      if (task !== "event-dispatch") throw new Error("permanent"); // transparent to contact.created fan-out
+    });
     try {
       const job = { platform: "facebook", pageId: PAGE, senderId: "ALERT-EE", recipientId: PAGE, mid: "alert-ee-mid", text: "hello", timestamp: ts() };
       const helpersFinal = { logger: { info: () => {} }, job: { attempts: 3, max_attempts: 3 } } as never;

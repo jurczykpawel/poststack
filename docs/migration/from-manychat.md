@@ -99,3 +99,36 @@ node docs/migration/import-contacts.mjs path/to/audience.csv
 This is the part people worry about most, and it's usually quick. See
 [rebuild-automations.md](rebuild-automations.md) for a side-by-side of common ManyChat flow patterns
 (keyword → DM, comment → DM, story reply) and how to express each as a PostStack rule or sequence.
+
+## 6. Stay in sync with your other tools (webhooks)
+
+If you pipe new subscribers into a CRM, an email tool, or a spreadsheet, you don't have to poll. Register
+an outbound webhook (`webhooks:write` scope, Pro) and PostStack will POST you a signed event the moment a
+new contact is created — whether from an import, a fresh DM, or a comment:
+
+```bash
+curl -s -X POST https://your-instance/api/v1/webhooks \
+  -H "Authorization: Bearer sk_live_your_key" -H "Content-Type: application/json" \
+  -d '{ "url": "https://your-app.example.com/hooks/poststack", "event_types": ["contact.created"] }'
+# → { "data": { "id": "…", "secret": "whsec_…", "event_types": ["contact.created"], "active": true } }
+```
+
+The response includes the signing `secret` **once** — store it. Every delivery carries
+`X-PostStack-Signature: t=<unix>,v1=<hmac>` (HMAC-SHA256 over `"<timestamp>.<raw-body>"`), so your
+receiver can verify authenticity and reject replays. Omit `event_types` (or pass `[]`) to receive every
+event type; rotate the secret any time with `POST /api/v1/webhooks/{id}/rotate-secret`. Full schema at
+`/api/docs`.
+
+The delivery body is an event envelope; `data.id` is the subject's id, so you can fetch the full record
+from the REST API:
+
+```json
+{
+  "id": "<event id>",
+  "type": "contact.created",
+  "created_at": "2026-06-25T12:00:00.000Z",
+  "data": { "id": "<contact id>", "type": "contact" }
+}
+```
+
+So on `contact.created` you'd call `GET /api/v1/contacts/{data.id}` for the full contact.

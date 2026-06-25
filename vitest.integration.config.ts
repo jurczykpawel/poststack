@@ -8,6 +8,9 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["**/*.integration.test.ts"],
+    // Install the graphile_worker schema once before any suite: emitEvent now enqueues a dispatch job
+    // transactionally (WHOUT1), so emitting an event / creating a contact needs the queue schema present.
+    globalSetup: ["./tests/integration-setup.ts"],
     // STATSCACHE1: stats memo OFF by default so live∪stats merge tests read real DB state. The
     // caching wiring is proven with the cache ON in dashboard-stats-cache.integration.test.ts, which
     // sets STATS_CACHE_TTL_MS itself (before importing dashboard) to override this.

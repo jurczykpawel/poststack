@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { contacts, contactChannels, conversations } from "@/db/schema";
 import type { Platform } from "@/db/schema";
+import { emitEvent } from "@/lib/events";
 
 /**
  * Which thread an inbound event belongs to. `dm` = one ongoing thread per contact (ref ''); `comment`
@@ -104,6 +105,9 @@ export async function resolveContactId(
         .onConflictDoNothing({ target: [contactChannels.channel_id, contactChannels.platform_sender_id] })
         .returning({ contact_id: contactChannels.contact_id });
       if (!link) throw LOST_RACE; // roll back the orphan contact; resolve the winner below
+      // contact.created fires only for the call that inserted the surviving contact. Emitted in-tx so
+      // the outbound-webhook fan-out (WHOUT1) commits atomically with the contact.
+      await emitEvent(tx, channel.workspace_id, "contact.created", { type: "contact", id: contact.id });
       return link.contact_id;
     });
     return { contactId, created: true };

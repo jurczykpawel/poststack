@@ -20,6 +20,8 @@ const ALL_TASKS: TaskName[] = [
   "drain-channel",
   "resume-channel-enrollments",
   "publish",
+  "event-dispatch",
+  "webhook-delivery",
 ];
 
 describe("TASK_MAX_ATTEMPTS — retry parity with former BullMQ config", () => {

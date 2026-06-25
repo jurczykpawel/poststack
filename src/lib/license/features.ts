@@ -46,6 +46,7 @@ export const FEATURES = [
   { key: "auto_story", area: "publishing", minTier: "pro", status: "live", label: "Auto-Story", description: "Auto-publish a generated Story card about every post published to a channel." },
   { key: "first_comment", area: "publishing", minTier: "pro", status: "live", label: "Automatic first comment", description: "Auto-post a first comment (e.g. “link in the comments”) under every published post." },
   { key: "multi_api_key", area: "core", minTier: "pro", status: "live", label: "Multiple API keys", description: "Issue more than one API key (e.g. one per client/integration)." },
+  { key: "outbound_webhooks", area: "core", minTier: "pro", status: "live", label: "Outbound webhooks", description: "Subscribe an external URL to events (contact.created, post.published, …), delivered HMAC-signed with retry. Like API access, this is a programmatic integration capability." },
 ] as const satisfies readonly FeatureDef[];
 
 /** Gateable feature keys — the union is derived from the registry, so it can never drift. */

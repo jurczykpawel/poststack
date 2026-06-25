@@ -28,6 +28,11 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   // AUD27 publish worker manages its own state machine (claim/defer/reconcile); a generous attempt
   // budget covers transient pre_commit retries without the row being abandoned by graphile.
   publish: 10,
+  // WHOUT1: fan-out is cheap + idempotent (unique (event_id,endpoint_id)); a few retries cover a
+  // transient DB blip. Delivery POSTs an external URL, so it gets a generous retry/backoff budget
+  // before the row dead-letters as `failed`.
+  "event-dispatch": 3,
+  "webhook-delivery": 8,
 };
 
 export interface AddJobOptions {

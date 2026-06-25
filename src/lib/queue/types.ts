@@ -244,6 +244,18 @@ export interface FollowGateJob extends FirstResponseStamp {
   idempotencyKey?: string;
 }
 
+/** WHOUT1: fan one emitted `events` row out to every matching active webhook endpoint (one
+ *  webhook-delivery job per endpoint). Enqueued transactionally by emitEvent. */
+export interface EventDispatchJob {
+  eventId: string;
+}
+
+/** WHOUT1: deliver one (event, endpoint) pair — HMAC-sign + POST to the endpoint, with retry +
+ *  dead-letter. Enqueued by the event-dispatch fan-out. */
+export interface WebhookDeliveryJob {
+  deliveryId: string;
+}
+
 /** graphile-worker task identifiers → their payload type. */
 export type TaskPayloadMap = {
   "incoming-message": IncomingMessageJob;
@@ -263,6 +275,8 @@ export type TaskPayloadMap = {
   "drain-channel": DrainChannelJob;
   "resume-channel-enrollments": ResumeChannelEnrollmentsJob;
   publish: PublishJob;
+  "event-dispatch": EventDispatchJob;
+  "webhook-delivery": WebhookDeliveryJob;
 };
 
 export type TaskName = keyof TaskPayloadMap;

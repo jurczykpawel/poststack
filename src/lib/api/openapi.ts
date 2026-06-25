@@ -205,6 +205,18 @@ export const openApiSpec = {
           created_at: { type: "string", format: "date-time" },
         },
       },
+      WebhookEndpoint: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          url: { type: "string", format: "uri" },
+          event_types: { type: "array", items: { type: "string" }, description: "Empty = subscribe to all event types" },
+          active: { type: "boolean" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+          secret: { type: "string", example: "whsec_…", description: "HMAC signing secret. Returned ONLY on create and rotate-secret — store it then; it is never echoed by GET." },
+        },
+      },
     },
     responses: {
       Unauthorized: {
@@ -1033,6 +1045,81 @@ export const openApiSpec = {
         },
       },
     },
+    "/webhooks": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "List outbound webhook endpoints",
+        description: "Requires a PRO license. Signing secrets are not included.",
+        responses: {
+          "200": { description: "List of endpoints", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/WebhookEndpoint" } }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+        },
+      },
+      post: {
+        tags: ["Webhooks"],
+        summary: "Register a webhook endpoint",
+        description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license.",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" } } } } } },
+        responses: {
+          "201": { description: "Created (includes the signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "422": { description: "Validation error (bad URL or unknown event type)" },
+        },
+      },
+    },
+    "/webhooks/{webhookId}": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "Get a webhook endpoint",
+        parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "The endpoint", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      patch: {
+        tags: ["Webhooks"],
+        summary: "Update a webhook endpoint",
+        parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" } }, active: { type: "boolean" } } } } } },
+        responses: {
+          "200": { description: "Updated", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "422": { description: "Validation error" },
+        },
+      },
+      delete: {
+        tags: ["Webhooks"],
+        summary: "Delete a webhook endpoint",
+        parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/webhooks/{webhookId}/rotate-secret": {
+      post: {
+        tags: ["Webhooks"],
+        summary: "Rotate a webhook signing secret",
+        description: "Mints a new signing secret (the previous one stays valid during a grace window). Returns the new secret ONCE.",
+        parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Rotated (includes the new signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
   },
   tags: [
     { name: "System", description: "Health and status" },
@@ -1045,5 +1132,6 @@ export const openApiSpec = {
     { name: "API Keys", description: "Programmatic access tokens" },
     { name: "Workspace", description: "Settings, retention, audit log" },
     { name: "Stats", description: "Aggregate metrics (response times, answer rate)" },
+    { name: "Webhooks", description: "Outbound event webhooks (HMAC-signed, with retry)" },
   ],
 };

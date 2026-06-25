@@ -15,6 +15,13 @@
       "when": 1782313138351,
       "tag": "0001_gmail_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782410212687,
+      "tag": "0002_outbound_webhooks",
+      "breakpoints": true
     }
   ]
 }
