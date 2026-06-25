@@ -1,7 +1,7 @@
 ---
 import { platforms } from "../content/landing";
 import { platformIcons as icons } from "../lib/platform-icons";
-const { eyebrow, title, live, planned, note } = platforms;
+const { eyebrow, title, live, publishing, planned, note } = platforms;
 ---
 
 <section class="py-12">
@@ -12,8 +12,11 @@ const { eyebrow, title, live, planned, note } = platforms;
         <h2 class="mt-3 text-[clamp(1.5rem,3vw,2.1rem)] font-bold">{title}</h2>
       </div>
 
-      <!-- live channels -->
-      <ul class="mt-8 flex flex-wrap items-center justify-center gap-3" data-reveal-group>
+      <!-- two-way messaging (live) -->
+      <p class="mt-8 text-center font-[var(--font-mono)] text-[0.65rem] uppercase tracking-widest text-ink-3">
+        Two-way messaging — inbox &amp; auto-reply
+      </p>
+      <ul class="mt-4 flex flex-wrap items-center justify-center gap-3" data-reveal-group>
         {
           live.map((name) => (
             <li
@@ -26,15 +29,38 @@ const { eyebrow, title, live, planned, note } = platforms;
                 </svg>
               </span>
               <span class="text-sm font-medium text-ink">{name}</span>
-              <span class="size-1.5 rounded-full bg-ok shadow-[0_0_6px_var(--color-ok)]" title="Live"></span>
+              <span class="size-1.5 rounded-full bg-ok shadow-[0_0_6px_var(--color-ok)]" title="Live — inbox & auto-reply"></span>
             </li>
           ))
         }
       </ul>
 
-      <!-- planned -->
+      <!-- publishing only (no inbox API on these platforms) -->
+      <p class="mt-7 text-center font-[var(--font-mono)] text-[0.65rem] uppercase tracking-widest text-ink-3">
+        Publishing — schedule &amp; post
+      </p>
+      <ul class="mt-4 flex flex-wrap items-center justify-center gap-3" data-reveal-group>
+        {
+          publishing.map((name) => (
+            <li
+              class="group flex items-center gap-2.5 rounded-full border border-border-medium bg-floating px-4 py-2 transition-colors hover:border-blue/40"
+              data-reveal
+            >
+              <span class="text-ink-2 transition-colors group-hover:text-blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d={icons[name]} />
+                </svg>
+              </span>
+              <span class="text-sm font-medium text-ink">{name}</span>
+              <span class="size-1.5 rounded-full bg-blue shadow-[0_0_6px_var(--color-blue)]" title="Publishing — schedule & post (no inbox)"></span>
+            </li>
+          ))
+        }
+      </ul>
+
+      <!-- messaging channels coming next -->
       <div class="mt-7 flex flex-wrap items-center justify-center gap-2.5">
-        <span class="font-[var(--font-mono)] text-[0.65rem] uppercase tracking-widest text-ink-3">More coming</span>
+        <span class="font-[var(--font-mono)] text-[0.65rem] uppercase tracking-widest text-ink-3">Messaging coming</span>
         {
           planned.map((name) => (
             <span class="rounded-full border border-dashed border-border-medium px-3 py-1 text-xs text-ink-3">

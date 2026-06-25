@@ -40,9 +40,14 @@ export const hero = {
 export const platforms = {
   eyebrow: "One platform, every channel",
   title: "Connect the channels you already use",
+  // Full two-way messaging: inbox, auto-reply and comment-to-DM.
   live: ["Facebook", "Instagram", "YouTube", "Telegram", "Gmail"],
-  planned: ["TikTok", "X / Twitter", "LinkedIn", "Threads", "Discord"],
-  note: "Every channel is one TypeScript provider class — the list keeps growing, and you can add your own.",
+  // Publish & schedule only — these platforms have no open inbound-messaging API, so there is no inbox
+  // or auto-reply for them (and won't be until that changes upstream).
+  publishing: ["TikTok", "X", "LinkedIn", "Threads"],
+  // Messaging channels on the way (their APIs do support inbound).
+  planned: ["WhatsApp", "Email (IMAP/SMTP)", "SMS", "Discord"],
+  note: "Messaging channels get the full inbox + auto-reply; publishing channels schedule and post. Each is one TypeScript provider class — and you can add your own.",
 };
 
 export const proofSignals = [
@@ -310,16 +315,16 @@ export const roadmap = {
       label: "Live now",
       status: "live" as const,
       items: [
-        "Facebook, Instagram, YouTube, Telegram & Gmail",
+        "Messaging: Facebook, Instagram, YouTube, Telegram & Gmail",
         "Inbox, auto-reply & comment-to-DM",
-        "Drip sequences, CRM & publishing",
-        "REST API + docs",
+        "Publishing to TikTok, X, LinkedIn & Threads",
+        "Drip sequences, CRM & REST API",
       ],
     },
     {
       label: "Up next",
       status: "next" as const,
-      items: ["WhatsApp", "Email (IMAP/SMTP)", "SMS", "TikTok, X, LinkedIn, Threads, Discord"],
+      items: ["WhatsApp messaging", "Email (IMAP/SMTP)", "SMS (Twilio / SMSAPI)", "Discord"],
     },
     {
       label: "On the roadmap",
@@ -387,7 +392,7 @@ export const faq = [
   {
     question: "Which platforms can I connect?",
     answer:
-      "Facebook, Instagram, YouTube, Telegram and Gmail are live today, and you can connect multiple accounts of each. Gmail joins as a two-way reply/inbox channel (filter by label or query, read-only on your mailbox). WhatsApp, SMS, generic email (IMAP/SMTP), TikTok, X/Twitter, LinkedIn, Threads and Discord are arriving next — each new channel ships as one provider class, so the list keeps growing.",
+      "For two-way messaging (inbox, auto-reply, comment-to-DM): Facebook, Instagram, YouTube, Telegram and Gmail are live today — connect multiple accounts of each. Gmail is a two-way reply/inbox channel (filter by label or query, read-only on your mailbox). For publishing & scheduling you can also post to TikTok, X, LinkedIn and Threads. Coming next on the messaging side: WhatsApp, SMS (Twilio/SMSAPI), generic email (IMAP/SMTP) and Discord — each ships as one provider class. (TikTok, X, LinkedIn and Threads stay publish-only — those platforms don't expose an inbound-messaging API.)",
   },
   {
     question: "What happens to my data?",
