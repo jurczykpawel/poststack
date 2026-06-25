@@ -35,7 +35,7 @@
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
     "graphile-worker": "^0.17.2",
-    "hono": "^4.12.23",
+    "hono": "^4.12.27",
     "html-to-text": "^10.0.0",
     "jose": "6.2.3",
     "pg": "^8.21.0",
