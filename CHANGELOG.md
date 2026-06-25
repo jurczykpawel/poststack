@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-06-25
+
+### Changed
+- Landing page now distinguishes **messaging channels** (Facebook, Instagram, YouTube, Telegram, Gmail — full inbox + auto-reply) from **publishing channels** (TikTok, X, LinkedIn, Threads — schedule & post only). Previously the latter were shown as "more coming", implying inbox support that those platforms' APIs do not allow. Roadmap and FAQ reworded to match; the genuinely-upcoming messaging channels are WhatsApp, Email (IMAP/SMTP), SMS and Discord.
+
 ## [0.8.2] - 2026-06-25
 
 ### Changed
