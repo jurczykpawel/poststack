@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-25
+
+### Fixed
+- Telegram inbound now sets the contact's display name from the sender's name (carried inline in the webhook), instead of leaving a brand-new Telegram contact showing as a bare chat id.
+
+### Changed
+- Fleet-stats card relabelled to **Avg. auto-reply time** — the metric measures the time from an inbound message to a rule/sequence auto-reply being sent (it is never set by a human reply), so the label now says what it is.
+
 ## [0.8.0] - 2026-06-24
 
 ### Added
