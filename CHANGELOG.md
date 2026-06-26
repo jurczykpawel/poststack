@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-06-26
+
+### Added
+- **Outbound webhooks** — subscribe an external URL to workspace events and receive a signed POST when they happen. HMAC-SHA256 signatures (`t=…,v1=…` over `timestamp.body`) with dual-secret rotation, idempotent fan-out, automatic retry with dead-lettering, and an SSRF-guarded dispatcher. Managed via `/api/v1/webhooks` (CRUD + `rotate-secret`). Requires a PRO license.
+- **Bulk contacts create/import** via the API, plus migration guides for moving an existing contact base in.
+- **Rule action `add_tags`** — auto-tag a contact when an inbound message matches a rule.
+- **Tag edit & delete** via `PATCH`/`DELETE /api/v1/tags/{id}`, completing tag CRUD.
+- `contact.created` event, emitted when a new contact is first resolved or imported.
+
+### Changed
+- **Unified API error contract** across all `/api/v1` endpoints: `error.code` is now lowercase snake_case; `validation_error` carries `details: [{ path, message }]`; `pro_required` carries `{ feature, upgrade_url }`. List pagination meta is `{ has_more, next_cursor }`.
+
 ## [0.8.3] - 2026-06-25
 
 ### Changed
