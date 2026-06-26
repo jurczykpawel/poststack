@@ -253,9 +253,16 @@ Meta gates every permission behind one of two tiers:
 
 When you create your own Meta app you are automatically its **Admin**, and the Pages / IG accounts
 you connect are ones you manage. So every permission PostStack requests resolves at **Standard
-Access** — no review needed. That is why all the inbox / auto-reply / comment features "just work"
-on your own accounts. You can even leave the app in **Development mode**; it does not need to be
-switched to Live for personal use.
+Access** — no review needed. That is why all the inbox / auto-reply / comment features work on your
+own accounts **without App Review**.
+
+> **One caveat about app *mode* (distinct from review):** to receive **real** webhook events
+> (incoming DMs, comments) — even for your own Pages — the Meta app must be switched to **Live**
+> mode. In **Development** mode Meta delivers only *test* webhooks fired from the App Dashboard, and
+> **no production data is delivered, not even for admins/developers/testers**. Switching to Live is a
+> one-time toggle (it just needs a Privacy Policy URL set on the app) and is **not** the same as App
+> Review — **Live mode ≠ Advanced Access**. So for your own accounts: flip the app to **Live**, but
+> you still do **not** need App Review.
 
 > **The line you cross:** the moment you want to handle a Page or IG account that someone *else*
 > administers (a client, a customer) and that person is not added as a Tester on your app, that
@@ -269,7 +276,7 @@ PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_mes
 `pages_read_engagement`, `pages_manage_metadata`; Instagram additionally: `instagram_basic`,
 `instagram_manage_messages`, `instagram_manage_comments`.
 
-| Feature | Permission(s) | Your own accounts (Standard / Dev mode) | Other people's accounts |
+| Feature | Permission(s) | Your own accounts (Standard Access, app in **Live** mode) | Other people's accounts |
 |---|---|---|---|
 | List & connect your Pages / IG | `pages_show_list` | ✅ works | needs Advanced Access |
 | Receive DMs in the inbox (FB Messenger) | `pages_messaging` | ✅ works | needs Advanced Access |
@@ -297,8 +304,9 @@ accounts with no review.
 
 ### Checklist: do you need App Review?
 
-- Self-hosting for **your own** brand's Pages/IG → **No.** (Optional: request Advanced Access on
-  `pages_messaging` only if you want emoji-reaction webhooks.)
+- Self-hosting for **your own** brand's Pages/IG → **No App Review.** (But do switch the app to
+  **Live** mode so production webhooks are delivered — that's a toggle, not a review. Optional:
+  request Advanced Access on `pages_messaging` only if you want emoji-reaction webhooks.)
 - Managing a **client's** account where you add them as a **Tester** on your app and they accept →
   **No** (they now have a role on your app).
 - Offering this as a **service to customers** who connect their own accounts under your app →
@@ -319,6 +327,13 @@ To enable Gmail mailbox support, create a Google Cloud OAuth app:
 5. **OAuth scope:** PostStack requests `openid`, `email`, `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/gmail.send` — read-only ingest and send.
 
 **Verification note:** Google restricts these scopes. An **unverified app** can only authorize the developer's own Gmail account + ~100 test users. To **serve external mailboxes** (real multi-tenant usage), your Google app must pass **OAuth verification** and **Google's CASA security assessment** (annual; separate fee). For **self-hosting your own team's Gmail**, add your account as a test user — no assessment needed.
+
+> **Publishing status matters (the Google equivalent of Meta's Live mode):** while the OAuth consent
+> screen is left in **Testing**, Google **expires refresh tokens after 7 days** — so the channel
+> silently stops working a week after you connect it. Set the consent screen's publishing status to
+> **In production** (Production) to get long-lived refresh tokens. Production *without* full
+> verification still works for your own/test-user accounts (with the unverified-app warning, capped
+> at ~100 users); verification + CASA is only needed to lift that cap for external mailboxes.
 
 **Optional:** each Gmail channel can use an ingest filter (e.g. `label:support`, `is:unread`, `-category:promotions`) to narrow the messages PostStack polls. Set it in the dashboard or via the API when connecting the channel.
 

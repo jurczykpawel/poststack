@@ -26,6 +26,13 @@ Paste one token →
 
 This is the **Managed Connection** feature (PRO). The free tier connects a single Page manually.
 
+> **Prerequisite — put the Meta app in Live mode.** Connecting the token mints the channels and
+> subscribes their webhooks, but Meta only delivers **real** webhook events (incoming DMs, comments)
+> when the app is in **Live** mode — in **Development** mode it sends only *test* events from the App
+> Dashboard, even for your own Pages. Switch the app to **Live** (a one-time toggle that just needs a
+> Privacy Policy URL on the app). This is **not** App Review — see
+> [README → Meta Access Levels](../README.md#meta-access-levels--what-needs-app-review-and-what-doesnt).
+
 ---
 
 ## The mental model — the three things that must be true
@@ -140,6 +147,7 @@ come from PostStack, not Meta):
 | *"This access token is invalid or expired. Generate a fresh token and try again."* | The token is revoked/expired. Mint a fresh one (and set expiry to Never). |
 | *"This token did not resolve to a Meta account. Paste a User or System User token."* | You likely pasted a Page token or a malformed string. Paste the **System User** token. |
 | *"Could not read the account this token belongs to …"* | Transient Meta/network issue, or a bad token. Retry; if it persists, regenerate. |
+| Channels connected, but **no incoming DMs/comments ever arrive** | The Meta app is in **Development** mode — Meta only delivers real webhooks once the app is **Live**. Switch it to Live (see the prerequisite note above). |
 | A Page or IG account is **missing** from the connected list | The System User doesn't have that asset assigned, or lacks full control. Assign it in the Business and re-sync. |
 | IG account missing for a Page that *is* connected | The Page has no **linked Instagram business account**, or `instagram_basic` wasn't granted. Link the IG account to the Page (Instagram must be a *business/creator* account) and ensure the scope is present. |
 
