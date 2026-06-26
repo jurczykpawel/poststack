@@ -228,6 +228,82 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 **Note:** your `APP_URL` must be public **HTTPS** (see [Production → HTTPS](#production)) — Meta rejects `http://` and `localhost` for OAuth redirects and webhooks. For local testing, expose your dev server with a tunnel (`cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`) and use that HTTPS URL. Some permissions require Meta App Review for production; in development mode you can test with your own accounts without review.
 
+> **One-token setup (recommended for self-host):** instead of connecting Pages one by one, paste a
+> single permanent Meta **System User** token and PostStack auto-connects every Page + linked
+> Instagram account it can reach, and keeps them in sync. Full guide:
+> **[docs/META_SYSTEM_USER_SETUP.md](docs/META_SYSTEM_USER_SETUP.md)**.
+
+---
+
+## Meta Access Levels — what needs App Review (and what doesn't)
+
+**Short answer:** if you self-host and only operate **your own** Facebook Pages / Instagram
+accounts, you do **not** need Meta App Review or Business Verification. Every PostStack feature
+works under **Standard Access**, which every app has by default. App Review only becomes relevant
+when you start operating accounts that belong to **other people** (a multi-client / agency setup).
+
+### Why — Meta's two access tiers
+
+Meta gates every permission behind one of two tiers:
+
+| Tier | What it grants | Requires |
+|---|---|---|
+| **Standard Access** (default, every app) | The permission works for any user who has a **role on your app** (Admin / Developer / Tester) and for the Pages / IG accounts those users manage. | Nothing — no review. |
+| **Advanced Access** | The same permission, but usable with users who do **NOT** have a role on your app — i.e. the general public / other people's accounts. | **App Review** + **Business Verification**. |
+
+When you create your own Meta app you are automatically its **Admin**, and the Pages / IG accounts
+you connect are ones you manage. So every permission PostStack requests resolves at **Standard
+Access** — no review needed. That is why all the inbox / auto-reply / comment features "just work"
+on your own accounts. You can even leave the app in **Development mode**; it does not need to be
+switched to Live for personal use.
+
+> **The line you cross:** the moment you want to handle a Page or IG account that someone *else*
+> administers (a client, a customer) and that person is not added as a Tester on your app, that
+> account is "a user without a role on your app" → you need **Advanced Access** for the relevant
+> permissions, which means App Review + Business Verification. This is exactly what a managed /
+> reseller offering (the "connect under one verified app" model) requires.
+
+### Per-feature map (the permissions PostStack actually requests)
+
+PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_messaging`,
+`pages_read_engagement`, `pages_manage_metadata`; Instagram additionally: `instagram_basic`,
+`instagram_manage_messages`, `instagram_manage_comments`.
+
+| Feature | Permission(s) | Your own accounts (Standard / Dev mode) | Other people's accounts |
+|---|---|---|---|
+| List & connect your Pages / IG | `pages_show_list` | ✅ works | needs Advanced Access |
+| Receive DMs in the inbox (FB Messenger) | `pages_messaging` | ✅ works | needs Advanced Access |
+| Receive DMs in the inbox (Instagram) | `instagram_basic`, `instagram_manage_messages` | ✅ works | needs Advanced Access |
+| Send replies / auto-replies (FB + IG DM) | `pages_messaging` / `instagram_manage_messages` | ✅ works | needs Advanced Access |
+| Read post comments | `pages_read_engagement` (FB) / `instagram_manage_comments` (IG) | ✅ works | needs Advanced Access |
+| Comment → DM (private reply) | `pages_messaging` (FB) / `instagram_manage_messages` (IG) | ✅ works | needs Advanced Access |
+| Manage Page webhook subscriptions | `pages_manage_metadata` | ✅ works | needs Advanced Access |
+| Read receipts, echoes, delivery receipts in the thread | `pages_messaging` | ✅ works | needs Advanced Access |
+| **Emoji reactions on your DMs** (the `message_reactions` webhook) | `pages_messaging` | ⚠️ **requires Advanced Access to be delivered** — this one Engagement signal does not fire under Standard Access, even on your own account | needs Advanced Access |
+
+So the **only** own-account limitation is that the *emoji-reaction* webhook (`message_reactions`)
+won't be delivered until the app has Advanced Access on `pages_messaging`. Everything else — inbox,
+auto-replies, comment automation, sequences, read/delivery receipts — works fully on your own
+accounts with no review.
+
+### What App Review does **not** change
+
+- **Token longevity** is independent of review — see the System User guidance below / managed
+  connection docs. Review does not make tokens last longer.
+- **Messaging policy windows** (e.g. Meta's standard messaging window after a user's last message)
+  apply regardless of access tier.
+- Switching the app to **Live mode** without Advanced Access does **not** grant access to other
+  people's accounts — only App Review does.
+
+### Checklist: do you need App Review?
+
+- Self-hosting for **your own** brand's Pages/IG → **No.** (Optional: request Advanced Access on
+  `pages_messaging` only if you want emoji-reaction webhooks.)
+- Managing a **client's** account where you add them as a **Tester** on your app and they accept →
+  **No** (they now have a role on your app).
+- Offering this as a **service to customers** who connect their own accounts under your app →
+  **Yes** — App Review + Business Verification for the permissions above.
+
 ---
 
 ## Gmail Setup
