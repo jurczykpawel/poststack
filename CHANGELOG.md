@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-06-26
+
+### Fixed
+- The in-app **"requires PRO" / upgrade** links pointed at a product slug that returned 404; they now link to the live plans page (`/v/poststack-plans`).
+
+### Changed
+- Landing page and README now make explicit that running PostStack on **your own** accounts needs **no verified/approved Meta app** and no Google/Telegram identity verification — only standard developer-app configuration. Added a Meta **access-levels** reference (what needs App Review and what doesn't), a one-token **System User** setup guide, and a note that the Meta app must be in **Live** mode (a toggle, not a review) for production webhooks.
+
 ## [0.8.4] - 2026-06-26
 
 ### Added
