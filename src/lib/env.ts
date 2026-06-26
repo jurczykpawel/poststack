@@ -126,7 +126,7 @@ const envSchema = z.object({
   // the live endpoint is unreachable AND nothing is cached (public-key material).
   SELLF_JWKS_FALLBACK: z.string().default(""),
   // Where the "requires PRO" UI sends operators to buy a license.
-  LICENSE_UPGRADE_URL: z.string().url().default("https://sellf.techskills.academy/p/poststack"),
+  LICENSE_UPGRADE_URL: z.string().url().default("https://sellf.techskills.academy/v/poststack-plans"),
   // Optional. The instance's public domain for per-domain license binding. A license token may
   // carry a `domain` claim binding it to one buyer's domain (and its subdomains); it is honoured
   // only when THIS host falls under that domain. Empty → derived from APP_URL's host. Set this
