@@ -51,12 +51,40 @@ export const platforms = {
 };
 
 export const proofSignals = [
+  "No verified Meta app needed",
   "Source-available",
   "One-command Docker deploy",
-  "Meta inbox + automation",
   "REST API-first",
   "No vendor lock-in",
 ];
+
+/**
+ * Objection-buster: you do NOT need a Meta-approved app to run PostStack on your own accounts.
+ * Detail lives in the public README → "Meta Access Levels". Keep `linkUrl` pointed at that anchor.
+ */
+export const metaAccess = {
+  eyebrow: "No gatekeeping",
+  title: "No verified Meta app required",
+  accent: "verified Meta app",
+  intro:
+    "A common myth: that Meta has to approve your app before you can automate Instagram & Facebook. You don't — not for your own accounts. Connect your Pages and go.",
+  cards: [
+    {
+      heading: "Your own accounts",
+      ok: true,
+      body: "Inbox, auto-reply, comment→DM and drip sequences all work under Meta's default Standard Access. No App Review, no Business Verification.",
+    },
+    {
+      heading: "Clients' accounts",
+      ok: false,
+      body: "Only if you operate other people's accounts (an agency / reseller setup) does Meta need Advanced Access — App Review + Business Verification. That's the line, and it's optional.",
+    },
+  ],
+  note: "One-time setup: switch the Meta app to Live mode (a toggle, not a review) so production webhooks flow.",
+  linkLabel: "See exactly what needs review",
+  linkUrl:
+    "https://github.com/jurczykpawel/poststack#meta-access-levels--what-needs-app-review-and-what-doesnt",
+};
 
 /** "You use X when…" contrast block */
 export const comparison = {

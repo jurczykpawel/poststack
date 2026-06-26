@@ -1,0 +1,68 @@
+---
+import { metaAccess } from "../content/landing";
+
+const titleParts = metaAccess.accent
+  ? metaAccess.title.split(metaAccess.accent)
+  : [metaAccess.title];
+---
+
+<section id="meta-access" class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="mx-auto max-w-[52rem] text-center" data-reveal>
+      <span class="eyebrow">{metaAccess.eyebrow}</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        {titleParts[0]}<span class="grad">{metaAccess.accent}</span>{titleParts[1]}
+      </h2>
+      <p class="mx-auto mt-5 max-w-[42rem] text-pretty text-lg text-ink-2">{metaAccess.intro}</p>
+    </div>
+
+    <div class="mt-12 grid gap-4 md:grid-cols-2" data-reveal-group>
+      {
+        metaAccess.cards.map((c) => (
+          <div
+            class:list={[
+              "card relative overflow-hidden p-6",
+              c.ok ? "border-ok/35 bg-gradient-to-br from-ok/10 to-blue/5" : "",
+            ]}
+            data-reveal
+          >
+            <div class="flex items-center gap-2">
+              <span
+                class:list={[
+                  "grid size-6 place-items-center rounded-full text-xs font-bold",
+                  c.ok ? "bg-ok/20 text-ok" : "bg-floating text-ink-3",
+                ]}
+              >
+                {c.ok ? "✓" : "•"}
+              </span>
+              <p class="text-lg font-semibold text-ink">{c.heading}</p>
+              <span
+                class:list={[
+                  "ml-auto rounded-full px-2 py-0.5 text-[0.65rem] font-medium",
+                  c.ok ? "bg-ok/15 text-ok" : "bg-floating text-ink-3",
+                ]}
+              >
+                {c.ok ? "No review" : "Needs review"}
+              </span>
+            </div>
+            <p class="mt-3 text-ink-2">{c.body}</p>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-8 flex flex-col items-center gap-3 text-center" data-reveal>
+      <p class="font-[var(--font-mono)] text-xs text-ink-3">{metaAccess.note}</p>
+      <a
+        href={metaAccess.linkUrl}
+        rel="noopener"
+        class="inline-flex items-center gap-1.5 text-sm font-medium text-blue hover:underline"
+      >
+        {metaAccess.linkLabel}
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </a>
+    </div>
+  </div>
+</section>

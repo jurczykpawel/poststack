@@ -9,11 +9,14 @@
 
 [API Docs](/api/docs) | [Issues](https://github.com/jurczykpawel/poststack/issues) | [Contributing](CONTRIBUTING.md)
 
-> ✅ **No verified / approved Meta app required.** To run PostStack on your **own** Facebook &
-> Instagram accounts you do **not** need to pass Meta App Review or Business Verification — every
-> feature (inbox, auto-reply, comment→DM, sequences) works under Meta's default **Standard Access**.
-> App Review is only needed if you operate **other people's** accounts (an agency / reseller setup).
-> Details: **[Meta Access Levels — what needs App Review (and what doesn't)](#meta-access-levels--what-needs-app-review-and-what-doesnt)**.
+> [!TIP]
+> ### ✅ No verified / approved Meta app required
+> To run PostStack on your **own** Facebook & Instagram accounts you do **not** need to pass **Meta
+> App Review** or **Business Verification**. Every feature — inbox, auto-reply, comment→DM, drip
+> sequences — works under Meta's default **Standard Access**. App Review is only needed if you
+> operate **other people's** accounts (an agency / reseller setup).
+>
+> 👉 **[Meta Access Levels — what needs App Review (and what doesn't)](#meta-access-levels--what-needs-app-review-and-what-doesnt)**
 
 ---
 
