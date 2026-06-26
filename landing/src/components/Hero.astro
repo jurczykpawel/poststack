@@ -58,6 +58,19 @@ import { hero, proofSignals, site } from "../content/landing";
           {hero.secondaryCta}
         </a>
       </div>
+
+      <a
+        href={hero.assurance.href}
+        data-reveal
+        style="--reveal-delay:260ms"
+        class="group mt-6 inline-flex items-center gap-2 rounded-full border border-ok/40 bg-ok/10 px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-ok/70 hover:bg-ok/15"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3.5 8.5l3 3 6-7" stroke="var(--color-ok)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <span><span class="text-ok">{hero.assurance.lead}</span> <span class="text-ink-2">{hero.assurance.tail}</span></span>
+        <span class="text-ink-3 transition-transform group-hover:translate-x-0.5">→</span>
+      </a>
     </div>
 
     <!-- Faux dashboard mockup -->

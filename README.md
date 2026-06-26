@@ -321,6 +321,18 @@ accounts with no review.
 - Offering this as a **service to customers** who connect their own accounts under your app →
   **Yes** — App Review + Business Verification for the permissions above.
 
+### Other channels — same story
+
+This isn't unique to Meta. **None of PostStack's currently-supported channels require a lengthy
+review or identity/business verification to run on your own accounts** — only the normal,
+self-service developer-app configuration:
+
+- **Telegram** — literally just a **bot token** from [@BotFather](https://t.me/BotFather). No app, no review, nothing else.
+- **Facebook / Instagram** — your own Pages/IG under **Standard Access** (above); just create the app and switch it to **Live**.
+- **Gmail / YouTube (Google)** — your own (or test-user) account works **without verification**; set the OAuth consent screen to **In production** so refresh tokens are long-lived. Google's full **verification + CASA** review is only needed to serve **external** mailboxes/channels at scale (beyond ~100 users / sensitive scopes) — i.e. the same "other people's accounts" line as Meta.
+
+In short: **deploy, configure your own developer app, connect your accounts — no weeks-long approval gate.**
+
 ---
 
 ## Gmail Setup

@@ -31,6 +31,8 @@ export const hero = {
     "PostStack is a self-hosted platform for Facebook, Instagram, YouTube, Telegram & Gmail — with more channels on the way. Auto-reply to DMs and comments, run drip sequences, manage contacts, and publish — all from one place, on your server.",
   primaryCta: "Get PostStack",
   secondaryCta: "Self-host for free",
+  // Prominent objection-buster shown under the CTAs; links to the dedicated MetaAccess section.
+  assurance: { lead: "No verified Meta app needed", tail: "for your own accounts", href: "#meta-access" },
 };
 
 /**
@@ -51,9 +53,9 @@ export const platforms = {
 };
 
 export const proofSignals = [
-  "No verified Meta app needed",
   "Source-available",
   "One-command Docker deploy",
+  "Meta inbox + automation",
   "REST API-first",
   "No vendor lock-in",
 ];
@@ -81,6 +83,8 @@ export const metaAccess = {
     },
   ],
   note: "One-time setup: switch the Meta app to Live mode (a toggle, not a review) so production webhooks flow.",
+  general:
+    "Same story across the board: every channel PostStack supports today — Facebook, Instagram, YouTube, Telegram and Gmail — runs on a standard developer app you create yourself. No weeks-long app review and no identity or business verification to use your own accounts — just normal app configuration (Telegram is literally one bot token).",
   linkLabel: "See exactly what needs review",
   linkUrl:
     "https://github.com/jurczykpawel/poststack#meta-access-levels--what-needs-app-review-and-what-doesnt",

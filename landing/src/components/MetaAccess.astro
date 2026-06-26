@@ -51,11 +51,16 @@ const titleParts = metaAccess.accent
       }
     </div>
 
-    <div class="mt-8 flex flex-col items-center gap-3 text-center" data-reveal>
+    <p class="mx-auto mt-10 max-w-[46rem] text-pretty text-center text-ink-2" data-reveal>
+      {metaAccess.general}
+    </p>
+
+    <div class="mt-6 flex flex-col items-center gap-3 text-center" data-reveal>
       <p class="font-[var(--font-mono)] text-xs text-ink-3">{metaAccess.note}</p>
       <a
         href={metaAccess.linkUrl}
-        rel="noopener"
+        target="_blank"
+        rel="noopener noreferrer"
         class="inline-flex items-center gap-1.5 text-sm font-medium text-blue hover:underline"
       >
         {metaAccess.linkLabel}
