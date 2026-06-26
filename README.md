@@ -362,6 +362,28 @@ The same Google app can also serve **YouTube** (`youtube` platform) — just add
 
 ---
 
+## TikTok publishing
+
+TikTok is supported as a **publishing** channel, with one important limitation to be aware of today.
+
+TikTok only allows **direct, fully-automated publishing** for apps that have passed its
+**content-posting audit**. Until an app is audited, TikTok's Content Posting API is restricted to the
+**inbox / draft** flow: PostStack uploads your video to your TikTok **inbox as a draft**, and you open
+the TikTok app to set the caption, cover and privacy and tap publish. Unaudited apps are also capped
+to **private (`SELF_ONLY`)** visibility. So scheduling a TikTok post lands a ready-to-confirm draft in
+your inbox — it is **not** a hands-off auto-publish, and **full automation isn't possible yet**.
+
+We're working hard to remove this friction — either by offering our own **audited app** you can
+publish through, or by making the approval process dramatically easier. That's the goal of a dedicated
+companion project, **[ShareStack](https://sharestack.techskills.academy/)** — a free, browser-first,
+self-hostable publisher that keeps your OAuth token in your own browser. Until that lands, treat
+TikTok publishing as **draft-only**.
+
+The other publishing channels — **X, LinkedIn, Threads, YouTube, Facebook & Instagram** — publish
+directly, subject to each platform's own developer-app setup and API access tier.
+
+---
+
 ## Usage
 
 ### 1. Connect a channel

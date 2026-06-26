@@ -50,6 +50,10 @@ export const platforms = {
   // Messaging channels on the way (their APIs do support inbound).
   planned: ["WhatsApp", "Email (IMAP/SMTP)", "SMS", "Discord"],
   note: "Messaging channels get the full inbox + auto-reply; publishing channels schedule and post. Each is one TypeScript provider class — and you can add your own.",
+  // TikTok caveat (rendered with a * on the TikTok chip, linking to the README section).
+  tiktokNote:
+    "* TikTok publishing posts to your TikTok inbox as a draft you finish & confirm in the app — full auto-publish requires TikTok's app approval.",
+  tiktokNoteUrl: "https://github.com/jurczykpawel/poststack#tiktok-publishing",
 };
 
 export const proofSignals = [
