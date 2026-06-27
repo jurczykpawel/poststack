@@ -228,12 +228,15 @@
   position: absolute;
   /* No horizontal bleed: a negative inline inset pushed past the viewport on narrow screens and
      caused a few px of horizontal scroll. Vertical bleed is fine (clipped by section flow). */
-  inset: -12% 0 -18%;
+  inset: -16% 0 -20%;
   z-index: -1;
+  /* Soft, organic glow: compact radials that fall fully transparent well before the layer edges,
+     plus a heavy blur — so it never reads as a lit rectangle (no boxy vertical/edges). */
   background:
-    radial-gradient(60% 55% at 30% 20%, color-mix(in srgb, var(--color-blue) 22%, transparent), transparent 70%),
-    radial-gradient(55% 50% at 80% 90%, color-mix(in srgb, var(--color-purple) 20%, transparent), transparent 70%);
-  filter: blur(8px);
+    radial-gradient(42% 38% at 32% 26%, color-mix(in srgb, var(--color-blue) 30%, transparent), transparent 62%),
+    radial-gradient(40% 36% at 76% 82%, color-mix(in srgb, var(--color-purple) 26%, transparent), transparent 62%);
+  filter: blur(44px);
+  opacity: 0.9;
 }
 .lc-glass {
   border: 1px solid var(--color-border-medium);
@@ -523,5 +526,118 @@
   .reveal-ready [data-reveal] {
     opacity: 1 !important;
     transform: none !important;
+  }
+}
+
+/* ── Pinned-section ambient aura ───────────────────────────────────────────
+   A delicate backdrop for the scroll-pinned sections (the loop story + lead
+   capture), so the long black scroll space feels alive: two slowly drifting
+   blurred gradient orbs over a faint dotted grid, masked so it melts into the
+   page. Parallax (orb drift vs scroll) is added by motion.ts on desktop; the
+   static layer alone already enriches the space and is the reduced-motion view. */
+.bg-aura {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  /* Fade to nothing on ALL FOUR edges (two linear gradients intersected) so the
+     aura melts into the page — no hard top/bottom cut, no clipped orb strip. */
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent 0%, #000 17%, #000 83%, transparent 100%),
+    linear-gradient(to right, transparent 0%, #000 13%, #000 87%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to bottom, transparent 0%, #000 17%, #000 83%, transparent 100%),
+    linear-gradient(to right, transparent 0%, #000 13%, #000 87%, transparent 100%);
+  mask-composite: intersect;
+}
+.bg-aura-grid {
+  position: absolute;
+  inset: -10%;
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--color-blue) 24%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 30px 30px;
+  opacity: 0.8;
+}
+.bg-aura-orbs {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+.bg-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(64px);
+  opacity: 0.85;
+}
+.bg-orb-a {
+  width: 44rem;
+  height: 44rem;
+  top: -9rem;
+  left: -11rem;
+  background: radial-gradient(circle, var(--color-blue), transparent 60%);
+}
+.bg-orb-b {
+  width: 40rem;
+  height: 40rem;
+  bottom: -12rem;
+  right: -8rem;
+  background: radial-gradient(circle, var(--color-purple), transparent 60%);
+}
+/* a third, central accent so the middle of the field isn't flat */
+.bg-orb-c {
+  width: 30rem;
+  height: 30rem;
+  top: 30%;
+  left: 52%;
+  filter: blur(80px);
+  opacity: 0.5;
+  background: radial-gradient(circle, var(--color-blue), transparent 64%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Gentle breathing drift; only runs while the section is on screen
+     (initInviewPlay toggles .is-playing) to spare the CPU. */
+  .bg-aura.is-playing .bg-orb-a {
+    animation: auraFloatA 19s var(--ease-spring, ease-in-out) infinite alternate;
+  }
+  .bg-aura.is-playing .bg-orb-b {
+    animation: auraFloatB 23s var(--ease-spring, ease-in-out) infinite alternate;
+  }
+  .bg-aura.is-playing .bg-orb-c {
+    animation: auraFloatC 27s var(--ease-spring, ease-in-out) infinite alternate;
+  }
+}
+@keyframes auraFloatC {
+  to {
+    transform: translate3d(-4.4rem, 3rem, 0) scale(1.12);
+  }
+}
+
+/* Mirror modifier: same aura language, orbs flipped left↔right so an adjacent
+   pinned section shares the backdrop's DNA without being a pixel-for-pixel copy. */
+.bg-aura--mirror .bg-orb-a {
+  left: auto;
+  right: -11rem;
+}
+.bg-aura--mirror .bg-orb-b {
+  right: auto;
+  left: -8rem;
+}
+.bg-aura--mirror .bg-orb-c {
+  left: auto;
+  right: 52%;
+}
+@keyframes auraFloatA {
+  to {
+    transform: translate3d(4rem, 2.4rem, 0) scale(1.08);
+  }
+}
+@keyframes auraFloatB {
+  to {
+    transform: translate3d(-3.4rem, -2.6rem, 0) scale(1.06);
   }
 }

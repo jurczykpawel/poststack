@@ -5,6 +5,16 @@ const titleParts = leadCapture.accent ? leadCapture.title.split(leadCapture.acce
 ---
 
 <section id="lead-capture" data-lc-section class="relative py-[var(--spacing-section)]">
+  <!-- ambient aura — same language as the loop section (grid + orbs), orbs mirrored for subtle variation -->
+  <div class="bg-aura bg-aura--mirror" data-inview-play aria-hidden="true">
+    <div class="bg-aura-grid"></div>
+    <div class="bg-aura-orbs" data-parallax-orbs>
+      <span class="bg-orb bg-orb-a"></span>
+      <span class="bg-orb bg-orb-b"></span>
+      <span class="bg-orb bg-orb-c"></span>
+    </div>
+  </div>
+
   <div class="shell">
     <div class="mx-auto max-w-[46rem] text-center" data-reveal>
       <span class="eyebrow justify-center">{leadCapture.eyebrow}</span>

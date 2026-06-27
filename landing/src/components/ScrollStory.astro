@@ -4,6 +4,16 @@ const { eyebrow, title, scenes } = scrollStory;
 ---
 
 <section data-scrollstory class="relative py-[var(--spacing-section)]">
+  <!-- ambient aura so the long pinned-scroll black space feels alive (parallax added by motion.ts) -->
+  <div class="bg-aura" data-inview-play aria-hidden="true">
+    <div class="bg-aura-grid"></div>
+    <div class="bg-aura-orbs" data-parallax-orbs>
+      <span class="bg-orb bg-orb-a"></span>
+      <span class="bg-orb bg-orb-b"></span>
+      <span class="bg-orb bg-orb-c"></span>
+    </div>
+  </div>
+
   <div class="shell">
     <div class="mx-auto max-w-[44rem] text-center" data-reveal>
       <span class="eyebrow justify-center">{eyebrow}</span>
@@ -52,7 +62,30 @@ const { eyebrow, title, scenes } = scrollStory;
           <div class="story-frame relative">
             <!-- Scene 0 — Capture -->
             <div data-story-scene class="space-y-3">
-              <div class="aspect-[16/9] w-full rounded-xl bg-gradient-to-br from-blue/25 via-purple/20 to-base"></div>
+              <!-- faux post creative (so the frame reads as a real Instagram post, not an empty box) -->
+              <div class="relative aspect-[16/9] w-full overflow-hidden rounded-xl bg-gradient-to-br from-blue/35 via-purple/20 to-base">
+                <div
+                  class="absolute inset-0 opacity-[0.12]"
+                  style="background-image:radial-gradient(#fff 1px,transparent 1.4px);background-size:16px 16px"
+                  aria-hidden="true"
+                >
+                </div>
+                <span
+                  class="absolute right-2.5 top-2.5 rounded-md bg-black/30 px-1.5 py-0.5 font-[var(--font-mono)] text-[0.55rem] text-white/80 backdrop-blur"
+                  >NEW</span
+                >
+                <div class="absolute left-3 top-3 grid size-9 place-items-center rounded-xl bg-white/10 backdrop-blur">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 4 2.5 9 12 14l9.5-5L12 4Z" fill="#fff" opacity="0.92" />
+                    <path d="M6.5 11.5V16c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2v-4.5" stroke="#fff" stroke-width="1.4" opacity="0.7" />
+                    <path d="M21.5 9v4.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.7" />
+                  </svg>
+                </div>
+                <div class="absolute inset-x-3 bottom-2.5">
+                  <p class="text-sm font-bold leading-tight text-white">New course is live 🎓</p>
+                  <p class="text-[0.62rem] text-white/65">Comment a keyword for the price drop ↓</p>
+                </div>
+              </div>
               <p class="font-[var(--font-mono)] text-[0.65rem] text-ink-3">@your.brand · post</p>
               <div class="flex items-start gap-2 rounded-xl bg-floating p-3">
                 <span class="grid size-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue to-purple text-[0.65rem] font-semibold text-[#0a0a12]">AK</span>

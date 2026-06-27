@@ -95,6 +95,8 @@ async function initGsap(): Promise<void> {
 
   initScrollStory(gsap, ScrollTrigger);
   initLeadCapture(gsap, ScrollTrigger);
+  initAuraParallax(gsap, ScrollTrigger);
+  initWorkflowSteps(gsap, ScrollTrigger);
 
   const hero = document.querySelector<HTMLElement>("[data-hero-mock]");
   const counters = document.querySelectorAll<HTMLElement>("[data-count]");
@@ -337,6 +339,66 @@ function initLeadCapture(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
     .to(spark2, { autoAlpha: 0, duration: 0.1 }, 0.96)
     .to(dot, { boxShadow: "0 0 14px 3px #9ece6a", scale: 1.5, duration: 0.2, yoyo: true, repeat: 1 }, 0.82)
     .to(added, { autoAlpha: 1, x: 0, duration: 0.4 }, 0.88);
+}
+
+/**
+ * "How it works" steps light up in sequence as the section scrolls through view:
+ * the connector line fills left→right and each number badge ignites as the fill
+ * reaches it. Reduced-motion / no-GSAP leaves the static (un-lit) badges, which
+ * are a complete design on their own.
+ */
+function initWorkflowSteps(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
+  void ScrollTrigger; // already registered by caller
+  const list = document.querySelector<HTMLElement>("[data-flow-steps]");
+  if (!list) return;
+  const nums = Array.from(list.querySelectorAll<HTMLElement>("[data-flow-num]"));
+  const fill = list.querySelector<HTMLElement>("[data-flow-fill]");
+  if (nums.length === 0) return;
+
+  const setLit = (count: number) =>
+    nums.forEach((n, i) => (i < count ? n.setAttribute("data-active", "") : n.removeAttribute("data-active")));
+
+  gsap.to(
+    {},
+    {
+      ease: "none",
+      scrollTrigger: {
+        trigger: list,
+        start: "top 78%",
+        end: "bottom 62%",
+        scrub: 0.5,
+        onUpdate: (self) => {
+          // Light each badge as the fill front passes it (first lights almost immediately).
+          const lit = Math.min(nums.length, Math.ceil(self.progress * nums.length + 0.0001));
+          setLit(self.progress <= 0 ? 0 : lit);
+          if (fill) gsap.set(fill, { scaleX: self.progress });
+        },
+      },
+    },
+  );
+}
+
+/**
+ * Delicate parallax for the ambient aura in pinned sections: the orb layer drifts
+ * against the page scroll so the long black scroll space gains depth. Subtle on
+ * purpose (a few percent of travel); the CSS float keeps it alive while pinned.
+ */
+function initAuraParallax(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
+  void ScrollTrigger; // already registered by caller
+  const layers = document.querySelectorAll<HTMLElement>("[data-parallax-orbs]");
+  layers.forEach((orbs) => {
+    const section = orbs.closest("section");
+    if (!section) return;
+    gsap.fromTo(
+      orbs,
+      { yPercent: -18 },
+      {
+        yPercent: 18,
+        ease: "none",
+        scrollTrigger: { trigger: section, start: "top bottom", end: "bottom top", scrub: 0.8 },
+      },
+    );
+  });
 }
 
 /**
