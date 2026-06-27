@@ -257,13 +257,24 @@ type Gsap = (typeof import("gsap"))["gsap"];
 type ScrollTriggerStatic = (typeof import("gsap/ScrollTrigger"))["ScrollTrigger"];
 
 /**
- * Scroll-driven "live capture" demo: scrub a GSAP timeline tied to the tile's scroll position so the
- * capture plays forward as you scroll in and reverses as you scroll out. The CSS base is the finished
- * frame; here we set the pre-capture initial states, then reveal each step across the scrub.
+ * Pinned, scroll-driven "live capture" demo (mirrors initScrollStory): the stage pins in the centre
+ * and the capture scrubs in place as you scroll — quick reply tapped → email bubbles in → travels to
+ * the CRM card → webhook hops to a mailing list — while the left step rail fills and lights the active
+ * step. Desktop only; on mobile / reduced-motion the CSS base shows the finished frame statically.
  */
 function initLeadCapture(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
-  const tile = document.querySelector<HTMLElement>("[data-lc]");
-  if (!tile) return;
+  const section = document.querySelector<HTMLElement>("[data-lc-section]");
+  const tile = section?.querySelector<HTMLElement>("[data-lc]");
+  if (!section || !tile) return;
+  if (!window.matchMedia("(min-width: 1024px)").matches) return; // mobile: static finished frame
+
+  const stagewrap = section.querySelector<HTMLElement>("[data-lc-stagewrap]");
+  const caps = Array.from(section.querySelectorAll<HTMLElement>("[data-lc-cap]"));
+  const fill = section.querySelector<HTMLElement>("[data-lc-fill]");
+  if (!stagewrap) return;
+
+  section.classList.add("is-scrolly");
+
   const q = (s: string) => tile.querySelector<HTMLElement>(s);
   const ripple = q(".lc-ripple");
   const email = q(".lc-email-bubble");
@@ -288,31 +299,44 @@ function initLeadCapture(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
   gsap.set(dot, { boxShadow: "0 0 0 0 rgba(0,0,0,0)" });
   gsap.set(added, { autoAlpha: 0, x: -4 });
 
+  const setActive = (i: number) =>
+    caps.forEach((c, j) => (j === i ? c.setAttribute("data-active", "") : c.removeAttribute("data-active")));
+
   void ScrollTrigger; // already registered by caller
   const tl = gsap.timeline({
     defaults: { ease: "power2.out" },
-    scrollTrigger: { trigger: tile, start: "top 78%", end: "bottom 62%", scrub: 0.6 },
+    scrollTrigger: {
+      trigger: stagewrap,
+      start: "center center",
+      end: "+=170%",
+      pin: true,
+      scrub: 0.6,
+      onUpdate: (self) => {
+        setActive(self.progress < 0.4 ? 0 : self.progress < 0.72 ? 1 : 2);
+        if (fill) gsap.set(fill, { scaleY: self.progress });
+      },
+    },
   });
 
   tl.to(ripple, { scale: 7, autoAlpha: 0.5, duration: 0.4 }, 0.02)
     .set(ripple, { scale: 0 }, 0.42)
     .to(email, { autoAlpha: 1, y: 0, scale: 1, duration: 0.5 }, 0.12)
     // email travels to the card
-    .to(spark1, { autoAlpha: 1, duration: 0.1 }, 0.24)
-    .to(spark1, { y: 26, duration: 0.4 }, 0.24)
-    .to(spark1, { autoAlpha: 0, duration: 0.1 }, 0.5)
+    .to(spark1, { autoAlpha: 1, duration: 0.1 }, 0.26)
+    .to(spark1, { y: 26, duration: 0.5 }, 0.26)
+    .to(spark1, { autoAlpha: 0, duration: 0.1 }, 0.56)
     // it types into the email field
-    .to(caret, { autoAlpha: 1, duration: 0.1 }, 0.3)
-    .to(typed, { width: () => (typed ? typed.scrollWidth : 0), duration: 0.6 }, 0.3)
-    .to(caret, { autoAlpha: 0, duration: 0.1 }, 0.62)
-    .to(tag, { scale: 1, autoAlpha: 1, duration: 0.4, ease: "back.out(2)" }, 0.46)
+    .to(caret, { autoAlpha: 1, duration: 0.1 }, 0.32)
+    .to(typed, { width: () => (typed ? typed.scrollWidth : 0), duration: 0.7 }, 0.32)
+    .to(caret, { autoAlpha: 0, duration: 0.1 }, 0.66)
+    .to(tag, { scale: 1, autoAlpha: 1, duration: 0.4, ease: "back.out(2)" }, 0.5)
     // webhook hop to the mailing list
-    .to(packet, { autoAlpha: 1, y: 0, duration: 0.4 }, 0.56)
-    .to(spark2, { autoAlpha: 1, duration: 0.1 }, 0.64)
-    .to(spark2, { left: "calc(100% - 8px)", duration: 0.4 }, 0.64)
-    .to(spark2, { autoAlpha: 0, duration: 0.1 }, 0.86)
-    .to(dot, { boxShadow: "0 0 14px 3px #9ece6a", scale: 1.5, duration: 0.2, yoyo: true, repeat: 1 }, 0.74)
-    .to(added, { autoAlpha: 1, x: 0, duration: 0.4 }, 0.8);
+    .to(packet, { autoAlpha: 1, y: 0, duration: 0.4 }, 0.62)
+    .to(spark2, { autoAlpha: 1, duration: 0.1 }, 0.7)
+    .to(spark2, { left: "calc(100% - 8px)", duration: 0.5 }, 0.7)
+    .to(spark2, { autoAlpha: 0, duration: 0.1 }, 0.96)
+    .to(dot, { boxShadow: "0 0 14px 3px #9ece6a", scale: 1.5, duration: 0.2, yoyo: true, repeat: 1 }, 0.82)
+    .to(added, { autoAlpha: 1, x: 0, duration: 0.4 }, 0.88);
 }
 
 /**

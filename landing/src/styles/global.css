@@ -487,10 +487,23 @@
   top: -3px;
 }
 
-/* The capture sequence is SCROLL-DRIVEN: motion.ts (initLeadCapture) scrubs a GSAP timeline tied to
-   the tile's scroll position, sets the pre-capture initial states, then reveals each step as you
-   scroll. The base styles above are the finished frame, so without JS / under reduced-motion the
-   tile shows the complete, legible diagram (no animation). */
+/* The capture sequence is SCROLL-DRIVEN: motion.ts (initLeadCapture) pins the stage and scrubs a GSAP
+   timeline, sets the pre-capture initial states, then reveals each step as you scroll. The base styles
+   above are the finished frame, so without JS / under reduced-motion the tile shows the complete,
+   legible diagram (no animation). The step rail dims inactive steps and lights the active one — only
+   in enhanced (pinned) mode, added as .is-scrolly on the section. */
+[data-lc-section].is-scrolly [data-lc-cap] {
+  opacity: 0.4;
+  transition: opacity 0.4s var(--ease-spring);
+}
+[data-lc-section].is-scrolly [data-lc-cap][data-active] {
+  opacity: 1;
+}
+[data-lc-section].is-scrolly [data-lc-cap][data-active] .lc-cap-dot {
+  border-color: var(--color-blue);
+  background: var(--color-blue);
+  box-shadow: 0 0 10px var(--color-blue);
+}
 
 @media (prefers-reduced-motion: reduce) {
   html {
