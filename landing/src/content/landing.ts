@@ -94,6 +94,36 @@ export const metaAccess = {
     "https://github.com/jurczykpawel/poststack#meta-access-levels--what-needs-app-review-and-what-doesnt",
 };
 
+/**
+ * Lead capture: collect a contact's email/phone from a Meta DM and forward it anywhere.
+ * Backed by the user_email/user_phone_number quick replies + the contact.updated outbound webhook.
+ */
+export const leadCapture = {
+  eyebrow: "Lead capture",
+  title: "Turn a DM into a mailing-list contact",
+  accent: "mailing-list contact",
+  intro:
+    "Ask for an email or phone number with a single tap — Facebook and Instagram pre-fill it from the user's profile, so they confirm instead of typing. It lands on the contact in your CRM and fires a webhook the moment it's captured.",
+  steps: [
+    {
+      n: "01",
+      heading: "Ask with one tap",
+      body: "A rule sends an \"email\" or \"phone\" quick reply. Meta pre-fills it from the user's profile — one tap, no typing, no typos.",
+    },
+    {
+      n: "02",
+      heading: "Stored in your CRM",
+      body: "The captured email/phone is written straight onto the contact, alongside tags, subscription state and conversation history — yours, on your server.",
+    },
+    {
+      n: "03",
+      heading: "Webhook to anywhere",
+      body: "Capturing a contact fires a signed outbound webhook, so you can push it to Listmonk, n8n, a mailing list or any tool — no lock-in, no built-in email vendor to rent.",
+    },
+  ],
+  note: "Outbound webhooks are a PRO feature; the captured contact carries its id so the receiver can pull email, phone and tags.",
+};
+
 /** "You use X when…" contrast block */
 export const comparison = {
   others: [

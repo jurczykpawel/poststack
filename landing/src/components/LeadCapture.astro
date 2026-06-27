@@ -1,0 +1,33 @@
+---
+import { leadCapture } from "../content/landing";
+
+const titleParts = leadCapture.accent ? leadCapture.title.split(leadCapture.accent) : [leadCapture.title];
+---
+
+<section id="lead-capture" class="py-[var(--spacing-section)]">
+  <div class="shell">
+    <div class="mx-auto max-w-[52rem] text-center" data-reveal>
+      <span class="eyebrow">{leadCapture.eyebrow}</span>
+      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
+        {titleParts[0]}<span class="grad">{leadCapture.accent}</span>{titleParts[1]}
+      </h2>
+      <p class="mx-auto mt-5 max-w-[44rem] text-pretty text-lg text-ink-2">{leadCapture.intro}</p>
+    </div>
+
+    <ol class="mt-12 grid gap-4 md:grid-cols-3" data-reveal-group>
+      {
+        leadCapture.steps.map((s) => (
+          <li class="card relative overflow-hidden p-6" data-reveal>
+            <span class="font-[var(--font-mono)] text-sm font-semibold text-blue">{s.n}</span>
+            <p class="mt-2 text-lg font-semibold text-ink">{s.heading}</p>
+            <p class="mt-2 text-ink-2">{s.body}</p>
+          </li>
+        ))
+      }
+    </ol>
+
+    <p class="mx-auto mt-6 max-w-[44rem] text-center font-[var(--font-mono)] text-xs text-ink-3" data-reveal>
+      {leadCapture.note}
+    </p>
+  </div>
+</section>
