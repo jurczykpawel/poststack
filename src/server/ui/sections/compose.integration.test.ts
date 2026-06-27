@@ -135,7 +135,7 @@ describe("unified Compose section", () => {
     expect(out).toContain("Automation");
     expect(out).toContain("First comment");
     expect(out).toContain("Auto-Story");
-    expect(out).toContain("Auto-reply to comments");
+    expect(out).toContain("Comment → DM");
   });
 
   it("POST persists per-post automation (first_comment, auto_story, auto_reply) onto the posts", async () => {
@@ -177,7 +177,7 @@ describe("unified Compose section", () => {
 
     // The compose page advertises the enroll option + the active sequence in its embedded JSON.
     const out = await (await app.request("/compose", { headers: { cookie } })).text();
-    expect(out).toContain("Enroll in a drip sequence");
+    expect(out).toContain("Enroll in a sequence");
     expect(out).toContain("Welcome drip");
 
     const payload = {
@@ -205,7 +205,7 @@ describe("unified Compose section", () => {
   it("renders the Publish section (draft / now / schedule)", async () => {
     if (!TEST_DB) return;
     const out = await (await app.request("/compose", { headers: { cookie } })).text();
-    expect(out).toContain("Save as draft");
+    expect(out).toContain(">Draft<");
     expect(out).toContain("Publish now");
     expect(out).toContain("Schedule");
   });

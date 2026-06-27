@@ -33,6 +33,22 @@ export function platformLabel(platform: string, metadata?: unknown): string {
   return PLATFORMS[platformKey(platform, metadata)]?.label ?? platform;
 }
 
+/** Brand color for a platform (used as a chip/avatar background). */
+export function platformColor(platform: string, metadata?: unknown): string {
+  return PLATFORMS[platformKey(platform, metadata)]?.color ?? "#737ba6";
+}
+
+/** Bare brand glyph (currentColor) as an SVG string — for client-side templates (Alpine x-html data). */
+export function platformGlyphString(platform: string, size = 16, metadata?: unknown): string {
+  const path = PLATFORMS[platformKey(platform, metadata)]?.path ?? "";
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" aria-hidden="true"><path d="${path}"/></svg>`;
+}
+
+/** Bare brand glyph (currentColor) for a platform — server-rendered Html wrapper. */
+export function platformGlyph(platform: string, size = 16, metadata?: unknown): Html {
+  return html`${raw(platformGlyphString(platform, size, metadata))}`;
+}
+
 /** Brand icon + friendly label for a channel/source row. Unknown platforms render the raw text. */
 export function platformCell(platform: string, metadata?: unknown): Html {
   const view = PLATFORMS[platformKey(platform, metadata)];

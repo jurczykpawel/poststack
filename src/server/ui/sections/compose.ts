@@ -14,7 +14,8 @@ import { db } from "@/lib/db";
 import { sequences as sequencesTbl } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { renderPage } from "../layout";
-import { platformLabel } from "../components/platform";
+import { platformLabel, platformColor, platformGlyphString } from "../components/platform";
+import { icon } from "../components/icons";
 
 type Html = ReturnType<typeof html>;
 
@@ -31,15 +32,12 @@ const composeSchema = z.object({
       z.object({
         platform: z.string().min(1).max(LIMITS.line),
         description: z.string().max(LIMITS.text).optional(),
-        hashtags: z.string().max(LIMITS.hashtags).optional(),
-        // COMPOSE2: per-post automation configured in the composer.
         firstComment: z.string().max(LIMITS.text).optional(),
         autoStory: z.boolean().optional(),
         autoReply: autoReplyInput.optional(),
       }),
     )
     .min(1),
-  // COMPOSE3: publish straight from the composer. "draft" just saves; "now"/"schedule" also publish.
   publish: z
     .object({ mode: z.enum(["draft", "now", "schedule"]).default("draft"), at: z.string().max(40).optional() })
     .optional(),
@@ -54,7 +52,6 @@ async function auth(c: Context): Promise<AuthContext | null> {
   return authenticate(c.req.raw).catch(() => null);
 }
 
-/** Active sequences (id + name) a comment auto-reply can enroll into (SEQTRIGGER1). */
 function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; name: string }>> {
   return db.query.sequences.findMany({
     where: and(eq(sequencesTbl.workspace_id, workspaceId), eq(sequencesTbl.status, "active")),
@@ -63,10 +60,9 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
   });
 }
 
-type PlatformOpt = { platform: string; name: string; label: string };
+type PlatformOpt = { platform: string; name: string; label: string; color: string; glyph: string };
 async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
   const brands = await listBrands(workspaceId);
-  // BRANDLIMIT1: locked brands (beyond the tier limit) can't be composed/published — hide them here.
   const locked = await lockedBrandKeys(workspaceId);
   const out: Record<string, { name: string; platforms: PlatformOpt[] }> = {};
   for (const b of brands) {
@@ -76,7 +72,13 @@ async function brandsData(workspaceId: string): Promise<Record<string, { name: s
       name: b.name,
       platforms: slots
         .filter((s) => s.channel)
-        .map((s) => ({ platform: s.platform, name: platformLabel(s.platform), label: s.channel!.label })),
+        .map((s) => ({
+          platform: s.platform,
+          name: platformLabel(s.platform),
+          label: s.channel!.label,
+          color: platformColor(s.platform),
+          glyph: platformGlyphString(s.platform, 16),
+        })),
     };
   }
   return out;
@@ -99,10 +101,9 @@ function composeScript(): Html {
         hasSequences() { return this.canSequence && this.sequences.length > 0; },
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
         brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
-        sel: {},
-        publishMode: "draft", scheduleAt: "",
+        sel: {}, publishMode: "draft", scheduleAt: "", capTab: "base", pvTab: "",
         minAt() { return new Date(Date.now() + 60000).toISOString().slice(0, 16); },
-        submitLabel() { return this.publishMode === "now" ? "Publish now →" : this.publishMode === "schedule" ? "Schedule →" : "Create & open publish →"; },
+        submitLabel() { return this.publishMode === "now" ? ("Publish to " + this.selectedPlatforms().length + " →") : this.publishMode === "schedule" ? "Schedule →" : "Create & open →"; },
         get availPlatforms() { return this.brand && this.brands[this.brand] ? this.brands[this.brand].platforms : []; },
         get hasBrands() { return this.brandList.length > 0; },
         STORY: { facebook: true, instagram: true },
@@ -112,21 +113,41 @@ function composeScript(): Html {
         canAutoReply(p) { return !!this.AUTOREPLY[p]; },
         canComment(p) { return !!this.COMMENT[p]; },
         hasAutomation(p) { return this.canComment(p) || this.canStory(p) || this.canAutoReply(p); },
+        autoTargets() { return this.selectedPlatforms().filter((p) => this.hasAutomation(p.platform)); },
         onBrandChange() {
           var s = {};
           this.availPlatforms.forEach(function (p) {
             s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, arEnabled: false, arKeyword: "", arDmText: "", arResponse: "dm", arSequenceId: "" };
           });
-          this.sel = s;
+          this.sel = s; this.capTab = "base";
+          var first = this.selectedPlatforms()[0];
+          this.pvTab = first ? first.platform : "";
         },
+        toggleTarget(p) {
+          if (!this.sel[p]) return;
+          this.sel[p].on = !this.sel[p].on;
+          if (this.capTab === p && !this.sel[p].on) this.capTab = "base";
+          var sp = this.selectedPlatforms();
+          if (!sp.find((x) => x.platform === this.pvTab)) this.pvTab = sp[0] ? sp[0].platform : "";
+        },
+        isOn(p) { return !!(this.sel[p] && this.sel[p].on); },
         baseFull() { return [this.baseDescription, this.baseHashtags].filter(Boolean).join("\\n\\n"); },
         captionFor(p) { var o = this.sel[p] && this.sel[p].override; return o ? o : this.baseFull(); },
         limit(p) { return this.LIMITS[p] || 2200; },
         count(p) { return this.captionFor(p).length; },
         over(p) { return this.count(p) > this.limit(p); },
+        capCount() {
+          var isBase = this.capTab === "base";
+          var t = isBase ? this.baseFull() : ((this.sel[this.capTab] && this.sel[this.capTab].override) || this.baseFull());
+          var lim = isBase ? 2200 : this.limit(this.capTab);
+          return { n: t.length, lim: lim, over: t.length > lim };
+        },
         selectedPlatforms() { return this.availPlatforms.filter((p) => this.sel[p.platform] && this.sel[p.platform].on); },
         isImage() { return /\\.(png|jpe?g|gif|webp|avif)(\\?|$)/i.test(this.mediaUrl); },
         previewImg() { return this.coverUrl || (this.isImage() ? this.mediaUrl : ""); },
+        pvPlatform() { var sp = this.selectedPlatforms(); return sp.find((p) => p.platform === this.pvTab) || sp[0]; },
+        pvKey() { var pp = this.pvPlatform(); return pp ? pp.platform : ""; },
+        hasOverride(p) { return !!(this.sel[p] && (this.sel[p].override || "").length); },
         canSubmit() { return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
         buildPayload() {
           return {
@@ -169,7 +190,6 @@ function composePage(
   error?: string,
 ): Html {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
-  // SEQTRIGGER1: a comment auto-reply can enroll into a drip — only when licensed AND a sequence exists.
   const seqJson = JSON.stringify({
     canSequence: features.has("sequences"),
     sequences,
@@ -178,6 +198,8 @@ function composePage(
   }).replace(/</g, "\\u003c");
   const typeOpts = CONTENT_TYPES.map(([v, label]) => html`<option value="${v}">${label}</option>`);
   const brandOpts = Object.entries(data).map(([key, v]) => html`<option value="${key}">${v.name}</option>`);
+  const lockChip = (label: string) => html`<p class="card-hint"><span class="lock-chip">${icon("lock", "ico", 11)}PRO</span> ${label}</p>`;
+
   return renderPage({
     title: "Compose",
     nav: "compose",
@@ -190,153 +212,161 @@ function composePage(
           <input type="hidden" name="payload" x-ref="payload" />
 
           <section class="panel">
-            <div class="panel-head"><h3>Brand &amp; asset</h3></div>
-            <label class="fld">
-              <span>Brand</span>
-              <select x-model="brand" @change="onBrandChange()" aria-label="Brand" required>
-                <option value="">— select a brand —</option>
-                ${brandOpts}
-              </select>
-            </label>
-            <template x-if="!hasBrands">
-              <p class="card-hint"><small>No brands yet — create one and map its channels in <a href="/brands">Brands</a> first.</small></p>
-            </template>
-            <label class="fld"><span>Title</span><input type="text" x-model="title" maxlength="200" placeholder="Internal title" required /></label>
-            <div class="fld-row">
-              <label class="fld"><span>Type</span>
-                <select x-model="type" aria-label="Content type">${typeOpts}</select>
+            <div class="panel-head"><h3>Brand &amp; channels</h3><span class="panel-count" x-show="brand" x-text="selectedPlatforms().length + ' selected'"></span></div>
+            <div class="compose-body">
+              <label class="fld" style="max-width:320px">
+                <span>Brand</span>
+                <select x-model="brand" @change="onBrandChange()" aria-label="Brand" required>
+                  <option value="">— select a brand —</option>
+                  ${brandOpts}
+                </select>
               </label>
-              <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" placeholder="https://cdn…/reel.mp4" required /></label>
+              <template x-if="!hasBrands">
+                <p class="card-hint"><small>No brands yet — create one and map its channels in <a href="/brands">Brands</a> first.</small></p>
+              </template>
+              <div class="targets" x-show="brand" x-cloak>
+                <template x-for="p in availPlatforms" :key="p.platform">
+                  <div class="target" :class="isOn(p.platform) ? 'on' : ''" @click="toggleTarget(p.platform)" role="button" tabindex="0" @keydown.enter.prevent="toggleTarget(p.platform)" @keydown.space.prevent="toggleTarget(p.platform)">
+                    <span class="t-pic" :style="'background:'+p.color" x-html="p.glyph"></span>
+                    <span class="t-meta"><span class="t-nm" x-text="p.name"></span><span class="t-hd" x-text="p.label"></span></span>
+                    <span class="t-tick">${icon("check", "ico", 12)}</span>
+                  </div>
+                </template>
+              </div>
             </div>
-            <label class="fld"><span>Cover URL <small>(optional)</small></span><input type="url" x-model="coverUrl" placeholder="https://cdn…/cover.png" /></label>
           </section>
 
           <section class="panel">
-            <div class="panel-head"><h3>Caption</h3></div>
-            <label class="fld"><span>Base description</span><textarea x-model="baseDescription" rows="4" placeholder="Caption shared by every platform — override it per platform in the Platforms section"></textarea></label>
-            <label class="fld"><span>Base hashtags</span><input type="text" x-model="baseHashtags" placeholder="#ai #automation" /></label>
-          </section>
-
-          <section class="panel" x-show="brand" x-cloak>
-            <div class="panel-head"><h3>Platforms</h3><span class="panel-count" x-text="selectedPlatforms().length"></span></div>
-            <p class="card-hint"><small>Toggle targets and tailor the caption per platform (empty = uses the base).</small></p>
-            <div class="compose-platforms">
-              <template x-for="p in availPlatforms" :key="p.platform">
-                <div class="compose-plat" :class="sel[p.platform] && sel[p.platform].on ? 'on' : 'off'">
-                  <label class="compose-plat-head">
-                    <input type="checkbox" x-model="sel[p.platform].on" />
-                    <span class="compose-plat-name" x-text="p.name"></span>
-                    <span class="compose-plat-ch" x-text="'→ ' + p.label"></span>
-                  </label>
-                  <template x-if="sel[p.platform] && sel[p.platform].on">
-                    <div class="compose-plat-body">
-                      <textarea x-model="sel[p.platform].override" rows="3" :placeholder="baseFull() || 'Caption for this platform…'"></textarea>
-                      <div class="compose-counter" :class="over(p.platform) ? 'over' : ''"><span x-text="count(p.platform)"></span> / <span x-text="limit(p.platform)"></span></div>
-
-                      <template x-if="hasAutomation(p.platform)">
-                        <div class="compose-automation">
-                          <div class="compose-automation-head">Automation <small>— fires when this post publishes</small></div>
-
-                          <template x-if="canComment(p.platform) && licFirstComment">
-                            <label class="fld"><span>First comment <small>(auto-posted under the post; empty = channel default)</small></span>
-                              <textarea x-model="sel[p.platform].firstComment" rows="2" placeholder="e.g. 👇 Comment WORD and I'll DM you the link"></textarea>
-                            </label>
-                          </template>
-                          <template x-if="canComment(p.platform) && !licFirstComment">
-                            <p class="card-hint"><small>🔒 First comment is a PRO feature.</small></p>
-                          </template>
-
-                          <template x-if="canStory(p.platform) && licAutoStory">
-                            <label class="compose-toggle">
-                              <input type="checkbox" x-model="sel[p.platform].autoStory" />
-                              <span>Auto-Story — share this post to your Story on publish</span>
-                            </label>
-                          </template>
-                          <template x-if="canStory(p.platform) && !licAutoStory">
-                            <p class="card-hint"><small>🔒 Auto-Story is a PRO feature.</small></p>
-                          </template>
-
-                          <template x-if="canAutoReply(p.platform)">
-                            <div class="compose-autoreply">
-                              <label class="compose-toggle">
-                                <input type="checkbox" x-model="sel[p.platform].arEnabled" />
-                                <span>Auto-reply to comments — DM people who comment a keyword</span>
-                              </label>
-                              <template x-if="sel[p.platform].arEnabled">
-                                <div class="stack" style="gap:.5rem">
-                                  <label class="fld"><span>Keyword</span><input type="text" x-model="sel[p.platform].arKeyword" maxlength="100" placeholder="LINK" /></label>
-                                  <template x-if="hasSequences()">
-                                    <label class="fld"><span>Then</span>
-                                      <select x-model="sel[p.platform].arResponse">
-                                        <option value="dm">Send a DM</option>
-                                        <option value="sequence">Enroll in a drip sequence</option>
-                                      </select>
-                                    </label>
-                                  </template>
-                                  <template x-if="sel[p.platform].arResponse !== 'sequence' || !hasSequences()">
-                                    <label class="fld grow"><span>DM to send</span><input type="text" x-model="sel[p.platform].arDmText" maxlength="2000" placeholder="Here's the link you asked for: …" /></label>
-                                  </template>
-                                  <template x-if="sel[p.platform].arResponse === 'sequence' && hasSequences()">
-                                    <label class="fld grow"><span>Sequence to enroll into</span>
-                                      <select x-model="sel[p.platform].arSequenceId">
-                                        <option value="">— pick a sequence —</option>
-                                        <template x-for="seq in sequences" :key="seq.id">
-                                          <option :value="seq.id" x-text="seq.name"></option>
-                                        </template>
-                                      </select>
-                                    </label>
-                                  </template>
-                                </div>
-                              </template>
-                            </div>
-                          </template>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
+            <div class="panel-head"><h3>Media</h3></div>
+            <div class="compose-body">
+              <div class="media-row">
+                <div class="media-thumb">
+                  <template x-if="previewImg()"><img :src="previewImg()" alt="" onerror="this.style.display='none'" /></template>
+                  <template x-if="!previewImg()">${icon("image", "ico", 22)}</template>
                 </div>
-              </template>
+                <div class="media-fields">
+                  <div class="fld-row">
+                    <label class="fld"><span>Type</span><select x-model="type" aria-label="Content type">${typeOpts}</select></label>
+                    <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" placeholder="https://cdn…/reel.mp4" required /></label>
+                  </div>
+                  <label class="fld"><span>Cover URL <small>(optional)</small></span><input type="url" x-model="coverUrl" placeholder="https://cdn…/cover.png" /></label>
+                </div>
+              </div>
             </div>
           </section>
 
           <section class="panel" x-show="brand" x-cloak>
-            <div class="panel-head"><h3>Publish</h3></div>
-            <div class="compose-publish">
-              <label class="compose-toggle"><input type="radio" name="pmode" value="draft" x-model="publishMode" /><span>Save as draft <small>— configure &amp; publish later</small></span></label>
-              <label class="compose-toggle"><input type="radio" name="pmode" value="now" x-model="publishMode" /><span>Publish now <small>— to every selected channel</small></span></label>
-              <label class="compose-toggle"><input type="radio" name="pmode" value="schedule" x-model="publishMode" /><span>Schedule</span></label>
-              <template x-if="publishMode === 'schedule'">
-                <label class="fld"><span>When</span><input type="datetime-local" x-model="scheduleAt" :min="minAt()" /></label>
+            <div class="panel-head"><h3>Title &amp; caption</h3></div>
+            <div class="compose-body">
+              <label class="fld"><span>Title <small>(internal)</small></span><input type="text" x-model="title" maxlength="200" placeholder="Internal title" required /></label>
+              <div class="cap-tabs">
+                <button type="button" class="cap-tab" :class="capTab==='base' ? 'on' : ''" @click="capTab='base'">Base</button>
+                <template x-for="p in selectedPlatforms()" :key="'cap-'+p.platform">
+                  <button type="button" class="cap-tab" :class="capTab===p.platform ? 'on' : ''" @click="capTab=p.platform">
+                    <span class="cap-glyph" :style="'color:'+p.color" x-html="p.glyph"></span><span x-text="p.name"></span>
+                    <span class="cap-ov" x-show="hasOverride(p.platform)"></span>
+                  </button>
+                </template>
+              </div>
+              <div class="cap-edit">
+                <textarea x-show="capTab==='base'" x-model="baseDescription" rows="4" placeholder="Caption shared by every channel — override per platform with the tabs above"></textarea>
+                <template x-for="p in selectedPlatforms()" :key="'ta-'+p.platform">
+                  <textarea x-show="capTab===p.platform" x-model="sel[p.platform].override" rows="4" :placeholder="baseFull() || ('Caption for '+p.name+'…')"></textarea>
+                </template>
+                <div class="cap-foot"><span class="compose-counter" :class="capCount().over ? 'over' : ''"><span x-text="capCount().n"></span> / <span x-text="capCount().lim"></span></span></div>
+              </div>
+              <label class="fld"><span>Base hashtags</span><input type="text" x-model="baseHashtags" placeholder="#ai #automation" /></label>
+            </div>
+          </section>
+
+          <section class="panel" x-show="brand && selectedPlatforms().length" x-cloak>
+            <div class="panel-head"><h3>Automations</h3><span class="panel-sub">fire on publish</span></div>
+            <div class="compose-body">
+              <template x-for="p in autoTargets()" :key="'auto-'+p.platform">
+                <details class="auto">
+                  <summary>${icon("chevron", "auto-chev", 14)}<span class="auto-glyph" :style="'color:'+p.color" x-html="p.glyph"></span><span class="auto-t" x-text="p.name"></span></summary>
+                  <div class="auto-body">
+                    <template x-if="canComment(p.platform) && licFirstComment">
+                      <label class="fld"><span>First comment <small>(auto-posted under the post)</small></span><textarea x-model="sel[p.platform].firstComment" rows="2" placeholder="e.g. 👇 Comment WORD and I'll DM you the link"></textarea></label>
+                    </template>
+                    <template x-if="canComment(p.platform) && !licFirstComment">${lockChip("First comment")}</template>
+                    <template x-if="canStory(p.platform) && licAutoStory">
+                      <label class="compose-toggle"><input type="checkbox" x-model="sel[p.platform].autoStory" /><span>Auto-Story — reshare this post to your Story on publish</span></label>
+                    </template>
+                    <template x-if="canStory(p.platform) && !licAutoStory">${lockChip("Auto-Story")}</template>
+                    <template x-if="canAutoReply(p.platform)">
+                      <div class="compose-autoreply">
+                        <label class="compose-toggle"><input type="checkbox" x-model="sel[p.platform].arEnabled" /><span>Comment → DM — DM people who comment a keyword</span></label>
+                        <template x-if="sel[p.platform].arEnabled">
+                          <div class="auto-ar">
+                            <label class="fld"><span>Keyword</span><input type="text" x-model="sel[p.platform].arKeyword" maxlength="100" placeholder="LINK" /></label>
+                            <template x-if="hasSequences()">
+                              <label class="fld"><span>Then</span><select x-model="sel[p.platform].arResponse"><option value="dm">Send a DM</option><option value="sequence">Enroll in a sequence</option></select></label>
+                            </template>
+                            <template x-if="sel[p.platform].arResponse !== 'sequence' || !hasSequences()">
+                              <label class="fld grow"><span>DM to send</span><input type="text" x-model="sel[p.platform].arDmText" maxlength="2000" placeholder="Here's the link you asked for…" /></label>
+                            </template>
+                            <template x-if="sel[p.platform].arResponse === 'sequence' && hasSequences()">
+                              <label class="fld grow"><span>Sequence to enroll into</span>
+                                <select x-model="sel[p.platform].arSequenceId">
+                                  <option value="">— pick a sequence —</option>
+                                  <template x-for="seq in sequences" :key="seq.id"><option :value="seq.id" x-text="seq.name"></option></template>
+                                </select>
+                              </label>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </details>
               </template>
             </div>
           </section>
 
-          <div class="compose-actions">
+          <div class="compose-pubbar" x-show="brand" x-cloak>
+            <div class="seg">
+              <button type="button" :class="publishMode==='draft' ? 'on' : ''" @click="publishMode='draft'">Draft</button>
+              <button type="button" :class="publishMode==='now' ? 'on' : ''" @click="publishMode='now'">Publish now</button>
+              <button type="button" :class="publishMode==='schedule' ? 'on' : ''" @click="publishMode='schedule'">Schedule</button>
+            </div>
+            <template x-if="publishMode==='schedule'">
+              <label class="when"><input type="datetime-local" x-model="scheduleAt" :min="minAt()" /></label>
+            </template>
+            <span class="pubbar-grow"></span>
             <button class="btn btn-primary" type="submit" x-bind:disabled="!canSubmit()" x-text="submitLabel()"></button>
-            <small class="compose-note" x-text="publishMode === 'draft' ? 'Saved as a draft — you publish or schedule on the next screen.' : 'Automations (first comment, Auto-Story, auto-reply) fire on publish.'"></small>
           </div>
         </form>
 
         <aside class="compose-preview" x-show="brand" x-cloak>
-          <div class="panel-head"><h3>Preview</h3></div>
+          <div class="panel-head" style="padding-left:0;padding-right:0;border:0"><h3>Live preview</h3><span class="panel-sub">per channel</span></div>
           <template x-if="selectedPlatforms().length === 0">
-            <p class="card-hint"><small>Select at least one platform.</small></p>
+            <p class="card-hint"><small>Select at least one channel.</small></p>
           </template>
-          <template x-for="p in selectedPlatforms()" :key="p.platform">
-            <article class="preview-card">
-              <header class="preview-head">
-                <span class="preview-platform" x-text="p.name"></span>
-                <span class="preview-channel" x-text="p.label"></span>
-              </header>
-              <div class="preview-media">
-                <img x-show="previewImg()" :src="previewImg()" alt="" onerror="this.style.display='none'" />
-                <div class="preview-media-empty" x-show="!previewImg()"><small x-text="mediaUrl ? 'video' : 'no media yet'"></small></div>
+          <template x-if="selectedPlatforms().length">
+            <div>
+              <div class="pv-tabs">
+                <template x-for="p in selectedPlatforms()" :key="'pv-'+p.platform">
+                  <button type="button" class="pv-tab" :class="pvKey()===p.platform ? 'on' : ''" :style="pvKey()===p.platform ? ('color:'+p.color) : ''" @click="pvTab=p.platform" :title="p.name" x-html="p.glyph"></button>
+                </template>
               </div>
-              <p class="preview-caption" x-text="captionFor(p.platform) || 'No caption'"></p>
-              <div class="preview-foot">
-                <span class="compose-counter" :class="over(p.platform) ? 'over' : ''"><span x-text="count(p.platform)"></span> / <span x-text="limit(p.platform)"></span></span>
+              <div class="device">
+                <template x-if="pvPlatform()">
+                  <article class="pv-card">
+                    <header class="pv-head">
+                      <span class="pv-av" :style="'background:'+pvPlatform().color" x-html="pvPlatform().glyph"></span>
+                      <span class="pv-id"><span class="pv-nm" x-text="brands[brand].name"></span><span class="pv-hd" x-text="pvPlatform().label"></span></span>
+                    </header>
+                    <div class="pv-media">
+                      <template x-if="previewImg()"><img :src="previewImg()" alt="" onerror="this.style.display='none'" /></template>
+                      <template x-if="!previewImg()"><span class="pv-media-empty" x-text="mediaUrl ? 'video' : 'no media yet'"></span></template>
+                    </div>
+                    <p class="pv-cap" x-text="captionFor(pvKey()) || 'No caption'"></p>
+                    <div class="pv-foot"><span class="compose-counter" :class="over(pvKey()) ? 'over' : ''"><span x-text="count(pvKey())"></span> / <span x-text="limit(pvKey())"></span></span></div>
+                  </article>
+                </template>
               </div>
-            </article>
+            </div>
           </template>
         </aside>
       </div>
@@ -366,8 +396,6 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
       return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Could not read the form — please try again."), 400);
     }
     const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
-    // COMPOSE3: publish straight from the composer when requested. Best-effort per post (the cockpit
-    // shows each post's resulting status); scheduling validates the timestamp in publishPost.
     const mode = parsed.publish?.mode ?? "draft";
     if (mode === "now" || mode === "schedule") {
       const when = mode === "schedule" ? (parsed.publish?.at ?? "now") : "now";

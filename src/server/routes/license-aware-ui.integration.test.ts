@@ -89,8 +89,8 @@ describe("license-aware dashboard UI", () => {
   it("free /channels locks Telegram and Gmail (PRO)", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/channels")).text();
-    expect(body).toContain("🔒 Telegram (PRO)");
-    expect(body).toContain("🔒 Gmail (PRO)");
+    expect(body).toContain("Telegram (PRO)");
+    expect(body).toContain("Gmail (PRO)");
     expect(body).not.toContain("@click=\"tg = !tg\""); // telegram connect toggle hidden
   });
 
@@ -100,7 +100,7 @@ describe("license-aware dashboard UI", () => {
       workspace_id: WS, platform: "facebook", platform_id: "FB-UI", token_encrypted: "x", webhook_secret: "s", status: "active",
     });
     const body = await (await get("/channels")).text();
-    expect(body).toContain("🔒 Facebook (PRO)");
+    expect(body).toContain("Facebook (PRO)");
     expect(body).toContain("one Facebook + one Instagram channel");
   });
 
@@ -109,7 +109,7 @@ describe("license-aware dashboard UI", () => {
     await licenseInstance();
     const body = await (await get("/channels")).text();
     expect(body).toContain("@click=\"tg = !tg\"");
-    expect(body).not.toContain("🔒 Telegram (PRO)");
+    expect(body).not.toContain("Telegram (PRO)");
   });
 
   it("free /overview: inbox is free (real nav link), contacts CRM stays locked", async () => {

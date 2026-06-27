@@ -6,12 +6,12 @@ import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { renderPage } from "../layout";
-import { statusBadge, pill, type Tone } from "../components/status";
+import { statusBadge, pill, dot, type Tone } from "../components/status";
 import { platformCell } from "../components/platform";
 import { btn } from "../components/button";
+import { icon } from "../components/icons";
 import { urlLink, safeHttpUrl } from "../components/url";
 import { relTime, fmtDate } from "../components/format";
-import { emptyState } from "../components/empty-state";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 import { listQueue, channelOptions, getQueueItem, type QueueRow, type QueueItem } from "./queue-data";
 
@@ -82,13 +82,13 @@ function rowAction(r: QueueRow): Html {
   const act = `/queue/${r.id}`;
   if (r.status === "failed") {
     return html`<form method="post" action="${act}/retry" hx-post="${act}/retry" ${rowHx(r.id)} class="q-inline">
-      ${btn({ label: "Retry", variant: "secondary", size: "sm", icon: "reconnect" })}
+      <button class="btn btn-ic" type="submit" title="Retry" aria-label="Retry post">${icon("reconnect", "ico", 15)}</button>
     </form>`;
   }
   if (r.status === "scheduled" || r.status === "held") {
     return html`<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx(r.id)} class="q-inline"
       hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">
-      ${btn({ label: "Cancel", variant: "ghost", size: "sm" })}
+      <button class="btn btn-ic" type="submit" title="Cancel" aria-label="Cancel post">${icon("close", "ico", 15)}</button>
     </form>`;
   }
   return html`<small>—</small>`;
@@ -105,6 +105,24 @@ function row(r: QueueRow): Html {
     <td data-label="Last error">${errorCell(r.lastError)}</td>
     <td data-label="Action" class="th-act">${rowAction(r)}</td>
   </tr>`;
+}
+
+// A status-keyed subheading so a mixed (unfiltered) queue reads as clusters — "Failed 3" then the rows.
+function groupHead(status: DeliveryRow["status"], n: number): Html {
+  return html`<tr class="row-group-head"><td colspan="7">${dot(STATUS_TONE[status])} ${status} <span class="muted">${n} ${n === 1 ? "post" : "posts"}</span></td></tr>`;
+}
+
+// Stable partition by status (preserves the query's urgency rank + each cluster's date order) → header + rows.
+function groupedRows(rows: QueueRow[], grouped: boolean): Html[] {
+  if (!grouped) return rows.map(row);
+  const order: DeliveryRow["status"][] = [];
+  const buckets = new Map<DeliveryRow["status"], QueueRow[]>();
+  for (const r of rows) {
+    let bucket = buckets.get(r.status);
+    if (!bucket) { bucket = []; buckets.set(r.status, bucket); order.push(r.status); }
+    bucket.push(r);
+  }
+  return order.flatMap((status) => [groupHead(status, buckets.get(status)!.length), ...buckets.get(status)!.map(row)]);
 }
 
 async function queuePage(c: Context): Promise<Response> {
@@ -125,6 +143,9 @@ async function queuePage(c: Context): Promise<Response> {
 
   const formats = [...new Set(rows.map((r) => r.format))].sort();
   const empty = rows.length === 0;
+  const blankSlate = empty && !status && !channelId && !format;
+  // Cluster by status only when the (unfiltered) view actually mixes statuses; a filtered view is one status.
+  const grouped = !status && new Set(rows.map((r) => r.status)).size > 1;
 
   return c.html(
     renderPage({
@@ -135,23 +156,27 @@ async function queuePage(c: Context): Promise<Response> {
       breadcrumb: `${rows.length} shown`,
       body: html`${statusChips(status)}
         ${filterBar({ status, channelId, format }, channels, formats)}
-        <div class="table-wrap">
-          <table class="data-table" aria-label="Queued posts">
-            <thead>
-              <tr>
-                <th scope="col">Time</th><th scope="col">Channel</th><th scope="col">Format</th>
-                <th scope="col">Status</th><th scope="col">Attempts</th><th scope="col">Last error</th>
-                <th scope="col" class="th-act">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${empty ? html`<tr><td colspan="7" class="table-empty">No posts match these filters.</td></tr>` : rows.map(row)}
-            </tbody>
-          </table>
-        </div>
-        ${empty && !status && !channelId && !format
-          ? emptyState({ title: "Nothing queued yet", body: "Scheduled and failed posts appear here. Publish or schedule content from the cockpit.", action: { label: "Content", href: "/content" } })
-          : ""}`,
+        ${blankSlate
+          ? html`<div class="empty">
+              <span class="empty-ic">${icon("queue", "ico", 20)}</span>
+              <p class="empty-title">Nothing queued yet</p>
+              <p class="empty-body">Scheduled and failed posts land here. Publish or schedule content from the composer.</p>
+              ${btn({ label: "Open composer", href: "/compose", variant: "secondary", size: "sm", icon: "compose" })}
+            </div>`
+          : html`<div class="table-wrap">
+              <table class="data-table" aria-label="Queued posts">
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th><th scope="col">Channel</th><th scope="col">Format</th>
+                    <th scope="col">Status</th><th scope="col">Attempts</th><th scope="col">Last error</th>
+                    <th scope="col" class="th-act">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${empty ? html`<tr><td colspan="7" class="table-empty">No posts match these filters.</td></tr>` : groupedRows(rows, grouped)}
+                </tbody>
+              </table>
+            </div>`}`,
     }),
   );
 }
@@ -166,7 +191,7 @@ function mediaPreview(media: MediaRow): Html {
   const imgSrc = media.kind === "image" ? safeHttpUrl(media.url) : null;
   const thumb = imgSrc
     ? html`<img class="media-thumb" src="${imgSrc}" alt="" loading="lazy" />`
-    : html`<div class="media-thumb media-thumb-video" aria-hidden="true">▶</div>`;
+    : html`<div class="media-thumb media-thumb-video" aria-hidden="true">${icon("play", "ico", 18)}</div>`;
   return html`<div class="media-item">
     ${thumb}
     <div class="media-meta">
@@ -196,7 +221,7 @@ function detailActions(post: DeliveryRow): Html {
     ? html`<form method="post" action="${back}/retry" hx-post="${back}/retry" ${raw(HX_HEAD)}>${btn({ label: "Retry", variant: "primary", icon: "reconnect" })}</form>`
     : "";
   const cancel = post.status === "scheduled" || post.status === "held"
-    ? html`<form method="post" action="${back}/cancel" hx-post="${back}/cancel" ${raw(HX_HEAD)} hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">${btn({ label: "Cancel", variant: "danger" })}</form>`
+    ? html`<form method="post" action="${back}/cancel" hx-post="${back}/cancel" ${raw(HX_HEAD)} hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">${btn({ label: "Cancel", variant: "danger", icon: "close" })}</form>`
     : "";
   if (!retry && !cancel) return html``;
   return html`<div class="action-bar">${retry}${cancel}</div>`;

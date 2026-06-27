@@ -34,9 +34,9 @@ import { getInstanceLicense, hasFeature } from "@/lib/license/gate";
 import { proMessage, type Feature } from "@/lib/license/features";
 import { renderPage } from "../layout";
 import { statusBadge, pill, dot, type Tone } from "../components/status";
-import { platformCell, platformLabel } from "../components/platform";
+import { platformCell, platformLabel, platformColor, platformGlyph } from "../components/platform";
 import { btn } from "../components/button";
-import { accountCell } from "../components/account";
+import { icon } from "../components/icons";
 import { oauthStartHref } from "../components/reconnect";
 import { relTime, fmtDate } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
@@ -83,20 +83,6 @@ function reauthAction(ch: PublicChannel): Html {
   return html`<a class="act outline" role="button" href="/channels/${ch.id}">Reconnect →</a>`;
 }
 
-function sortLink(params: URLSearchParams, sort: ChannelSort): string {
-  const p = new URLSearchParams(params);
-  p.set("sort", sort);
-  const qs = p.toString();
-  return qs ? `/channels?${qs}` : "/channels";
-}
-
-function sortHead(label: string, sort: ChannelSort, active: ChannelSort, params: URLSearchParams): Html {
-  const isActive = active === sort;
-  const ariaSort = isActive ? raw(' aria-sort="ascending"') : raw("");
-  const arrow = isActive ? raw(' <span class="th-arrow" aria-hidden="true">↑</span>') : "";
-  return html`<th scope="col"${ariaSort}><a class="th-sort" href="${sortLink(params, sort)}">${label}${arrow}</a></th>`;
-}
-
 function countsHeader(
   byStatus: Record<ChannelStatus, number>,
   byPlatform: Record<string, number>,
@@ -139,9 +125,11 @@ function filterBar(
   const statusOpts = CHANNEL_STATUSES.map(
     (s) => html`<option value="${s}"${active.status === s ? raw(" selected") : raw("")}>${STATUS_META[s].label}</option>`,
   );
-  const sortField = active.sort !== "recent" ? html`<input type="hidden" name="sort" value="${active.sort}" />` : "";
+  const sortOpts = SORT_LABELS.map(
+    ([v, label]) => html`<option value="${v}"${active.sort === v ? raw(" selected") : raw("")}>${label}</option>`,
+  );
   const hiddenField = active.showHidden ? html`<input type="hidden" name="showHidden" value="1" />` : "";
-  const hasFilters = !!(active.platform || active.status || active.q);
+  const hasFilters = !!(active.platform || active.status || active.q || active.sort !== "recent");
   return html`<form class="filter-bar" method="get" action="/channels" role="search">
     <div class="filter-search">
       <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-search" /></svg>
@@ -155,11 +143,19 @@ function filterBar(
       <option value="">All statuses</option>
       ${statusOpts}
     </select>
-    ${sortField}${hiddenField}
+    <select name="sort" aria-label="Sort channels">${sortOpts}</select>
+    ${hiddenField}
     <button class="btn btn-secondary btn-sm" type="submit">Apply</button>
     ${hasFilters ? html`<a class="filter-clear" href="${active.showHidden ? "/channels?showHidden=1" : "/channels"}">Clear</a>` : ""}
   </form>`;
 }
+
+const SORT_LABELS: [ChannelSort, string][] = [
+  ["recent", "Newest"],
+  ["name", "Name"],
+  ["status", "Status"],
+  ["platform", "Platform"],
+];
 
 /** Per-row brand assignment select (htmx PUT; toast only — the group regroups on reload). */
 function brandSelect(ch: PublicChannel, brands: BrandRow[]): Html {
@@ -180,18 +176,43 @@ function channelHandle(ch: PublicChannel): string | undefined {
   return ch.username ?? undefined;
 }
 
-function channelRow(ch: PublicChannel, brands: BrandRow[]): Html {
-  return html`<tr>
-    <td data-label="Platform"><a class="row-link" href="/channels/${ch.id}">${platformCell(ch.platform, ch.metadata)}</a></td>
-    <td data-label="Account"><a class="row-link row-name" href="/channels/${ch.id}">${accountCell(ch.display_name, ch.provider_account_id, channelAvatar(ch), channelHandle(ch))}</a></td>
-    <td data-label="Status">${statusBadge(ch.status)}</td>
-    <td data-label="Can">${capabilityBadges(ch)}</td>
-    <td data-label="Brand">${brandSelect(ch, brands)}</td>
-    <td data-label="Action">${reauthAction(ch)}</td>
-  </tr>`;
+/** The per-card primary action: reconnect when the token is stale, otherwise a quiet "Manage" link. */
+function cardAction(ch: PublicChannel): Html {
+  if (ch.status === "needs_reauth") return reauthAction(ch);
+  return html`<a class="act outline" role="button" href="/channels/${ch.id}">Manage →</a>`;
 }
 
-/** Group channel rows by owning brand (brands A→Z, then Unassigned). */
+function channelCard(ch: PublicChannel, brands: BrandRow[]): Html {
+  const tone = STATUS_META[ch.status].tone;
+  const color = platformColor(ch.platform, ch.metadata);
+  const name = ch.display_name ?? ch.provider_account_id;
+  const handle = channelHandle(ch);
+  const handleStr = handle ? (handle.startsWith("@") ? handle : `@${handle}`) : null;
+  const handleBit = handleStr && handleStr !== ch.display_name && handleStr !== ch.provider_account_id
+    ? html`<span class="acct-handle">${handleStr}</span>`
+    : "";
+  const idBit = ch.display_name ? html`<span class="acct-id">${ch.provider_account_id}</span>` : "";
+  // Real profile picture + a small brand-glyph badge; brand-coloured glyph tile when there's no photo.
+  const av = channelAvatar(ch);
+  const avatar = av && av.startsWith("https://")
+    ? html`<span class="conv-av"><img class="conv-av-i" src="${av}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'" /><span class="conv-pg" style="background:${color}">${platformGlyph(ch.platform, 9, ch.metadata)}</span></span>`
+    : html`<span class="conv-av"><span class="conv-av-i" style="background:${color}">${platformGlyph(ch.platform, 18, ch.metadata)}</span></span>`;
+  return html`<article class="post-card ch-card tone-edge-${tone}">
+    <a class="ch-card-head" href="/channels/${ch.id}">
+      ${avatar}
+      <span class="ch-meta">
+        <span class="acct-name">${name}</span>
+        ${handleBit}
+        ${idBit}
+      </span>
+      ${statusBadge(ch.status)}
+    </a>
+    <div class="detail-sub"><span class="mode-tag">${ch.connection_mode}</span>${capabilityBadges(ch)}</div>
+    <div class="ch-foot">${brandSelect(ch, brands)}<span class="ch-foot-act">${cardAction(ch)}</span></div>
+  </article>`;
+}
+
+/** Group channel cards by owning brand (brands A→Z, then Unassigned). */
 function channelGroups(items: PublicChannel[], brands: BrandRow[]): Html {
   const nameByKey = new Map(brands.map((b) => [b.key, b.name] as const));
   const groups = new Map<string, PublicChannel[]>();
@@ -206,11 +227,13 @@ function channelGroups(items: PublicChannel[], brands: BrandRow[]): Html {
     .map((b) => b.key)
     .filter((k) => groups.has(k));
   if (groups.has("")) orderedKeys.push("");
+  // A lone "Unassigned" group needs no header; brand groups always label themselves.
+  const showHeads = orderedKeys.length > 1 || orderedKeys[0] !== "";
   return html`${orderedKeys.map((k) => {
     const list = groups.get(k)!;
     const label = k === "" ? "Unassigned" : (nameByKey.get(k) ?? k);
-    return html`<tr class="row-group-head"><td colspan="6">${label} <span class="muted">(${list.length})</span></td></tr>
-      ${list.map((ch) => channelRow(ch, brands))}`;
+    const head = showHeads ? html`<div class="cred-subhead">${label} (${list.length})</div>` : "";
+    return html`${head}<div class="card-grid">${list.map((ch) => channelCard(ch, brands))}</div>`;
   })}`;
 }
 
@@ -246,16 +269,10 @@ async function channelsPage(c: Context): Promise<Response> {
     getInstanceLicense(),
   ]);
 
-  const persist = new URLSearchParams();
-  if (platformParam) persist.set("platform", platformParam);
-  if (status) persist.set("status", status);
-  if (q) persist.set("q", q);
-  if (sourceId) persist.set("sourceId", sourceId);
-  if (showHidden) persist.set("showHidden", "1");
-
-  const rows = channelGroups(items, brands);
   const platformsForFilter = Object.keys(countsByPlatform).sort();
-  const empty = items.length === 0;
+  const totalChannels = CHANNEL_STATUSES.reduce((n, s) => n + countsByStatus[s], 0);
+  const noChannels = totalChannels === 0; // truly empty workspace (vs. none matching a filter)
+  const noMatch = !noChannels && items.length === 0;
   const canManaged = lic.features.has("managed_connection");
   const canMultiChannel = lic.features.has("multi_channel");
   const canNonMeta = lic.features.has("non_meta_channels");
@@ -264,7 +281,7 @@ async function channelsPage(c: Context): Promise<Response> {
   const hasIg = items.some((ch) => ch.platform === "instagram" && ch.status !== "disabled");
   // A locked connect affordance: links to the upgrade page instead of connecting.
   const proConnect = (label: string) =>
-    html`<a class="btn btn-secondary" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 ${label} (PRO)</a>`;
+    html`<a class="btn btn-secondary" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 12)} ${label} (PRO)</a>`;
 
   return c.html(
     renderPage({
@@ -272,58 +289,59 @@ async function channelsPage(c: Context): Promise<Response> {
       nav: "channels",
       features: lic.features,
       products: lic.products,
-      breadcrumb: sourceId ? `${items.length} shown · filtered by source` : `${items.length} shown`,
+      breadcrumb: noChannels ? "No channels yet" : sourceId ? `${items.length} shown · filtered by source` : `${items.length} shown`,
       body: html`${errorKey ? html`<div class="auth-error">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : ""}
-        ${connected && connectedCount ? html`<div class="empty-body" style="color:var(--ok-text)">${connectedCount} ${platformLabel(connected)} account(s) connected.</div>` : ""}
-        ${countsHeader(countsByStatus, countsByPlatform, { status, platform: platformParam, showHidden }, hiddenCount)}
-        ${filterBar(platformsForFilter, { platform: platformParam, status, q, sort, showHidden })}
-        <div class="table-wrap">
-          <table class="data-table" aria-label="Channels">
-            <thead>
-              <tr>
-                ${sortHead("Platform", "platform", sort, persist)}
-                ${sortHead("Account", "name", sort, persist)}
-                ${sortHead("Status", "status", sort, persist)}
-                <th scope="col">Can</th>
-                <th scope="col">Brand</th>
-                <th scope="col" class="th-act">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${empty ? html`<tr><td colspan="6" class="table-empty">No channels match these filters.</td></tr>` : rows}
-            </tbody>
-          </table>
-        </div>
-        <h3>Connect a channel</h3>
-        <p><small>Connect a Facebook Page or Instagram Business account by OAuth, paste a long-lived token, or set up a <a href="/sources">managed connection</a>${canManaged ? "" : " (PRO)"} to connect all your accounts at once.</small></p>
-        <div x-data="{ tg: false }">
-          <div class="action-bar" style="margin:0">
-            ${hasFb && !canMultiChannel ? proConnect("Facebook") : html`<a class="btn btn-secondary" href="/api/oauth/facebook">+ Facebook</a>`}
-            ${hasIg && !canMultiChannel ? proConnect("Instagram") : html`<a class="btn btn-secondary" href="/api/oauth/instagram">+ Instagram</a>`}
-            ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/youtube">+ YouTube</a>` : proConnect("YouTube")}
-            ${canNonMeta
-              ? html`<button class="btn btn-secondary" type="button" @click="tg = !tg">+ Telegram</button>`
-              : proConnect("Telegram")}
-            ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/gmail">+ Gmail</a>` : proConnect("Gmail")}
-          </div>
-          ${(hasFb || hasIg) && !canMultiChannel
-            ? html`<p><small>Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</small></p>`
-            : ""}
-          <div x-show="tg" x-cloak style="margin-top:.75rem">
-            <p><small>In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token. We register the webhook for you.</small></p>
-            <form hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="#channels-toast" hx-swap="innerHTML">
-              <input name="token" placeholder="123456789:AA..." required />
-              <button type="submit">Connect Telegram</button>
+        ${connected && connectedCount ? html`<div class="notice notice-ok">${connectedCount} ${platformLabel(connected)} account(s) connected.</div>` : ""}
+        ${noChannels
+          ? html`<section class="panel"><div class="empty">
+              <span class="empty-ic">${icon("channels", "ico", 20)}</span>
+              <p class="empty-title">No channels connected yet</p>
+              <p class="empty-body">Connect your first Facebook Page, Instagram, YouTube, Telegram or Gmail account to start publishing and auto-replying — they’ll appear here grouped by brand.</p>
+            </div></section>`
+          : html`${countsHeader(countsByStatus, countsByPlatform, { status, platform: platformParam, showHidden }, hiddenCount)}
+            ${filterBar(platformsForFilter, { platform: platformParam, status, q, sort, showHidden })}
+            ${noMatch
+              ? html`<section class="panel"><div class="empty">
+                  <span class="empty-ic">${icon("search", "ico", 20)}</span>
+                  <p class="empty-title">No channels match these filters</p>
+                  <p class="empty-body">Try a different search, status or platform.</p>
+                  <a class="btn btn-secondary" href="${showHidden ? "/channels?showHidden=1" : "/channels"}">Clear filters</a>
+                </div></section>`
+              : channelGroups(items, brands)}`}
+        <section class="panel">
+          <div class="panel-head"><h3>Connect a channel</h3></div>
+          <div class="set-body">
+            <p class="set-lead">Connect a Facebook Page or Instagram Business account by OAuth, paste a long-lived token, or set up a <a href="/sources">managed connection</a>${canManaged ? "" : " (PRO)"} to connect all your accounts at once.</p>
+            <div x-data="{ tg: false }">
+              <div class="action-bar" style="margin:0">
+                ${hasFb && !canMultiChannel ? proConnect("Facebook") : html`<a class="btn btn-secondary" href="/api/oauth/facebook">+ Facebook</a>`}
+                ${hasIg && !canMultiChannel ? proConnect("Instagram") : html`<a class="btn btn-secondary" href="/api/oauth/instagram">+ Instagram</a>`}
+                ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/youtube">+ YouTube</a>` : proConnect("YouTube")}
+                ${canNonMeta
+                  ? html`<button class="btn btn-secondary" type="button" @click="tg = !tg">+ Telegram</button>`
+                  : proConnect("Telegram")}
+                ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/gmail">+ Gmail</a>` : proConnect("Gmail")}
+              </div>
+              ${(hasFb || hasIg) && !canMultiChannel
+                ? html`<p class="set-lead" style="margin:.75rem 0 0">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</p>`
+                : ""}
+              <div x-show="tg" x-cloak style="margin-top:.75rem">
+                <p class="set-lead" style="margin:0 0 .5rem">In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token. We register the webhook for you.</p>
+                <form class="connect-form" hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="#channels-toast" hx-swap="innerHTML">
+                  <input class="input" name="token" placeholder="123456789:AA..." required />
+                  <button class="btn btn-primary btn-sm" type="submit">Connect Telegram</button>
+                </form>
+              </div>
+            </div>
+            <div class="cred-subhead">Connect a token manually</div>
+            <form class="connect-form" hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="#channels-toast" hx-swap="innerHTML">
+              <select name="platform" aria-label="Platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select>
+              <input class="input" name="token" placeholder="paste long-lived / System User token" required />
+              <button class="btn btn-primary btn-sm" type="submit">Connect</button>
             </form>
+            <div id="channels-toast"></div>
           </div>
-        </div>
-        <h3>Connect a token manually</h3>
-        <form hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="#channels-toast" hx-swap="innerHTML">
-          <select name="platform" aria-label="Platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select>
-          <input name="token" placeholder="paste long-lived / System User token" required />
-          <button type="submit">Connect</button>
-        </form>
-        <div id="channels-toast"></div>`,
+        </section>`,
     }),
   );
 }
@@ -431,25 +449,25 @@ function firstCommentPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: str
   // Same out-of-band pattern as the Auto-Story panel: the control lives here, not in #ch-detail-head,
   // so the save action re-renders this panel in place (reflecting the saved value), no page reload.
   const body = licensed
-    ? html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+    ? html`<p class="set-lead">
         Auto-posted as the first comment under every post published to this channel
         (e.g. “link in the comments 👇”). Leave empty to turn it off.
       </p>
-      <form method="post" action="/channels/${ch.id}/first-comment"
+      <form class="panel-form" method="post" action="/channels/${ch.id}/first-comment"
         hx-post="/channels/${ch.id}/first-comment" hx-target="#ch-detail-head" hx-swap="outerHTML">
         <textarea name="firstComment" rows="3" maxlength="2000"
           placeholder="e.g. Grab the free guide → https://…"
           aria-label="Default first comment"
           style="width:100%;resize:vertical;font:inherit">${ch.default_first_comment ?? ""}</textarea>
-        <div style="margin-top:.5rem">${btn({ label: "Save first comment", variant: "secondary", size: "sm" })}</div>
+        ${btn({ label: "Save first comment", variant: "secondary", size: "sm" })}
       </form>`
-    : html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+    : html`<p class="set-lead">
         Auto-post a first comment (e.g. “link in the comments 👇”) under every post published to this channel.
       </p>
-      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 First comment (PRO)</a>`;
+      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 13)} First comment (PRO)</a>`;
   return html`<section class="panel" id="first-comment-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
     <div class="panel-head"><h3>First comment</h3></div>
-    <div class="panel-body">${body}</div>
+    <div class="set-body">${body}</div>
   </section>`;
 }
 
@@ -472,22 +490,22 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
   // The toggle lives in THIS panel (not in #ch-detail-head), so the action's response re-renders it
   // out-of-band (hx-swap-oob) — the button label + status flip in place, no page reload.
   const body = licensed
-    ? html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+    ? html`<p class="set-lead">
         Auto-publish a generated Story card (cover + caption) about every post published to this
         channel. ${on ? "Currently on." : "Currently off."}
       </p>
-      <form method="post" action="/channels/${ch.id}/auto-story"
+      <form class="panel-form" method="post" action="/channels/${ch.id}/auto-story"
         hx-post="/channels/${ch.id}/auto-story" hx-target="#ch-detail-head" hx-swap="outerHTML">
         <input type="hidden" name="enabled" value="${on ? "0" : "1"}" />
         ${btn({ label: on ? "Turn off auto-Story" : "Turn on auto-Story", variant: on ? "danger" : "secondary", size: "sm" })}
       </form>`
-    : html`<p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+    : html`<p class="set-lead">
         Auto-publish a generated Story card (cover + caption) about every post published to this channel.
       </p>
-      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">🔒 Auto-Story (PRO)</a>`;
+      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 13)} Auto-Story (PRO)</a>`;
   return html`<section class="panel" id="story-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
     <div class="panel-head"><h3>Auto-Story</h3></div>
-    <div class="panel-body">${body}</div>
+    <div class="set-body">${body}</div>
   </section>`;
 }
 
@@ -497,19 +515,19 @@ function gmailFilterPanel(ch: PublicChannel, oob = false): Html {
   if (ch.platform !== "gmail") return html``;
   return html`<section class="panel" id="gmail-filter-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
     <div class="panel-head"><h3>Ingest filter</h3></div>
-    <div class="panel-body">
-      <p class="muted" style="font-size:.82rem;margin:0 0 .5rem">
+    <div class="set-body">
+      <p class="set-lead">
         Gmail search query that controls which messages PostStack pulls in.
         Leave empty to use the default (<code>in:inbox</code>).
       </p>
-      <form method="post" action="/channels/${ch.id}/gmail-filter"
+      <form class="panel-form" method="post" action="/channels/${ch.id}/gmail-filter"
         hx-post="/channels/${ch.id}/gmail-filter" hx-target="#ch-detail-head" hx-swap="outerHTML">
         <input name="query" type="text" maxlength="1000"
           placeholder="e.g. label:Support from:vip@x.com"
           value="${ch.gmail_query ?? ""}"
           aria-label="Gmail ingest query"
           style="width:100%;font:inherit" />
-        <div style="margin-top:.5rem">${btn({ label: "Save filter", variant: "secondary", size: "sm" })}</div>
+        ${btn({ label: "Save filter", variant: "secondary", size: "sm" })}
       </form>
     </div>
   </section>`;
@@ -517,11 +535,16 @@ function gmailFilterPanel(ch: PublicChannel, oob = false): Html {
 
 function manualReconnectForm(ch: PublicChannel): Html {
   if (ch.connection_mode !== "manual_token") return html``;
-  return html`<h3>Reconnect — paste a fresh token</h3>
-    <form method="post" action="/channels/${ch.id}/reconnect">
-      <input name="token" placeholder="paste long-lived / System User token" required />
-      <button type="submit">Reconnect</button>
-    </form>`;
+  return html`<section class="panel">
+    <div class="panel-head"><h3>Reconnect</h3></div>
+    <div class="set-body">
+      <p class="set-lead">Paste a fresh long-lived / System User token to reconnect this channel.</p>
+      <form class="connect-form" method="post" action="/channels/${ch.id}/reconnect">
+        <input class="input" name="token" placeholder="paste long-lived / System User token" required />
+        ${btn({ label: "Reconnect", variant: "primary", size: "sm", icon: "reconnect" })}
+      </form>
+    </div>
+  </section>`;
 }
 
 function detailHead(ch: PublicChannel): Html {
@@ -625,13 +648,13 @@ async function channelDetailPage(c: Context): Promise<Response> {
         </div>
         ${stats
           ? html`<section class="panel"><div class="panel-head"><h3>Stats</h3></div>
-              <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:1.25rem">
-                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.posts}</div><div class="muted" style="font-size:.72rem">Posts published</div></div>
-                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.conversations}</div><div class="muted" style="font-size:.72rem">Conversations</div></div>
-                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.messages}</div><div class="muted" style="font-size:.72rem">Messages</div></div>
-                <div><div class="stat-n" style="font-size:1.4rem;font-weight:700">${stats.comments}</div><div class="muted" style="font-size:.72rem">Comments</div></div>
+              <div class="set-body" style="display:flex;flex-wrap:wrap;gap:1.5rem">
+                <div><div class="kpi-n">${stats.posts}</div><div class="kpi-l">Posts published</div></div>
+                <div><div class="kpi-n">${stats.conversations}</div><div class="kpi-l">Conversations</div></div>
+                <div><div class="kpi-n">${stats.messages}</div><div class="kpi-l">Messages</div></div>
+                <div><div class="kpi-n">${stats.comments}</div><div class="kpi-l">Comments</div></div>
               </div></section>`
-          : html`<section class="panel"><div class="panel-body muted" style="font-size:.82rem">📊 Channel stats (posts &amp; messages) are a PRO feature.</div></section>`}
+          : html`<section class="panel"><div class="set-body"><p class="set-lead" style="margin:0">${icon("lock", "ico", 13)} Channel stats (posts & messages) are a PRO feature.</p></div></section>`}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
         ${gmailFilterPanel(ch)}

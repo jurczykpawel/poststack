@@ -1,21 +1,68 @@
+/* PostStack design tokens (v2). Self-hosted Geist (latin + latin-ext, font-display:swap).
+   Dark + light. Pre-redesign screens keep working via the back-compat aliases at the bottom. */
+
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/geist-400-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/geist-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/geist-500-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/geist-500-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/geist-600-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/geist-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/geist-700-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/geist-700-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/geist-mono-400-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/geist-mono-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/geist-mono-500-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/geist-mono-500-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/geist-mono-600-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/geist-mono-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+
+:root {
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px;
+  --r-control:9px; --r-card:13px; --r-pill:999px;
+  --radius-control:var(--r-control); --radius-card:var(--r-card); --radius-pill:var(--r-pill);
+  --shell-max:1480px; --ease:cubic-bezier(.32,.72,0,1);
+  --font-sans:"Geist",-apple-system,"Segoe UI",system-ui,sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --fs-display:28px; --fs-h1:18px; --fs-h2:15px; --fs-h3:13px; --fs-body:13.5px; --fs-sm:12.5px; --fs-xs:11px;
+}
+
 :root[data-theme="dark"] {
-  --bg: #1a1b26; --bg-sidebar: #15151d; --surface: #21263a; --surface-2: #2c3147; --overlay: #292e42;
-  --border: #262a3f; --border-strong: #363c57;
-  --text-1: #c0caf5; --text-2: #a3abd0; --text-3: #8b93c4;
-  --accent: #7aa2f7; --accent-contrast: #10131f; --accent-2: #bb9af7;
-  --ok: #9ece6a; --ok-text: #b9e08f; --warn: #e0af68; --warn-text: #f0c896; --bad: #f7768e; --bad-text: #ffa6b6; --info: #7dcfff;
-  --ok-bg: color-mix(in srgb, var(--ok) 15%, transparent);
-  --warn-bg: color-mix(in srgb, var(--warn) 15%, transparent);
-  --bad-bg: color-mix(in srgb, var(--bad) 15%, transparent);
-  --info-bg: color-mix(in srgb, var(--info) 15%, transparent);
-  --ring: color-mix(in srgb, var(--accent) 55%, transparent);
-  --accent-bg: color-mix(in srgb, var(--accent) 13%, transparent);
-  --nav-hover: color-mix(in srgb, var(--text-1) 5%, var(--bg-sidebar));
-  --ok-strong: color-mix(in srgb, var(--ok) 30%, transparent);
-  --warn-strong: color-mix(in srgb, var(--warn) 32%, transparent);
-  --bad-strong: color-mix(in srgb, var(--bad) 32%, transparent);
-  --radius-control: 8px; --radius-card: 12px; --radius-pill: 999px;
-  --shell-max: 1440px;
-  --font-sans: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --bg:#16161e; --bg-sidebar:#121219; --surface:#1d1e2a; --surface-2:#262839; --overlay:#2b2d41;
+  --border:#262839; --border-strong:#383c57;
+  --text-1:#c8d0f2; --text-2:#98a1c6; --text-3:#737ba6;
+  --accent:#7aa2f7; --accent-2:#bb9af7; --accent-contrast:#0c0e16;
+  --ok:#9ece6a; --warn:#e6b450; --bad:#f7768e; --info:#7dcfff;
+  --shadow-pop:0 18px 48px -20px rgba(0,0,0,.7),0 4px 14px -8px rgba(0,0,0,.6);
+  color-scheme:dark;
+}
+:root[data-theme="light"] {
+  --bg:#f5f6fb; --bg-sidebar:#eceef6; --surface:#ffffff; --surface-2:#f1f3fa; --overlay:#ffffff;
+  --border:#e4e7f2; --border-strong:#ccd2e6;
+  --text-1:#181b2c; --text-2:#4b5273; --text-3:#6c739a;
+  --accent:#3457d5; --accent-2:#7c4ddb; --accent-contrast:#ffffff;
+  --ok:#2f9e44; --warn:#c77a04; --bad:#e03131; --info:#1c7ed6;
+  --shadow-pop:0 18px 44px -22px rgba(40,52,110,.32),0 3px 10px -6px rgba(40,52,110,.2);
+  color-scheme:light;
+}
+
+:root {
+  /* derived — resolve per active theme */
+  --accent-bg:color-mix(in srgb,var(--accent) 12%,transparent);
+  --accent-line:color-mix(in srgb,var(--accent) 32%,transparent);
+  --ring:color-mix(in srgb,var(--accent) 48%,transparent);
+  --ok-bg:color-mix(in srgb,var(--ok) 14%,transparent);
+  --warn-bg:color-mix(in srgb,var(--warn) 16%,transparent);
+  --bad-bg:color-mix(in srgb,var(--bad) 14%,transparent);
+  --info-bg:color-mix(in srgb,var(--info) 14%,transparent);
+  --ok-line:color-mix(in srgb,var(--ok) 38%,transparent);
+  --warn-line:color-mix(in srgb,var(--warn) 40%,transparent);
+  --bad-line:color-mix(in srgb,var(--bad) 38%,transparent);
+  --nav-hover:color-mix(in srgb,var(--text-1) 6%,transparent);
+
+  /* back-compat aliases (pre-redesign screens reference these names) */
+  --ok-text:var(--ok); --warn-text:var(--warn); --bad-text:var(--bad);
+  --ok-strong:var(--ok-line); --warn-strong:var(--warn-line); --bad-strong:var(--bad-line);
+  --surface-1:var(--surface); --bg-2:var(--surface-2);
+  --primary:var(--accent); --danger:var(--bad);
+  --muted:var(--text-3); --muted-foreground:var(--text-3);
 }

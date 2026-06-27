@@ -18,6 +18,7 @@ import { renderPage } from "../layout";
 import { pill } from "../components/status";
 import { platformLabel } from "../components/platform";
 import { btn } from "../components/button";
+import { icon } from "../components/icons";
 import { isHtmx, toastHeader } from "../components/toast";
 
 type Html = ReturnType<typeof html>;
@@ -104,10 +105,14 @@ function slotRow(
   </div>`;
 }
 
-async function brandSlots(workspaceId: string, brand: BrandRow, candidates: Record<string, { id: string; label: string }[]>): Promise<Html> {
+async function brandSlotsView(
+  workspaceId: string,
+  brand: BrandRow,
+  candidates: Record<string, { id: string; label: string }[]>,
+): Promise<{ rows: Html; connected: number }> {
   const slots = await resolveBrandSlots(workspaceId, brand.key);
   const rows = slots.map((s) => slotRow(brand.key, s.platform, candidates[s.platform] ?? [], s.channel?.id ?? null, s.ambiguous));
-  return html`<div class="brand-slots">${rows}</div>`;
+  return { rows: html`<div class="brand-slots">${rows}</div>`, connected: slots.filter((s) => s.channel).length };
 }
 
 const STORY_TEMPLATE_LABELS: Record<string, string> = {
@@ -138,45 +143,63 @@ function storyPreview(brand: BrandRow): Html {
   </div>`;
 }
 
-function brandCard(brand: BrandRow, slots: Html, locked = false): Html {
-  const swatch = brand.accent ? html`<span class="brand-swatch" style="background:${brand.accent}"></span>` : "";
-  const ico = brand.icon ? html`<span class="brand-ico">${brand.icon}</span>` : "";
+/** Up-to-two-letter fallback mark when a brand has no icon emoji set. */
+function brandInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.slice(0, 2).map((w) => w[0]).join("") || name.slice(0, 2);
+  return (letters || "?").toUpperCase();
+}
+
+function brandCard(brand: BrandRow, slots: { rows: Html; connected: number }, locked = false): Html {
+  const mark = brand.icon ? brand.icon : brandInitials(brand.name);
+  const avatar = brand.accent
+    ? html`<span class="brand-glyph brand-avatar" style="background:${brand.accent}">${mark}</span>`
+    : html`<span class="brand-glyph brand-avatar">${mark}</span>`;
   const cardId = `brand-${domSafe(brand.key)}`;
   // BRANDLIMIT1: brands beyond the free tier's limit stay visible but are flagged locked (PRO upsell)
   // and won't publish — the runtime authority is resolveChannelForBrandPlatform.
   const lockBadge = locked
     ? html`<a class="badge badge-locked" href="${env.LICENSE_UPGRADE_URL}" target="_blank" rel="noopener"
-        title="Beyond your plan's brand limit — won't publish. Upgrade to activate.">🔒 PRO</a>`
+        title="Beyond your plan's brand limit — won't publish. Upgrade to activate.">${icon("lock", "ico", 11)}PRO</a>`
     : "";
+  const count = `${slots.connected} channel${slots.connected === 1 ? "" : "s"}`;
   return html`<section class="panel brand-card${locked ? " brand-locked" : ""}" id="${cardId}">
     <div class="panel-head brand-head">
-      <div class="brand-title">${ico}${swatch}<h3>${brand.name}</h3><code class="brand-key">${brand.key}</code>${lockBadge}</div>
+      ${avatar}
+      <span class="acct-text">
+        <span class="brand-title"><h3>${brand.name}</h3>${lockBadge}</span>
+        <code class="brand-key">${brand.key}</code>
+      </span>
+      <span class="panel-count" style="margin-left:auto" title="${count} connected">${count}</span>
       <form method="post" action="/brands/${brand.key}/delete" hx-post="/brands/${brand.key}/delete"
         hx-target="#${cardId}" hx-swap="outerHTML"
         hx-confirm="Delete brand '${brand.name}'? Its channels become unassigned (not deleted).">
-        ${btn({ label: "Delete", variant: "danger" })}
+        ${btn({ label: "Delete", variant: "danger", size: "sm" })}
       </form>
     </div>
-    <details class="brand-edit">
-      <summary>Rename / recolor</summary>
-      <form class="brand-edit-form" method="post" action="/brands/${brand.key}/edit"
-        hx-post="/brands/${brand.key}/edit" hx-target="#${cardId}" hx-swap="outerHTML"
-        x-data="{ tpl: '${brand.story_template ?? ""}' }">
-        <input name="name" value="${brand.name}" aria-label="Brand name" required />
-        ${accentField(brand.accent ?? "")}
-        ${iconField(brand.icon ?? "")}
-        ${storyTemplateField(brand)}
-        ${storyPreview(brand)}
-        ${btn({ label: "Save", variant: "secondary" })}
-      </form>
-    </details>
-    ${slots}
+    <div class="compose-body">
+      ${slots.rows}
+      <details class="brand-edit">
+        <summary>Edit name, colour &amp; Story</summary>
+        <form class="brand-edit-form" method="post" action="/brands/${brand.key}/edit"
+          hx-post="/brands/${brand.key}/edit" hx-target="#${cardId}" hx-swap="outerHTML"
+          x-data="{ tpl: '${brand.story_template ?? ""}' }">
+          <label class="brand-fld"><span>Brand name</span>
+            <input name="name" value="${brand.name}" required /></label>
+          ${accentField(brand.accent ?? "")}
+          ${iconField(brand.icon ?? "")}
+          ${storyTemplateField(brand)}
+          ${storyPreview(brand)}
+          ${btn({ label: "Save changes", variant: "primary", size: "sm" })}
+        </form>
+      </details>
+    </div>
   </section>`;
 }
 
 async function renderBrandCard(workspaceId: string, brand: BrandRow): Promise<Html> {
   const [candidates, locked] = await Promise.all([platformCandidates(workspaceId), lockedBrandKeys(workspaceId)]);
-  return brandCard(brand, await brandSlots(workspaceId, brand, candidates), locked.has(brand.key));
+  return brandCard(brand, await brandSlotsView(workspaceId, brand, candidates), locked.has(brand.key));
 }
 
 async function brandsPage(c: Context, notice?: string, status = 200): Promise<Response> {
@@ -189,7 +212,7 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
     getInstanceLicense(),
     lockedBrandKeys(ws),
   ]);
-  const cards = await Promise.all(brands.map(async (b) => brandCard(b, await brandSlots(ws, b, candidates), locked.has(b.key))));
+  const cards = await Promise.all(brands.map(async (b) => brandCard(b, await brandSlotsView(ws, b, candidates), locked.has(b.key))));
   const empty = brands.length === 0;
 
   return c.html(
@@ -205,17 +228,25 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
           a content item resolves the right channel automatically.
         </p>
         <section class="panel">
-          <div class="panel-head"><h3>New brand</h3></div>
-          <form class="brand-new-form" method="post" action="/brands">
-            <input name="key" placeholder="key (e.g. techskills.academy)" required />
-            <input name="name" placeholder="Display name" required />
-            ${accentField()}
-            ${iconField()}
-            <button class="btn btn-primary btn-sm" type="submit">Create brand</button>
-          </form>
+          <div class="panel-head"><h3>New brand</h3><span class="panel-sub">map its channels after creating</span></div>
+          <div class="compose-body">
+            <form class="brand-new-form" method="post" action="/brands">
+              <label class="brand-fld"><span>Key <small>(stable id — e.g. techskills.academy)</small></span>
+                <input name="key" placeholder="techskills.academy" required /></label>
+              <label class="brand-fld"><span>Display name</span>
+                <input name="name" placeholder="Tech Skills Academy" required /></label>
+              ${accentField()}
+              ${iconField()}
+              <button class="btn btn-primary btn-sm" type="submit">${icon("plus", "ico", 14)}Create brand</button>
+            </form>
+          </div>
         </section>
         ${empty
-          ? html`<div class="empty-state"><p>No brands yet. Create one above, then assign its channels.</p></div>`
+          ? html`<div class="empty">
+              <span class="empty-ic">${icon("brands", "ico", 20)}</span>
+              <p class="empty-title">No brands yet</p>
+              <p class="empty-body">A brand groups the channels you publish to. Create your first brand above, then map one channel per platform.</p>
+            </div>`
           : html`<div class="brand-grid">${cards}</div>`}`,
     }),
     status as 200,

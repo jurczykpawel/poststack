@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import type { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, or, isNull } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -34,6 +34,11 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  // webhook_events.channel_id is ON DELETE SET NULL, so deleting the workspace below ORPHANS (doesn't
+  // remove) any rows the webhook tests inserted — their fixed event_keys/ids then collide on a rerun
+  // against a persistent DB. Clear this suite's events (current rows + leftover null-channel orphans)
+  // up front so each run starts clean.
+  await db.delete(s.webhookEvents).where(or(eq(s.webhookEvents.channel_id, CH), isNull(s.webhookEvents.channel_id)));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.delete(s.users).where(eq(s.users.id, USER));
   await db.insert(s.users).values({ id: USER, email: `u-${USER}@test.local` });
@@ -684,6 +689,7 @@ describe("channels — managed connection section", () => {
     const WSX = "dddddddd-0000-0000-0000-0000000000f7";
     const CHX = "dddddddd-0000-0000-0000-0000000000f8";
     const EVX = "dddddddd-0000-0000-0000-0000000000f9";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WSX)); // self-heal: a prior crashed run may have leaked WSX before its cleanup below
     await db.insert(s.workspaces).values({ id: WSX, name: "X", slug: `x-${WSX}` });
     await db.insert(s.channels).values({ id: CHX, workspace_id: WSX, platform: "facebook", platform_id: "FB-X", token_encrypted: "x", webhook_secret: "wx", status: "active" });
     await db.insert(s.webhookEvents).values({ id: EVX, event_key: "k-x", channel_id: CHX, event_type: "message", raw: {}, handling_status: "fired" });
@@ -866,7 +872,8 @@ describe("channels — managed connection section", () => {
     );
     const body = await (await app.request("/engagement", { headers: { cookie } })).text();
     // Old code fetched only the latest 1000 raw rows before grouping → total would cap at 1000.
-    expect(body).toContain("<strong>1200</strong>");
+    // The post's reaction total renders in the mono count cell (redesign: tabular data, not <strong>).
+    expect(body).toContain(">1200</span>");
   });
 
   it("/engagement filters post reactions by account and by brand", async () => {

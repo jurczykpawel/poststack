@@ -125,7 +125,7 @@ export function renderPage(o: PageOpts): Html {
       <div class="main">
         <header class="topbar">
           <div class="title-wrap"><h1>${o.title}</h1>${o.breadcrumb ? html`<div class="crumb">${o.breadcrumb}</div>` : ""}</div>
-          <div class="topbar-actions">${paletteTrigger()}${o.primaryAction ?? ""}<form class="signout-inline" hx-post="/logout" style="display:inline"><button class="btn btn-ghost btn-sm" type="submit">Sign out</button></form></div>
+          <div class="topbar-actions">${paletteTrigger()}${o.primaryAction ?? ""}<button type="button" x-data class="btn-ic theme-toggle" aria-label="Toggle light or dark theme" title="Toggle theme" @click="const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'; document.documentElement.setAttribute('data-theme', next); document.cookie = 'ps_theme=' + next + '; path=/; max-age=31536000; samesite=lax';">${icon("sun", "ico ico-sun")}${icon("moon", "ico ico-moon")}</button><form class="signout-inline" hx-post="/logout" style="display:inline"><button class="btn btn-ghost btn-sm" type="submit">Sign out</button></form></div>
         </header>
         <main class="content" id="main" tabindex="-1">${o.body}</main>
       </div>

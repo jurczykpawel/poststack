@@ -18,9 +18,13 @@ import { urlLink } from "../components/url";
 import { relTime } from "../components/format";
 import { emptyState } from "../components/empty-state";
 import { isHtmx, toastHeader } from "../components/toast";
+import { icon, type IconName } from "../components/icons";
 
 type Html = ReturnType<typeof html>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Editorial content type → media glyph. Moving-media keywords get the video icon; everything else the image icon.
+const typeIcon = (t: string | null): IconName => (t && /vid|reel|clip|story|short/i.test(t) ? "video" : "image");
 
 async function auth(c: Context): Promise<AuthContext | null> {
   return authenticate(c.req.raw).catch(() => null);
@@ -45,18 +49,24 @@ function platformStrip(posts: { platform: string; status: string }[]): Html {
   </div>`;
 }
 
-function contentRow(
+function libCard(
   c: { id: string; title: string; content_type: string | null; status: string; updated_at: Date },
   posts: { platform: string; status: string }[],
 ): Html {
-  const link = `/content/${c.id}`;
-  return html`<tr>
-    <td data-label="Title"><a class="row-link" href="${link}">${c.title}</a></td>
-    <td data-label="Type"><span class="mode-tag">${c.content_type ?? "—"}</span></td>
-    <td data-label="Platforms">${platformStrip(posts)}</td>
-    <td data-label="Status">${statusBadge(c.status)}</td>
-    <td data-label="Updated"><small>${relTime(c.updated_at)}</small></td>
-  </tr>`;
+  return html`<a class="lib-card" href="/content/${c.id}">
+    <div class="lib-top">
+      <span class="lib-thumb">${icon(typeIcon(c.content_type), "ico", 20)}</span>
+      <span class="lib-id">
+        <span class="lib-title">${c.title}</span>
+        <span class="lib-type">${c.content_type ?? "—"}</span>
+      </span>
+      ${statusBadge(c.status)}
+    </div>
+    <div class="lib-foot">
+      ${platformStrip(posts)}
+      <span class="lib-when">${relTime(c.updated_at)}</span>
+    </div>
+  </a>`;
 }
 
 function filterBar(
@@ -75,7 +85,10 @@ function filterBar(
     (s) => html`<option value="${s}"${active.status === s ? raw(" selected") : raw("")}>${s}</option>`,
   );
   return html`<form class="filter-bar" method="get" action="/content" role="search">
-    <input type="search" name="q" value="${active.q ?? ""}" placeholder="Search title…" aria-label="Search content" />
+    <div class="filter-search">
+      ${icon("search", "ico", 15)}
+      <input type="search" name="q" value="${active.q ?? ""}" placeholder="Search title…" aria-label="Search content" />
+    </div>
     <select name="profile" aria-label="Filter by brand">
       <option value="">All brands</option>
       ${brandOpts}
@@ -135,13 +148,14 @@ async function listPage(c: Context): Promise<Response> {
   });
 
   const empty = items.length === 0;
-  const bodyRows = orderedKeys.flatMap((k) => {
-    const label = k === "" ? "No brand" : (nameByKey.get(k) ?? k);
+  const noFilters = !status && !profile && !q;
+  const groupsHtml = orderedKeys.map((k) => {
     const list = groups.get(k)!;
-    return [
-      html`<tr class="row-group-head"><td colspan="5">${label} <span class="muted">(${list.length})</span></td></tr>`,
-      ...list.map((it) => contentRow(it, postsByContent.get(it.id) ?? [])),
-    ];
+    const brand = brands.find((b) => b.key === k);
+    return html`<section class="lib-group">
+      <div class="lib-group-head">${brandChip(k || null, brand)}<span class="panel-count">${list.length}</span></div>
+      <div class="lib-grid">${list.map((it) => libCard(it, postsByContent.get(it.id) ?? []))}</div>
+    </section>`;
   });
 
   return c.html(
@@ -152,19 +166,11 @@ async function listPage(c: Context): Promise<Response> {
       products: lic.products,
       breadcrumb: `${items.length} shown`,
       body: html`${filterBar(brands, statuses, { status, profile, q })}
-        <div class="table-wrap">
-          <table class="data-table" aria-label="Content">
-            <thead>
-              <tr><th scope="col">Title</th><th scope="col">Type</th><th scope="col">Platforms</th><th scope="col">Status</th><th scope="col">Updated</th></tr>
-            </thead>
-            <tbody>
-              ${empty ? html`<tr><td colspan="5" class="table-empty">No content matches these filters.</td></tr>` : bodyRows}
-            </tbody>
-          </table>
-        </div>
-        ${empty && !status && !profile && !q
-          ? emptyState({ title: "No content yet", body: "Author content in Compose, or via the API / agents — it appears here.", action: { label: "Compose", href: "/compose" } })
-          : ""}`,
+        ${empty
+          ? noFilters
+            ? emptyState({ title: "No content yet", body: "Author content in Compose, or via the API / agents — it appears here.", action: { label: "Compose", href: "/compose" } })
+            : emptyState({ title: "No matches", body: "No content matches these filters.", action: { label: "Clear filters", href: "/content" } })
+          : html`<div class="lib">${groupsHtml}</div>`}`,
     }),
   );
 }
@@ -211,7 +217,7 @@ function publishControl(contentId: string, v: PostView): Html {
   }
   if (v.reason) {
     return html`<div class="card-warn">
-      <small>⚠ ${v.reason}</small> <a href="/brands">Set in Brands →</a>
+      ${icon("alert", "ico", 13)}<small>${v.reason}</small> <a href="/brands">Set in Brands →</a>
     </div>`;
   }
   const action = `/content/${contentId}/posts/${post.id}/publish`;
@@ -347,7 +353,7 @@ async function detailPage(c: Context): Promise<Response> {
       body: html`<section class="panel">
           <div class="panel-head"><h3>Content</h3>${brandChip(content.profile, brand)} ${statusBadge(content.status)}</div>
           <dl class="meta-list">
-            <div class="meta-row"><dt>Type</dt><dd><span class="mode-tag">${content.content_type ?? "—"}</span></dd></div>
+            <div class="meta-row"><dt>Type</dt><dd>${content.content_type ? icon(typeIcon(content.content_type), "ico", 14) : ""}<span class="mode-tag">${content.content_type ?? "—"}</span></dd></div>
             ${content.base_hashtags ? html`<div class="meta-row"><dt>Base hashtags</dt><dd>${content.base_hashtags} ${copyBtn(content.base_hashtags, "Copy")}</dd></div>` : ""}
           </dl>
           ${content.script ? html`<details class="card-script"><summary>Script</summary><pre class="payload">${content.script}</pre></details>` : ""}

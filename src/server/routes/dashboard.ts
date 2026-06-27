@@ -19,6 +19,8 @@ import { truncateCodePoints } from "@/lib/text";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
+import { icon } from "../ui/components/icons";
+import { platformColor, platformGlyphString } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
 import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
@@ -51,7 +53,7 @@ import { btn } from "../ui/components/button";
 import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
-import { dot, pill as pillBadge, type Tone } from "../ui/components/status";
+import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
 import { listProviders } from "@/lib/providers";
 
@@ -139,15 +141,19 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
   return html`${conversations.map((conv) => {
     const isComment = conv.thread_type === "comment";
     const isEmail = conv.thread_type === "email";
-    return html`<button class="conv-item" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
-      <div class="conv-top">
-        <span class="conv-name ${conv.unread_count > 0 ? "unread" : ""}"><span title="${isComment ? "Comment thread" : isEmail ? "Email thread" : "Direct message"}">${isComment ? "💬" : "✉️"}</span> ${contactName(conv)}</span>
-        <span class="conv-time">${timeAgo(conv.last_message_at)}</span>
-      </div>
-      ${isComment ? html`<div class="muted" style="font-size:.68rem">comment${conv.needs_manual_reply ? " · ⚠ needs reply" : ""}</div>` : conv.needs_manual_reply ? html`<div class="muted" style="font-size:.68rem">⚠ needs reply</div>` : html``}
-      ${isEmail ? html`<div class="conv-subject" style="font-size:.74rem;font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${conv.subject ?? "(no subject)"}</div>` : html``}
-      <div class="conv-preview">${conv.last_message_preview ?? "No messages"}</div>
-      ${conv.unread_count > 0 ? html`<span class="badge">${conv.unread_count}</span>` : html``}
+    const name = contactName(conv);
+    const initials = (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
+    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
+      <span class="conv-av"><span class="conv-av-i">${initials}</span><span class="conv-pg" style="background:${platformColor(conv.platform)}">${raw(platformGlyphString(conv.platform, 9))}</span></span>
+      <span class="conv-body">
+        <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time">${timeAgo(conv.last_message_at)}</span></span>
+        ${isEmail ? html`<span class="conv-subject">${conv.subject ?? "(no subject)"}</span>` : html``}
+        <span class="conv-preview">${conv.last_message_preview ?? "No messages"}</span>
+        ${conv.needs_manual_reply || isComment
+          ? html`<span class="conv-meta">${conv.needs_manual_reply ? html`<span class="conv-flag">${icon("alert", "ico", 11)} Needs reply</span>` : html``}${isComment ? html`<span class="conv-kind">comment</span>` : html``}</span>`
+          : html``}
+      </span>
+      ${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}
     </button>`;
   })}`;
 }
@@ -175,7 +181,7 @@ function renderConvPanel(
   const sinceOpt = (v: string, label: string) => html`<option value="${v}" ${since === v ? "selected" : ""}>${label}</option>`;
   return html`<div class="conv-head" style="display:flex;justify-content:space-between;align-items:center">
       <span>Inbox</span>
-      <button type="submit" form="conv-filter-form" class="btn btn-sm" title="Refresh the list (also pulls the latest into view)" style="font-size:.75rem;padding:.1rem .45rem">↻</button>
+      <button type="submit" form="conv-filter-form" class="btn btn-sm btn-ic" title="Refresh the list (also pulls the latest into view)">${icon("reconnect", "ico", 14)}</button>
     </div>
     <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}', since: '${since}' }"
       hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
@@ -268,17 +274,17 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
         : "";
       return html`<div class="msg msg-in">
         <div class="bubble" style="border-left:3px solid var(--primary);background:transparent">
-          <div class="muted" style="font-size:.7rem;margin-bottom:.15rem">💬 commented${postRef}</div>
+          <div class="cmt-mark">${icon("comment", "ico", 12)} commented${postRef}</div>
           <div>${it.text}</div>
           ${it.replySent && it.replyText
-            ? html`<div style="font-size:.78rem;margin-top:.35rem;padding-left:.5rem;border-left:2px solid #16a34a"><span class="muted">↳ public reply sent ✓</span><br/>${it.replyText}</div>`
+            ? html`<div class="cmt-sub" style="border-left:2px solid var(--ok)"><span class="cmt-ok">${icon("check", "ico", 11)} public reply sent</span><br/>${it.replyText}</div>`
             : it.replySent
-              ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem">↳ public reply sent ✓</div>`
+              ? html`<div class="cmt-ok">${icon("check", "ico", 11)} public reply sent</div>`
               : html``}
           ${it.dmSent
-            ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem">↳ auto-DM sent ✓ ${it.dmConvId ? html`· <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML">open DM thread →</a>` : ""}</div>`
+            ? html`<div class="cmt-ok">${icon("check", "ico", 11)} auto-DM sent ${it.dmConvId ? html`· <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML">open DM thread →</a>` : ""}</div>`
             : html``}
-          ${it.error ? html`<div class="muted" style="font-size:.7rem;margin-top:.2rem;color:var(--danger,#e5484d)">↳ ⚠ ${it.error}</div>` : html``}
+          ${it.error ? html`<div class="cmt-err">${icon("alert", "ico", 11)} ${it.error}</div>` : html``}
         </div>
       </div>`;
     }
@@ -288,8 +294,8 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
         ? it.readAt
           ? html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">Seen ${timeAgo(it.readAt)}</div>`
           : it.deliveredAt
-            ? html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">✓✓ Delivered</div>`
-            : html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">✓ Sent</div>`
+            ? html`<div class="msg-status muted">${icon("checks", "ico", 12)} Delivered</div>`
+            : html`<div class="msg-status muted">${icon("check", "ico", 12)} Sent</div>`
         : html``;
     return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div>${receipt}</div>`;
   })}`;
@@ -308,23 +314,24 @@ const STATUS_TIP: Record<string, string> = {
  *  pause toggle, attention/assignment indicators — every control carries a tooltip, plus a
  *  collapsible legend, so it's self-explanatory. All wired to PATCH /conversations/:id. */
 function renderConvControls(conv: ConvControls): Html {
-  const statusBtn = (label: string, status: string, title: string) =>
+  const statusBtn = (label: Html, status: string, title: string) =>
     html`<button class="btn btn-sm" title="${title}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"status":"${status}"}`}' hx-target="#thread" hx-swap="innerHTML">${label}</button>`;
-  return html`<div class="thread-controls" style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:.8rem;margin:.25rem 0">
-    <span class="badge" title="${STATUS_TIP[conv.status] ?? ""}">${STATUS_LABEL[conv.status] ?? conv.status}</span>
-    ${conv.needs_manual_reply ? html`<span class="badge" style="background:#b91c1c" title="Automation didn't handle this — a human should reply.">⚠ Needs reply</span>` : html``}
-    ${conv.is_automation_paused ? html`<span class="badge" style="background:#b45309" title="Auto-replies are off for this person — you reply manually.">⏸ Auto-replies off</span>` : html``}
+  const statusTone = conv.status === "open" ? "tone-info" : conv.status === "closed" ? "tone-ok" : "tone-neutral";
+  return html`<div class="thread-controls">
+    <span class="badge ${statusTone}" title="${STATUS_TIP[conv.status] ?? ""}">${STATUS_LABEL[conv.status] ?? conv.status}</span>
+    ${conv.needs_manual_reply ? html`<span class="badge tone-bad" title="Automation didn't handle this — a human should reply.">${icon("alert", "ico", 11)} Needs reply</span>` : html``}
+    ${conv.is_automation_paused ? html`<span class="badge tone-warn" title="Auto-replies are off for this person — you reply manually.">${icon("pause", "ico", 11)} Auto-replies off</span>` : html``}
     ${conv.assigned_to ? html`<span class="muted" title="Assigned to a teammate.">assigned</span>` : html``}
     ${conv.status === "open"
-      ? html`${statusBtn("✓ Done", "closed", "Mark done — hides it from the inbox until they message again.")}${statusBtn("⏰ Snooze", "snoozed", "Set aside — it comes back on their next message.")}`
-      : statusBtn("↩ Reopen", "open", "Put it back in the active inbox.")}
-    <button class="btn btn-sm" title="${conv.is_automation_paused ? "Let the bot auto-reply here again." : "Stop the bot auto-replying to this person — you'll answer manually."}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"is_automation_paused":${conv.is_automation_paused ? "false" : "true"}}`}' hx-target="#thread" hx-swap="innerHTML">${conv.is_automation_paused ? "▶ Resume auto-reply" : "⏸ Pause auto-reply"}</button>
-    <details style="font-size:.72rem"><summary class="muted" style="cursor:pointer;list-style:none">ⓘ what do these mean?</summary>
+      ? html`${statusBtn(html`${icon("check", "ico", 14)} Done`, "closed", "Mark done — hides it from the inbox until they message again.")}${statusBtn(html`${icon("clock", "ico", 14)} Snooze`, "snoozed", "Set aside — it comes back on their next message.")}`
+      : statusBtn(html`${icon("reopen", "ico", 14)} Reopen`, "open", "Put it back in the active inbox.")}
+    <button class="btn btn-sm" title="${conv.is_automation_paused ? "Let the bot auto-reply here again." : "Stop the bot auto-replying to this person — you'll answer manually."}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"is_automation_paused":${conv.is_automation_paused ? "false" : "true"}}`}' hx-target="#thread" hx-swap="innerHTML">${conv.is_automation_paused ? html`${icon("play", "ico", 14)} Resume auto-reply` : html`${icon("pause", "ico", 14)} Pause auto-reply`}</button>
+    <details class="thread-legend"><summary class="muted">${icon("info", "ico", 13)} what do these mean?</summary>
       <div class="muted" style="margin-top:.3rem;line-height:1.5">
         <strong>Done</strong> — handled; leaves the inbox until they write again.<br/>
         <strong>Snooze</strong> — set aside; returns on their next message.<br/>
         <strong>Pause auto-reply</strong> — the bot stops answering this person; you reply by hand.<br/>
-        <strong>⚠ Needs reply</strong> — automation found no rule for this; waiting on a human.
+        <strong>Needs reply</strong> — automation found no rule for this; waiting on a human.
       </div>
     </details>
   </div>`;
@@ -566,14 +573,14 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
   if (e.outbound_delivery_id) triggered.push(["Outbound reply", e.outbound_delivery_id]);
   if (e.contact_id) triggered.push(["Contact", e.contact_id]);
   const rawJson = JSON.stringify(e.raw, null, 2);
-  return html`<div class="card" id="wh-detail-card" style="margin:.5rem 0 1rem">
-    <div class="row" style="align-items:center;gap:.5rem">
-      <strong>${PLATFORM_LABELS[e.object ?? ""] ?? e.object ?? "—"} · ${e.event_type}${e.field ? ` · ${e.field}` : ""}</strong>
-      <span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span>
-      <span class="grow"></span>
-      <button class="btn btn-sm" hx-get="/webhooks/clear" hx-target="#wh-detail" hx-swap="innerHTML">Close ✕</button>
+  const tone = WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral";
+  return html`<section class="panel${e.handling_status === "error" ? " panel-error" : ""}" id="wh-detail-card" style="margin:.5rem 0 1rem">
+    <div class="panel-head">
+      <h3>${PLATFORM_LABELS[e.object ?? ""] ?? e.object ?? "—"} · ${e.event_type}${e.field ? ` · ${e.field}` : ""}</h3>
+      <span class="badge tone-${tone}">${e.handling_status}</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" hx-get="/webhooks/clear" hx-target="#wh-detail" hx-swap="innerHTML">${icon("close", "ico", 14)} Close</button>
     </div>
-    <h4 style="margin:.75rem 0 .25rem">What came in</h4>
+    <div class="panel-head" style="border-top:1px solid var(--border)"><h3>What came in</h3></div>
     <dl class="meta-list">
       ${metaRow("Received", e.received_at.toISOString().replace("T", " ").slice(0, 19))}
       ${metaRow("Handled", e.handled_at ? e.handled_at.toISOString().replace("T", " ").slice(0, 19) : null)}
@@ -583,18 +590,18 @@ function renderWebhookDetail(e: WebhookEventDetail): Html {
       ${metaRow("Echo (our own message)", e.is_echo)}
       ${metaRow("Event key", e.event_key)}
     </dl>
-    <h4 style="margin:.75rem 0 .25rem">What was triggered</h4>
+    <div class="panel-head" style="border-top:1px solid var(--border)"><h3>What was triggered</h3></div>
     ${triggered.length === 0
-      ? html`<p class="muted" style="font-size:.85rem">${e.handling_status === "recorded" ? "Nothing — stored for engagement only (no rule runs on post likes/reactions)." : e.handling_status === "fired" ? "A reply was sent/queued (no linked record captured)." : "Nothing was triggered for this event."}</p>`
+      ? html`<p style="margin:0;padding:11px 16px;font-size:12.5px;color:var(--text-3)">${e.handling_status === "recorded" ? "Nothing — stored for engagement only (no rule runs on post likes/reactions)." : e.handling_status === "fired" ? "A reply was sent/queued (no linked record captured)." : "Nothing was triggered for this event."}</p>`
       : html`<dl class="meta-list">${triggered.map(([k, v]) =>
           k === "Conversation"
             ? html`<div class="meta-row"><dt>${k}</dt><dd><a href="/inbox/${v}">${v} →</a></dd></div>`
-            : html`<div class="meta-row"><dt>${k}</dt><dd><code class="mono">${v}</code></dd></div>`,
+            : html`<div class="meta-row"><dt>${k}</dt><dd><code>${v}</code></dd></div>`,
         )}</dl>`}
-    ${e.error_detail ? html`<div class="notice notice-err" style="margin-top:.5rem">${e.error_detail}</div>` : html``}
-    <h4 style="margin:.75rem 0 .25rem">Raw payload</h4>
-    <pre class="mono" style="max-height:340px;overflow:auto;background:var(--bg);padding:.6rem;border-radius:var(--radius-control);font-size:.72rem;white-space:pre-wrap;word-break:break-word">${rawJson}</pre>
-  </div>`;
+    ${e.error_detail ? html`<div class="notice notice-err" style="margin:11px 16px">${e.error_detail}</div>` : html``}
+    <div class="panel-head" style="border-top:1px solid var(--border)"><h3>Raw payload</h3></div>
+    <pre class="payload" style="border-top:0;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word">${rawJson}</pre>
+  </section>`;
 }
 
 interface WebhookStats { total: number; last24h: number; byStatus: Record<string, number> }
@@ -637,19 +644,16 @@ async function computeWebhookStats(channelIds: string[]): Promise<WebhookStats> 
 }
 
 function renderWebhookStats(s: WebhookStats): Html {
-  const tiles: Array<[string, number]> = [
-    ["Total received", s.total],
-    ["Last 24h", s.last24h],
-    ["Auto-replied", s.byStatus.fired ?? 0],
-    ["Engagement (likes/reactions)", s.byStatus.recorded ?? 0],
-    ["No rule matched", s.byStatus.no_match ?? 0],
-    ["Errors", s.byStatus.error ?? 0],
+  const tiles: Array<[string, number, Tone]> = [
+    ["Total received", s.total, "neutral"],
+    ["Last 24h", s.last24h, "info"],
+    ["Auto-replied", s.byStatus.fired ?? 0, "ok"],
+    ["Engagement (likes/reactions)", s.byStatus.recorded ?? 0, "info"],
+    ["No rule matched", s.byStatus.no_match ?? 0, "neutral"],
+    ["Errors", s.byStatus.error ?? 0, "neutral"],
   ];
-  return html`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin:.5rem 0 1rem">
-    ${tiles.map(([label, n]) => html`<div class="card" style="padding:.55rem .7rem">
-      <div style="font-size:1.5rem;font-weight:700;line-height:1.1${label === "Errors" && n > 0 ? ";color:var(--bad-text)" : ""}">${n}</div>
-      <div class="muted" style="font-size:.72rem">${label}</div>
-    </div>`)}
+  return html`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:.5rem 0 1rem">
+    ${tiles.map(([label, n, tone]) => kpi({ label, value: n, tone: label === "Errors" && n > 0 ? "bad" : tone }))}
   </div>`;
 }
 
@@ -662,25 +666,26 @@ function renderWebhookStats(s: WebhookStats): Html {
 function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
   const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
   if (!canConfigure) {
-    return html`${notice}<p class="muted" style="font-size:.85rem">Configuring a proactive alert webhook is ${proLink(upgradeUrl, "PRO")}.</p>`;
+    return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>Configuring a proactive alert webhook is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
   }
   const headerNames = cfg ? Object.keys(cfg.headers) : [];
   const extraJson = cfg && Object.keys(cfg.extraFields).length ? JSON.stringify(cfg.extraFields, null, 2) : "";
   const selection = cfg?.fieldSelection?.join(", ") ?? "";
+  const mono = "font-family:var(--font-mono);font-size:12.5px";
   return html`${notice}
-    <form hx-post="/settings/alert-webhook" hx-ext="json-enc" hx-target="#alert-webhook-area" hx-swap="innerHTML" class="stack">
-      <label class="muted" style="font-size:.75rem">Webhook URL</label>
-      <input class="input mono" name="url" placeholder="https://hooks.example.com/alert" value="${cfg?.url ?? ""}" required />
-      <label style="display:flex;gap:.4rem;align-items:center;font-size:.85rem"><input type="checkbox" name="enabled" value="true" ${cfg ? (cfg.enabled ? "checked" : "") : "checked"} /> Enabled</label>
-      <label class="muted" style="font-size:.75rem">Custom headers — one <code>Key: Value</code> per line (encrypted at rest)${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</label>
-      <textarea class="textarea mono" name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy"></textarea>
-      <label class="muted" style="font-size:.75rem">Extra payload fields — JSON, supports {{type}} {{display_name}} {{days_left}} {{detail}} {{expires_at}}</label>
-      <textarea class="textarea mono" name="extra" rows="3" placeholder='{ "to": "ops@example.com", "subject": "${BRAND.name}: {{type}} ({{days_left}}d)" }'>${extraJson}</textarea>
-      <label class="muted" style="font-size:.75rem">Only send these standard fields (comma list, blank = all)</label>
-      <input class="input mono" name="selection" placeholder="type, display_name, detail" value="${selection}" />
+    <form hx-post="/settings/alert-webhook" hx-ext="json-enc" hx-target="#alert-webhook-area" hx-swap="innerHTML" style="max-width:560px">
+      <label class="fld"><span>Webhook URL</span>
+        <input type="url" name="url" placeholder="https://hooks.example.com/alert" value="${cfg?.url ?? ""}" required style="${mono}" /></label>
+      <label class="compose-toggle"><input type="checkbox" name="enabled" value="true" ${cfg ? (cfg.enabled ? "checked" : "") : "checked"} /><span>Enabled</span></label>
+      <label class="fld"><span>Custom headers <small>— one <code>Key: Value</code> per line, encrypted at rest${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</small></span>
+        <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${mono}"></textarea></label>
+      <label class="fld"><span>Extra payload fields <small>— JSON; supports {{type}} {{display_name}} {{days_left}} {{detail}} {{expires_at}}</small></span>
+        <textarea name="extra" rows="3" placeholder='{ "to": "ops@example.com", "subject": "${BRAND.name}: {{type}} ({{days_left}}d)" }' style="${mono}">${extraJson}</textarea></label>
+      <label class="fld"><span>Only send these standard fields <small>— comma list, blank = all</small></span>
+        <input name="selection" placeholder="type, display_name, detail" value="${selection}" style="${mono}" /></label>
       <div class="row" style="gap:.5rem">
         <button class="btn btn-primary" type="submit">Save</button>
-        ${cfg ? html`<button class="btn btn-sm" type="button" hx-delete="/settings/alert-webhook" hx-target="#alert-webhook-area" hx-swap="innerHTML" hx-confirm="Remove the alert webhook?">Remove</button>` : html``}
+        ${cfg ? html`<button class="btn btn-sm btn-danger" type="button" hx-delete="/settings/alert-webhook" hx-target="#alert-webhook-area" hx-swap="innerHTML" hx-confirm="Remove the alert webhook?">Remove</button>` : html``}
       </div>
     </form>`;
 }
@@ -1102,7 +1107,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div class="settings-panel" x-show="tab==='apikeys'" x-cloak>
           <section class="section">
             <h2>API keys ${license.features.has("api_access") ? "" : proLink(upgradeUrl, "PRO")}</h2>
-            <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>.</p>
             ${apiKeysSection(keys, license)}
           </section>
           </div>
@@ -1704,16 +1708,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <h1>Webhooks</h1>
           <p class="muted">Two separate things share this name: events <strong>coming in</strong> from the platforms, and an alert we send <strong>out</strong> to you.</p>
           <nav class="settings-tabs" role="tablist">
-            <button type="button" class="settings-tab" :class="{ active: tab==='incoming' }" @click="go('incoming')">⬇ Incoming</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='subscriptions' }" @click="go('subscriptions')">🔌 Subscriptions</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='outgoing' }" @click="go('outgoing')">⬆ Outgoing alert</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='incoming' }" @click="go('incoming')">Incoming</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='subscriptions' }" @click="go('subscriptions')">Subscriptions</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='outgoing' }" @click="go('outgoing')">Outgoing alert</button>
           </nav>
           <div class="settings-panel" x-show="tab==='incoming'" x-cloak>
-          <h2>⬇ Incoming — from Meta / Telegram</h2>
+          <h2>Incoming — from Meta / Telegram</h2>
           <p class="muted" style="font-size:.85rem">The platforms POST here whenever someone messages, comments, or reacts. This is the log of what arrived and what the bot did with it.</p>
           ${stats
             ? renderWebhookStats(stats)
-            : html`<p class="muted" style="font-size:.82rem">📊 Webhook delivery stats (totals by outcome) are a ${proLink(upgradeUrl, "PRO")} feature.</p>`}
+            : html`<p class="muted" style="font-size:.82rem">Webhook delivery stats (totals by outcome) are a ${proLink(upgradeUrl, "PRO")} feature.</p>`}
           <div class="card" style="margin:.75rem 0">
             <div class="muted" style="font-size:.8rem;margin-bottom:.2rem">Your inbound webhook URL (paste into your Meta app)</div>
             <code class="mono">${env.APP_URL}/api/webhooks/meta</code>
@@ -1741,14 +1745,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 )}</tbody></table>`}
           </div>
           <div class="settings-panel" x-show="tab==='subscriptions'" x-cloak>
-          <h2>🔌 Subscriptions — what each connected account is set to receive</h2>
+          <h2>Subscriptions — what each connected account is set to receive</h2>
           <p class="muted" style="font-size:.85rem">PostStack auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
           <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML">
             <p class="muted" style="font-size:.82rem">Checking subscriptions…</p>
           </div>
           </div>
           <div class="settings-panel" x-show="tab==='outgoing'" x-cloak>
-          <h2>⬆ Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
+          <h2>Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
           <p class="muted" style="font-size:.85rem">A proactive POST we send to <em>your</em> endpoint (Slack, n8n, email relay…) when a connection needs re-auth or nears expiry — so you find out before publishing breaks.</p>
           ${!canAlerts
             ? html`<div class="card"><p class="muted" style="font-size:.85rem">Configuring an outbound alert webhook is a ${proLink(upgradeUrl, "PRO")} feature.</p></div>`
@@ -2024,23 +2028,34 @@ function loadContacts(workspaceId: string, q: string, limit = 50, channelId = "a
 
 function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = "", limit = 50, channelId = "all", platform = "all", brand = "all"): Html {
   if (contacts.length === 0) {
-    return html`<p class="muted">${q || channelId !== "all" || platform !== "all" || brand !== "all" ? "No contacts match your filters." : "No contacts yet. Connect a channel and start receiving messages."}</p>`;
+    const filtered = q || channelId !== "all" || platform !== "all" || brand !== "all";
+    return html`<div class="empty">
+      <span class="empty-ic">${icon("events", "ico", 20)}</span>
+      <p class="empty-title">${filtered ? "No matching contacts" : "No contacts yet"}</p>
+      <p class="empty-body">${filtered ? "No contacts match your filters — try clearing them." : "Connect a channel and start receiving messages — everyone who writes in shows up here."}</p>
+    </div>`;
   }
   // A full page likely has more — offer to load the next batch by re-rendering with a larger limit
   // (the list was previously capped at 50 with no way to browse the rest). Carry the active filters.
   const more = contacts.length >= limit
-    ? html`<button class="btn btn-sm" style="margin-top:.5rem" hx-get="/contacts/list?q=${encodeURIComponent(q)}&channel=${encodeURIComponent(channelId)}&platform=${encodeURIComponent(platform)}&brand=${encodeURIComponent(brand)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button>`
+    ? html`<div style="margin-top:12px"><button class="btn btn-sm" hx-get="/contacts/list?q=${encodeURIComponent(q)}&channel=${encodeURIComponent(channelId)}&platform=${encodeURIComponent(platform)}&brand=${encodeURIComponent(brand)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button></div>`
     : html``;
-  return html`<table><thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th><th></th></tr></thead><tbody>
+  return html`<div class="table-wrap"><table>
+    <thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th><th class="th-act"></th></tr></thead>
+    <tbody>
     ${contacts.map(
       (ct) => html`<tr>
-        <td>${ct.display_name ?? ct.contact_channels[0]?.platform_username ?? ct.contact_channels[0]?.platform_sender_id ?? "Unknown"}${ct.email ? html`<div class="muted" style="font-size:.75rem">${ct.email}</div>` : html``}${!ct.is_subscribed ? html`<div class="error" style="font-size:.7rem">Unsubscribed</div>` : html``}</td>
-        <td>${ct.contact_channels.map((cc) => html`<span class="badge" title="${cc.channel.display_name ?? cc.channel.platform}" style="background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);margin-right:.35rem">${PLATFORM_LABELS[cc.channel.platform] ?? cc.channel.platform}${cc.platform_username ? html` · @${cc.platform_username}` : ""}</span>`)}</td>
-        <td class="muted">${timeAgo(ct.last_interaction_at)}</td>
-        <td><a class="btn btn-sm" href="/inbox?contact=${ct.id}">View conversations →</a></td>
+        <td>
+          <span style="font-weight:600;color:var(--text-1)">${ct.display_name ?? ct.contact_channels[0]?.platform_username ?? ct.contact_channels[0]?.platform_sender_id ?? "Unknown"}</span>
+          ${ct.email ? html`<div><small>${ct.email}</small></div>` : html``}
+          ${!ct.is_subscribed ? html`<div style="margin-top:3px"><span class="badge tone-bad">Unsubscribed</span></div>` : html``}
+        </td>
+        <td><span class="pill-row">${ct.contact_channels.map((cc) => html`<span class="badge" title="${cc.channel.display_name ?? cc.channel.platform}">${PLATFORM_LABELS[cc.channel.platform] ?? cc.channel.platform}${cc.platform_username ? html` · @${cc.platform_username}` : ""}</span>`)}</span></td>
+        <td><span class="muted-mono">${timeAgo(ct.last_interaction_at)}</span></td>
+        <td class="th-act"><a class="btn btn-sm" href="/inbox?contact=${ct.id}">View →</a></td>
       </tr>`,
     )}
-  </tbody></table>${more}`;
+    </tbody></table></div>${more}`;
 }
 
 function loadKeys(workspaceId: string) {
@@ -2070,8 +2085,11 @@ function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; 
  *  supplies the H1, so this renders only the intro + form + list. */
 function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awaited<ReturnType<typeof getInstanceLicense>>): Html {
   const canApi = license.features.has("api_access");
+  // Owner directive: unlicensed instances don't see the keys UI at all — only the upsell, so it's
+  // obvious that API/agent access needs PRO (mirrors the onboarding wizard's License→API step).
+  if (!canApi) return apiKeysUpsell(license.upgradeUrl);
   return html`
-    <p class="muted" style="margin-bottom:1rem">Keys are shown once on creation — store them securely.${canApi ? "" : html` Creating API keys is a ${proLink(license.upgradeUrl, "PRO")} feature; existing keys are disabled while unlicensed.`}</p>
+    <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>. Keys are shown once on creation — store them securely.</p>
     <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
       x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
       <div class="row">
@@ -2090,6 +2108,32 @@ function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awa
       <input type="hidden" name="scopes_json" :value="scopesJson()" />
     </form>
     <div id="keys-area">${renderKeys(keys)}</div>`;
+}
+
+/** License gate for the API-keys tab. Shown instead of the keys UI on the free plan: states plainly
+ *  what PRO unlocks, a buy CTA, and that free still works (license can be added later). */
+function apiKeysUpsell(upgradeUrl: string): Html {
+  const locked = [
+    "REST API access — programmatic keys for agents & integrations",
+    "First-comment automation",
+    "Auto-Story publishing",
+    "Drip sequences",
+    "Contacts CRM",
+    "Manual inbox replies",
+  ];
+  return html`<div class="upsell">
+    <div class="upsell-head">${icon("lock", "ico", 18)}<h3>API access is a PRO feature</h3></div>
+    <p class="upsell-lead">API keys and agent automations are part of PRO. On the free plan you create and schedule posts manually in the panel — without programmatic access.</p>
+    <div class="upsell-sub">Without a license, these stay off:</div>
+    <ul class="upsell-list">
+      ${locked.map((f) => html`<li>${icon("lock", "ico", 14)}<span>${f}</span></li>`)}
+    </ul>
+    <div class="upsell-actions">
+      <a class="btn btn-primary" href="${upgradeUrl}" target="_blank" rel="noopener">${icon("sparkles", "ico", 15)} Get PRO</a>
+      <a class="btn btn-ghost" href="${upgradeUrl}" target="_blank" rel="noopener">See plans</a>
+    </div>
+    <div class="callout">${icon("info", "ico", 15)}<div>Free still works — create &amp; schedule posts manually. Already have a license? Add it in the <strong>License</strong> tab and API access unlocks instantly.</div></div>
+  </div>`;
 }
 
 /** CONFIG1: editable instance-credential rows (App ID/Secret/Verify token). A DB value overrides the
@@ -2143,7 +2187,7 @@ function metaConfigRow(label: string, value: string): Html {
 }
 
 function proLink(upgradeUrl: string, label = "PRO"): Html {
-  return html`<a href="${upgradeUrl}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none;white-space:nowrap">🔒 ${label}</a>`;
+  return html`<a href="${upgradeUrl}" target="_blank" rel="noopener" class="pro-link" style="color:var(--primary);text-decoration:none;white-space:nowrap">${icon("lock", "ico", 12)} ${label}</a>`;
 }
 
 // Full-page upsell shown when a free instance opens a PRO-only view (inbox / contacts).
@@ -2298,73 +2342,77 @@ interface EngagementFilter {
 function engagementFilterBar(f: EngagementFilter): Html {
   if (f.channels.length === 0) return html``;
   const anyUnassigned = f.channels.some((ch) => !ch.brand_key);
-  return html`<form method="get" action="/engagement" class="row" style="gap:.5rem;align-items:center;margin:.5rem 0 1rem;flex-wrap:wrap">
-    <label class="muted" style="font-size:.82rem">Brand
-      <select name="brand" style="margin-left:.35rem">
+  return html`<form method="get" action="/engagement" class="filter-bar" style="margin:.5rem 0 1rem">
+    <label class="fld" style="gap:4px"><span>Brand</span>
+      <select name="brand">
         <option value="all" ${f.brand === "all" ? "selected" : ""}>All brands</option>
         ${f.brands.map((b) => html`<option value="${b.key}" ${f.brand === b.key ? "selected" : ""}>${b.name}</option>`)}
         ${anyUnassigned ? html`<option value="__unassigned__" ${f.brand === "__unassigned__" ? "selected" : ""}>Unassigned</option>` : ""}
       </select>
     </label>
-    <label class="muted" style="font-size:.82rem">Account
-      <select name="channel" style="margin-left:.35rem">
+    <label class="fld" style="gap:4px"><span>Account</span>
+      <select name="channel">
         <option value="all" ${f.channel === "all" ? "selected" : ""}>All accounts</option>
         ${renderInboxChannelOptions(f.channels, f.channel)}
       </select>
     </label>
-    ${btn({ label: "Filter", variant: "secondary", size: "sm", attrs: 'type="submit"' })}
-    ${f.brand !== "all" || f.channel !== "all" ? html`<a class="btn btn-sm" href="/engagement">Clear</a>` : ""}
+    ${btn({ label: "Filter", variant: "primary", size: "sm", attrs: 'type="submit"' })}
+    ${f.brand !== "all" || f.channel !== "all" ? html`<a class="btn btn-sm btn-ghost" href="/engagement">Clear</a>` : ""}
   </form>`;
 }
 
 function renderEngagement(posts: EngagementPost[], dms: DmReaction[], filter: EngagementFilter): Html {
   return html`<div class="page">
     <h1>Engagement</h1>
-    <p class="muted">Who reacted to your posts and messages.</p>
+    <p class="section-intro">Who reacted to your posts and messages.</p>
 
     ${engagementFilterBar(filter)}
 
-    <p class="muted" style="margin:.25rem 0 1rem">
+    <div class="callout">${icon("info", "ico", 15)}<div>
       <strong>Platform coverage:</strong> Facebook delivers <em>post</em> reactions (shown below).
       Instagram does <strong>not</strong> send <strong>post likes</strong> or reactions over its API,
       so they can't appear here — Instagram engagement instead arrives as <em>message reactions</em>
-      (further down) and as comments in your <a href="/inbox">Inbox</a>.
-    </p>
+      (below) and as comments in your <a href="/inbox">Inbox</a>.
+    </div></div>
 
-    <h2 style="margin-top:1rem">Post reactions <span class="muted" style="font-weight:400">· Facebook</span></h2>
-    ${posts.length === 0
-      ? html`<p class="muted">No post reactions yet. Reactions on your Facebook posts will show up here.</p>`
-      : html`<table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th><th>Latest</th></tr></thead>
-          <tbody>
-            ${posts.map(
-              (p) => html`<tr>
-                <td style="font-size:.82rem">
-                  ${p.channelName ? html`<div style="font-weight:600">${p.channelName}</div>` : ""}
-                  <a href="https://www.facebook.com/${p.postId}" target="_blank" rel="noopener">View post ↗</a>
-                  <div class="muted mono" style="font-size:.68rem">${p.postId}</div>
-                </td>
-                <td><strong>${p.total}</strong></td>
-                <td>${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span> `)}</td>
-                <td class="muted" style="font-size:.8rem">${p.reactors.length ? p.reactors.join(", ") : "—"}</td>
-                <td class="muted" style="font-size:.78rem">${timeAgo(p.lastAt)}</td>
-              </tr>`,
-            )}
-          </tbody></table>`}
+    <section class="section">
+      <h2>Post reactions <span class="panel-sub" style="font-weight:400">· Facebook</span></h2>
+      ${posts.length === 0
+        ? html`<div class="empty"><span class="empty-ic">${icon("events", "ico", 20)}</span><p class="empty-title">No post reactions yet</p><p class="empty-body">Reactions on your Facebook posts will show up here.</p></div>`
+        : html`<div class="table-wrap"><table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th><th>Latest</th></tr></thead>
+            <tbody>
+              ${posts.map(
+                (p) => html`<tr>
+                  <td>
+                    ${p.channelName ? html`<div style="font-weight:600;color:var(--text-1)">${p.channelName}</div>` : ""}
+                    <a href="https://www.facebook.com/${p.postId}" target="_blank" rel="noopener">View post</a>
+                    <div class="muted-mono" style="font-size:.68rem">${p.postId}</div>
+                  </td>
+                  <td><span style="font-family:var(--font-mono);font-weight:600;color:var(--text-1)">${p.total}</span></td>
+                  <td><span class="pill-row">${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span>`)}</span></td>
+                  <td><small>${p.reactors.length ? p.reactors.join(", ") : "—"}</small></td>
+                  <td><span class="muted-mono">${timeAgo(p.lastAt)}</span></td>
+                </tr>`,
+              )}
+            </tbody></table></div>`}
+    </section>
 
-    <h2 style="margin-top:1.5rem">Message reactions <span class="muted" style="font-weight:400">· Facebook &amp; Instagram DMs</span></h2>
-    ${dms.length === 0
-      ? html`<p class="muted">No message reactions yet. When someone reacts to one of your direct messages, it shows up here.</p>`
-      : html`<table><thead><tr><th>Who</th><th>Reaction</th><th>Platform</th><th>When</th></tr></thead>
-          <tbody>
-            ${dms.map(
-              (d) => html`<tr>
-                <td>${d.who}</td>
-                <td><span class="badge" title="${d.type}">${d.emoji} ${d.type}</span></td>
-                <td class="muted">${d.platform}</td>
-                <td class="muted" style="font-size:.8rem">${d.at.toISOString().slice(0, 16).replace("T", " ")}</td>
-              </tr>`,
-            )}
-          </tbody></table>`}
+    <section class="section">
+      <h2>Message reactions <span class="panel-sub" style="font-weight:400">· Facebook &amp; Instagram DMs</span></h2>
+      ${dms.length === 0
+        ? html`<div class="empty"><span class="empty-ic">${icon("comment", "ico", 20)}</span><p class="empty-title">No message reactions yet</p><p class="empty-body">When someone reacts to one of your direct messages, it shows up here.</p></div>`
+        : html`<div class="table-wrap"><table><thead><tr><th>Who</th><th>Reaction</th><th>Platform</th><th>When</th></tr></thead>
+            <tbody>
+              ${dms.map(
+                (d) => html`<tr>
+                  <td>${d.who}</td>
+                  <td><span class="badge" title="${d.type}">${d.emoji} ${d.type}</span></td>
+                  <td>${PLATFORM_LABELS[d.platform] ?? d.platform}</td>
+                  <td><span class="muted-mono">${d.at.toISOString().slice(0, 16).replace("T", " ")}</span></td>
+                </tr>`,
+              )}
+            </tbody></table></div>`}
+    </section>
   </div>`;
 }
 
@@ -2373,31 +2421,31 @@ function renderEngagement(posts: EngagementPost[], dms: DmReaction[], filter: En
  *  Access — so a present-but-noted hint is shown rather than implying a local misconfig. */
 function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
   if (statuses.length === 0) {
-    return html`<p class="muted" style="font-size:.82rem">No Facebook/Instagram accounts connected yet.</p>`;
+    return html`<div id="wh-subs"><div class="empty"><span class="empty-ic">${icon("channels", "ico", 20)}</span><p class="empty-title">No accounts connected</p><p class="empty-body">Connect a Facebook or Instagram account to manage its webhook subscriptions.</p></div></div>`;
   }
   const fieldBadges = (fields: string[], tone: string) =>
-    fields.length ? html`${fields.map((f) => html`<span class="badge tone-${tone}" style="font-size:.7rem">${f}</span> `)}` : html`<span class="muted">—</span>`;
-  return html`<div id="wh-subs"><table><thead><tr><th>Account</th><th>Active</th><th>Missing</th><th></th></tr></thead>
+    fields.length ? html`<span class="pill-row">${fields.map((f) => html`<span class="badge tone-${tone}">${f}</span>`)}</span>` : html`<span style="color:var(--text-3)">—</span>`;
+  return html`<div id="wh-subs"><div class="table-wrap"><table><thead><tr><th>Account</th><th>Active</th><th>Missing</th><th class="th-act"></th></tr></thead>
     <tbody>${statuses.map(
       (s) => html`<tr>
         <td>
-          <div style="font-weight:600">${PLATFORM_LABELS[s.platform] ?? s.platform} · ${s.displayName ?? s.channelId}</div>
+          <div style="font-weight:600;color:var(--text-1)">${PLATFORM_LABELS[s.platform] ?? s.platform} · ${s.displayName ?? s.channelId}</div>
           ${s.error
-            ? html`<div class="muted" style="font-size:.72rem;color:var(--bad-text)">${s.error}</div>`
+            ? html`<div style="font-size:.72rem;color:var(--bad-text);margin-top:3px">${s.error}</div>`
             : s.ok
-              ? html`<div class="muted" style="font-size:.72rem">✅ Fully subscribed</div>`
-              : html`<div class="muted" style="font-size:.72rem">⚠️ Missing ${s.missing.length} field(s)</div>`}
+              ? html`<div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-3);margin-top:3px">${dot("ok")} Fully subscribed</div>`
+              : html`<div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-3);margin-top:3px">${dot("warn")} Missing ${s.missing.length} field(s)</div>`}
           ${s.active.includes("message_reactions")
-            ? html`<div class="muted" style="font-size:.68rem">ℹ️ message_reactions is subscribed but Meta only delivers it once <code>pages_messaging</code> has Advanced Access (App Review).</div>`
+            ? html`<div style="display:flex;align-items:flex-start;gap:5px;font-size:.68rem;color:var(--text-3);margin-top:4px">${icon("info", "ico", 12)}<span>message_reactions is subscribed but Meta only delivers it once <code>pages_messaging</code> has Advanced Access (App Review).</span></div>`
             : ""}
         </td>
         <td style="max-width:22rem">${fieldBadges(s.active, "ok")}</td>
         <td style="max-width:18rem">${fieldBadges(s.missing, "warn")}</td>
-        <td>${s.missing.length
-          ? html`<button class="btn btn-sm" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML">Fix</button>`
+        <td class="th-act">${s.missing.length
+          ? html`<button class="btn btn-sm btn-primary" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML">Fix</button>`
           : html`<button class="btn btn-sm" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML" title="Re-apply the full subscription">Re-apply</button>`}</td>
       </tr>`,
-    )}</tbody></table></div>`;
+    )}</tbody></table></div></div>`;
 }
 
 interface OverviewPublishing {
@@ -2414,23 +2462,26 @@ function renderPublishingOverview(pub: OverviewPublishing): Html {
         ${pub.attention.map(
           (a) => html`<div class="attn-row">
             ${dot(a.tone)}
-            <span class="attn-title" title="${a.reason}">${a.title} <span class="muted" style="font-weight:400">· ${a.reason}</span></span>
+            <span class="attn-title" title="${a.reason}">${a.title} <span style="color:var(--text-3);font-weight:400">· ${a.reason}</span></span>
             <span class="attn-acts"><a class="btn btn-sm ${a.action.variant === "primary" ? "btn-primary" : "btn-secondary"}" href="${a.action.href}">${a.action.label}</a></span>
           </div>`,
         )}
       </section>`
-    : html`<section class="panel" style="margin:1rem 0"><div class="panel-head"><h3>Needs attention</h3></div><div class="empty"><p class="empty-title">All healthy ✓</p><p class="empty-body">No channels, sources or deliveries need a fix.</p></div></section>`;
+    : html`<section class="panel" style="margin:1rem 0"><div class="panel-head"><h3>Needs attention</h3></div><div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">All healthy</p><p class="empty-body">No channels, sources or deliveries need a fix.</p></div></section>`;
   const upcoming = html`<section class="panel">
       <div class="panel-head"><h3>Upcoming</h3><a class="panel-more" href="/queue?status=scheduled">Queue →</a></div>
       ${pub.upcoming.length
         ? pub.upcoming.map((u) => html`<div class="up-row"><span class="up-time">${relTimeShort(u.scheduledAt)}</span><span class="up-title">${PLATFORM_LABELS[u.platform] ?? u.platform} · ${u.format}</span><span class="up-channel">${u.channelName}</span></div>`)
-        : html`<div class="rec-empty"><small>Nothing scheduled.</small></div>`}
+        : html`<div class="empty"><p class="empty-body">Nothing scheduled.</p></div>`}
     </section>`;
   const recent = html`<section class="panel">
       <div class="panel-head"><h3>Recent events</h3><a class="panel-more" href="/events">Events →</a></div>
       ${pub.recent.length
-        ? pub.recent.map((e) => html`<div class="feed-row"><span class="feed-main"><span class="feed-type">${e.type}</span></span><span class="feed-time">${timeAgo(e.createdAt)}</span></div>`)
-        : html`<div class="rec-empty"><small>No events yet.</small></div>`}
+        ? pub.recent.map((e) => {
+            const m = EVENT_META[e.type];
+            return html`<div class="feed-row">${dot(m?.tone ?? "neutral")}<span class="feed-main"><span class="feed-type">${m?.label ?? e.type}</span>${m ? html`<span class="feed-detail">${e.type}</span>` : ""}</span><span class="feed-time">${timeAgo(e.createdAt)}</span></div>`;
+          })
+        : html`<div class="empty"><p class="empty-body">No events yet.</p></div>`}
     </section>`;
   return html`${attention}<div class="dash-grid">${upcoming}${recent}</div>`;
 }
@@ -2467,19 +2518,19 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
     <section class="section">
       <h2>Recent activity</h2>
       ${ov.recentSends.length === 0
-        ? html`<p class="muted">No messages sent yet. Connect a channel and add a keyword rule to start auto-replying.</p>`
-        : html`<table><thead><tr><th>Type</th><th>Channel</th><th>Status</th><th>When</th></tr></thead>
+        ? html`<div class="empty"><span class="empty-ic">${icon("send", "ico", 20)}</span><p class="empty-title">No messages sent yet</p><p class="empty-body">Connect a channel and add a keyword rule to start auto-replying.</p></div>`
+        : html`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Channel</th><th>Status</th><th>When</th></tr></thead>
             <tbody>
               ${ov.recentSends.map(
                 (r) => html`<tr>
-                  <td>${r.label}</td>
-                  <td class="muted">${r.platform ? PLATFORM_LABELS[r.platform] ?? r.platform : "—"}</td>
-                  <td><span class="badge">${r.status}</span></td>
-                  <td class="muted">${timeAgo(r.createdAt)}</td>
+                  <td><span style="color:var(--text-1)">${r.label}</span></td>
+                  <td>${r.platform ? PLATFORM_LABELS[r.platform] ?? r.platform : "—"}</td>
+                  <td>${statusBadge(r.status)}</td>
+                  <td><span class="muted-mono">${timeAgo(r.createdAt)}</span></td>
                 </tr>`,
               )}
-            </tbody></table>
-          ${locked ? html`<p class="muted" style="font-size:.8rem;margin-top:.75rem">This log shows what was sent, without client details. To see who you talked to, ${proLink(upgradeUrl, "upgrade to PRO")}.</p>` : html``}`}
+            </tbody></table></div>
+          ${locked ? html`<p class="section-intro" style="margin-top:.75rem">This log shows what was sent, without client details. To see who you talked to, ${proLink(upgradeUrl, "upgrade to PRO")}.</p>` : html``}`}
     </section>
   </div>`;
 }
@@ -2490,13 +2541,13 @@ function renderProvidersStatus(): Html {
   const providers = listProviders();
   return html`<section class="section">
     <h2>Publishing providers</h2>
-    <p class="muted" style="margin-bottom:1rem">Which publishing providers are available and whether their OAuth client credentials are configured.</p>
-    <table><thead><tr><th>Provider</th><th>OAuth</th></tr></thead><tbody>
+    <p class="section-intro">Which publishing providers are available and whether their OAuth client credentials are configured.</p>
+    <div class="table-wrap"><table><thead><tr><th>Provider</th><th>OAuth</th></tr></thead><tbody>
       ${providers.map((p) => {
         const configured = !!p.oauthConfig?.();
-        return html`<tr><td>${p.id}</td><td>${configured ? pillBadge("configured", "ok") : pillBadge("not configured", "neutral")}</td></tr>`;
+        return html`<tr><td><span style="color:var(--text-1);font-weight:500">${p.id}</span></td><td>${configured ? pillBadge("configured", "ok") : pillBadge("not configured", "neutral")}</td></tr>`;
       })}
-    </tbody></table>
+    </tbody></table></div>
   </section>`;
 }
 
@@ -2569,37 +2620,47 @@ function ruleSummary(r: Awaited<ReturnType<typeof loadRules>>[number]): Html {
   const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
   const rc = (r.response_config ?? {}) as Record<string, unknown>;
   const bits: Html[] = [];
+  const chip = (ic: Parameters<typeof icon>[0], body: Html) => html`<span class="badge tone-neutral">${icon(ic, "ico", 12)} ${body}</span>`;
   const kws = Array.isArray(tc.keywords)
     ? (tc.keywords as Array<string | { value?: string }>).map((k) => (typeof k === "string" ? k : k.value ?? "")).filter(Boolean)
     : [];
-  if (kws.length) bits.push(html`🔑 ${kws.join(", ")}`);
+  if (kws.length) bits.push(chip("key", html`${kws.join(", ")}`));
   if (r.trigger_type === "comment_keyword") {
-    bits.push(html`📌 ${typeof tc.post_id === "string" && tc.post_id ? `post ${tc.post_id}` : "any post"}`);
-    if (typeof rc.reply_mode === "string") bits.push(html`💬 ${rc.reply_mode}`);
+    bits.push(chip("comment", html`${typeof tc.post_id === "string" && tc.post_id ? `post ${tc.post_id}` : "any post"}`));
+    if (typeof rc.reply_mode === "string") bits.push(chip("send", html`${rc.reply_mode}`));
   }
-  if (r.response_type === "sequence" && r.sequenceName) bits.push(html`🧵 enroll → ${r.sequenceName}`);
-  if (typeof rc.text === "string" && rc.text.trim()) bits.push(html`↳ “${truncateCodePoints(rc.text, 60)}”`);
-  if (rc.ai_rephrase === true) bits.push(html`🤖 AI rephrase`);
+  if (r.response_type === "sequence" && r.sequenceName) bits.push(chip("reopen", html`enroll → ${r.sequenceName}`));
+  if (typeof rc.text === "string" && rc.text.trim()) bits.push(html`<span class="badge tone-neutral">“${truncateCodePoints(rc.text, 60)}”</span>`);
+  if (rc.ai_rephrase === true) bits.push(chip("sparkles", html`AI rephrase`));
   const buttons = Array.isArray(rc.buttons) ? (rc.buttons as Array<{ title?: string; url?: string; payload?: string }>) : [];
-  for (const b of buttons) bits.push(html`🔘 ${b.title ?? ""}${b.url ? html` → <a href="${b.url}" target="_blank" rel="noopener">${b.url}</a>` : b.payload ? ` (${b.payload})` : ""}`);
+  for (const b of buttons) bits.push(chip("command", html`${b.title ?? ""}${b.url ? html` → <a href="${b.url}" target="_blank" rel="noopener">${b.url}</a>` : b.payload ? ` (${b.payload})` : ""}`));
   const qr = Array.isArray(rc.quick_replies) ? (rc.quick_replies as Array<{ content_type?: string; title?: string }>) : [];
   const qrLabels = qr.map((q) => (q.content_type === "user_email" ? "ask email" : q.content_type === "user_phone_number" ? "ask phone" : q.title ?? "reply"));
-  if (qrLabels.length) bits.push(html`⚡ ${qrLabels.join(", ")}`);
+  if (qrLabels.length) bits.push(chip("events", html`${qrLabels.join(", ")}`));
   if (!bits.length) return html``;
-  return html`<div class="muted" style="font-size:.72rem;margin-top:.25rem;display:flex;flex-wrap:wrap;gap:.1rem .6rem">${bits.map((b) => html`<span>${b}</span>`)}</div>`;
+  return html`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${bits}</div>`;
 }
 
 function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (rulesList.length === 0) return html`${notice}<p class="muted">No rules yet.</p>`;
-  return html`${notice}<div class="list">${rulesList.map(
-    (r) => html`<div class="list-row">
-      <div class="grow"><span style="font-weight:600">${r.name}</span> <span class="muted" style="font-size:.75rem">${r.trigger_type} → ${r.response_type} · ${r.channelLabel}${r.is_active ? "" : " · inactive"}</span>${ruleSummary(r)}</div>
-      <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
-      <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
-      <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
-    </div>`,
-  )}</div>`;
+  if (rulesList.length === 0) return html`${notice}<div class="empty"><span class="empty-ic">${icon("sparkles", "ico", 20)}</span><p class="empty-title">No rules yet</p><p class="empty-body">Add a keyword rule above to auto-reply to DMs and comments.</p></div>`;
+  return html`${notice}<div class="table-wrap"><table>
+    <thead><tr><th>Rule</th><th>Status</th><th class="th-act">Actions</th></tr></thead>
+    <tbody>${rulesList.map(
+      (r) => html`<tr>
+        <td>
+          <div style="font-weight:600;color:var(--text-1)">${r.name}</div>
+          <div style="margin-top:2px"><span class="mode-tag">${r.trigger_type} → ${r.response_type}</span> <small>· ${r.channelLabel}</small></div>
+          ${ruleSummary(r)}
+        </td>
+        <td>${r.is_active ? html`<span class="badge tone-ok">Active</span>` : html`<span class="badge tone-neutral">Paused</span>`}</td>
+        <td class="th-act"><div class="wh-actions" style="justify-content:flex-end">
+          <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
+          <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
+          <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
+        </div></td>
+      </tr>`,
+    )}</tbody></table></div>`;
 }
 
 /** The x-data methods that serialize the quick-reply / button editor rows into the hidden JSON inputs
@@ -2747,9 +2808,9 @@ function renderRuleEditForm(
     : isSequence
       ? html` x-data="{ responseMode: 'sequence' }"`
       : html``;
-  return html`<div class="card" style="margin-bottom:1rem">
-    <h3 style="margin-top:0">Edit rule <span class="muted" style="font-weight:400;font-size:.8rem">${r.trigger_type} → ${r.response_type}</span></h3>
-    <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack"${xData}>
+  return html`<section class="panel" style="margin-bottom:1rem">
+    <div class="panel-head"><h3>Edit rule</h3><span class="panel-sub">${r.trigger_type} → ${r.response_type}</span></div>
+    <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="max-width:none;padding:14px 16px;background:transparent;border:0;border-radius:0;gap:12px"${xData}>
       <div><label class="label">Name</label><input class="input" name="name" value="${r.name}" required /></div>
       ${ruleChannelSelect(channels, r.channel_id)}
       ${isKeyword ? html`<div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" value="${keywords}" placeholder="hello, hi, info" /></div>` : ""}
@@ -2783,7 +2844,7 @@ function renderRuleEditForm(
         <button class="btn btn-sm" type="button" hx-get="/rules/list" hx-target="#rules-list" hx-swap="innerHTML">Cancel</button>
       </div>
     </form>
-  </div>`;
+  </section>`;
 }
 
 function loadApprovals(workspaceId: string) {
@@ -2867,7 +2928,7 @@ function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApp
 
 function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolved: Awaited<ReturnType<typeof loadResolvedApprovals>> = [], error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (list.length === 0) return html`${notice}<p class="muted">Nothing waiting for approval.</p>${renderResolvedApprovals(resolved)}`;
+  if (list.length === 0) return html`${notice}<div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">Nothing waiting for approval</p><p class="empty-body">When a rule holds a reply for review, it shows up here.</p></div>${renderResolvedApprovals(resolved)}`;
   return html`${notice}<div class="appr-list">${list.map((a) => {
     const proposed = a.proposed as { content?: { text?: string; buttons?: unknown[]; quick_replies?: unknown[] } | null; comment?: { text?: string } | null } | null;
     const content = proposed?.content ?? {};
@@ -2926,15 +2987,23 @@ async function loadSequences(workspaceId: string) {
 
 function renderSequences(seqs: Awaited<ReturnType<typeof loadSequences>>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (seqs.length === 0) return html`${notice}<p class="muted">No sequences yet.</p>`;
-  return html`${notice}<div class="list">${seqs.map((seq) => {
-    const stepCount = Array.isArray(seq.steps) ? seq.steps.length : 0;
-    return html`<div class="list-row">
-      <div class="grow"><span style="font-weight:600">${seq.name}</span> <span class="muted" style="font-size:.75rem">${seq.status.toUpperCase()} · ${stepCount} steps · ${seq._count.enrollments} enrolled</span></div>
-      ${seq.status === "draft" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"active"}' hx-target="#sequences-list" hx-swap="innerHTML">Activate</button>` : html``}
-      ${seq.status === "active" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"archived"}' hx-target="#sequences-list" hx-swap="innerHTML">Archive</button>` : html``}
-      ${seq.status === "archived" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"active"}' hx-target="#sequences-list" hx-swap="innerHTML">Restore</button>` : html``}
-      <button class="btn btn-sm btn-danger" hx-delete="/sequences/${seq.id}" hx-target="#sequences-list" hx-swap="innerHTML" hx-confirm="Delete this sequence?">Delete</button>
-    </div>`;
-  })}</div>`;
+  if (seqs.length === 0) return html`${notice}<div class="empty"><span class="empty-ic">${icon("reopen", "ico", 20)}</span><p class="empty-title">No sequences yet</p><p class="empty-body">Create a drip sequence above to nurture contacts over time.</p></div>`;
+  const seqTone = (s: string): Tone => (s === "active" ? "ok" : s === "draft" ? "info" : "neutral");
+  return html`${notice}<div class="table-wrap"><table>
+    <thead><tr><th>Sequence</th><th>Status</th><th>Steps</th><th>Enrolled</th><th class="th-act">Actions</th></tr></thead>
+    <tbody>${seqs.map((seq) => {
+      const stepCount = Array.isArray(seq.steps) ? seq.steps.length : 0;
+      return html`<tr>
+        <td><span style="font-weight:600;color:var(--text-1)">${seq.name}</span></td>
+        <td><span class="badge tone-${seqTone(seq.status)}">${seq.status}</span></td>
+        <td><span class="muted-mono">${stepCount}</span></td>
+        <td><span class="muted-mono">${seq._count.enrollments}</span></td>
+        <td class="th-act"><div class="wh-actions" style="justify-content:flex-end">
+          ${seq.status === "draft" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"active"}' hx-target="#sequences-list" hx-swap="innerHTML">Activate</button>` : html``}
+          ${seq.status === "active" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"archived"}' hx-target="#sequences-list" hx-swap="innerHTML">Archive</button>` : html``}
+          ${seq.status === "archived" ? html`<button class="btn btn-sm" hx-post="/sequences/${seq.id}/status" hx-ext="json-enc" hx-vals='{"status":"active"}' hx-target="#sequences-list" hx-swap="innerHTML">Restore</button>` : html``}
+          <button class="btn btn-sm btn-danger" hx-delete="/sequences/${seq.id}" hx-target="#sequences-list" hx-swap="innerHTML" hx-confirm="Delete this sequence?">Delete</button>
+        </div></td>
+      </tr>`;
+    })}</tbody></table></div>`;
 }

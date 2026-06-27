@@ -1,11 +1,12 @@
 import { html, raw } from "hono/html";
 
-export type Theme = "dark"; // v1 ships dark only; "light" | "system" land later (spec §11)
-const KNOWN: Theme[] = ["dark"];
+export type Theme = "dark" | "light";
 
-/** Resolve the active theme from the ps_theme cookie value. Unknown/missing → dark. */
+/** Resolve the server-side data-theme from the ps_theme cookie. "system" can't be detected on the
+ *  server, so it (and anything unknown/missing) falls back to dark; the boot script then corrects it
+ *  client-side before first paint via prefers-color-scheme. */
 export function resolveTheme(cookie: string | undefined): Theme {
-  return KNOWN.includes(cookie as Theme) ? (cookie as Theme) : "dark";
+  return cookie === "light" ? "light" : "dark";
 }
 
 /** Inline <script> for <head> — sets data-theme before first paint (no FOUC). Already wired for
