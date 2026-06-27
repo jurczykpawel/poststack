@@ -14,7 +14,6 @@ let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let seedWorkspace: typeof import("../../../tests/helpers/workspace").seedWorkspace;
 let buildEnvelope: typeof import("./collect").buildEnvelope;
 let collectMetrics: typeof import("./collect").collectMetrics;
-let domainHash: typeof import("./identity").domainHash;
 
 let WS = "", CH_IG = "", CH_FB = "";
 
@@ -35,7 +34,6 @@ beforeAll(async () => {
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
   ({ buildEnvelope, collectMetrics } = await import("./collect"));
-  ({ domainHash } = await import("./identity"));
 });
 
 afterAll(async () => {
@@ -220,19 +218,21 @@ describe("buildEnvelope (real Postgres)", () => {
     expect(e1.sent_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(e1.deployment.runtime).toBe("bun");
     expect(e1.metrics.channels.total).toBeGreaterThanOrEqual(2);
-    expect(e1.identity.license_hash).toBeNull(); // no license configured in this suite
+    expect(e1.report_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(e1.identity).toEqual({ license_tier: null }); // no license configured in this suite
 
     // instance_id is persisted once and stays the same on a second build.
     const e2 = await buildEnvelope(db);
     expect(e2.instance_id).toBe(e1.instance_id);
   });
 
-  it("identity uses hashes — the raw APP_URL host never appears", async () => {
+  it("identity is anonymous — no domain/license hash, and the raw APP_URL host never appears", async () => {
     if (!TEST_DB) return;
     const e = await buildEnvelope(db);
-    expect(e.identity.domain_hash).toBe(domainHash(APP_URL));
+    expect(e.identity).not.toHaveProperty("domain_hash");
+    expect(e.identity).not.toHaveProperty("license_hash");
     const json = JSON.stringify(e);
-    // The real domain/host must NOT be in the payload — only its hash.
+    // The real domain/host must NOT be in the payload at all (not even hashed).
     expect(json).not.toContain("secret-real-domain.example.org");
     expect(json).not.toContain("secret-real-domain");
   });

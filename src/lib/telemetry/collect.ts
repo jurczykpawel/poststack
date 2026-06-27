@@ -27,7 +27,8 @@ import { mergeWebhookStatusCounts, mergeWebhookPlatformCounts } from "@/lib/hist
 import { getInstanceResponseTimeStats, DEFAULT_WINDOW_DAYS } from "@/lib/metrics/response-times";
 import { env } from "@/lib/env";
 import { getSupportedPlatforms, getProvider } from "@/lib/platforms/registry";
-import { ensureInstanceId, domainHash, getLicenseIdentity } from "./identity";
+import { ensureInstanceId, getLicenseTier } from "./identity";
+import { memBucket, cpuBucket, majorVersion } from "./coarsen";
 import { TELEMETRY_PROJECT } from "./constants";
 
 type Executor = typeof Db;
@@ -69,12 +70,11 @@ function runtimeVersion(): string {
 export interface DeploymentInfo {
   app_version: string;
   runtime: "bun";
-  runtime_version: string;
+  runtime_version_major: string;
   os: string;
   arch: string;
-  cpu_count: number;
-  mem_total_mb: number;
-  node_env: string;
+  cpu_bucket: string;
+  mem_bucket: string;
   registration_enabled: boolean;
   history_retention_days: number;
   /** DISTINCT platforms across connected channels; falls back to the configured set when none. */
@@ -110,12 +110,11 @@ export function collectDeployment(distinctChannelPlatforms?: string[]): Deployme
   return {
     app_version: APP_VERSION,
     runtime: "bun",
-    runtime_version: runtimeVersion(),
+    runtime_version_major: majorVersion(runtimeVersion()),
     os: process.platform,
     arch: process.arch,
-    cpu_count: os.cpus().length,
-    mem_total_mb: Math.round(os.totalmem() / 1024 / 1024),
-    node_env: env.NODE_ENV,
+    cpu_bucket: cpuBucket(os.cpus().length),
+    mem_bucket: memBucket(Math.round(os.totalmem() / 1024 / 1024)),
     registration_enabled: truthy(env.REGISTRATION_ENABLED),
     history_retention_days: env.HISTORY_RETENTION_DAYS,
     platforms_enabled: channelPlatforms.length > 0 ? channelPlatforms : configuredPlatforms(),
@@ -273,10 +272,9 @@ export interface TelemetryEnvelope {
   schema_version: 1;
   project: string;
   instance_id: string;
+  report_id: string;
   sent_at: string;
   identity: {
-    domain_hash: string;
-    license_hash: string | null;
     license_tier: string | null;
   };
   deployment: DeploymentInfo;
@@ -284,14 +282,20 @@ export interface TelemetryEnvelope {
 }
 
 /**
- * Build the full versioned telemetry envelope: the hashed instance/domain/license identity, the
- * deployment facts, and the instance-wide usage metrics. The only identifiers are one-way hashes —
- * the raw domain, license order id and every per-person field stay out of the payload entirely.
+ * Build the full versioned telemetry envelope: a random instance id, a per-report `report_id` (for
+ * receiver dedup), the license tier, the coarsened deployment facts, and the instance-wide usage
+ * metrics. No linkable identifier is emitted — no domain/order hash, no raw host fingerprint, and no
+ * per-person field. A caller passes the persisted `report_id` so retries dedup; it defaults to a
+ * fresh uuid for one-off builds (e.g. tests).
  */
-export async function buildEnvelope(exec: Executor, now: Date = new Date()): Promise<TelemetryEnvelope> {
-  const [instanceId, license, metrics] = await Promise.all([
+export async function buildEnvelope(
+  exec: Executor,
+  reportId: string = crypto.randomUUID(),
+  now: Date = new Date(),
+): Promise<TelemetryEnvelope> {
+  const [instanceId, licenseTier, metrics] = await Promise.all([
     ensureInstanceId(exec),
-    getLicenseIdentity(),
+    getLicenseTier(),
     collectMetrics(exec, now),
   ]);
   const deployment = collectDeployment(Object.keys(metrics.channels.by_platform));
@@ -299,12 +303,9 @@ export async function buildEnvelope(exec: Executor, now: Date = new Date()): Pro
     schema_version: 1,
     project: TELEMETRY_PROJECT,
     instance_id: instanceId,
+    report_id: reportId,
     sent_at: now.toISOString(),
-    identity: {
-      domain_hash: domainHash(env.APP_URL),
-      license_hash: license.licenseHash,
-      license_tier: license.licenseTier,
-    },
+    identity: { license_tier: licenseTier },
     deployment,
     metrics,
   };

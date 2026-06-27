@@ -74,14 +74,19 @@ describe("collectDeployment", () => {
     expect(typeof d.app_version).toBe("string");
     expect(d.app_version.length).toBeGreaterThan(0);
     expect(d.runtime).toBe("bun");
-    expect(typeof d.runtime_version).toBe("string");
+    expect(typeof d.runtime_version_major).toBe("string");
+    expect(d.runtime_version_major).toMatch(/^\d+$|^unknown$/);
     expect(typeof d.os).toBe("string");
     expect(typeof d.arch).toBe("string");
-    expect(typeof d.cpu_count).toBe("number");
-    expect(d.cpu_count).toBeGreaterThan(0);
-    expect(typeof d.mem_total_mb).toBe("number");
-    expect(d.mem_total_mb).toBeGreaterThan(0);
-    expect(["development", "production", "test"]).toContain(d.node_env);
+    expect(typeof d.cpu_bucket).toBe("string");
+    expect(d.cpu_bucket.length).toBeGreaterThan(0);
+    expect(typeof d.mem_bucket).toBe("string");
+    expect(d.mem_bucket.length).toBeGreaterThan(0);
+    // Coarsened: the raw host fingerprint fields must be gone.
+    expect(d).not.toHaveProperty("cpu_count");
+    expect(d).not.toHaveProperty("mem_total_mb");
+    expect(d).not.toHaveProperty("node_env");
+    expect(d).not.toHaveProperty("runtime_version");
     expect(typeof d.registration_enabled).toBe("boolean");
     expect(typeof d.history_retention_days).toBe("number");
     expect(Array.isArray(d.platforms_enabled)).toBe(true);

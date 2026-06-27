@@ -85,7 +85,15 @@ describe("telemetry envelope contract (real Postgres)", () => {
     expect(parsed.project).toBe("poststack");
     expect(parsed.deployment.runtime).toBe("bun");
     expect(parsed.deployment.integrations.storage).toBeDefined();
-    expect(parsed.identity.license_hash).toBeNull();
+    // Anonymous identity: tier only, no hashes.
+    expect(parsed.identity).toEqual({ license_tier: null });
+    // report_id is a uuid for receiver dedup.
+    expect(parsed.report_id).toMatch(/^[0-9a-f-]{36}$/);
+    // Deployment is coarsened (string buckets, no raw fingerprint fields).
+    expect(typeof parsed.deployment.cpu_bucket).toBe("string");
+    expect(typeof parsed.deployment.mem_bucket).toBe("string");
+    expect(parsed.deployment).not.toHaveProperty("mem_total_mb");
+    expect(parsed.deployment).not.toHaveProperty("node_env");
     expect(parsed.metrics.channels.total).toBeGreaterThanOrEqual(2);
     expect(parsed.metrics.response_times.window_days).toBe(30);
   });
@@ -95,5 +103,12 @@ describe("telemetry envelope contract (real Postgres)", () => {
     const env = await buildEnvelope(db);
     const drifted = { ...env, surprise_field: true };
     expect(() => telemetryEnvelopeV1.parse(drifted)).toThrow();
+  });
+
+  it("rejects a stray identity.domain_hash (strict anonymity guard)", async () => {
+    if (!TEST_DB) return;
+    const env = await buildEnvelope(db);
+    const drifted = { ...env, identity: { ...env.identity, domain_hash: "deadbeef" } };
+    expect(telemetryEnvelopeV1.safeParse(drifted).success).toBe(false);
   });
 });

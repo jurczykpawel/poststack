@@ -18,12 +18,11 @@ const deployment = z
   .object({
     app_version: z.string(),
     runtime: z.literal("bun"),
-    runtime_version: z.string(),
+    runtime_version_major: z.string(),
     os: z.string(),
     arch: z.string(),
-    cpu_count: z.number(),
-    mem_total_mb: z.number(),
-    node_env: z.string(),
+    cpu_bucket: z.string(),
+    mem_bucket: z.string(),
     registration_enabled: z.boolean(),
     history_retention_days: z.number(),
     platforms_enabled: z.array(z.string()),
@@ -33,8 +32,6 @@ const deployment = z
 
 const identity = z
   .object({
-    domain_hash: z.string(),
-    license_hash: z.string().nullable(),
     license_tier: z.string().nullable(),
   })
   .strict();
@@ -93,6 +90,7 @@ export const telemetryEnvelopeV1 = z
     schema_version: z.literal(1),
     project: z.string(),
     instance_id: z.string().uuid(),
+    report_id: z.string().uuid(),
     sent_at: z.string().datetime(),
     identity,
     deployment,

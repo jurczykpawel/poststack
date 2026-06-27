@@ -8,7 +8,7 @@ const TEST_DB = process.env.TEST_DATABASE_URL;
 
 let db: typeof import("@/lib/db").db;
 let ensureInstanceId: typeof import("./identity").ensureInstanceId;
-let getLicenseIdentity: typeof import("./identity").getLicenseIdentity;
+let getLicenseTier: typeof import("./identity").getLicenseTier;
 let telemetryState: typeof import("@/db/schema").telemetryState;
 let instanceLicense: typeof import("@/db/schema").instanceLicense;
 let invalidateLicenseCache: typeof import("@/lib/license/gate").invalidateLicenseCache;
@@ -21,7 +21,7 @@ beforeAll(async () => {
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   ({ db } = await import("@/lib/db"));
-  ({ ensureInstanceId, getLicenseIdentity } = await import("./identity"));
+  ({ ensureInstanceId, getLicenseTier } = await import("./identity"));
   ({ telemetryState, instanceLicense } = await import("@/db/schema"));
   ({ invalidateLicenseCache } = await import("@/lib/license/gate"));
 });
@@ -72,10 +72,9 @@ describe("ensureInstanceId (real Postgres)", () => {
   });
 });
 
-describe("getLicenseIdentity (real Postgres)", () => {
-  it("returns nulls when no license is configured", async () => {
+describe("getLicenseTier (real Postgres)", () => {
+  it("returns null when no license is configured", async () => {
     if (!TEST_DB) return;
-    const id = await getLicenseIdentity();
-    expect(id).toEqual({ licenseHash: null, licenseTier: null });
+    expect(await getLicenseTier()).toBeNull();
   });
 });
