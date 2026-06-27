@@ -4,19 +4,15 @@
 // the log). A successful 2xx records the send time in the telemetry_state singleton so the
 // send-on-boot debounce and the daily cron don't double-fire.
 
-import { eq } from "drizzle-orm";
 import type { db as Db } from "@/lib/db";
-import { telemetryState } from "@/db/schema";
 import { env } from "@/lib/env";
 import { hostFromUrl } from "@/lib/license/format";
 import { buildEnvelope } from "./collect";
+import { claimSend, confirmSend } from "./identity";
+import { SEND_WINDOW_MS, RETRY_LEASE_MS } from "./constants";
 
-const SINGLETON = "singleton";
 const REQUEST_TIMEOUT_MS = 10_000;
 const RETRY_DELAY_MS = 2_000;
-// Send-on-boot debounce: skip the boot send if a report already landed within this window, so a
-// frequently-restarting worker doesn't spam the endpoint. The daily cron covers steady-state.
-const BOOT_DEBOUNCE_MS = 20 * 60 * 60 * 1000; // ~20h
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -65,8 +61,11 @@ export async function sendTelemetry(db: typeof Db): Promise<void> {
   if (!env.TELEMETRY_ENABLED || isNonDeploymentHost(env.APP_URL)) return;
 
   try {
-    const envelope = await buildEnvelope(db);
-    const body = JSON.stringify(envelope);
+    // The atomic claim is the sole debounce gate: null = not due (window) or lease held / lost race.
+    const claim = await claimSend(db, SEND_WINDOW_MS, RETRY_LEASE_MS);
+    if (!claim) return;
+
+    const body = JSON.stringify(await buildEnvelope(db, claim.reportId));
 
     let ok = await postOnce(body);
     if (!ok) {
@@ -75,26 +74,25 @@ export async function sendTelemetry(db: typeof Db): Promise<void> {
     }
 
     if (!ok) {
-      // No payload, no secret — just the fact that the send did not land.
+      // No payload, no secret — just the fact that the send did not land. The report_id is kept so
+      // the next attempt reuses it (receiver dedups); last_sent_at stays unset, so the window stays open.
       console.warn("[telemetry] send failed (will retry on the next schedule)");
       return;
     }
 
-    await db
-      .update(telemetryState)
-      .set({ last_sent_at: new Date() })
-      .where(eq(telemetryState.id, SINGLETON));
+    await confirmSend(db); // stamp last_sent_at + clear report_id, only on a confirmed 2xx
   } catch {
-    // Building the envelope or writing the timestamp failed — stay silent-but-safe; a failed
-    // telemetry send must never surface as an error to the caller.
+    // Building the envelope or writing the state failed — stay silent-but-safe; a failed telemetry
+    // send must never surface as an error to the caller.
     console.warn("[telemetry] send failed (will retry on the next schedule)");
   }
 }
 
 /**
- * Worker-startup hook. When telemetry is enabled, log the one-time enabled notice and — if no report
- * has landed within the debounce window — fire a send fire-and-forget so worker boot is never delayed
- * or broken by it. No-op (and no log) when telemetry is disabled.
+ * Worker-startup hook. When telemetry is enabled, log the one-time enabled notice and fire a send
+ * fire-and-forget so worker boot is never delayed or broken by it. The atomic claim inside
+ * sendTelemetry enforces the debounce, so a frequently-restarting worker can't spam the endpoint.
+ * No-op (and no log) when telemetry is disabled.
  */
 export async function sendTelemetryOnBoot(db: typeof Db): Promise<void> {
   if (!env.TELEMETRY_ENABLED || isNonDeploymentHost(env.APP_URL)) return;
@@ -103,12 +101,5 @@ export async function sendTelemetryOnBoot(db: typeof Db): Promise<void> {
     "[telemetry] Telemetry enabled (anonymous usage stats). Disable with POSTSTACK_TELEMETRY_DISABLED=true",
   );
 
-  try {
-    const row = await db.query.telemetryState.findFirst({ where: eq(telemetryState.id, SINGLETON) });
-    const lastSentAt = row?.last_sent_at ?? null;
-    const due = !lastSentAt || Date.now() - lastSentAt.getTime() >= BOOT_DEBOUNCE_MS;
-    if (due) void sendTelemetry(db);
-  } catch {
-    // A failed state read must not break worker boot — skip the boot send; the cron still covers it.
-  }
+  void sendTelemetry(db);
 }

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { TelemetryEnvelope } from "./collect";
 
-// Unit (no DB): sendTelemetry() POSTs the envelope best-effort. We mock buildEnvelope (so no real
-// db is touched) and globalThis.fetch, and pass a thin fake db whose update() we can assert against.
+// Unit (no DB): sendTelemetry() claims atomically, then POSTs the envelope best-effort. We mock
+// buildEnvelope and the claim/confirm helpers (so no real db is touched) and globalThis.fetch; the
+// db is opaque (the claim is the sole gate). The claim/confirm DB semantics are covered by
+// identity.integration.test.ts.
 
 const ENVELOPE: TelemetryEnvelope = {
   schema_version: 1,
@@ -46,8 +48,17 @@ const ENVELOPE: TelemetryEnvelope = {
   },
 };
 
+const CLAIM = { instanceId: ENVELOPE.instance_id, reportId: ENVELOPE.report_id };
+
 const buildEnvelope = vi.fn(async (..._a: unknown[]) => ENVELOPE);
+// claimSend resolves to a claim by default; tests override per-case (null = not due / lost race).
+const claimSend = vi.fn(async (..._a: unknown[]) => CLAIM as { instanceId: string; reportId: string } | null);
+const confirmSend = vi.fn(async (..._a: unknown[]) => undefined);
 vi.mock("./collect", () => ({ buildEnvelope: (...a: unknown[]) => buildEnvelope(...a) }));
+vi.mock("./identity", () => ({
+  claimSend: (...a: unknown[]) => claimSend(...a),
+  confirmSend: (...a: unknown[]) => confirmSend(...a),
+}));
 
 const REQUIRED = {
   DATABASE_URL: "postgres://u:p@localhost:5432/db",
@@ -58,30 +69,17 @@ const REQUIRED = {
   TELEMETRY_URL: "https://telemetry.example.com/v1/ingest",
 };
 
-/**
- * A fake db whose update().set().where() chain records the values it was asked to write, and whose
- * query.telemetryState.findFirst() returns a configurable singleton row (for the boot debounce).
- */
-function fakeDb(row: { last_sent_at: Date | null } | null = null) {
-  const updateCalls: Array<Record<string, unknown>> = [];
-  const db = {
-    update: vi.fn(() => ({
-      set: vi.fn((values: Record<string, unknown>) => {
-        updateCalls.push(values);
-        return { where: vi.fn(async () => undefined) };
-      }),
-    })),
-    query: {
-      telemetryState: { findFirst: vi.fn(async () => row ?? undefined) },
-    },
-  };
-  return { db, updateCalls };
-}
+const fakeDb = {} as never; // opaque: the claim/confirm helpers are mocked
 
 async function loadSend(over: Record<string, string | undefined>) {
   vi.resetModules();
   Object.assign(process.env, REQUIRED, over);
+  // Re-mock after resetModules (vi.mock hoists, but resetModules clears the registry).
   vi.doMock("./collect", () => ({ buildEnvelope: (...a: unknown[]) => buildEnvelope(...a) }));
+  vi.doMock("./identity", () => ({
+    claimSend: (...a: unknown[]) => claimSend(...a),
+    confirmSend: (...a: unknown[]) => confirmSend(...a),
+  }));
   return import("./send");
 }
 
@@ -96,6 +94,10 @@ const SAVED = { ...process.env };
 beforeEach(() => {
   process.env = { ...SAVED };
   buildEnvelope.mockClear();
+  claimSend.mockClear();
+  claimSend.mockResolvedValue(CLAIM);
+  confirmSend.mockClear();
+  confirmSend.mockResolvedValue(undefined);
   vi.useRealTimers();
 });
 afterEach(() => {
@@ -105,25 +107,48 @@ afterEach(() => {
 });
 
 describe("sendTelemetry", () => {
-  it("is a no-op when telemetry is disabled (no fetch, no throw, no build)", async () => {
+  it("is a no-op when telemetry is disabled (no claim, no fetch, no build)", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const { sendTelemetry } = await loadSend({ POSTSTACK_TELEMETRY_DISABLED: "true" });
-    const { db } = fakeDb();
 
-    await expect(sendTelemetry(db as never)).resolves.toBeUndefined();
+    await expect(sendTelemetry(fakeDb)).resolves.toBeUndefined();
+    expect(claimSend).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(buildEnvelope).not.toHaveBeenCalled();
   });
 
-  it("POSTs a JSON envelope and records last_sent_at on success", async () => {
+  it("is a no-op for a non-deployment host (no claim, no fetch)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { sendTelemetry } = await loadSend({ APP_URL: "http://localhost:3000" });
+
+    await expect(sendTelemetry(fakeDb)).resolves.toBeUndefined();
+    expect(claimSend).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the claim is not granted (not due / lost race): no fetch, no confirm", async () => {
+    claimSend.mockResolvedValue(null);
     const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
     const { sendTelemetry } = await loadSend({});
-    const { db, updateCalls } = fakeDb();
 
-    await expect(sendTelemetry(db as never)).resolves.toBeUndefined();
+    await expect(sendTelemetry(fakeDb)).resolves.toBeUndefined();
+    expect(claimSend).toHaveBeenCalledTimes(1);
+    expect(buildEnvelope).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(confirmSend).not.toHaveBeenCalled();
+  });
 
+  it("POSTs the envelope (built with the claimed report_id) and confirms on success", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { sendTelemetry } = await loadSend({});
+
+    await expect(sendTelemetry(fakeDb)).resolves.toBeUndefined();
+
+    expect(buildEnvelope).toHaveBeenCalledWith(fakeDb, CLAIM.reportId);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const { url, init } = firstFetchCall(fetchMock);
     expect(url).toBe(REQUIRED.TELEMETRY_URL);
@@ -132,13 +157,10 @@ describe("sendTelemetry", () => {
     const parsed = JSON.parse(init.body as string);
     expect(parsed.schema_version).toBe(1);
     expect(parsed.project).toBe("poststack");
-
-    // last_sent_at write attempted exactly once with a Date.
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]!.last_sent_at).toBeInstanceOf(Date);
+    expect(confirmSend).toHaveBeenCalledTimes(1);
   });
 
-  it("retries once on a network error then resolves without throwing (single failure)", async () => {
+  it("retries once on a network error then confirms (single failure)", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
       .fn()
@@ -147,49 +169,45 @@ describe("sendTelemetry", () => {
     vi.stubGlobal("fetch", fetchMock);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendTelemetry } = await loadSend({});
-    const { db, updateCalls } = fakeDb();
 
-    const p = sendTelemetry(db as never);
+    const p = sendTelemetry(fakeDb);
     await vi.runAllTimersAsync();
     await expect(p).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    // First attempt failed, retry succeeded → state written, no warning.
-    expect(updateCalls).toHaveLength(1);
+    expect(confirmSend).toHaveBeenCalledTimes(1);
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("gives up after the retry on a persistent network error (no throw, one warn, no state write)", async () => {
+  it("gives up after the retry on a persistent network error: no throw, one warn, NO confirm", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
     vi.stubGlobal("fetch", fetchMock);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendTelemetry } = await loadSend({});
-    const { db, updateCalls } = fakeDb();
 
-    const p = sendTelemetry(db as never);
+    const p = sendTelemetry(fakeDb);
     await vi.runAllTimersAsync();
     await expect(p).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(updateCalls).toHaveLength(0);
+    expect(confirmSend).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a non-2xx response as a failure: retries, no throw, no state write", async () => {
+  it("treats a non-2xx response as a failure: retries, no throw, NO confirm", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async () => new Response("nope", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendTelemetry } = await loadSend({});
-    const { db, updateCalls } = fakeDb();
 
-    const p = sendTelemetry(db as never);
+    const p = sendTelemetry(fakeDb);
     await vi.runAllTimersAsync();
     await expect(p).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(updateCalls).toHaveLength(0);
+    expect(confirmSend).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -199,9 +217,8 @@ describe("sendTelemetry", () => {
     vi.stubGlobal("fetch", fetchMock);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendTelemetry } = await loadSend({});
-    const { db } = fakeDb();
 
-    const p = sendTelemetry(db as never);
+    const p = sendTelemetry(fakeDb);
     await vi.runAllTimersAsync();
     await p;
 
@@ -212,76 +229,58 @@ describe("sendTelemetry", () => {
 });
 
 describe("sendTelemetryOnBoot", () => {
-  it("does nothing (no log, no read, no send) when telemetry is disabled", async () => {
+  it("does nothing (no log, no claim, no send) when telemetry is disabled", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const info = vi.spyOn(console, "log").mockImplementation(() => {});
     const { sendTelemetryOnBoot } = await loadSend({ POSTSTACK_TELEMETRY_DISABLED: "true" });
-    const { db } = fakeDb();
 
-    await sendTelemetryOnBoot(db as never);
+    await sendTelemetryOnBoot(fakeDb);
 
     expect(info).not.toHaveBeenCalled();
-    expect(db.query.telemetryState.findFirst).not.toHaveBeenCalled();
+    expect(claimSend).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("logs the enabled notice and fires a send when last_sent_at is null", async () => {
+  it("logs the enabled notice and fires a send (the atomic claim is the debounce)", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
     const info = vi.spyOn(console, "log").mockImplementation(() => {});
     const { sendTelemetryOnBoot } = await loadSend({});
-    const { db } = fakeDb({ last_sent_at: null });
 
-    await sendTelemetryOnBoot(db as never);
+    await sendTelemetryOnBoot(fakeDb);
     // The send is fire-and-forget; let the microtask/fetch settle.
     await new Promise((r) => setTimeout(r, 0));
 
     const logged = info.mock.calls.flat().map(String).join(" ");
     expect(logged).toContain("Telemetry enabled");
     expect(logged).toContain("POSTSTACK_TELEMETRY_DISABLED=true");
+    expect(claimSend).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("logs the notice but does NOT send when last_sent_at is recent (within the debounce window)", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const info = vi.spyOn(console, "log").mockImplementation(() => {});
-    const { sendTelemetryOnBoot } = await loadSend({});
-    const { db } = fakeDb({ last_sent_at: new Date(Date.now() - 60 * 60 * 1000) }); // 1h ago
-
-    await sendTelemetryOnBoot(db as never);
-    await new Promise((r) => setTimeout(r, 0));
-
-    const logged = info.mock.calls.flat().map(String).join(" ");
-    expect(logged).toContain("Telemetry enabled");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("sends when last_sent_at is older than the debounce window", async () => {
+  it("does NOT fetch when the claim is not granted (debounced by the window)", async () => {
+    claimSend.mockResolvedValue(null);
     const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { sendTelemetryOnBoot } = await loadSend({});
-    const { db } = fakeDb({ last_sent_at: new Date(Date.now() - 30 * 60 * 60 * 1000) }); // 30h ago
 
-    await sendTelemetryOnBoot(db as never);
+    await sendTelemetryOnBoot(fakeDb);
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(claimSend).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("never throws even if the state read fails", async () => {
+  it("never throws even if the claim fails", async () => {
+    claimSend.mockRejectedValue(new Error("db down"));
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendTelemetryOnBoot } = await loadSend({});
-    const { db } = fakeDb({ last_sent_at: null });
-    db.query.telemetryState.findFirst = vi.fn(async () => {
-      throw new Error("db down");
-    });
 
-    await expect(sendTelemetryOnBoot(db as never)).resolves.toBeUndefined();
+    await expect(sendTelemetryOnBoot(fakeDb)).resolves.toBeUndefined();
   });
 });
 
