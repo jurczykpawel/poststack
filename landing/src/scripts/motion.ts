@@ -94,6 +94,7 @@ async function initGsap(): Promise<void> {
   gsap.ticker.lagSmoothing(0);
 
   initScrollStory(gsap, ScrollTrigger);
+  initLeadCapture(gsap, ScrollTrigger);
 
   const hero = document.querySelector<HTMLElement>("[data-hero-mock]");
   const counters = document.querySelectorAll<HTMLElement>("[data-count]");
@@ -254,6 +255,32 @@ function initRuleTester(reduce: boolean): void {
 
 type Gsap = (typeof import("gsap"))["gsap"];
 type ScrollTriggerStatic = (typeof import("gsap/ScrollTrigger"))["ScrollTrigger"];
+
+/**
+ * Lead-capture stepper: scrub the connector fill from empty to full across the section and ignite
+ * each step's badge (cumulatively) as the fill reaches it. No pin, so it runs on every width.
+ */
+function initLeadCapture(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
+  const section = document.querySelector<HTMLElement>("[data-lc]");
+  if (!section) return;
+  const fill = section.querySelector<HTMLElement>("[data-lc-fill]");
+  const steps = Array.from(section.querySelectorAll<HTMLElement>("[data-lc-step]"));
+
+  void ScrollTrigger; // plugin already registered by caller
+  const tl = gsap.timeline({
+    scrollTrigger: {
+      trigger: section,
+      start: "top 72%",
+      end: "bottom 78%",
+      scrub: 0.5,
+      onUpdate: (self) => {
+        const lit = self.progress < 0.34 ? 0 : self.progress < 0.7 ? 1 : 2;
+        steps.forEach((el, i) => (i <= lit ? el.setAttribute("data-active", "") : el.removeAttribute("data-active")));
+      },
+    },
+  });
+  if (fill) tl.fromTo(fill, { scaleX: 0 }, { scaleX: 1, ease: "none" });
+}
 
 /**
  * Signature scroll-driven moment: pin "the PostStack loop" and scrub through

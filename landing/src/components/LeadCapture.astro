@@ -14,19 +14,30 @@ const titleParts = leadCapture.accent ? leadCapture.title.split(leadCapture.acce
       <p class="mx-auto mt-5 max-w-[44rem] text-pretty text-lg text-ink-2">{leadCapture.intro}</p>
     </div>
 
-    <ol class="mt-12 grid gap-4 md:grid-cols-3" data-reveal-group>
-      {
-        leadCapture.steps.map((s) => (
-          <li class="card relative overflow-hidden p-6" data-reveal>
-            <span class="font-[var(--font-mono)] text-sm font-semibold text-blue">{s.n}</span>
-            <p class="mt-2 text-lg font-semibold text-ink">{s.heading}</p>
-            <p class="mt-2 text-ink-2">{s.body}</p>
-          </li>
-        ))
-      }
-    </ol>
+    <!-- Scroll-scrubbed stepper: the connector fills and each step ignites as you scroll past. -->
+    <div class="lc relative mt-14" data-lc>
+      <!-- connector rail (behind the step row, between the dots) -->
+      <div class="lc-rail" aria-hidden="true">
+        <span class="lc-rail-track"></span>
+        <span class="lc-rail-fill" data-lc-fill></span>
+      </div>
 
-    <p class="mx-auto mt-6 max-w-[44rem] text-center font-[var(--font-mono)] text-xs text-ink-3" data-reveal>
+      <ol class="relative grid gap-4 md:grid-cols-3">
+        {
+          leadCapture.steps.map((s) => (
+            <li class="lc-step card relative overflow-hidden p-6 pt-9" data-lc-step data-reveal>
+              <span class="lc-dot" aria-hidden="true">
+                <span class="lc-dot-n font-[var(--font-mono)] text-xs font-bold">{s.n}</span>
+              </span>
+              <p class="text-lg font-semibold text-ink">{s.heading}</p>
+              <p class="mt-2 text-ink-2">{s.body}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+
+    <p class="mx-auto mt-8 max-w-[44rem] text-center font-[var(--font-mono)] text-xs text-ink-3" data-reveal>
       {leadCapture.note}
     </p>
   </div>

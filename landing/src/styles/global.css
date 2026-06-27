@@ -215,6 +215,72 @@
   transform: none;
 }
 
+/* ── Lead-capture scroll stepper: a connector that fills + step badges that ignite as you scroll.
+   Fail-safe: without JS the rail is full and the layout reads fine; .reveal-ready opts into the
+   animated (empty → filled) state that motion.ts scrubs. ── */
+.lc-rail {
+  position: relative;
+  height: 2px;
+  max-width: 48rem;
+  margin: 0 auto 2.5rem;
+}
+.lc-rail-track,
+.lc-rail-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+}
+.lc-rail-track {
+  background: var(--color-border-medium);
+  opacity: 0.6;
+}
+.lc-rail-fill {
+  background: linear-gradient(90deg, var(--color-blue), var(--color-purple));
+  transform: scaleX(1);
+  transform-origin: left center;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-blue) 55%, transparent);
+}
+.reveal-ready .lc-rail-fill {
+  transform: scaleX(0);
+}
+.lc-dot {
+  position: absolute;
+  top: 1rem;
+  left: 1.5rem;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-floating);
+  color: var(--color-ink-3);
+  transition:
+    color 0.35s var(--ease-spring),
+    border-color 0.35s var(--ease-spring),
+    background 0.35s var(--ease-spring),
+    box-shadow 0.35s var(--ease-spring);
+}
+.lc-step {
+  transition:
+    border-color 0.4s var(--ease-spring),
+    transform 0.4s var(--ease-spring);
+}
+.reveal-ready .lc-step[data-active] {
+  border-color: color-mix(in srgb, var(--color-blue) 35%, transparent);
+}
+.reveal-ready .lc-step[data-active] .lc-dot {
+  color: var(--color-blue);
+  border-color: color-mix(in srgb, var(--color-blue) 50%, transparent);
+  background: color-mix(in srgb, var(--color-blue) 14%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--color-blue) 45%, transparent);
+}
+@media (max-width: 767px) {
+  .lc-rail {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
