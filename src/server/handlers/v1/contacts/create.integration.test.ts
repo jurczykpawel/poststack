@@ -68,6 +68,7 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
       platform_username: "anna_design",
       display_name: "Anna",
       email: "anna@example.com",
+      phone: "+48501761834",
       metadata: { city: "Warsaw" },
       tags: ["customer", "vip"],
     });
@@ -81,8 +82,9 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
     });
     expect(cc?.platform_username).toBe("anna_design");
 
-    const contact = await db.query.contacts.findFirst({ where: eq(s.contacts.id, cc!.contact_id), columns: { email: true, metadata: true } });
+    const contact = await db.query.contacts.findFirst({ where: eq(s.contacts.id, cc!.contact_id), columns: { email: true, phone: true, metadata: true } });
     expect(contact?.email).toBe("anna@example.com");
+    expect(contact?.phone).toBe("+48501761834");
     expect(contact?.metadata).toMatchObject({ city: "Warsaw" });
 
     const tagCount = await db.$count(s.tags, eq(s.tags.workspace_id, WS));
