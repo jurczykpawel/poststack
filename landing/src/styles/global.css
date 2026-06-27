@@ -226,7 +226,9 @@
 }
 .lc-aura {
   position: absolute;
-  inset: -12% -8% -18%;
+  /* No horizontal bleed: a negative inline inset pushed past the viewport on narrow screens and
+     caused a few px of horizontal scroll. Vertical bleed is fine (clipped by section flow). */
+  inset: -12% 0 -18%;
   z-index: -1;
   background:
     radial-gradient(60% 55% at 30% 20%, color-mix(in srgb, var(--color-blue) 22%, transparent), transparent 70%),
