@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { SEND_WINDOW_MS } from "./constants";
+import { SEND_WINDOW_MS, RETRY_LEASE_MS } from "./constants";
 
 // Real Postgres: the instance id is persisted once in the telemetry_state singleton and stays
-// stable across calls/restarts; concurrent first-calls must not create duplicates. getLicenseIdentity
-// returns nulls when no license is configured.
+// stable across calls/restarts; concurrent first-calls must not create duplicates. getLicenseTier
+// returns null when no license is configured; claimSend/confirmSend gate sends atomically.
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
@@ -32,7 +32,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.delete(telemetryState);
-  // A stored license token would otherwise be resolved by getLicenseIdentity, so clear the
+  // A stored license token would otherwise be resolved by getLicenseTier, so clear the
   // singleton (other suites in this serial run may have left one) to assert the no-license path.
   await db.delete(instanceLicense);
   invalidateLicenseCache();
@@ -83,6 +83,19 @@ describe("getLicenseTier (real Postgres)", () => {
 });
 
 describe("claimSend / confirmSend (real Postgres)", () => {
+  it("claims on a brand-new instance with no singleton row yet (creates it)", async () => {
+    if (!TEST_DB) return;
+    // beforeEach cleared telemetry_state; do NOT call ensureInstanceId first — this is the very
+    // first send of a fresh instance. The claim must still succeed (and seed the singleton), else
+    // a new deployment would never phone home.
+    const claim = await claimSend(db, SEND_WINDOW_MS, RETRY_LEASE_MS);
+    expect(claim).not.toBeNull();
+    expect(claim!.reportId).toMatch(/^[0-9a-f-]{36}$/);
+    const row = await db.query.telemetryState.findFirst();
+    expect(row!.instance_id).toBe(claim!.instanceId);
+    expect(row!.last_attempt_at).not.toBeNull();
+  });
+
   it("only one of two concurrent claims wins", async () => {
     if (!TEST_DB) return;
     await ensureInstanceId(db);

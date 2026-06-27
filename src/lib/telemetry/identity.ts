@@ -50,6 +50,12 @@ export async function claimSend(
   windowMs: number = SEND_WINDOW_MS,
   leaseMs: number = RETRY_LEASE_MS,
 ): Promise<{ instanceId: string; reportId: string } | null> {
+  // The claim is an UPDATE on the singleton, so the row must exist first — on a brand-new instance
+  // it doesn't yet (the old code created it lazily inside buildEnvelope, which now runs AFTER the
+  // claim). ensureInstanceId is an idempotent upsert, so concurrent claims still collapse to one row
+  // and the UPDATE below remains the sole atomic gate.
+  await ensureInstanceId(db);
+
   const result = await db.execute(sql`
     UPDATE telemetry_state
        SET last_attempt_at = now(),
