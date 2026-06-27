@@ -1,8 +1,9 @@
 // TELEMETRY3: collectors + envelope builder. Gathers an anonymous, instance-wide usage report — only
-// versions, deployment flags, integration BOOLEANS/labels and aggregate counts. It never reads or
-// emits a secret, a token, or any per-person identifier; the only identity it carries is the hashed
-// instance/domain/license from ./identity. The envelope is versioned (schema_version) and `metrics`
-// is an open object so new counters can be added without a wire-format break.
+// coarse versions/buckets, deployment flags, integration BOOLEANS/labels and aggregate counts. It
+// never reads or emits a secret, a token, or any per-person identifier; the only identity it carries
+// is a random instance_id (from ./identity) plus the license tier — no domain/order hash. The
+// envelope is versioned (schema_version) and `metrics` is an open object so new counters can be added
+// without a wire-format break.
 
 import { readFileSync } from "node:fs";
 import os from "node:os";
