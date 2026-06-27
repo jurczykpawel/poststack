@@ -94,6 +94,7 @@ async function initGsap(): Promise<void> {
   gsap.ticker.lagSmoothing(0);
 
   initScrollStory(gsap, ScrollTrigger);
+  initLeadCapture(gsap, ScrollTrigger);
 
   const hero = document.querySelector<HTMLElement>("[data-hero-mock]");
   const counters = document.querySelectorAll<HTMLElement>("[data-count]");
@@ -254,6 +255,65 @@ function initRuleTester(reduce: boolean): void {
 
 type Gsap = (typeof import("gsap"))["gsap"];
 type ScrollTriggerStatic = (typeof import("gsap/ScrollTrigger"))["ScrollTrigger"];
+
+/**
+ * Scroll-driven "live capture" demo: scrub a GSAP timeline tied to the tile's scroll position so the
+ * capture plays forward as you scroll in and reverses as you scroll out. The CSS base is the finished
+ * frame; here we set the pre-capture initial states, then reveal each step across the scrub.
+ */
+function initLeadCapture(gsap: Gsap, ScrollTrigger: ScrollTriggerStatic): void {
+  const tile = document.querySelector<HTMLElement>("[data-lc]");
+  if (!tile) return;
+  const q = (s: string) => tile.querySelector<HTMLElement>(s);
+  const ripple = q(".lc-ripple");
+  const email = q(".lc-email-bubble");
+  const spark1 = q(".lc-spark-1");
+  const typed = q(".lc-typed");
+  const caret = q(".lc-caret");
+  const tag = q(".lc-tag");
+  const packet = q(".lc-packet");
+  const spark2 = q(".lc-spark-2");
+  const dot = q(".lc-endpoint-dot");
+  const added = q(".lc-added");
+
+  // Pre-capture state (the CSS base is the finished frame, so JS rewinds it to empty).
+  gsap.set(ripple, { scale: 0, autoAlpha: 0 });
+  gsap.set(email, { autoAlpha: 0, y: 10, scale: 0.96 });
+  gsap.set(spark1, { autoAlpha: 0, y: 0 });
+  gsap.set(typed, { width: 0 });
+  gsap.set(caret, { autoAlpha: 0 });
+  gsap.set(tag, { scale: 0, autoAlpha: 0 });
+  gsap.set(packet, { autoAlpha: 0, y: 4 });
+  gsap.set(spark2, { autoAlpha: 0, left: 0 });
+  gsap.set(dot, { boxShadow: "0 0 0 0 rgba(0,0,0,0)" });
+  gsap.set(added, { autoAlpha: 0, x: -4 });
+
+  void ScrollTrigger; // already registered by caller
+  const tl = gsap.timeline({
+    defaults: { ease: "power2.out" },
+    scrollTrigger: { trigger: tile, start: "top 78%", end: "bottom 62%", scrub: 0.6 },
+  });
+
+  tl.to(ripple, { scale: 7, autoAlpha: 0.5, duration: 0.4 }, 0.02)
+    .set(ripple, { scale: 0 }, 0.42)
+    .to(email, { autoAlpha: 1, y: 0, scale: 1, duration: 0.5 }, 0.12)
+    // email travels to the card
+    .to(spark1, { autoAlpha: 1, duration: 0.1 }, 0.24)
+    .to(spark1, { y: 26, duration: 0.4 }, 0.24)
+    .to(spark1, { autoAlpha: 0, duration: 0.1 }, 0.5)
+    // it types into the email field
+    .to(caret, { autoAlpha: 1, duration: 0.1 }, 0.3)
+    .to(typed, { width: () => (typed ? typed.scrollWidth : 0), duration: 0.6 }, 0.3)
+    .to(caret, { autoAlpha: 0, duration: 0.1 }, 0.62)
+    .to(tag, { scale: 1, autoAlpha: 1, duration: 0.4, ease: "back.out(2)" }, 0.46)
+    // webhook hop to the mailing list
+    .to(packet, { autoAlpha: 1, y: 0, duration: 0.4 }, 0.56)
+    .to(spark2, { autoAlpha: 1, duration: 0.1 }, 0.64)
+    .to(spark2, { left: "calc(100% - 8px)", duration: 0.4 }, 0.64)
+    .to(spark2, { autoAlpha: 0, duration: 0.1 }, 0.86)
+    .to(dot, { boxShadow: "0 0 14px 3px #9ece6a", scale: 1.5, duration: 0.2, yoyo: true, repeat: 1 }, 0.74)
+    .to(added, { autoAlpha: 1, x: 0, duration: 0.4 }, 0.8);
+}
 
 /**
  * Signature scroll-driven moment: pin "the PostStack loop" and scrub through

@@ -33,8 +33,8 @@ const titleParts = leadCapture.accent ? leadCapture.title.split(leadCapture.acce
         <p class="mt-6 max-w-[34rem] font-[var(--font-mono)] text-xs text-ink-3">{leadCapture.note}</p>
       </div>
 
-      <!-- ── live-capture tile: loops while on screen (data-inview-play → .is-playing) ── -->
-      <div class="lc-demo" data-reveal data-inview-play aria-hidden="true">
+      <!-- ── live-capture tile: scroll-driven (motion.ts scrubs the capture as you scroll past) ── -->
+      <div class="lc-demo" data-reveal data-lc aria-hidden="true">
         <div class="lc-glass">
           <!-- window chrome -->
           <div class="lc-chrome">

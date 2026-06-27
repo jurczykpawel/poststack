@@ -216,11 +216,11 @@
 }
 
 /* ── Lead-capture "live capture" tile ───────────────────────────────────────
-   A looping mini-demo of the real flow: tap a quick reply → the email bubbles in
+   A SCROLL-DRIVEN mini-demo of the real flow: tap a quick reply → the email bubbles in
    → it travels into the CRM card → a signed webhook hops to a mailing list.
-   The loop only runs while on screen (.is-playing, set by data-inview-play).
-   The BASE (not-playing) state is the finished frame, so no-JS / reduced-motion
-   users see a complete, legible diagram; the keyframes end on that same frame. ── */
+   motion.ts (initLeadCapture) scrubs a GSAP timeline tied to scroll position. The BASE
+   styles below are the finished frame, so no-JS / reduced-motion users see the complete,
+   legible diagram with no animation. ── */
 .lc-demo {
   position: relative;
 }
@@ -487,86 +487,10 @@
   top: -3px;
 }
 
-/* ── playback: the loop only runs while the tile is on screen ── */
-.lc-demo.is-playing .lc-ripple {
-  animation: lc-ripple 7s linear infinite;
-}
-.lc-demo.is-playing .lc-email-bubble {
-  animation: lc-rise 7s ease-in-out infinite;
-}
-.lc-demo.is-playing .lc-spark-1 {
-  animation: lc-fly1 7s ease-in-out infinite;
-}
-.lc-demo.is-playing .lc-typed {
-  animation: lc-type 7s steps(20, end) infinite;
-}
-.lc-demo.is-playing .lc-caret {
-  animation: lc-caret 7s linear infinite;
-}
-.lc-demo.is-playing .lc-tag {
-  animation: lc-pop 7s ease-out infinite;
-}
-.lc-demo.is-playing .lc-packet {
-  animation: lc-packet 7s ease-out infinite;
-}
-.lc-demo.is-playing .lc-spark-2 {
-  animation: lc-fly2 7s ease-in-out infinite;
-}
-.lc-demo.is-playing .lc-endpoint-dot {
-  animation: lc-dot 7s ease-out infinite;
-}
-.lc-demo.is-playing .lc-added {
-  animation: lc-added 7s ease-out infinite;
-}
-
-@keyframes lc-ripple {
-  0%, 4% { transform: translate(-50%, -50%) scale(0); opacity: 0.6; }
-  10% { transform: translate(-50%, -50%) scale(7); opacity: 0; }
-  11%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0); }
-}
-@keyframes lc-rise {
-  0%, 12% { opacity: 0; transform: translateY(10px) scale(0.96); }
-  22%, 100% { opacity: 1; transform: none; }
-}
-@keyframes lc-fly1 {
-  0%, 22% { opacity: 0; transform: translate(0, 0); }
-  24% { opacity: 1; }
-  34% { opacity: 1; transform: translate(0, 26px); }
-  36%, 100% { opacity: 0; transform: translate(0, 26px); }
-}
-@keyframes lc-type {
-  0%, 30% { max-width: 0; }
-  44%, 100% { max-width: 16ch; }
-}
-@keyframes lc-caret {
-  0%, 29% { opacity: 0; }
-  30%, 44% { opacity: 1; }
-  45%, 100% { opacity: 0; }
-}
-@keyframes lc-pop {
-  0%, 40% { transform: scale(0); opacity: 0; }
-  48% { transform: scale(1.18); opacity: 1; }
-  54%, 100% { transform: scale(1); opacity: 1; }
-}
-@keyframes lc-packet {
-  0%, 50% { opacity: 0; transform: translateY(4px); }
-  58%, 100% { opacity: 1; transform: none; }
-}
-@keyframes lc-fly2 {
-  0%, 58% { opacity: 0; left: 0; }
-  60% { opacity: 1; }
-  72% { opacity: 1; left: calc(100% - 8px); }
-  74%, 100% { opacity: 0; left: calc(100% - 8px); }
-}
-@keyframes lc-dot {
-  0%, 70% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
-  78% { box-shadow: 0 0 14px 3px var(--color-ok); transform: scale(1.5); }
-  84%, 100% { box-shadow: 0 0 8px var(--color-ok); transform: scale(1); }
-}
-@keyframes lc-added {
-  0%, 72% { opacity: 0; transform: translateX(-4px); }
-  82%, 100% { opacity: 1; transform: none; }
-}
+/* The capture sequence is SCROLL-DRIVEN: motion.ts (initLeadCapture) scrubs a GSAP timeline tied to
+   the tile's scroll position, sets the pre-capture initial states, then reveals each step as you
+   scroll. The base styles above are the finished frame, so without JS / under reduced-motion the
+   tile shows the complete, legible diagram (no animation). */
 
 @media (prefers-reduced-motion: reduce) {
   html {
