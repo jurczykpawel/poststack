@@ -10,6 +10,7 @@ export interface ImportContactInput {
   platform_username?: string;
   display_name?: string | null;
   email?: string | null;
+  phone?: string | null;
   is_subscribed?: boolean;
   metadata?: Record<string, unknown>;
   tags?: string[];
@@ -37,6 +38,7 @@ async function applyContactFields(tx: Tx, contactId: string, workspaceId: string
   const set = {
     ...(row.display_name !== undefined ? { display_name: row.display_name } : {}),
     ...(row.email !== undefined ? { email: row.email } : {}),
+    ...(row.phone !== undefined ? { phone: row.phone } : {}),
     ...(row.is_subscribed !== undefined ? { is_subscribed: row.is_subscribed } : {}),
     ...(row.metadata !== undefined
       ? { metadata: sql`COALESCE(${contacts.metadata}, '{}'::jsonb) || ${JSON.stringify(row.metadata)}::jsonb` }
@@ -83,6 +85,7 @@ async function upsertOne(
           workspace_id: workspaceId,
           display_name: row.display_name ?? null,
           email: row.email ?? null,
+          phone: row.phone ?? null,
           is_subscribed: row.is_subscribed ?? true,
           metadata: row.metadata ?? {},
         })

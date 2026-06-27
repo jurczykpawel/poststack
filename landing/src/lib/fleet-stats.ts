@@ -20,6 +20,8 @@ export type FleetMetricKind = "count" | "duration";
 export interface FleetMetricDef {
   key: keyof FleetResponse;
   kind: FleetMetricKind;
+  /** Optional floor: hide this metric's card until the value reaches it (avoids weak early numbers). */
+  minToShow?: number;
 }
 
 /** A resolved display row: the formatted text, or `visible: false` when the field is missing/invalid. */
@@ -57,6 +59,8 @@ export function selectMetrics(stats: FleetResponse, defs: readonly FleetMetricDe
   return defs.map((def) => {
     const raw = stats[def.key];
     if (!isFiniteNumber(raw)) return { key: def.key, visible: false, text: "—" };
+    // Below a configured floor, collapse the card rather than show a weak early number.
+    if (typeof def.minToShow === "number" && raw < def.minToShow) return { key: def.key, visible: false, text: "—" };
     const text = def.kind === "duration" ? formatLatency(raw) : formatCount(raw);
     return { key: def.key, visible: true, text };
   });

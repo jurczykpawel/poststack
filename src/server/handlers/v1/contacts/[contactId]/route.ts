@@ -26,6 +26,7 @@ export async function GET(
       id: true,
       display_name: true,
       email: true,
+      phone: true,
       avatar_url: true,
       is_subscribed: true,
       last_interaction_at: true,
@@ -54,6 +55,7 @@ export async function GET(
 const patchSchema = z.object({
   display_name: z.string().min(1).max(200).optional(),
   email: z.string().email().nullable().optional(),
+  phone: z.string().min(1).max(40).nullable().optional(),
   is_subscribed: z.boolean().optional(),
   // Full replacement of the contact's tag set. Documented in the OpenAPI spec, so it must actually
   // be applied (not silently dropped); ids from another workspace are ignored, not assigned.
@@ -88,6 +90,7 @@ export async function PATCH(
     id: contacts.id,
     display_name: contacts.display_name,
     email: contacts.email,
+    phone: contacts.phone,
     is_subscribed: contacts.is_subscribed,
   };
 
@@ -109,7 +112,7 @@ export async function PATCH(
         // tag_ids-only PATCH: nothing to update on the row, just read it back for the response.
         row = await tx.query.contacts.findFirst({
           where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
-          columns: { id: true, display_name: true, email: true, is_subscribed: true },
+          columns: { id: true, display_name: true, email: true, phone: true, is_subscribed: true },
         });
       }
 

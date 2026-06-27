@@ -9,6 +9,7 @@ export const auditActorType = pgEnum("audit_actor_type", ['user', 'api_key', 'sy
 export const broadcastRecipientStatus = pgEnum("broadcast_recipient_status", ['pending', 'sent', 'delivered', 'failed'])
 export const broadcastStatus = pgEnum("broadcast_status", ['draft', 'scheduled', 'sending', 'completed', 'cancelled'])
 export const channelConnectionMode = pgEnum("channel_connection_mode", ['oauth', 'manual_token', 'derived'])
+export const captureField = pgEnum("capture_field", ['email', 'phone'])
 export const accountSourceStatus = pgEnum("account_source_status", ['active', 'needs_reauth', 'disabled'])
 // How a conversation thread is grouped. `dm` = one ongoing thread per contact (thread_ref ''); `comment`
 // = one thread per post the contact commented on (thread_ref = post id). Extensible (email, …) without
@@ -76,6 +77,9 @@ export const conversations = pgTable("conversations", {
 	thread_type: conversationThreadType("thread_type").default('dm').notNull(),
 	thread_ref: text("thread_ref").default('').notNull(),
 	subject: text("subject"),
+	// Armed by a sent user_email/user_phone_number quick reply; the next inbound message in this
+	// conversation is parsed into the contact's matching field, then this clears. Null = not armed.
+	awaiting_capture: captureField("awaiting_capture"),
 }, (table) => [
 	// One thread per (channel, contact, type, ref). thread_ref is NOT NULL (default '') so DM threads
 	// dedup correctly — a NULL-bearing unique index would treat every DM row as distinct.
@@ -278,6 +282,7 @@ export const contacts = pgTable("contacts", {
 	workspace_id: uuid("workspace_id").notNull(),
 	display_name: text("display_name"),
 	email: text(),
+	phone: text(),
 	avatar_url: text("avatar_url"),
 	is_subscribed: boolean("is_subscribed").default(true).notNull(),
 	last_interaction_at: timestamp("last_interaction_at", { precision: 3, mode: 'date' }),

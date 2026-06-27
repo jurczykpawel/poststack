@@ -9,6 +9,7 @@ import { getProvider } from "@/lib/platforms/registry";
 import { refreshIfNearExpiry } from "@/lib/channels/refresh-if-near-expiry";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { runDelivery, type DeliveryChannel } from "./delivery";
+import { captureFieldFromQuickReplies } from "@/lib/contacts/capture";
 
 /**
  * Send an outbound message via the platform API, through the durable delivery state
@@ -137,11 +138,15 @@ export async function processOutgoingMessage(
           sent_by_rule_id: sentByRuleId ?? null,
         });
       }
+      // A user_email/user_phone_number quick reply asks the user to share their address; arm this
+      // conversation so the next inbound message is captured into the contact (LEADCAP1).
+      const armCapture = captureFieldFromQuickReplies(content.quick_replies);
       await tx
         .update(conversations)
         .set({
           last_message_at: new Date(),
           last_message_preview: content.text ? truncateCodePoints(content.text, 255) : null,
+          ...(armCapture ? { awaiting_capture: armCapture } : {}),
         })
         .where(eq(conversations.id, conversationId));
     },

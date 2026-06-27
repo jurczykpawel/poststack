@@ -90,6 +90,7 @@ export const openApiSpec = {
           id: { type: "string", format: "uuid" },
           display_name: { type: "string", nullable: true },
           email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true },
           is_subscribed: { type: "boolean" },
           last_interaction_at: { type: "string", format: "date-time", nullable: true },
           tags: {
@@ -111,6 +112,7 @@ export const openApiSpec = {
           platform_username: { type: "string" },
           display_name: { type: "string", nullable: true },
           email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true },
           is_subscribed: { type: "boolean", default: true },
           metadata: { type: "object", additionalProperties: true, description: "Custom fields, merged on re-import" },
           tags: { type: "array", items: { type: "string" }, description: "Tag names; created if missing" },
@@ -707,7 +709,7 @@ export const openApiSpec = {
       patch: {
         tags: ["Contacts"],
         summary: "Update a contact (name, email, subscription, tags)",
-        requestBody: { content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", nullable: true }, email: { type: "string", nullable: true }, is_subscribed: { type: "boolean" }, tag_ids: { type: "array", items: { type: "string", format: "uuid" } } } } } } },
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", nullable: true }, email: { type: "string", nullable: true }, phone: { type: "string", nullable: true }, is_subscribed: { type: "boolean" }, tag_ids: { type: "array", items: { type: "string", format: "uuid" } } } } } } },
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },

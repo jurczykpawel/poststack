@@ -215,6 +215,298 @@
   transform: none;
 }
 
+/* ── Lead-capture "live capture" tile ───────────────────────────────────────
+   A SCROLL-DRIVEN mini-demo of the real flow: tap a quick reply → the email bubbles in
+   → it travels into the CRM card → a signed webhook hops to a mailing list.
+   motion.ts (initLeadCapture) scrubs a GSAP timeline tied to scroll position. The BASE
+   styles below are the finished frame, so no-JS / reduced-motion users see the complete,
+   legible diagram with no animation. ── */
+.lc-demo {
+  position: relative;
+}
+.lc-aura {
+  position: absolute;
+  /* No horizontal bleed: a negative inline inset pushed past the viewport on narrow screens and
+     caused a few px of horizontal scroll. Vertical bleed is fine (clipped by section flow). */
+  inset: -12% 0 -18%;
+  z-index: -1;
+  background:
+    radial-gradient(60% 55% at 30% 20%, color-mix(in srgb, var(--color-blue) 22%, transparent), transparent 70%),
+    radial-gradient(55% 50% at 80% 90%, color-mix(in srgb, var(--color-purple) 20%, transparent), transparent 70%);
+  filter: blur(8px);
+}
+.lc-glass {
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-elevated) 92%, transparent), var(--color-base));
+  box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.lc-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.lc-tl {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 9999px;
+  background: var(--c);
+  opacity: 0.7;
+}
+.lc-chrome-label {
+  margin-left: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--color-ink-3);
+}
+.lc-body {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1.1rem 1.2rem 1.3rem;
+}
+
+/* DM thread */
+.lc-thread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.lc-msg {
+  max-width: 78%;
+  padding: 0.5rem 0.8rem;
+  border-radius: 1rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.lc-msg-in {
+  border-top-left-radius: 0.3rem;
+  background: var(--color-floating);
+  color: var(--color-ink-2);
+}
+.lc-msg-out {
+  align-self: flex-end;
+  border-top-right-radius: 0.3rem;
+  background: linear-gradient(135deg, var(--color-blue), var(--color-purple));
+  color: #0a0a12;
+  font-weight: 600;
+}
+.lc-qr {
+  position: relative;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-blue) 45%, transparent);
+  background: color-mix(in srgb, var(--color-blue) 10%, transparent);
+  color: var(--color-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  overflow: hidden;
+}
+.lc-qr-ico {
+  color: var(--color-blue);
+}
+.lc-ripple {
+  position: absolute;
+  left: 22%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--color-blue) 70%, transparent);
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+}
+.lc-email-bubble {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+/* the email travels from the thread to the card */
+.lc-wire {
+  position: relative;
+  height: 16px;
+  margin: -0.1rem 0 -0.1rem 1.2rem;
+  border-left: 2px dotted color-mix(in srgb, var(--color-blue) 35%, transparent);
+}
+
+/* CRM card */
+.lc-card {
+  border: 1px solid var(--color-border-medium);
+  border-radius: 0.9rem;
+  background: var(--color-elevated);
+  padding: 0.8rem 0.9rem;
+}
+.lc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.6rem;
+}
+.lc-avatar {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--color-blue), var(--color-purple));
+  color: #0a0a12;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+.lc-card-id {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lc-name {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.lc-tag {
+  padding: 0.05rem 0.45rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--color-ok) 16%, transparent);
+  color: var(--color-ok);
+  font-size: 0.6rem;
+  font-weight: 600;
+  transform: scale(1);
+}
+.lc-field {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.28rem 0;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.78rem;
+}
+.lc-field-k {
+  width: 3rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-ink-3);
+}
+.lc-field-v {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+}
+.lc-muted {
+  color: var(--color-ink-3);
+}
+.lc-typed {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lc-caret {
+  width: 1px;
+  height: 0.95em;
+  margin-left: 1px;
+  background: var(--color-blue);
+  opacity: 0;
+}
+
+/* webhook hop */
+.lc-hook {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+}
+.lc-packet {
+  padding: 0.18rem 0.5rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--color-blue) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-blue) 40%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--color-blue);
+}
+.lc-hookline {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--color-blue) 35%, transparent) 0 5px, transparent 5px 10px);
+}
+.lc-endpoint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-floating);
+  font-size: 0.7rem;
+  color: var(--color-ink-2);
+}
+.lc-endpoint-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-ok);
+  box-shadow: 0 0 8px var(--color-ok);
+}
+.lc-endpoint-t {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.lc-added {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--color-ok);
+  opacity: 1;
+}
+
+/* travelling sparks (hidden at rest; only visible mid-flight during playback) */
+.lc-spark {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-blue);
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--color-blue) 80%, transparent);
+  opacity: 0;
+}
+.lc-spark-1 {
+  left: -5px;
+  top: -4px;
+}
+.lc-spark-2 {
+  left: 0;
+  top: -3px;
+}
+
+/* The capture sequence is SCROLL-DRIVEN: motion.ts (initLeadCapture) pins the stage and scrubs a GSAP
+   timeline, sets the pre-capture initial states, then reveals each step as you scroll. The base styles
+   above are the finished frame, so without JS / under reduced-motion the tile shows the complete,
+   legible diagram (no animation). The step rail dims inactive steps and lights the active one — only
+   in enhanced (pinned) mode, added as .is-scrolly on the section. */
+[data-lc-section].is-scrolly [data-lc-cap] {
+  opacity: 0.4;
+  transition: opacity 0.4s var(--ease-spring);
+}
+[data-lc-section].is-scrolly [data-lc-cap][data-active] {
+  opacity: 1;
+}
+[data-lc-section].is-scrolly [data-lc-cap][data-active] .lc-cap-dot {
+  border-color: var(--color-blue);
+  background: var(--color-blue);
+  box-shadow: 0 0 10px var(--color-blue);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

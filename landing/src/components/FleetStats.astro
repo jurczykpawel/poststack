@@ -64,6 +64,7 @@ const { endpoint, eyebrow, title, subtitle, metrics, platformsTitle, note, noteL
                 class="bg-gradient-to-br from-blue to-purple bg-clip-text font-[var(--font-display)] text-2xl font-bold tabular-nums text-transparent sm:text-3xl"
                 data-fleet-value={m.key}
                 data-fleet-kind={"kind" in m ? m.kind : "count"}
+                data-fleet-min={"minToShow" in m ? String(m.minToShow) : undefined}
               >
                 —
               </dd>
@@ -122,6 +123,7 @@ const { endpoint, eyebrow, title, subtitle, metrics, platformsTitle, note, noteL
     const defs: FleetMetricDef[] = cells.map((el) => ({
       key: el.dataset.fleetValue as keyof FleetResponse,
       kind: (el.dataset.fleetKind as FleetMetricKind) ?? "count",
+      minToShow: el.dataset.fleetMin ? Number(el.dataset.fleetMin) : undefined,
     }));
 
     const fillMetrics = (data: FleetResponse) => {

@@ -10,6 +10,7 @@ import { recordResponseMetric } from "@/lib/metrics/capture";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { resolveContactProfile } from "@/lib/contacts/profile";
+import { applyCapture } from "@/lib/contacts/capture-apply";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /**
@@ -129,6 +130,20 @@ export async function processIncomingMessage(
     await tx.update(contacts)
       .set({ last_interaction_at: messageDate })
       .where(and(eq(contacts.id, contactId), or(lt(contacts.last_interaction_at, messageDate), isNull(contacts.last_interaction_at))));
+    // If a prior reply armed an email/phone capture, this inbound message is the answer (LEADCAP1):
+    // store it on the contact and emit contact.updated (→ outbound webhook to a mailing list).
+    if (conversation.awaiting_capture) {
+      // Meta echoes a user_email/user_phone_number reply in BOTH message.text and
+      // quick_reply.payload (verified against real webhooks); the payload is the clean value, so
+      // prefer it and fall back to the typed text.
+      await applyCapture(tx, {
+        workspaceId: channel.workspace_id,
+        conversationId: conversation.id,
+        contactId,
+        field: conversation.awaiting_capture,
+        text: quickReplyPayload ?? text,
+      });
+    }
     return true;
   });
 

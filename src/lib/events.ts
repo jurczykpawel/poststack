@@ -39,6 +39,7 @@ export const EVENT_TYPES = [
   "source.needs_reauth",
   "source.data_access_expiring",
   "contact.created",
+  "contact.updated",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

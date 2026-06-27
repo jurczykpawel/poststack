@@ -36,7 +36,7 @@ export async function ensureConversation(
   contactId: string,
   initial: { last_message_at: Date; last_message_preview: string | null; subject?: string | null },
   thread: ThreadKey = DM_THREAD,
-): Promise<{ id: string; is_automation_paused: boolean; thread_type: string; thread_ref: string; subject: string | null }> {
+): Promise<{ id: string; is_automation_paused: boolean; thread_type: string; thread_ref: string; subject: string | null; awaiting_capture: "email" | "phone" | null }> {
   const ref = refOf(thread);
   const [created] = await db
     .insert(conversations)
@@ -53,7 +53,7 @@ export async function ensureConversation(
       unread_count: 0,
     })
     .onConflictDoNothing({ target: [conversations.channel_id, conversations.contact_id, conversations.thread_type, conversations.thread_ref] })
-    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused, thread_type: conversations.thread_type, thread_ref: conversations.thread_ref, subject: conversations.subject });
+    .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused, thread_type: conversations.thread_type, thread_ref: conversations.thread_ref, subject: conversations.subject, awaiting_capture: conversations.awaiting_capture });
   if (created) return created;
   const existing = await db.query.conversations.findFirst({
     where: and(
@@ -62,7 +62,7 @@ export async function ensureConversation(
       eq(conversations.thread_type, thread.type),
       eq(conversations.thread_ref, ref),
     ),
-    columns: { id: true, is_automation_paused: true, thread_type: true, thread_ref: true, subject: true },
+    columns: { id: true, is_automation_paused: true, thread_type: true, thread_ref: true, subject: true, awaiting_capture: true },
   });
   return existing!;
 }
