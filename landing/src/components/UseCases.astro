@@ -11,6 +11,25 @@ import { useCases } from "../content/landing";
       </h2>
     </div>
 
+    <figure
+      class="relative mt-10 overflow-hidden rounded-[var(--radius-card)] border border-border-subtle bg-elevated"
+      data-reveal
+    >
+      <img
+        src="/showcase-iso.webp"
+        alt="One self-hosted server connected to every social channel"
+        loading="lazy"
+        width="1400"
+        height="788"
+        class="aspect-[16/9] w-full object-cover sm:aspect-[2.4/1] sm:object-[center_42%]"
+      />
+      <figcaption
+        class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-base/85 to-transparent px-6 py-5 text-sm text-ink-2"
+      >
+        One server you own. Every channel in one place.
+      </figcaption>
+    </figure>
+
     <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-reveal-group>
       {
         useCases.map((u) => (

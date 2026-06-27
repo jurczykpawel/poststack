@@ -11,18 +11,25 @@ import { workflow } from "../content/landing";
       </h2>
     </div>
 
-    <ol class="relative mt-14 grid gap-8 md:grid-cols-4" data-reveal-group>
-      <!-- connector line (desktop) -->
+    <ol class="relative mt-14 grid gap-8 md:grid-cols-4" data-reveal-group data-flow-steps>
+      <!-- connector line (desktop): faint track + a scroll-driven bright fill -->
       <div
-        class="absolute left-0 right-0 top-[1.35rem] hidden h-px bg-gradient-to-r from-blue/40 via-purple/30 to-transparent md:block"
+        class="absolute left-0 right-0 top-[1.35rem] hidden h-px bg-border-medium md:block"
         aria-hidden="true"
       >
+        <span
+          data-flow-fill
+          class="block h-px w-full origin-left scale-x-0 bg-gradient-to-r from-blue to-purple"
+        ></span>
       </div>
 
       {
         workflow.map((w) => (
           <li class="relative" data-reveal>
-            <span class="relative z-10 grid size-11 place-items-center rounded-full border border-border-medium bg-elevated font-[var(--font-mono)] text-sm font-semibold text-blue">
+            <span
+              data-flow-num
+              class="relative z-10 grid size-11 place-items-center rounded-full border border-border-medium bg-elevated font-[var(--font-mono)] text-sm font-semibold text-blue transition-[background,color,border-color,box-shadow,transform] duration-500"
+            >
               {w.step}
             </span>
             <h3 class="mt-5 text-base font-semibold text-ink">{w.title}</h3>
@@ -33,3 +40,16 @@ import { workflow } from "../content/landing";
     </ol>
   </div>
 </section>
+
+<style>
+  /* Number badge ignites when the scroll fill reaches it (set by motion.ts). */
+  [data-flow-num][data-active] {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--color-blue), var(--color-purple));
+    color: #0a0a12;
+    transform: scale(1.06);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--color-blue) 14%, transparent),
+      0 10px 28px -8px color-mix(in srgb, var(--color-purple) 70%, transparent);
+  }
+</style>

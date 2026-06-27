@@ -3,6 +3,15 @@ import { hero, proofSignals, site } from "../content/landing";
 ---
 
 <section id="top" class="relative overflow-hidden pt-32 pb-20 md:pt-40 md:pb-28">
+  <!-- atmospheric backdrop (AI render) — faded out before the mockup so it adds depth without competing -->
+  <img
+    src="/hero-glow.webp"
+    alt=""
+    aria-hidden="true"
+    fetchpriority="high"
+    class="pointer-events-none absolute inset-x-0 top-0 h-[820px] w-full object-cover opacity-70 [mask-image:linear-gradient(to_bottom,black_0%,black_38%,transparent_82%)] [-webkit-mask-image:linear-gradient(to_bottom,black_0%,black_38%,transparent_82%)]"
+  />
+
   <!-- ambient glows -->
   <div
     class="glow"
