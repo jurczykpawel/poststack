@@ -1399,6 +1399,8 @@ export const telemetryState = pgTable("telemetry_state", {
 	id: text("id").primaryKey().default('singleton'),
 	instance_id: uuid("instance_id").notNull(),
 	last_sent_at: timestamp("last_sent_at", { precision: 3, mode: 'date' }),
+	last_attempt_at: timestamp("last_attempt_at", { precision: 3, mode: 'date' }),
+	report_id: uuid("report_id"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	check("telemetry_state_singleton", sql`${table.id} = 'singleton'`),

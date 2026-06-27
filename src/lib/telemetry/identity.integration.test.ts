@@ -62,6 +62,14 @@ describe("ensureInstanceId (real Postgres)", () => {
     const rows = await db.select().from(telemetryState);
     expect(rows).toHaveLength(1);
   });
+
+  it("telemetry_state has report_id + last_attempt_at, null by default", async () => {
+    if (!TEST_DB) return;
+    await ensureInstanceId(db);
+    const row = await db.query.telemetryState.findFirst();
+    expect(row).toHaveProperty("report_id", null);
+    expect(row).toHaveProperty("last_attempt_at", null);
+  });
 });
 
 describe("getLicenseIdentity (real Postgres)", () => {
