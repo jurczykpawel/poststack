@@ -29,8 +29,36 @@ import { nav, hero, site } from "../content/landing";
         class="hidden text-sm text-ink-2 transition-colors hover:text-ink sm:inline"
         rel="noopener">GitHub</a
       >
-      <a href="/login" class="text-sm text-ink-2 transition-colors hover:text-ink">Log in</a>
-      <a href="#pricing" class="btn btn-primary !h-10 !px-5 text-sm">{hero.primaryCta}</a>
+      <a href="/login" class="hidden text-sm text-ink-2 transition-colors hover:text-ink sm:inline">Log in</a>
+      <a href="#pricing" class="btn btn-primary !h-11 !px-5 text-sm">{hero.primaryCta}</a>
+
+      <!-- Mobile menu: native <details> — no JS, keyboard-accessible, 44px target -->
+      <details class="nav-menu relative md:hidden">
+        <summary
+          class="grid size-11 cursor-pointer list-none place-items-center rounded-lg text-ink-2 transition-colors hover:text-ink"
+          aria-label="Menu"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            <path d="M4 12h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            <path d="M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </summary>
+        <div
+          class="absolute right-0 top-full mt-2 w-52 overflow-hidden rounded-xl border border-border-medium bg-elevated p-2 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.7)]"
+        >
+          {
+            nav.map((item) => (
+              <a href={item.href} class="block rounded-lg px-3 py-2.5 text-sm text-ink-2 transition-colors hover:bg-floating hover:text-ink">
+                {item.label}
+              </a>
+            ))
+          }
+          <div class="my-1 h-px bg-border-subtle"></div>
+          <a href="/login" class="block rounded-lg px-3 py-2.5 text-sm text-ink-2 transition-colors hover:bg-floating hover:text-ink">Log in</a>
+          <a href={site.githubUrl} rel="noopener" class="block rounded-lg px-3 py-2.5 text-sm text-ink-2 transition-colors hover:bg-floating hover:text-ink">GitHub</a>
+        </div>
+      </details>
     </div>
   </div>
 </header>
@@ -40,5 +68,12 @@ import { nav, hero, site } from "../content/landing";
     background: color-mix(in srgb, var(--color-base) 72%, transparent);
     backdrop-filter: saturate(140%) blur(14px);
     border-bottom: 1px solid var(--color-border-subtle);
+  }
+  /* Hide the default disclosure triangle on the mobile menu summary. */
+  .nav-menu > summary {
+    list-style: none;
+  }
+  .nav-menu > summary::-webkit-details-marker {
+    display: none;
   }
 </style>

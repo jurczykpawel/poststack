@@ -28,7 +28,7 @@ export const hero = {
   titleLead: "Own your",
   titleAccent: "social automation",
   subtitle:
-    "PostStack is a self-hosted platform for Facebook, Instagram, YouTube, Telegram & Gmail — with more channels on the way. Auto-reply to DMs and comments, run drip sequences, manage contacts, and publish — all from one place, on your server.",
+    "Run your whole inbox, automation and publishing across Facebook, Instagram, YouTube, Telegram & Gmail — on your own server, with no per-contact fees. More channels on the way.",
   primaryCta: "Get PostStack",
   secondaryCta: "Self-host for free",
   // Prominent objection-buster shown under the CTAs; links to the dedicated MetaAccess section.
@@ -432,7 +432,8 @@ export const fleetStats = {
   title: "Running in the wild, right now",
   subtitle: "Aggregate, anonymous numbers from PostStack instances reporting in — no per-instance data.",
   metrics: [
-    { key: "active_instances", label: "Active instances" },
+    // Hidden until the fleet is a meaningful size — a low early instance count reads as weak proof.
+    { key: "active_instances", label: "Active instances", minToShow: 10 },
     { key: "total_channels", label: "Connected channels" },
     { key: "total_messages_processed", label: "Messages processed" },
     { key: "total_webhooks_processed", label: "Webhooks processed" },
