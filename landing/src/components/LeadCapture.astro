@@ -6,39 +6,92 @@ const titleParts = leadCapture.accent ? leadCapture.title.split(leadCapture.acce
 
 <section id="lead-capture" class="py-[var(--spacing-section)]">
   <div class="shell">
-    <div class="mx-auto max-w-[52rem] text-center" data-reveal>
-      <span class="eyebrow">{leadCapture.eyebrow}</span>
-      <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold">
-        {titleParts[0]}<span class="grad">{leadCapture.accent}</span>{titleParts[1]}
-      </h2>
-      <p class="mx-auto mt-5 max-w-[44rem] text-pretty text-lg text-ink-2">{leadCapture.intro}</p>
-    </div>
+    <div class="grid items-center gap-12 lg:grid-cols-[0.9fr_1.1fr]">
+      <!-- ── copy column ── -->
+      <div data-reveal>
+        <span class="eyebrow">{leadCapture.eyebrow}</span>
+        <h2 class="mt-4 text-[clamp(1.9rem,4vw,3rem)] font-bold leading-[1.08]">
+          {titleParts[0]}<span class="grad">{leadCapture.accent}</span>{titleParts[1]}
+        </h2>
+        <p class="mt-5 max-w-[34rem] text-pretty text-lg text-ink-2">{leadCapture.intro}</p>
 
-    <!-- Scroll-scrubbed stepper: the connector fills and each step ignites as you scroll past. -->
-    <div class="lc relative mt-14" data-lc>
-      <!-- connector rail (behind the step row, between the dots) -->
-      <div class="lc-rail" aria-hidden="true">
-        <span class="lc-rail-track"></span>
-        <span class="lc-rail-fill" data-lc-fill></span>
+        <ol class="mt-8 space-y-4" data-reveal-group>
+          {
+            leadCapture.steps.map((s) => (
+              <li class="flex gap-3" data-reveal>
+                <span class="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border border-blue/40 bg-blue/10 font-[var(--font-mono)] text-[0.6rem] font-bold text-blue">
+                  {s.n}
+                </span>
+                <div>
+                  <p class="font-semibold text-ink">{s.heading}</p>
+                  <p class="mt-0.5 text-sm text-ink-2">{s.body}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+        <p class="mt-6 max-w-[34rem] font-[var(--font-mono)] text-xs text-ink-3">{leadCapture.note}</p>
       </div>
 
-      <ol class="relative grid gap-4 md:grid-cols-3">
-        {
-          leadCapture.steps.map((s) => (
-            <li class="lc-step card relative overflow-hidden p-6 pt-9" data-lc-step data-reveal>
-              <span class="lc-dot" aria-hidden="true">
-                <span class="lc-dot-n font-[var(--font-mono)] text-xs font-bold">{s.n}</span>
-              </span>
-              <p class="text-lg font-semibold text-ink">{s.heading}</p>
-              <p class="mt-2 text-ink-2">{s.body}</p>
-            </li>
-          ))
-        }
-      </ol>
-    </div>
+      <!-- ── live-capture tile: loops while on screen (data-inview-play → .is-playing) ── -->
+      <div class="lc-demo" data-reveal data-inview-play aria-hidden="true">
+        <div class="lc-glass">
+          <!-- window chrome -->
+          <div class="lc-chrome">
+            <span class="lc-tl" style="--c:var(--color-bad)"></span>
+            <span class="lc-tl" style="--c:var(--color-warn)"></span>
+            <span class="lc-tl" style="--c:var(--color-ok)"></span>
+            <span class="lc-chrome-label">instagram · DM</span>
+          </div>
 
-    <p class="mx-auto mt-8 max-w-[44rem] text-center font-[var(--font-mono)] text-xs text-ink-3" data-reveal>
-      {leadCapture.note}
-    </p>
+          <div class="lc-body">
+            <!-- DM thread -->
+            <div class="lc-thread">
+              <div class="lc-msg lc-msg-in">Want the guide? Drop your email 👇</div>
+              <button class="lc-qr" type="button" tabindex="-1">
+                <span class="lc-qr-ico">✉</span> Share email
+                <span class="lc-ripple"></span>
+              </button>
+              <div class="lc-msg lc-msg-out lc-email-bubble">anna@studio.com</div>
+            </div>
+
+            <!-- flight path: the captured email travels to the CRM card -->
+            <div class="lc-wire"><span class="lc-spark lc-spark-1"></span></div>
+
+            <!-- CRM contact card -->
+            <div class="lc-card">
+              <div class="lc-card-head">
+                <span class="lc-avatar">AK</span>
+                <div class="lc-card-id">
+                  <span class="lc-name">Anna K.</span>
+                  <span class="lc-tag">lead</span>
+                </div>
+              </div>
+              <div class="lc-field">
+                <span class="lc-field-k">email</span>
+                <span class="lc-field-v"><span class="lc-typed">anna@studio.com</span><span class="lc-caret"></span></span>
+              </div>
+              <div class="lc-field">
+                <span class="lc-field-k">phone</span>
+                <span class="lc-field-v lc-muted">+48 ··· ··· ···</span>
+              </div>
+            </div>
+
+            <!-- webhook hop to a mailing list -->
+            <div class="lc-hook">
+              <span class="lc-packet">POST</span>
+              <span class="lc-hookline"><span class="lc-spark lc-spark-2"></span></span>
+              <span class="lc-endpoint">
+                <span class="lc-endpoint-dot"></span>
+                <span class="lc-endpoint-t">Listmonk</span>
+                <span class="lc-added">+1 subscriber</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <!-- ambient glow -->
+        <div class="lc-aura"></div>
+      </div>
+    </div>
   </div>
 </section>

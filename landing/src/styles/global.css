@@ -215,70 +215,357 @@
   transform: none;
 }
 
-/* ── Lead-capture scroll stepper: a connector that fills + step badges that ignite as you scroll.
-   Fail-safe: without JS the rail is full and the layout reads fine; .reveal-ready opts into the
-   animated (empty → filled) state that motion.ts scrubs. ── */
-.lc-rail {
+/* ── Lead-capture "live capture" tile ───────────────────────────────────────
+   A looping mini-demo of the real flow: tap a quick reply → the email bubbles in
+   → it travels into the CRM card → a signed webhook hops to a mailing list.
+   The loop only runs while on screen (.is-playing, set by data-inview-play).
+   The BASE (not-playing) state is the finished frame, so no-JS / reduced-motion
+   users see a complete, legible diagram; the keyframes end on that same frame. ── */
+.lc-demo {
   position: relative;
-  height: 2px;
-  max-width: 48rem;
-  margin: 0 auto 2.5rem;
 }
-.lc-rail-track,
-.lc-rail-fill {
+.lc-aura {
   position: absolute;
-  inset: 0;
-  border-radius: 2px;
+  inset: -12% -8% -18%;
+  z-index: -1;
+  background:
+    radial-gradient(60% 55% at 30% 20%, color-mix(in srgb, var(--color-blue) 22%, transparent), transparent 70%),
+    radial-gradient(55% 50% at 80% 90%, color-mix(in srgb, var(--color-purple) 20%, transparent), transparent 70%);
+  filter: blur(8px);
 }
-.lc-rail-track {
-  background: var(--color-border-medium);
-  opacity: 0.6;
+.lc-glass {
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-elevated) 92%, transparent), var(--color-base));
+  box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
 }
-.lc-rail-fill {
-  background: linear-gradient(90deg, var(--color-blue), var(--color-purple));
-  transform: scaleX(1);
-  transform-origin: left center;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--color-blue) 55%, transparent);
+.lc-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
-.reveal-ready .lc-rail-fill {
-  transform: scaleX(0);
+.lc-tl {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 9999px;
+  background: var(--c);
+  opacity: 0.7;
 }
-.lc-dot {
+.lc-chrome-label {
+  margin-left: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--color-ink-3);
+}
+.lc-body {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1.1rem 1.2rem 1.3rem;
+}
+
+/* DM thread */
+.lc-thread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.lc-msg {
+  max-width: 78%;
+  padding: 0.5rem 0.8rem;
+  border-radius: 1rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.lc-msg-in {
+  border-top-left-radius: 0.3rem;
+  background: var(--color-floating);
+  color: var(--color-ink-2);
+}
+.lc-msg-out {
+  align-self: flex-end;
+  border-top-right-radius: 0.3rem;
+  background: linear-gradient(135deg, var(--color-blue), var(--color-purple));
+  color: #0a0a12;
+  font-weight: 600;
+}
+.lc-qr {
+  position: relative;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-blue) 45%, transparent);
+  background: color-mix(in srgb, var(--color-blue) 10%, transparent);
+  color: var(--color-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  overflow: hidden;
+}
+.lc-qr-ico {
+  color: var(--color-blue);
+}
+.lc-ripple {
   position: absolute;
-  top: 1rem;
-  left: 1.5rem;
+  left: 22%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--color-blue) 70%, transparent);
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+}
+.lc-email-bubble {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+/* the email travels from the thread to the card */
+.lc-wire {
+  position: relative;
+  height: 16px;
+  margin: -0.1rem 0 -0.1rem 1.2rem;
+  border-left: 2px dotted color-mix(in srgb, var(--color-blue) 35%, transparent);
+}
+
+/* CRM card */
+.lc-card {
+  border: 1px solid var(--color-border-medium);
+  border-radius: 0.9rem;
+  background: var(--color-elevated);
+  padding: 0.8rem 0.9rem;
+}
+.lc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.6rem;
+}
+.lc-avatar {
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--color-blue), var(--color-purple));
+  color: #0a0a12;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+.lc-card-id {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lc-name {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.lc-tag {
+  padding: 0.05rem 0.45rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--color-ok) 16%, transparent);
+  color: var(--color-ok);
+  font-size: 0.6rem;
+  font-weight: 600;
+  transform: scale(1);
+}
+.lc-field {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.28rem 0;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.78rem;
+}
+.lc-field-k {
+  width: 3rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-ink-3);
+}
+.lc-field-v {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+}
+.lc-muted {
+  color: var(--color-ink-3);
+}
+.lc-typed {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lc-caret {
+  width: 1px;
+  height: 0.95em;
+  margin-left: 1px;
+  background: var(--color-blue);
+  opacity: 0;
+}
+
+/* webhook hop */
+.lc-hook {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+}
+.lc-packet {
+  padding: 0.18rem 0.5rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--color-blue) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-blue) 40%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--color-blue);
+}
+.lc-hookline {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--color-blue) 35%, transparent) 0 5px, transparent 5px 10px);
+}
+.lc-endpoint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
   border-radius: 9999px;
   border: 1px solid var(--color-border-medium);
   background: var(--color-floating);
-  color: var(--color-ink-3);
-  transition:
-    color 0.35s var(--ease-spring),
-    border-color 0.35s var(--ease-spring),
-    background 0.35s var(--ease-spring),
-    box-shadow 0.35s var(--ease-spring);
+  font-size: 0.7rem;
+  color: var(--color-ink-2);
 }
-.lc-step {
-  transition:
-    border-color 0.4s var(--ease-spring),
-    transform 0.4s var(--ease-spring);
+.lc-endpoint-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-ok);
+  box-shadow: 0 0 8px var(--color-ok);
 }
-.reveal-ready .lc-step[data-active] {
-  border-color: color-mix(in srgb, var(--color-blue) 35%, transparent);
+.lc-endpoint-t {
+  font-weight: 600;
+  color: var(--color-ink);
 }
-.reveal-ready .lc-step[data-active] .lc-dot {
-  color: var(--color-blue);
-  border-color: color-mix(in srgb, var(--color-blue) 50%, transparent);
-  background: color-mix(in srgb, var(--color-blue) 14%, transparent);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--color-blue) 45%, transparent);
+.lc-added {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--color-ok);
+  opacity: 1;
 }
-@media (max-width: 767px) {
-  .lc-rail {
-    display: none;
-  }
+
+/* travelling sparks (hidden at rest; only visible mid-flight during playback) */
+.lc-spark {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-blue);
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--color-blue) 80%, transparent);
+  opacity: 0;
+}
+.lc-spark-1 {
+  left: -5px;
+  top: -4px;
+}
+.lc-spark-2 {
+  left: 0;
+  top: -3px;
+}
+
+/* ── playback: the loop only runs while the tile is on screen ── */
+.lc-demo.is-playing .lc-ripple {
+  animation: lc-ripple 7s linear infinite;
+}
+.lc-demo.is-playing .lc-email-bubble {
+  animation: lc-rise 7s ease-in-out infinite;
+}
+.lc-demo.is-playing .lc-spark-1 {
+  animation: lc-fly1 7s ease-in-out infinite;
+}
+.lc-demo.is-playing .lc-typed {
+  animation: lc-type 7s steps(20, end) infinite;
+}
+.lc-demo.is-playing .lc-caret {
+  animation: lc-caret 7s linear infinite;
+}
+.lc-demo.is-playing .lc-tag {
+  animation: lc-pop 7s ease-out infinite;
+}
+.lc-demo.is-playing .lc-packet {
+  animation: lc-packet 7s ease-out infinite;
+}
+.lc-demo.is-playing .lc-spark-2 {
+  animation: lc-fly2 7s ease-in-out infinite;
+}
+.lc-demo.is-playing .lc-endpoint-dot {
+  animation: lc-dot 7s ease-out infinite;
+}
+.lc-demo.is-playing .lc-added {
+  animation: lc-added 7s ease-out infinite;
+}
+
+@keyframes lc-ripple {
+  0%, 4% { transform: translate(-50%, -50%) scale(0); opacity: 0.6; }
+  10% { transform: translate(-50%, -50%) scale(7); opacity: 0; }
+  11%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0); }
+}
+@keyframes lc-rise {
+  0%, 12% { opacity: 0; transform: translateY(10px) scale(0.96); }
+  22%, 100% { opacity: 1; transform: none; }
+}
+@keyframes lc-fly1 {
+  0%, 22% { opacity: 0; transform: translate(0, 0); }
+  24% { opacity: 1; }
+  34% { opacity: 1; transform: translate(0, 26px); }
+  36%, 100% { opacity: 0; transform: translate(0, 26px); }
+}
+@keyframes lc-type {
+  0%, 30% { max-width: 0; }
+  44%, 100% { max-width: 16ch; }
+}
+@keyframes lc-caret {
+  0%, 29% { opacity: 0; }
+  30%, 44% { opacity: 1; }
+  45%, 100% { opacity: 0; }
+}
+@keyframes lc-pop {
+  0%, 40% { transform: scale(0); opacity: 0; }
+  48% { transform: scale(1.18); opacity: 1; }
+  54%, 100% { transform: scale(1); opacity: 1; }
+}
+@keyframes lc-packet {
+  0%, 50% { opacity: 0; transform: translateY(4px); }
+  58%, 100% { opacity: 1; transform: none; }
+}
+@keyframes lc-fly2 {
+  0%, 58% { opacity: 0; left: 0; }
+  60% { opacity: 1; }
+  72% { opacity: 1; left: calc(100% - 8px); }
+  74%, 100% { opacity: 0; left: calc(100% - 8px); }
+}
+@keyframes lc-dot {
+  0%, 70% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+  78% { box-shadow: 0 0 14px 3px var(--color-ok); transform: scale(1.5); }
+  84%, 100% { box-shadow: 0 0 8px var(--color-ok); transform: scale(1); }
+}
+@keyframes lc-added {
+  0%, 72% { opacity: 0; transform: translateX(-4px); }
+  82%, 100% { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
