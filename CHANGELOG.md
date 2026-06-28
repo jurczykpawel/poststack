@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-06-28
+
+### Added
+- **Lead capture** — capture an email or phone number from a Meta `user_email` / `user_phone_number` quick-reply reply straight onto the contact in your CRM (new `contacts.phone`, per-conversation `awaiting_capture` state), and fire a signed outbound webhook the moment it's captured. New "Lead capture" section on the landing page.
+- **Admin panel redesign** — whole-panel visual + UX rework on the existing Hono/HTMX/Alpine stack (no SPA rewrite): a first-class **light mode** (topbar toggle, cookie-persisted, no-FOUC), self-hosted **Geist / Geist Mono** fonts, redesigned compose / inbox / channels / content / queue / contacts / dashboard screens, unified design tokens and an SVG icon sprite, and branded 404/500 pages.
+- **Inbox status triage** — Open/Done states with a contact filter chip; comment threads now show the resolved post title instead of the raw post id.
+- **Landing visuals** — AI-generated hero / showcase / Open Graph imagery plus scroll-driven section ambience and an igniting "how it works" stepper.
+
+### Changed
+- **Telemetry is now fully anonymous.** The opt-out usage report no longer carries any hashed identifier (dropped `domain_hash` and `license_hash`) and coarsens high-entropy host facts into buckets (`cpu_bucket`, `mem_bucket`, `runtime_version_major`; `node_env` removed) — the only remaining identity is the random instance id and the license tier. Receiver-side dedup is now driven by a persisted per-report `report_id` with an atomic claim-then-confirm send gate. See the privacy page for exactly what is shared.
+
+### Fixed
+- Telemetry: a brand-new instance's first report now sends reliably (the send gate seeds its `telemetry_state` singleton before claiming, instead of assuming the row exists).
+
 ## [0.8.5] - 2026-06-26
 
 ### Fixed
