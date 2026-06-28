@@ -1222,6 +1222,10 @@ export const posts = pgTable("posts", {
 	postiz_id: text("postiz_id"),
 	published_url: text("published_url"),
 	published_at: timestamp("published_at", { precision: 3, mode: 'date' }),
+	// The platform-assigned id of the published post (FB page-post id / IG media id / YouTube video id),
+	// captured from the publish provider handle. Lets a logged comment (comment_logs.post_id) resolve
+	// back to its content title in the inbox. NULL until published (and for posts published pre-ship).
+	platform_post_id: text("platform_post_id"),
 	notes: text("notes"),
 	language: text("language"),
 	media_url: text("media_url"),
@@ -1245,6 +1249,8 @@ export const posts = pgTable("posts", {
 	index("posts_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	index("posts_content_idx").using("btree", table.content_id.asc().nullsLast()),
 	index("posts_delivery_idx").using("btree", table.delivery_id.asc().nullsLast()),
+	// Resolves a comment's platform post id back to its content title (comment_logs.post_id lookup).
+	index("posts_workspace_platform_post_id_idx").using("btree", table.workspace_id.asc().nullsLast(), table.platform_post_id.asc().nullsLast()),
 	uniqueIndex("posts_workspace_source_ref_key").using("btree", table.workspace_id.asc().nullsLast(), table.source_ref.asc().nullsLast()),
 	uniqueIndex("posts_workspace_idempotency_key").using("btree", table.workspace_id.asc().nullsLast(), table.idempotency_key.asc().nullsLast()),
 	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "posts_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),

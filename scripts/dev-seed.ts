@@ -137,7 +137,10 @@ async function main() {
     base_description: "Najczęstsza blokada przy starcie — pokazuję cały proces.", base_hashtags: "#meta #api",
   }).returning({ id: s.content.id });
   await db.insert(s.posts).values([
-    { workspace_id: ws, content_id: c1.id, platform: "instagram", description: "5 automatyzacji…", hashtags: "#automatyzacja", status: "published", published_at: ago(2880), media_url: "https://example.com/reel.mp4" },
+    // platform_post_id matches the seeded comment_logs.post_id so the inbox resolves the comment's post
+    // back to this content's title ("5 automatyzacji…") instead of showing the raw id.
+    { workspace_id: ws, content_id: c1.id, platform: "facebook", description: "5 automatyzacji…", hashtags: "#automatyzacja", status: "published", published_at: ago(2880), platform_post_id: "post_fb_001" },
+    { workspace_id: ws, content_id: c1.id, platform: "instagram", description: "5 automatyzacji…", hashtags: "#automatyzacja", status: "published", published_at: ago(2880), media_url: "https://example.com/reel.mp4", platform_post_id: "post_ig_001" },
     { workspace_id: ws, content_id: c1.id, platform: "youtube", description: "5 automatyzacji…", status: "published", published_at: ago(2880) },
     { workspace_id: ws, content_id: c2.id, platform: "instagram", description: "Meta app setup", status: "scheduled", scheduled_date: ahead(180) },
     { workspace_id: ws, content_id: c2.id, platform: "facebook", description: "Meta app setup", status: "planned" },

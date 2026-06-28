@@ -277,7 +277,9 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       channelMetadata,
     });
     await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });
-    await reflectEditorial(postId, "published", { published_at: new Date() });
+    // Capture the platform-assigned post id (the same provider handle used for first-comment / story)
+    // onto the editorial post, so a later comment on it can resolve back to this content's title.
+    await reflectEditorial(postId, "published", { published_at: new Date(), platform_post_id: handle.providerHandle });
     await emitEventNow(ws, "post.published", { type: "post", id: postId }, { providerHandle: handle.providerHandle, platform: channel.platform });
     // REPLYSTACK1 native (UNIFY P2.2): if the editorial post carries an auto-reply, provision the
     // comment→DM rule scoped to the just-published media id — in-process, idempotent, best-effort.
