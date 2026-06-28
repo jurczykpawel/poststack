@@ -114,6 +114,8 @@ describe("queue section", () => {
     const { id } = await seedDelivery("failed");
     const res = await app.request(`/queue/${id}/retry`, { method: "POST", headers: htmx() });
     expect(res.status).toBe(200);
+    // Re-renders the whole grouped <tbody> (not a single <tr>) so status-cluster headers regroup.
+    expect(await res.text()).toContain('id="queue-rows"');
     const row = await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) });
     expect(row!.status).not.toBe("failed");
   });

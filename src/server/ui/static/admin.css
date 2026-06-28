@@ -309,7 +309,8 @@
   a.kpi:hover { border-color: var(--border-strong); background: var(--overlay); }
   .kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .kpi-n { font-family: var(--font-mono); font-size: 27px; font-weight: 600; line-height: 1;
-    letter-spacing: -0.03em; color: var(--text-1); }
+    letter-spacing: -0.03em; color: var(--text-1);
+    font-variant-numeric: tabular-nums; font-feature-settings: "zero" 0; }
   .kpi-n.tone-ok { color: var(--ok); }
   .kpi-n.tone-warn { color: var(--warn); }
   .kpi-n.tone-bad { color: var(--bad); }
@@ -1320,6 +1321,16 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .muted { color: var(--text-3); }
 .label { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
+
+/* Branded error pages (404 / 500). */
+.errpage { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.errpage-card { text-align: center; max-width: 30rem; }
+.errpage-code { font-family: var(--font-mono); font-size: 64px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.04em; color: var(--accent);
+  font-variant-numeric: tabular-nums; font-feature-settings: "zero" 0; }
+.errpage-title { font-size: 20px; font-weight: 600; color: var(--text-1); margin: 14px 0 8px; }
+.errpage-body { color: var(--text-2); font-size: 13.5px; line-height: 1.55; margin: 0 0 20px; }
+.errpage-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 /* Theme toggle (topbar) — sun shown in dark mode (click → light), moon in light mode (click → dark). */
 .theme-toggle .ico-moon { display: none; }

@@ -74,19 +74,21 @@ function errorCell(err: string | null): Html {
   return html`<span class="q-err" title="${err}">${err}</span>`;
 }
 
-function rowHx(id: string): ReturnType<typeof raw> {
-  return raw(`hx-target="#post-row-${id}" hx-swap="outerHTML"`);
+function rowHx(): ReturnType<typeof raw> {
+  // Retry/cancel re-render the whole grouped tbody (not just the row) so the status-cluster headers
+  // stay correct when an action moves a post between clusters; filters come from HX-Current-URL.
+  return raw(`hx-target="#queue-rows" hx-swap="outerHTML"`);
 }
 
 function rowAction(r: QueueRow): Html {
   const act = `/queue/${r.id}`;
   if (r.status === "failed") {
-    return html`<form method="post" action="${act}/retry" hx-post="${act}/retry" ${rowHx(r.id)} class="q-inline">
+    return html`<form method="post" action="${act}/retry" hx-post="${act}/retry" ${rowHx()} class="q-inline">
       <button class="btn btn-ic" type="submit" title="Retry" aria-label="Retry post">${icon("reconnect", "ico", 15)}</button>
     </form>`;
   }
   if (r.status === "scheduled" || r.status === "held") {
-    return html`<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx(r.id)} class="q-inline"
+    return html`<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
       hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">
       <button class="btn btn-ic" type="submit" title="Cancel" aria-label="Cancel post">${icon("close", "ico", 15)}</button>
     </form>`;
@@ -125,6 +127,15 @@ function groupedRows(rows: QueueRow[], grouped: boolean): Html[] {
   return order.flatMap((status) => [groupHead(status, buckets.get(status)!.length), ...buckets.get(status)!.map(row)]);
 }
 
+// The swappable <tbody> — shared by the page render and the retry/cancel re-render so group headers
+// regroup after a status change. Cluster only an unfiltered, status-mixed view (a filtered view is one status).
+function groupedTbody(rows: QueueRow[], status: DeliveryRow["status"] | undefined): Html {
+  const grouped = !status && new Set(rows.map((r) => r.status)).size > 1;
+  return html`<tbody id="queue-rows">
+    ${rows.length === 0 ? html`<tr><td colspan="7" class="table-empty">No posts match these filters.</td></tr>` : groupedRows(rows, grouped)}
+  </tbody>`;
+}
+
 async function queuePage(c: Context): Promise<Response> {
   const a = await auth(c);
   if (!a) return c.redirect("/login");
@@ -144,8 +155,6 @@ async function queuePage(c: Context): Promise<Response> {
   const formats = [...new Set(rows.map((r) => r.format))].sort();
   const empty = rows.length === 0;
   const blankSlate = empty && !status && !channelId && !format;
-  // Cluster by status only when the (unfiltered) view actually mixes statuses; a filtered view is one status.
-  const grouped = !status && new Set(rows.map((r) => r.status)).size > 1;
 
   return c.html(
     renderPage({
@@ -172,9 +181,7 @@ async function queuePage(c: Context): Promise<Response> {
                     <th scope="col" class="th-act">Action</th>
                   </tr>
                 </thead>
-                <tbody>
-                  ${empty ? html`<tr><td colspan="7" class="table-empty">No posts match these filters.</td></tr>` : groupedRows(rows, grouped)}
-                </tbody>
+                ${groupedTbody(rows, status)}
               </table>
             </div>`}`,
     }),
@@ -246,21 +253,6 @@ function postDetailHead(item: QueueItem): Html {
   </section>`;
 }
 
-function rowFromItem(item: QueueItem): QueueRow {
-  const { post, channel, channelName } = item;
-  return {
-    id: post.id,
-    status: post.status,
-    format: post.format,
-    scheduledAt: post.scheduled_at,
-    runAt: post.run_at,
-    attempts: post.attempts,
-    lastError: post.last_error,
-    platform: channel.platform,
-    metadata: channel.metadata,
-    channelName,
-  };
-}
 
 async function postDetailPage(c: Context): Promise<Response> {
   const a = await auth(c);
@@ -352,8 +344,14 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
       if (!item) return c.text("not found", 404);
       const tone: ToastTone = STATUS_TONE[item.post.status] === "bad" ? "warn" : "ok";
       toastHeader(c, tone, toast(item.post));
-      const target = c.req.header("HX-Target");
-      return c.html(target === "post-detail-head" ? postDetailHead(item) : row(rowFromItem(item)));
+      if (c.req.header("HX-Target") === "post-detail-head") return c.html(postDetailHead(item));
+      // List page: re-render the grouped tbody for the page's current filters (from HX-Current-URL) so
+      // the status-cluster headers regroup after this post changed status.
+      const sp = new URL(c.req.header("HX-Current-URL") || "http://x/queue").searchParams;
+      const sParam = sp.get("status") || undefined;
+      const status = sParam && isPostStatus(sParam) ? sParam : undefined;
+      const rows = await listQueue({ workspaceId: a.workspaceId, limit: 200, status, channelId: sp.get("channel") || undefined, format: sp.get("format")?.trim() || undefined });
+      return c.html(groupedTbody(rows, status));
     };
   }
 

@@ -8,6 +8,7 @@ import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
 import { integrationsRoutes } from "./routes/integrations";
 import { ApiErrors, ApiError, apiErrorResponse } from "@/lib/api/response";
+import { errorPage } from "./ui/error-page";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { ProRequiredError, LimitExceededError } from "@/lib/license/gate";
 import { env } from "@/lib/env";
@@ -47,7 +48,13 @@ export function buildApp(): Hono {
       return ApiErrors.internal();
     }
     console.error(`Unhandled error: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
-    return c.text("Internal Server Error", 500);
+    return c.html(errorPage(500), 500);
+  });
+
+  // Unmatched routes: branded HTML 404 for pages; JSON contract for the API.
+  app.notFound((c) => {
+    if (c.req.path.startsWith("/api/")) return ApiErrors.notFound();
+    return c.html(errorPage(404), 404);
   });
 
   app.route("/", publicRoutes);
