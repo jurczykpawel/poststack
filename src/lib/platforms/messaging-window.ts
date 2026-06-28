@@ -65,7 +65,7 @@ export function messagingWindowState(opts: {
         kind: "closing_soon",
         closesInMs,
         useHumanAgentTag: false,
-        label: `⏰ 24h reply window closes in ${formatDuration(closesInMs)}.`,
+        label: `24h reply window closes in ${formatDuration(closesInMs)}.`,
       };
     }
     return { kind: "open", closesInMs, useHumanAgentTag: false, label: null };
@@ -76,7 +76,7 @@ export function messagingWindowState(opts: {
       kind: "human_agent",
       closesInMs: null,
       useHumanAgentTag: true,
-      label: "⏰ 24h window closed — sending as a human-agent message (allowed up to 7 days).",
+      label: "24h window closed — sending as a human-agent message (allowed up to 7 days).",
     };
   }
 

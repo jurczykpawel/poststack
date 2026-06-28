@@ -272,8 +272,8 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
           ? html` on post <a href="${it.postUrl}" target="_blank" rel="noopener" class="mono">${it.postId} ↗</a>`
           : html` on post <span class="mono">${it.postId}</span>`
         : "";
-      return html`<div class="msg msg-in">
-        <div class="bubble" style="border-left:3px solid var(--primary);background:transparent">
+      return html`<div class="msg msg-in msg-comment">
+        <div class="bubble" style="background:var(--info-bg);border-color:color-mix(in srgb, var(--info) 30%, var(--border))">
           <div class="cmt-mark">${icon("comment", "ico", 12)} commented${postRef}</div>
           <div>${it.text}</div>
           ${it.replySent && it.replyText
@@ -350,7 +350,7 @@ export function renderThread(
   // a human reply past 24h rides the HUMAN_AGENT tag, see ./messaging-window + the outgoing worker).
   const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at });
   const windowNote = canReply && windowState.label
-    ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem">${windowState.label}</div>`
+    ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem;display:flex;align-items:center;gap:6px">${icon("clock", "ico", 13)}<span>${windowState.label}</span></div>`
     : html``;
   const isEmail = conv.platform === "gmail";
   const emailHeader = isEmail
