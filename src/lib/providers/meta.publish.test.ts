@@ -25,6 +25,32 @@ afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "T" };
 
 describe("meta.publish", () => {
+  it("IG feed image sends image_url (not a bare url) to the media container", async () => {
+    let createBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/media_publish"))
+          return new Response(JSON.stringify({ id: "ig_post_1" }), { status: 200 });
+        if (url.includes("?fields=status_code"))
+          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        createBody = String(init?.body ?? ""); // container-create POST
+        return new Response(JSON.stringify({ id: "container_img" }), { status: 200 });
+      }),
+    );
+    await metaProvider.publish({
+      tokens,
+      accountId: "IGACCT",
+      request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "hi" },
+      mediaUrls: ["https://cdn/photo.png"],
+    });
+    const params = new URLSearchParams(createBody);
+    expect(params.get("image_url")).toBe("https://cdn/photo.png");
+    expect(params.has("url")).toBe(false); // regression: bare `url` → Meta #100 image_url required
+    expect(params.has("media_type")).toBe(false); // images are not REELS
+  });
+
   it("publishes a reel: container -> status FINISHED -> publish", async () => {
     const calls: string[] = [];
     vi.stubGlobal(

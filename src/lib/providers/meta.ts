@@ -351,9 +351,11 @@ export const metaProvider: Provider = {
       const coverUrl = typeof request.options?.coverUrl === "string" ? request.options.coverUrl : undefined;
       const thumbOffset =
         typeof request.options?.thumbOffset === "number" ? request.options.thumbOffset : undefined;
-      // 1) create media container
+      // 1) create media container. IG image feed posts take `image_url` (Meta rejects a bare `url`
+      // with #100 "The parameter image_url is required" — same param the Story path uses); reels take
+      // `video_url` with media_type REELS.
       const createBody = new URLSearchParams({
-        ...(isReel ? { media_type: "REELS", video_url: url ?? "" } : { url: url ?? "" }),
+        ...(isReel ? { media_type: "REELS", video_url: url ?? "" } : { image_url: url ?? "" }),
         ...(request.caption ? { caption: request.caption } : {}),
         ...(isReel && coverUrl ? { cover_url: coverUrl } : {}),
         ...(isReel && !coverUrl && thumbOffset !== undefined ? { thumb_offset: String(thumbOffset) } : {}),
