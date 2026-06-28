@@ -1,5 +1,5 @@
 {
-  "id": "b24c90bd-ade7-4002-b1e6-e0adbfecf832",
+  "id": "9882ce87-8321-4040-8cb2-549dcde10aaa",
   "prevId": "a0dea050-a6eb-4583-8b02-d2e2a66479b9",
   "version": "7",
   "dialect": "postgresql",
@@ -4649,6 +4649,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "platform_post_id": {
+          "name": "platform_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "notes": {
           "name": "notes",
           "type": "text",
@@ -4767,6 +4773,27 @@
           "columns": [
             {
               "expression": "delivery_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posts_workspace_platform_post_id_idx": {
+          "name": "posts_workspace_platform_post_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform_post_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
