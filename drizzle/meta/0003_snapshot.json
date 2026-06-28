@@ -1,5 +1,5 @@
 {
-  "id": "704f46fd-a273-4c88-9012-c54912dab37d",
+  "id": "b24c90bd-ade7-4002-b1e6-e0adbfecf832",
   "prevId": "a0dea050-a6eb-4583-8b02-d2e2a66479b9",
   "version": "7",
   "dialect": "postgresql",
@@ -1841,6 +1841,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "avatar_url": {
           "name": "avatar_url",
           "type": "text",
@@ -2297,6 +2303,13 @@
         "subject": {
           "name": "subject",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "awaiting_capture": {
+          "name": "awaiting_capture",
+          "type": "capture_field",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
         }
@@ -6860,6 +6873,14 @@
         "sending",
         "completed",
         "cancelled"
+      ]
+    },
+    "public.capture_field": {
+      "name": "capture_field",
+      "schema": "public",
+      "values": [
+        "email",
+        "phone"
       ]
     },
     "public.channel_connection_mode": {

@@ -26,15 +26,8 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1782575872341,
-      "tag": "0003_mean_captain_america",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1782600110909,
-      "tag": "0004_brown_bug",
+      "when": 1782633784966,
+      "tag": "0003_telemetry_and_lead_capture",
       "breakpoints": true
     }
   ]
