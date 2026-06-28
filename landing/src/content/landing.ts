@@ -235,6 +235,25 @@ export const ruleTester = {
   ],
 };
 
+export const followGate = {
+  eyebrow: "Auto-reply · PRO",
+  title: "Follow-gate —",
+  titleAccent: "unlock only after they follow",
+  body: "Gate a lead magnet behind a real follow. When someone taps to claim, PostStack live-checks whether they actually follow your Instagram — delivers the magnet if they do, or loops them back with a “follow first” prompt until they do. No honour system: it verifies with Instagram.",
+  toggleLabel: "Try it — is this person following you?",
+  toggleFollowing: "Following",
+  toggleNotFollowing: "Not yet",
+  handle: "@your.brand",
+  prompt: "Want the free guide? Tap below 👇",
+  claimCta: "Claim free guide 🎁",
+  reclaimCta: "I followed — claim 🎁",
+  lockedTitle: "🔒 Follow to unlock",
+  lockedBody: "Follow @your.brand first, then tap again 👇",
+  unlockedTitle: "🎉 Unlocked",
+  unlockedBody: "Here's your guide 👉 your.brand/guide",
+  note: "Instagram only — verified live via the messaging API (is_user_follow_business). Facebook has no public follow graph, so the gate stays open there.",
+};
+
 export const workflow = [
   {
     step: "01",
