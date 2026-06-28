@@ -33,13 +33,18 @@ async function debugTokenAccessToken(): Promise<string> {
   return `${id}|${secret}`;
 }
 
-function classifyMetaError(
+export function classifyMetaError(
   status: number,
   error?: { code?: number; message?: string },
   phase: PublishPhase = "commit_uncertain", // PSA36
 ) {
   const code = error?.code;
-  if (status === 400 || status === 401 || code === 190) {
+  // Token-invalid is signalled by a Meta error CODE (190 = invalid/expired, 102 = session expired,
+  // 467 = invalid token) — NOT by a bare HTTP 400/401. Meta returns 400 for many benign request
+  // errors (e.g. #100 "The parameter image_url is required"); classifying those as a token failure
+  // wrongly flips a healthy channel into needs_reauth (the messaging path already keys on code 190
+  // only — see isMetaTokenError). Keep both layers consistent.
+  if (code === 190 || code === 102 || code === 467) {
     return new TokenInvalidError(`Meta token invalid: ${error?.message ?? status}`);
   }
   if (status >= 500) return new TransientError(`Meta transient: ${status}`, phase);
