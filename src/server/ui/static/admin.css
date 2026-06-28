@@ -101,7 +101,7 @@
   .btn-sm { padding: 5px 11px; font-size: 12px; }
   .btn-md { padding: 8px 14px; font-size: 13px; }
   .btn-ic { padding: 0; width: 28px; height: 28px; flex: 0 0 auto;
-    background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text-3); }
+    background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-control); color: var(--text-3); }
   .btn-ic .ico { width: 15px; height: 15px; }
   .btn-ic:hover { color: var(--text-1); border-color: var(--accent); }
 
@@ -997,7 +997,7 @@ select.ps-native-hidden { display: none !important; }
 .cap-edit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
 .cap-foot { display: flex; justify-content: flex-end; }
 
-.auto { border: 1px solid var(--border); border-radius: var(--radius-control); }
+.auto { border: 1px dashed var(--border-strong); border-radius: var(--radius-control); }
 .auto + .auto { margin-top: 8px; }
 .auto > summary { display: flex; align-items: center; gap: 9px; padding: 10px 12px; cursor: pointer; list-style: none; font-size: 12.5px; color: var(--text-1); user-select: none; }
 .auto > summary::-webkit-details-marker { display: none; }
@@ -1024,7 +1024,7 @@ select.ps-native-hidden { display: none !important; }
 .device { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 10px; box-shadow: var(--shadow-pop); }
 .pv-card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .pv-head { display: flex; align-items: center; gap: 9px; padding: 10px 12px; }
-.pv-av { width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; color: white; }
+.pv-av { width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; color: white; font-size: 11px; font-weight: 600; }
 .pv-av svg { width: 16px; height: 16px; }
 .pv-id { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .pv-nm { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
@@ -1032,7 +1032,17 @@ select.ps-native-hidden { display: none !important; }
 .pv-media { aspect-ratio: 4/5; background: var(--surface-2); display: grid; place-items: center; color: var(--text-3); }
 .pv-media img { width: 100%; height: 100%; object-fit: cover; }
 .pv-cap { margin: 0; padding: 11px 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-1); white-space: pre-wrap; max-height: 200px; overflow: auto; }
-.pv-foot { display: flex; justify-content: flex-end; padding: 0 12px 11px; }
+.pv-foot { display: flex; align-items: center; gap: 14px; padding: 0 12px 11px; color: var(--text-3); }
+.pv-foot .ico { width: 17px; height: 17px; }
+.pv-foot .ct { margin-left: auto; }
+.pv-plat { margin-left: auto; color: var(--text-3); display: inline-flex; }
+.pv-plat svg { width: 16px; height: 16px; }
+.pv-empty { padding: 32px 16px; text-align: center; color: var(--text-3); font-size: 12.5px; }
+.api-hint { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); font-family: var(--font-mono); padding: 4px 9px; border: 1px dashed var(--border-strong); border-radius: var(--radius-control); }
+.api-hint .ico { width: 13px; height: 13px; color: var(--accent); }
+.api-hint b { color: var(--text-2); font-weight: 500; }
+.auto-n { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
+.compose-pubbar .when { display: flex; align-items: center; gap: 8px; color: var(--text-3); }
 
 /* ---- Inbox v2 (redesign: avatars + platform badge · SVG controls) ---- */
 .conv-item { display: flex; gap: 11px; align-items: flex-start; width: 100%; text-align: left; background: transparent; color: var(--text-1); font: inherit; border: 0; border-bottom: 1px solid var(--border); padding: 11px 12px; cursor: pointer; position: relative; transition: background .12s; }
@@ -1051,25 +1061,17 @@ select.ps-native-hidden { display: none !important; }
 .conv-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
 .conv-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius-pill); padding: 1px 8px; }
 .conv-flag .ico { width: 11px; height: 11px; }
-.conv-kind { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 1px 7px; }
+.conv-kind { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-3); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 1px 7px; }
+.conv-kind .ico { width: 11px; height: 11px; }
+.conv-kind-email { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
+.conv-kind-comment { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 35%, transparent); }
 .conv-unread { position: absolute; right: 12px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
-.thread-controls { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; font-size: .8rem; padding: 10px 12px; }
-.thread-controls .badge .ico { width: 11px; height: 11px; }
-.thread-controls .btn .ico { width: 14px; height: 14px; }
-.thread-legend { font-size: .72rem; }
+.thread-legend { font-size: .72rem; width: 100%; }
 .thread-legend > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px; color: var(--text-3); }
 .thread-legend > summary::-webkit-details-marker { display: none; }
+.thread-legend .ico { width: 13px; height: 13px; }
 
-.msg-status { display: flex; justify-content: flex-end; align-items: center; gap: 4px; font-size: 10px; font-family: var(--font-mono); }
-.msg-status .ico { width: 12px; height: 12px; color: var(--info); }
-.cmt-mark { display: inline-flex; align-items: center; gap: 5px; font-size: .7rem; color: var(--info); margin-bottom: .15rem; }
-.cmt-mark .ico { width: 12px; height: 12px; }
-.cmt-sub { font-size: .78rem; margin-top: .35rem; padding-left: .5rem; }
-.cmt-ok { display: inline-flex; align-items: center; gap: 4px; font-size: .7rem; margin-top: .2rem; color: var(--ok); }
-.cmt-ok .ico { width: 11px; height: 11px; }
-.cmt-err { display: inline-flex; align-items: center; gap: 4px; font-size: .7rem; margin-top: .2rem; color: var(--bad); }
-.cmt-err .ico { width: 11px; height: 11px; }
 .empty-ic { display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: var(--accent-bg); color: var(--accent); margin-bottom: 6px; }
 .empty-ic .ico { width: 20px; height: 20px; }
 .pro-link { display: inline-flex; align-items: center; gap: 4px; }
@@ -1214,6 +1216,10 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 }
 .conv-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
 .conv-head { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
+/* Active contact filter banner (set when arriving from a contact's "View"): a removable chip so the
+   one-person view is visible and clearable without guessing. */
+.conv-contact-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.conv-contact-chip .btn-ic { flex: 0 0 auto; }
 #conv-list-items { flex: 1; min-height: 0; overflow-y: auto; }
 /* .conv-item is defined in the Inbox v2 block above (flex row w/ avatar). This legacy duplicate set
    display:block and, being later in source order, overrode v2 — stacking the avatar above the text.
@@ -1227,8 +1233,29 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 
 .thread { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .thread-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-2); }
-.thread-head { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
-.thread-controls { padding: 0 12px; }
+
+/* Thread header: avatar + name/“via” line + Done/Snooze actions (top row), then a controls row
+   (status pill, Needs-reply badge, the auto-replies toggle switch). Ported from priv/design. */
+.thread-head { padding: 11px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+.th-top { display: flex; align-items: center; gap: 11px; }
+.th-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; color: white; font-weight: 600; font-size: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+.th-id { min-width: 0; }
+.th-nm { font-size: 14px; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th-via { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 5px; margin-top: 1px; }
+.th-via svg, .th-via .ico { width: 12px; height: 12px; }
+.th-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; position: relative; }
+.th-actions .btn .ico { width: 14px; height: 14px; }
+.th-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .8rem; }
+.th-controls .badge .ico { width: 11px; height: 11px; }
+.pause-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+.pause-row.is-paused { color: var(--warn); }
+
+/* Toggle switch (the auto-replies on/off control). */
+.switch { position: relative; width: 38px; height: 22px; flex: 0 0 auto; appearance: none; -webkit-appearance: none; cursor: pointer; margin: 0; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); transition: background .18s, border-color .18s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-3); transition: transform .18s, background .18s; }
+.switch:checked { background: var(--accent); border-color: var(--accent); }
+.switch:checked::after { transform: translateX(16px); background: white; }
+
 .thread-msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 9px; }
 .daysep { align-self: center; font-size: 10px; color: var(--text-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 2px 11px; margin: 4px 0; }
 .msg { display: flex; flex-direction: column; max-width: 74%; gap: 3px; }
@@ -1237,10 +1264,37 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .msg .bubble { padding: 9px 12px; border-radius: 14px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
 .msg-in .bubble { background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 5px; color: var(--text-1); }
 .msg-out .bubble { background: var(--accent); color: var(--accent-contrast); border-bottom-right-radius: 5px; }
-.msg-reaction { align-self: center; display: inline-flex; align-items: center; gap: 4px; background: var(--overlay); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 2px 9px; font-size: 11px; color: var(--text-2); }
+/* Per-message mono meta line (clock time + outbound delivery receipt). */
+.msg-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); display: flex; align-items: center; gap: 5px; }
+.msg-meta .ico { width: 12px; height: 12px; color: var(--info); }
+/* Reaction pill, tucked under the message it belongs to (emoji only — that emoji IS content). */
+.msg-react { display: inline-flex; align-items: center; gap: 3px; margin-top: -7px; background: var(--overlay); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 11px; line-height: 1.4; }
+
+/* Comment item: compact card with a “commented on post …” header + auto-DM/reply status lines. */
 .msg-comment { max-width: 86%; }
-.reply-bar { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px; border-top: 1px solid var(--border); }
-.reply-bar .textarea { flex: 1; }
+.msg-comment .bubble { background: var(--info-bg); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent); color: var(--text-1); white-space: normal; }
+.cmt-top { display: flex; align-items: center; gap: 7px; font-size: 10.5px; color: var(--info); margin-bottom: 5px; }
+.cmt-top .ico { width: 12px; height: 12px; }
+.cmt-link { margin-left: auto; color: var(--accent); max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmt-dm { margin-top: 6px; font-size: 11px; color: var(--ok); display: flex; align-items: center; gap: 5px; }
+.cmt-dm .ico { width: 12px; height: 12px; flex: 0 0 auto; }
+.cmt-dm a { color: var(--accent); }
+.cmt-err { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 11px; color: var(--bad); }
+.cmt-err .ico { width: 12px; height: 12px; }
+
+/* Email mode: stacked email cards (from avatar + name/address + date, then the body). */
+.email-list { padding: 16px; gap: 14px; }
+.email { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+.email-head { display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.email-from-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; color: white; font-weight: 600; font-size: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+.email-meta { min-width: 0; flex: 1; }
+.email-from { font-size: 13px; color: var(--text-1); font-weight: 600; }
+.email-addr { color: var(--text-3); font-weight: 400; font-family: var(--font-mono); font-size: 11px; }
+.email-date { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); flex: 0 0 auto; }
+.email-body { padding: 13px 14px; font-size: 13px; line-height: 1.6; color: var(--text-1); white-space: pre-wrap; }
+
+.reply-bar { display: flex; gap: 10px; align-items: flex-end; padding: 12px 14px; border-top: 1px solid var(--border); }
+.reply-bar .textarea { flex: 1; min-height: 42px; max-height: 140px; }
 .reply-locked .textarea { opacity: .6; }
 
 /* ── Form controls + notices + list (replies wing; missing after shell port) ─────────────────── */

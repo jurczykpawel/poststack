@@ -8,6 +8,7 @@ import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
   pendingApprovals, commentLogs, events as eventsTbl, webhookEvents, webhookEventStats, postReactionStats, users,
+  posts, content,
   type ConversationThreadType,
 } from "@/db/schema";
 import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
@@ -20,7 +21,7 @@ import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
-import { platformColor, platformGlyphString } from "../ui/components/platform";
+import { platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
 import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
@@ -87,6 +88,18 @@ function timeAgo(iso: string | Date | null): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
+/** Wall-clock HH:MM for a message's own timestamp — the mono time under each thread bubble. */
+function clockTime(iso: string | Date | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** Compact date + time for an email card header (no relative fuzzing — emails are dated, not "5m ago"). */
+function emailWhen(iso: string | Date | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString([], { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 // ─── inbox ────────────────────────────────────────────────────────────────────
 
 type ConvName = {
@@ -99,6 +112,30 @@ function contactName(c: ConvName): string {
     c.contact.contact_channels[0]?.platform_sender_id ??
     "Unknown"
   );
+}
+
+/** The contact's platform handle (username, else the raw sender id) — the address shown in the thread
+ *  header's "via …" line. Instagram handles get the conventional "@" prefix; emails/usernames pass
+ *  through unchanged (we don't store decorated handles like "fb.com/…", so we don't fabricate them). */
+function contactHandle(c: ConvName & { platform: string }): string {
+  const raw = c.contact.contact_channels[0]?.platform_username ?? c.contact.contact_channels[0]?.platform_sender_id ?? "";
+  if (!raw) return "";
+  return c.platform === "instagram" && !raw.startsWith("@") ? `@${raw}` : raw;
+}
+
+/** Two initials for an avatar bubble (the contact's name, falling back to "?"). */
+function initialsOf(name: string): string {
+  return (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
+}
+
+/** The "via {Platform} · {handle}" line under the thread title: a brand glyph (mail icon for email)
+ *  + the platform label + the contact's handle. Mirrors the prototype's `.th-via`. */
+function platformVia(conv: ConvName & { platform: string }): Html {
+  const handle = contactHandle(conv);
+  const isEmail = conv.platform === "gmail";
+  const glyph = isEmail ? icon("mail", "ico", 12) : platformGlyph(conv.platform, 12);
+  const label = isEmail ? "Gmail" : platformLabel(conv.platform);
+  return html`${glyph}<span>via ${label}${handle ? html` · ${handle}` : html``}</span>`;
 }
 
 const CONV_QUERY = {
@@ -121,16 +158,17 @@ const CONV_QUERY = {
   },
 } as const;
 
-export type ConvFilter = "all" | "needs_reply" | "unread" | "dm" | "comment";
+export type ConvFilter = "open" | "needs_reply" | "unread" | "dm" | "comment" | "done";
 const CONV_FILTERS: { id: ConvFilter; label: string }[] = [
-  { id: "all", label: "All" },
+  { id: "open", label: "Open" },
   { id: "needs_reply", label: "Needs reply" },
   { id: "unread", label: "Unread" },
   { id: "dm", label: "DMs" },
   { id: "comment", label: "Comments" },
+  { id: "done", label: "Done" },
 ];
 export function parseConvFilter(v: string | undefined): ConvFilter {
-  return CONV_FILTERS.some((f) => f.id === v) ? (v as ConvFilter) : "all";
+  return CONV_FILTERS.some((f) => f.id === v) ? (v as ConvFilter) : "open";
 }
 
 /** Just the conversation rows (htmx swaps this when a filter tab is clicked). */
@@ -141,6 +179,7 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
   return html`${conversations.map((conv) => {
     const isComment = conv.thread_type === "comment";
     const isEmail = conv.thread_type === "email";
+    const kind = isComment ? { cls: "comment", ic: "comment" as const, t: "Comment" } : isEmail ? { cls: "email", ic: "mail" as const, t: "Email" } : { cls: "dm", ic: "comment" as const, t: "DM" };
     const name = contactName(conv);
     const initials = (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
     return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
@@ -149,9 +188,13 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
         <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time">${timeAgo(conv.last_message_at)}</span></span>
         ${isEmail ? html`<span class="conv-subject">${conv.subject ?? "(no subject)"}</span>` : html``}
         <span class="conv-preview">${conv.last_message_preview ?? "No messages"}</span>
-        ${conv.needs_manual_reply || isComment
-          ? html`<span class="conv-meta">${conv.needs_manual_reply ? html`<span class="conv-flag">${icon("alert", "ico", 11)} Needs reply</span>` : html``}${isComment ? html`<span class="conv-kind">comment</span>` : html``}</span>`
-          : html``}
+        <span class="conv-meta">
+          <span class="conv-kind conv-kind-${kind.cls}">${icon(kind.ic, "ico", 11)} ${kind.t}</span>
+          ${conv.status !== "open"
+            ? html`<span class="conv-kind">${dot(conv.status === "closed" ? "ok" : "neutral")} ${conv.status === "closed" ? "Done" : "Snoozed"}</span>`
+            : html``}
+          ${conv.needs_manual_reply ? html`<span class="conv-flag">${icon("alert", "ico", 11)} Needs reply</span>` : html``}
+        </span>
       </span>
       ${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}
     </button>`;
@@ -173,6 +216,7 @@ function renderConvPanel(
   since = "",
   from = "",
   to = "",
+  doneCount = 0,
 ): Html {
   // One form holds every filter (pills, contact-name search, date preset/range, channel) so they
   // always compose — any change re-runs /inbox/list with the full state. Pills drive a hidden
@@ -192,7 +236,7 @@ function renderConvPanel(
       <div style="display:flex;gap:.25rem;flex-wrap:wrap">
         ${CONV_FILTERS.map(
           (f) => html`<button type="button" class="btn btn-sm" :class="{ 'btn-primary': filter==='${f.id}' }" style="font-size:.72rem;padding:.15rem .5rem"
-            @click="filter='${f.id}'; $nextTick(() => window.htmx.trigger($root, 'submit'))">${f.label}</button>`,
+            @click="filter='${f.id}'; $nextTick(() => window.htmx.trigger($root, 'submit'))">${f.id === "done" && doneCount > 0 ? `${f.label} (${doneCount})` : f.label}</button>`,
         )}
       </div>
       <div style="display:flex;gap:.35rem">
@@ -213,6 +257,14 @@ function renderConvPanel(
           </select>`
         : html`<input type="hidden" name="channel" value="${channelId}" />`}
     </form>
+    ${contactId !== "all"
+      ? html`<div class="conv-contact-chip">
+          <span class="muted">Filtered: <b>${conversations[0] ? contactName(conversations[0]) : "this contact"}</b></span>
+          <button type="button" class="btn btn-sm btn-ic" title="Clear contact filter — show everyone"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=all&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
+            hx-target="#conv-panel" hx-swap="innerHTML">${icon("close", "ico", 13)}</button>
+        </div>`
+      : html``}
     <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
 }
 
@@ -241,7 +293,7 @@ function renderInboxChannelOptions(chans: InboxChannel[], channelId: string): Ht
 type ThreadItem =
   | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date; deliveredAt?: Date | null; readAt?: Date | null }
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
-  | { kind: "comment"; id: string; text: string; postId: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
+  | { kind: "comment"; id: string; text: string; postId: string | null; postTitle: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
 
 /** Fallback public URL for the post a comment was on, built from the id alone. Used only when no
  *  permalink was stored on the row (comment_logs.post_url). Facebook post ids resolve directly;
@@ -254,9 +306,27 @@ function postUrlFor(platform: string, postId: string | null): string | null {
   return null;
 }
 
+/** Sender identity for an email thread's cards (the message items carry no per-row sender). */
+type ThreadContext = { name: string; handle: string };
+
+/** The mono meta line under a DM bubble: the message's own clock time, plus the outbound delivery
+ *  receipt inline ("· ✓✓ Seen 14:06" / "· ✓✓ Delivered" / "· ✓ Sent"). Read beats delivered. */
+function messageMeta(it: Extract<ThreadItem, { kind: "message" }>): Html {
+  const receipt =
+    it.direction === "outbound"
+      ? it.readAt
+        ? html` · ${icon("checks", "ico", 12)} Seen ${clockTime(it.readAt)}`
+        : it.deliveredAt
+          ? html` · ${icon("checks", "ico", 12)} Delivered`
+          : html` · ${icon("check", "ico", 12)} Sent`
+      : html``;
+  return html`<span class="msg-meta">${clockTime(it.createdAt)}${receipt}</span>`;
+}
+
 /** The thread timeline. `threadType` shapes the empty-state copy (a comment thread with no follow-up
- *  DM is a normal state, not an error). */
-export function renderMessages(items: ThreadItem[], threadType: ConversationThreadType = "dm"): Html {
+ *  DM is a normal state, not an error) and the layout: email threads render as stacked email cards,
+ *  DM/comment threads as a chat timeline. `ctx` supplies the sender identity for email cards. */
+export function renderMessages(items: ThreadItem[], threadType: ConversationThreadType = "dm", ctx?: ThreadContext): Html {
   if (items.length === 0) {
     return html`<p class="muted">${threadType === "comment"
       ? "This comment thread has no messages yet — reply below to start a DM."
@@ -264,40 +334,75 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
         ? "No emails yet — replies will appear here."
         : "No messages yet — say hello below."}</p>`;
   }
-  return html`${items.map((it) => {
-    if (it.kind === "reaction") return html`<div class="msg-reaction muted">reacted ${it.emoji ?? it.reactionType}</div>`;
+
+  // Email: each message is a full card (from avatar + name/address + date, then the body). We have no
+  // stored quoted-history or signature on the row, so those prototype parts are omitted, not faked.
+  if (threadType === "email") {
+    return html`${items.map((it) => {
+      if (it.kind !== "message") return html``;
+      const outbound = it.direction === "outbound";
+      const fromName = outbound ? "You" : ctx?.name ?? "Contact";
+      const fromAddr = outbound ? "" : ctx?.handle ?? "";
+      return html`<article class="email">
+        <header class="email-head">
+          <span class="email-from-av">${initialsOf(fromName)}</span>
+          <span class="email-meta"><div class="email-from">${fromName}${fromAddr ? html` <span class="email-addr">&lt;${fromAddr}&gt;</span>` : html``}</div></span>
+          <span class="email-date">${emailWhen(it.createdAt)}</span>
+        </header>
+        <div class="email-body">${it.text ?? "(no content)"}</div>
+      </article>`;
+    })}`;
+  }
+
+  // DM / comment timeline. A reaction is a separate thread item; fold it onto the message it follows
+  // as a small emoji pill tucked under that bubble — never a standalone centered "reacted" line.
+  const rows: { item: ThreadItem; reactions: string[] }[] = [];
+  for (const it of items) {
+    if (it.kind === "reaction") {
+      const emoji = it.emoji ?? it.reactionType;
+      if (rows.length) rows[rows.length - 1].reactions.push(emoji);
+      else rows.push({ item: it, reactions: [emoji] }); // a lone reaction with nothing before it
+    } else {
+      rows.push({ item: it, reactions: [] });
+    }
+  }
+  return html`<div class="daysep">Today</div>${rows.map(({ item: it, reactions }) => {
+    const reactPills = html`${reactions.map((e) => html`<span class="msg-react">${e}</span>`)}`;
+    if (it.kind === "reaction") {
+      // Orphan reaction (no preceding message) — show the pill on its own, aligned inbound-side.
+      return html`<div class="msg msg-in">${reactPills}</div>`;
+    }
     if (it.kind === "comment") {
-      const postRef = it.postId
+      // The post the comment was on — prefer a clickable link to the permalink. Label with the
+      // published post's content title when we can resolve it (platform_post_id → posts → content),
+      // falling back to the raw platform post id.
+      const postLabel = it.postTitle ?? it.postId;
+      const link = it.postId
         ? it.postUrl
-          ? html` on post <a href="${it.postUrl}" target="_blank" rel="noopener" class="mono">${it.postId} ↗</a>`
-          : html` on post <span class="mono">${it.postId}</span>`
-        : "";
+          ? html`<a class="cmt-link" href="${it.postUrl}" target="_blank" rel="noopener">${postLabel} ↗</a>`
+          : html`<span class="cmt-link">${postLabel}</span>`
+        : html``;
       return html`<div class="msg msg-in msg-comment">
-        <div class="bubble" style="background:var(--info-bg);border-color:color-mix(in srgb, var(--info) 30%, var(--border))">
-          <div class="cmt-mark">${icon("comment", "ico", 12)} commented${postRef}</div>
+        <div class="bubble">
+          <div class="cmt-top">${icon("comment", "ico", 12)} commented on post${link}</div>
           <div>${it.text}</div>
-          ${it.replySent && it.replyText
-            ? html`<div class="cmt-sub" style="border-left:2px solid var(--ok)"><span class="cmt-ok">${icon("check", "ico", 11)} public reply sent</span><br/>${it.replyText}</div>`
-            : it.replySent
-              ? html`<div class="cmt-ok">${icon("check", "ico", 11)} public reply sent</div>`
-              : html``}
+          ${it.replySent
+            ? html`<div class="cmt-dm">${icon("check", "ico", 12)} public reply sent${it.replyText ? html` — “${it.replyText}”` : html``}</div>`
+            : html``}
           ${it.dmSent
-            ? html`<div class="cmt-ok">${icon("check", "ico", 11)} auto-DM sent ${it.dmConvId ? html`· <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML">open DM thread →</a>` : ""}</div>`
+            ? html`<div class="cmt-dm">${icon("check", "ico", 12)} auto-DM sent${it.dmConvId ? html` · <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML">open DM thread →</a>` : html``}</div>`
             : html``}
           ${it.error ? html`<div class="cmt-err">${icon("alert", "ico", 11)} ${it.error}</div>` : html``}
         </div>
+        ${reactPills}
+        <span class="msg-meta">${clockTime(it.createdAt)}</span>
       </div>`;
     }
-    // THREADSYNC1: outbound delivery/read status from Messenger receipts (Seen wins over Delivered).
-    const receipt =
-      it.direction === "outbound"
-        ? it.readAt
-          ? html`<div class="msg-status muted" style="font-size:.68rem;text-align:right">Seen ${timeAgo(it.readAt)}</div>`
-          : it.deliveredAt
-            ? html`<div class="msg-status muted">${icon("checks", "ico", 12)} Delivered</div>`
-            : html`<div class="msg-status muted">${icon("check", "ico", 12)} Sent</div>`
-        : html``;
-    return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}"><div class="bubble">${it.text ?? "(attachment)"}</div>${receipt}</div>`;
+    return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}">
+      <div class="bubble">${it.text ?? "(attachment)"}</div>
+      ${reactPills}
+      ${messageMeta(it)}
+    </div>`;
   })}`;
 }
 
@@ -310,27 +415,40 @@ const STATUS_TIP: Record<string, string> = {
   snoozed: "Set aside — comes back to the inbox on their next message.",
 };
 
-/** The conversation control bar: a status pill, the close/snooze/reopen action, the automation
- *  pause toggle, attention/assignment indicators — every control carries a tooltip, plus a
- *  collapsible legend, so it's self-explanatory. All wired to PATCH /conversations/:id. */
-function renderConvControls(conv: ConvControls): Html {
+/** The Done / Reopen actions for the thread header's top row (`.th-actions`, pushed right), wired to
+ *  the status mutation on PATCH /conversations/:id. Marking Done leaves it out of the active inbox
+ *  until the person writes again (the incoming workers auto-reopen). The `snoozed` status still
+ *  exists in the schema for a future timed-snooze, but isn't exposed as a button today. */
+function renderThreadActions(conv: ConvControls): Html {
   const statusBtn = (label: Html, status: string, title: string) =>
     html`<button class="btn btn-sm" title="${title}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"status":"${status}"}`}' hx-target="#thread" hx-swap="innerHTML">${label}</button>`;
-  const statusTone = conv.status === "open" ? "tone-info" : conv.status === "closed" ? "tone-ok" : "tone-neutral";
-  return html`<div class="thread-controls">
-    <span class="badge ${statusTone}" title="${STATUS_TIP[conv.status] ?? ""}">${STATUS_LABEL[conv.status] ?? conv.status}</span>
+  return html`<span class="th-actions">${conv.status === "open"
+    ? statusBtn(html`${icon("check", "ico", 14)} Done`, "closed", "Mark done — leaves the inbox until this person messages again.")
+    : statusBtn(html`${icon("reopen", "ico", 14)} Reopen`, "open", "Put it back in the active inbox.")}</span>`;
+}
+
+/** The status/automation controls row under the thread title (`.th-controls`): a status pill with a
+ *  tone dot, a "Needs reply" badge, and the auto-replies toggle SWITCH (checked = bot on). The switch
+ *  fires the SAME pause/resume mutation the old button did — flipping the current state on change —
+ *  plus a collapsible legend so the controls stay self-explanatory. Wired to PATCH /conversations/:id. */
+function renderConvControls(conv: ConvControls): Html {
+  const statusTone: Tone = conv.status === "open" ? "info" : conv.status === "closed" ? "ok" : "neutral";
+  const paused = conv.is_automation_paused;
+  return html`<div class="th-controls">
+    <span class="badge tone-${statusTone}" title="${STATUS_TIP[conv.status] ?? ""}">${dot(statusTone)}${STATUS_LABEL[conv.status] ?? conv.status}</span>
     ${conv.needs_manual_reply ? html`<span class="badge tone-bad" title="Automation didn't handle this — a human should reply.">${icon("alert", "ico", 11)} Needs reply</span>` : html``}
-    ${conv.is_automation_paused ? html`<span class="badge tone-warn" title="Auto-replies are off for this person — you reply manually.">${icon("pause", "ico", 11)} Auto-replies off</span>` : html``}
     ${conv.assigned_to ? html`<span class="muted" title="Assigned to a teammate.">assigned</span>` : html``}
-    ${conv.status === "open"
-      ? html`${statusBtn(html`${icon("check", "ico", 14)} Done`, "closed", "Mark done — hides it from the inbox until they message again.")}${statusBtn(html`${icon("clock", "ico", 14)} Snooze`, "snoozed", "Set aside — it comes back on their next message.")}`
-      : statusBtn(html`${icon("reopen", "ico", 14)} Reopen`, "open", "Put it back in the active inbox.")}
-    <button class="btn btn-sm" title="${conv.is_automation_paused ? "Let the bot auto-reply here again." : "Stop the bot auto-replying to this person — you'll answer manually."}" hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc" hx-vals='${`{"is_automation_paused":${conv.is_automation_paused ? "false" : "true"}}`}' hx-target="#thread" hx-swap="innerHTML">${conv.is_automation_paused ? html`${icon("play", "ico", 14)} Resume auto-reply` : html`${icon("pause", "ico", 14)} Pause auto-reply`}</button>
+    <label class="pause-row ${paused ? "is-paused" : ""}" title="${paused ? "Auto-replies are paused for this person — flip the switch on to let the bot reply again." : "The bot auto-replies to this person — flip the switch off to answer manually."}">
+      <input type="checkbox" class="switch" ${paused ? "" : "checked"}
+        hx-post="/inbox/${conv.id}/conversation" hx-ext="json-enc"
+        hx-vals='${`{"is_automation_paused":${paused ? "false" : "true"}}`}'
+        hx-target="#thread" hx-swap="innerHTML" />
+      <span>${paused ? "Auto-replies paused" : "Auto-replies on"}</span>
+    </label>
     <details class="thread-legend"><summary class="muted">${icon("info", "ico", 13)} what do these mean?</summary>
       <div class="muted" style="margin-top:.3rem;line-height:1.5">
-        <strong>Done</strong> — handled; leaves the inbox until they write again.<br/>
-        <strong>Snooze</strong> — set aside; returns on their next message.<br/>
-        <strong>Pause auto-reply</strong> — the bot stops answering this person; you reply by hand.<br/>
+        <strong>Done</strong> — handled; leaves the inbox until they write again (find it under the <em>Done</em> filter).<br/>
+        <strong>Auto-replies</strong> — toggle the bot on/off for this person; off means you reply by hand.<br/>
         <strong>Needs reply</strong> — automation found no rule for this; waiting on a human.
       </div>
     </details>
@@ -353,14 +471,19 @@ export function renderThread(
     ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem;display:flex;align-items:center;gap:6px">${icon("clock", "ico", 13)}<span>${windowState.label}</span></div>`
     : html``;
   const isEmail = conv.platform === "gmail";
-  const emailHeader = isEmail
-    ? html`<div class="thread-email-meta"><div class="muted" style="font-size:.8rem">From: ${contactName(conv)}</div></div>`
-    : html``;
-  return html`<div class="thread-head">${isEmail ? (conv.subject || "(no subject)") : contactName(conv)} <span class="muted">via ${conv.channel.display_name ?? conv.channel.platform}</span></div>
-    ${emailHeader}
-    ${renderConvControls(conv)}
+  const name = contactName(conv);
+  const title = isEmail ? conv.subject || "(no subject)" : name;
+  const ctx: ThreadContext = { name, handle: contactHandle(conv) };
+  return html`<div class="thread-head">
+      <div class="th-top">
+        <span class="th-av">${initialsOf(name)}</span>
+        <span class="th-id"><div class="th-nm">${title}</div><div class="th-via">${platformVia(conv)}</div></span>
+        ${renderThreadActions(conv)}
+      </div>
+      ${renderConvControls(conv)}
+    </div>
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
-    <div id="thread-msgs" class="thread-msgs" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type)}</div>
+    <div id="thread-msgs" class="thread-msgs${isEmail ? " email-list" : ""}" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type, ctx)}</div>
     ${windowNote}
     ${canReply
       ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
@@ -394,7 +517,7 @@ function parseYmd(v: string | undefined): Date | null {
 
 function loadConversations(
   workspaceId: string,
-  filter: ConvFilter = "all",
+  filter: ConvFilter = "open",
   channelId = "all",
   contactId = "all",
   search = "",
@@ -403,10 +526,19 @@ function loadConversations(
   to = "",
 ) {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
-  if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
-  else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
-  else if (filter === "dm") where.push(eq(conversations.thread_type, "dm"));
-  else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
+  // Triage: "Done" is the archive (anything not open — closed or snoozed); every other view is the
+  // active queue (status='open'), optionally narrowed by a type/state facet. A new inbound message
+  // auto-flips a thread back to 'open' (incoming workers), so a Done/snoozed thread reappears on its
+  // own when the person writes again — that's what makes hiding them from the active queue safe.
+  if (filter === "done") {
+    where.push(ne(conversations.status, "open"));
+  } else {
+    where.push(eq(conversations.status, "open"));
+    if (filter === "needs_reply") where.push(eq(conversations.needs_manual_reply, true));
+    else if (filter === "unread") where.push(gt(conversations.unread_count, 0));
+    else if (filter === "dm") where.push(eq(conversations.thread_type, "dm"));
+    else if (filter === "comment") where.push(eq(conversations.thread_type, "comment"));
+  }
   if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
   if (contactId !== "all") where.push(eq(conversations.contact_id, contactId));
   // Date filter: a rolling preset window, or a custom from–to range (inclusive of the "to" day).
@@ -439,6 +571,17 @@ function loadConversations(
   });
 }
 
+/** Count of "Done" (archived: closed or snoozed) conversations, for the Done filter pill badge.
+ *  Scoped like the list (workspace + channel + contact) but ignoring the type/state facets so the
+ *  badge reflects "everything you've cleared", not the currently-selected view. */
+async function loadDoneCount(workspaceId: string, channelId = "all", contactId = "all"): Promise<number> {
+  const where: SQL[] = [eq(conversations.workspace_id, workspaceId), ne(conversations.status, "open")];
+  if (channelId !== "all") where.push(eq(conversations.channel_id, channelId));
+  if (contactId !== "all") where.push(eq(conversations.contact_id, contactId));
+  const [row] = await db.select({ n: count() }).from(conversations).where(and(...where));
+  return Number(row?.n ?? 0);
+}
+
 /** Channels for the inbox channel-filter dropdown (id + label + brand for grouping). */
 function loadInboxChannels(workspaceId: string) {
   return db.query.channels.findMany({
@@ -460,7 +603,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
   // lets us link each comment's auto-DM to the contact's separate DM thread.
   const conv = await db.query.conversations.findFirst({
     where: eq(conversations.id, conversationId),
-    columns: { channel_id: true, contact_id: true, thread_type: true, platform: true },
+    columns: { workspace_id: true, channel_id: true, contact_id: true, thread_type: true, platform: true },
   });
   let dmSiblingId: string | null = null;
   if (conv && conv.thread_type === "comment") {
@@ -493,10 +636,25 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       columns: { id: true, comment_text: true, post_id: true, post_url: true, reply_text: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
     }),
   ]);
+  // Resolve each comment's platform post id back to its published content title, in ONE workspace-scoped
+  // batch (platform_post_id → posts → content). Keyed by platform_post_id; a comment whose post id has
+  // no matching published post (or no content) keeps its raw id label.
+  const postTitleById = new Map<string, string>();
+  const commentPostIds = [...new Set(comments.map((c) => c.post_id).filter((id): id is string => !!id))];
+  if (conv && commentPostIds.length > 0) {
+    const titleRows = await db
+      .select({ platformPostId: posts.platform_post_id, title: content.title })
+      .from(posts)
+      .innerJoin(content, eq(posts.content_id, content.id))
+      .where(and(eq(posts.workspace_id, conv.workspace_id), inArray(posts.platform_post_id, commentPostIds)));
+    for (const r of titleRows) {
+      if (r.platformPostId && !postTitleById.has(r.platformPostId)) postTitleById.set(r.platformPostId, r.title);
+    }
+  }
   const items: ThreadItem[] = [
     ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
-    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
+    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postTitle: c.post_id ? postTitleById.get(c.post_id) ?? null : null, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];
   // Chronological ascending; interleaves comments, reactions and messages by time.
   return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
@@ -762,9 +920,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // Deep-link to a specific thread (e.g. "open in inbox" from Approvals): the #thread pane
     // self-loads that conversation on page load. The /inbox/:id endpoint scopes it to the workspace.
     const open = (c.req.query("open") || "").trim();
-    const [conversations, chans] = await Promise.all([
+    const [conversations, chans, doneCount] = await Promise.all([
       loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
       loadInboxChannels(a.workspaceId),
+      loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
     return c.html(
       dashboardDoc(
@@ -774,7 +933,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div id="conv-panel" class="conv-list"
             hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to)}</div>
+            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount)}</div>
           ${open
             ? html`<div id="thread" class="thread" hx-get="/inbox/${open}" hx-trigger="load" hx-swap="innerHTML"><div class="thread-empty">Loading…</div></div>`
             : html`<div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>`}
@@ -796,11 +955,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const since = parseConvSince(c.req.query("since"));
     const from = c.req.query("from") || "";
     const to = c.req.query("to") || "";
-    const [conversations, chans] = await Promise.all([
+    const [conversations, chans, doneCount] = await Promise.all([
       loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
       loadInboxChannels(a.workspaceId),
+      loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
-    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to));
+    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -823,9 +983,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // user lands on an unstyled fragment.
     if (c.req.header("hx-request") === "true") return c.html(thread);
 
-    const [convList, chans] = await Promise.all([
-      loadConversations(a.workspaceId, "all", "all", "all"),
+    const [convList, chans, doneCount] = await Promise.all([
+      loadConversations(a.workspaceId, "open", "all", "all"),
       loadInboxChannels(a.workspaceId),
+      loadDoneCount(a.workspaceId),
     ]);
     return c.html(
       dashboardDoc(
@@ -833,9 +994,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/inbox",
         html`<div class="inbox">
           <div id="conv-panel" class="conv-list"
-            hx-get="/inbox/list?filter=all&channel=all&contact=all"
+            hx-get="/inbox/list?filter=open&channel=all&contact=all"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(convList, "all", "all", chans)}</div>
+            hx-swap="innerHTML">${renderConvPanel(convList, "open", "all", chans, "all", "", "", "", "", doneCount)}</div>
           <div id="thread" class="thread">${thread}</div>
         </div>`,
         features,
@@ -848,12 +1009,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
-    const conv = await db.query.conversations.findFirst({
-      where: and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId)),
-      columns: { id: true, thread_type: true },
-    });
+    // Load the full conversation (not just the type) so an email thread's poll re-render keeps the
+    // sender identity on each card — the message rows themselves carry no per-row from-name/address.
+    const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
-    return c.html(renderMessages(await loadMessages(id), conv.thread_type));
+    const ctx: ThreadContext = { name: contactName(conv), handle: contactHandle(conv) };
+    return c.html(renderMessages(await loadMessages(id), conv.thread_type, ctx));
   });
 
   app.post("/inbox/:id/reply", guard, async (c) => {

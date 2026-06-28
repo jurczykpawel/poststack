@@ -338,7 +338,8 @@ describe("dashboard inbox conversation controls", () => {
       body: JSON.stringify({ is_automation_paused: true }),
     });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Resume auto-reply");
+    // The pause control is now the auto-replies toggle switch — paused renders its "off" label.
+    expect(await res.text()).toContain("Auto-replies paused");
     const conv = await db.query.conversations.findFirst({ where: eq(s.conversations.id, CONV), columns: { is_automation_paused: true } });
     expect(conv?.is_automation_paused).toBe(true);
   });
@@ -351,7 +352,10 @@ describe("dashboard inbox conversation controls", () => {
     });
     const res = await app.request(`/inbox/${CONV}`, { headers: { cookie } });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("reacted ❤️");
+    // The reaction is a compact emoji pill (no "reacted" word), folded onto the message it follows.
+    const body = await res.text();
+    expect(body).toContain("msg-react");
+    expect(body).toContain("❤️");
   });
 
   it("shows the Meta 24h-window heads-up in the composer when the window has closed", async () => {
@@ -415,6 +419,29 @@ describe("dashboard inbox conversation controls", () => {
     const body = await (await app.request(`/inbox/${IG_CONV}`, { headers: { cookie } })).text();
     expect(body).toContain("love this");
     expect(body).toContain("https://www.instagram.com/reel/DYuqTvIFHO2/"); // clickable permalink
+  });
+
+  it("labels a comment with the published post's content title when platform_post_id matches", async () => {
+    if (!TEST_DB) return;
+    const TITLE = "5 automatyzacji, które oszczędzają godzinę dziennie";
+    const CONTENT_ID = "dddddddd-0000-0000-0000-0000000000f1";
+    const TITLED_CONV = "dddddddd-0000-0000-0000-0000000000f2";
+    await db.insert(s.content).values({ id: CONTENT_ID, workspace_id: WS, title: TITLE, status: "published" });
+    // The published FB post carries the platform-assigned id the comment will reference.
+    await db.insert(s.posts).values({
+      workspace_id: WS, content_id: CONTENT_ID, platform: "facebook", status: "published", platform_post_id: "POST-TITLED",
+    });
+    await db.insert(s.conversations).values({
+      id: TITLED_CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook",
+      thread_type: "comment", thread_ref: "POST-TITLED",
+    });
+    await db.insert(s.commentLogs).values({
+      channel_id: CH, workspace_id: WS, conversation_id: TITLED_CONV, post_id: "POST-TITLED",
+      platform_comment_id: "cmt-titled", author_id: "PSID-T", author_name: "tom", comment_text: "great post",
+    });
+    const body = await (await app.request(`/inbox/${TITLED_CONV}`, { headers: { cookie } })).text();
+    expect(body).toContain(`>${TITLE} ↗`); // the resolved title is the cmt-link label, not the raw post id
+    expect(body).toContain("facebook.com/POST-TITLED"); // href still points at the post permalink
   });
 
   it("links a contact to its conversations and the inbox filters by contact", async () => {
@@ -486,11 +513,35 @@ describe("dashboard inbox conversation controls", () => {
     expect(dms).not.toContain("a comment preview"); // the DM filter excludes the comment thread
   });
 
+  it("triage: Done hides a conversation from the active list and surfaces it under the Done filter", async () => {
+    if (!TEST_DB) return;
+    // Mark CONV done via the same status mutation the Done button fires.
+    const done = await app.request(`/inbox/${CONV}/conversation`, {
+      method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ status: "closed" }),
+    });
+    expect(done.status).toBe(200);
+
+    // Default (Open) list excludes it; the Done filter includes it and the pill shows a count.
+    const openList = await (await app.request("/inbox/list?filter=open", { headers: { cookie } })).text();
+    expect(openList).not.toContain(`hx-get="/inbox/${CONV}"`);
+    const doneList = await (await app.request("/inbox/list?filter=done", { headers: { cookie } })).text();
+    expect(doneList).toContain(`hx-get="/inbox/${CONV}"`);
+    expect(doneList).toMatch(/Done \(\d+\)/); // pill badge with the archived count
+  });
+
+  it("shows a clearable contact-filter chip when scoped to one contact", async () => {
+    if (!TEST_DB) return;
+    const scoped = await (await app.request(`/inbox/list?contact=${CONTACT}`, { headers: { cookie } })).text();
+    expect(scoped).toContain("conv-contact-chip");
+    expect(scoped).toContain("contact=all"); // the ✕ clears back to everyone
+  });
+
   it("control bar has a self-explanatory legend + clear labels", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
     expect(body).toContain("what do these mean?");
-    expect(body).toContain("Pause auto-reply");
+    // The auto-replies toggle switch shows its "on" label when automation is active (default seed).
+    expect(body).toContain("Auto-replies on");
   });
 });
 

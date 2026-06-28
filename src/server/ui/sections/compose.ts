@@ -148,6 +148,23 @@ function composeScript(): Html {
         pvPlatform() { var sp = this.selectedPlatforms(); return sp.find((p) => p.platform === this.pvTab) || sp[0]; },
         pvKey() { var pp = this.pvPlatform(); return pp ? pp.platform : ""; },
         hasOverride(p) { return !!(this.sel[p] && (this.sel[p].override || "").length); },
+        capSub() {
+          if (this.capTab === "base") return "shared by all channels";
+          var p = this.selectedPlatforms().find((x) => x.platform === this.capTab);
+          return "override for " + (p ? p.name : "");
+        },
+        pvInitials() {
+          var n = this.brand && this.brands[this.brand] ? this.brands[this.brand].name : "";
+          var m = n.match(/\\b\\w/g) || [];
+          return m.slice(0, 2).join("").toUpperCase();
+        },
+        autoLabels(p) {
+          var l = [];
+          if (this.canComment(p)) l.push("first comment");
+          if (this.canStory(p)) l.push("story");
+          if (this.canAutoReply(p)) l.push("comment\\u2192DM");
+          return l.join(" \\u00b7 ");
+        },
         canSubmit() { return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
         buildPayload() {
           return {
@@ -199,6 +216,9 @@ function composePage(
   const typeOpts = CONTENT_TYPES.map(([v, label]) => html`<option value="${v}">${label}</option>`);
   const brandOpts = Object.entries(data).map(([key, v]) => html`<option value="${key}">${v.name}</option>`);
   const lockChip = (label: string) => html`<p class="card-hint"><span class="lock-chip">${icon("lock", "ico", 11)}PRO</span> ${label}</p>`;
+  // Decorative glyphs the icon registry doesn't carry yet (code brackets / like-heart) — inline SVG, no emoji.
+  const codeGlyph = raw('<svg class="ico" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 18 4-6-4-6M8 6l-4 6 4 6M14 4l-4 16"/></svg>');
+  const heartGlyph = raw('<svg class="ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5.5a4.6 4.6 0 0 0-7-1A4.6 4.6 0 0 0 5 5.5C3.5 7.4 4 10 12 16c8-6 8.5-8.6 7-10.5z"/></svg>');
 
   return renderPage({
     title: "Compose",
@@ -211,10 +231,14 @@ function composePage(
         <form class="compose-form" method="post" action="/compose" @submit="onSubmit($event)">
           <input type="hidden" name="payload" x-ref="payload" />
 
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span class="api-hint">${codeGlyph}<b>Agents:</b> POST /api/v1/content</span>
+          </div>
+
           <section class="panel">
             <div class="panel-head"><h3>Brand &amp; channels</h3><span class="panel-count" x-show="brand" x-text="selectedPlatforms().length + ' selected'"></span></div>
             <div class="compose-body">
-              <label class="fld" style="max-width:320px">
+              <label class="fld" style="max-width:280px">
                 <span>Brand</span>
                 <select x-model="brand" @change="onBrandChange()" aria-label="Brand" required>
                   <option value="">— select a brand —</option>
@@ -256,7 +280,7 @@ function composePage(
           </section>
 
           <section class="panel" x-show="brand" x-cloak>
-            <div class="panel-head"><h3>Title &amp; caption</h3></div>
+            <div class="panel-head"><h3>Caption</h3><span class="panel-sub" x-text="capSub()"></span></div>
             <div class="compose-body">
               <label class="fld"><span>Title <small>(internal)</small></span><input type="text" x-model="title" maxlength="200" placeholder="Internal title" required /></label>
               <div class="cap-tabs">
@@ -269,13 +293,13 @@ function composePage(
                 </template>
               </div>
               <div class="cap-edit">
-                <textarea x-show="capTab==='base'" x-model="baseDescription" rows="4" placeholder="Caption shared by every channel — override per platform with the tabs above"></textarea>
+                <textarea x-show="capTab==='base'" x-model="baseDescription" rows="4" placeholder="Write the caption every channel shares…"></textarea>
                 <template x-for="p in selectedPlatforms()" :key="'ta-'+p.platform">
-                  <textarea x-show="capTab===p.platform" x-model="sel[p.platform].override" rows="4" :placeholder="baseFull() || ('Caption for '+p.name+'…')"></textarea>
+                  <textarea x-show="capTab===p.platform" x-model="sel[p.platform].override" rows="4" :placeholder="'Override for '+p.name+' — empty uses the base caption'"></textarea>
                 </template>
                 <div class="cap-foot"><span class="compose-counter" :class="capCount().over ? 'over' : ''"><span x-text="capCount().n"></span> / <span x-text="capCount().lim"></span></span></div>
               </div>
-              <label class="fld"><span>Base hashtags</span><input type="text" x-model="baseHashtags" placeholder="#ai #automation" /></label>
+              <label class="fld"><span>Hashtags</span><input type="text" x-model="baseHashtags" placeholder="#ai #automation" /></label>
             </div>
           </section>
 
@@ -284,7 +308,7 @@ function composePage(
             <div class="compose-body">
               <template x-for="p in autoTargets()" :key="'auto-'+p.platform">
                 <details class="auto">
-                  <summary>${icon("chevron", "auto-chev", 14)}<span class="auto-glyph" :style="'color:'+p.color" x-html="p.glyph"></span><span class="auto-t" x-text="p.name"></span></summary>
+                  <summary>${icon("chevron", "auto-chev", 14)}<span class="auto-glyph" :style="'color:'+p.color" x-html="p.glyph"></span><span class="auto-t" x-text="p.name"></span><span class="auto-n" x-text="autoLabels(p.platform)"></span></summary>
                   <div class="auto-body">
                     <template x-if="canComment(p.platform) && licFirstComment">
                       <label class="fld"><span>First comment <small>(auto-posted under the post)</small></span><textarea x-model="sel[p.platform].firstComment" rows="2" placeholder="e.g. 👇 Comment WORD and I'll DM you the link"></textarea></label>
@@ -331,43 +355,41 @@ function composePage(
               <button type="button" :class="publishMode==='schedule' ? 'on' : ''" @click="publishMode='schedule'">Schedule</button>
             </div>
             <template x-if="publishMode==='schedule'">
-              <label class="when"><input type="datetime-local" x-model="scheduleAt" :min="minAt()" /></label>
+              <label class="when">${icon("clock", "ico", 15)}<input type="datetime-local" x-model="scheduleAt" :min="minAt()" /></label>
             </template>
             <span class="pubbar-grow"></span>
-            <button class="btn btn-primary" type="submit" x-bind:disabled="!canSubmit()" x-text="submitLabel()"></button>
+            <button class="btn btn-primary" type="submit" x-bind:disabled="!canSubmit()"><span x-text="submitLabel()"></span>${icon("chevron", "ico", 14)}</button>
           </div>
         </form>
 
         <aside class="compose-preview" x-show="brand" x-cloak>
           <div class="panel-head" style="padding-left:0;padding-right:0;border:0"><h3>Live preview</h3><span class="panel-sub">per channel</span></div>
-          <template x-if="selectedPlatforms().length === 0">
-            <p class="card-hint"><small>Select at least one channel.</small></p>
-          </template>
-          <template x-if="selectedPlatforms().length">
-            <div>
-              <div class="pv-tabs">
-                <template x-for="p in selectedPlatforms()" :key="'pv-'+p.platform">
-                  <button type="button" class="pv-tab" :class="pvKey()===p.platform ? 'on' : ''" :style="pvKey()===p.platform ? ('color:'+p.color) : ''" @click="pvTab=p.platform" :title="p.name" x-html="p.glyph"></button>
-                </template>
-              </div>
-              <div class="device">
-                <template x-if="pvPlatform()">
-                  <article class="pv-card">
-                    <header class="pv-head">
-                      <span class="pv-av" :style="'background:'+pvPlatform().color" x-html="pvPlatform().glyph"></span>
-                      <span class="pv-id"><span class="pv-nm" x-text="brands[brand].name"></span><span class="pv-hd" x-text="pvPlatform().label"></span></span>
-                    </header>
-                    <div class="pv-media">
-                      <template x-if="previewImg()"><img :src="previewImg()" alt="" onerror="this.style.display='none'" /></template>
-                      <template x-if="!previewImg()"><span class="pv-media-empty" x-text="mediaUrl ? 'video' : 'no media yet'"></span></template>
-                    </div>
-                    <p class="pv-cap" x-text="captionFor(pvKey()) || 'No caption'"></p>
-                    <div class="pv-foot"><span class="compose-counter" :class="over(pvKey()) ? 'over' : ''"><span x-text="count(pvKey())"></span> / <span x-text="limit(pvKey())"></span></span></div>
-                  </article>
-                </template>
-              </div>
-            </div>
-          </template>
+          <div class="pv-tabs">
+            <template x-for="p in selectedPlatforms()" :key="'pv-'+p.platform">
+              <button type="button" class="pv-tab" :class="pvKey()===p.platform ? 'on' : ''" :style="pvKey()===p.platform ? ('color:'+p.color) : ''" @click="pvTab=p.platform" :title="p.name" x-html="p.glyph"></button>
+            </template>
+          </div>
+          <div class="device">
+            <template x-if="!selectedPlatforms().length">
+              <div class="pv-empty">Select at least one channel to preview.</div>
+            </template>
+            <template x-if="selectedPlatforms().length && pvPlatform()">
+              <article class="pv-card">
+                <header class="pv-head">
+                  <span class="pv-av" :style="'background:'+pvPlatform().color" x-text="pvInitials()"></span>
+                  <span class="pv-id"><span class="pv-nm" x-text="brands[brand].name"></span><span class="pv-hd" x-text="pvPlatform().label"></span></span>
+                  <span class="pv-plat" x-html="pvPlatform().glyph"></span>
+                </header>
+                <div class="pv-media">
+                  <template x-if="previewImg()"><img :src="previewImg()" alt="" onerror="this.style.display='none'" /></template>
+                  <template x-if="!previewImg() && mediaUrl">${icon("video", "ico", 30)}</template>
+                  <template x-if="!previewImg() && !mediaUrl">${icon("image", "ico", 30)}</template>
+                </div>
+                <p class="pv-cap" x-text="captionFor(pvKey()) || 'No caption'"></p>
+                <div class="pv-foot">${heartGlyph}${icon("comment", "ico", 17)}${icon("send", "ico", 17)}<span class="compose-counter ct" :class="over(pvKey()) ? 'over' : ''"><span x-text="count(pvKey())"></span> / <span x-text="limit(pvKey())"></span></span></div>
+              </article>
+            </template>
+          </div>
         </aside>
       </div>
       <script id="ps-compose-data" type="application/json">${raw(json)}</script>
