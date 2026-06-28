@@ -100,9 +100,10 @@
 
   .btn-sm { padding: 5px 11px; font-size: 12px; }
   .btn-md { padding: 8px 14px; font-size: 13px; }
-  .btn-ic { padding: 0; width: 28px; height: 28px; flex: 0 0 auto;
+  .btn-ic { display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; width: 28px; height: 28px; flex: 0 0 auto;
     background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-control); color: var(--text-3); }
-  .btn-ic .ico { width: 15px; height: 15px; }
+  .btn-ic .ico { width: 15px; height: 15px; display: block; }
   .btn-ic:hover { color: var(--text-1); border-color: var(--accent); }
 
   /* ============================================================
