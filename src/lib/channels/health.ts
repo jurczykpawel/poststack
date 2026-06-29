@@ -4,6 +4,7 @@ import { channels } from "@/db/schema";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { addJobTx } from "@/lib/queue/client";
 import { emitEventNow } from "@/lib/events";
+import { redactSecrets } from "@/lib/redact";
 
 /** An open Drizzle transaction (the callback arg of db.transaction). */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -26,7 +27,10 @@ export async function markChannelNeedsReauth(
   });
   if (!channel) return;
 
-  const reason = error.slice(0, MAX_ERROR_LEN);
+  // PSA13: strip any token/secret echoed back in the provider error BEFORE it is persisted to
+  // last_error / needs_reauth_reason (both named redaction targets) or emitted in the alert detail.
+  const redacted = redactSecrets(error);
+  const reason = redacted.slice(0, MAX_ERROR_LEN);
   await db
     .update(channels)
     .set({
@@ -49,7 +53,7 @@ export async function markChannelNeedsReauth(
       channelId,
       platform: channel.platform,
       displayName: channel.display_name,
-      detail: error,
+      detail: redacted,
     });
     // Surface the outage in the activity feed (/events). Best-effort: never break the health flip.
     await emitEventNow(

@@ -70,6 +70,21 @@ describe("channel health (real Postgres)", () => {
     await expect(health.markChannelNeedsReauth("eeeeeeee-0000-0000-0000-0000000000ef", "x")).resolves.toBeUndefined();
   });
 
+  // PSA13: a secret embedded in an upstream error string must be stripped before it lands in the
+  // persisted last_error / needs_reauth_reason (both named redaction targets).
+  it("redacts a token-like secret in the reason before persisting", async () => {
+    if (!TEST_DB) return;
+    await health.markChannelNeedsReauth(CH, "refresh failed: access_token=EAABSUPERSECRET123 -> 400");
+    const c = await db.query.channels.findFirst({
+      where: eq(s.channels.id, CH),
+      columns: { last_error: true, needs_reauth_reason: true },
+    });
+    expect(c?.last_error).toContain("access_token=[REDACTED]");
+    expect(c?.last_error).not.toContain("EAABSUPERSECRET123");
+    expect(c?.needs_reauth_reason).toContain("access_token=[REDACTED]");
+    expect(c?.needs_reauth_reason).not.toContain("EAABSUPERSECRET123");
+  });
+
   it("recovering from needs_reauth sets active and enqueues a drain", async () => {
     if (!TEST_DB) return;
     await health.markChannelNeedsReauth(CH, "dead");
