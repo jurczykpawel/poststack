@@ -28,6 +28,8 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "META_APP_ID", group: "Meta (Facebook & Instagram)", label: "App ID", secret: false, help: "From your Meta app → Settings → Basic." },
   { key: "META_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "App Secret", secret: true, help: "Meta app → Settings → Basic → App Secret." },
   { key: "META_WEBHOOK_VERIFY_TOKEN", group: "Meta (Facebook & Instagram)", label: "Webhook Verify Token", secret: true, help: "Any string you choose; paste the same value into the Meta webhook config." },
+  { key: "INSTAGRAM_APP_ID", group: "Meta (Facebook & Instagram)", label: "Instagram App ID", secret: false, help: "Meta app → Instagram API setup with Instagram login → Instagram app ID. Wymagane do odbioru/wysyłki IG DM." },
+  { key: "INSTAGRAM_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "Instagram App Secret", secret: true, help: "Ten sam ekran → Instagram app secret. Webhooki wiadomości IG są nim podpisane." },
 
   // Google / YouTube OAuth client (Google Cloud Console → Credentials → OAuth client).
   { key: "GOOGLE_CLIENT_ID", group: "Google / YouTube", label: "OAuth Client ID", secret: false, help: "Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID." },

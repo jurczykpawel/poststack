@@ -102,3 +102,14 @@ export function verifyMetaSignature(
 
   return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }
+
+/** Accept the webhook if its signature matches ANY of the provided app secrets
+ *  (Meta signs FB-app webhooks with META_APP_SECRET and Instagram-Login product
+ *  webhooks with INSTAGRAM_APP_SECRET). Timing-safe per secret; empties ignored. */
+export function verifyMetaSignatureAny(
+  body: string,
+  signature: string | null,
+  appSecrets: string[]
+): boolean {
+  return appSecrets.some((s) => s && verifyMetaSignature(body, signature, s));
+}

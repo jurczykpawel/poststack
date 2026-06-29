@@ -3,7 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { getConfig } from "@/lib/settings/config";
 import { db } from "@/lib/db";
 import { channels, type Platform } from "@/db/schema";
-import { verifyMetaSignature } from "@/lib/crypto";
+import { verifyMetaSignatureAny } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { addJob } from "@/lib/queue/client";
 import { logEvent, markEventStatus } from "@/lib/idempotency";
@@ -60,11 +60,11 @@ export async function POST(request: Request) {
   const signature = request.headers.get("x-hub-signature-256") ?? "";
 
   const appSecret = await getConfig("META_APP_SECRET");
+  const igAppSecret = await getConfig("INSTAGRAM_APP_SECRET");
   if (!appSecret) {
     return new Response("Meta webhook not configured", { status: 503 });
   }
-
-  if (!verifyMetaSignature(rawBody, signature, appSecret)) {
+  if (!verifyMetaSignatureAny(rawBody, signature, [appSecret, igAppSecret])) {
     return new Response("Forbidden", { status: 403 });
   }
 

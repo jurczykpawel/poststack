@@ -81,6 +81,8 @@ const envSchema = z.object({
   META_APP_ID: z.string().default(""),
   META_APP_SECRET: z.string().default(""),
   META_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
+  INSTAGRAM_APP_ID: z.string().default(""),
+  INSTAGRAM_APP_SECRET: z.string().default(""),
 
   // Google / YouTube (optional — needed only to connect a YouTube channel for comment automation)
   GOOGLE_CLIENT_ID: z.string().default(""),
