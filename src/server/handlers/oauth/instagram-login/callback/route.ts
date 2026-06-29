@@ -1,6 +1,7 @@
 import { authenticate } from "@/lib/auth";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
+import { subscribeInstagramMessaging } from "@/lib/channels/subscribe";
 import { ProRequiredError } from "@/lib/license/gate";
 import { env } from "@/lib/env";
 import { exchangeInstagramLoginCode } from "@/lib/platforms/instagram-login";
@@ -49,6 +50,12 @@ export async function GET(request: Request) {
     await upsertChannels(auth.workspaceId, "instagram", accounts, {
       augmentMessagingToken: { token: messagingToken, expiresAt },
     });
+
+    // IGFU2/IGFU3: an IG-Login-only channel has no Facebook Page subscription, so it must subscribe
+    // to messaging webhooks the IG-Login-native way (per-account) to receive DMs. The call also sets
+    // the channel's status truthfully — needs_reauth (not a misleading "active") if it fails. Safe to
+    // run for the augment-an-existing-FB-channel case too (idempotent, per-account subscription).
+    await subscribeInstagramMessaging(auth.workspaceId, igUserId, messagingToken);
 
     return redirect(`/channels?connected=instagram_messaging`);
   } catch (e) {

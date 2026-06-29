@@ -239,6 +239,17 @@ export abstract class SocialProvider {
   ): Promise<boolean>;
 
   /**
+   * IGFU2: subscribe an account to messaging webhooks using a user/account token directly (no
+   * Facebook Page behind it) — e.g. Instagram Business Login's per-account `subscribed_apps`. Optional
+   * and distinct from {@link subscribePageWebhooks} (which subscribes a Page). Returns whether it
+   * succeeded so the caller can flag a channel whose only inbound path failed.
+   */
+  subscribeMessagingWebhooks?(
+    accountToken: string,
+    accountId: string
+  ): Promise<boolean>;
+
+  /**
    * How many seconds before expiry to refresh (used by token refresh worker).
    * Only relevant if requiresTokenRefresh() returns true.
    */

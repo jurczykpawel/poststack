@@ -26,11 +26,16 @@ export async function markChannelNeedsReauth(
   });
   if (!channel) return;
 
+  const reason = error.slice(0, MAX_ERROR_LEN);
   await db
     .update(channels)
     .set({
       status: "needs_reauth",
-      last_error: error.slice(0, MAX_ERROR_LEN),
+      last_error: reason,
+      // Mirror the reason into needs_reauth_reason — the field the dashboard/inbox surface to the
+      // operator (last_error is the diagnostic log). Previously left null here, so every reauth path
+      // fell back to a generic "Token needs reauthorization" in the UI.
+      needs_reauth_reason: reason,
       last_health_at: now,
     })
     .where(eq(channels.id, channelId));
@@ -85,7 +90,7 @@ export async function markChannelHealthy(
   // A manual pause is operator intent and must outlive a successful health check / refresh:
   // record that the check passed, but do NOT flip status back to active.
   if (channel?.status === "paused") {
-    await tx.update(channels).set({ last_error: null, last_health_at: now }).where(eq(channels.id, channelId));
+    await tx.update(channels).set({ last_error: null, needs_reauth_reason: null, last_health_at: now }).where(eq(channels.id, channelId));
     return;
   }
 
@@ -95,7 +100,7 @@ export async function markChannelHealthy(
   // can never strand behind a channel that recovered to `active` without a drain.
   await tx
     .update(channels)
-    .set({ status: "active", last_error: null, last_health_at: now })
+    .set({ status: "active", last_error: null, needs_reauth_reason: null, last_health_at: now })
     .where(eq(channels.id, channelId));
   if (channel?.status === "needs_reauth") {
     await addJobTx(tx, "drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });

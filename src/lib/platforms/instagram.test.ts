@@ -48,6 +48,35 @@ describe("InstagramProvider.subscribePageWebhooks", () => {
   });
 });
 
+describe("InstagramProvider.subscribeMessagingWebhooks (IG-Login per-account)", () => {
+  it("POSTs subscribed_apps on graph.instagram.com with messages,messaging_postbacks + the IGQW token", async () => {
+    const ig = new InstagramProvider();
+    const ok = await ig.subscribeMessagingWebhooks("IGQW_TOK", "17841400000");
+    expect(ok).toBe(true);
+
+    const call = calls.find((c) => c.url.includes("/17841400000/subscribed_apps"))!;
+    expect(call).toBeDefined();
+    expect(call.init?.method).toBe("POST");
+    // IG-Login native call goes to graph.instagram.com (NOT graph.facebook.com).
+    expect(call.url).toContain("graph.instagram.com");
+    expect(call.url).not.toContain("graph.facebook.com");
+    const u = new URL(call.url);
+    const fields = (u.searchParams.get("subscribed_fields") ?? "").split(",");
+    expect(fields).toContain("messages");
+    expect(fields).toContain("messaging_postbacks");
+    expect(u.searchParams.get("access_token")).toBe("IGQW_TOK");
+  });
+
+  it("returns false (not throw) when Graph rejects the subscription", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify({ error: { message: "nope" } }), { status: 400 });
+    }) as typeof fetch;
+    const ig = new InstagramProvider();
+    expect(await ig.subscribeMessagingWebhooks("IGQW_TOK", "17841400000")).toBe(false);
+  });
+});
+
 describe("InstagramProvider.getPostUrl", () => {
   it("resolves a media id to its public permalink", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {

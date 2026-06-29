@@ -28,6 +28,11 @@ vi.mock("@/lib/platforms/instagram-login", () => ({
   exchangeInstagramLoginCode: (...a: unknown[]) => mockExchange(...a),
 }));
 
+const mockSubscribeIgMessaging = vi.fn().mockResolvedValue({ ok: true });
+vi.mock("@/lib/channels/subscribe", () => ({
+  subscribeInstagramMessaging: (...a: unknown[]) => mockSubscribeIgMessaging(...a),
+}));
+
 let GET: typeof import("./route").GET;
 
 beforeAll(async () => {
@@ -71,6 +76,9 @@ describe("GET /api/oauth/instagram-login/callback", () => {
       { augmentMessagingToken: { token: "IGQW_LONG_TOK", expiresAt: EXP } },
     );
     expect(mockAssertChannelsAllowed).toHaveBeenCalledWith("ws-1", "instagram", expect.any(Array));
+    // IGFU2: after the token is stored, the IG account is subscribed to messaging webhooks the
+    // IG-Login-native way (per-account subscribed_apps), so an IG-Login-only channel receives DMs.
+    expect(mockSubscribeIgMessaging).toHaveBeenCalledWith("ws-1", "17841400000", "IGQW_LONG_TOK");
   });
 
   it("redirects access_denied when error param present", async () => {

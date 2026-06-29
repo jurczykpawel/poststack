@@ -439,4 +439,39 @@ export class InstagramProvider extends SocialProvider {
     }
     return true;
   }
+
+  /**
+   * IGFU2: subscribe an Instagram account to messaging webhooks the Instagram-Business-Login-native
+   * way — a PER-ACCOUNT `subscribed_apps` POST on `graph.instagram.com` with the IGQW user token
+   * (NOT a Facebook Page subscription). This is the inbound path for an IG-Login-only channel: with
+   * no Facebook Page behind it, {@link subscribePageWebhooks} can't run, so without this call the
+   * account silently receives no DMs (exactly the manual fix that was applied for a live account).
+   *
+   * Idempotent: re-subscribing an already-subscribed account is a no-op success, so it's safe to call
+   * on every connect (including the augment-an-existing-FB-channel case). Returns whether it
+   * succeeded so the caller can flag a channel whose only inbound path failed, instead of leaving a
+   * misleading "active". The version literal stays in constants.ts (IG_GRAPH_BASE) — never inline
+   * `graph.instagram.com/vNN` (guarded by version-source.test.ts).
+   *
+   * SECURITY: Meta accepts the token only as a query param on this host (mirrors the IG-Login
+   * exchange), so the IGQW token is in the URL — outbound-request URL logging must stay OFF around
+   * this call, or the token would leak into logs.
+   */
+  async subscribeMessagingWebhooks(igToken: string, igUserId: string): Promise<boolean> {
+    const params = new URLSearchParams({
+      subscribed_fields: "messages,messaging_postbacks",
+      access_token: igToken,
+    });
+    const res = await fetch(`${IG_GRAPH_BASE}/${encodeURIComponent(igUserId)}/subscribed_apps?${params.toString()}`, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`[instagram] IG-Login messaging webhook subscription failed for ${igUserId}:`, body);
+      return false; // caller flags the channel so a silent no-inbound state is visible
+    }
+    return true;
+  }
 }
