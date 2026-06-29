@@ -36,6 +36,8 @@ describe("IG capability matrix (F4)", () => {
   it("every IG channel structurally supports publish + comment_reply + dm + receive_webhooks", () => {
     for (const c of ["publish", "comment_reply", "dm", "receive_webhooks"] as const) {
       expect(caps("oauth")).toContain(c);
+      expect(caps("manual_token")).toContain(c);
+      expect(caps("derived")).toContain(c);
     }
   });
   it("derived IG channel cannot enumerate sub-accounts", () => {

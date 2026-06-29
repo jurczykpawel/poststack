@@ -577,6 +577,9 @@
   /* Pills wrap (an endpoint can subscribe to many event types). */
   .pill-row { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 
+  /* Last-error note under a degraded-but-active channel: a pill + reason, spaced off the meta rows. */
+  .ch-last-error { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
   /* Signing secret: viewable mono chip — the receiver needs it to verify signatures. */
   .secret-chip { display: inline-block; max-width: 30ch; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; vertical-align: middle; font-family: var(--font-mono); font-size: 11.5px;

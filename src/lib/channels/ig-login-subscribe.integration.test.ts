@@ -83,7 +83,7 @@ async function createMinimalIgLoginChannel() {
     WS,
     "instagram",
     [{ platformId: IG_ID, displayName: "ig_only", username: "ig_only", tokens: { access_token: "" } }],
-    { augmentMessagingToken: { token: "IGQW_TOK", expiresAt: null } },
+    { augmentMessagingToken: { token: "IGQW_TOK", expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) } },
   );
 }
 

@@ -52,7 +52,7 @@ export class InstagramProvider extends SocialProvider {
    * fall back to the FB page token on `graph.facebook.com` (the managed / Advanced-Access path).
    * Applies to the messaging surface only (sendMessage, getUserProfile, checkFollowsBusiness,
    * sendPrivateReply); comments / permalink route via {@link contentTransport} (FB token unless
-   * IG-Login-only); publishing via igPublishTransport.
+   * IG-Login-only); publishing mirrors `igPublishTransport` in providers/meta.ts.
    */
   private messagingTransport(tokens: TokenData): { base: string; token: string } {
     const ig = tokens.messaging_token as string | undefined;
@@ -63,7 +63,7 @@ export class InstagramProvider extends SocialProvider {
 
   /**
    * Choose the transport for IG CONTENT operations (comments + permalink). Mirrors
-   * {@link igPublishTransport} in the publish provider, NOT {@link messagingTransport}: a channel that
+   * `igPublishTransport` in providers/meta.ts, NOT {@link messagingTransport}: a channel that
    * still has a Facebook page token keeps using it on graph.facebook.com (the proven managed path) —
    * only an IG-Login-ONLY channel (empty access_token) routes to graph.instagram.com with the IG-Login
    * token. Docs: IG-Login comment moderation uses identical paths on graph.instagram.com under

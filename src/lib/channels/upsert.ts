@@ -77,7 +77,7 @@ export async function upsertChannels(
      * page token (`access_token`/`user_access_token`/`page_id`) so publishing/comments keep working.
      * If no live channel exists for the account, a minimal IG-Login-only channel is created.
      */
-    augmentMessagingToken?: { token: string; expiresAt: Date | null };
+    augmentMessagingToken?: { token: string; expiresAt: Date };
   } = {}
 ): Promise<{ recoveredChannelIds: string[] }> {
   const connectionMode = opts.connectionMode ?? "oauth";
@@ -209,11 +209,10 @@ async function augmentMessagingTokens(
   workspaceId: string,
   platform: Platform,
   accounts: ConnectedAccount[],
-  augment: { token: string; expiresAt: Date | null },
+  augment: { token: string; expiresAt: Date },
   connectionMode: ChannelConnectionMode,
 ): Promise<{ recoveredChannelIds: string[] }> {
-  const expiresAtDate = augment.expiresAt;
-  const expiresAtUnix = expiresAtDate ? Math.floor(expiresAtDate.getTime() / 1000) : undefined;
+  const expiresAtUnix = Math.floor(augment.expiresAt.getTime() / 1000);
 
   const ordered = [...accounts].sort((a, b) =>
     a.platformId < b.platformId ? -1 : a.platformId > b.platformId ? 1 : 0,
@@ -241,14 +240,13 @@ async function augmentMessagingTokens(
         // Merge the messaging token INTO the existing blob — never clobber the FB page token.
         const blob = decryptTokens(live.token_encrypted);
         blob.messaging_token = augment.token;
-        if (expiresAtUnix !== undefined) blob.messaging_token_expires_at = expiresAtUnix;
-        else delete blob.messaging_token_expires_at;
+        blob.messaging_token_expires_at = expiresAtUnix;
 
         await tx
           .update(channels)
           .set({
             token_encrypted: encryptTokens(blob),
-            messaging_token_expires_at: expiresAtDate,
+            messaging_token_expires_at: augment.expiresAt,
             status: "active",
             last_error: null,
           })
@@ -264,7 +262,7 @@ async function augmentMessagingTokens(
 
       // No channel for this account yet → minimal IG-Login-only channel (messaging token only).
       const tokens: Record<string, unknown> = { access_token: "", messaging_token: augment.token };
-      if (expiresAtUnix !== undefined) tokens.messaging_token_expires_at = expiresAtUnix;
+      tokens.messaging_token_expires_at = expiresAtUnix;
       const [channel] = await tx
         .insert(channels)
         .values({
@@ -278,7 +276,7 @@ async function augmentMessagingTokens(
           webhook_secret: randomBytes(32).toString("hex"),
           status: "active",
           connection_mode: connectionMode,
-          messaging_token_expires_at: expiresAtDate,
+          messaging_token_expires_at: augment.expiresAt,
         })
         .returning({ id: channels.id });
       out.push({ channelId: channel.id, recovered: false, isNew: true, displayName: account.displayName });
