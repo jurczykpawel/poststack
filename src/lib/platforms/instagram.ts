@@ -9,7 +9,7 @@ import {
   type UserProfile,
 } from "./base";
 import { expectedPageFields } from "./webhook-fields";
-import { GRAPH_API_BASE, META_OAUTH_BASE } from "./constants";
+import { GRAPH_API_BASE, IG_GRAPH_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { fetchAllManagedPages } from "./meta-graph";
 import { assertMetaOk } from "./errors";
@@ -44,6 +44,21 @@ export class InstagramProvider extends SocialProvider {
   readonly platform = "instagram" as const;
   readonly displayName = "Instagram";
   readonly appConfigEnvVar = "META_APP_ID";
+
+  /**
+   * Choose the messaging transport. When the channel carries an Instagram-Login messaging token
+   * (`messaging_token`, an IGQW token from Instagram Business Login), route to `graph.instagram.com`
+   * (IG_GRAPH_BASE) with THAT token — validated LIVE at Standard Access, no App Review. Otherwise
+   * fall back to the FB page token on `graph.facebook.com` (the managed / Advanced-Access path).
+   * Applies to the messaging surface only (sendMessage, getUserProfile, checkFollowsBusiness,
+   * sendPrivateReply); comments / publishing always stay on graph.facebook.com.
+   */
+  private messagingTransport(tokens: TokenData): { base: string; token: string } {
+    const ig = tokens.messaging_token as string | undefined;
+    return ig
+      ? { base: IG_GRAPH_BASE, token: ig }
+      : { base: GRAPH_API, token: tokens.access_token };
+  }
 
   async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     const params = new URLSearchParams({
@@ -218,11 +233,13 @@ export class InstagramProvider extends SocialProvider {
       message: buildMessageObject(content, { allowQuickReplyImages: false }),
     };
 
-    // Instagram messaging uses the FB page token scoped to the IG account
-    const res = await fetch(`${GRAPH_API}/me/messages`, {
+    // Route via IG-Login (graph.instagram.com) when the channel has an IG-Login messaging token;
+    // otherwise the FB page token scoped to the IG account (graph.facebook.com).
+    const { base, token } = this.messagingTransport(tokens);
+    const res = await fetch(`${base}/me/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, access_token: tokens.access_token }),
+      body: JSON.stringify({ ...body, access_token: token }),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
@@ -239,8 +256,9 @@ export class InstagramProvider extends SocialProvider {
    *  name lookup never blocks message processing. */
   async getUserProfile(tokens: TokenData, userId: string): Promise<UserProfile | null> {
     try {
+      const { base, token } = this.messagingTransport(tokens);
       const res = await fetch(
-        `${GRAPH_API}/${encodeURIComponent(userId)}?fields=name,username,profile_pic&access_token=${encodeURIComponent(tokens.access_token)}`,
+        `${base}/${encodeURIComponent(userId)}?fields=name,username,profile_pic&access_token=${encodeURIComponent(token)}`,
         { redirect: "error", signal: AbortSignal.timeout(10_000) },
       );
       if (!res.ok) return null;
@@ -316,13 +334,14 @@ export class InstagramProvider extends SocialProvider {
     commentId: string,
     content: MessageContent
   ): Promise<SentMessage> {
-    const res = await fetch(`${GRAPH_API}/me/messages`, {
+    const { base, token } = this.messagingTransport(tokens);
+    const res = await fetch(`${base}/me/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         recipient: { comment_id: commentId },
         message: buildMessageObject(content, { allowQuickReplyImages: false }),
-        access_token: tokens.access_token,
+        access_token: token,
       }),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
@@ -345,11 +364,12 @@ export class InstagramProvider extends SocialProvider {
    * Business account before relying on it in production.
    */
   override async checkFollowsBusiness(tokens: TokenData, userId: string): Promise<boolean> {
+    const { base, token } = this.messagingTransport(tokens);
     const res = await fetch(
-      `${GRAPH_API}/${userId}?` +
+      `${base}/${userId}?` +
         new URLSearchParams({
           fields: "is_user_follow_business",
-          access_token: tokens.access_token,
+          access_token: token,
         }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) },
     );
