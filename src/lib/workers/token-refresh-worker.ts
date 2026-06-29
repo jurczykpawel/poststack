@@ -4,7 +4,7 @@ import type { TokenRefreshJob } from "@/lib/queue/types";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
-import { encryptTokens } from "@/lib/crypto";
+import { encryptTokens, decryptTokens } from "@/lib/crypto";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { TokenInvalidError } from "@/lib/platforms/errors";
@@ -81,10 +81,23 @@ export async function processTokenRefresh(
     typeof refreshedTokens.expires_at === "number" && refreshedTokens.expires_at > 0
       ? new Date(refreshedTokens.expires_at * 1000)
       : null;
+  // Race-safe persist (lost-update guard). The HTTP refresh above ran against a pre-call snapshot of
+  // the blob; a CONCURRENT messaging-token refresh on the same row may have advanced messaging_token
+  // in the meantime. Decrypting that stale snapshot and writing the WHOLE blob back would revert the
+  // freshly-refreshed messaging token (silent IG-DM death). So inside the transaction: lock the row,
+  // RE-DECRYPT the LATEST stored blob, overlay only THIS writer's own fields (the refreshed FB
+  // access/user token + expiry), and preserve the just-read messaging fields a concurrent writer may
+  // have committed. The flip stays in the same tx so token + status commit atomically.
   await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ token_encrypted: channels.token_encrypted })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .for("update");
+    const merged = mergeFbTokenFields(row?.token_encrypted, refreshedTokens);
     await tx
       .update(channels)
-      .set({ token_encrypted: encryptTokens(refreshedTokens), token_expires_at: refreshedExpiresAt })
+      .set({ token_encrypted: encryptTokens(merged), token_expires_at: refreshedExpiresAt })
       .where(eq(channels.id, channelId));
     await markChannelHealthy(channelId, new Date(), tx);
   });
@@ -139,18 +152,61 @@ async function refreshMessagingToken(
     throw err; // transient — allow retry
   }
 
-  // Persist the refreshed messaging token: re-encrypt the blob with the new secret + advance both the
-  // in-blob unix expiry and the plaintext death-clock column the scan reads. The FB page token and
-  // every other blob field are preserved.
-  blob.messaging_token = refreshed.token;
-  blob.messaging_token_expires_at = refreshed.expiresAt;
-  await db
-    .update(channels)
-    .set({
-      token_encrypted: encryptTokens(blob),
-      messaging_token_expires_at: new Date(refreshed.expiresAt * 1000),
-    })
-    .where(eq(channels.id, channelId));
+  // Race-safe persist (lost-update guard). `blob` is a pre-HTTP snapshot; a CONCURRENT FB-token
+  // refresh on the same row may have advanced access_token/user_access_token/expires_at while the
+  // refreshMessagingToken HTTP call was in flight. Writing this stale snapshot back would revert that
+  // FB token. So inside the transaction: lock the row, RE-DECRYPT the LATEST stored blob, overlay
+  // ONLY this writer's own fields (messaging_token + in-blob messaging_token_expires_at), re-encrypt,
+  // and advance the plaintext death-clock column the scan reads. Every other field (incl. the
+  // FB page/user token a concurrent writer just committed) is preserved.
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ token_encrypted: channels.token_encrypted })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .for("update");
+    const latest = row ? decryptTokens(row.token_encrypted) : blob;
+    latest.messaging_token = refreshed.token;
+    latest.messaging_token_expires_at = refreshed.expiresAt;
+    await tx
+      .update(channels)
+      .set({
+        token_encrypted: encryptTokens(latest),
+        messaging_token_expires_at: new Date(refreshed.expiresAt * 1000),
+      })
+      .where(eq(channels.id, channelId));
+  });
 
   helpers.logger.info(`Messaging token refreshed for channel=${channelId}`);
+}
+
+/**
+ * Build the blob the FB-token writer persists, race-safe against a concurrent messaging refresh.
+ *
+ * Starts from the just-refreshed token object (carrying the new FB access/user token + expiry) but
+ * overlays the messaging fields read from the LATEST stored blob under the row lock — so a
+ * messaging_token a concurrent refresh advanced is never reverted by the FB write. The messaging
+ * fields are the ONLY ones the messaging writer owns, so re-applying exactly those is the symmetric
+ * counterpart to that writer re-applying only its own fields.
+ *
+ * If the latest stored blob can't be decrypted (should not happen — a concurrent writer wrote valid
+ * ciphertext), fall back to writing just the refreshed FB tokens rather than skipping the recovery.
+ */
+function mergeFbTokenFields(
+  latestEncrypted: string | undefined,
+  refreshedTokens: import("@/lib/platforms/base").TokenData,
+): import("@/lib/platforms/base").TokenData {
+  const merged = { ...refreshedTokens };
+  if (!latestEncrypted) return merged;
+  let latest;
+  try {
+    latest = decryptTokens(latestEncrypted);
+  } catch {
+    return merged;
+  }
+  if ("messaging_token" in latest) merged.messaging_token = latest.messaging_token;
+  else delete merged.messaging_token;
+  if ("messaging_token_expires_at" in latest) merged.messaging_token_expires_at = latest.messaging_token_expires_at;
+  else delete merged.messaging_token_expires_at;
+  return merged;
 }

@@ -152,6 +152,48 @@ describe("IG-Login messaging token refresh (IGML6 life-support)", () => {
   });
 });
 
+describe("concurrent FB + messaging refresh on the same channel row (no blob clobber)", () => {
+  it("interleaved FB and messaging refreshes both land: neither token reverts (lost-update guard)", async () => {
+    if (!TEST_DB) return;
+    const newExpiry = Math.floor(Date.now() / 1000) + 60 * 24 * 60 * 60; // +60d
+
+    // Force a true interleave: BOTH jobs decrypt their pre-HTTP snapshot of the SAME blob, then wait
+    // on a shared barrier so neither persists until both snapshots are captured stale. Without the
+    // row-locked re-read-merge-write, whichever transaction commits last reverts the other's field.
+    let arrived = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const barrier = async () => {
+      if (++arrived === 2) release();
+      await gate;
+    };
+
+    // FB refresh spreads the pre-HTTP snapshot (carrying the STALE messaging_token) and advances only
+    // the FB token/expiry — exactly like instagram.refreshToken (`{ ...tokens, user_access_token, ... }`).
+    (refreshToken as ReturnType<typeof vi.fn>).mockImplementation(async (tokens: Record<string, unknown>) => {
+      await barrier();
+      return { ...tokens, access_token: "fb-new", user_access_token: "user-new", expires_at: newExpiry };
+    });
+    (refreshMessagingToken as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      await barrier();
+      return { token: "IGQW_new", expiresAt: newExpiry };
+    });
+
+    await Promise.all([
+      processTokenRefresh({ channelId: CH, kind: "oauth" }, helpers),
+      processTokenRefresh({ channelId: CH, kind: "messaging" }, helpers),
+    ]);
+
+    const { blob, messaging_token_expires_at } = await storedBlob();
+    // BOTH writers' fields survive — neither clobbered the other.
+    expect(blob.access_token).toBe("fb-new"); // FB write landed
+    expect(blob.user_access_token).toBe("user-new"); // FB write landed
+    expect(blob.messaging_token).toBe("IGQW_new"); // messaging write NOT reverted by the FB write
+    expect(blob.messaging_token_expires_at).toBe(newExpiry); // in-blob messaging expiry advanced
+    expect(messaging_token_expires_at!.getTime()).toBe(newExpiry * 1000); // plaintext column matches the messaging write
+  });
+});
+
 describe("scan enqueues messaging-token refresh on its own clock (IGML6)", () => {
   it("enqueues a kind:messaging job with a distinct jobKey for a near-expiry messaging token", async () => {
     if (!TEST_DB) return;
