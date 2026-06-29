@@ -141,8 +141,42 @@ describe("subscribeInstagramMessaging (real Postgres)", () => {
     expect(c?.status).toBe("active");
     // …but the IG-DM-receipt gap is NOT silent: a visible warning is stamped + the alert fired once.
     expect(c?.last_error).toBe(MESSAGING_SUBSCRIBE_FAILED_FB_WARNING);
-    const channelAlerts = alertBodies.filter((b) => b.channel_id === c?.id && b.type === "channel_reauth");
+    // It fires the dedicated `channel_degraded` warning type — NOT `channel_reauth` (the channel is
+    // still active/impaired, not down), so a consumer routing on type doesn't read "channel down" and
+    // a genuine reauth for the same channel keeps its own throttle bucket.
+    const channelAlerts = alertBodies.filter((b) => b.channel_id === c?.id && b.type === "channel_degraded");
     expect(channelAlerts.length).toBe(1);
     expect(String(channelAlerts[0]!.detail)).toBe(MESSAGING_SUBSCRIBE_FAILED_FB_WARNING);
+    // …and it is NOT mislabeled as a down/reauth event.
+    expect(alertBodies.some((b) => b.channel_id === c?.id && b.type === "channel_reauth")).toBe(false);
+  });
+
+  // ITEM 2 (IGFU3 alreadyWarned guard): a repeated failed subscribe on an already-warned FB-backed
+  // channel must NOT fire a second warning alert (the channel stays active, last_error stays the
+  // warning). Mirrors the harness above.
+  it("fires the FB-backed degraded warning EXACTLY ONCE across repeated failed subscribes", async () => {
+    if (!TEST_DB) return;
+    const { MESSAGING_SUBSCRIBE_FAILED_FB_WARNING } = await import("./subscribe");
+    await db.insert(s.channels).values({
+      workspace_id: WS,
+      platform: "instagram",
+      platform_id: IG_ID,
+      display_name: "fb_ig",
+      token_encrypted: encryptTokens({ access_token: "PAGE_TOK", page_id: "PG-1", messaging_token: "IGQW_TOK" }),
+      webhook_secret: "s",
+      status: "active",
+    });
+
+    const spy = vi.spyOn(InstagramProvider.prototype, "subscribeMessagingWebhooks").mockResolvedValue(false);
+    await subscribeInstagramMessaging(WS, IG_ID, "IGQW_TOK");
+    await subscribeInstagramMessaging(WS, IG_ID, "IGQW_TOK"); // already warned → must NOT re-alert
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    const c = await getChannel();
+    // Still active and still carrying the same warning — a second failure changed nothing visible.
+    expect(c?.status).toBe("active");
+    expect(c?.last_error).toBe(MESSAGING_SUBSCRIBE_FAILED_FB_WARNING);
+    const channelAlerts = alertBodies.filter((b) => b.channel_id === c?.id && b.type === "channel_degraded");
+    expect(channelAlerts.length).toBe(1);
   });
 });

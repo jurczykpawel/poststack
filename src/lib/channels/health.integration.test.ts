@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -83,6 +83,33 @@ describe("channel health (real Postgres)", () => {
     expect(c?.last_error).not.toContain("EAABSUPERSECRET123");
     expect(c?.needs_reauth_reason).toContain("access_token=[REDACTED]");
     expect(c?.needs_reauth_reason).not.toContain("EAABSUPERSECRET123");
+  });
+
+  // PSA13: the redaction must also reach the DISPATCHED alert `detail` — not only the persisted
+  // columns. A secret echoed into the alert body would leak to whatever the operator's webhook routes
+  // to (Slack/email/n8n). Intercept the outbound POST and assert the detail is redacted.
+  it("redacts a token-like secret in the DISPATCHED alert detail, not just the DB columns", async () => {
+    if (!TEST_DB) return;
+    // The alert throttle is a real, persisted per-(type,channel) bucket; clear ours so this assertion
+    // doesn't depend on whether a prior run/test already consumed the window for this channel.
+    await db.execute(sql`delete from rate_limit_counters where key = ${"alert:channel_reauth:" + CH}`);
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://example.com/alert-hook";
+    const realFetch = globalThis.fetch;
+    const bodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+    try {
+      await health.markChannelNeedsReauth(CH, "refresh failed: access_token=EAABSUPERSECRET123 -> 400");
+    } finally {
+      globalThis.fetch = realFetch;
+      delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
+    }
+    const alert = bodies.find((b) => b.channel_id === CH);
+    expect(alert).toBeDefined();
+    expect(String(alert!.detail)).toContain("access_token=[REDACTED]");
+    expect(String(alert!.detail)).not.toContain("EAABSUPERSECRET123");
   });
 
   it("recovering from needs_reauth sets active and enqueues a drain", async () => {

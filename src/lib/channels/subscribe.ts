@@ -118,7 +118,11 @@ export async function subscribeInstagramMessaging(
         .where(eq(channels.id, channel.id));
       if (!alreadyWarned) {
         await dispatchAlert({
-          type: "channel_reauth",
+          // `channel_degraded`, NOT `channel_reauth`: the channel is still active and publishing — it
+          // just can't be guaranteed to RECEIVE IG DMs. A consumer routing on `type` must not read this
+          // as "channel down"; it also gets its OWN throttle bucket, so a genuine reauth for the same
+          // channel and this warning can't suppress each other.
+          type: "channel_degraded",
           workspaceId,
           channelId: channel.id,
           platform: "instagram",
