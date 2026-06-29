@@ -2,7 +2,13 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, type Platform } from "@/db/schema";
 import { decryptChannelToken } from "./tokens";
-import { subscribeInstagramMessaging } from "./subscribe";
+import {
+  subscribeInstagramMessaging,
+  SUBSCRIBE_FAILED_ERROR,
+  MESSAGING_SUBSCRIBE_FAILED_REASON,
+  MESSAGING_SUBSCRIBE_FAILED_FB_WARNING,
+} from "./subscribe";
+import { markChannelHealthy } from "./health";
 import { getProvider } from "@/lib/platforms/registry";
 import { GRAPH_API_BASE, IG_GRAPH_BASE } from "@/lib/platforms/constants";
 import { diffFields, diffSubscribedFields, expectedPageFields, instagramLoginFields } from "@/lib/platforms/webhook-fields";
@@ -132,7 +138,17 @@ export async function channelSubscriptionStatus(
     const igLogin = typeof token.messaging_token === "string"
       ? await igLoginSubResult(ch.platform_id, token.messaging_token, fetchImpl)
       : undefined;
-    return { ...base, kind: "page", pageId, active, missing, ok: missing.length === 0, ...(igLogin ? { igLogin } : {}) };
+    // A9: a DUAL channel's IG DMs ride the per-account igLogin subscription, so the top-level `ok`
+    // must FOLD igLogin — a complete page set with a missing igLogin set is NOT "fully subscribed".
+    return {
+      ...base,
+      kind: "page",
+      pageId,
+      active,
+      missing,
+      ok: missing.length === 0 && (igLogin ? igLogin.ok : true),
+      ...(igLogin ? { igLogin } : {}),
+    };
   } catch (e) {
     return { ...base, kind: "page", pageId: null, active: [], missing: [...expectedPageFields(wfPlatform)], ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -161,27 +177,63 @@ export async function loadSubscriptionStatuses(
 export async function reconcileChannelSubscription(workspaceId: string, channelId: string): Promise<boolean> {
   const ch = await db.query.channels.findFirst({
     where: and(eq(channels.id, channelId), eq(channels.workspace_id, workspaceId), isNull(channels.deleted_at)),
-    columns: { platform: true, platform_id: true, token_encrypted: true },
+    // A4: status/last_error/needs_reauth_reason are read to decide whether a SUCCESSFUL re-apply may
+    // close a breaker that a FAILED subscription opened (without ever clearing a token-death reauth).
+    columns: { platform: true, platform_id: true, token_encrypted: true, status: true, last_error: true, needs_reauth_reason: true },
   });
   if (!ch || !isSubscribablePlatform(ch.platform)) return false;
-  const token = decryptChannelToken(ch.token_encrypted) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
+  const ok = await applySubscription(workspaceId, ch.platform, ch.platform_id, ch.token_encrypted);
+  // A4: on OVERALL success, if the channel's current breaker was caused by a FAILED subscription
+  // (this Fix's own failure mode), close it — a re-subscribe just made the channel truthful again.
+  // GATED so an unrelated token-death needs_reauth is never silently cleared by a Fix click.
+  if (ok && isSubscriptionCausedFailure(ch)) {
+    await markChannelHealthy(channelId);
+  }
+  return ok;
+}
+
+/** Apply the canonical subscription for one channel (IG-Login-only, dual, or page). Both
+ *  subscribeInstagramMessaging calls run as MANUAL re-applies (A8): a transient failure here must
+ *  not degrade/alert a healthy channel — the breaker is only closed (A4) on overall success. */
+async function applySubscription(
+  workspaceId: string,
+  platform: Platform,
+  platformId: string,
+  tokenEncrypted: string,
+): Promise<boolean> {
+  const token = decryptChannelToken(tokenEncrypted) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
   // IG-Login-only channel: re-subscribe the per-account `instagram` object subscription (E2). Reuses
   // subscribeInstagramMessaging — it re-subscribes AND keeps the channel status truthful, exactly what
   // a "Fix" should do. (No circular import: subscribe.ts doesn't import subscription-status.ts.)
-  if (ch.platform === "instagram" && typeof token.messaging_token === "string" && !token.page_id) {
-    const { ok } = await subscribeInstagramMessaging(workspaceId, ch.platform_id, token.messaging_token);
+  if (platform === "instagram" && typeof token.messaging_token === "string" && !token.page_id) {
+    const { ok } = await subscribeInstagramMessaging(workspaceId, platformId, token.messaging_token, { manual: true });
     return ok;
   }
-  const provider = getProvider(ch.platform);
+  const provider = getProvider(platform);
   if (!provider.subscribePageWebhooks) return false;
-  const pageId = pageIdForChannel(ch.platform, ch.platform_id, token as { page_id?: unknown });
+  const pageId = pageIdForChannel(platform, platformId, token as { page_id?: unknown });
   if (!pageId) return false;
   const pageOk = await provider.subscribePageWebhooks(pageId, token.access_token ?? "");
   // SUBDUAL1: a DUAL channel (page_id AND messaging_token) receives its IG DMs via the per-account
   // IG-Login subscription too — re-apply BOTH. Succeed only if both succeed.
   if (typeof token.messaging_token === "string") {
-    const { ok: igOk } = await subscribeInstagramMessaging(workspaceId, ch.platform_id, token.messaging_token);
+    const { ok: igOk } = await subscribeInstagramMessaging(workspaceId, platformId, token.messaging_token, { manual: true });
     return pageOk && igOk;
   }
   return pageOk;
+}
+
+/** A4 gate: was the channel's CURRENT breaker caused by a failed subscription (so a successful
+ *  re-apply may close it)? Only true when there IS a breaker (status not active OR a last_error set)
+ *  AND its marker is a subscription-failure marker — never a token-death needs_reauth. */
+function isSubscriptionCausedFailure(ch: {
+  status: string;
+  last_error: string | null;
+  needs_reauth_reason: string | null;
+}): boolean {
+  const hasBreaker = ch.status !== "active" || ch.last_error != null;
+  if (!hasBreaker) return false;
+  if (ch.needs_reauth_reason === MESSAGING_SUBSCRIBE_FAILED_REASON) return true;
+  const subscriptionMarkers = [SUBSCRIBE_FAILED_ERROR, MESSAGING_SUBSCRIBE_FAILED_REASON, MESSAGING_SUBSCRIBE_FAILED_FB_WARNING];
+  return ch.last_error != null && subscriptionMarkers.includes(ch.last_error);
 }

@@ -109,6 +109,10 @@ describe("channelSubscriptionStatus (WEBHOOKSUB1)", () => {
     expect(st.active).toEqual(expect.arrayContaining(["messages", "feed"]));
     expect(st.missing).toEqual([]);
 
+    // A9: the page set is complete, but the attached igLogin sub-result is NOT — so the top-level
+    // `ok` must FOLD igLogin and read false, never a misleading "Fully subscribed".
+    expect(st.ok).toBe(false);
+
     // ...and the IG-Login per-account sub is ALSO surfaced
     expect(st.igLogin).toBeDefined();
     expect(st.igLogin!.active).toContain("messages");
@@ -120,6 +124,28 @@ describe("channelSubscriptionStatus (WEBHOOKSUB1)", () => {
     const igCall = calls.find((u) => u.includes("graph.instagram.com"));
     expect(igCall).toBeDefined();
     expect(igCall).toContain("/IGID7/subscribed_apps");
+  });
+
+  it("DUAL channel fully subscribed on BOTH page and igLogin → top-level ok=true", async () => {
+    const ch = {
+      id: "c7b", platform: "instagram", platform_id: "IGID7b", display_name: "Dual OK",
+      token_encrypted: encryptTokens({ access_token: "FB", page_id: "PG", messaging_token: "IGQW" }),
+    };
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("graph.instagram.com")) {
+        // every IG-Login field present (matches INSTAGRAM_LOGIN_FIELDS)
+        return new Response(JSON.stringify({ data: [{ subscribed_fields: ["messages", "messaging_postbacks", "messaging_reactions", "messaging_seen", "comments"] }] }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ data: [{ subscribed_fields: ["messages", "messaging_postbacks", "message_echoes", "message_reactions", "message_reads", "message_deliveries", "feed"] }] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const st = await channelSubscriptionStatus(ch, fetchImpl);
+    expect(st.missing).toEqual([]);
+    expect(st.igLogin!.missing).toEqual([]);
+    expect(st.ok).toBe(true);
   });
 
   it("FB-only channel (no messaging_token): no igLogin sub-result", async () => {

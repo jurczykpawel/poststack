@@ -310,8 +310,17 @@ export async function runHealthCheck(workspaceId: string, id: string): Promise<C
     return "active";
   }
   try {
-    const token = decryptTokens(ch.token_encrypted).access_token;
-    await inspectMetaToken(token); // throws MetaTokenError on confirmed-bad; null = transient → leave alone
+    const blob = decryptTokens(ch.token_encrypted);
+    const token = blob.access_token;
+    // A10: an IG-Login-only channel (no FB access_token, but a messaging_token) has NO FB token to
+    // validate — its access_token is "" and inspectMetaToken("") only returns null by luck. Its
+    // inbound health is owned by the messaging-token refresh worker (which flips needs_reauth on a
+    // refresh failure). Skip the FB-token inspection entirely; just keep the channel healthy and
+    // re-apply the per-account IG-Login subscription (reconcile now handles IG-Login per-account).
+    const isIgLoginOnly = !token && typeof blob.messaging_token === "string" && blob.messaging_token.length > 0;
+    if (!isIgLoginOnly) {
+      await inspectMetaToken(token ?? ""); // throws MetaTokenError on confirmed-bad; null = transient → leave alone
+    }
     await markChannelHealthy(id);
     // WEBHOOKSUB1: keep the inbound subscription auto-configured to the complete field set on every
     // healthy check, so a self-hosted instance never silently drifts to a partial subscription.

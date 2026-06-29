@@ -84,12 +84,19 @@ export async function subscribeInstagramMessaging(
   workspaceId: string,
   igUserId: string,
   messagingToken: string,
+  opts?: { manual?: boolean },
 ): Promise<{ ok: boolean }> {
   const provider = getProvider("instagram");
   if (typeof provider.subscribeMessagingWebhooks !== "function") return { ok: true };
 
   const ok = await provider.subscribeMessagingWebhooks(messagingToken, igUserId).catch(() => false);
   if (ok) return { ok: true };
+
+  // A8: a MANUAL "Fix"/"Re-apply" must never degrade or alert a currently-healthy channel on a
+  // transient subscribe failure — the panel re-render already shows the still-missing fields, and a
+  // user clicking a button doesn't warrant a "channel down/degraded" alert. Only the AUTO OAuth
+  // callback path (manual unset) flips status / writes the warning / fires the alert below.
+  if (opts?.manual) return { ok: false };
 
   // Subscription failed → no inbound. Only downgrade a channel that has no other inbound path.
   const channel = await db.query.channels.findFirst({
