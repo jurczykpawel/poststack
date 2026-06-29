@@ -72,6 +72,7 @@ export const openApiSpec = {
         properties: {
           id: { type: "string", format: "uuid" },
           platform: { type: "string", enum: ["facebook", "instagram", "youtube", "gmail", "telegram"] },
+          platform_id: { type: "string", description: "Platform-native account id (e.g. IG business account id / FB page id)." },
           display_name: { type: "string", example: "My Business Page" },
           username: { type: "string", nullable: true },
           profile_picture: { type: "string", format: "uri", nullable: true },

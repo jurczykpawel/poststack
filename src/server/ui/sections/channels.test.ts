@@ -12,6 +12,8 @@ let messagingConnectionBadge: typeof import("./channels").messagingConnectionBad
 let messagingHint: typeof import("./channels").messagingHint;
 let lastErrorNote: typeof import("./channels").lastErrorNote;
 let instagramLoginInstructions: typeof import("./channels").instagramLoginInstructions;
+let reconnectNote: typeof import("./channels").reconnectNote;
+let capabilityBadges: typeof import("./channels").capabilityBadges;
 
 const s = (h: unknown) => String(h);
 // Minimal fixture — only the fields the helpers read matter; cast the rest.
@@ -19,7 +21,8 @@ const ch = (over: Partial<PublicChannel>): PublicChannel =>
   ({ platform: "instagram", messaging_connection: null, last_error: null, ...over } as PublicChannel);
 
 beforeAll(async () => {
-  ({ messagingConnectionBadge, messagingHint, lastErrorNote, instagramLoginInstructions } = await import("./channels"));
+  ({ messagingConnectionBadge, messagingHint, lastErrorNote, instagramLoginInstructions, reconnectNote, capabilityBadges } =
+    await import("./channels"));
 });
 
 describe("messagingConnectionBadge (B1/B4)", () => {
@@ -60,6 +63,30 @@ describe("instagramLoginInstructions (A2)", () => {
   });
   it("mentions the IG account 'allow access to messages' toggle", () => {
     expect(out()).toContain("messages");
+  });
+});
+
+describe("reconnectNote (A3) — dual-channel reconnect clarification", () => {
+  it("renders for an instagram_login channel: links to the Facebook reauth + warns about publishing", () => {
+    const out = s(reconnectNote(ch({ messaging_connection: "instagram_login" })));
+    expect(out).toContain("/api/oauth/instagram");
+    expect(out).toContain("Facebook");
+    expect(out.toLowerCase()).toContain("publishing");
+  });
+  it("renders nothing for a facebook_only channel", () => {
+    expect(s(reconnectNote(ch({ messaging_connection: "facebook_only" }))).trim()).toBe("");
+  });
+  it("renders nothing for a Facebook channel", () => {
+    expect(s(reconnectNote(ch({ platform: "facebook", messaging_connection: null }))).trim()).toBe("");
+  });
+});
+
+describe("capabilityBadges (A13) — suppress misleading DM pill for facebook_only", () => {
+  it("omits the DM pill for a facebook_only IG channel", () => {
+    expect(s(capabilityBadges(ch({ messaging_connection: "facebook_only" })))).not.toContain(">DM<");
+  });
+  it("keeps the DM pill for an instagram_login IG channel", () => {
+    expect(s(capabilityBadges(ch({ messaging_connection: "instagram_login" })))).toContain(">DM<");
   });
 });
 

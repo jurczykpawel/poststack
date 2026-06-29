@@ -65,9 +65,14 @@ const CAP_LABEL: { cap: Parameters<typeof can>[1]; label: string }[] = [
   { cap: "dm", label: "DM" },
   { cap: "poll_comments", label: "poll" },
 ];
-function capabilityBadges(ch: PublicChannel): Html {
+export function capabilityBadges(ch: PublicChannel): Html {
   const ctx = { platform: ch.platform, connection_mode: ch.connection_mode, metadata: ch.metadata };
-  const on = CAP_LABEL.filter((c) => can(ctx, c.cap));
+  let on = CAP_LABEL.filter((c) => can(ctx, c.cap));
+  // A13: a `facebook_only` IG channel cannot reliably RECEIVE DMs at Standard Access (see messagingHint),
+  // so the structural "DM" capability pill is misleading here — drop it. UI-only: the structural
+  // `channelCapabilities` and the REST `capabilities` array are unchanged (API consumers get the full
+  // structural caps + `messaging_connection` to interpret).
+  if (ch.messaging_connection === "facebook_only") on = on.filter((c) => c.cap !== "dm");
   if (on.length === 0) return html`<small>—</small>`;
   return html`<span class="pill-row">${on.map((c) => pill(c.label, "info"))}</span>`;
 }
@@ -469,6 +474,20 @@ function reconnectControl(ch: PublicChannel): Html {
   return html``;
 }
 
+/** A3: clarify what "Reconnect" does for an `instagram_login` channel. `reconnectHref` routes these to
+ *  the IG-Login flow (re-mints the 60-day messaging token — the realistic reauth; FB page tokens are
+ *  effectively permanent). But that value is also true for a COMBINED Facebook-page + IG-Login channel,
+ *  where one button would misleadingly imply Facebook publishing is also fixed. So when Facebook
+ *  publishing is also affected on such a channel, point the operator at the Facebook reauth too.
+ *  Empty for non-`instagram_login` channels (incl. `facebook_only` and plain Facebook). */
+export function reconnectNote(ch: PublicChannel): Html {
+  if (ch.messaging_connection !== "instagram_login") return html``;
+  return html`<div class="notice notice-info" style="flex-basis:100%">
+    Reconnecting re-mints Instagram messaging. If this is a combined Facebook + Instagram channel and
+    Facebook publishing is also affected, <a href="/api/oauth/instagram">reconnect Facebook</a> too.
+  </div>`;
+}
+
 function actionBar(ch: PublicChannel): Html {
   const back = `/channels/${ch.id}`;
   const remove = actionForm(`${back}/remove`, "Remove", "danger", "Remove this channel? It stops publishing and leaves the list.");
@@ -481,6 +500,7 @@ function actionBar(ch: PublicChannel): Html {
     : actionForm(`${back}/pause`, "Pause", "secondary");
   return html`<div class="action-bar">
     ${reconnectControl(ch)}
+    ${reconnectNote(ch)}
     ${actionForm(`${back}/health-check`, "Health-check", "secondary")}
     ${pauseOrResume}
     ${hideToggle}

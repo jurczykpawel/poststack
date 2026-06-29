@@ -49,6 +49,11 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     expect(schema.properties).not.toHaveProperty("data");
   });
 
+  it("Channel schema documents platform_id (A14 — handler returns it)", () => {
+    const channel = (openApiSpec.components.schemas as unknown as Record<string, { properties: Record<string, unknown> }>).Channel;
+    expect(channel.properties).toHaveProperty("platform_id");
+  });
+
   it("Message.status enum includes held and expired", () => {
     const msg = (openApiSpec.components.schemas as unknown as Record<string, { properties: { status: { enum: string[] } } }>).Message;
     expect(msg.properties.status.enum).toEqual(expect.arrayContaining(["held", "expired"]));
