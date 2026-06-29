@@ -248,6 +248,12 @@ describe("upsertChannels (real Postgres)", () => {
 
     const after = await db.query.channels.findFirst({ where: and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)) });
     expect(after!.id).toBe(before!.id); // same row, augmented in place
+    // End-to-end dedup guarantee: Facebook-login THEN Instagram-Login augment for the SAME
+    // platform_id collapses to exactly ONE channel row (no duplicate IG-Login-only row).
+    const cnt = await db.execute(
+      sql`select count(*)::int as n from channels where workspace_id = ${WS} and platform = 'instagram' and platform_id = ${IG}`,
+    );
+    expect((cnt.rows[0] as { n: number }).n).toBe(1);
     const blob = decryptTokens(after!.token_encrypted);
     expect(blob.messaging_token).toBe("IGQW_msg_tok"); // messaging token added
     expect(blob.access_token).toBe("fb-page-tok"); // FB page token UNTOUCHED

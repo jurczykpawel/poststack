@@ -123,8 +123,11 @@ export async function loadSubscriptionStatuses(
 
 /**
  * Re-apply the canonical subscription for one channel — the "Fix" button + the auto-config hook.
- * Resolves the page id + token and calls the provider's subscribePageWebhooks, which POSTs the full
- * expected field set (idempotent). Returns false when the channel can't be subscribed.
+ * For PAGE channels: resolves the page id + token and calls the provider's subscribePageWebhooks,
+ * which POSTs the full expected field set (idempotent). For IG-Login-only channels (a messaging_token
+ * and no page_id): reconciles via subscribeInstagramMessaging instead, which re-subscribes the
+ * per-account `instagram` object subscription on graph.instagram.com. Returns false when the channel
+ * can't be subscribed.
  */
 export async function reconcileChannelSubscription(workspaceId: string, channelId: string): Promise<boolean> {
   const ch = await db.query.channels.findFirst({
