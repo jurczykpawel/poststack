@@ -1378,6 +1378,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
             ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
             ${metaConfigRow("Valid OAuth Redirect URI (Instagram)", `${env.APP_URL}/api/oauth/instagram/callback`)}
+            ${metaConfigRow("Valid OAuth Redirect URI (Instagram Business Login → API setup with Instagram login)", `${env.APP_URL}/api/oauth/instagram-login/callback`)}
             ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
             ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
             <h3 style="margin:1rem 0 .25rem">Your credentials</h3>

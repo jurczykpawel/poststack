@@ -230,6 +230,51 @@ describe("upsertChannels (real Postgres)", () => {
     }
   });
 
+  it("augmentMessagingToken adds the IG-Login messaging_token to an existing channel WITHOUT clobbering the FB page token", async () => {
+    if (!TEST_DB) return;
+    const { decryptTokens } = await import("@/lib/crypto");
+    const IG = "IG-AUGMENT-1";
+    // Existing IG channel connected via Facebook Login (carries an FB page token + page_id).
+    await upsertChannels(WS, "instagram", [
+      { platformId: IG, displayName: "Acme IG", username: "acme", tokens: { access_token: "fb-page-tok", page_id: "PAGE-1", user_access_token: "fb-user-tok" } },
+    ]);
+    const before = await db.query.channels.findFirst({ where: and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)) });
+    expect(before).toBeTruthy();
+
+    const exp = new Date(Date.now() + 5184000 * 1000);
+    await upsertChannels(WS, "instagram", [{ platformId: IG, displayName: "Acme IG", username: "acme", tokens: { access_token: "" } }], {
+      augmentMessagingToken: { token: "IGQW_msg_tok", expiresAt: exp },
+    });
+
+    const after = await db.query.channels.findFirst({ where: and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)) });
+    expect(after!.id).toBe(before!.id); // same row, augmented in place
+    const blob = decryptTokens(after!.token_encrypted);
+    expect(blob.messaging_token).toBe("IGQW_msg_tok"); // messaging token added
+    expect(blob.access_token).toBe("fb-page-tok"); // FB page token UNTOUCHED
+    expect(blob.page_id).toBe("PAGE-1"); // page_id UNTOUCHED
+    expect(blob.user_access_token).toBe("fb-user-tok"); // user token UNTOUCHED
+    expect(typeof blob.messaging_token_expires_at).toBe("number"); // unix seconds in blob
+    expect(after!.messaging_token_expires_at).not.toBeNull(); // plaintext death-clock column set
+    expect(after!.status).toBe("active");
+  });
+
+  it("augmentMessagingToken creates a minimal IG-Login-only channel when no channel exists for that account", async () => {
+    if (!TEST_DB) return;
+    const { decryptTokens } = await import("@/lib/crypto");
+    const IG = "IG-AUGMENT-NEW";
+    const exp = new Date(Date.now() + 5184000 * 1000);
+    await upsertChannels(WS, "instagram", [{ platformId: IG, displayName: "Solo IG", username: "solo", tokens: { access_token: "" } }], {
+      augmentMessagingToken: { token: "IGQW_only", expiresAt: exp },
+    });
+    const c = await db.query.channels.findFirst({ where: and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)) });
+    expect(c).toBeTruthy();
+    expect(c!.webhook_secret?.length).toBeGreaterThan(0);
+    expect(c!.status).toBe("active");
+    expect(c!.messaging_token_expires_at).not.toBeNull();
+    const blob = decryptTokens(c!.token_encrypted);
+    expect(blob.messaging_token).toBe("IGQW_only");
+  });
+
   it("connecting several accounts is atomic — a later account's rejection rolls back the earlier ones", async () => {
     if (!TEST_DB) return;
     const WS2 = "eeeeeeee-0000-0000-0000-0000000000c5";

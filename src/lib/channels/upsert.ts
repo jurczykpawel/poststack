@@ -1,7 +1,7 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, platform as platformEnum, channelConnectionMode as connModeEnum } from "@/db/schema";
-import { encryptTokens } from "@/lib/crypto";
+import { encryptTokens, decryptTokens } from "@/lib/crypto";
 import { addJobTx } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
@@ -71,6 +71,13 @@ export async function upsertChannels(
     sourceId?: string | null;
     /** The ~90-day data-access wall inherited from the source (for the badge + expiry cron). */
     dataAccessExpiresAt?: Date | null;
+    /**
+     * IGML5: Instagram Business Login. Instead of writing `account.tokens`, ADD the IG-Login IGQW
+     * `messaging_token` (+ its expiry) to the EXISTING channel's encrypted blob — preserving the FB
+     * page token (`access_token`/`user_access_token`/`page_id`) so publishing/comments keep working.
+     * If no live channel exists for the account, a minimal IG-Login-only channel is created.
+     */
+    augmentMessagingToken?: { token: string; expiresAt: Date | null };
   } = {}
 ): Promise<{ recoveredChannelIds: string[] }> {
   const connectionMode = opts.connectionMode ?? "oauth";
@@ -78,6 +85,10 @@ export async function upsertChannels(
   const dataAccessExpiresAt = opts.dataAccessExpiresAt ?? null;
   if (accounts.length > MAX_ACCOUNTS_PER_OAUTH) {
     throw new Error(`Too many accounts (${accounts.length}), max ${MAX_ACCOUNTS_PER_OAUTH}`);
+  }
+
+  if (opts.augmentMessagingToken) {
+    return augmentMessagingTokens(workspaceId, platform, accounts, opts.augmentMessagingToken, connectionMode);
   }
 
   // Acquire the per-account advisory locks in a stable order so two concurrent
@@ -173,6 +184,108 @@ export async function upsertChannels(
 
   // Log a connect/reconnect event per channel for the activity feed (/events). Best-effort and
   // post-commit: a logging failure must never roll back a successful connect.
+  for (const r of results) {
+    await emitEventNow(
+      workspaceId,
+      r.isNew ? "channel.created" : "channel.reconnected",
+      { type: "channel", id: r.channelId },
+      { platform, displayName: r.displayName },
+    ).catch(() => {});
+  }
+
+  const recoveredChannelIds = results.filter((r) => r.recovered).map((r) => r.channelId);
+  return { recoveredChannelIds };
+}
+
+/**
+ * IGML5: attach an Instagram Business Login IGQW `messaging_token` to a channel. For an EXISTING live
+ * channel (same account) the blob is decrypted, the messaging token (+ expiry) merged in, and
+ * re-encrypted — the FB page token and every other field are preserved. For an account with no live
+ * channel, a minimal IG-Login-only channel is created (no FB page token; publishing/comments will
+ * need a Facebook Login later). Reuses the same advisory-lock + cross-workspace ownership invariant
+ * as the main upsert path so routing stays unambiguous.
+ */
+async function augmentMessagingTokens(
+  workspaceId: string,
+  platform: Platform,
+  accounts: ConnectedAccount[],
+  augment: { token: string; expiresAt: Date | null },
+  connectionMode: ChannelConnectionMode,
+): Promise<{ recoveredChannelIds: string[] }> {
+  const expiresAtDate = augment.expiresAt;
+  const expiresAtUnix = expiresAtDate ? Math.floor(expiresAtDate.getTime() / 1000) : undefined;
+
+  const ordered = [...accounts].sort((a, b) =>
+    a.platformId < b.platformId ? -1 : a.platformId > b.platformId ? 1 : 0,
+  );
+
+  const results = await db.transaction(async (tx) => {
+    const out: { channelId: string; recovered: boolean; isNew: boolean; displayName: string }[] = [];
+    for (const account of ordered) {
+      const lockKey = `channel:${platform}:${account.platformId}`;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+      const live = await tx.query.channels.findFirst({
+        where: and(
+          eq(channels.platform, platform),
+          eq(channels.platform_id, account.platformId),
+          ne(channels.status, "disabled"),
+        ),
+        columns: { id: true, status: true, workspace_id: true, token_encrypted: true },
+      });
+      if (live && live.workspace_id !== workspaceId) {
+        throw new Error(`This ${platform} account is already connected to another workspace`);
+      }
+
+      if (live) {
+        // Merge the messaging token INTO the existing blob — never clobber the FB page token.
+        const blob = decryptTokens(live.token_encrypted);
+        blob.messaging_token = augment.token;
+        if (expiresAtUnix !== undefined) blob.messaging_token_expires_at = expiresAtUnix;
+        else delete blob.messaging_token_expires_at;
+
+        await tx
+          .update(channels)
+          .set({
+            token_encrypted: encryptTokens(blob),
+            messaging_token_expires_at: expiresAtDate,
+            status: "active",
+            last_error: null,
+          })
+          .where(eq(channels.id, live.id));
+
+        const recovered = live.status === "needs_reauth";
+        out.push({ channelId: live.id, recovered, isNew: false, displayName: account.displayName });
+        if (recovered) {
+          await addJobTx(tx, "drain-channel", { channelId: live.id }, { jobKey: `drain-channel:${live.id}` });
+        }
+        continue;
+      }
+
+      // No channel for this account yet → minimal IG-Login-only channel (messaging token only).
+      const tokens: Record<string, unknown> = { access_token: "", messaging_token: augment.token };
+      if (expiresAtUnix !== undefined) tokens.messaging_token_expires_at = expiresAtUnix;
+      const [channel] = await tx
+        .insert(channels)
+        .values({
+          workspace_id: workspaceId,
+          platform,
+          platform_id: account.platformId,
+          display_name: account.displayName,
+          username: account.username ?? null,
+          profile_picture: account.profilePicture ?? null,
+          token_encrypted: encryptTokens(tokens as ConnectedAccount["tokens"]),
+          webhook_secret: randomBytes(32).toString("hex"),
+          status: "active",
+          connection_mode: connectionMode,
+          messaging_token_expires_at: expiresAtDate,
+        })
+        .returning({ id: channels.id });
+      out.push({ channelId: channel.id, recovered: false, isNew: true, displayName: account.displayName });
+    }
+    return out;
+  });
+
   for (const r of results) {
     await emitEventNow(
       workspaceId,

@@ -6,6 +6,8 @@ import * as oauthFacebook from "@/server/handlers/oauth/facebook/route";
 import * as oauthFacebookCallback from "@/server/handlers/oauth/facebook/callback/route";
 import * as oauthInstagram from "@/server/handlers/oauth/instagram/route";
 import * as oauthInstagramCallback from "@/server/handlers/oauth/instagram/callback/route";
+import * as oauthInstagramLogin from "@/server/handlers/oauth/instagram-login/route";
+import * as oauthInstagramLoginCallback from "@/server/handlers/oauth/instagram-login/callback/route";
 import * as oauthYouTube from "@/server/handlers/oauth/youtube/route";
 import * as oauthYouTubeCallback from "@/server/handlers/oauth/youtube/callback/route";
 import * as oauthGmail from "@/server/handlers/oauth/gmail/route";
@@ -32,6 +34,9 @@ special.get("/api/oauth/facebook", (c) => oauthFacebook.GET(c.req.raw));
 special.get("/api/oauth/facebook/callback", (c) => oauthFacebookCallback.GET(c.req.raw));
 special.get("/api/oauth/instagram", (c) => oauthInstagram.GET(c.req.raw));
 special.get("/api/oauth/instagram/callback", (c) => oauthInstagramCallback.GET(c.req.raw));
+// Instagram Business Login (messaging) — augments the IG channel with the IGQW messaging token.
+special.get("/api/oauth/instagram-login", (c) => oauthInstagramLogin.GET(c.req.raw));
+special.get("/api/oauth/instagram-login/callback", (c) => oauthInstagramLoginCallback.GET(c.req.raw));
 special.get("/api/oauth/youtube", (c) => oauthYouTube.GET(c.req.raw));
 special.get("/api/oauth/youtube/callback", (c) => oauthYouTubeCallback.GET(c.req.raw));
 special.get("/api/oauth/gmail", (c) => oauthGmail.GET(c.req.raw));
