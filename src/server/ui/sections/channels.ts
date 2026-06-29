@@ -299,6 +299,8 @@ const CHANNEL_ERRORS: Record<string, string> = {
   no_ig_accounts: "No Instagram Business accounts found linked to your Pages.",
   oauth_failed: "Connection failed. Please try again.",
   pro_required: "That channel needs a PRO license.",
+  instagram_login_not_configured:
+    "Instagram Business Login isn't configured (set INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET).",
 };
 
 async function channelsPage(c: Context): Promise<Response> {

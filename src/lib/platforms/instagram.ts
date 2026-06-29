@@ -55,7 +55,9 @@ export class InstagramProvider extends SocialProvider {
    * IG-Login-only); publishing mirrors `igPublishTransport` in providers/meta.ts.
    */
   private messagingTransport(tokens: TokenData): { base: string; token: string } {
-    const ig = tokens.messaging_token as string | undefined;
+    // A malformed blob could carry an empty-string messaging_token; coerce it to undefined so it
+    // falls back to the FB page token instead of routing to graph.instagram.com with no token.
+    const ig = (tokens.messaging_token as string) || undefined;
     return ig
       ? { base: IG_GRAPH_BASE, token: ig }
       : { base: GRAPH_API, token: tokens.access_token };

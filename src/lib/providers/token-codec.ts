@@ -22,5 +22,10 @@ export function fromTokenSet(ts: TokenSet): TokenData {
     access_token: ts.accessToken,
     refresh_token: ts.refreshToken,
     expires_at: ts.expiresAt ? Math.floor(Date.parse(ts.expiresAt) / 1000) : undefined,
+    // Defense in depth: carry the IG-Login messaging token if the TokenSet has one. NOTE: this alone
+    // can't preserve a channel's blob across a refresh — fromTokenSet has no slot for page_id /
+    // user_access_token / messaging_token_expires_at — so the token-keeper must merge over the
+    // current blob (see mergeRefreshedBlob in channels/token-refresh.ts), not rely on this.
+    messaging_token: typeof ts.messagingToken === "string" ? ts.messagingToken : undefined,
   };
 }

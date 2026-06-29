@@ -203,6 +203,20 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
       expect(call.url.startsWith(`${GRAPH_API_BASE}/`)).toBe(true);
       expect(call.url).toContain("access_token=fb-page-tok");
     });
+
+    // A15: an empty-string messaging_token (malformed blob) must be treated as absent → FB branch.
+    it("empty-string messaging_token falls back to the FB page token on graph.facebook.com", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      await new InstagramProvider().sendMessage(
+        { access_token: "fb-page-tok", messaging_token: "" },
+        "u1",
+        { text: "hi" },
+      );
+
+      const call = fetchCalls.find((c) => c.url.includes("/me/messages"))!;
+      expect(call.url).toBe(`${GRAPH_API_BASE}/me/messages`);
+      expect(JSON.parse(call.init!.body as string).access_token).toBe("fb-page-tok");
+    });
   });
 
   describe("content methods route by FB-token presence (mirror of publish transport)", () => {

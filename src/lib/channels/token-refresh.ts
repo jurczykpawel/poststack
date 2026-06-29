@@ -2,12 +2,32 @@ import type { JobHelpers } from "graphile-worker";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
+import type { TokenData } from "@/lib/platforms/base";
 import { decryptTokens, encryptTokens } from "@/lib/crypto";
 import { getProvider, isProvider } from "@/lib/providers";
 import { TokenInvalidError } from "@/lib/providers/errors";
 import { toTokenSet, fromTokenSet } from "@/lib/providers/token-codec";
+import type { TokenSet } from "@/lib/providers/types";
 import { redactSecrets } from "@/lib/redact";
 import { markChannelHealthy, markChannelNeedsReauth } from "./health";
+
+/**
+ * Overlay ONLY the refreshed credential fields (access/refresh token + expiry) onto the channel's
+ * CURRENT decrypted token blob, so a refresh never drops the non-credential fields a blob also carries
+ * (messaging_token, messaging_token_expires_at, page_id, user_access_token, …). `fromTokenSet` returns
+ * only the 3 credential fields and would otherwise clobber everything else when persisted. Mirrors the
+ * merge philosophy of `mergeFbTokenFields` (token-refresh-worker.ts): own only your fields, keep the rest.
+ */
+export function mergeRefreshedBlob(currentBlob: TokenData, refreshed: TokenSet): TokenData {
+  const cred = fromTokenSet(refreshed);
+  return {
+    ...currentBlob,
+    access_token: cred.access_token,
+    // Preserve the existing refresh token when the refreshed set carries none.
+    refresh_token: refreshed.refreshToken ?? currentBlob.refresh_token,
+    expires_at: cred.expires_at,
+  };
+}
 
 /**
  * Refresh a channel's OAuth token via its publish provider (one token-keeper for publish + inbound).
@@ -27,7 +47,8 @@ export async function processTokenRefresh(
   const provider = getProvider(channel.platform);
   if (!provider.requiresTokenRefresh()) return;
 
-  const current = toTokenSet(decryptTokens(channel.token_encrypted));
+  const currentBlob = decryptTokens(channel.token_encrypted);
+  const current = toTokenSet(currentBlob);
   let refreshed;
   try {
     refreshed = await provider.refreshToken(current);
@@ -43,10 +64,12 @@ export async function processTokenRefresh(
 
   // Preserve the existing refresh token when the provider returns none (#1383 lesson).
   const merged = { ...refreshed, refreshToken: refreshed.refreshToken ?? current.refreshToken };
+  // Merge the refreshed credential fields OVER the current blob — never replace the whole blob with
+  // just the 3 credential fields (would drop messaging_token / page_id / user_access_token).
   await db
     .update(channels)
     .set({
-      token_encrypted: encryptTokens(fromTokenSet(merged)),
+      token_encrypted: encryptTokens(mergeRefreshedBlob(currentBlob, merged)),
       token_expires_at: merged.expiresAt ? new Date(merged.expiresAt) : null,
       updated_at: new Date(),
     })

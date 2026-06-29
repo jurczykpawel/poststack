@@ -14,8 +14,11 @@ vi.mock("@/lib/oauth/state", () => ({
   generateOAuthState: () => ({ state: "STATE123", setCookie: "rs_oauth_state=STATE123; HttpOnly; Path=/" }),
 }));
 
+// Configurable per-test config: both INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET must be set for the
+// IG-Login start to proceed (A12).
+let configValues: Record<string, string> = {};
 vi.mock("@/lib/settings/config", () => ({
-  getConfig: async (key: string) => (key === "INSTAGRAM_APP_ID" ? "ig-app-id-123" : ""),
+  getConfig: async (key: string) => configValues[key] ?? "",
 }));
 
 let GET: typeof import("./route").GET;
@@ -27,6 +30,7 @@ beforeAll(async () => {
 describe("GET /api/oauth/instagram-login", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    configValues = { INSTAGRAM_APP_ID: "ig-app-id-123", INSTAGRAM_APP_SECRET: "ig-app-secret-xyz" };
     mockAuthenticate.mockResolvedValue({ workspaceId: "ws-1", userId: "u-1", authMethod: "session", scopes: [] });
   });
 
@@ -49,5 +53,26 @@ describe("GET /api/oauth/instagram-login", () => {
     mockAuthenticate.mockResolvedValueOnce(null);
     const res = await GET(new Request("http://localhost:3000/api/oauth/instagram-login"));
     expect(res.status).toBe(401);
+  });
+
+  // A12: guard the start when IG-Login isn't configured — never proceed into a broken OAuth.
+  it("302-redirects to /channels?error=instagram_login_not_configured when INSTAGRAM_APP_ID is unset", async () => {
+    configValues = { INSTAGRAM_APP_SECRET: "ig-app-secret-xyz" }; // app id missing
+    const res = await GET(new Request("http://localhost:3000/api/oauth/instagram-login"));
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!, "http://localhost:3000");
+    expect(loc.pathname).toBe("/channels");
+    expect(loc.searchParams.get("error")).toBe("instagram_login_not_configured");
+    // It must NOT have built the IG authorize URL.
+    expect(res.headers.get("location")).not.toContain("instagram.com/oauth/authorize");
+  });
+
+  it("302-redirects to the not-configured error when INSTAGRAM_APP_SECRET is unset", async () => {
+    configValues = { INSTAGRAM_APP_ID: "ig-app-id-123" }; // secret missing
+    const res = await GET(new Request("http://localhost:3000/api/oauth/instagram-login"));
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!, "http://localhost:3000");
+    expect(loc.pathname).toBe("/channels");
+    expect(loc.searchParams.get("error")).toBe("instagram_login_not_configured");
   });
 });
