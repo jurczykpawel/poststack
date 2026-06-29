@@ -64,6 +64,27 @@ describe("instagramLoginInstructions (A2)", () => {
   it("mentions the IG account 'allow access to messages' toggle", () => {
     expect(out()).toContain("messages");
   });
+  // ── in-panel connection guide: two-path model, when-to-connect, PRO-stays-PRO ──
+  it("names both connection paths (Instagram Login + Facebook Login / System User)", () => {
+    const o = out();
+    expect(o).toContain("Instagram Login");
+    expect(o.includes("Facebook Login") || o.includes("System User")).toBe(true);
+  });
+  it("explains Instagram Login is a full standalone connection that does not require a Facebook page", () => {
+    const o = out();
+    expect(o).toContain("does not require a Facebook page");
+    expect(o).toContain("direct messages");
+  });
+  it("explains the 'Facebook only' badge means an account is missing DMs", () => {
+    const o = out();
+    expect(o).toContain("Facebook only");
+    expect(o).toContain("direct messages");
+  });
+  it("notes PRO features stay PRO regardless of connection method", () => {
+    const o = out();
+    expect(o).toContain("PRO");
+    expect(o).toContain("regardless of how the account is connected");
+  });
 });
 
 describe("reconnectNote (A3) — dual-channel reconnect clarification", () => {

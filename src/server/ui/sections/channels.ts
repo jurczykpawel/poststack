@@ -105,23 +105,63 @@ export function lastErrorNote(ch: PublicChannel): Html {
   return html`<div class="ch-last-error">${pill("last error", "bad")} <small>${ch.last_error}</small></div>`;
 }
 
-/** A2: in-app setup guide for the "+ Instagram (messaging)" connect button, so a self-hoster can
- *  wire Instagram Business Login without leaving the panel. Reuses the orphaned `guide-*` disclosure
- *  styling. Shows the Meta app config (env vars + the redirect URI to register — prefixed with
- *  APP_URL for a copy-pasteable absolute URL), the IG "allow access to messages" toggle, and the
- *  per-account webhook auto-subscribe note. */
+/** A2: in-panel guide for connecting Instagram, surfaced near the "+ Instagram (messaging)" button.
+ *  Explains the two-path connection model (Instagram has a real asymmetry Facebook doesn't): a full
+ *  standalone **Instagram Login** vs the bulk **Facebook Login / System User** managed connection,
+ *  *when* to use each, how to spot an account missing DMs (the `Facebook only` badge), and that PRO
+ *  features stay PRO regardless of connection method. Keeps the self-host Meta-app setup verbatim as a
+ *  visually subordinate nested sub-section. Reuses the `guide-*`/`notice-*` styling + `pill`; UI-only. */
 export function instagramLoginInstructions(): Html {
   const redirectUri = `${env.APP_URL.replace(/\/$/, "")}/api/oauth/instagram-login/callback`;
   return html`<details class="guide-panel" style="margin-top:.75rem">
-    <summary class="guide-summary">Setting up Instagram (messaging)? ${pill("self-host setup", "info")}</summary>
+    <summary class="guide-summary">Connecting Instagram — what works, and when ${pill("setup", "info")}</summary>
     <div class="guide-body">
-      <p>Instagram Business Login needs a Meta app configured on this instance:</p>
-      <ol class="guide-steps">
-        <li>Set <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code> (from your Meta app) in the instance config.</li>
-        <li>In the Meta app, register this OAuth redirect URI: <code>${redirectUri}</code></li>
-        <li>On the Instagram account: <strong>Settings → Connected tools → allow access to messages</strong> (the account must permit message access).</li>
-      </ol>
-      <p class="guide-note">Connecting subscribes that account to messaging webhooks automatically (per-account) — no extra step.</p>
+      <p>There are two ways to connect Instagram, and they have different capabilities:</p>
+      <ul class="guide-steps">
+        <li>
+          <strong>Instagram Login</strong> (the “+ Instagram (messaging)” button): a full standalone
+          connection for <strong>one</strong> Instagram account — supporting
+          <strong>publishing, comments, direct messages, and follow-gate</strong> — and it
+          <strong>does not require a Facebook page</strong>. You connect each account individually.
+        </li>
+        <li>
+          <strong>Facebook Login / System User</strong> (managed connection): bulk-connects
+          <strong>all</strong> linked Instagram accounts at once — but only
+          <strong>publishing and comments</strong>. At Standard Access it does <strong>not</strong>
+          deliver Instagram <strong>direct messages</strong>.
+        </li>
+      </ul>
+      <p>When to use which:</p>
+      <ul class="guide-steps">
+        <li>One or a few accounts, want everything (especially DMs): just use
+          <strong>Instagram Login</strong> — nothing else needed.</li>
+        <li>Many accounts, mainly publishing: bulk-connect via <strong>System User</strong>, then add
+          <strong>Instagram Login</strong> on the accounts where you want DMs.</li>
+      </ul>
+      <p>
+        <strong>Connected but DMs don’t work?</strong> A channel showing the
+        <strong>“Facebook only”</strong> badge plus the <em>“Instagram DMs are not guaranteed…”</em>
+        warning means its DM webhooks won’t arrive — click <strong>“+ Instagram (messaging)”</strong>
+        on that account to enable <strong>direct messages</strong>.
+      </p>
+      <div class="notice notice-info">
+        <strong>PRO</strong> features (follow-gate, drip sequences, manual replies, Auto-Story,
+        automatic first comment, …) require a PRO license
+        <strong>regardless of how the account is connected</strong> — Instagram Login does not unlock
+        them for free.
+      </div>
+      <details class="guide-panel" style="margin-top:.75rem">
+        <summary class="guide-summary">Self-host setup: configuring the Meta app ${pill("self-host setup", "info")}</summary>
+        <div class="guide-body">
+          <p>Instagram Business Login needs a Meta app configured on this instance:</p>
+          <ol class="guide-steps">
+            <li>Set <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code> (from your Meta app) in the instance config.</li>
+            <li>In the Meta app, register this OAuth redirect URI: <code>${redirectUri}</code></li>
+            <li>On the Instagram account: <strong>Settings → Connected tools → allow access to messages</strong> (the account must permit message access).</li>
+          </ol>
+          <p class="guide-note">Connecting subscribes that account to messaging webhooks automatically (per-account) — no extra step.</p>
+        </div>
+      </details>
     </div>
   </details>`;
 }
