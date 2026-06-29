@@ -7,6 +7,7 @@ import { GRAPH_API_BASE } from "@/lib/platforms/constants";
 import { inspectMetaToken, MetaTokenError, type MetaTokenKind } from "@/lib/platforms/meta-token";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { redactSecrets } from "@/lib/redact";
 import { upsertChannels } from "./upsert";
 import { subscribeChannelWebhooks } from "./subscribe";
 
@@ -196,7 +197,10 @@ export async function syncAccountSource(sourceId: string): Promise<SyncSourceRes
  * to the source instead of one per child (no storm). Only the ok→down transition alerts.
  */
 export async function markSourceNeedsReauth(sourceId: string, reason: string): Promise<void> {
-  const detail = reason.slice(0, 500);
+  // A2: strip any token/secret echoed back in the failure reason (undici errors carry the Graph URL
+  // incl. ?access_token=…) BEFORE it is persisted to needs_reauth_reason / last_error (rendered in
+  // the UI + returned by GET /api/v1/channels), cascaded to channels, or emitted in the alert detail.
+  const detail = redactSecrets(reason).slice(0, 500);
   const source = await db.query.accountSources.findFirst({
     where: eq(accountSources.id, sourceId),
     columns: { status: true, workspace_id: true, display_name: true },

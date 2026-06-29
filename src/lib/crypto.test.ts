@@ -90,4 +90,32 @@ describe("verifyMetaSignature", () => {
     const { verifyMetaSignature } = await import("./crypto");
     expect(verifyMetaSignature("body", null, "secret")).toBe(false);
   });
+
+  it("rejects a tampered same-length signature", async () => {
+    const { verifyMetaSignature } = await import("./crypto");
+    const { createHmac } = await import("crypto");
+    const body = '{"object":"page"}';
+    const secret = "my-app-secret";
+    const valid = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    // Flip one hex char so the candidate keeps the SAME .length but mismatches.
+    const last = valid.slice(-1);
+    const tampered = valid.slice(0, -1) + (last === "0" ? "1" : "0");
+    expect(tampered.length).toBe(valid.length);
+    expect(verifyMetaSignature(body, tampered, secret)).toBe(false);
+  });
+
+  it("does not throw on a multibyte signature with equal UTF-16 length but larger byte length [A11]", async () => {
+    const { verifyMetaSignature } = await import("./crypto");
+    const { createHmac } = await import("crypto");
+    const body = '{"object":"page"}';
+    const secret = "my-app-secret";
+    const expected = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    // Build a signature whose .length equals expected.length but contains a multibyte char,
+    // so Buffer.from(signature).length > Buffer.from(expected).length.
+    const multibyteSig = expected.slice(0, -1) + "é"; // same UTF-16 length, +1 byte
+    expect(multibyteSig.length).toBe(expected.length);
+    expect(Buffer.from(multibyteSig).length).toBeGreaterThan(Buffer.from(expected).length);
+    expect(() => verifyMetaSignature(body, multibyteSig, secret)).not.toThrow();
+    expect(verifyMetaSignature(body, multibyteSig, secret)).toBe(false);
+  });
 });

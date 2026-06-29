@@ -98,9 +98,14 @@ export function verifyMetaSignature(
     .update(body, "utf8")
     .digest("hex")}`;
 
-  if (expected.length !== signature.length) return false;
+  // Compare BYTE lengths, not UTF-16 .length: a multibyte char in the incoming header could share
+  // expected's .length but differ in byte length, making timingSafeEqual throw → uncaught 500 that
+  // bypasses clean rejection. Build the buffers first and guard on their byte length.
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+  if (expectedBuf.length !== signatureBuf.length) return false;
 
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  return timingSafeEqual(expectedBuf, signatureBuf);
 }
 
 /** Accept the webhook if its signature matches ANY of the provided app secrets
