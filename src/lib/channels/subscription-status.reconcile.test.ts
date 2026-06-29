@@ -53,6 +53,31 @@ describe("reconcileChannelSubscription (E2 re-subscribe routing)", () => {
     expect(subscribePageWebhooks).not.toHaveBeenCalled();
   });
 
+  it("DUAL channel (page_id + messaging_token) → re-applies BOTH, true only if both succeed", async () => {
+    findFirst.mockResolvedValueOnce({
+      platform: "instagram",
+      platform_id: "IGID_2",
+      token_encrypted: encryptTokens({ access_token: "FB", page_id: "PG_2", messaging_token: "IGQW" }),
+    });
+    const ok = await reconcileChannelSubscription("ws_1", "ch_3");
+    expect(ok).toBe(true);
+    expect(subscribePageWebhooks).toHaveBeenCalledWith("PG_2", "FB");
+    expect(subscribeInstagramMessaging).toHaveBeenCalledWith("ws_1", "IGID_2", "IGQW");
+  });
+
+  it("DUAL channel → false when the IG-Login subscribe fails (even if page succeeds)", async () => {
+    findFirst.mockResolvedValueOnce({
+      platform: "instagram",
+      platform_id: "IGID_3",
+      token_encrypted: encryptTokens({ access_token: "FB", page_id: "PG_3", messaging_token: "IGQW" }),
+    });
+    subscribeInstagramMessaging.mockResolvedValueOnce({ ok: false });
+    const ok = await reconcileChannelSubscription("ws_1", "ch_4");
+    expect(ok).toBe(false);
+    expect(subscribePageWebhooks).toHaveBeenCalledWith("PG_3", "FB");
+    expect(subscribeInstagramMessaging).toHaveBeenCalledWith("ws_1", "IGID_3", "IGQW");
+  });
+
   it("page-backed channel → still uses subscribePageWebhooks", async () => {
     findFirst.mockResolvedValueOnce({
       platform: "facebook",

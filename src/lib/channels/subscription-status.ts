@@ -25,6 +25,12 @@ export interface ChannelSubscriptionStatus {
   missing: string[];
   ok: boolean; // every expected field is subscribed
   error?: string; // couldn't determine (token / Graph error)
+  // SUBDUAL1: a DUAL channel (Facebook Page token AND an IG-Login `messaging_token`) has its DMs ride
+  // the per-account IG-Login subscription, which the page row (`kind:"page"`) above does NOT reflect.
+  // When present, this is that per-account `instagram`-object subscription on graph.instagram.com,
+  // surfaced alongside the page status so a dual channel can't read "fully subscribed" on the page
+  // while its IG-Login sub is unverified. Absent for FB-only and IG-Login-only channels.
+  igLogin?: { active: string[]; missing: string[]; ok: boolean; error?: string };
 }
 
 const SUBSCRIBABLE: Platform[] = ["facebook", "instagram"];
@@ -76,6 +82,23 @@ async function fetchIgLoginSubscribedFields(
   return j.data?.[0]?.subscribed_fields ?? [];
 }
 
+/** SUBDUAL1: compute a DUAL channel's IG-Login per-account sub-result (active/missing vs
+ *  instagramLoginFields). Never throws — a Graph/token error becomes a sub-result with all fields
+ *  missing + the error message, so it can't break the page status it's attached to. */
+async function igLoginSubResult(
+  igUserId: string,
+  messagingToken: string,
+  fetchImpl: typeof fetch,
+): Promise<{ active: string[]; missing: string[]; ok: boolean; error?: string }> {
+  try {
+    const current = await fetchIgLoginSubscribedFields(igUserId, messagingToken, fetchImpl);
+    const { active, missing } = diffFields(instagramLoginFields(), current);
+    return { active, missing, ok: missing.length === 0 };
+  } catch (e) {
+    return { active: [], missing: [...instagramLoginFields()], ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Status for one channel (also used by the per-row "Fix" re-render). */
 export async function channelSubscriptionStatus(
   ch: { id: string; platform: string; platform_id: string; display_name: string | null; token_encrypted: string },
@@ -103,7 +126,13 @@ export async function channelSubscriptionStatus(
     if (!pageId) return { ...base, kind: "page", pageId: null, active: [], missing: allExpected, ok: false, error: "no linked page id" };
     const current = await fetchSubscribedFields(pageId, token.access_token ?? "", fetchImpl);
     const { active, missing } = diffSubscribedFields(wfPlatform, current);
-    return { ...base, kind: "page", pageId, active, missing, ok: missing.length === 0 };
+    // SUBDUAL1: a DUAL channel ALSO carries an IG-Login messaging_token whose per-account subscription
+    // is what actually delivers its IG DMs — surface it alongside the page status. Best-effort: an error
+    // computing it never breaks (nor throws out past) the page status above.
+    const igLogin = typeof token.messaging_token === "string"
+      ? await igLoginSubResult(ch.platform_id, token.messaging_token, fetchImpl)
+      : undefined;
+    return { ...base, kind: "page", pageId, active, missing, ok: missing.length === 0, ...(igLogin ? { igLogin } : {}) };
   } catch (e) {
     return { ...base, kind: "page", pageId: null, active: [], missing: [...expectedPageFields(wfPlatform)], ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -147,5 +176,12 @@ export async function reconcileChannelSubscription(workspaceId: string, channelI
   if (!provider.subscribePageWebhooks) return false;
   const pageId = pageIdForChannel(ch.platform, ch.platform_id, token as { page_id?: unknown });
   if (!pageId) return false;
-  return provider.subscribePageWebhooks(pageId, token.access_token ?? "");
+  const pageOk = await provider.subscribePageWebhooks(pageId, token.access_token ?? "");
+  // SUBDUAL1: a DUAL channel (page_id AND messaging_token) receives its IG DMs via the per-account
+  // IG-Login subscription too — re-apply BOTH. Succeed only if both succeed.
+  if (typeof token.messaging_token === "string") {
+    const { ok: igOk } = await subscribeInstagramMessaging(workspaceId, ch.platform_id, token.messaging_token);
+    return pageOk && igOk;
+  }
+  return pageOk;
 }

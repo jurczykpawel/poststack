@@ -84,6 +84,53 @@ describe("channelSubscriptionStatus (WEBHOOKSUB1)", () => {
     expect(st.ok).toBe(false);
   });
 
+  it("DUAL channel (FB page + IG-Login token): page status PLUS igLogin sub-result", async () => {
+    const ch = {
+      id: "c7", platform: "instagram", platform_id: "IGID7", display_name: "Dual",
+      token_encrypted: encryptTokens({ access_token: "FB", page_id: "PG", messaging_token: "IGQW" }),
+    };
+    // Branch on host: the page GET on graph.facebook.com vs the IG-Login GET on graph.instagram.com.
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("graph.instagram.com")) {
+        return new Response(JSON.stringify({ data: [{ subscribed_fields: ["messages"] }] }), { status: 200 });
+      }
+      // page subscription: fully subscribed
+      return new Response(
+        JSON.stringify({ data: [{ subscribed_fields: ["messages", "messaging_postbacks", "message_echoes", "message_reactions", "message_reads", "message_deliveries", "feed"] }] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const st = await channelSubscriptionStatus(ch, fetchImpl);
+
+    // top-level reflects the PAGE subscription
+    expect(st.kind).toBe("page");
+    expect(st.pageId).toBe("PG");
+    expect(st.active).toEqual(expect.arrayContaining(["messages", "feed"]));
+    expect(st.missing).toEqual([]);
+
+    // ...and the IG-Login per-account sub is ALSO surfaced
+    expect(st.igLogin).toBeDefined();
+    expect(st.igLogin!.active).toContain("messages");
+    expect(st.igLogin!.missing).toContain("comments");
+    expect(st.igLogin!.ok).toBe(false);
+
+    // and an IG-Login GET hit graph.instagram.com for IGID7
+    const calls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+    const igCall = calls.find((u) => u.includes("graph.instagram.com"));
+    expect(igCall).toBeDefined();
+    expect(igCall).toContain("/IGID7/subscribed_apps");
+  });
+
+  it("FB-only channel (no messaging_token): no igLogin sub-result", async () => {
+    const ch = {
+      id: "c8", platform: "facebook", platform_id: "PAGE8", display_name: "FB only",
+      token_encrypted: encryptTokens({ access_token: "T" }),
+    };
+    const st = await channelSubscriptionStatus(ch, fakeFetch(["messages"]));
+    expect(st.igLogin).toBeUndefined();
+  });
+
   it("page-based channels carry kind=page", async () => {
     const ch = {
       id: "c6", platform: "facebook", platform_id: "PAGE6", display_name: "P6",

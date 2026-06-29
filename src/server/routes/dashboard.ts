@@ -2679,10 +2679,21 @@ function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
           ${s.active.includes("message_reactions")
             ? html`<div style="display:flex;align-items:flex-start;gap:5px;font-size:.68rem;color:var(--text-3);margin-top:4px">${icon("info", "ico", 12)}<span>message_reactions is subscribed but Meta only delivers it once <code>pages_messaging</code> has Advanced Access (App Review).</span></div>`
             : ""}
+          ${s.igLogin
+            ? html`<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-2);font-weight:600">${dot(s.igLogin.error ? "warn" : s.igLogin.ok ? "ok" : "warn")} Instagram Login (per-account)</div>
+                ${s.igLogin.error
+                  ? html`<div style="font-size:.72rem;color:var(--bad-text);margin-top:3px">${s.igLogin.error}</div>`
+                  : html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;font-size:.68rem">
+                      <span style="color:var(--text-3)">Active:</span>${fieldBadges(s.igLogin.active, "ok")}
+                      <span style="color:var(--text-3)">Missing:</span>${fieldBadges(s.igLogin.missing, "warn")}
+                    </div>`}
+              </div>`
+            : ""}
         </td>
         <td style="max-width:22rem">${fieldBadges(s.active, "ok")}</td>
         <td style="max-width:18rem">${fieldBadges(s.missing, "warn")}</td>
-        <td class="th-act">${s.missing.length
+        <td class="th-act">${s.missing.length || (s.igLogin && (s.igLogin.missing.length || s.igLogin.error))
           ? html`<button class="btn btn-sm btn-primary" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML">Fix</button>`
           : html`<button class="btn btn-sm" hx-post="/webhooks/subscriptions/${s.channelId}/fix" hx-target="#wh-subs" hx-swap="outerHTML" title="Re-apply the full subscription">Re-apply</button>`}</td>
       </tr>`,
