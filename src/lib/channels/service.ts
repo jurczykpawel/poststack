@@ -15,6 +15,7 @@ import { decryptTokens } from "@/lib/crypto";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { markChannelHealthy, markChannelNeedsReauth } from "@/lib/channels/health";
 import { reconcileChannelSubscription, isSubscribablePlatform } from "@/lib/channels/subscription-status";
+import { messagingConnection, type MessagingConnection } from "@/lib/channels/ig-connection";
 import { ApiError } from "@/lib/api/response";
 
 const META_HEALTH_PLATFORMS = new Set(["facebook", "instagram"]);
@@ -52,10 +53,16 @@ export interface PublicChannel {
   created_at: Date;
   /** Gmail-channel ingest filter (raw Gmail query string). NULL = use default "in:inbox". */
   gmail_query: string | null;
+  /** Last error recorded against this channel (e.g. token/health failure), or null. */
+  last_error: string | null;
+  /** IGML3: Instagram-Login messaging token expiry (set only on IG-Login channels), or null. */
+  messaging_token_expires_at: Date | null;
+  /** Derived IG messaging credential shape (instagram_login / facebook_only); null for non-IG. */
+  messaging_connection: MessagingConnection | null;
 }
 
 type ChannelRow = typeof channels.$inferSelect;
-function toPublic(r: ChannelRow): PublicChannel {
+export function toPublic(r: ChannelRow): PublicChannel {
   return {
     id: r.id,
     platform: r.platform,
@@ -76,6 +83,9 @@ function toPublic(r: ChannelRow): PublicChannel {
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
     gmail_query: r.gmail_query,
+    last_error: r.last_error ?? null,
+    messaging_token_expires_at: r.messaging_token_expires_at ?? null,
+    messaging_connection: messagingConnection({ platform: r.platform, messaging_token_expires_at: r.messaging_token_expires_at ?? null }),
   };
 }
 
