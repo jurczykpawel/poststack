@@ -17,6 +17,7 @@ let pool: Pool;
 let db: typeof import("@/lib/db").db;
 let GET: typeof import("./route").GET;
 let POST: typeof import("./route").POST;
+let resetRejectionLogThrottle: typeof import("@/lib/webhook-events/log-throttle").resetRejectionLogThrottle;
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -34,11 +35,14 @@ beforeAll(async () => {
 
   ({ db } = await import("@/lib/db"));
   ({ GET, POST } = await import("./route"));
+  ({ resetRejectionLogThrottle } = await import("@/lib/webhook-events/log-throttle"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.delete(webhookEvents);
+  // Start each test from a full throttle budget (the buckets are process-global module state).
+  resetRejectionLogThrottle();
 });
 
 afterAll(async () => {
@@ -141,5 +145,30 @@ describe("OBS1 rejected-before-record observability (real Postgres)", () => {
     await POST(postReq(JSON.stringify({ object: "page", entry: [] }), "sha256=deadbeef"));
     const rows = await db.select().from(webhookEvents);
     expect(rows.length).toBe(2);
+  });
+});
+
+describe("OBS1 follow-up: the unauthenticated rejection log is throttled (real Postgres)", () => {
+  const badSig = () => postReq(JSON.stringify({ object: "page", entry: [] }), "sha256=deadbeef");
+
+  it("a BURST of bad requests does NOT write one webhook_events row per request", async () => {
+    if (!TEST_DB) return;
+    const N = 60;
+    for (let i = 0; i < N; i++) {
+      const res = await POST(badSig());
+      expect(res.status).toBe(403); // throttle never changes the returned status code
+    }
+    const rows = await db.select().from(webhookEvents);
+    // Bounded by the per-IP token bucket (30/min) — far fewer rows than requests = no amplification.
+    expect(rows.length).toBeLessThan(N);
+    expect(rows.length).toBeLessThanOrEqual(30);
+    expect(rows.length).toBeGreaterThan(0); // genuine rejections are still recorded
+  });
+
+  it("a single sporadic rejection IS still recorded", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(badSig());
+    expect(res.status).toBe(403);
+    expect((await db.select().from(webhookEvents)).length).toBe(1);
   });
 });

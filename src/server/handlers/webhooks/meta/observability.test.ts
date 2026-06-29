@@ -19,6 +19,7 @@ vi.mock("@/lib/webhook-events/log", () => ({
 
 let GET: typeof import("./route").GET;
 let POST: typeof import("./route").POST;
+let resetRejectionLogThrottle: typeof import("@/lib/webhook-events/log-throttle").resetRejectionLogThrottle;
 
 beforeAll(async () => {
   process.env.META_APP_SECRET = APP_SECRET;
@@ -29,9 +30,15 @@ beforeAll(async () => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   process.env.DATABASE_URL = "postgres://test:test@localhost:5433/test";
   ({ GET, POST } = await import("./route"));
+  ({ resetRejectionLogThrottle } = await import("@/lib/webhook-events/log-throttle"));
 });
 
-beforeEach(() => logWebhookMeta.mockClear());
+// Each test starts from a full throttle budget so cross-test token depletion can't make a single
+// expected log silently get dropped.
+beforeEach(() => {
+  logWebhookMeta.mockClear();
+  resetRejectionLogThrottle();
+});
 
 const sign = (body: string) => `sha256=${createHmac("sha256", APP_SECRET).update(body, "utf8").digest("hex")}`;
 
@@ -114,5 +121,28 @@ describe("OBS1: rejected-before-record observability (POST)", () => {
     expect(lastStatus()).toBe("rejected_object");
     // PII guard: the object type is passed through for the operator, never raw body content.
     expect(logWebhookMeta.mock.calls.at(-1)?.[1]).toMatchObject({ object: "weather_station" });
+  });
+});
+
+describe("OBS1 follow-up: throttling the unauthenticated rejection log", () => {
+  const badSig = () => postReq(JSON.stringify({ object: "page", entry: [] }), "sha256=deadbeef");
+
+  it("caps log writes for a BURST of bad requests (not one write per request)", async () => {
+    const N = 60;
+    for (let i = 0; i < N; i++) {
+      const res = await POST(badSig());
+      expect(res.status).toBe(403); // status code is unaffected by the throttle
+    }
+    // The flood is bounded by the per-IP token bucket (30/min), so the number of DB-write attempts
+    // is far below the number of requests — no row-per-request amplification.
+    expect(logWebhookMeta.mock.calls.length).toBeLessThan(N);
+    expect(logWebhookMeta.mock.calls.length).toBeLessThanOrEqual(30);
+    expect(logWebhookMeta.mock.calls.length).toBeGreaterThan(0); // genuine ones still captured
+  });
+
+  it("still logs a single sporadic rejection", async () => {
+    const res = await POST(badSig());
+    expect(res.status).toBe(403);
+    expect(logWebhookMeta).toHaveBeenCalledTimes(1);
   });
 });
