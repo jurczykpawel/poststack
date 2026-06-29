@@ -281,6 +281,60 @@ describe("upsertChannels (real Postgres)", () => {
     expect(blob.messaging_token).toBe("IGQW_only");
   });
 
+  it("A1: a later FB-SIDE main-path write must NOT clobber a previously augmented IG-Login messaging_token", async () => {
+    if (!TEST_DB) return;
+    const { decryptTokens } = await import("@/lib/crypto");
+    const IG = "IG-CLOBBER-1";
+    // 1) IG channel augmented with an IG-Login messaging_token (minimal IG-Login-only channel).
+    const exp = new Date(Date.now() + 5184000 * 1000);
+    await upsertChannels(WS, "instagram", [{ platformId: IG, displayName: "Acme IG", username: "acme", tokens: { access_token: "" } }], {
+      augmentMessagingToken: { token: "IGQW_keepme", expiresAt: exp },
+    });
+    const augmented = await db.query.channels.findFirst({ where: and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)) });
+    expect(augmented).toBeTruthy();
+    expect(augmented!.messaging_token_expires_at).not.toBeNull();
+    expect(decryptTokens(augmented!.token_encrypted).messaging_token).toBe("IGQW_keepme");
+
+    // 2) A later FB-SIDE write to the SAME platform_id (FB-login reconnect / manual-token / managed-source cron).
+    //    The FB-only blob must NOT drop the messaging_token, and the death-clock column must stay consistent.
+    await upsertChannels(WS, "instagram", [{ platformId: IG, displayName: "Acme IG", username: "acme", tokens: { access_token: "FB2", page_id: "PG" } }]);
+
+    const rows = await db.select().from(s.channels).where(and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)));
+    expect(rows.length).toBe(1); // exactly one row, augmented-in-place
+    const after = rows[0];
+    const blob = decryptTokens(after.token_encrypted);
+    expect(blob.messaging_token).toBe("IGQW_keepme"); // PRESERVED across the FB-side write
+    expect(blob.access_token).toBe("FB2"); // new FB page token applied
+    expect(blob.page_id).toBe("PG"); // new FB page_id applied
+    expect(typeof blob.messaging_token_expires_at).toBe("number"); // in-blob expiry preserved
+    expect(after.messaging_token_expires_at).not.toBeNull(); // death-clock column still set (consistent with blob)
+  });
+
+  it("A6: augment minimal-create revives a DISABLED row instead of crashing on the full unique index", async () => {
+    if (!TEST_DB) return;
+    const { decryptTokens } = await import("@/lib/crypto");
+    const IG = "IG-REVIVE-1";
+    // A disabled row already exists for this exact (workspace, platform, platform_id).
+    await upsertChannels(WS, "instagram", [{ platformId: IG, displayName: "Old IG", username: "old", tokens: { access_token: "old" } }]);
+    await db.update(s.channels).set({ status: "disabled" }).where(and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)));
+
+    // IG-Login-connecting this previously-disabled account must NOT 500 on a unique-constraint violation.
+    const exp = new Date(Date.now() + 5184000 * 1000);
+    await expect(
+      upsertChannels(WS, "instagram", [{ platformId: IG, displayName: "Revived IG", username: "rev", tokens: { access_token: "" } }], {
+        augmentMessagingToken: { token: "IGQW_revive", expiresAt: exp },
+      }),
+    ).resolves.toBeTruthy();
+
+    const rows = await db.select().from(s.channels).where(and(eq(s.channels.platform, "instagram"), eq(s.channels.platform_id, IG)));
+    expect(rows.length).toBe(1); // revived in place, not a duplicate
+    const c = rows[0];
+    expect(c.status).toBe("active");
+    expect(c.last_error).toBeNull();
+    expect(c.messaging_token_expires_at).not.toBeNull();
+    expect(decryptTokens(c.token_encrypted).messaging_token).toBe("IGQW_revive");
+  });
+
   it("connecting several accounts is atomic — a later account's rejection rolls back the earlier ones", async () => {
     if (!TEST_DB) return;
     const WS2 = "eeeeeeee-0000-0000-0000-0000000000c5";

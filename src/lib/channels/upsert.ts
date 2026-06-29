@@ -103,7 +103,6 @@ export async function upsertChannels(
   const results = await db.transaction(async (tx) => {
     const out: { channelId: string; recovered: boolean; isNew: boolean; displayName: string }[] = [];
     for (const account of ordered) {
-      const encryptedTokens = encryptTokens(account.tokens);
       const lockKey = `channel:${platform}:${account.platformId}`;
       // Plaintext token-death clock for the badge + proactive expiry cron (no decrypt needed).
       // Page/System-User tokens carry no expires_at → NULL (permanent).
@@ -120,17 +119,44 @@ export async function upsertChannels(
       // guarantees at most one such row per account, so this is deterministic —
       // unlike matching any row, which could return a stale disabled duplicate and
       // let the upsert re-activate it into a raw unique-constraint violation.
+      // token_encrypted is read so an IG-Login messaging_token attached earlier can be
+      // carried forward (below) instead of being clobbered by this FB-side write.
       const live = await tx.query.channels.findFirst({
         where: and(
           eq(channels.platform, platform),
           eq(channels.platform_id, account.platformId),
           ne(channels.status, "disabled"),
         ),
-        columns: { id: true, status: true, workspace_id: true },
+        columns: { id: true, status: true, workspace_id: true, token_encrypted: true },
       });
       if (live && live.workspace_id !== workspaceId) {
         throw new Error(`This ${platform} account is already connected to another workspace`);
       }
+
+      // IGML5 invariant preservation: this FB-side blob carries NO messaging_token. If the live
+      // Instagram channel was previously augmented with an IG-Login messaging_token, merge that
+      // token (+ its in-blob expiry) FORWARD — never let an FB-only write drop it (which would
+      // break "column non-null ⟺ blob has messaging_token", lie in the badge, and silently kill IG
+      // DMs with no needs_reauth). Mirrors mergeFbTokenFields in token-refresh-worker.ts.
+      // New channel / non-instagram / no live messaging_token → unchanged (column stays NULL).
+      const tokens = { ...account.tokens };
+      let messagingTokenExpiresAt: Date | null = null;
+      if (live && platform === "instagram") {
+        try {
+          const liveBlob = decryptTokens(live.token_encrypted);
+          if (liveBlob.messaging_token) {
+            tokens.messaging_token = liveBlob.messaging_token;
+            if (liveBlob.messaging_token_expires_at != null) {
+              tokens.messaging_token_expires_at = liveBlob.messaging_token_expires_at;
+              const unix = Number(liveBlob.messaging_token_expires_at);
+              messagingTokenExpiresAt = Number.isFinite(unix) && unix > 0 ? new Date(unix * 1000) : null;
+            }
+          }
+        } catch {
+          // Unreadable live blob (shouldn't happen) → write the FB-only tokens rather than fail.
+        }
+      }
+      const encryptedTokens = encryptTokens(tokens);
 
       const [channel] = await tx
         .insert(channels)
@@ -148,6 +174,7 @@ export async function upsertChannels(
           source_id: sourceId,
           token_expires_at: tokenExpiresAt,
           data_access_expires_at: dataAccessExpiresAt,
+          messaging_token_expires_at: messagingTokenExpiresAt,
         })
         .onConflictDoUpdate({
           target: [channels.workspace_id, channels.platform, channels.platform_id],
@@ -162,6 +189,7 @@ export async function upsertChannels(
             source_id: sourceId,
             token_expires_at: tokenExpiresAt,
             data_access_expires_at: dataAccessExpiresAt,
+            messaging_token_expires_at: messagingTokenExpiresAt,
           },
         })
         .returning({ id: channels.id });
@@ -260,9 +288,14 @@ async function augmentMessagingTokens(
         continue;
       }
 
-      // No channel for this account yet → minimal IG-Login-only channel (messaging token only).
+      // No LIVE channel for this account yet → minimal IG-Login-only channel (messaging token only).
+      // A6: a DISABLED row may already exist for this exact (workspace, platform, platform_id) — the
+      // `live` lookup excludes disabled, but the unique index covers it, so a raw insert would 500
+      // (→ oauth_failed). Mirror the main path: onConflictDoUpdate the unique target to revive it
+      // (active, attach the messaging token + expiry column, clear last_error) instead of crashing.
       const tokens: Record<string, unknown> = { access_token: "", messaging_token: augment.token };
       tokens.messaging_token_expires_at = expiresAtUnix;
+      const encryptedTokens = encryptTokens(tokens as ConnectedAccount["tokens"]);
       const [channel] = await tx
         .insert(channels)
         .values({
@@ -272,11 +305,24 @@ async function augmentMessagingTokens(
           display_name: account.displayName,
           username: account.username ?? null,
           profile_picture: account.profilePicture ?? null,
-          token_encrypted: encryptTokens(tokens as ConnectedAccount["tokens"]),
+          token_encrypted: encryptedTokens,
           webhook_secret: randomBytes(32).toString("hex"),
           status: "active",
           connection_mode: connectionMode,
           messaging_token_expires_at: augment.expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: [channels.workspace_id, channels.platform, channels.platform_id],
+          set: {
+            display_name: account.displayName,
+            username: account.username ?? null,
+            profile_picture: account.profilePicture ?? null,
+            token_encrypted: encryptedTokens,
+            messaging_token_expires_at: augment.expiresAt,
+            status: "active",
+            last_error: null,
+            connection_mode: connectionMode,
+          },
         })
         .returning({ id: channels.id });
       out.push({ channelId: channel.id, recovered: false, isNew: true, displayName: account.displayName });
