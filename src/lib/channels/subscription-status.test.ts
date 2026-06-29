@@ -134,7 +134,7 @@ describe("channelSubscriptionStatus (WEBHOOKSUB1)", () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes("graph.instagram.com")) {
         // every IG-Login field present (matches INSTAGRAM_LOGIN_FIELDS)
-        return new Response(JSON.stringify({ data: [{ subscribed_fields: ["messages", "messaging_postbacks", "messaging_reactions", "messaging_seen", "comments"] }] }), { status: 200 });
+        return new Response(JSON.stringify({ data: [{ subscribed_fields: ["messages", "messaging_postbacks", "message_reactions", "messaging_seen", "comments"] }] }), { status: 200 });
       }
       return new Response(
         JSON.stringify({ data: [{ subscribed_fields: ["messages", "messaging_postbacks", "message_echoes", "message_reactions", "message_reads", "message_deliveries", "feed"] }] }),

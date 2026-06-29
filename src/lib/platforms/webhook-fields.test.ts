@@ -48,7 +48,7 @@ describe("instagramLoginFields (IG-Login per-account subscribed_apps set)", () =
     expect(instagramLoginFields()).toEqual([
       "messages",
       "messaging_postbacks",
-      "messaging_reactions",
+      "message_reactions",
       "messaging_seen",
       "comments",
     ]);
@@ -56,10 +56,13 @@ describe("instagramLoginFields (IG-Login per-account subscribed_apps set)", () =
     expect(instagramLoginFields()).toContain("comments");
   });
 
-  it("uses instagram-object names, NOT page-object names", () => {
+  it("uses the exact instagram-object field names (v25.0 dashboard), NOT invalid/page-only names", () => {
     const f = instagramLoginFields();
-    // instagram object uses messaging_reactions/messaging_seen, NOT the page-object names.
-    expect(f).not.toContain("message_reactions");
+    // instagram object uses `message_reactions` + `messaging_seen` (verified against the live app's
+    // Webhooks field list). `messaging_reactions` is NOT a valid field — must never be requested.
+    expect(f).toContain("message_reactions");
+    expect(f).toContain("messaging_seen");
+    expect(f).not.toContain("messaging_reactions");
     expect(f).not.toContain("message_reads");
     expect(f).not.toContain("message_deliveries");
     expect(f).not.toContain("message_echoes");

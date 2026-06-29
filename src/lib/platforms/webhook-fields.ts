@@ -35,12 +35,14 @@ export const INSTAGRAM_PAGE_FIELDS = [
   "feed",
 ] as const;
 
-/** IG-Login per-account subscribed_apps fields on the `instagram` object (graph.instagram.com). NOT the
- *  page-object names: instagram uses messaging_reactions/messaging_seen (vs message_reactions/_reads) and
- *  carries `comments` directly. Only fields PostStack consumes (WHSUBOPTIN1 principle: omit
- *  messaging_optins/_referrals — no handler). `comments` is REQUIRED so an IG-Login-only channel
- *  receives comment webhooks for comment→DM automation. (Docs: IG API with Instagram Login webhooks.) */
-export const INSTAGRAM_LOGIN_FIELDS = ["messages", "messaging_postbacks", "messaging_reactions", "messaging_seen", "comments"] as const;
+/** IG-Login per-account subscribed_apps fields on the `instagram` object (graph.instagram.com). Field
+ *  names are the EXACT instagram-object webhook field names from the Meta dashboard (v25.0): `messages`,
+ *  `messaging_postbacks`, `message_reactions` (NOT `messaging_reactions` — that name is invalid and would
+ *  make the subscribed_apps POST fail atomically, killing all IG-Login inbound), `messaging_seen`, and
+ *  `comments`. Only fields PostStack consumes (WHSUBOPTIN1 principle: omit messaging_optins/_referrals —
+ *  no handler). `comments` is REQUIRED so an IG-Login-only channel receives comment webhooks for
+ *  comment→DM automation. (Verified against the live app's Webhooks field list, 2026-06-29.) */
+export const INSTAGRAM_LOGIN_FIELDS = ["messages", "messaging_postbacks", "message_reactions", "messaging_seen", "comments"] as const;
 export function instagramLoginFields(): readonly string[] { return INSTAGRAM_LOGIN_FIELDS; }
 
 export type Platform = "facebook" | "instagram";
