@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import { resolve } from "path";
 
 // Integration tests against a real Postgres. Requires TEST_DATABASE_URL.
@@ -8,6 +8,15 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["**/*.integration.test.ts"],
+    // Mirror the unit config's exclusions. Critically, keep `.claude/**` out: this repo uses git
+    // worktrees rooted at `.claude/worktrees/`, each a full checkout carrying its own copy of every
+    // *.integration.test.ts. Without this exclude, running the suite from the main checkout collects
+    // EVERY worktree's copy and runs them all against the single shared TEST_DATABASE_URL — the
+    // duplicate suites seed and truncate the same tables, clobbering each other's rows and producing
+    // spurious failures (count drift, wrong-schema SQL from a feature branch, "module is not a
+    // function") that don't exist in any single checkout. e2e/ is the Playwright suite (own runner)
+    // and landing/ is the Astro site — neither holds vitest specs.
+    exclude: [...configDefaults.exclude, ".claude/**", "e2e/**", "landing/**"],
     // Install the graphile_worker schema once before any suite: emitEvent now enqueues a dispatch job
     // transactionally (WHOUT1), so emitting an event / creating a contact needs the queue schema present.
     globalSetup: ["./tests/integration-setup.ts"],
