@@ -50,8 +50,6 @@ export async function logWebhookMeta(
 ): Promise<void> {
   // sanitizeForLog strips control chars (log-injection); neutralizeHtml then defangs HTML metachars
   // (stored-XSS defence-in-depth) since both fields are attacker-controlled and surface in the dashboard.
-  // sanitizeForLog strips control chars (log-injection); neutralizeHtml then defangs HTML metachars
-  // (stored-XSS defence-in-depth) since both fields are attacker-controlled and surface in the dashboard.
   const reason = neutralizeHtml(sanitizeForLog(detail.reason ?? "")).slice(0, DETAIL_CAP);
   const object = detail.object != null ? neutralizeHtml(sanitizeForLog(String(detail.object))).slice(0, OBJECT_CAP) : null;
   const bodyLength = detail.bodyLength ?? null;
