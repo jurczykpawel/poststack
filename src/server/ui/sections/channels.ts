@@ -37,7 +37,7 @@ import { statusBadge, pill, dot, type Tone } from "../components/status";
 import { platformCell, platformLabel, platformColor, platformGlyph } from "../components/platform";
 import { btn } from "../components/button";
 import { icon } from "../components/icons";
-import { oauthStartHref } from "../components/reconnect";
+import { reconnectHref } from "../components/reconnect";
 import { relTime, fmtDate } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 
@@ -74,13 +74,13 @@ function capabilityBadges(ch: PublicChannel): Html {
 /** The per-row reconnect action — only shown on a channel that actually needs it. */
 function reauthAction(ch: PublicChannel): Html {
   if (ch.status !== "needs_reauth") return html`<small>—</small>`;
-  if (ch.connection_mode === "derived") return html`<a href="/sources">Reconnect master →</a>`;
-  const start = oauthStartHref(ch.platform);
-  if (ch.connection_mode === "oauth" && start) {
-    return html`<a class="act" role="button" href="${start}">Reconnect</a>`;
-  }
+  // reconnectHref is the single source of truth for the destination (incl. IG-Login awareness);
+  // this section only varies the label/markup per connection mode.
+  const href = reconnectHref(ch);
+  if (ch.connection_mode === "derived") return html`<a href="${href}">Reconnect master →</a>`;
+  if (ch.connection_mode === "oauth") return html`<a class="act" role="button" href="${href}">Reconnect</a>`;
   // manual_token → reconnect on the detail page (paste a fresh token).
-  return html`<a class="act outline" role="button" href="/channels/${ch.id}">Reconnect →</a>`;
+  return html`<a class="act outline" role="button" href="${href}">Reconnect →</a>`;
 }
 
 function countsHeader(
@@ -408,9 +408,9 @@ function actionForm(action: string, label: string, variant: "secondary" | "dange
 }
 
 function reconnectControl(ch: PublicChannel): Html {
-  if (ch.connection_mode === "derived") return btn({ label: "Reconnect master", href: "/sources", variant: "primary", icon: "reconnect" });
-  const start = oauthStartHref(ch.platform);
-  if (ch.connection_mode === "oauth" && start) return btn({ label: "Reconnect", href: start, variant: "primary", icon: "reconnect" });
+  const href = reconnectHref(ch);
+  if (ch.connection_mode === "derived") return btn({ label: "Reconnect master", href, variant: "primary", icon: "reconnect" });
+  if (ch.connection_mode === "oauth") return btn({ label: "Reconnect", href, variant: "primary", icon: "reconnect" });
   return html``;
 }
 
