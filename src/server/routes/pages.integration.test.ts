@@ -170,6 +170,29 @@ describe("authenticated dashboard (real Postgres)", () => {
     }
   });
 
+  // OBS1: the Webhooks page surfaces channel-less endpoint activity (handshakes + rejected-before-record
+  // hits) in a read-only, status-filterable list — so a bad signature / unknown object is never silent.
+  it("shows endpoint-activity (handshake + rejected) hits on the Webhooks panel, filterable by status", async () => {
+    if (!TEST_DB) return;
+    const { logWebhookMeta } = await import("@/lib/webhook-events/log");
+    await logWebhookMeta("handshake_fail", { reason: "verify token mismatch" });
+    await logWebhookMeta("rejected_signature", { reason: "x-hub-signature-256 did not match", bodyLength: 42 });
+
+    // The /webhooks page lazy-loads the list; assert the list endpoint directly.
+    const all = await app.request("/webhooks/endpoint-activity", { headers: withCookie() });
+    expect(all.status).toBe(200);
+    const allBody = await all.text();
+    // Assert the rendered status BADGES (table rows), not the filter <select> options which list
+    // every status name regardless of what's shown.
+    expect(allBody).toContain(">handshake_fail</span>");
+    expect(allBody).toContain(">rejected_signature</span>");
+
+    // Filtering narrows to one outcome — only the matching badge appears.
+    const filtered = await (await app.request("/webhooks/endpoint-activity?status=rejected_signature", { headers: withCookie() })).text();
+    expect(filtered).toContain(">rejected_signature</span>");
+    expect(filtered).not.toContain(">handshake_fail</span>");
+  });
+
   it("renders the quick reply + button editor on the rules page", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/rules", { headers: withCookie() })).text();

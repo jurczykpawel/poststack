@@ -29,6 +29,13 @@
       "when": 1782653112705,
       "tag": "0003_telemetry_and_lead_capture",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782725231796,
+      "tag": "0004_webhook_observability_statuses",
+      "breakpoints": true
     }
   ]
 }

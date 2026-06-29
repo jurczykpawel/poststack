@@ -44,7 +44,11 @@ export const trigger_type = pgEnum("trigger_type", ['keyword', 'comment_keyword'
 // (logged for inspection, no job); `ignored` = recognized but intentionally not acted on (self-loop
 // guard, echo with no matching delivery, non-private TG chat); `fired`/`no_match`/`paused` mirror the
 // rule outcomes; `error` = the handler threw after exhausting retries.
-export const webhookEventHandlingStatus = pgEnum("webhook_event_handling_status", ['received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error', 'recorded'])
+// OBS1: the `handshake_*` + `rejected_*` values record webhook-endpoint hits that never reach event
+// classification — the GET subscription handshake (ok/fail) and POST requests refused BEFORE a row was
+// ever written (bad HMAC signature, unparseable JSON, unknown object type, body over the size cap).
+// They carry no PII (only a sanitized reason + body length), so every hit on the endpoint is observable.
+export const webhookEventHandlingStatus = pgEnum("webhook_event_handling_status", ['received', 'fired', 'no_match', 'paused', 'ignored', 'unhandled', 'error', 'recorded', 'handshake_ok', 'handshake_fail', 'rejected_signature', 'rejected_parse', 'rejected_object', 'rejected_too_large'])
 // Lifecycle of one outbound webhook delivery (a single event fanned out to a single endpoint).
 // `pending` = enqueued, not yet attempted; `delivering` = in flight / retrying after a transient
 // failure; `delivered` = the endpoint returned 2xx; `failed` = retries exhausted (dead-letter).

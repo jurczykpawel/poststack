@@ -7,7 +7,7 @@ import { verifyMetaSignatureAny } from "@/lib/crypto";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { addJob } from "@/lib/queue/client";
 import { logEvent, markEventStatus } from "@/lib/idempotency";
-import { classifyMessagingEvent, classifyChangeEvent } from "@/lib/webhook-events/log";
+import { classifyMessagingEvent, classifyChangeEvent, logWebhookMeta } from "@/lib/webhook-events/log";
 import type { IncomingMessageJob, IncomingCommentJob, IncomingReactionJob, IncomingPostReactionJob, IncomingEchoJob, IncomingReceiptJob } from "@/lib/queue/types";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -32,9 +32,16 @@ export async function GET(request: Request) {
   const challenge = searchParams.get("hub.challenge");
 
   if (mode === "subscribe" && (await verifyTokenMatches(token))) {
+    // OBS1: record the successful handshake so a re-subscription is visible, not silent.
+    await logWebhookMeta("handshake_ok", { reason: "subscribe verified" }).catch(() => {});
     return new Response(challenge, { status: 200 });
   }
 
+  // OBS1: record the failed handshake (wrong/absent token, or an unexpected mode) — this was a blind
+  // spot. No PII: only the reason, never the token value.
+  await logWebhookMeta("handshake_fail", {
+    reason: mode !== "subscribe" ? `unexpected hub.mode=${mode ?? "<none>"}` : "verify token mismatch",
+  }).catch(() => {});
   return new Response("Forbidden", { status: 403 });
 }
 
@@ -47,6 +54,10 @@ const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024; // 1 MiB
 export async function POST(request: Request) {
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(declaredLength) && declaredLength > MAX_WEBHOOK_BODY_BYTES) {
+    await logWebhookMeta("rejected_too_large", {
+      reason: `declared content-length ${declaredLength} exceeds cap ${MAX_WEBHOOK_BODY_BYTES}`,
+      bodyLength: declaredLength,
+    }).catch(() => {});
     return new Response("Payload Too Large", { status: 413 });
   }
 
@@ -54,7 +65,12 @@ export async function POST(request: Request) {
   // Enforce the cap on the ACTUAL bytes too, not just the declared Content-Length: a chunked /
   // header-less request bypasses the check above, so re-check after reading and reject before
   // the HMAC/parse. nginx's client_max_body_size is the prod-level guard.
-  if (Buffer.byteLength(rawBody) > MAX_WEBHOOK_BODY_BYTES) {
+  const actualLength = Buffer.byteLength(rawBody);
+  if (actualLength > MAX_WEBHOOK_BODY_BYTES) {
+    await logWebhookMeta("rejected_too_large", {
+      reason: `actual body ${actualLength} bytes exceeds cap ${MAX_WEBHOOK_BODY_BYTES} (no/under-declared content-length)`,
+      bodyLength: actualLength,
+    }).catch(() => {});
     return new Response("Payload Too Large", { status: 413 });
   }
   const signature = request.headers.get("x-hub-signature-256") ?? "";
@@ -65,6 +81,12 @@ export async function POST(request: Request) {
     return new Response("Meta webhook not configured", { status: 503 });
   }
   if (!verifyMetaSignatureAny(rawBody, signature, [appSecret, igAppSecret])) {
+    // OBS1: a bad/absent signature is the most common cause of "Meta says it's sending but nothing
+    // arrives". Record it (length + reason only — the unverified body is untrusted and never stored).
+    await logWebhookMeta("rejected_signature", {
+      reason: signature ? "x-hub-signature-256 did not match any configured app secret" : "missing x-hub-signature-256 header",
+      bodyLength: actualLength,
+    }).catch(() => {});
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -72,11 +94,15 @@ export async function POST(request: Request) {
   try {
     payload = JSON.parse(rawBody) as MetaWebhookPayload;
   } catch {
+    await logWebhookMeta("rejected_parse", { reason: "request body is not valid JSON", bodyLength: actualLength }).catch(() => {});
     return new Response("Bad Request", { status: 400 });
   }
 
   // Validate platform - Meta sends "page" for FB page webhooks, "instagram" for IG
   if (!VALID_PLATFORMS.has(payload.object)) {
+    // OBS1: an unknown object type was previously a silent 200 — record it (the object type is safe
+    // operator metadata; the body is not stored).
+    await logWebhookMeta("rejected_object", { reason: "unsupported object type", object: payload.object, bodyLength: actualLength }).catch(() => {});
     return Response.json({ status: "ignored", reason: "unsupported object type" });
   }
 

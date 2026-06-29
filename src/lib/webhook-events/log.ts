@@ -1,6 +1,56 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { sql } from "drizzle-orm";
+import { webhookEvents } from "@/db/schema";
+import { sanitizeForLog } from "@/lib/api/safe-log";
 import type { LogEventInput } from "@/lib/idempotency";
 import type { Platform } from "@/db/schema";
+
+/**
+ * OBS1: observability statuses for a webhook-endpoint hit that never reaches event classification.
+ * `handshake_*` is the GET subscription verification (Meta's hub.challenge); `rejected_*` is a POST
+ * request refused BEFORE a row was written — bad HMAC, unparseable JSON, unknown object, oversized body.
+ */
+export type WebhookMetaStatus =
+  | "handshake_ok"
+  | "handshake_fail"
+  | "rejected_signature"
+  | "rejected_parse"
+  | "rejected_object"
+  | "rejected_too_large";
+
+/** Cap free-text fields written to the durable row so a hostile client can't bloat storage. */
+const DETAIL_CAP = 500;
+const OBJECT_CAP = 64;
+
+/**
+ * Record one webhook-endpoint hit that was handled or refused before classification, so every GET
+ * handshake and every pre-classification POST rejection is visible in `webhook_events` (the 3-hour
+ * blind-spot OBS1 closes). PII-safe: NEVER stores the raw body (DM text / sender ids) — only the
+ * status, a sanitized reason, the declared/actual body length, and (for `rejected_object`) the
+ * offending object type. Each hit is its own row (event_key carries a UUID, so no dedup collapses
+ * repeated handshakes/rejections). The caller swallows failures — logging must never fail the webhook.
+ */
+export async function logWebhookMeta(
+  status: WebhookMetaStatus,
+  detail: { reason: string; bodyLength?: number | null; object?: string | null } = { reason: "" },
+): Promise<void> {
+  const reason = sanitizeForLog(detail.reason ?? "").slice(0, DETAIL_CAP);
+  const object = detail.object != null ? sanitizeForLog(String(detail.object)).slice(0, OBJECT_CAP) : null;
+  const bodyLength = detail.bodyLength ?? null;
+  // Lazy import: this module's classify* helpers are pure and imported by env-free unit tests, but
+  // `@/lib/db` throws at import without DATABASE_URL — keep the DB dependency inside the only fn using it.
+  const { db } = await import("@/lib/db");
+  await db.insert(webhookEvents).values({
+    // Each hit is a distinct row; the UUID keeps event_key unique without ever embedding payload bytes.
+    event_key: `meta-${status}-${randomUUID()}`,
+    event_type: status,
+    object,
+    raw: { reason, bodyLength }, // PII-safe summary only — never the request body.
+    handling_status: status,
+    error_detail: reason,
+    handled_at: sql`now()`,
+  });
+}
 
 /**
  * Classification of a single inbound Meta event into the durable webhook_events row + the handler

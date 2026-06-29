@@ -689,7 +689,19 @@ const WEBHOOK_STATUS_LEGEND: ReadonlyArray<readonly [string, Tone, string]> = [
   ["ignored", "neutral", "Intentionally skipped — e.g. your own echo or a duplicate."],
   ["unhandled", "neutral", "An event type the app doesn't act on."],
   ["error", "bad", "Processing failed — open the event for details."],
+  // OBS1: endpoint-level outcomes that never became an event (no channel) — see "Endpoint activity".
+  ["handshake_ok", "ok", "Meta verified your webhook subscription (the GET challenge succeeded)."],
+  ["handshake_fail", "bad", "A subscription verification was refused — wrong/absent verify token or unexpected mode."],
+  ["rejected_signature", "bad", "A POST was refused before processing — its signature didn't match your app secret."],
+  ["rejected_parse", "bad", "A POST body wasn't valid JSON — refused before processing."],
+  ["rejected_object", "warn", "A POST for an object type the app doesn't handle — recorded, not processed."],
+  ["rejected_too_large", "bad", "A POST body exceeded the size cap — refused before buffering."],
 ];
+// OBS1: the endpoint-activity statuses (handshake + rejected-before-record). These rows have no
+// channel, so they live in their own instance-wide list rather than the per-channel incoming log.
+const WEBHOOK_ENDPOINT_STATUSES = [
+  "handshake_ok", "handshake_fail", "rejected_signature", "rejected_parse", "rejected_object", "rejected_too_large",
+] as const;
 const WEBHOOK_STATUS_TONE: Record<string, Tone> = Object.fromEntries(WEBHOOK_STATUS_LEGEND.map(([s, tone]) => [s, tone]));
 
 type WebhookEventDetail = typeof import("@/db/schema").webhookEvents.$inferSelect;
@@ -813,6 +825,50 @@ function renderWebhookStats(s: WebhookStats): Html {
   return html`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:.5rem 0 1rem">
     ${tiles.map(([label, n, tone]) => kpi({ label, value: n, tone: label === "Errors" && n > 0 ? "bad" : tone }))}
   </div>`;
+}
+
+// OBS1: one row of endpoint activity (a handshake or a rejected-before-record hit). These have no
+// channel and no event payload — only the status, a sanitized reason, and the body length.
+type WebhookEndpointRow = Pick<WebhookEventDetail, "id" | "event_type" | "object" | "handling_status" | "received_at" | "error_detail">;
+type HandlingStatus = WebhookEventDetail["handling_status"];
+
+function isEndpointStatus(s: string | undefined): s is (typeof WEBHOOK_ENDPOINT_STATUSES)[number] {
+  return !!s && (WEBHOOK_ENDPOINT_STATUSES as readonly string[]).includes(s);
+}
+
+/** OBS1: recent handshake + rejected-before-record hits — instance-wide (channel-less), newest first.
+ *  An optional `status` narrows to one outcome (the panel's filter). Read-only. */
+async function loadEndpointActivity(status?: string): Promise<WebhookEndpointRow[]> {
+  const where = isEndpointStatus(status)
+    ? eq(webhookEvents.handling_status, status)
+    : inArray(webhookEvents.handling_status, [...WEBHOOK_ENDPOINT_STATUSES] as HandlingStatus[]);
+  return db.query.webhookEvents.findMany({
+    where,
+    orderBy: [desc(webhookEvents.received_at)],
+    limit: 50,
+    columns: { id: true, event_type: true, object: true, handling_status: true, received_at: true, error_detail: true },
+  });
+}
+
+/** OBS1: the read-only endpoint-activity list + a status filter. Lazy-loaded into #wh-endpoint and
+ *  re-fetched on filter change (htmx), mirroring the subscriptions panel. */
+function renderEndpointActivity(rows: WebhookEndpointRow[], status?: string): Html {
+  const selected = isEndpointStatus(status) ? status : "";
+  const filter = html`<select class="input" name="status" style="max-width:240px;margin-bottom:.6rem"
+      hx-get="/webhooks/endpoint-activity" hx-target="#wh-endpoint" hx-swap="innerHTML" hx-trigger="change">
+    <option value=""${selected === "" ? " selected" : ""}>All endpoint hits</option>
+    ${WEBHOOK_ENDPOINT_STATUSES.map((s) => html`<option value="${s}"${s === selected ? " selected" : ""}>${s}</option>`)}
+  </select>`;
+  const body = rows.length === 0
+    ? html`<p class="muted" style="font-size:.85rem">No endpoint hits recorded${selected ? html` for <strong>${selected}</strong>` : html``} yet. Subscription handshakes and rejected (bad signature / unparseable / unknown object / oversized) requests show up here.</p>`
+    : html`<table><thead><tr><th>Status</th><th>Object</th><th>Detail</th><th>When</th></tr></thead>
+        <tbody>${rows.map((e) => html`<tr>
+          <td><span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span></td>
+          <td class="muted" style="font-size:.8rem">${e.object ?? "—"}</td>
+          <td class="muted" style="font-size:.78rem">${e.error_detail ?? "—"}</td>
+          <td class="muted">${timeAgo(e.received_at)}</td>
+        </tr>`)}</tbody></table>`;
+  return html`<div id="wh-endpoint">${filter}${body}</div>`;
 }
 
 /**
@@ -1904,6 +1960,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     <td><button class="btn btn-sm" hx-get="/webhooks/${e.id}" hx-target="#wh-detail" hx-swap="innerHTML" title="Full payload + what it triggered">View</button></td>
                   </tr>`,
                 )}</tbody></table>`}
+          <h3 style="margin-top:1.5rem">Endpoint activity — handshakes &amp; rejected hits</h3>
+          <p class="muted" style="font-size:.85rem">Every hit on your webhook URL that never became an event: the Meta subscription handshake, plus requests refused before processing (bad signature, unparseable body, unknown object, oversized). Instance-wide — these carry no channel or message content.</p>
+          <div id="wh-endpoint" hx-get="/webhooks/endpoint-activity" hx-trigger="load" hx-swap="innerHTML">
+            <p class="muted" style="font-size:.82rem">Loading endpoint activity…</p>
+          </div>
           </div>
           <div class="settings-panel" x-show="tab==='subscriptions'" x-cloak>
           <h2>Subscriptions — what each connected account is set to receive</h2>
@@ -1938,6 +1999,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   // Clear the inbound-event detail panel (Close button).
   app.get("/webhooks/clear", guard, (c) => c.html(html``));
+
+  // OBS1: read-only endpoint-activity list (handshakes + rejected-before-record hits), with an
+  // optional ?status= filter. Lazy-loaded + re-fetched on filter change. Registered BEFORE
+  // /webhooks/:id so this static path isn't captured by the :id param.
+  app.get("/webhooks/endpoint-activity", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const status = c.req.query("status") || undefined;
+    const rows = await loadEndpointActivity(status);
+    return c.html(renderEndpointActivity(rows, status));
+  });
 
   // WEBHOOKSUB1: per-account subscription status panel (lazy-loaded — does live Graph reads).
   // Registered BEFORE /webhooks/:id so the static path isn't captured by the :id param.
