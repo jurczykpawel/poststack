@@ -200,6 +200,10 @@ export const channels = pgTable("channels", {
 	// without decrypting every token. NULL = no/unknown expiry (e.g. permanent page/system-user token).
 	token_expires_at: timestamp("token_expires_at", { precision: 3, mode: 'date' }),
 	data_access_expires_at: timestamp("data_access_expires_at", { precision: 3, mode: 'date' }),
+	// IGML3: plaintext death-clock for the 60-day Instagram-Login messaging token (the secret stays in
+	// token_encrypted as `messaging_token`). NULL = no messaging token / unknown expiry. Surfaced so the
+	// refresh scan finds near-expiry channels without decrypting and the UI can show an expiry badge.
+	messaging_token_expires_at: timestamp("messaging_token_expires_at", { withTimezone: true }),
 	// Why a credential needs re-auth (e.g. "token_expired", "cascade:source"); surfaced in the UI.
 	needs_reauth_reason: text("needs_reauth_reason"),
 	// Owning brand within the workspace (null = unassigned). Drives cross-platform brand grouping —

@@ -1184,6 +1184,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "messaging_token_expires_at": {
+          "name": "messaging_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "needs_reauth_reason": {
           "name": "needs_reauth_reason",
           "type": "text",
