@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
@@ -47,6 +47,34 @@ export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
         `[token-refresh-scan] channel ${channel.id} skipped: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`,
       );
     }
+  }
+
+  // IGML6 (life-support): the Instagram-Login messaging token (IGQW `messaging_token`) lives on its
+  // OWN 60-day clock, tracked by the PLAINTEXT messaging_token_expires_at column — independent of the
+  // FB page/user token above. A dead one silently kills IG DMs (a real channel died exactly this way),
+  // so it MUST be refreshed proactively. Scanned DB-side (no decrypt needed — the death-clock is
+  // plaintext) and enqueued on its own jobKey + `kind: "messaging"`, so it never collides with the
+  // oauth refresh job above and the two clocks stay fully independent. Buffer = the IG provider's
+  // refreshBufferSeconds() (~10 days) — single source of truth. Already-expired rows are included so a
+  // (still-refreshable) just-lapsed token is recovered, and a truly dead one flips to needs_reauth.
+  const igBufferSeconds = getProvider("instagram").refreshBufferSeconds();
+  const messagingThreshold = new Date(Date.now() + igBufferSeconds * 1000);
+  const messagingRows = await db.query.channels.findMany({
+    where: and(
+      eq(channels.status, "active"),
+      isNotNull(channels.messaging_token_expires_at),
+      lte(channels.messaging_token_expires_at, messagingThreshold),
+    ),
+    columns: { id: true },
+  });
+
+  for (const channel of messagingRows) {
+    await addJob(
+      "token-refresh",
+      { channelId: channel.id, kind: "messaging" },
+      { jobKey: `messaging-token-refresh-${channel.id}` },
+    );
+    enqueued++;
   }
 
   return { enqueued };

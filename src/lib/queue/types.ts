@@ -199,6 +199,13 @@ export interface OutgoingMessageJob extends FirstResponseStamp {
 
 export interface TokenRefreshJob {
   channelId: string;
+  /**
+   * Which credential clock to refresh. "oauth" (default / omitted) = the main long-lived FB
+   * page/user token via provider.refreshToken. "messaging" = the Instagram-Login IGQW
+   * `messaging_token`, which runs on its OWN 60-day clock (IGML6 life-support) via
+   * provider.refreshMessagingToken.
+   */
+  kind?: "oauth" | "messaging";
 }
 
 /** Publish a scheduled delivery (the AUD27 crash-safe publish worker). */

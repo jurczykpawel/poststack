@@ -54,6 +54,10 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
       if (url.includes("is_user_follow_business")) {
         return Response.json({ is_user_follow_business: true });
       }
+      if (url.includes("/refresh_access_token")) {
+        // graph.instagram.com long-lived refresh: returns a fresh 60-day token.
+        return Response.json({ access_token: "IGQW_new_tok", token_type: "bearer", expires_in: 5_184_000 });
+      }
       // getUserProfile
       if (url.includes("fields=name") || url.includes("profile_pic")) {
         return Response.json({ name: "Jane", username: "jane_ig", profile_pic: "https://x/p.jpg" });
@@ -127,6 +131,28 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
         expect(call.url.startsWith(IG_GRAPH_BASE)).toBe(true);
         expect(call.url).not.toContain("graph.facebook.com");
       }
+    });
+  });
+
+  // ─── IG-Login messaging token refresh (IGML6) ─────────────────────────────
+
+  describe("refreshMessagingToken hits the unversioned graph.instagram.com refresh endpoint", () => {
+    it("GETs {graph.instagram.com origin}/refresh_access_token?grant_type=ig_refresh_token with the IG token and returns {token, expiresAt}", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const before = Math.floor(Date.now() / 1000);
+      const out = await new InstagramProvider().refreshMessagingToken!("IGQW_old_tok");
+
+      const call = fetchCalls.find((c) => c.url.includes("/refresh_access_token"))!;
+      const origin = new URL(IG_GRAPH_BASE).origin; // https://graph.instagram.com (no /vNN)
+      expect(call.url.startsWith(`${origin}/refresh_access_token`)).toBe(true);
+      expect(call.url).toContain("grant_type=ig_refresh_token");
+      expect(call.url).toContain("access_token=IGQW_old_tok");
+      // The refresh endpoint is unversioned — never the /vNN host (guarded by version-source.test.ts too).
+      expect(call.url).not.toMatch(/graph\.instagram\.com\/v\d/);
+
+      expect(out.token).toBe("IGQW_new_tok");
+      expect(out.expiresAt).toBeGreaterThanOrEqual(before + 5_184_000);
+      expect(out.expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 5_184_000);
     });
   });
 

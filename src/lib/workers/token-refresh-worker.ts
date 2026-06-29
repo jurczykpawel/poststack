@@ -1,4 +1,5 @@
 import type { JobHelpers } from "graphile-worker";
+import type { Platform } from "@/db/schema";
 import type { TokenRefreshJob } from "@/lib/queue/types";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -40,6 +41,15 @@ export async function processTokenRefresh(
   }
 
   const provider = getProvider(channel.platform);
+
+  // IGML6: the Instagram-Login messaging token runs on its OWN 60-day clock, refreshed via a separate
+  // provider method and persisted to its own column. Branch here BEFORE the requiresTokenRefresh()
+  // gate (which governs the main FB token only).
+  if (payload.kind === "messaging") {
+    await refreshMessagingToken(channelId, channel.platform, channel.token_encrypted, helpers);
+    return;
+  }
+
   if (!provider.requiresTokenRefresh()) {
     helpers.logger.info(`Platform ${channel.platform} does not require token refresh`);
     return;
@@ -80,4 +90,67 @@ export async function processTokenRefresh(
   });
 
   helpers.logger.info(`Token refreshed for channel=${channelId}`);
+}
+
+/**
+ * IGML6 (life-support): refresh the Instagram-Login IGQW `messaging_token` on its own 60-day clock.
+ *
+ * 1. Decrypt the blob (an undecryptable token → TokenInvalidError, handled like a dead token).
+ * 2. provider.refreshMessagingToken(currentToken).
+ * 3. On success: write the new token back INTO the blob (preserving the FB page token + every other
+ *    field) and advance BOTH the in-blob `messaging_token_expires_at` (unix seconds) and the plaintext
+ *    `messaging_token_expires_at` column the scan reads.
+ * 4. On a dead/undecryptable token: flag the channel needs_reauth with reason `messaging_token_expired`
+ *    — markChannelNeedsReauth fires the channel-down alert (REL3) on the ok→down transition. Retrying
+ *    won't help, so stop. A transient error re-throws to let the job retry.
+ */
+async function refreshMessagingToken(
+  channelId: string,
+  platform: Platform,
+  tokenEncrypted: string,
+  helpers: JobHelpers,
+): Promise<void> {
+  const provider = getProvider(platform);
+  if (typeof provider.refreshMessagingToken !== "function") {
+    helpers.logger.info(`Platform ${platform} has no messaging token to refresh, skipping`);
+    return;
+  }
+
+  let blob;
+  let refreshed;
+  try {
+    // Decrypt INSIDE the catch (see processTokenRefresh): a corrupt/rotated-key token throws
+    // TokenInvalidError and is flagged here, not left to dead-letter the job with no signal.
+    blob = decryptChannelToken(tokenEncrypted);
+    const messagingToken = typeof blob.messaging_token === "string" ? blob.messaging_token : "";
+    if (!messagingToken) {
+      // The expiry column was set but the secret is gone (shouldn't happen) — nothing to refresh.
+      helpers.logger.info(`Channel ${channelId} has no messaging token, skipping`);
+      return;
+    }
+    refreshed = await provider.refreshMessagingToken(messagingToken);
+  } catch (err) {
+    if (err instanceof TokenInvalidError) {
+      // Dead/undecryptable messaging token (>60d, refresh rejected) — flag for re-auth + alert, stop.
+      await markChannelNeedsReauth(channelId, "messaging_token_expired");
+      helpers.logger.info(`Channel ${channelId} messaging token invalid, flagged needs_reauth`);
+      return;
+    }
+    throw err; // transient — allow retry
+  }
+
+  // Persist the refreshed messaging token: re-encrypt the blob with the new secret + advance both the
+  // in-blob unix expiry and the plaintext death-clock column the scan reads. The FB page token and
+  // every other blob field are preserved.
+  blob.messaging_token = refreshed.token;
+  blob.messaging_token_expires_at = refreshed.expiresAt;
+  await db
+    .update(channels)
+    .set({
+      token_encrypted: encryptTokens(blob),
+      messaging_token_expires_at: new Date(refreshed.expiresAt * 1000),
+    })
+    .where(eq(channels.id, channelId));
+
+  helpers.logger.info(`Messaging token refreshed for channel=${channelId}`);
 }

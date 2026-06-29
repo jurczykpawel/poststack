@@ -216,6 +216,27 @@ export class InstagramProvider extends SocialProvider {
     };
   }
 
+  /**
+   * IGML6 (life-support): refresh the long-lived Instagram-Login messaging token (the IGQW
+   * `messaging_token`) on its own 60-day clock — independent of the FB page/user token that
+   * {@link refreshToken} handles. A dead IG-Login token silently kills IG DMs (a real channel died
+   * exactly this way), so the refresh scan/worker call this ~10 days before expiry.
+   *
+   * Hits the UNVERSIONED refresh endpoint on the graph.instagram.com origin
+   * (`/refresh_access_token?grant_type=ig_refresh_token`), derived from IG_GRAPH_BASE's origin so the
+   * version literal stays only in constants.ts (guarded by version-source.test.ts). On a rejected /
+   * expired token assertMetaOk throws TokenInvalidError → the worker flags the channel needs_reauth.
+   */
+  override async refreshMessagingToken(igToken: string): Promise<{ token: string; expiresAt: number }> {
+    const url =
+      `${new URL(IG_GRAPH_BASE).origin}/refresh_access_token?` +
+      new URLSearchParams({ grant_type: "ig_refresh_token", access_token: igToken }).toString();
+    const res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+    await assertMetaOk(res, "Instagram messaging token refresh");
+    const d = (await res.json()) as { access_token: string; expires_in: number };
+    return { token: d.access_token, expiresAt: Math.floor(Date.now() / 1000) + d.expires_in };
+  }
+
   async sendMessage(
     tokens: TokenData,
     recipientId: string,

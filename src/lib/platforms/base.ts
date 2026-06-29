@@ -126,6 +126,15 @@ export abstract class SocialProvider {
   abstract refreshToken(tokens: TokenData): Promise<TokenData>;
 
   /**
+   * Refresh a secondary messaging token that runs on its OWN expiry clock, independent of the main
+   * {@link refreshToken} credential. Optional — only Instagram implements it, for the Instagram-Login
+   * IGQW `messaging_token` (60-day, life-support: a dead one silently kills IG DMs). Takes the current
+   * token, returns the refreshed token + its new unix-seconds expiry. Throws TokenInvalidError when
+   * the token is too dead to refresh, so the refresh worker can flag the channel needs_reauth.
+   */
+  refreshMessagingToken?(messagingToken: string): Promise<{ token: string; expiresAt: number }>;
+
+  /**
    * Send a DM to a conversation.
    * @param tokens - Decrypted channel tokens
    * @param recipientId - Platform-native recipient ID (PSID, IG user ID, etc.)
