@@ -87,6 +87,10 @@ export async function exchangeInstagramLoginCode(code: string, redirectUri: stri
   if (!shortToken) throw new Error("Instagram-Login short-lived token missing access_token");
 
   // 2. long-lived token — unversioned host (graph.instagram.com/access_token)
+  // SECURITY: the `client_secret` sits in the query string because Meta's `ig_exchange_token` API
+  // mandates a GET with the secret as a query param (unavoidable — there is no POST/header form).
+  // Consequence: outbound-request URL logging must NEVER be enabled around this call, or the secret
+  // would leak into logs (secrets-in-URL). Keep any fetch tracing here body/header-only.
   const graphHost = new URL(IG_GRAPH_BASE).origin;
   const llParams = new URLSearchParams({
     grant_type: "ig_exchange_token",

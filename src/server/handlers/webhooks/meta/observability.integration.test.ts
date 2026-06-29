@@ -172,3 +172,35 @@ describe("OBS1 follow-up: the unauthenticated rejection log is throttled (real P
     expect((await db.select().from(webhookEvents)).length).toBe(1);
   });
 });
+
+describe("OBS1 stored-XSS defence-in-depth: HTML metachars are neutralized at the write boundary", () => {
+  const XSS = "<script>alert(1)</script>";
+
+  it("rejected_object: payload.object containing <script> is stored with NO raw </>", async () => {
+    if (!TEST_DB) return;
+    const body = JSON.stringify({ object: XSS, entry: [] });
+    const res = await POST(postReq(body, sign(body)));
+    expect(res.status).toBe(200);
+    const row = await latest();
+    expect(row.handling_status).toBe("rejected_object");
+    // Stored value is safe even if a render site is later switched to raw(): no HTML metacharacters.
+    expect(row.object).not.toContain("<");
+    expect(row.object).not.toContain(">");
+    expect(row.object).not.toContain("<script>");
+    // The diagnostic value is still legible (neutralized, not dropped).
+    expect(row.object).toContain("script");
+  });
+
+  it("handshake_fail: hub.mode containing <script> is stored in error_detail with NO raw </>", async () => {
+    if (!TEST_DB) return;
+    const res = await GET(getReq(undefined, XSS));
+    expect(res.status).toBe(403);
+    const row = await latest();
+    expect(row.handling_status).toBe("handshake_fail");
+    expect(row.error_detail).not.toContain("<");
+    expect(row.error_detail).not.toContain(">");
+    expect(row.error_detail).not.toContain("<script>");
+    expect(JSON.stringify(row.raw)).not.toContain("<script>");
+    expect(row.error_detail).toContain("script"); // still diagnostic
+  });
+});

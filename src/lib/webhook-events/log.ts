@@ -23,6 +23,20 @@ const DETAIL_CAP = 500;
 const OBJECT_CAP = 64;
 
 /**
+ * Defence-in-depth (stored-XSS): neutralize HTML metacharacters in the attacker-controlled webhook
+ * diagnostic fields (`reason`/`object`, derived from `hub.mode` and `payload.object` on the
+ * UNAUTHENTICATED endpoint) AT THE WRITE BOUNDARY, so the stored value is safe regardless of how it
+ * is later rendered — even if a render site is ever switched from auto-escaping `html`` to `raw()`.
+ * These are diagnostic/log fields, so we map `<`/`>`/`&` to their fullwidth look-alikes (rather than
+ * HTML-escape) — they stay human-readable and avoid the double-escape ugliness of escaping-then-
+ * Hono-escaping. This is deliberately webhook-local and does NOT touch the shared `sanitizeForLog`
+ * (a non-HTML log-injection util used across the codebase).
+ */
+function neutralizeHtml(value: string): string {
+  return value.replace(/</g, "＜").replace(/>/g, "＞").replace(/&/g, "＆");
+}
+
+/**
  * Record one webhook-endpoint hit that was handled or refused before classification, so every GET
  * handshake and every pre-classification POST rejection is visible in `webhook_events` (the 3-hour
  * blind-spot OBS1 closes). PII-safe: NEVER stores the raw body (DM text / sender ids) — only the
@@ -34,8 +48,12 @@ export async function logWebhookMeta(
   status: WebhookMetaStatus,
   detail: { reason: string; bodyLength?: number | null; object?: string | null } = { reason: "" },
 ): Promise<void> {
-  const reason = sanitizeForLog(detail.reason ?? "").slice(0, DETAIL_CAP);
-  const object = detail.object != null ? sanitizeForLog(String(detail.object)).slice(0, OBJECT_CAP) : null;
+  // sanitizeForLog strips control chars (log-injection); neutralizeHtml then defangs HTML metachars
+  // (stored-XSS defence-in-depth) since both fields are attacker-controlled and surface in the dashboard.
+  // sanitizeForLog strips control chars (log-injection); neutralizeHtml then defangs HTML metachars
+  // (stored-XSS defence-in-depth) since both fields are attacker-controlled and surface in the dashboard.
+  const reason = neutralizeHtml(sanitizeForLog(detail.reason ?? "")).slice(0, DETAIL_CAP);
+  const object = detail.object != null ? neutralizeHtml(sanitizeForLog(String(detail.object))).slice(0, OBJECT_CAP) : null;
   const bodyLength = detail.bodyLength ?? null;
   // Lazy import: this module's classify* helpers are pure and imported by env-free unit tests, but
   // `@/lib/db` throws at import without DATABASE_URL — keep the DB dependency inside the only fn using it.

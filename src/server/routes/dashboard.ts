@@ -861,6 +861,10 @@ function renderEndpointActivity(rows: WebhookEndpointRow[], status?: string): Ht
   </select>`;
   const body = rows.length === 0
     ? html`<p class="muted" style="font-size:.85rem">No endpoint hits recorded${selected ? html` for <strong>${selected}</strong>` : html``} yet. Subscription handshakes and rejected (bad signature / unparseable / unknown object / oversized) requests show up here.</p>`
+    // SECURITY: e.object and e.error_detail originate from the UNAUTHENTICATED Meta webhook endpoint
+    // (payload.object / hub.mode) — i.e. attacker-controlled. They are stored HTML-neutralized at the
+    // write boundary (logWebhookMeta), AND must stay on the auto-escaping html`` tag below. NEVER
+    // render these via raw() — that would be stored XSS.
     : html`<table><thead><tr><th>Status</th><th>Object</th><th>Detail</th><th>When</th></tr></thead>
         <tbody>${rows.map((e) => html`<tr>
           <td><span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span></td>
