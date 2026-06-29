@@ -71,6 +71,34 @@ function capabilityBadges(ch: PublicChannel): Html {
   return html`<span class="pill-row">${on.map((c) => pill(c.label, "info"))}</span>`;
 }
 
+// ── IG messaging connection visibility (IGML: "make it visible when/what works") ─────────────────
+/** B1/B4: which token powers messaging on an IG channel — `Instagram Login` (reliable DMs at
+ *  Standard Access) vs `Facebook only` (DMs not guaranteed). Empty for non-IG channels (null). */
+export function messagingConnectionBadge(ch: PublicChannel): Html {
+  if (ch.messaging_connection === "instagram_login") return pill("Instagram Login", "info");
+  if (ch.messaging_connection === "facebook_only") return pill("Facebook only", "neutral");
+  return html``;
+}
+
+/** B2: a `facebook_only` IG channel cannot reliably RECEIVE DMs at Standard Access (the Page
+ *  subscription doesn't deliver IG DMs), so nudge the operator to connect Instagram Login. Mirrors
+ *  the conditional ("not guaranteed") phrasing of MESSAGING_SUBSCRIBE_FAILED_FB_WARNING. */
+export function messagingHint(ch: PublicChannel): Html {
+  if (ch.messaging_connection !== "facebook_only") return html``;
+  return html`<div class="notice notice-warn">
+    Instagram DMs are not guaranteed at Standard Access via Facebook Login.
+    <a href="/api/oauth/instagram-login">Connect Instagram Login</a> for reliable DMs.
+  </div>`;
+}
+
+/** B3: surface the last recorded error so a degraded-but-still-"active" channel (e.g. the IG
+ *  messaging webhook subscribe that failed silently) isn't invisible. Reuses the `bad` pill tone —
+ *  no parallel status-label map. Empty when there's no error. */
+export function lastErrorNote(ch: PublicChannel): Html {
+  if (!ch.last_error) return html``;
+  return html`<div class="ch-last-error">${pill("last error", "bad")} <small>${ch.last_error}</small></div>`;
+}
+
 /** The per-row reconnect action — only shown on a channel that actually needs it. */
 function reauthAction(ch: PublicChannel): Html {
   if (ch.status !== "needs_reauth") return html`<small>—</small>`;
@@ -207,7 +235,8 @@ function channelCard(ch: PublicChannel, brands: BrandRow[]): Html {
       </span>
       ${statusBadge(ch.status)}
     </a>
-    <div class="detail-sub"><span class="mode-tag">${ch.connection_mode}</span>${capabilityBadges(ch)}</div>
+    <div class="detail-sub"><span class="mode-tag">${ch.connection_mode}</span>${capabilityBadges(ch)}${messagingConnectionBadge(ch)}</div>
+    ${lastErrorNote(ch)}
     <div class="ch-foot">${brandSelect(ch, brands)}<span class="ch-foot-act">${cardAction(ch)}</span></div>
   </article>`;
 }
@@ -367,12 +396,15 @@ function tokenPanel(ch: PublicChannel): Html {
     expiryCell = html`<span class="meta-mono">${fmtDate(expires)}</span> ${tag}`;
   }
   const reasonRow = ch.needs_reauth_reason ? metaRow("Reauth reason", html`<span class="reason">${ch.needs_reauth_reason}</span>`) : "";
+  const lastErrorRow = ch.last_error ? metaRow("Last error", lastErrorNote(ch)) : "";
   return html`<section class="panel">
     <div class="panel-head"><h3>Token</h3></div>
+    ${messagingHint(ch)}
     <dl class="meta-list">
       ${metaRow("Access token", html`<code class="token-mask">••••••••••••••••</code>`)}
       ${metaRow("Expires", expiryCell)}
       ${reasonRow}
+      ${lastErrorRow}
     </dl>
   </section>`;
 }
@@ -568,6 +600,7 @@ function detailHead(ch: PublicChannel): Html {
           ${statusBadge(ch.status)}
           <span class="mode-tag">${ch.connection_mode}</span>
           ${capabilityBadges(ch)}
+          ${messagingConnectionBadge(ch)}
           ${handleBit}
           ${ch.provider_account_id === ch.display_name ? "" : html`<code class="detail-acct">${ch.provider_account_id}</code>`}
         </div>
