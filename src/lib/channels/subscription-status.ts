@@ -2,9 +2,10 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, type Platform } from "@/db/schema";
 import { decryptChannelToken } from "./tokens";
+import { subscribeInstagramMessaging } from "./subscribe";
 import { getProvider } from "@/lib/platforms/registry";
-import { GRAPH_API_BASE } from "@/lib/platforms/constants";
-import { diffSubscribedFields, expectedPageFields } from "@/lib/platforms/webhook-fields";
+import { GRAPH_API_BASE, IG_GRAPH_BASE } from "@/lib/platforms/constants";
+import { diffFields, diffSubscribedFields, expectedPageFields, instagramLoginFields } from "@/lib/platforms/webhook-fields";
 
 /**
  * WEBHOOKSUB1: per-channel webhook subscription health. Lets a self-hosted PRO instance SEE which
@@ -15,6 +16,10 @@ export interface ChannelSubscriptionStatus {
   channelId: string;
   platform: string;
   displayName: string | null;
+  // Which subscription model this row reflects: a Facebook Page `subscribed_apps` ("page") or an
+  // IG-Login per-account `subscribed_apps` on graph.instagram.com ("instagram_login"). Display
+  // discriminator — the IG-Login row has no linked Page id.
+  kind: "page" | "instagram_login";
   pageId: string | null;
   active: string[];
   missing: string[];
@@ -51,6 +56,26 @@ async function fetchSubscribedFields(
   return j.data?.[0]?.subscribed_fields ?? [];
 }
 
+/** GET an IG-Login account's per-account subscribed fields (the `instagram` object subscription on
+ *  graph.instagram.com). Mirrors {@link fetchSubscribedFields} but on the IG host with the IG-Login
+ *  messaging token. SECURITY: the token rides the URL query (Meta accepts it only there on this host) —
+ *  never log this URL. Version literal stays in constants.ts (IG_GRAPH_BASE), never inlined. */
+async function fetchIgLoginSubscribedFields(
+  igUserId: string,
+  messagingToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string[]> {
+  const res = await fetchImpl(
+    `${IG_GRAPH_BASE}/${encodeURIComponent(igUserId)}/subscribed_apps?access_token=${encodeURIComponent(messagingToken)}`,
+  );
+  const j = (await res.json().catch(() => ({}))) as {
+    data?: Array<{ subscribed_fields?: string[] }>;
+    error?: { message?: string };
+  };
+  if (!res.ok) throw new Error(j.error?.message ?? `Graph ${res.status}`);
+  return j.data?.[0]?.subscribed_fields ?? [];
+}
+
 /** Status for one channel (also used by the per-row "Fix" re-render). */
 export async function channelSubscriptionStatus(
   ch: { id: string; platform: string; platform_id: string; display_name: string | null; token_encrypted: string },
@@ -59,16 +84,28 @@ export async function channelSubscriptionStatus(
   // channelSubscriptionStatus is only ever called for subscribable (facebook/instagram) channels.
   const wfPlatform = ch.platform as "facebook" | "instagram";
   const base = { channelId: ch.id, platform: ch.platform, displayName: ch.display_name };
-  const allExpected = [...expectedPageFields(wfPlatform)];
   try {
-    const token = decryptChannelToken(ch.token_encrypted) as { access_token: string; page_id?: unknown };
-    const pageId = pageIdForChannel(ch.platform, ch.platform_id, token);
-    if (!pageId) return { ...base, pageId: null, active: [], missing: allExpected, ok: false, error: "no linked page id" };
-    const current = await fetchSubscribedFields(pageId, token.access_token, fetchImpl);
+    const token = decryptChannelToken(ch.token_encrypted) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
+    // IG-Login-only channel: an Instagram Business Login token with no linked Facebook Page. Its inbound
+    // path is the per-account `instagram` object subscription on graph.instagram.com, NOT a Page sub.
+    if (ch.platform === "instagram" && typeof token.messaging_token === "string" && !token.page_id) {
+      const igExpected = [...instagramLoginFields()];
+      try {
+        const current = await fetchIgLoginSubscribedFields(ch.platform_id, token.messaging_token, fetchImpl);
+        const { active, missing } = diffFields(instagramLoginFields(), current);
+        return { ...base, kind: "instagram_login", pageId: null, active, missing, ok: missing.length === 0 };
+      } catch (e) {
+        return { ...base, kind: "instagram_login", pageId: null, active: [], missing: igExpected, ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    const allExpected = [...expectedPageFields(wfPlatform)];
+    const pageId = pageIdForChannel(ch.platform, ch.platform_id, token as { page_id?: unknown });
+    if (!pageId) return { ...base, kind: "page", pageId: null, active: [], missing: allExpected, ok: false, error: "no linked page id" };
+    const current = await fetchSubscribedFields(pageId, token.access_token ?? "", fetchImpl);
     const { active, missing } = diffSubscribedFields(wfPlatform, current);
-    return { ...base, pageId, active, missing, ok: missing.length === 0 };
+    return { ...base, kind: "page", pageId, active, missing, ok: missing.length === 0 };
   } catch (e) {
-    return { ...base, pageId: null, active: [], missing: allExpected, ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ...base, kind: "page", pageId: null, active: [], missing: [...expectedPageFields(wfPlatform)], ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -95,10 +132,17 @@ export async function reconcileChannelSubscription(workspaceId: string, channelI
     columns: { platform: true, platform_id: true, token_encrypted: true },
   });
   if (!ch || !isSubscribablePlatform(ch.platform)) return false;
+  const token = decryptChannelToken(ch.token_encrypted) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
+  // IG-Login-only channel: re-subscribe the per-account `instagram` object subscription (E2). Reuses
+  // subscribeInstagramMessaging — it re-subscribes AND keeps the channel status truthful, exactly what
+  // a "Fix" should do. (No circular import: subscribe.ts doesn't import subscription-status.ts.)
+  if (ch.platform === "instagram" && typeof token.messaging_token === "string" && !token.page_id) {
+    const { ok } = await subscribeInstagramMessaging(workspaceId, ch.platform_id, token.messaging_token);
+    return ok;
+  }
   const provider = getProvider(ch.platform);
   if (!provider.subscribePageWebhooks) return false;
-  const token = decryptChannelToken(ch.token_encrypted) as { access_token: string; page_id?: unknown };
-  const pageId = pageIdForChannel(ch.platform, ch.platform_id, token);
+  const pageId = pageIdForChannel(ch.platform, ch.platform_id, token as { page_id?: unknown });
   if (!pageId) return false;
-  return provider.subscribePageWebhooks(pageId, token.access_token);
+  return provider.subscribePageWebhooks(pageId, token.access_token ?? "");
 }

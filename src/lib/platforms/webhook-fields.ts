@@ -35,6 +35,14 @@ export const INSTAGRAM_PAGE_FIELDS = [
   "feed",
 ] as const;
 
+/** IG-Login per-account subscribed_apps fields on the `instagram` object (graph.instagram.com). NOT the
+ *  page-object names: instagram uses messaging_reactions/messaging_seen (vs message_reactions/_reads) and
+ *  carries `comments` directly. Only fields PostStack consumes (WHSUBOPTIN1 principle: omit
+ *  messaging_optins/_referrals — no handler). `comments` is REQUIRED so an IG-Login-only channel
+ *  receives comment webhooks for comment→DM automation. (Docs: IG API with Instagram Login webhooks.) */
+export const INSTAGRAM_LOGIN_FIELDS = ["messages", "messaging_postbacks", "messaging_reactions", "messaging_seen", "comments"] as const;
+export function instagramLoginFields(): readonly string[] { return INSTAGRAM_LOGIN_FIELDS; }
+
 export type Platform = "facebook" | "instagram";
 
 /** The expected page subscribed_fields for a platform (the auto-config target + reconcile baseline). */
@@ -42,15 +50,23 @@ export function expectedPageFields(platform: Platform): readonly string[] {
   return platform === "instagram" ? INSTAGRAM_PAGE_FIELDS : FACEBOOK_PAGE_FIELDS;
 }
 
-/** Diff a page's currently-subscribed fields against what the platform expects. */
-export function diffSubscribedFields(
-  platform: Platform,
+/** Generic active/missing split of a `current` subscription against an `expected` field set. The shared
+ *  primitive behind both the page diff and the IG-Login per-account diff (DRY). */
+export function diffFields(
+  expected: readonly string[],
   current: readonly string[],
 ): { active: string[]; missing: string[] } {
-  const expected = expectedPageFields(platform);
   const cur = new Set(current);
   return {
     active: expected.filter((f) => cur.has(f)),
     missing: expected.filter((f) => !cur.has(f)),
   };
+}
+
+/** Diff a page's currently-subscribed fields against what the platform expects. */
+export function diffSubscribedFields(
+  platform: Platform,
+  current: readonly string[],
+): { active: string[]; missing: string[] } {
+  return diffFields(expectedPageFields(platform), current);
 }

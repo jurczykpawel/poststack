@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GRAPH_API_BASE, IG_GRAPH_BASE } from "./constants";
+import { INSTAGRAM_LOGIN_FIELDS } from "./webhook-fields";
 
 // --- Mock env before importing providers ---
 vi.mock("@/lib/env", () => ({
@@ -65,6 +66,7 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
       if (url.includes("fields=name") || url.includes("profile_pic")) {
         return Response.json({ name: "Jane", username: "jane_ig", profile_pic: "https://x/p.jpg" });
       }
+      if (url.includes("/subscribed_apps")) return Response.json({ success: true });
       if (url.includes("/replies")) return Response.json({ id: "reply_1" });
       if (url.includes("/comments")) return Response.json({ id: "comment_1" });
       if (url.includes("fields=permalink")) return Response.json({ permalink: "https://www.instagram.com/p/abc/" });
@@ -137,6 +139,24 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
         expect(call.url.startsWith(IG_GRAPH_BASE)).toBe(true);
         expect(call.url).not.toContain("graph.facebook.com");
       }
+    });
+  });
+
+  // ─── IG-Login per-account messaging webhook subscription ───────────────────
+
+  describe("subscribeMessagingWebhooks POSTs the IG-Login field set to graph.instagram.com", () => {
+    it("POSTs {IG_GRAPH_BASE}/{igUserId}/subscribed_apps with subscribed_fields = INSTAGRAM_LOGIN_FIELDS.join(',')", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const ok = await new InstagramProvider().subscribeMessagingWebhooks("IGQW_ig_login_tok", "IGID_99");
+
+      const call = fetchCalls.find((c) => c.url.includes("/subscribed_apps"))!;
+      expect(call.url.startsWith(`${IG_GRAPH_BASE}/IGID_99/subscribed_apps`)).toBe(true);
+      expect(call.init!.method).toBe("POST");
+      // The field set is widened to the parity set incl. `comments`.
+      const expected = INSTAGRAM_LOGIN_FIELDS.join(",");
+      expect(call.url).toContain(`subscribed_fields=${encodeURIComponent(expected)}`);
+      expect(call.url).toContain("access_token=IGQW_ig_login_tok");
+      expect(ok).toBe(true);
     });
   });
 

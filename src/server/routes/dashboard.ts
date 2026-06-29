@@ -2668,6 +2668,9 @@ function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
       (s) => html`<tr>
         <td>
           <div style="font-weight:600;color:var(--text-1)">${PLATFORM_LABELS[s.platform] ?? s.platform} · ${s.displayName ?? s.channelId}</div>
+          ${s.kind === "instagram_login"
+            ? html`<div style="font-size:.68rem;color:var(--text-3);margin-top:2px"><small>Per-account Instagram Login subscription</small></div>`
+            : ""}
           ${s.error
             ? html`<div style="font-size:.72rem;color:var(--bad-text);margin-top:3px">${s.error}</div>`
             : s.ok

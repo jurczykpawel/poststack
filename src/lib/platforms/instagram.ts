@@ -8,7 +8,7 @@ import {
   type SendMessageOptions,
   type UserProfile,
 } from "./base";
-import { expectedPageFields } from "./webhook-fields";
+import { expectedPageFields, instagramLoginFields } from "./webhook-fields";
 import { GRAPH_API_BASE, IG_GRAPH_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { fetchAllManagedPages } from "./meta-graph";
@@ -475,7 +475,9 @@ export class InstagramProvider extends SocialProvider {
    */
   async subscribeMessagingWebhooks(igToken: string, igUserId: string): Promise<boolean> {
     const params = new URLSearchParams({
-      subscribed_fields: "messages,messaging_postbacks",
+      // Widened to the IG-Login parity set (incl. `comments`) so an IG-Login-only channel also
+      // receives comment webhooks for comment→DM. Single source of truth in webhook-fields.
+      subscribed_fields: instagramLoginFields().join(","),
       access_token: igToken,
     });
     const res = await fetch(`${IG_GRAPH_BASE}/${encodeURIComponent(igUserId)}/subscribed_apps?${params.toString()}`, {

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { expectedPageFields, diffSubscribedFields, FACEBOOK_PAGE_FIELDS } from "./webhook-fields";
+import {
+  expectedPageFields,
+  diffSubscribedFields,
+  diffFields,
+  instagramLoginFields,
+  INSTAGRAM_LOGIN_FIELDS,
+  FACEBOOK_PAGE_FIELDS,
+} from "./webhook-fields";
 
 describe("webhook-fields (WEBHOOKSUB1 source of truth)", () => {
   it("includes the messaging-completeness fields and excludes the invalid `comments` page field", () => {
@@ -33,5 +40,40 @@ describe("webhook-fields (WEBHOOKSUB1 source of truth)", () => {
   it("reports no missing when fully subscribed", () => {
     const { missing } = diffSubscribedFields("facebook", [...FACEBOOK_PAGE_FIELDS]);
     expect(missing).toEqual([]);
+  });
+});
+
+describe("instagramLoginFields (IG-Login per-account subscribed_apps set)", () => {
+  it("is exactly the 5 instagram-object fields including `comments`", () => {
+    expect(instagramLoginFields()).toEqual([
+      "messages",
+      "messaging_postbacks",
+      "messaging_reactions",
+      "messaging_seen",
+      "comments",
+    ]);
+    // `comments` is REQUIRED so an IG-Login-only channel receives comment webhooks for comment→DM.
+    expect(instagramLoginFields()).toContain("comments");
+  });
+
+  it("uses instagram-object names, NOT page-object names", () => {
+    const f = instagramLoginFields();
+    // instagram object uses messaging_reactions/messaging_seen, NOT the page-object names.
+    expect(f).not.toContain("message_reactions");
+    expect(f).not.toContain("message_reads");
+    expect(f).not.toContain("message_deliveries");
+    expect(f).not.toContain("message_echoes");
+    expect(f).not.toContain("feed");
+  });
+});
+
+describe("diffFields (generic DRY diff)", () => {
+  it("splits expected into active (present) + missing (absent)", () => {
+    expect(diffFields(["a", "b"], ["a"])).toEqual({ active: ["a"], missing: ["b"] });
+  });
+
+  it("backs diffSubscribedFields (delegation)", () => {
+    const current = ["messages", "messaging_postbacks", "feed"];
+    expect(diffSubscribedFields("facebook", current)).toEqual(diffFields(FACEBOOK_PAGE_FIELDS, current));
   });
 });

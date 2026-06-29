@@ -64,6 +64,35 @@ describe("channelSubscriptionStatus (WEBHOOKSUB1)", () => {
     expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("/LINKED_PAGE/subscribed_apps");
   });
 
+  it("IG-Login-only: per-account subscription on graph.instagram.com, no 'no linked page id'", async () => {
+    const ch = {
+      id: "c5", platform: "instagram", platform_id: "IGID", display_name: "IG Login",
+      token_encrypted: encryptTokens({ access_token: "", messaging_token: "IGQW" }), // no page_id, empty FB token
+    };
+    const fetchImpl = fakeFetch(["messages"]); // only `messages` currently subscribed
+    const st = await channelSubscriptionStatus(ch, fetchImpl);
+
+    expect(st.kind).toBe("instagram_login");
+    expect(st.error).toBeUndefined(); // NOT "no linked page id"
+    expect(st.pageId).toBeNull();
+    const url = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("graph.instagram.com");
+    expect(url).toContain("/IGID/subscribed_apps");
+    expect(st.active).toContain("messages");
+    // not-yet-subscribed IG-Login fields surface as missing (incl. comments for comment→DM).
+    expect(st.missing).toContain("comments");
+    expect(st.ok).toBe(false);
+  });
+
+  it("page-based channels carry kind=page", async () => {
+    const ch = {
+      id: "c6", platform: "facebook", platform_id: "PAGE6", display_name: "P6",
+      token_encrypted: encryptTokens({ access_token: "T" }),
+    };
+    const st = await channelSubscriptionStatus(ch, fakeFetch(["messages"]));
+    expect(st.kind).toBe("page");
+  });
+
   it("surfaces a Graph error instead of throwing", async () => {
     const ch = {
       id: "c4", platform: "facebook", platform_id: "PAGE4", display_name: "P4",
