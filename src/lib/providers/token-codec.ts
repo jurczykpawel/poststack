@@ -11,6 +11,9 @@ export function toTokenSet(td: TokenData): TokenSet {
     refreshToken: td.refresh_token,
     // TokenData.expires_at is epoch seconds; TokenSet.expiresAt is ISO.
     expiresAt: typeof td.expires_at === "number" ? new Date(td.expires_at * 1000).toISOString() : undefined,
+    // IGFU1: carry the IG-Login token so the publish path can route to graph.instagram.com when the
+    // channel has no Facebook page token (single-login publish). Mirrors instagram.ts messagingTransport.
+    messagingToken: typeof td.messaging_token === "string" ? td.messaging_token : undefined,
   };
 }
 

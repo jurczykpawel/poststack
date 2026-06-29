@@ -21,7 +21,7 @@ const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
 const originalFetch = globalThis.fetch;
 
 describe("buildInstagramLoginAuthUrl", () => {
-  it("builds instagram.com/oauth/authorize with the IG App ID, the three scopes, and response_type=code", async () => {
+  it("builds instagram.com/oauth/authorize with the IG App ID, the four scopes (incl. content_publish), and response_type=code", async () => {
     const { buildInstagramLoginAuthUrl } = await import("./instagram-login");
     const url = await buildInstagramLoginAuthUrl("st4te", "https://app.example/api/oauth/instagram-login/callback");
     const u = new URL(url);
@@ -30,8 +30,10 @@ describe("buildInstagramLoginAuthUrl", () => {
     expect(u.searchParams.get("response_type")).toBe("code");
     expect(u.searchParams.get("state")).toBe("st4te");
     expect(u.searchParams.get("redirect_uri")).toBe("https://app.example/api/oauth/instagram-login/callback");
+    // IGFU1: content_publish is added so a single IG-Login also covers publishing (Standard Access,
+    // no App Review for the business's own/managed account).
     expect(u.searchParams.get("scope")).toBe(
-      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
+      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish",
     );
   });
 });

@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
 import { metaProvider } from "./meta";
 import { PermanentError } from "./errors";
+import { GRAPH_API_BASE, IG_GRAPH_BASE } from "@/lib/platforms/constants";
 
 afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "T" };
@@ -284,5 +285,95 @@ describe("meta.publishStory (STORY1)", () => {
     await expect(
       metaProvider.publishStory!({ tokens, accountId: "IGID", mediaUrl: "https://cdn/card.jpg", channelMetadata: { subKind: "instagram" } }),
     ).rejects.toBeInstanceOf(PermanentError);
+  });
+});
+
+// IGFU1: a channel connected ONLY via Instagram Business Login carries an IG-Login token
+// (messagingToken) and an EMPTY Facebook page token — publishing must route to graph.instagram.com
+// (IG_GRAPH_BASE) with that token. A channel that still has a Facebook page token publishes on
+// graph.facebook.com exactly as before (byte-for-byte unchanged).
+describe("meta.publish — IG-Login single-login routing (IGFU1)", () => {
+  const igTokens = { accessToken: "", messagingToken: "IGQW_pub" };
+
+  function captureFetch() {
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, body: String(init?.body ?? "") });
+        if (url.includes("/media_publish")) return new Response(JSON.stringify({ id: "ig_post_1" }), { status: 200 });
+        if (url.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "container_1" }), { status: 200 });
+      }),
+    );
+    return calls;
+  }
+
+  it("IG-Login-only reel: container + media_publish hit graph.instagram.com with the IG-Login token", async () => {
+    const calls = captureFetch();
+    const handle = await metaProvider.publish({
+      tokens: igTokens,
+      accountId: "IGID",
+      request: { format: "reel", media: [{ mediaId: "m" }], caption: "hi" },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(handle.providerHandle).toBe("ig_post_1");
+    // every publish-flow edge must be on the IG host (with the configured IG version), never on graph.facebook.com
+    expect(calls.every((c) => c.url.startsWith(IG_GRAPH_BASE))).toBe(true);
+    expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)).toBe(true);
+    expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media_publish`)).toBe(true);
+    expect(calls.some((c) => c.url.includes("graph.facebook.com"))).toBe(false);
+    // the IG-Login messaging token (not the empty FB token) carries the calls
+    const create = calls.find((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)!;
+    expect(decodeURIComponent(create.body)).toContain("access_token=IGQW_pub");
+    const publish = calls.find((c) => c.url === `${IG_GRAPH_BASE}/IGID/media_publish`)!;
+    expect(decodeURIComponent(publish.body)).toContain("access_token=IGQW_pub");
+  });
+
+  it("IG-Login-only feed_post (image): container on graph.instagram.com with the IG-Login token", async () => {
+    const calls = captureFetch();
+    await metaProvider.publish({
+      tokens: igTokens,
+      accountId: "IGID",
+      request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "hi" },
+      mediaUrls: ["https://cdn/x.jpg"],
+    });
+    expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)).toBe(true);
+    expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media_publish`)).toBe(true);
+    expect(calls.some((c) => c.url.includes("graph.facebook.com"))).toBe(false);
+  });
+
+  it("IG-Login-only story: STORIES container + media_publish hit graph.instagram.com", async () => {
+    const calls = captureFetch();
+    const h = await metaProvider.publishStory!({
+      tokens: igTokens,
+      accountId: "IGID",
+      mediaUrl: "https://cdn/card.jpg",
+      channelMetadata: { subKind: "instagram" },
+    });
+    expect(h.providerHandle).toBe("ig_post_1");
+    expect(calls.every((c) => c.url.startsWith(IG_GRAPH_BASE))).toBe(true);
+    expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)).toBe(true);
+    expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media_publish`)).toBe(true);
+    const create = calls.find((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)!;
+    expect(decodeURIComponent(create.body)).toContain("media_type=STORIES");
+    expect(decodeURIComponent(create.body)).toContain("access_token=IGQW_pub");
+  });
+
+  it("FB-token IG channel still publishes on graph.facebook.com unchanged (even with a messaging token present)", async () => {
+    const calls = captureFetch();
+    await metaProvider.publish({
+      // a channel that was FB-login-connected AND later augmented with an IG-Login messaging token:
+      // the FB page token is present, so publishing MUST stay on graph.facebook.com with it.
+      tokens: { accessToken: "FBPAGE", messagingToken: "IGQW_pub" },
+      accountId: "IGID",
+      request: { format: "reel", media: [{ mediaId: "m" }], caption: "hi" },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(calls.every((c) => c.url.startsWith(GRAPH_API_BASE))).toBe(true);
+    expect(calls.some((c) => c.url.includes("graph.instagram.com"))).toBe(false);
+    const create = calls.find((c) => c.url === `${GRAPH_API_BASE}/IGID/media`)!;
+    expect(decodeURIComponent(create.body)).toContain("access_token=FBPAGE");
   });
 });

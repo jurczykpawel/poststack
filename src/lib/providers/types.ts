@@ -8,6 +8,12 @@ export interface TokenSet {
   accessToken: string;
   refreshToken?: string;
   expiresAt?: string; // ISO timestamp
+  /**
+   * IGFU1: the Instagram Business Login token (IGQW, from the channel's `messaging_token`). Present on
+   * IG-Login-connected channels. When the channel has NO Facebook page token (`accessToken` empty),
+   * the Meta provider routes publishing to graph.instagram.com with this token — single-login publish.
+   */
+  messagingToken?: string;
 }
 
 export type MediaIngestion = "pull_url" | "resumable_upload" | "chunked_upload";

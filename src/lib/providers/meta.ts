@@ -8,7 +8,7 @@ import type {
   SubAccount,
 } from "./types";
 import { PermanentError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
-import { GRAPH_API_BASE } from "@/lib/platforms/constants";
+import { GRAPH_API_BASE, IG_GRAPH_BASE } from "@/lib/platforms/constants";
 import { getConfig } from "@/lib/settings/config";
 import { safeFetch } from "@/lib/media/ssrf";
 import { assertAllowedHost } from "./follow";
@@ -50,6 +50,21 @@ function classifyMetaError(
 // lockstep with the inbound/messaging layer — a divergent hardcoded version is exactly the drift the
 // version-bump probe (VPROBE1) exists to catch.
 const GRAPH = GRAPH_API_BASE;
+
+/**
+ * IGFU1: choose the Instagram publish transport. A channel connected ONLY via Instagram Business
+ * Login carries an IG-Login token (`messagingToken`) and an EMPTY Facebook page token — publish via
+ * `graph.instagram.com` (IG_GRAPH_BASE) with that token, exactly the way IGML4's `messagingTransport`
+ * routes the messaging surface. Any channel that still has a Facebook page token keeps publishing on
+ * `graph.facebook.com` with that token, byte-for-byte unchanged (the managed / FB-login path). Only
+ * the Instagram media-container flow uses this — the Facebook-Page branch above is never affected.
+ */
+function igPublishTransport(tokens: TokenSet): { base: string; token: string } {
+  if (tokens.messagingToken && !tokens.accessToken) {
+    return { base: IG_GRAPH_BASE, token: tokens.messagingToken };
+  }
+  return { base: GRAPH, token: tokens.accessToken };
+}
 
 const CAPABILITIES: FormatCapability[] = [
   {
@@ -102,11 +117,11 @@ async function setFacebookThumbnail(
 /** Poll an IG media container until it reports FINISHED (images resolve fast; bounded by env). Throws
  *  PermanentError on ERROR and TransientError if it's still processing after the window (pre_commit —
  *  nothing is public until media_publish, so the caller may safely re-run). */
-async function pollContainerFinished(containerId: string, encodedToken: string): Promise<void> {
+async function pollContainerFinished(containerId: string, encodedToken: string, base: string = GRAPH): Promise<void> {
   const attempts = Number(process.env.META_PUBLISH_POLL_ATTEMPTS ?? 60);
   const delayMs = Number(process.env.META_PUBLISH_POLL_DELAY_MS ?? 3000);
   for (let i = 0; i < attempts; i++) {
-    const st = await fetch(`${GRAPH}/${containerId}?fields=status_code&access_token=${encodedToken}`);
+    const st = await fetch(`${base}/${containerId}?fields=status_code&access_token=${encodedToken}`);
     const stj = (await st.json().catch(() => ({}))) as { status_code?: string };
     if (stj.status_code === "FINISHED") return;
     if (stj.status_code === "ERROR") throw new PermanentError("Meta story container processing failed");
@@ -320,6 +335,10 @@ export const metaProvider: Provider = {
 
     if (request.format === "reel" || request.format === "feed_post") {
       const isReel = request.format === "reel";
+      // IGFU1: route the IG container flow to graph.instagram.com with the IG-Login token when the
+      // channel has no Facebook page token; otherwise stay on graph.facebook.com with the FB token.
+      const { base: igBase, token: igRawToken } = igPublishTransport(tokens);
+      const igToken = encodeURIComponent(igRawToken);
       // Cover/thumbnail (reels): cover_url (public image) wins over thumb_offset (frame ms).
       const coverUrl = typeof request.options?.coverUrl === "string" ? request.options.coverUrl : undefined;
       const thumbOffset =
@@ -330,9 +349,9 @@ export const metaProvider: Provider = {
         ...(request.caption ? { caption: request.caption } : {}),
         ...(isReel && coverUrl ? { cover_url: coverUrl } : {}),
         ...(isReel && !coverUrl && thumbOffset !== undefined ? { thumb_offset: String(thumbOffset) } : {}),
-        access_token: tokens.accessToken,
+        access_token: igRawToken,
       });
-      const create = await fetch(`${GRAPH}/${accountId}/media`, { method: "POST", body: createBody });
+      const create = await fetch(`${igBase}/${accountId}/media`, { method: "POST", body: createBody });
       const created = (await create.json().catch(() => ({}))) as {
         id?: unknown;
         error?: { code?: number; message?: string };
@@ -346,7 +365,7 @@ export const metaProvider: Provider = {
       const delayMs = Number(process.env.META_PUBLISH_POLL_DELAY_MS ?? 3000);
       let finished = false;
       for (let i = 0; i < attempts; i++) {
-        const st = await fetch(`${GRAPH}/${containerId}?fields=status_code&access_token=${token}`);
+        const st = await fetch(`${igBase}/${containerId}?fields=status_code&access_token=${igToken}`);
         const stj = (await st.json().catch(() => ({}))) as { status_code?: string };
         if (stj.status_code === "FINISHED") {
           finished = true;
@@ -360,9 +379,9 @@ export const metaProvider: Provider = {
       if (!finished) throw new TransientError("Meta container still processing after poll window", "pre_commit");
 
       // 3) publish the container
-      const pub = await fetch(`${GRAPH}/${accountId}/media_publish`, {
+      const pub = await fetch(`${igBase}/${accountId}/media_publish`, {
         method: "POST",
-        body: new URLSearchParams({ creation_id: containerId, access_token: tokens.accessToken }),
+        body: new URLSearchParams({ creation_id: containerId, access_token: igRawToken }),
       });
       const pubj = (await pub.json().catch(() => ({}))) as {
         id?: unknown;
@@ -381,7 +400,6 @@ export const metaProvider: Provider = {
   // composed server-side (StoryRenderer) and published flat.
   async publishStory(args): Promise<PublishHandle> {
     const { tokens, accountId, mediaUrl } = args;
-    const token = encodeURIComponent(tokens.accessToken);
     const isFacebook = args.channelMetadata?.subKind === "facebook_page";
 
     if (isFacebook) {
@@ -415,9 +433,13 @@ export const metaProvider: Provider = {
     }
 
     // Instagram Story: create a STORIES container from the image, poll, then publish.
-    const create = await fetch(`${GRAPH}/${accountId}/media`, {
+    // IGFU1: same single-login routing as the feed/reel path — graph.instagram.com + IG-Login token
+    // for an IG-Login-only channel; graph.facebook.com + FB page token otherwise (unchanged).
+    const { base: igBase, token: igRawToken } = igPublishTransport(tokens);
+    const igToken = encodeURIComponent(igRawToken);
+    const create = await fetch(`${igBase}/${accountId}/media`, {
       method: "POST",
-      body: new URLSearchParams({ media_type: "STORIES", image_url: mediaUrl, access_token: tokens.accessToken }),
+      body: new URLSearchParams({ media_type: "STORIES", image_url: mediaUrl, access_token: igRawToken }),
     });
     const created = (await create.json().catch(() => ({}))) as {
       id?: unknown;
@@ -426,11 +448,11 @@ export const metaProvider: Provider = {
     const containerId = asString(created.id);
     if (!create.ok || !containerId) throw classifyMetaError(create.status, created.error, "pre_commit");
 
-    await pollContainerFinished(containerId, token);
+    await pollContainerFinished(containerId, igToken, igBase);
 
-    const pub = await fetch(`${GRAPH}/${accountId}/media_publish`, {
+    const pub = await fetch(`${igBase}/${accountId}/media_publish`, {
       method: "POST",
-      body: new URLSearchParams({ creation_id: containerId, access_token: tokens.accessToken }),
+      body: new URLSearchParams({ creation_id: containerId, access_token: igRawToken }),
     });
     const pubj = (await pub.json().catch(() => ({}))) as {
       id?: unknown;

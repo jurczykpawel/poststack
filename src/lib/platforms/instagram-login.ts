@@ -14,11 +14,17 @@
 import { getConfig } from "@/lib/settings/config";
 import { IG_OAUTH_BASE, IG_OAUTH_TOKEN_BASE, IG_GRAPH_BASE } from "./constants";
 
-/** Scopes for IG-Login at Standard Access: messaging + comments (+ basic profile). */
+/**
+ * Scopes for IG-Login at Standard Access: messaging + comments + content publishing (+ basic profile).
+ * IGFU1: `instagram_business_content_publish` lets a single Instagram Business Login also cover
+ * publishing — Standard Access is sufficient for the business's OWN / managed account (App Review is
+ * only required to publish on behalf of OTHER users), holding the no-App-Review self-host promise.
+ */
 export const IG_LOGIN_SCOPES = [
   "instagram_business_basic",
   "instagram_business_manage_messages",
   "instagram_business_manage_comments",
+  "instagram_business_content_publish",
 ] as const;
 
 export interface InstagramLoginResult {

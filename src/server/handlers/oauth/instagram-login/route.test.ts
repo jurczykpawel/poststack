@@ -40,7 +40,7 @@ describe("GET /api/oauth/instagram-login", () => {
     expect(loc.searchParams.get("state")).toBe("STATE123");
     expect(loc.searchParams.get("redirect_uri")).toBe("http://localhost:3000/api/oauth/instagram-login/callback");
     expect(loc.searchParams.get("scope")).toBe(
-      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
+      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish",
     );
     expect(res.headers.get("set-cookie")).toContain("rs_oauth_state=STATE123");
   });
