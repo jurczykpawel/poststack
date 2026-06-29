@@ -51,11 +51,28 @@ export class InstagramProvider extends SocialProvider {
    * (IG_GRAPH_BASE) with THAT token — validated LIVE at Standard Access, no App Review. Otherwise
    * fall back to the FB page token on `graph.facebook.com` (the managed / Advanced-Access path).
    * Applies to the messaging surface only (sendMessage, getUserProfile, checkFollowsBusiness,
-   * sendPrivateReply); comments / publishing always stay on graph.facebook.com.
+   * sendPrivateReply); comments / permalink route via {@link contentTransport} (FB token unless
+   * IG-Login-only); publishing via igPublishTransport.
    */
   private messagingTransport(tokens: TokenData): { base: string; token: string } {
     const ig = tokens.messaging_token as string | undefined;
     return ig
+      ? { base: IG_GRAPH_BASE, token: ig }
+      : { base: GRAPH_API, token: tokens.access_token };
+  }
+
+  /**
+   * Choose the transport for IG CONTENT operations (comments + permalink). Mirrors
+   * {@link igPublishTransport} in the publish provider, NOT {@link messagingTransport}: a channel that
+   * still has a Facebook page token keeps using it on graph.facebook.com (the proven managed path) —
+   * only an IG-Login-ONLY channel (empty access_token) routes to graph.instagram.com with the IG-Login
+   * token. Docs: IG-Login comment moderation uses identical paths on graph.instagram.com under
+   * instagram_business_manage_comments (already requested). Messaging differs (it always prefers the
+   * IG-Login token) because IG DM delivery requires graph.instagram.com at Standard Access.
+   */
+  private contentTransport(tokens: TokenData): { base: string; token: string } {
+    const ig = tokens.messaging_token as string | undefined;
+    return ig && !tokens.access_token
       ? { base: IG_GRAPH_BASE, token: ig }
       : { base: GRAPH_API, token: tokens.access_token };
   }
@@ -296,13 +313,11 @@ export class InstagramProvider extends SocialProvider {
     mediaId: string,
     message: string
   ): Promise<{ platformMessageId: string | null }> {
-    const res = await fetch(`${GRAPH_API}/${mediaId}/replies`, {
+    const { base, token } = this.contentTransport(tokens);
+    const res = await fetch(`${base}/${mediaId}/replies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        access_token: tokens.access_token,
-      }),
+      body: JSON.stringify({ message, access_token: token }),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
@@ -323,10 +338,11 @@ export class InstagramProvider extends SocialProvider {
     mediaId: string,
     message: string,
   ): Promise<{ platformMessageId: string | null }> {
-    const res = await fetch(`${GRAPH_API}/${mediaId}/comments`, {
+    const { base, token } = this.contentTransport(tokens);
+    const res = await fetch(`${base}/${mediaId}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, access_token: tokens.access_token }),
+      body: JSON.stringify({ message, access_token: token }),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
@@ -340,9 +356,9 @@ export class InstagramProvider extends SocialProvider {
    * IG media ids carry no shortcode, so the only reliable source is the API's `permalink` field.
    */
   override async getPostUrl(tokens: TokenData, mediaId: string): Promise<string | null> {
+    const { base, token } = this.contentTransport(tokens);
     const res = await fetch(
-      `${GRAPH_API}/${mediaId}?` +
-        new URLSearchParams({ fields: "permalink", access_token: tokens.access_token }),
+      `${base}/${mediaId}?` + new URLSearchParams({ fields: "permalink", access_token: token }),
       { redirect: "error", signal: AbortSignal.timeout(10_000) },
     );
     await assertMetaOk(res, "Instagram get post url");

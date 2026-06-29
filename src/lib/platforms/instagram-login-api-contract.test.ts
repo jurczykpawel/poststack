@@ -10,7 +10,8 @@
  * graph.facebook.com (GRAPH_API_BASE) — the existing managed/Advanced-Access path.
  *
  * Routing applies to the four messaging methods ONLY: sendMessage, getUserProfile,
- * checkFollowsBusiness, sendPrivateReply. Comments / publishing stay on graph.facebook.com.
+ * checkFollowsBusiness, sendPrivateReply. Comments / permalink route by FB-token presence
+ * (graph.facebook.com when a page token exists, else graph.instagram.com); publishing the same.
  *
  * Mirror of meta-api-contract.test.ts harness: mocked fetch, captured URLs.
  */
@@ -40,6 +41,8 @@ const originalFetch = globalThis.fetch;
 // token in messaging_token (preferred transport when present).
 const IG_LOGIN_TOKENS = { access_token: "fb-page-tok", messaging_token: "IGQW_ig_login_tok" } as const;
 const FB_ONLY_TOKENS = { access_token: "fb-page-tok" } as const;
+// IG-Login-ONLY shape: no FB page token, only the IG-Login messaging token.
+const IG_ONLY_TOKENS = { access_token: "", messaging_token: "IGQW_ig_login_tok" } as const;
 
 describe("Instagram Business Login API Contract (IGML2)", () => {
   beforeEach(() => {
@@ -62,6 +65,9 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
       if (url.includes("fields=name") || url.includes("profile_pic")) {
         return Response.json({ name: "Jane", username: "jane_ig", profile_pic: "https://x/p.jpg" });
       }
+      if (url.includes("/replies")) return Response.json({ id: "reply_1" });
+      if (url.includes("/comments")) return Response.json({ id: "comment_1" });
+      if (url.includes("fields=permalink")) return Response.json({ permalink: "https://www.instagram.com/p/abc/" });
       return new Response("Not Found", { status: 404 });
     }) as typeof fetch;
   });
@@ -175,6 +181,45 @@ describe("Instagram Business Login API Contract (IGML2)", () => {
 
       const call = fetchCalls.find((c) => c.url.includes("IGSID_1"))!;
       expect(call.url.startsWith(`${GRAPH_API_BASE}/`)).toBe(true);
+      expect(call.url).toContain("access_token=fb-page-tok");
+    });
+  });
+
+  describe("content methods route by FB-token presence (mirror of publish transport)", () => {
+    it("IG-Login-ONLY (empty access_token): sendComment → graph.instagram.com with the messaging_token", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      await new InstagramProvider().sendComment!(IG_ONLY_TOKENS, "ig_comment_9", "Thanks!");
+      const call = fetchCalls.find((c) => c.url.includes("/replies"))!;
+      expect(call.url).toBe(`${IG_GRAPH_BASE}/ig_comment_9/replies`);
+      expect(JSON.parse(call.init!.body as string).access_token).toBe("IGQW_ig_login_tok");
+    });
+    it("IG-Login-ONLY: commentOnPost → graph.instagram.com with the messaging_token", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      await new InstagramProvider().commentOnPost!(IG_ONLY_TOKENS, "ig_media_9", "First!");
+      const call = fetchCalls.find((c) => c.url.includes("/comments"))!;
+      expect(call.url).toBe(`${IG_GRAPH_BASE}/ig_media_9/comments`);
+      expect(JSON.parse(call.init!.body as string).access_token).toBe("IGQW_ig_login_tok");
+    });
+    it("IG-Login-ONLY: getPostUrl → graph.instagram.com with the messaging_token", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      const url = await new InstagramProvider().getPostUrl!(IG_ONLY_TOKENS, "ig_media_9");
+      const call = fetchCalls.find((c) => c.url.includes("fields=permalink"))!;
+      expect(call.url.startsWith(`${IG_GRAPH_BASE}/ig_media_9`)).toBe(true);
+      expect(call.url).toContain("access_token=IGQW_ig_login_tok");
+      expect(url).toBe("https://www.instagram.com/p/abc/");
+    });
+    it("FB-backed (access_token present, dual or FB-only): sendComment stays on graph.facebook.com with the FB token", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      await new InstagramProvider().sendComment!(IG_LOGIN_TOKENS, "ig_comment_9", "Thanks!");
+      const call = fetchCalls.find((c) => c.url.includes("/replies"))!;
+      expect(call.url).toBe(`${GRAPH_API_BASE}/ig_comment_9/replies`);
+      expect(JSON.parse(call.init!.body as string).access_token).toBe("fb-page-tok");
+    });
+    it("FB-only: getPostUrl stays on graph.facebook.com", async () => {
+      const { InstagramProvider } = await import("./instagram");
+      await new InstagramProvider().getPostUrl!(FB_ONLY_TOKENS, "ig_media_9");
+      const call = fetchCalls.find((c) => c.url.includes("fields=permalink"))!;
+      expect(call.url.startsWith(`${GRAPH_API_BASE}/ig_media_9`)).toBe(true);
       expect(call.url).toContain("access_token=fb-page-tok");
     });
   });
