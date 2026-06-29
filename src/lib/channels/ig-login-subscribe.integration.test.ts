@@ -169,6 +169,12 @@ describe("subscribeInstagramMessaging (real Postgres)", () => {
 
     const spy = vi.spyOn(InstagramProvider.prototype, "subscribeMessagingWebhooks").mockResolvedValue(false);
     await subscribeInstagramMessaging(WS, IG_ID, "IGQW_TOK");
+    // Reset the per-(type,channel) alert throttle between calls so it CANNOT be the thing enforcing
+    // "exactly once". With the throttle window cleared, a second alert is only suppressed by the
+    // persisted `alreadyWarned` guard (channel.last_error === the warning) — so a still-once result
+    // genuinely isolates that guard's contribution. (Same row-clear pattern as the PSA13/ITEM3 test.)
+    const c1 = await getChannel();
+    await db.execute(sql`delete from rate_limit_counters where key = ${"alert:channel_degraded:" + c1?.id}`);
     await subscribeInstagramMessaging(WS, IG_ID, "IGQW_TOK"); // already warned → must NOT re-alert
 
     expect(spy).toHaveBeenCalledTimes(2);
