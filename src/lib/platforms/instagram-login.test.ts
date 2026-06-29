@@ -94,6 +94,31 @@ describe("exchangeInstagramLoginCode", () => {
     expect(meCall.url).toContain("access_token=IGQW_LONG_TOK");
   });
 
+  it("defaults the expiry to ~60 days when the long-lived exchange omits expires_in (no null death-clock)", async () => {
+    // A long-lived IGQW token with no expires_in must NOT yield a null expiry — that would leave the
+    // refresh scan blind and the token would die silently at 60 days. Default to the IG long-lived
+    // lifetime (60 days).
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith(`${IG_OAUTH_TOKEN_BASE}/oauth/access_token`)) {
+        return Response.json({ access_token: "SHORT_TOK", user_id: 17841400000 });
+      }
+      if (url.includes("/access_token") && url.includes("ig_exchange_token")) {
+        return Response.json({ access_token: "IGQW_LONG_TOK", token_type: "bearer" }); // no expires_in
+      }
+      if (url.includes("/me")) return Response.json({ user_id: "17841400000", username: "acme_biz" });
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+
+    const { exchangeInstagramLoginCode } = await import("./instagram-login");
+    const before = Date.now();
+    const res = await exchangeInstagramLoginCode("auth_code", "https://app.example/cb");
+    expect(res.expiresAt).toBeInstanceOf(Date);
+    const ms = res.expiresAt!.getTime() - before;
+    expect(ms).toBeGreaterThan(59 * 24 * 3600 * 1000);
+    expect(ms).toBeLessThan(61 * 24 * 3600 * 1000);
+  });
+
   it("throws a clear error when the short-lived exchange fails", async () => {
     globalThis.fetch = vi.fn(async () => new Response("bad code", { status: 400 })) as typeof fetch;
     const { exchangeInstagramLoginCode } = await import("./instagram-login");

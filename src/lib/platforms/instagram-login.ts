@@ -33,9 +33,14 @@ export interface InstagramLoginResult {
   username?: string;
   /** Long-lived IGQW token (60 days) — stored as the channel's `messaging_token`. */
   messagingToken: string;
-  /** Token expiry, or null if the provider returned no `expires_in`. */
-  expiresAt: Date | null;
+  /** Token expiry. Always set — defaults to the 60-day long-lived lifetime if the exchange omits
+   *  `expires_in`, so the refresh scan can never miss a channel (no silent death at 60 days). */
+  expiresAt: Date;
 }
+
+/** Instagram long-lived user token default lifetime (60 days), used when the exchange response
+ *  carries no usable `expires_in`. */
+const IG_LONG_LIVED_TOKEN_TTL_SECONDS = 60 * 24 * 60 * 60;
 
 /** Build the Instagram Business Login authorize URL. */
 export async function buildInstagramLoginAuthUrl(state: string, redirectUri: string): Promise<string> {
@@ -113,8 +118,15 @@ export async function exchangeInstagramLoginCode(code: string, redirectUri: stri
   const ll = (await llRes.json()) as { access_token?: string; expires_in?: number };
   const messagingToken = typeof ll.access_token === "string" ? ll.access_token : "";
   if (!messagingToken) throw new Error("Instagram-Login long-lived token missing access_token");
-  const expiresAt =
-    typeof ll.expires_in === "number" && ll.expires_in > 0 ? new Date(Date.now() + ll.expires_in * 1000) : null;
+  // A long-lived IGQW token lives 60 days. If the exchange omits `expires_in` (missing / 0 / non-finite)
+  // DON'T leave the expiry null — a null death-clock makes the refresh scan skip the channel, so the
+  // token would die silently at 60 days. Default to the documented 60-day lifetime so the expiry
+  // (blob field + column) is ALWAYS set and the proactive refresh picks it up.
+  const expiresInSec =
+    typeof ll.expires_in === "number" && Number.isFinite(ll.expires_in) && ll.expires_in > 0
+      ? ll.expires_in
+      : IG_LONG_LIVED_TOKEN_TTL_SECONDS;
+  const expiresAt = new Date(Date.now() + expiresInSec * 1000);
 
   // 3. resolve the IG professional account id (= channel platform_id) + handle
   const meRes = await fetch(
