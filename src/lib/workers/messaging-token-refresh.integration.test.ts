@@ -194,6 +194,46 @@ describe("concurrent FB + messaging refresh on the same channel row (no blob clo
   });
 });
 
+describe("manual_token channel: messaging refresh runs, FB-token refresh still skipped (IGML6 life-support)", () => {
+  // Regression: a channel connected via a pasted page/System-User token (connection_mode =
+  // "manual_token") that later acquired a messaging_token via Instagram Business Login. The messaging
+  // clock is independent of how the FB side was connected, so the messaging-token refresh MUST run —
+  // otherwise the 60-day IGQW token dies silently and IG DMs stop. The FB-token (non-messaging) refresh
+  // must STILL be skipped for manual_token, as before.
+  beforeEach(async () => {
+    if (!TEST_DB) return;
+    // refreshToken's impl/call-count may have been mutated by the concurrent describe above; reset it.
+    refreshToken.mockReset();
+    await db.update(s.channels).set({ connection_mode: "manual_token" }).where(eq(s.channels.id, CH));
+  });
+
+  it("refreshes the messaging token for a manual_token channel (life-support not bypassed)", async () => {
+    if (!TEST_DB) return;
+    const newExpiry = Math.floor(Date.now() / 1000) + 60 * 24 * 60 * 60; // +60d
+    refreshMessagingToken.mockResolvedValueOnce({ token: "IGQW_new", expiresAt: newExpiry });
+
+    await processTokenRefresh({ channelId: CH, kind: "messaging" }, helpers);
+
+    expect(refreshMessagingToken).toHaveBeenCalledWith("IGQW_old");
+    const { blob, messaging_token_expires_at } = await storedBlob();
+    expect(blob.messaging_token).toBe("IGQW_new"); // refreshed despite manual_token
+    expect(blob.messaging_token_expires_at).toBe(newExpiry);
+    expect(blob.access_token).toBe("fb-page-tok"); // FB page token preserved
+    expect(messaging_token_expires_at!.getTime()).toBe(newExpiry * 1000);
+  });
+
+  it("still skips the FB-token (non-messaging) refresh for a manual_token channel", async () => {
+    if (!TEST_DB) return;
+
+    await processTokenRefresh({ channelId: CH, kind: "oauth" }, helpers);
+
+    expect(refreshToken).not.toHaveBeenCalled(); // manual_token gate still applies to the FB path
+    const { blob } = await storedBlob();
+    expect(blob.access_token).toBe("fb-page-tok"); // untouched
+    expect(blob.messaging_token).toBe("IGQW_old"); // untouched
+  });
+});
+
 describe("scan enqueues messaging-token refresh on its own clock (IGML6)", () => {
   it("enqueues a kind:messaging job with a distinct jobKey for a near-expiry messaging token", async () => {
     if (!TEST_DB) return;

@@ -34,21 +34,24 @@ export async function processTokenRefresh(
     return;
   }
 
-  // Manual long-lived / System User tokens are not on a refresh cycle.
+  // IGML6: the Instagram-Login messaging token runs on its OWN 60-day clock, refreshed via a separate
+  // provider method and persisted to its own column. Branch here BEFORE the manual_token gate AND the
+  // requiresTokenRefresh() gate (both of which govern only the main FB token). The messaging clock is
+  // independent of how the FB side was connected: a channel connected via a pasted page/System-User
+  // token (connection_mode = "manual_token") can still acquire a messaging_token via Instagram Business
+  // Login, and that IGQW token MUST be refreshed on its own clock or IG DMs die silently after 60 days.
+  if (payload.kind === "messaging") {
+    await refreshMessagingToken(channelId, channel.platform, channel.token_encrypted, helpers);
+    return;
+  }
+
+  // Manual long-lived / System User tokens are not on a refresh cycle (FB-token path only).
   if (channel.connection_mode === "manual_token") {
     helpers.logger.info(`Channel ${channelId} uses a manual long-lived token, skipping refresh`);
     return;
   }
 
   const provider = getProvider(channel.platform);
-
-  // IGML6: the Instagram-Login messaging token runs on its OWN 60-day clock, refreshed via a separate
-  // provider method and persisted to its own column. Branch here BEFORE the requiresTokenRefresh()
-  // gate (which governs the main FB token only).
-  if (payload.kind === "messaging") {
-    await refreshMessagingToken(channelId, channel.platform, channel.token_encrypted, helpers);
-    return;
-  }
 
   if (!provider.requiresTokenRefresh()) {
     helpers.logger.info(`Platform ${channel.platform} does not require token refresh`);
