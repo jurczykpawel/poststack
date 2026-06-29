@@ -32,6 +32,7 @@ import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/serv
 import { ApiError } from "@/lib/api/response";
 import { getInstanceLicense, hasFeature } from "@/lib/license/gate";
 import { proMessage, type Feature } from "@/lib/license/features";
+import { env } from "@/lib/env";
 import { renderPage } from "../layout";
 import { statusBadge, pill, dot, type Tone } from "../components/status";
 import { platformCell, platformLabel, platformColor, platformGlyph } from "../components/platform";
@@ -97,6 +98,27 @@ export function messagingHint(ch: PublicChannel): Html {
 export function lastErrorNote(ch: PublicChannel): Html {
   if (!ch.last_error) return html``;
   return html`<div class="ch-last-error">${pill("last error", "bad")} <small>${ch.last_error}</small></div>`;
+}
+
+/** A2: in-app setup guide for the "+ Instagram (messaging)" connect button, so a self-hoster can
+ *  wire Instagram Business Login without leaving the panel. Reuses the orphaned `guide-*` disclosure
+ *  styling. Shows the Meta app config (env vars + the redirect URI to register — prefixed with
+ *  APP_URL for a copy-pasteable absolute URL), the IG "allow access to messages" toggle, and the
+ *  per-account webhook auto-subscribe note. */
+export function instagramLoginInstructions(): Html {
+  const redirectUri = `${env.APP_URL.replace(/\/$/, "")}/api/oauth/instagram-login/callback`;
+  return html`<details class="guide-panel" style="margin-top:.75rem">
+    <summary class="guide-summary">Setting up Instagram (messaging)? ${pill("self-host setup", "info")}</summary>
+    <div class="guide-body">
+      <p>Instagram Business Login needs a Meta app configured on this instance:</p>
+      <ol class="guide-steps">
+        <li>Set <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code> (from your Meta app) in the instance config.</li>
+        <li>In the Meta app, register this OAuth redirect URI: <code>${redirectUri}</code></li>
+        <li>On the Instagram account: <strong>Settings → Connected tools → allow access to messages</strong> (the account must permit message access).</li>
+      </ol>
+      <p class="guide-note">Connecting subscribes that account to messaging webhooks automatically (per-account) — no extra step.</p>
+    </div>
+  </details>`;
 }
 
 /** The per-row reconnect action — only shown on a channel that actually needs it. */
@@ -353,6 +375,7 @@ async function channelsPage(c: Context): Promise<Response> {
                 <a class="btn btn-secondary" href="/api/oauth/instagram-login">+ Instagram (messaging)</a>
               </div>
               <p class="set-lead" style="margin:.5rem 0 0">Instagram (messaging) adds DM send/receive to an Instagram account at Standard Access — no App Review. Connect Instagram first for publishing &amp; comments, then add messaging on top.</p>
+              ${instagramLoginInstructions()}
               ${(hasFb || hasIg) && !canMultiChannel
                 ? html`<p class="set-lead" style="margin:.75rem 0 0">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</p>`
                 : ""}

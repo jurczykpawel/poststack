@@ -11,6 +11,7 @@ process.env.CRON_SECRET ||= "test-cron-secret-at-least-32-characters-long";
 let messagingConnectionBadge: typeof import("./channels").messagingConnectionBadge;
 let messagingHint: typeof import("./channels").messagingHint;
 let lastErrorNote: typeof import("./channels").lastErrorNote;
+let instagramLoginInstructions: typeof import("./channels").instagramLoginInstructions;
 
 const s = (h: unknown) => String(h);
 // Minimal fixture — only the fields the helpers read matter; cast the rest.
@@ -18,7 +19,7 @@ const ch = (over: Partial<PublicChannel>): PublicChannel =>
   ({ platform: "instagram", messaging_connection: null, last_error: null, ...over } as PublicChannel);
 
 beforeAll(async () => {
-  ({ messagingConnectionBadge, messagingHint, lastErrorNote } = await import("./channels"));
+  ({ messagingConnectionBadge, messagingHint, lastErrorNote, instagramLoginInstructions } = await import("./channels"));
 });
 
 describe("messagingConnectionBadge (B1/B4)", () => {
@@ -45,6 +46,20 @@ describe("messagingHint (B2)", () => {
   });
   it("renders nothing for a Facebook channel", () => {
     expect(s(messagingHint(ch({ platform: "facebook", messaging_connection: null }))).trim()).toBe("");
+  });
+});
+
+describe("instagramLoginInstructions (A2)", () => {
+  const out = () => s(instagramLoginInstructions());
+  it("shows the OAuth redirect URI to register", () => {
+    expect(out()).toContain("/api/oauth/instagram-login/callback");
+  });
+  it("names the Meta app config vars the instance needs", () => {
+    expect(out()).toContain("INSTAGRAM_APP_ID");
+    expect(out()).toContain("INSTAGRAM_APP_SECRET");
+  });
+  it("mentions the IG account 'allow access to messages' toggle", () => {
+    expect(out()).toContain("messages");
   });
 });
 
