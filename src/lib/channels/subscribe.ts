@@ -5,6 +5,7 @@ import type { ConnectedAccount } from "@/lib/platforms/base";
 import { getProvider } from "@/lib/platforms/registry";
 import { decryptTokens } from "@/lib/crypto";
 import { markChannelNeedsReauth } from "./health";
+import { dispatchAlert } from "@/lib/notifications/alert";
 
 /** Surfaced on a channel that connected but whose inbound webhook subscription failed — it would
  *  otherwise silently receive NO events. The health sweep / re-subscribe clears it. */
@@ -53,6 +54,13 @@ export async function subscribeChannelWebhooks(
  *  subscription failed — its ONLY inbound path is dead, so "active" would be a lie. */
 export const MESSAGING_SUBSCRIBE_FAILED_REASON = "messaging_webhook_subscribe_failed";
 
+/** IGFU3: non-fatal warning stamped on an FB-backed channel whose per-account IG-Login subscribe
+ *  failed. Its FB Page token still publishes/comments, so we DON'T flip status — but at Standard
+ *  Access the Page subscription does NOT deliver IG DMs, so a silent "active" would hide that the
+ *  channel receives no IG DMs. Surface it on last_error + a one-time alert. */
+export const MESSAGING_SUBSCRIBE_FAILED_FB_WARNING =
+  "IG messaging webhook subscribe failed — IG DM receipt not guaranteed at Standard Access; reconnect via Instagram Login";
+
 /**
  * IGFU2 + IGFU3: after Instagram Business Login mints the IGQW token, subscribe the IG account to
  * messaging webhooks the IG-Login-native way (per-account `subscribed_apps` on graph.instagram.com)
@@ -65,8 +73,10 @@ export const MESSAGING_SUBSCRIBE_FAILED_REASON = "messaging_webhook_subscribe_fa
  * Status (IGFU3): on success the channel genuinely receives → keep "active". On failure, the account
  * gets no DMs. For a channel whose ONLY inbound path is this subscription (no Facebook Page token
  * behind it) that means "active" is misleading → flag it `needs_reauth` with a clear reason and fire
- * the channel-down alert (markChannelNeedsReauth). A channel that ALSO carries an FB page token still
- * receives via its Page subscription, so it is NOT downgraded by an IG-Login subscribe failure.
+ * the channel-down alert (markChannelNeedsReauth). A channel that ALSO carries an FB page token keeps
+ * publishing/comments via that token, so it is NOT downgraded — but the FB Page subscription does NOT
+ * deliver IG DMs at Standard Access, so the failure is surfaced NON-SILENTLY (a warning on last_error
+ * + a one-time channel alert) rather than leaving a misleading "active, receiving nothing".
  *
  * Best-effort: a subscribe error never throws out of the OAuth callback.
  */
@@ -89,13 +99,33 @@ export async function subscribeInstagramMessaging(
       eq(channels.platform_id, igUserId),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, token_encrypted: true },
+    columns: { id: true, token_encrypted: true, last_error: true, display_name: true },
   });
   if (channel) {
     const blob = decryptTokens(channel.token_encrypted);
     const receivesViaPage = Boolean(blob.access_token || blob.page_id);
     if (!receivesViaPage) {
       await markChannelNeedsReauth(channel.id, MESSAGING_SUBSCRIBE_FAILED_REASON);
+    } else {
+      // FB-backed: publishing/comments still ride the FB Page token, so DON'T flip status. But the
+      // Page subscription doesn't deliver IG DMs at Standard Access — make that NON-SILENT: record a
+      // visible warning on last_error and fire the channel alert ONCE (skip if it's already warned, so
+      // a re-subscribe doesn't re-alert).
+      const alreadyWarned = channel.last_error === MESSAGING_SUBSCRIBE_FAILED_FB_WARNING;
+      await db
+        .update(channels)
+        .set({ last_error: MESSAGING_SUBSCRIBE_FAILED_FB_WARNING })
+        .where(eq(channels.id, channel.id));
+      if (!alreadyWarned) {
+        await dispatchAlert({
+          type: "channel_reauth",
+          workspaceId,
+          channelId: channel.id,
+          platform: "instagram",
+          displayName: channel.display_name,
+          detail: MESSAGING_SUBSCRIBE_FAILED_FB_WARNING,
+        }).catch(() => {});
+      }
     }
   }
   return { ok: false };

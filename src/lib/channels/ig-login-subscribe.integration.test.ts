@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 
 /**
@@ -21,6 +21,9 @@ let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-0000000000d2";
 const IG_ID = "17841400000999";
+const realFetch = globalThis.fetch;
+// Capture dispatchAlert POSTs (it posts to CHANNEL_ALERT_WEBHOOK_URL).
+let alertBodies: Array<Record<string, unknown>>;
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -29,6 +32,7 @@ beforeAll(async () => {
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
+  process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://example.com/alert-hook";
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   ({ upsertChannels } = await import("./upsert"));
@@ -44,12 +48,24 @@ beforeEach(async () => {
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "U", slug: `u-${WS}` });
   vi.restoreAllMocks();
+  // Intercept dispatchAlert's outbound POST (so we can assert "alert fired", non-silently) without a
+  // real network call. subscribeMessagingWebhooks is spied per-test, so it never hits this.
+  alertBodies = [];
+  globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.body) alertBodies.push(JSON.parse(String(init.body)));
+    return new Response("ok", { status: 200 });
+  }) as typeof fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = realFetch;
 });
 
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
+  delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
   vi.restoreAllMocks();
   if (closeQueue) await closeQueue();
 });
@@ -101,9 +117,10 @@ describe("subscribeInstagramMessaging (real Postgres)", () => {
     expect(c?.last_error).toBe("messaging_webhook_subscribe_failed");
   });
 
-  it("subscribes but does NOT downgrade a channel that still receives via its FB page token", async () => {
+  it("does NOT downgrade an FB-backed channel on failure, but surfaces a NON-SILENT warning + alert", async () => {
     if (!TEST_DB) return;
-    // A full FB-login IG channel (real page token) — its inbound rides the Page subscription.
+    const { MESSAGING_SUBSCRIBE_FAILED_FB_WARNING } = await import("./subscribe");
+    // A full FB-login IG channel (real page token) — publishing/comments ride the Page token.
     await db.insert(s.channels).values({
       workspace_id: WS,
       platform: "instagram",
@@ -119,7 +136,13 @@ describe("subscribeInstagramMessaging (real Postgres)", () => {
 
     expect(spy).toHaveBeenCalledWith("IGQW_TOK", IG_ID);
     expect(r.ok).toBe(false);
-    // FB page token present → still receives → stays active, not downgraded.
-    expect((await getChannel())?.status).toBe("active");
+    const c = await getChannel();
+    // FB page token present → publishing still works → stays active, not downgraded.
+    expect(c?.status).toBe("active");
+    // …but the IG-DM-receipt gap is NOT silent: a visible warning is stamped + the alert fired once.
+    expect(c?.last_error).toBe(MESSAGING_SUBSCRIBE_FAILED_FB_WARNING);
+    const channelAlerts = alertBodies.filter((b) => b.channel_id === c?.id && b.type === "channel_reauth");
+    expect(channelAlerts.length).toBe(1);
+    expect(String(channelAlerts[0]!.detail)).toBe(MESSAGING_SUBSCRIBE_FAILED_FB_WARNING);
   });
 });
