@@ -6,6 +6,12 @@ const rephrase = vi.fn(async (t: string) => t);
 vi.mock("@/lib/ai/rephrase", () => ({ rephrase: (...a: unknown[]) => rephrase(...(a as [string])) }));
 const rateLimit = vi.fn(async () => ({ allowed: true, remaining: 1, retryAfter: 0 }));
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLimit(...(a as [])) }));
+// AIPROMPT1: resolveDmText reads the workspace-default rephrase prompt; stub it (no DB in this unit
+// test). `null` → no workspace override, so the resolver falls back to rule/tone/built-in default.
+const wsRephrasePrompt = vi.fn<() => string | null>(() => null);
+vi.mock("@/lib/db", () => ({
+  db: { query: { workspaces: { findFirst: async () => ({ ai_rephrase_prompt: wsRephrasePrompt() }) } } },
+}));
 
 let resolveReplyContent: typeof import("./executor").resolveReplyContent;
 const WS = "ws-aud162";

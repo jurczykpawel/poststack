@@ -58,6 +58,7 @@ import { btn } from "../ui/components/button";
 import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
+import { DEFAULT_REPHRASE_PROMPT } from "@/lib/ai/rephrase";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
@@ -1114,6 +1115,25 @@ function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgra
     </form>`;
 }
 
+/**
+ * AIPROMPT1: the workspace-default rephrase prompt form (PRO). Used when a rule's `custom_prompt` is
+ * blank; blank here = the built-in default rephrase prompt (shown as the textarea placeholder so the
+ * operator always sees what will run if left empty — AIPROMPT2). PRO-gated UI + server-side gate.
+ */
+function renderAiRephrasePrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
+  const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
+  if (!canConfigure) {
+    return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default rephrase prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
+  }
+  return html`${notice}
+    <form hx-post="/settings/ai-rephrase-prompt" hx-ext="json-enc" hx-target="#ai-rephrase-prompt-area" hx-swap="innerHTML" style="max-width:560px">
+      <label class="fld"><span>Default rephrase prompt <small>— used when a rule has no custom prompt; blank = the built-in default below</small></span>
+        <textarea name="ai_rephrase_prompt" rows="4" maxlength="4000" placeholder="${DEFAULT_REPHRASE_PROMPT}" style="font:inherit">${prompt ?? ""}</textarea></label>
+      <p class="muted" style="font-size:.78rem;margin:.25rem 0 0">Built-in default (used when blank): <span class="mono">${DEFAULT_REPHRASE_PROMPT}</span></p>
+      <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
+    </form>`;
+}
+
 /** Parse a `Key: Value` per-line textarea into a header map (ignoring blanks / malformed lines). */
 function parseHeaderLines(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -1667,17 +1687,34 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderAiDraftPrompt(raw || null, true, license.upgradeUrl, "Default AI-draft prompt saved."));
   });
 
+  // AIPROMPT1: persist the workspace-default rephrase prompt (PRO). Blank → null (built-in default).
+  // Server-side PRO gate — a forged POST from a free instance is refused (403, no write).
+  app.post("/settings/ai-rephrase-prompt", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const license = await getInstanceLicense();
+    if (!license.features.has("ai_rephrase")) {
+      return c.html(renderAiRephrasePrompt(null, false, license.upgradeUrl), 403);
+    }
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // Cap at 4000 (parity with the AI-draft prompt + the per-rule custom_prompt 2000 is the override).
+    const raw = typeof form.ai_rephrase_prompt === "string" ? form.ai_rephrase_prompt.trim().slice(0, 4000) : "";
+    await db.update(workspaces).set({ ai_rephrase_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
+    return c.html(renderAiRephrasePrompt(raw || null, true, license.upgradeUrl, "Default rephrase prompt saved."));
+  });
+
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const [workspace, license, alertWebhook, keys] = await Promise.all([
-      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt: true } }),
+      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt: true, ai_rephrase_prompt: true } }),
       getInstanceLicense(),
       getAlertWebhook(a.workspaceId),
       loadKeys(a.workspaceId),
     ]);
     const canAlerts = license.features.has("managed_connection");
     const canAiDraft = license.features.has("ai_draft");
+    const canAiRephrase = license.features.has("ai_rephrase");
     const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
@@ -1783,6 +1820,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </div>
             <p class="muted" style="margin-bottom:1rem">Set the workspace-default prompt used when drafting AI replies. Each channel can override it (and enable drafting) from its own settings.</p>
             <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt ?? null, canAiDraft, upgradeUrl)}</div>
+          </section>
+          <section class="section">
+            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <h2 style="margin:0">AI rephrasing</h2>
+              ${canAiRephrase ? html`` : proLink(upgradeUrl, "PRO")}
+            </div>
+            <p class="muted" style="margin-bottom:1rem">Default prompt used when a rule rephrases its reply with AI (the “Rephrase with AI for variety” toggle). A rule can override it with its own Tone / Custom prompt. Blank = the built-in default shown below.</p>
+            <div id="ai-rephrase-prompt-area">${renderAiRephrasePrompt(workspace?.ai_rephrase_prompt ?? null, canAiRephrase, upgradeUrl)}</div>
           </section>
           </div>
         </div>`,

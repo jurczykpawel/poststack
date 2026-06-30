@@ -6881,6 +6881,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "ai_rephrase_prompt": {
+          "name": "ai_rephrase_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

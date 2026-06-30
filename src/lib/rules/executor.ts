@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { autoReplyRules, pendingApprovals, contacts, sequences, channels } from "@/db/schema";
+import { autoReplyRules, pendingApprovals, contacts, sequences, channels, workspaces } from "@/db/schema";
 import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEvent, isEventTerminal, type EventOutcomeLinks } from "@/lib/idempotency";
@@ -94,8 +94,14 @@ async function resolveDmText(
     // operator's base text — the same safe fallback rephrase() already returns on error.
     const { allowed } = await rateLimit(`rl:llm:${workspaceId}`, env.AI_REPHRASE_DAILY_LIMIT, 86_400);
     if (!allowed) return baseText;
+    // AIPROMPT1: precedence rule custom_prompt → workspace default → built-in (resolveRephrasePrompt).
+    const ws = await db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
+      columns: { ai_rephrase_prompt: true },
+    });
     const rephrased = await rephrase(baseText, {
       customPrompt: responseConfig.custom_prompt as string | undefined,
+      workspacePrompt: ws?.ai_rephrase_prompt ?? null,
       tone: responseConfig.tone as string | undefined,
     });
     return clampOutboundText(rephrased);

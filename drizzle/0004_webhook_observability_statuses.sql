@@ -14,4 +14,5 @@ ALTER TABLE "channels" ADD COLUMN "ai_draft_target" "ai_draft_target" DEFAULT 'd
 ALTER TABLE "channels" ADD COLUMN "ai_draft_prompt" text;--> statement-breakpoint
 ALTER TABLE "channels" ADD COLUMN "ai_draft_autosend_dm" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "channels" ADD COLUMN "ai_draft_autosend_public" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "workspaces" ADD COLUMN "ai_draft_prompt" text;
+ALTER TABLE "workspaces" ADD COLUMN "ai_draft_prompt" text;--> statement-breakpoint
+ALTER TABLE "workspaces" ADD COLUMN "ai_rephrase_prompt" text;

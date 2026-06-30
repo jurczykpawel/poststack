@@ -289,6 +289,9 @@ export const workspaces = pgTable("workspaces", {
 	// AIDRAFT1: workspace-default prompt used when drafting AI replies; per-channel
 	// ai_draft_prompt overrides it. Null = use the built-in default prompt.
 	ai_draft_prompt: text("ai_draft_prompt"),
+	// AIPROMPT1: workspace-default rephrase prompt; a per-rule custom_prompt overrides it.
+	// Null = use the built-in default rephrase prompt (DEFAULT_REPHRASE_PROMPT).
+	ai_rephrase_prompt: text("ai_rephrase_prompt"),
 }, (table) => [
 	uniqueIndex("workspaces_slug_key").using("btree", table.slug.asc().nullsLast()),
 ]);
