@@ -131,6 +131,37 @@ describe.skipIf(!TEST_DB)("webhook endpoint service", () => {
     await expect(svc.createEndpoint(WS, { url: "not a url" })).rejects.toBeInstanceOf(ApiError);
   });
 
+  it("rejects a literal cloud-metadata / link-local target (169.254.169.254)", async () => {
+    await expect(svc.createEndpoint(WS, { url: "http://169.254.169.254/latest/meta-data" })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("rejects a literal IPv6 link-local target (fe80::1)", async () => {
+    await expect(svc.createEndpoint(WS, { url: "http://[fe80::1]/x" })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("rejects a literal multicast target (224.0.0.1)", async () => {
+    await expect(svc.createEndpoint(WS, { url: "http://224.0.0.1/x" })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("rejects a literal unspecified target (0.0.0.0)", async () => {
+    await expect(svc.createEndpoint(WS, { url: "http://0.0.0.0/x" })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("accepts a normal hostname (resolves at delivery, not create-time)", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/lit" });
+    expect(ep.url).toBe("https://hook.example.com/lit");
+  });
+
+  it("accepts a public IP literal (full policy enforced at delivery)", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://1.2.3.4/lit" });
+    expect(ep.url).toBe("https://1.2.3.4/lit");
+  });
+
+  it("updateEndpoint rejects a literal link-local target", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/upd" });
+    await expect(svc.updateEndpoint(WS, ep.id, { url: "http://169.254.169.254/x" })).rejects.toBeInstanceOf(ApiError);
+  });
+
   it("rejects an unknown event type against the catalog", async () => {
     await expect(
       svc.createEndpoint(WS, { url: "https://hook.example.com/x", eventTypes: ["post.exploded"] }),

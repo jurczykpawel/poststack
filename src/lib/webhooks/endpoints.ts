@@ -5,6 +5,7 @@ import { webhookEndpoints, webhookDeliveries } from "@/db/schema";
 import { encryptString, decryptString } from "@/lib/crypto";
 import { ApiError } from "@/lib/api/response";
 import { isKnownEventType } from "@/lib/events";
+import { classifyIp } from "@/lib/net/ip-classify";
 
 export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect;
 
@@ -26,7 +27,17 @@ function decryptEndpoint(row: WebhookEndpoint): WebhookEndpoint {
   };
 }
 
-/** http/https + parseable. Throws ApiError(invalid_request) otherwise. */
+/**
+ * http/https + parseable. Throws ApiError(invalid_request) otherwise.
+ *
+ * Create-time validation is intentionally LIGHT — no DNS resolution — so a transient-DNS,
+ * not-yet-live, or internal-with-flag endpoint is not rejected up front. The AUTHORITATIVE SSRF
+ * guard runs at delivery (DNS-resolved + pinned, secure-by-default). The one exception: if the host
+ * is a literal IP in a never-allowed range (cloud-metadata/link-local, unspecified, or multicast),
+ * reject immediately for clear UX feedback. A plain hostname classifies as "unknown" (not an IP) and
+ * is always allowed here; `private`/`loopback`/`cgnat` literals stay permissive (allowed-with-flag at
+ * delivery).
+ */
 function assertValidUrl(url: string): void {
   let parsed: URL;
   try {
@@ -36,6 +47,11 @@ function assertValidUrl(url: string): void {
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ApiError("invalid_request", "Endpoint URL must be http or https", 422);
+  }
+  const host = parsed.hostname.replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 literal brackets
+  const category = classifyIp(host);
+  if (category === "link_local" || category === "unspecified" || category === "multicast") {
+    throw new ApiError("invalid_request", "Endpoint URL points at a blocked address", 422);
   }
 }
 
