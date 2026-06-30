@@ -86,15 +86,22 @@ export function messagingConnectionBadge(ch: PublicChannel): Html {
   return html``;
 }
 
-/** B2: a `facebook_only` IG channel cannot reliably RECEIVE DMs at Standard Access (the Page
- *  subscription doesn't deliver IG DMs), so nudge the operator to connect Instagram Login. Mirrors
- *  the conditional ("not guaranteed") phrasing of MESSAGING_SUBSCRIBE_FAILED_FB_WARNING. */
+/** B2: a per-channel capability note, rendered for BOTH messaging-connection states. A
+ *  `facebook_only` IG channel publishes/comments but won't receive IG DMs at the access level
+ *  self-hosters use, so nudge the operator to connect Instagram Login; an `instagram_login`
+ *  channel is a full standalone connection, so reassure that DMs/comments/publishing all work and
+ *  that each account is connected individually. Empty for non-IG / unset channels. */
 export function messagingHint(ch: PublicChannel): Html {
-  if (ch.messaging_connection !== "facebook_only") return html``;
-  return html`<div class="notice notice-warn">
-    Instagram DMs are not guaranteed at Standard Access via Facebook Login.
-    <a href="/api/oauth/instagram-login">Connect Instagram Login</a> for reliable DMs.
-  </div>`;
+  if (ch.messaging_connection === "facebook_only")
+    return html`<div class="notice notice-warn">
+      Publishing and comments are active. Instagram <strong>direct messages</strong> aren't delivered on the Facebook connection —
+      <a href="/api/oauth/instagram-login">connect Instagram Login</a> to receive and reply to DMs.
+    </div>`;
+  if (ch.messaging_connection === "instagram_login")
+    return html`<div class="notice notice-info">
+      Full Instagram connection — direct messages, comments and publishing are active for this account. Each Instagram account is connected individually.
+    </div>`;
+  return html``;
 }
 
 /** B3: surface the last recorded error so a degraded-but-still-"active" channel (e.g. the IG
@@ -107,9 +114,10 @@ export function lastErrorNote(ch: PublicChannel): Html {
 
 /** A2: in-panel guide for connecting Instagram, surfaced near the "+ Instagram (messaging)" button.
  *  Explains the two-path connection model (Instagram has a real asymmetry Facebook doesn't): a full
- *  standalone **Instagram Login** vs the bulk **Facebook Login / System User** managed connection,
- *  *when* to use each, how to spot an account missing DMs (the `Facebook only` badge), and that PRO
- *  features stay PRO regardless of connection method. Keeps the self-host Meta-app setup verbatim as a
+ *  standalone **Instagram Login** vs the bulk **Facebook Login / managed connection**, *when* to use
+ *  each, why DMs don't arrive on a Facebook connection (Meta's **Advanced Access** / App Review), how
+ *  to spot an account missing DMs (the `Facebook only` badge), and that PRO features stay PRO
+ *  regardless of connection method. Includes a durable self-host Meta-app setup walkthrough as a
  *  visually subordinate nested sub-section. Reuses the `guide-*`/`notice-*` styling + `pill`; UI-only. */
 export function instagramLoginInstructions(): Html {
   const redirectUri = `${env.APP_URL.replace(/\/$/, "")}/api/oauth/instagram-login/callback`;
@@ -119,30 +127,32 @@ export function instagramLoginInstructions(): Html {
       <p>There are two ways to connect Instagram, and they have different capabilities:</p>
       <ul class="guide-steps">
         <li>
-          <strong>Instagram Login</strong> (the “+ Instagram (messaging)” button): a full standalone
+          <strong>Instagram Login</strong> (the "+ Instagram (messaging)" button): a full standalone
           connection for <strong>one</strong> Instagram account — supporting
           <strong>publishing, comments, direct messages, and follow-gate</strong> — and it
           <strong>does not require a Facebook page</strong>. You connect each account individually.
         </li>
         <li>
-          <strong>Facebook Login / System User</strong> (managed connection): bulk-connects
+          <strong>Facebook Login</strong> (or a managed connection): bulk-connects
           <strong>all</strong> linked Instagram accounts at once — but only
-          <strong>publishing and comments</strong>. At Standard Access it does <strong>not</strong>
-          deliver Instagram <strong>direct messages</strong>.
+          <strong>publishing and comments</strong>. Instagram <strong>direct messages</strong> are
+          not delivered this way at the access level self-hosters use — that would need Meta's
+          <strong>Advanced Access</strong> (a full App Review), which most self-hosters skip.
         </li>
       </ul>
       <p>When to use which:</p>
       <ul class="guide-steps">
         <li>One or a few accounts, want everything (especially DMs): just use
           <strong>Instagram Login</strong> — nothing else needed.</li>
-        <li>Many accounts, mainly publishing: bulk-connect via <strong>System User</strong>, then add
+        <li>Many accounts, mainly publishing: bulk-connect via
+          <strong>Facebook Login / a managed connection</strong>, then add
           <strong>Instagram Login</strong> on the accounts where you want DMs.</li>
       </ul>
       <p>
-        <strong>Connected but DMs don’t work?</strong> A channel showing the
-        <strong>“Facebook only”</strong> badge plus the <em>“Instagram DMs are not guaranteed…”</em>
-        warning means its DM webhooks won’t arrive — click <strong>“+ Instagram (messaging)”</strong>
-        on that account to enable <strong>direct messages</strong>.
+        <strong>Connected but DMs don't work?</strong> A channel showing the
+        <strong>"Facebook only"</strong> badge means its DM webhooks won't arrive — click
+        <strong>"+ Instagram (messaging)"</strong> on that account to enable
+        <strong>direct messages</strong>.
       </p>
       <div class="notice notice-info">
         <strong>PRO</strong> features (follow-gate, drip sequences, manual replies, Auto-Story,
@@ -153,11 +163,18 @@ export function instagramLoginInstructions(): Html {
       <details class="guide-panel" style="margin-top:.75rem">
         <summary class="guide-summary">Self-host setup: configuring the Meta app ${pill("self-host setup", "info")}</summary>
         <div class="guide-body">
-          <p>Instagram Business Login needs a Meta app configured on this instance:</p>
+          <p>Instagram Business Login needs your own Meta app:</p>
           <ol class="guide-steps">
-            <li>Set <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code> (from your Meta app) in the instance config.</li>
-            <li>In the Meta app, register this OAuth redirect URI: <code>${redirectUri}</code></li>
-            <li>On the Instagram account: <strong>Settings → Connected tools → allow access to messages</strong> (the account must permit message access).</li>
+            <li>Create a Meta app at <strong>developers.facebook.com</strong> and add the
+              <strong>Instagram</strong> product → <strong>API setup with Instagram login</strong>
+              (this is what enables Instagram Business Login).</li>
+            <li>Set <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code> from that
+              Instagram product. <strong>Note:</strong> these are the <strong>Instagram</strong> app
+              id/secret — different from the Facebook app's <code>META_APP_ID</code>/<code>META_APP_SECRET</code>.</li>
+            <li>Register this OAuth redirect URI in the Instagram Login settings: <code>${redirectUri}</code></li>
+            <li>The Instagram account must be a <strong>Business or Creator</strong> account, with
+              message access allowed for connected tools <em>(Meta moves this setting around — if you
+              can't find it, search Instagram Help for "allow access to messages")</em>.</li>
           </ol>
           <p class="guide-note">Connecting subscribes that account to messaging webhooks automatically (per-account) — no extra step.</p>
         </div>

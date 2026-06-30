@@ -38,14 +38,16 @@ describe("messagingConnectionBadge (B1/B4)", () => {
 });
 
 describe("messagingHint (B2)", () => {
-  it("warns a facebook_only IG channel that DMs are not guaranteed + links to Instagram Login", () => {
+  it("tells a facebook_only IG channel publishing/comments work but DMs need Instagram Login", () => {
     const out = s(messagingHint(ch({ messaging_connection: "facebook_only" })));
-    expect(out).toContain("Instagram Login");
-    expect(out).toContain("not guaranteed");
+    expect(out).toContain("Publishing and comments are active");
+    expect(out).toContain("direct messages");
     expect(out).toContain("/api/oauth/instagram-login");
   });
-  it("renders nothing for an instagram_login channel", () => {
-    expect(s(messagingHint(ch({ messaging_connection: "instagram_login" }))).trim()).toBe("");
+  it("confirms an instagram_login channel has a full connection (DMs, comments, publishing)", () => {
+    const out = s(messagingHint(ch({ messaging_connection: "instagram_login" })));
+    expect(out).toContain("Full Instagram connection");
+    expect(out).toContain("Each Instagram account is connected individually");
   });
   it("renders nothing for a Facebook channel", () => {
     expect(s(messagingHint(ch({ platform: "facebook", messaging_connection: null }))).trim()).toBe("");
@@ -62,13 +64,13 @@ describe("instagramLoginInstructions (A2)", () => {
     expect(out()).toContain("INSTAGRAM_APP_SECRET");
   });
   it("mentions the IG account 'allow access to messages' toggle", () => {
-    expect(out()).toContain("messages");
+    expect(out()).toContain("allow access to messages");
   });
   // ── in-panel connection guide: two-path model, when-to-connect, PRO-stays-PRO ──
-  it("names both connection paths (Instagram Login + Facebook Login / System User)", () => {
+  it("names both connection paths (Instagram Login + Facebook Login)", () => {
     const o = out();
     expect(o).toContain("Instagram Login");
-    expect(o.includes("Facebook Login") || o.includes("System User")).toBe(true);
+    expect(o).toContain("Facebook Login");
   });
   it("explains Instagram Login is a full standalone connection that does not require a Facebook page", () => {
     const o = out();
@@ -80,10 +82,20 @@ describe("instagramLoginInstructions (A2)", () => {
     expect(o).toContain("Facebook only");
     expect(o).toContain("direct messages");
   });
+  it("defines Advanced Access as the reason DMs don't arrive on a Facebook connection", () => {
+    expect(out()).toContain("Advanced Access");
+  });
   it("notes PRO features stay PRO regardless of connection method", () => {
     const o = out();
     expect(o).toContain("PRO");
     expect(o).toContain("regardless of how the account is connected");
+  });
+  // ── durable self-host Meta-app setup ──
+  it("walks through the Meta app / Instagram-product setup", () => {
+    const o = out();
+    expect(o).toContain("developers.facebook.com");
+    expect(o).toContain("META_APP_ID");
+    expect(o).toContain("Business or Creator");
   });
 });
 
