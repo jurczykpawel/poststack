@@ -1,8 +1,26 @@
 import { describe, it, expect } from "vitest";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { assertSafeUrl, safeFetch, SsrfError } from "./safe-fetch";
 const PUBLIC = new Set(["public"] as const);
 const WITH_PRIVATE = new Set(["public", "loopback", "private", "cgnat"] as const);
+const LOOPBACK = new Set(["loopback"] as const);
 const r = (ips: string[]) => async () => ips;
+
+/** Spin up a localhost http server for the test; returns its url + a close fn. */
+async function withServer(
+  handler: http.RequestListener,
+  fn: (url: string) => Promise<void>,
+): Promise<void> {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await fn(`http://127.0.0.1:${port}/`);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
 
 describe("assertSafeUrl", () => {
   it("allows a public host (returns pinned public IP + hostname)", async () => {
@@ -74,7 +92,7 @@ describe("safeFetch", () => {
       console.warn("network egress unavailable, skipping real-fetch assertion:", (e as Error).message);
       return;
     }
-    expect([200, 301, 302, 304]).toContain(res.status);
+    expect([200]).toContain(res.status);
   }, 20000);
 
   it("real safeFetch rejects a private-resolving host (no network)", async () => {
@@ -82,4 +100,62 @@ describe("safeFetch", () => {
       safeFetch("https://internal.example/", { method: "GET" }, { allow: PUBLIC, resolve: async () => ["10.1.2.3"] }),
     ).rejects.toBeInstanceOf(SsrfError);
   });
+});
+
+describe("pinnedConnect hardening (default connector, local server)", () => {
+  it("rejects an oversized response body (> MAX_RESPONSE_BYTES)", async () => {
+    await withServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        // Stream ~2 MB in chunks; the cap (1 MB) must abort before we finish.
+        const chunk = Buffer.alloc(64 * 1024, 0x61);
+        let sent = 0;
+        const pump = () => {
+          while (sent < 2_000_000) {
+            sent += chunk.length;
+            if (!res.write(chunk)) {
+              res.once("drain", pump);
+              return;
+            }
+          }
+          res.end();
+        };
+        pump();
+      },
+      async (url) => {
+        await expect(
+          safeFetch(url, { method: "GET" }, { allow: LOOPBACK, resolve: r(["127.0.0.1"]) }),
+        ).rejects.toThrow(/response too large/);
+      },
+    );
+  }, 20000);
+
+  it("resolves a small (< cap) response body", async () => {
+    await withServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+      },
+      async (url) => {
+        const res = await safeFetch(url, { method: "GET" }, { allow: LOOPBACK, resolve: r(["127.0.0.1"]) });
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe("ok");
+      },
+    );
+  }, 20000);
+
+  it("enforces a hard wall-clock deadline against a never-responding server", async () => {
+    await withServer(
+      () => {
+        /* never respond: accept the socket but send nothing */
+      },
+      async (url) => {
+        const started = Date.now();
+        await expect(
+          safeFetch(url, { method: "GET" }, { allow: LOOPBACK, resolve: r(["127.0.0.1"]), deadlineMs: 50 }),
+        ).rejects.toThrow(/deadline exceeded/);
+        expect(Date.now() - started).toBeLessThan(5_000);
+      },
+    );
+  }, 20000);
 });

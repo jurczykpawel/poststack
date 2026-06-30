@@ -32,9 +32,20 @@ export async function assertSafeUrl(
 }
 
 /** Connects a single request. Injectable so unit tests assert pinning without real sockets. */
-export type Connector = (a: { url: string; pinnedIp: string; hostname: string; init: RequestInit }) => Promise<Response>;
+export type Connector = (a: {
+  url: string;
+  pinnedIp: string;
+  hostname: string;
+  init: RequestInit;
+  /** Hard wall-clock deadline in ms (testable seam; defaults to DEFAULT_DEADLINE_MS). */
+  deadlineMs?: number;
+}) => Promise<Response>;
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+/** Hard wall-clock ceiling: a request can NEVER outlive this, even under a slow drip (slowloris). */
+const DEFAULT_DEADLINE_MS = 15_000;
+/** Response body cap — webhook callers need only the status, so a tiny ceiling defeats memory-DoS. */
+const MAX_RESPONSE_BYTES = 1_000_000;
 
 /** Copy RequestInit.headers into a plain lowercase-keyed object. */
 function flattenHeaders(init: RequestInit): Record<string, string> {
@@ -58,7 +69,7 @@ function flattenHeaders(init: RequestInit): Record<string, string> {
  * (`redirect: "error"` semantics). Honors `init.signal` and a hard timeout. Verified on Bun + Node
  * (Step-0 spike): both honor `lookup` (pins) and `servername` (cert validates on the hostname).
  */
-export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init }) =>
+export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs }) =>
   new Promise<Response>((resolve, reject) => {
     let u: URL;
     try { u = new URL(url); } catch { reject(new SsrfError("invalid URL")); return; }
@@ -71,6 +82,13 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init }) =>
 
     const signal = init.signal as AbortSignal | null | undefined;
     if (signal?.aborted) { reject(new SsrfError("request aborted")); return; }
+
+    // Hard wall-clock deadline (independent of the inactivity timeout below): a slow-drip server
+    // cannot keep the request alive past this. Cleared on any settle so the timer never leaks.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const clearDeadline = () => { if (deadline) { clearTimeout(deadline); deadline = undefined; } };
+    const settleResolve = (r: Response) => { clearDeadline(); resolve(r); };
+    const settleReject = (e: unknown) => { clearDeadline(); reject(e); };
 
     const req = mod.request(
       {
@@ -95,22 +113,39 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init }) =>
         const status = res.statusCode ?? 0;
         if (status >= 300 && status < 400) {
           res.destroy();
-          reject(new SsrfError(`refused redirect response (status ${status})`));
+          settleReject(new SsrfError(`refused redirect response (status ${status})`));
           return;
         }
         const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () => {
-          resolve(new Response(Buffer.concat(chunks), { status, statusText: res.statusMessage }));
+        let total = 0;
+        res.on("data", (c: Buffer) => {
+          total += c.length;
+          if (total > MAX_RESPONSE_BYTES) {
+            // Memory-DoS guard: stop reading and tear down both ends immediately.
+            res.destroy();
+            req.destroy();
+            settleReject(new SsrfError("response too large"));
+            return;
+          }
+          chunks.push(c);
         });
-        res.on("error", reject);
+        res.on("end", () => {
+          settleResolve(new Response(Buffer.concat(chunks), { status, statusText: res.statusMessage }));
+        });
+        res.on("error", settleReject);
       },
     );
 
     const onAbort = () => req.destroy(new SsrfError("request aborted"));
     signal?.addEventListener("abort", onAbort, { once: true });
+    // Inactivity timeout (no bytes for N ms) — kept alongside the hard deadline below.
     req.setTimeout(DEFAULT_TIMEOUT_MS, () => req.destroy(new SsrfError("request timed out")));
-    req.on("error", (e) => reject(e));
+    // Hard wall-clock deadline: fires regardless of drip activity; the caller's (shorter) signal still wins.
+    deadline = setTimeout(() => {
+      req.destroy();
+      settleReject(new SsrfError("request deadline exceeded"));
+    }, deadlineMs ?? DEFAULT_DEADLINE_MS);
+    req.on("error", (e) => settleReject(e));
 
     const body = init.body;
     if (body != null) {
@@ -129,8 +164,8 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init }) =>
 export async function safeFetch(
   rawUrl: string,
   init: RequestInit,
-  opts: { allow: ReadonlySet<IpCategory>; resolve?: Resolver; connect?: Connector },
+  opts: { allow: ReadonlySet<IpCategory>; resolve?: Resolver; connect?: Connector; deadlineMs?: number },
 ): Promise<Response> {
   const { hostname, pinnedIp } = await assertSafeUrl(rawUrl, opts);
-  return (opts.connect ?? pinnedConnect)({ url: rawUrl, pinnedIp, hostname, init });
+  return (opts.connect ?? pinnedConnect)({ url: rawUrl, pinnedIp, hostname, init, deadlineMs: opts.deadlineMs });
 }
