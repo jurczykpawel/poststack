@@ -72,6 +72,27 @@ describe("safeFetch chokepoint (delegates to the shared rebinding-safe pinned co
     expect(seen[0]!.hostname).toBe("cdn.example.com");
   });
 
+  it("requests STREAMING transport (stream:true) and returns a streamable body larger than the 1MB webhook cap", async () => {
+    let sawStream: boolean | undefined;
+    const TOTAL = 3 * 1024 * 1024; // > the webhook buffer cap — proves no full-buffer in media path
+    const connect = async (a: { stream?: boolean; maxResponseBytes?: number }) => {
+      sawStream = a.stream;
+      const big = new Uint8Array(TOTAL);
+      const body = new ReadableStream<Uint8Array>({
+        start(c) { c.enqueue(big); c.close(); },
+      });
+      return new Response(body, { status: 200 });
+    };
+    const res = await safeFetch(
+      "https://cdn.example.com/big.mp4",
+      { method: "GET" },
+      { resolve: async () => ["8.8.8.8"], connect },
+    );
+    expect(sawStream).toBe(true); // media asks the pinned core to stream (PSA52)
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(body.byteLength).toBe(TOTAL); // full body delivered via the stream
+  });
+
   it("refuses a private/metadata target BEFORE connecting (SsrfError, connector never reached)", async () => {
     let called = false;
     const connect = async () => {

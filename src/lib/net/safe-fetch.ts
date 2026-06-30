@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
+import { Readable } from "node:stream";
 import { classifyIp, type IpCategory } from "./ip-classify";
 
 export class SsrfError extends Error {}
@@ -42,6 +43,12 @@ export type Connector = (a: {
   /** Response body cap in bytes (testable seam; defaults to MAX_RESPONSE_BYTES). Media ingest passes
    *  a far larger ceiling than the webhook default — its own readBodyCapped governs the real limit. */
   maxResponseBytes?: number;
+  /** STREAMING mode (PSA52). When true the connector returns a Response whose body is the live
+   *  response STREAM (no whole-body buffering, no `maxResponseBytes` cap, no hard wall-clock
+   *  deadline) — the caller (readProviderBody) is the sole size + duration governor, while the
+   *  socket inactivity timeout still bounds a hung connection. When falsy (webhook default) the body
+   *  is buffered, capped at `maxResponseBytes`, and the hard deadline applies. */
+  stream?: boolean;
 }) => Promise<Response>;
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -65,6 +72,26 @@ function flattenHeaders(init: RequestInit): Record<string, string> {
   return out;
 }
 
+/** Hop-by-hop headers must not be forwarded onto a (web) Response built from a live stream — they
+ *  describe THIS socket, not the message (and a forwarded `transfer-encoding`/`content-length` pair
+ *  would contradict the streamed body). Everything else (incl. `content-length`, which the caller's
+ *  cap precheck reads) is preserved. */
+const HOP_BY_HOP: ReadonlySet<string> = new Set([
+  "connection", "keep-alive", "transfer-encoding", "upgrade", "proxy-authenticate",
+  "proxy-authorization", "te", "trailer",
+]);
+
+/** Copy a Node response's headers onto a web `Headers` for the streamed Response (skips hop-by-hop). */
+function buildResponseHeaders(h: http.IncomingHttpHeaders): Headers {
+  const out = new Headers();
+  for (const [k, v] of Object.entries(h)) {
+    if (v == null || HOP_BY_HOP.has(k.toLowerCase())) continue;
+    if (Array.isArray(v)) { for (const item of v) out.append(k, item); }
+    else out.append(k, v);
+  }
+  return out;
+}
+
 /**
  * Default connector: connects pinned to `pinnedIp` (via a forced `lookup`) while keeping the
  * hostname for the `Host` header and TLS `servername` (cert validation stays on the hostname).
@@ -72,7 +99,7 @@ function flattenHeaders(init: RequestInit): Record<string, string> {
  * (`redirect: "error"` semantics). Honors `init.signal` and a hard timeout. Verified on Bun + Node
  * (Step-0 spike): both honor `lookup` (pins) and `servername` (cert validates on the hostname).
  */
-export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs, maxResponseBytes }) =>
+export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs, maxResponseBytes, stream }) =>
   new Promise<Response>((resolve, reject) => {
     const maxBytes = maxResponseBytes ?? MAX_RESPONSE_BYTES;
     let u: URL;
@@ -120,6 +147,19 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
           settleReject(new SsrfError(`refused redirect response (status ${status})`));
           return;
         }
+        // STREAMING mode: hand the live response stream straight to the caller (no buffer, no
+        // `maxResponseBytes` cap). The redirect guard above already ran, so we never stream a 3xx
+        // body. `readBodyCapped` (caller) governs size; the inactivity timeout still bounds a hang.
+        if (stream) {
+          settleResolve(
+            new Response(Readable.toWeb(res) as unknown as ReadableStream, {
+              status,
+              statusText: res.statusMessage,
+              headers: buildResponseHeaders(res.headers),
+            }),
+          );
+          return;
+        }
         const chunks: Buffer[] = [];
         let total = 0;
         res.on("data", (c: Buffer) => {
@@ -142,13 +182,18 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
 
     const onAbort = () => req.destroy(new SsrfError("request aborted"));
     signal?.addEventListener("abort", onAbort, { once: true });
-    // Inactivity timeout (no bytes for N ms) — kept alongside the hard deadline below.
+    // Inactivity timeout (no bytes for N ms) — kept in BOTH modes so a stuck/hung socket is bounded
+    // even when streaming a large download.
     req.setTimeout(DEFAULT_TIMEOUT_MS, () => req.destroy(new SsrfError("request timed out")));
-    // Hard wall-clock deadline: fires regardless of drip activity; the caller's (shorter) signal still wins.
-    deadline = setTimeout(() => {
-      req.destroy();
-      settleReject(new SsrfError("request deadline exceeded"));
-    }, deadlineMs ?? DEFAULT_DEADLINE_MS);
+    // Hard wall-clock deadline: applies ONLY to the buffered (webhook) path. In streaming mode it
+    // would wrongly abort a legitimately slow/large download that is making steady progress, so it
+    // is disabled there — the inactivity timeout above remains the safety bound.
+    if (!stream) {
+      deadline = setTimeout(() => {
+        req.destroy();
+        settleReject(new SsrfError("request deadline exceeded"));
+      }, deadlineMs ?? DEFAULT_DEADLINE_MS);
+    }
     req.on("error", (e) => settleReject(e));
 
     const body = init.body;
@@ -174,6 +219,7 @@ export async function safeFetch(
     connect?: Connector;
     deadlineMs?: number;
     maxResponseBytes?: number;
+    stream?: boolean;
   },
 ): Promise<Response> {
   const { hostname, pinnedIp } = await assertSafeUrl(rawUrl, opts);
@@ -184,5 +230,6 @@ export async function safeFetch(
     init,
     deadlineMs: opts.deadlineMs,
     maxResponseBytes: opts.maxResponseBytes,
+    stream: opts.stream,
   });
 }

@@ -159,3 +159,105 @@ describe("pinnedConnect hardening (default connector, local server)", () => {
     );
   }, 20000);
 });
+
+describe("pinnedConnect STREAMING mode (stream:true, local server)", () => {
+  it("delivers a body LARGER than the 1MB webhook cap in full (no buffering cap in stream mode)", async () => {
+    const TOTAL = 3_000_000; // > MAX_RESPONSE_BYTES (1MB): would be rejected in buffered mode
+    await withServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        const chunk = Buffer.alloc(64 * 1024, 0x62);
+        let sent = 0;
+        const pump = () => {
+          while (sent < TOTAL) {
+            const n = Math.min(chunk.length, TOTAL - sent);
+            sent += n;
+            if (!res.write(chunk.subarray(0, n))) {
+              res.once("drain", pump);
+              return;
+            }
+          }
+          res.end();
+        };
+        pump();
+      },
+      async (url) => {
+        const res = await safeFetch(
+          url,
+          { method: "GET" },
+          { allow: LOOPBACK, resolve: r(["127.0.0.1"]), stream: true },
+        );
+        expect(res.status).toBe(200);
+        // Consumed incrementally via the web stream; full body arrives (no 1MB truncation).
+        const body = new Uint8Array(await res.arrayBuffer());
+        expect(body.byteLength).toBe(TOTAL);
+      },
+    );
+  }, 20000);
+
+  it("still rejects a 3xx BEFORE any body, in stream mode (redirect:error holds)", async () => {
+    await withServer(
+      (_req, res) => {
+        res.writeHead(302, { location: "https://evil.example/" });
+        res.end("should-never-be-streamed");
+      },
+      async (url) => {
+        await expect(
+          safeFetch(url, { method: "GET" }, { allow: LOOPBACK, resolve: r(["127.0.0.1"]), stream: true }),
+        ).rejects.toThrow(/refused redirect/);
+      },
+    );
+  }, 20000);
+
+  it("does NOT abort a slow trickle that runs PAST a short deadline (no wall-clock cap in stream mode)", async () => {
+    const CHUNKS = 10;
+    const GAP_MS = 40; // ~400ms total — well past the 50ms deadline we (deliberately) pass
+    await withServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        let i = 0;
+        const tick = () => {
+          if (i++ >= CHUNKS) { res.end(); return; }
+          res.write(Buffer.alloc(1024, 0x63)); // keep the socket active each tick
+          setTimeout(tick, GAP_MS);
+        };
+        tick();
+      },
+      async (url) => {
+        const started = Date.now();
+        // deadlineMs:50 is IGNORED in stream mode; the steadily-progressing download must complete.
+        const res = await safeFetch(
+          url,
+          { method: "GET" },
+          { allow: LOOPBACK, resolve: r(["127.0.0.1"]), stream: true, deadlineMs: 50 },
+        );
+        const body = new Uint8Array(await res.arrayBuffer());
+        expect(res.status).toBe(200);
+        expect(body.byteLength).toBe(CHUNKS * 1024);
+        expect(Date.now() - started).toBeGreaterThan(GAP_MS * (CHUNKS - 1)); // genuinely outran the deadline
+      },
+    );
+  }, 20000);
+
+  it("PINS + refuses a private target BEFORE connecting, in stream mode (SsrfError, connector never reached)", async () => {
+    // Pinning: the validated loopback IP reaches the local server (success proves the pin).
+    await withServer(
+      (_req, res) => { res.writeHead(200); res.end("pinned-ok"); },
+      async (url) => {
+        const res = await safeFetch(
+          url,
+          { method: "GET" },
+          { allow: LOOPBACK, resolve: r(["127.0.0.1"]), stream: true },
+        );
+        expect(await res.text()).toBe("pinned-ok");
+      },
+    );
+    // Fail-closed before connect: a private-resolving host never reaches the connector.
+    let called = false;
+    const connect = async () => { called = true; return new Response(""); };
+    await expect(
+      safeFetch("https://x/y", {}, { allow: PUBLIC, resolve: r(["10.0.0.1"]), connect, stream: true }),
+    ).rejects.toBeInstanceOf(SsrfError);
+    expect(called).toBe(false);
+  }, 20000);
+});

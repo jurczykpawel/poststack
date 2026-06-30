@@ -15,12 +15,6 @@ export { SsrfError } from "@/lib/net/safe-fetch";
  *  (loopback/private/cgnat/link-local/metadata/unspecified/multicast/unknown) is refused. */
 const PUBLIC_ONLY = new Set<IpCategory>(["public"]);
 
-/** Generous media ceilings handed to the pinned connector. The real per-call limit is still governed
- *  by the caller's own streamed cap (readBodyCapped / readProviderBody); this is just the connector's
- *  hard memory ceiling, far above the webhook default. Env-overridable for self-host tuning. */
-const mediaMaxBytes = (): number => Number(process.env.MEDIA_CONNECT_MAX_BYTES ?? 256 * 1024 * 1024);
-const mediaDeadlineMs = (): number => Number(process.env.MEDIA_CONNECT_DEADLINE_MS ?? 120_000);
-
 /**
  * Classify an IP literal as private/internal/unroutable. Delegates to the shared `classifyIp`
  * (single source of truth) — media's policy is to block **every** non-public category, so this is
@@ -45,9 +39,15 @@ export async function assertSafeUrl(raw: string, opts: { resolve?: Resolver } = 
  * The single chokepoint for every server-side fetch of a **caller-influenced** media URL (media
  * ingest, provider cover/thumbnail + media download, story thumbnail). Routes through the shared
  * rebinding-safe pinned core: resolve → classify (public-only) → **pin the validated IP** at
- * connect-time (TLS SNI preserved) → reject 3xx → hard deadline → size cap. The DNS-rebind window the
- * old plain-`fetch` path left open is now CLOSED — the socket can never re-resolve to an internal
- * target after the guard.
+ * connect-time (TLS SNI preserved) → reject 3xx → STREAM the body. The DNS-rebind window the old
+ * plain-`fetch` path left open is now CLOSED — the socket can never re-resolve to an internal target
+ * after the guard.
+ *
+ * STREAMING (PSA52): media uses `stream: true`, so the body is delivered as a live stream — the
+ * connector neither buffers the whole (possibly multi-hundred-MB) video into RAM nor imposes the
+ * webhook's hard wall-clock deadline (a large download making steady progress must run past 15s).
+ * `readProviderBody`/`readProviderCover` (providers/download.ts) are the SOLE size governors; the
+ * socket inactivity timeout still bounds a hung connection.
  *
  * `connect` is an optional transport seam (tests inject it to assert pinning / mock the socket without
  * real egress); production uses the net core's default rebinding-safe `pinnedConnect`.
@@ -61,7 +61,6 @@ export async function safeFetch(
     allow: PUBLIC_ONLY,
     resolve: opts.resolve,
     connect: opts.connect,
-    deadlineMs: mediaDeadlineMs(),
-    maxResponseBytes: mediaMaxBytes(),
+    stream: true,
   });
 }
