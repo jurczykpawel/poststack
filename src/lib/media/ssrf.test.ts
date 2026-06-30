@@ -40,6 +40,12 @@ describe("ssrf guard", () => {
       assertSafeUrl("http://x/y", { resolve: async () => ["10.0.0.1"] }),
     ).rejects.toThrow();
     await expect(
+      assertSafeUrl("http://x/y", { resolve: async () => ["127.0.0.1"] }),
+    ).rejects.toBeInstanceOf(SsrfError); // loopback
+    await expect(
+      assertSafeUrl("http://x/y", { resolve: async () => ["169.254.169.254"] }),
+    ).rejects.toBeInstanceOf(SsrfError); // cloud metadata
+    await expect(
       assertSafeUrl("https://ok/y", { resolve: async () => ["8.8.8.8"] }),
     ).resolves.toBeUndefined();
   });
