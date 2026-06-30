@@ -1,4 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+
+// Media/provider fetches now connect over the net core's node:http(s) pinned connector (NOT global
+// fetch). Keep the REAL SSRF policy (assertSafeUrl: DNS resolve + classify + pin) and route only the
+// transport to the global fetch stub these tests install — mock transport, keep policy.
+vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/net/safe-fetch")>();
+  return {
+    ...actual,
+    safeFetch: async (url: string, init: RequestInit, opts: Parameters<typeof actual.safeFetch>[2]) => {
+      await actual.assertSafeUrl(url, opts); // real policy: refuse non-public BEFORE any transport
+      return fetch(url, { ...init, redirect: "error" }); // transport via the test's global fetch stub
+    },
+  };
+});
+
 import { eq } from "drizzle-orm";
 
 // The "safe multi-tenant" proof (UNIFY1 decision #4): a request resolved to workspace A must NEVER

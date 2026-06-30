@@ -1,8 +1,25 @@
-import { lookup } from "node:dns/promises";
-import { classifyIp } from "@/lib/net/ip-classify";
+import { classifyIp, type IpCategory } from "@/lib/net/ip-classify";
+import {
+  assertSafeUrl as netAssertSafeUrl,
+  safeFetch as netSafeFetch,
+  type Connector,
+  type Resolver,
+} from "@/lib/net/safe-fetch";
 
-/** Raised when a URL is rejected by the SSRF guard — lets callers map it to a 400 (not a leaked 500). */
-export class SsrfError extends Error {}
+// ONE SsrfError class across the whole app: re-export the net core's so that every `instanceof
+// SsrfError` (media callers AND the net core) refers to the same constructor. Media callers map it to
+// a 400 (see media/service.ts) — re-exporting (not redefining) keeps that catch working.
+export { SsrfError } from "@/lib/net/safe-fetch";
+
+/** Media's SSRF policy: only positively-public unicast targets. Every non-public category
+ *  (loopback/private/cgnat/link-local/metadata/unspecified/multicast/unknown) is refused. */
+const PUBLIC_ONLY = new Set<IpCategory>(["public"]);
+
+/** Generous media ceilings handed to the pinned connector. The real per-call limit is still governed
+ *  by the caller's own streamed cap (readBodyCapped / readProviderBody); this is just the connector's
+ *  hard memory ceiling, far above the webhook default. Env-overridable for self-host tuning. */
+const mediaMaxBytes = (): number => Number(process.env.MEDIA_CONNECT_MAX_BYTES ?? 256 * 1024 * 1024);
+const mediaDeadlineMs = (): number => Number(process.env.MEDIA_CONNECT_DEADLINE_MS ?? 120_000);
 
 /**
  * Classify an IP literal as private/internal/unroutable. Delegates to the shared `classifyIp`
@@ -15,41 +32,36 @@ export function isPrivateIp(ip: string): boolean {
   return classifyIp(ip) !== "public";
 }
 
-type Resolver = (host: string) => Promise<string[]>;
-const defaultResolver: Resolver = async (host) =>
-  (await lookup(host, { all: true })).map((r) => r.address);
-
-/** Throws `SsrfError` if the URL is not http(s) or resolves to a private/loopback/link-local/metadata address. */
+/**
+ * Throws `SsrfError` if the URL is not http(s) or resolves to any non-public address. Delegates to
+ * the shared net core with media's public-only policy — same single source of truth that resolves
+ * DNS, classifies, and (in safeFetch) pins the connection to the validated IP.
+ */
 export async function assertSafeUrl(raw: string, opts: { resolve?: Resolver } = {}): Promise<void> {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    throw new SsrfError("invalid URL");
-  }
-  if (u.protocol !== "https:" && u.protocol !== "http:") throw new SsrfError("unsupported protocol");
-  const ips = await (opts.resolve ?? defaultResolver)(u.hostname);
-  if (ips.length === 0) throw new SsrfError("could not resolve host");
-  for (const ip of ips) {
-    if (isPrivateIp(ip)) throw new SsrfError(`refused private/internal address: ${ip}`);
-  }
+  await netAssertSafeUrl(raw, { allow: PUBLIC_ONLY, resolve: opts.resolve });
 }
 
 /**
- * The single chokepoint for every server-side fetch of a **caller-influenced** URL (media ingest,
- * webhook delivery, provider cover/thumbnail + media download). Runs the SSRF guard, then fetches
- * with `redirect: "error"` so a 3xx can't bounce the request to an internal target after the check.
+ * The single chokepoint for every server-side fetch of a **caller-influenced** media URL (media
+ * ingest, provider cover/thumbnail + media download, story thumbnail). Routes through the shared
+ * rebinding-safe pinned core: resolve → classify (public-only) → **pin the validated IP** at
+ * connect-time (TLS SNI preserved) → reject 3xx → hard deadline → size cap. The DNS-rebind window the
+ * old plain-`fetch` path left open is now CLOSED — the socket can never re-resolve to an internal
+ * target after the guard.
  *
- * Residual risk (documented, accepted for now): a DNS-rebind between the guard's lookup and fetch's
- * own connect is NOT closed — that needs connect-time IP pinning (undici custom lookup), deferred
- * because pinning the socket to the resolved IP breaks TLS SNI/cert validation for https targets.
- * `redirect: "error"` closes the redirect-to-internal vector, which is the practical floor.
+ * `connect` is an optional transport seam (tests inject it to assert pinning / mock the socket without
+ * real egress); production uses the net core's default rebinding-safe `pinnedConnect`.
  */
 export async function safeFetch(
   url: string,
   init: RequestInit = {},
-  opts: { resolve?: Resolver } = {},
+  opts: { resolve?: Resolver; connect?: Connector } = {},
 ): Promise<Response> {
-  await assertSafeUrl(url, opts);
-  return fetch(url, { ...init, redirect: "error" });
+  return netSafeFetch(url, init, {
+    allow: PUBLIC_ONLY,
+    resolve: opts.resolve,
+    connect: opts.connect,
+    deadlineMs: mediaDeadlineMs(),
+    maxResponseBytes: mediaMaxBytes(),
+  });
 }

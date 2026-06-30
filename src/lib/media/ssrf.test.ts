@@ -51,38 +51,43 @@ describe("ssrf guard", () => {
   });
 });
 
-describe("safeFetch chokepoint", () => {
-  it("runs the guard then fetches with redirect:error (the redirect-to-internal floor)", async () => {
-    const calls: { url: unknown; init: RequestInit | undefined }[] = [];
-    const orig = globalThis.fetch;
-    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
-      calls.push({ url, init });
-      return new Response("ok");
-    }) as typeof fetch;
-    try {
-      await safeFetch("https://ok/x", { method: "GET" }, { resolve: async () => ["8.8.8.8"] });
-      expect(calls).toHaveLength(1);
-      expect(calls[0]!.init?.redirect).toBe("error");
-    } finally {
-      globalThis.fetch = orig;
-    }
+describe("safeFetch chokepoint (delegates to the shared rebinding-safe pinned core)", () => {
+  // Media now connects over the net core's node:http(s) pinned connector (NOT global fetch). We keep
+  // the REAL policy (resolve → classify → pin) and inject the transport seam (`connect`) so the test
+  // asserts pinning without opening a socket — mock only the transport, keep the real policy.
+  it("PINS: passes the validated public IP + hostname to the connector after the guard", async () => {
+    const seen: { url: string; pinnedIp: string; hostname: string; init: RequestInit }[] = [];
+    const connect = async (a: { url: string; pinnedIp: string; hostname: string; init: RequestInit }) => {
+      seen.push(a);
+      return new Response("ok", { status: 200 });
+    };
+    const res = await safeFetch(
+      "https://cdn.example.com/x.mp4",
+      { method: "GET" },
+      { resolve: async () => ["8.8.8.8"], connect },
+    );
+    expect(res.status).toBe(200);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.pinnedIp).toBe("8.8.8.8"); // connect-time IP pinning — the rebind window is closed
+    expect(seen[0]!.hostname).toBe("cdn.example.com");
   });
 
-  it("refuses a private/metadata target without any outbound fetch", async () => {
+  it("refuses a private/metadata target BEFORE connecting (SsrfError, connector never reached)", async () => {
     let called = false;
-    const orig = globalThis.fetch;
-    globalThis.fetch = (async () => {
+    const connect = async () => {
       called = true;
       return new Response("");
-    }) as typeof fetch;
-    try {
-      await expect(
-        safeFetch("http://x/y", {}, { resolve: async () => ["169.254.169.254"] }),
-      ).rejects.toBeInstanceOf(SsrfError);
-      expect(called).toBe(false); // guard threw before any network egress
-    } finally {
-      globalThis.fetch = orig;
-    }
+    };
+    await expect(
+      safeFetch("http://x/y", {}, { resolve: async () => ["169.254.169.254"], connect }),
+    ).rejects.toBeInstanceOf(SsrfError);
+    expect(called).toBe(false); // guard threw before any network egress
+
+    // public-only policy: a plain private (RFC1918) target is refused just the same.
+    await expect(
+      safeFetch("http://x/y", {}, { resolve: async () => ["10.0.0.5"], connect }),
+    ).rejects.toBeInstanceOf(SsrfError);
+    expect(called).toBe(false);
   });
 });
 

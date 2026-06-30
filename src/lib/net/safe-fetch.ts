@@ -39,6 +39,9 @@ export type Connector = (a: {
   init: RequestInit;
   /** Hard wall-clock deadline in ms (testable seam; defaults to DEFAULT_DEADLINE_MS). */
   deadlineMs?: number;
+  /** Response body cap in bytes (testable seam; defaults to MAX_RESPONSE_BYTES). Media ingest passes
+   *  a far larger ceiling than the webhook default — its own readBodyCapped governs the real limit. */
+  maxResponseBytes?: number;
 }) => Promise<Response>;
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -69,8 +72,9 @@ function flattenHeaders(init: RequestInit): Record<string, string> {
  * (`redirect: "error"` semantics). Honors `init.signal` and a hard timeout. Verified on Bun + Node
  * (Step-0 spike): both honor `lookup` (pins) and `servername` (cert validates on the hostname).
  */
-export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs }) =>
+export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs, maxResponseBytes }) =>
   new Promise<Response>((resolve, reject) => {
+    const maxBytes = maxResponseBytes ?? MAX_RESPONSE_BYTES;
     let u: URL;
     try { u = new URL(url); } catch { reject(new SsrfError("invalid URL")); return; }
     const isHttps = u.protocol === "https:";
@@ -120,7 +124,7 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
         let total = 0;
         res.on("data", (c: Buffer) => {
           total += c.length;
-          if (total > MAX_RESPONSE_BYTES) {
+          if (total > maxBytes) {
             // Memory-DoS guard: stop reading and tear down both ends immediately.
             res.destroy();
             req.destroy();
@@ -164,8 +168,21 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
 export async function safeFetch(
   rawUrl: string,
   init: RequestInit,
-  opts: { allow: ReadonlySet<IpCategory>; resolve?: Resolver; connect?: Connector; deadlineMs?: number },
+  opts: {
+    allow: ReadonlySet<IpCategory>;
+    resolve?: Resolver;
+    connect?: Connector;
+    deadlineMs?: number;
+    maxResponseBytes?: number;
+  },
 ): Promise<Response> {
   const { hostname, pinnedIp } = await assertSafeUrl(rawUrl, opts);
-  return (opts.connect ?? pinnedConnect)({ url: rawUrl, pinnedIp, hostname, init, deadlineMs: opts.deadlineMs });
+  return (opts.connect ?? pinnedConnect)({
+    url: rawUrl,
+    pinnedIp,
+    hostname,
+    init,
+    deadlineMs: opts.deadlineMs,
+    maxResponseBytes: opts.maxResponseBytes,
+  });
 }

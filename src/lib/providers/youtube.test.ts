@@ -2,6 +2,21 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 // Cover/media fetches now route through the SSRF guard (safeFetch → DNS resolve). Stub DNS to a
 // public IP so these unit tests don't hit the network for fake hostnames.
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
+
+// Media fetches now connect over the net core's node:http(s) pinned connector (NOT global fetch).
+// Keep the REAL public-only SSRF policy (assertSafeUrl: DNS resolve + classify + pin) and route only
+// the transport to the global fetch stub these tests already install — mock transport, keep policy.
+vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/net/safe-fetch")>();
+  return {
+    ...actual,
+    safeFetch: async (url: string, init: RequestInit, opts: Parameters<typeof actual.safeFetch>[2]) => {
+      await actual.assertSafeUrl(url, opts); // real policy: refuse non-public BEFORE any transport
+      return fetch(url, { ...init, redirect: "error" }); // transport via the test's global fetch stub
+    },
+  };
+});
+
 import { youtubeProvider } from "./youtube";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
