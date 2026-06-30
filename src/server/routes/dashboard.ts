@@ -58,7 +58,7 @@ import { btn } from "../ui/components/button";
 import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
-import { DEFAULT_REPHRASE_PROMPT } from "@/lib/ai/rephrase";
+import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
@@ -1134,6 +1134,21 @@ function renderAiRephrasePrompt(prompt: string | null, canConfigure: boolean, up
     </form>`;
 }
 
+/**
+ * AIPROMPT1: per-rule rephrase override fields (Tone + Custom prompt), shown only when the rephrase
+ * toggle is on (`aiRephrase` Alpine state). `:disabled="!aiRephrase"` so stale values aren't submitted
+ * when the toggle is off. The custom-prompt placeholder + the hint show what applies when left blank
+ * (workspace default → built-in default) — AIPROMPT2 visibility. Shared by the create + edit forms.
+ */
+function rephrasePromptFields(tone: string | null, customPrompt: string | null): Html {
+  return html`<div x-show="responseMode === 'text' && aiRephrase" x-cloak class="card" style="display:grid;gap:.5rem;margin:.25rem 0">
+    <label class="fld"><span>Tone <small>— optional; steers the built-in prompt (e.g. casual, warm)</small></span>
+      <input class="input" name="tone" maxlength="100" placeholder="${DEFAULT_REPHRASE_TONE}" value="${tone ?? ""}" :disabled="!aiRephrase" /></label>
+    <label class="fld"><span>Custom prompt <small>— optional; fully overrides the prompt. Blank = your workspace default (Settings → Automation), or the built-in default below</small></span>
+      <textarea class="input" name="custom_prompt" rows="3" maxlength="2000" placeholder="${DEFAULT_REPHRASE_PROMPT}" style="font:inherit" :disabled="!aiRephrase">${customPrompt ?? ""}</textarea></label>
+  </div>`;
+}
+
 /** Parse a `Key: Value` per-line textarea into a header map (ignoring blanks / malformed lines). */
 function parseHeaderLines(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -2033,6 +2048,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   : html`<input type="checkbox" disabled />
                       <span class="muted">🔒 Rephrase with AI for variety — ${proLink(upgradeUrl)}</span>`}
               </label>
+              ${canAiRephrase ? rephrasePromptFields(null, null) : ""}
               <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
               ${interactiveRuleFields(canInteractive, upgradeUrl)}
@@ -2099,7 +2115,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       responseConfig.text = form.text ?? "";
       // AI rephrase is a flag on a text reply (not a distinct response_type). The API gates it to the
       // ai_rephrase PRO feature and 402s if unlicensed; the UI also hides the toggle on free.
-      if (form.ai_rephrase === "true") responseConfig.ai_rephrase = true;
+      if (form.ai_rephrase === "true") {
+        responseConfig.ai_rephrase = true;
+        // AIPROMPT1: optional per-rule overrides (caps mirror the API: tone 100, custom_prompt 2000).
+        const tone = typeof form.tone === "string" ? form.tone.trim().slice(0, 100) : "";
+        const customPrompt = typeof form.custom_prompt === "string" ? form.custom_prompt.trim().slice(0, 2000) : "";
+        if (tone) responseConfig.tone = tone;
+        if (customPrompt) responseConfig.custom_prompt = customPrompt;
+      }
       if (triggerType === "comment_keyword") {
         responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
         if (commentReply) responseConfig.comment_reply_text = commentReply;
@@ -2197,8 +2220,18 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       // ai_rephrase toggle: the field is sent (Alpine-bound "true"/"false") only when the editor
       // renders it (licensed). Absent (free instance) → leave the stored value untouched.
       if (form.ai_rephrase !== undefined) {
-        if (form.ai_rephrase === "true") responseConfig.ai_rephrase = true;
-        else delete responseConfig.ai_rephrase;
+        if (form.ai_rephrase === "true") {
+          responseConfig.ai_rephrase = true;
+          // AIPROMPT1: update per-rule overrides; blank clears them (fall back to workspace/built-in).
+          const tone = typeof form.tone === "string" ? form.tone.trim().slice(0, 100) : "";
+          const customPrompt = typeof form.custom_prompt === "string" ? form.custom_prompt.trim().slice(0, 2000) : "";
+          if (tone) responseConfig.tone = tone; else delete responseConfig.tone;
+          if (customPrompt) responseConfig.custom_prompt = customPrompt; else delete responseConfig.custom_prompt;
+        } else {
+          delete responseConfig.ai_rephrase;
+          delete responseConfig.tone;
+          delete responseConfig.custom_prompt;
+        }
       }
       if (existing.trigger_type === "comment_keyword") {
         responseConfig.reply_mode = form.reply_mode === "comment" || form.reply_mode === "both" ? form.reply_mode : "dm";
@@ -3519,7 +3552,8 @@ function renderRuleEditForm(
         <input type="checkbox" x-model="aiRephrase" />
         <span>Rephrase with AI for variety <small class="muted">— sends a reworded version each time</small></span>
       </label>
-      <input type="hidden" name="ai_rephrase" :value="aiRephrase" />` : ""}
+      <input type="hidden" name="ai_rephrase" :value="aiRephrase" />
+      ${rephrasePromptFields(typeof rc.tone === "string" ? rc.tone : null, typeof rc.custom_prompt === "string" ? rc.custom_prompt : null)}` : ""}
       <label class="row-center" style="font-size:.875rem;cursor:pointer">
         <input type="checkbox" name="requires_approval" value="true"${r.requires_approval ? raw(" checked") : raw("")} />
         Hold for human approval before sending

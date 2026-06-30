@@ -246,6 +246,36 @@ describe("authenticated dashboard (real Postgres)", () => {
     expect(rule?.trigger_type).toBe("keyword");
   });
 
+  it("stores per-rule rephrase tone + custom_prompt on an ai_rephrase rule (AIPROMPT1)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ name: "Rephrased", keywords: "hi", text: "Welcome!", ai_rephrase: "true", tone: "casual, warm", custom_prompt: "Rephrase in Polish, keep it short." }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "Rephrased")) });
+    const rc = rule?.response_config as { ai_rephrase?: boolean; tone?: string; custom_prompt?: string };
+    expect(rc.ai_rephrase).toBe(true);
+    expect(rc.tone).toBe("casual, warm");
+    expect(rc.custom_prompt).toBe("Rephrase in Polish, keep it short.");
+  });
+
+  it("blank tone/custom_prompt on an ai_rephrase rule stores neither (falls back to workspace/built-in)", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/rules", {
+      method: "POST",
+      headers: withCookie({ "content-type": "application/json" }),
+      body: JSON.stringify({ name: "RephrasedBare", keywords: "yo", text: "Hi!", ai_rephrase: "true", tone: "  ", custom_prompt: "" }),
+    });
+    expect(res.status).toBe(200);
+    const rule = await db.query.autoReplyRules.findFirst({ where: and(eq(autoReplyRules.workspace_id, workspaceId), eq(autoReplyRules.name, "RephrasedBare")) });
+    const rc = rule?.response_config as Record<string, unknown>;
+    expect(rc.ai_rephrase).toBe(true);
+    expect(rc.tone).toBeUndefined();
+    expect(rc.custom_prompt).toBeUndefined();
+  });
+
   it("creates a comment rule scoped to a post with a reply mode from the form", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/rules", {
