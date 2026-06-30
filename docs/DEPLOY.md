@@ -85,6 +85,7 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | **Optional.** Only needed to connect an Instagram account via **Instagram Business Login** (DMs + comments + follow-gate + publishing on one account, no Facebook page, at Standard Access). These are the **Instagram** app's id/secret (Meta app → Instagram product → "API setup with Instagram login") — **distinct** from `META_APP_ID`/`META_APP_SECRET`. |
 | `APP_URL` | The public HTTPS URL, e.g. `https://inbox.example.com`. Used for OAuth redirects + webhook URL display. |
 | `WEBHOOK_ALLOW_PRIVATE_TARGETS` | **Optional**, default `false`. Webhook delivery (channel-alert hook + outbound webhooks) is secure-by-default and blocks private/loopback/LAN targets. Set `true` to allow an **internal** receiver (n8n/ntfy on the same Docker network or LAN). Cloud-metadata + link-local are **always** blocked. |
+| `AI_DRAFT_DAILY_LIMIT` | **Optional**, default `0`. Caps AI-drafted reply generations per workspace over a rolling 24h window; `0` = unlimited (intended for BYOK / self-hosted). The `ai_draft` feature is **PRO** and reuses the existing `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` config (**BYOK**) — see §2.4 for the one-time schema delta. |
 
 **Recommended for production:** pin the image instead of tracking `latest`, so each release is an
 intentional bump:
@@ -200,6 +201,28 @@ never becomes healthy. This is exactly what the CI `release.yml` does on every d
 docker compose -f docker-compose.prod.yml ps          # all "Up (healthy)"
 curl -fsS http://localhost/api/health                 # 200
 ```
+
+### 2.4 One-time AI-draft schema delta (existing prod instances only)
+
+The **AI-drafted replies** (`ai_draft`, PRO) schema change ships **inside migration `0004`** — there is
+**no new migration file**. On a **fresh** instance this is transparent: the migrator runs `0004` and the
+AI-draft columns/enums are created automatically.
+
+On an **already-running prod instance** `0004` was applied **before** the AI-draft statements were folded
+into it, so the migrator now reports "up to date" and **will not re-run** the appended statements. The
+schema delta must therefore be **applied manually on prod, once, at the deploy that ships this feature**,
+using the idempotent script `priv/deploy/ai-draft-prod-delta.sql` (every statement guards with
+`IF NOT EXISTS` / `duplicate_object`, so a re-run is a safe no-op):
+
+```bash
+# Apply the idempotent delta against the running prod database (one-shot, before/at the version bump).
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  psql -U "$POSTGRES_USER" "$POSTGRES_DB" < priv/deploy/ai-draft-prod-delta.sql
+```
+
+Then deploy normally (§2.1 / §2.2). The feature stays inert until a workspace holds a **PRO** license and
+enables AI-draft on a channel; it reuses the existing `AI_*` provider config (**BYOK**) and respects
+`AI_DRAFT_DAILY_LIMIT` (default `0` = unlimited).
 
 ---
 

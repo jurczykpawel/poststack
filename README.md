@@ -40,6 +40,7 @@
 - **Auto-reply rules** -- triggers for keywords (exact, contains, starts with), comment keywords, postbacks, welcome messages, story replies/mentions, emoji reactions, and fallback/default
 - **Comment automation** -- reply publicly under the comment, send a private DM (Meta `private_replies`), or both -- scoped to a specific post or all posts, on Facebook **and** Instagram
 - **AI rephrasing** -- optionally rewrite any reply (including a random pool) through an OpenAI-compatible endpoint before sending
+- **AI-drafted replies** (PRO) -- when no auto-reply rule matches an incoming comment/DM and the channel has AI-draft enabled, an LLM prepares a draft reply for human approval; plus an on-demand "Generate reply" button in the inbox. Drafts are reviewed/edited/accepted/rejected in the inbox thread (and the Approvals tab) -- **never auto-sent by default**; optional per-channel auto-send toggles (DM / public, default off, consent-gated). Uses the same `AI_*` config (**BYOK**); daily budget via `AI_DRAFT_DAILY_LIMIT` (default 0 = unlimited)
 - **Live inbox** -- manage all conversations, reply manually, assign to team members
 - **Drip sequences** -- timed message series with configurable delays between steps
 
@@ -64,7 +65,7 @@
 **Production hardening notes:**
 - **Client IP / rate limiting** — the client IP is taken from the reverse proxy's `X-Real-IP` (the bundled nginx sets it and strips any client-supplied `CF-Connecting-IP`). Set `TRUSTED_PROXY=cloudflare` *only* when actually behind Cloudflare. Don't expose the app directly without a proxy that overwrites these headers.
 - **CAPTCHA** — set `ALTCHA_HMAC_KEY` in production. Empty = verification skipped (dev only). Solved challenges are single-use.
-- **AI rephrase** — `OPENAI_API_KEY` sends reply text to that provider; mind GDPR (use a self-hosted/DPA endpoint via `OPENAI_BASE_URL`).
+- **AI rephrase / AI-drafted replies** — `AI_API_KEY` (legacy `OPENAI_API_KEY`) sends reply text to that provider; mind GDPR (use a self-hosted/DPA endpoint via `AI_BASE_URL`). AI-drafted replies (`ai_draft` PRO feature) reuse the same `AI_*` config (BYOK); cap generations per workspace over a rolling 24h window with `AI_DRAFT_DAILY_LIMIT` (default `0` = unlimited).
 - **Content Security Policy** — uses `unsafe-inline`/`unsafe-eval` because the UI runs Alpine.js + inline htmx; output is auto-escaped (`hono/html`), so CSP here is defence-in-depth, not the primary XSS control.
 - **Meta `appsecret_proof`** — not sent by default. If you enable *Require app secret* in your Meta App, add it to the Graph API calls (`HMAC-SHA256(page_token, META_APP_SECRET)`).
 - **Channel uniqueness** — each connected account belongs to exactly one workspace: a partial unique index allows at most one active channel per `(platform, platform_id)` instance-wide, so incoming events route to a single owner. Connecting an account already live in another workspace is refused. The migration that adds this index automatically disables any pre-existing cross-workspace duplicate (keeping the earliest-connected), so upgrades never fail.
@@ -615,6 +616,7 @@ npm run test:integration  # Vitest integration (needs a Postgres; set TEST_DATAB
 - [x] Comment automation -- public reply + private DM (first-touch), Facebook & Instagram
 - [x] Story reply/mention and emoji reaction triggers
 - [x] Optional AI rephrasing of replies (OpenAI-compatible)
+- [x] AI-drafted replies (PRO) -- auto on no-rule-match + on-demand, human-approved from the inbox (BYOK)
 - [x] Drip sequences with delays
 - [x] Contacts CRM with tags and search
 - [x] API key management + token refresh
