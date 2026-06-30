@@ -4,7 +4,6 @@ import {
   diffSubscribedFields,
   diffFields,
   instagramLoginFields,
-  INSTAGRAM_LOGIN_FIELDS,
   FACEBOOK_PAGE_FIELDS,
 } from "./webhook-fields";
 

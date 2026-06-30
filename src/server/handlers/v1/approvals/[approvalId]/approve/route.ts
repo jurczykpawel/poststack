@@ -6,7 +6,7 @@ import { acquireCooldown, incrementSendCount } from "@/lib/rules/limits";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { enqueueCommentReply, enqueueDmReply } from "@/lib/approvals/send";
 import { isContactSubscribed } from "@/lib/contacts/consent";
-import type { ProposedContent } from "@/lib/approvals/draft";
+import { proposedHasDm, proposedHasComment, type ProposedContent } from "@/lib/approvals/draft";
 
 export const runtime = "nodejs";
 
@@ -56,8 +56,8 @@ export async function POST(
     const proposed = row.proposed_content as ProposedContent;
     const content = proposed.content ?? null;
     const comment = proposed.comment ?? null;
-    const hasDm = !!content && (!!content.text || !!content.buttons?.length || !!content.quick_replies?.length);
-    const hasComment = !!comment?.text && !!comment?.commentId;
+    const hasDm = proposedHasDm(content);
+    const hasComment = proposedHasComment(comment);
     const hasSomething = hasDm || hasComment;
 
     // Consent gate at the actual send: the contact may have unsubscribed AFTER the reply

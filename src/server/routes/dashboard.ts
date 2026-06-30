@@ -1061,7 +1061,7 @@ function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgra
   return html`${notice}
     <form hx-post="/settings/ai-draft-prompt" hx-ext="json-enc" hx-target="#ai-draft-prompt-area" hx-swap="innerHTML" style="max-width:560px">
       <label class="fld"><span>Default AI-draft prompt <small>— used when a channel has no prompt override; blank = built-in default</small></span>
-        <textarea name="ai_draft_prompt" rows="4" placeholder="e.g. You are a warm, concise support agent for our brand. Answer in the customer's language." style="font:inherit">${prompt ?? ""}</textarea></label>
+        <textarea name="ai_draft_prompt" rows="4" maxlength="4000" placeholder="e.g. You are a warm, concise support agent for our brand. Answer in the customer's language." style="font:inherit">${prompt ?? ""}</textarea></label>
       <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
     </form>`;
 }
@@ -1297,6 +1297,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, upgradeUrl } = await getInstanceLicense();
     const canReply = features.has("manual_reply");
 
+    // Server-side PRO gate — a forged POST from a free instance never enqueues. Runs BEFORE the
+    // target validation so a free instance gets the 403 PRO response, not a 422 on a bad target
+    // (the feature, not the payload, is the reason it's rejected).
+    if (!features.has("ai_draft")) {
+      toastHeader(c, "warn", "AI-drafted replies are a PRO feature.");
+      return c.html(
+        html`<div class="notice notice-warn">AI-drafted replies are a <strong>PRO</strong> feature. <a href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a></div>`,
+        403,
+      );
+    }
+
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const isComment = conv.thread_type === "comment";
     // "public" only makes sense on a comment thread (the worker addresses the comment).
@@ -1304,15 +1315,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!target) {
       toastHeader(c, "bad", "Pick a valid reply target.");
       return c.body(null, 422);
-    }
-
-    // Server-side PRO gate — a forged POST from a free instance never enqueues.
-    if (!features.has("ai_draft")) {
-      toastHeader(c, "warn", "AI-drafted replies are a PRO feature.");
-      return c.html(
-        html`<div class="notice notice-warn">AI-drafted replies are a <strong>PRO</strong> feature. <a href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a></div>`,
-        403,
-      );
     }
 
     // The thing to reply to: the latest inbound message. A comment thread's inbound carries the
@@ -1334,12 +1336,21 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       return c.body(null, 422);
     }
 
+    // Address the recipient the SAME way a manual reply does: the contact's platform identity on
+    // THIS conversation's channel (contact_id + channel_id), not the first contact_channel of any
+    // channel. A stored approval keeps this recipient, so a later Accept sends to the right PSID
+    // rather than an empty string. If genuinely unresolved it falls back to "" — manual drafts always
+    // park (approve uses the stored row), so a missing identity surfaces at send, not silently here.
+    const recipientChannel = await db.query.contactChannels.findFirst({
+      where: and(eq(contactChannels.contact_id, conv.contact.id), eq(contactChannels.channel_id, conv.channel.id)),
+      columns: { platform_sender_id: true },
+    });
     await addJobTx(db, "ai-draft", {
       workspaceId: a.workspaceId,
       channelId: conv.channel.id,
       conversationId: id,
       contactId: conv.contact.id,
-      recipientPlatformId: conv.contact.contact_channels[0]?.platform_sender_id ?? "",
+      recipientPlatformId: recipientChannel?.platform_sender_id ?? "",
       incomingText,
       target,
       ...(commentId ? { commentId } : {}),
@@ -1601,7 +1612,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       return c.html(renderAiDraftPrompt(null, false, license.upgradeUrl), 403);
     }
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const raw = typeof form.ai_draft_prompt === "string" ? form.ai_draft_prompt.trim() : "";
+    // Cap at 4000 chars for parity with the per-channel prompt (channels/service.ts) — both feed the
+    // same LLM prompt builder, so an unbounded workspace default must not slip past the channel cap.
+    const raw = typeof form.ai_draft_prompt === "string" ? form.ai_draft_prompt.trim().slice(0, 4000) : "";
     await db.update(workspaces).set({ ai_draft_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
     return c.html(renderAiDraftPrompt(raw || null, true, license.upgradeUrl, "Default AI-draft prompt saved."));
   });

@@ -59,6 +59,9 @@ beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
   await db.execute(sql`delete from rate_limit_counters where key like 'ai-draft:%'`);
+  // The per-workspace daily cap uses a separate key prefix (`rl:llm-draft:<ws>`) — clean it too so a
+  // capped run in one test never bleeds its counter into the next.
+  await db.execute(sql`delete from rate_limit_counters where key like 'rl:llm-draft:%'`);
   await db.delete(s.outboundDeliveries).where(eq(s.outboundDeliveries.workspace_id, WS));
   await db.delete(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
   await db.delete(s.conversations).where(eq(s.conversations.workspace_id, WS));
@@ -223,6 +226,10 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     const prev = process.env.AI_DRAFT_DAILY_LIMIT;
     process.env.AI_DRAFT_DAILY_LIMIT = "1";
     vi.resetModules();
+    // Spy on the SAME fresh rate-limit instance the reset worker imports (both share the registry
+    // after resetModules), so we can assert the cap is consulted with the right key/limit/window.
+    const rl = await import("@/lib/api/rate-limit");
+    const spy = vi.spyOn(rl, "rateLimit");
     const { processAiDraft: capped } = await import("./ai-draft-worker");
     try {
       generateDraftMock.mockResolvedValue("Capped reply");
@@ -231,6 +238,8 @@ describe("ai-draft worker (AIDRAFT1)", () => {
       // Only the first drafting ran (second hit the cap before generating).
       expect(generateDraftMock).toHaveBeenCalledTimes(1);
       expect(await pendingRows()).toHaveLength(1);
+      // The cap is keyed per-workspace with the configured limit (1) over a rolling 24h window.
+      expect(spy).toHaveBeenCalledWith(`rl:llm-draft:${WS}`, 1, 86_400);
     } finally {
       if (prev === undefined) delete process.env.AI_DRAFT_DAILY_LIMIT;
       else process.env.AI_DRAFT_DAILY_LIMIT = prev;
@@ -315,6 +324,42 @@ describe("ai-draft worker (AIDRAFT1)", () => {
 
     expect(await jobCount("outgoing-private-reply")).toBe(1);
     expect(await pendingRows()).toHaveLength(0);
+  });
+
+  // The consent gate is unified in code (one caller-side check covering every autosend surface).
+  // These two cases prove it also blocks the OTHER surfaces, not just the comment→DM private-reply.
+
+  // Plain-DM surface (target dm, no commentId → outgoing-message): an unsubscribed contact must be
+  // parked, never autosent.
+  it("consent: autosend dm, NO commentId (plain DM → outgoing-message) to an UNSUBSCRIBED contact → no send, parked", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ dm: true });
+    await setSubscribed(false);
+    generateDraftMock.mockResolvedValue("Blocked plain DM");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    expect(await jobCount("outgoing-message")).toBe(0);
+    expect(await jobCount("outgoing-private-reply")).toBe(0);
+    const rows = await pendingRows();
+    expect(rows).toHaveLength(1);
+    const proposed = rows[0]!.proposed_content as { content?: { text?: string } };
+    expect(proposed.content?.text).toBe("Blocked plain DM");
+  });
+
+  // Public-comment surface (target public → outgoing-comment): an unsubscribed contact must be
+  // parked, never autosent.
+  it("consent: autosend public (public comment → outgoing-comment) to an UNSUBSCRIBED contact → no send, parked", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ public: true });
+    await setSubscribed(false);
+    generateDraftMock.mockResolvedValue("Blocked public comment");
+    await processAiDraft(baseJob({ target: "public", commentId: "CMT-PUB-NS" }), helpersFor());
+
+    expect(await jobCount("outgoing-comment")).toBe(0);
+    const rows = await pendingRows();
+    expect(rows).toHaveLength(1);
+    const proposed = rows[0]!.proposed_content as { comment?: { text?: string; commentId?: string } };
+    expect(proposed.comment).toEqual({ text: "Blocked public comment", commentId: "CMT-PUB-NS" });
   });
 
   // Fix 2 — no phantom "sent" outbound_deliveries marker. stats/overview + telemetry count

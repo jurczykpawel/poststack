@@ -103,22 +103,6 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
   let sendDm = !manualHold && hasDm && channel.ai_draft_autosend_dm;
   let sendComment = !manualHold && hasComment && channel.ai_draft_autosend_public;
 
-  // Consent gate on autosend ONLY (parking already defers to the approve handler's gate at send
-  // time). An unsubscribed contact must not be DM'd via the private-reply/public surfaces — those
-  // have no consent gate. Mirror the approve handler: don't send, PARK the part instead so a human
-  // can still see/act on it (never silently dropped). One caller-side gate covers every surface.
-  if ((sendDm || sendComment) && !(await isContactSubscribed(db, job.contactId))) {
-    helpers.logger.info(`ai-draft ${anchor}: contact ${job.contactId} unsubscribed — parking instead of autosend`);
-    sendDm = false;
-    sendComment = false;
-  }
-
-  // Parts NOT flagged for autosend are parked together in ONE approval row.
-  const held: ProposedContent = {};
-  if (hasDm && !sendDm) held.content = proposed.content;
-  if (hasComment && !sendComment) held.comment = proposed.comment;
-  const holdSomething = !!held.content || !!held.comment;
-
   await db.transaction(async (tx) => {
     // Claim the job atomically inside the work tx (rate_limit_counters KV — NOT outbound_deliveries,
     // which stats/telemetry count). A racing/already-committed redelivery fails to claim and bails
@@ -128,6 +112,24 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
       helpers.logger.info(`ai-draft ${anchor}: concurrent redelivery already claimed — skipping`);
       return;
     }
+
+    // Consent gate on autosend ONLY (parking already defers to the approve handler's gate at send
+    // time). An unsubscribed contact must not be DM'd via the private-reply/public surfaces — those
+    // have no consent gate. Mirror the approve handler: don't send, PARK the part instead so a human
+    // can still see/act on it (never silently dropped). One caller-side gate covers every surface.
+    // Read INSIDE the work tx (tx executor) so the subscribed-check and the send-enqueue are atomic —
+    // matching the approve handler — closing the sub-ms window between an out-of-tx read and the enqueue.
+    if ((sendDm || sendComment) && !(await isContactSubscribed(tx, job.contactId))) {
+      helpers.logger.info(`ai-draft ${anchor}: contact ${job.contactId} unsubscribed — parking instead of autosend`);
+      sendDm = false;
+      sendComment = false;
+    }
+
+    // Parts NOT flagged for autosend are parked together in ONE approval row.
+    const held: ProposedContent = {};
+    if (hasDm && !sendDm) held.content = proposed.content;
+    if (hasComment && !sendComment) held.comment = proposed.comment;
+    const holdSomething = !!held.content || !!held.comment;
 
     if (sendComment) {
       await enqueueCommentReply(tx, {

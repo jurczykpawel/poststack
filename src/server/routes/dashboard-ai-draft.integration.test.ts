@@ -138,4 +138,31 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     expect(await res.text()).toContain("PRO");
     expect(await aiDraftJobs()).toHaveLength(0);
   });
+
+  // T6 gate ordering: the PRO gate runs BEFORE the target validation, so a free instance gets the
+  // 403 PRO response even on a bad target (the feature, not the payload, is why it's rejected).
+  it("free instance + invalid target → 403 (PRO gate before target validation), no enqueue", async () => {
+    if (!TEST_DB) return;
+    await gate.clearLicense();
+    gate.invalidateLicenseCache();
+    const res = await aiDraft(CONV_DM, { target: "carrier-pigeon" });
+    expect(res.status).toBe(403);
+    expect(await aiDraftJobs()).toHaveLength(0);
+  });
+
+  // Recipient robustness: the recipient is resolved by (contact_id + channel_id) — this
+  // conversation's channel — not the contact's first contact_channel on any channel. A contact
+  // linked to a second channel must not bleed its identity into this channel's draft.
+  it("resolves recipientPlatformId from this conversation's channel, not an unrelated contact_channel", async () => {
+    if (!TEST_DB) return;
+    const OTHER_CH = "eeeeeeee-0000-0000-0000-0000000000a8";
+    await db.insert(s.channels).values({ id: OTHER_CH, workspace_id: WS, platform: "facebook", platform_id: "PG-OTHER", token_encrypted: "x", webhook_secret: "s", status: "active" });
+    // A contact_channel on a DIFFERENT channel with a different PSID.
+    await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: OTHER_CH, platform_sender_id: "PSID-OTHER" });
+    const res = await aiDraft(CONV_DM, { target: "dm" });
+    expect(res.status).toBe(200);
+    const jobs = await aiDraftJobs();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.recipientPlatformId).toBe("PSID-E");
+  });
 });

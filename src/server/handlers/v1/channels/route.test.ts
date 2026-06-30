@@ -14,7 +14,14 @@ vi.mock("@/lib/auth", () => ({ authenticateWithScope: (...a: unknown[]) => mockA
 
 const mockFindMany = vi.fn();
 // The held-count query is `db.select(...).from(...).innerJoin(...).where(...).groupBy(...)`.
-const chain: any = { from: () => chain, innerJoin: () => chain, where: () => chain, groupBy: () => Promise.resolve([]) };
+// A self-referential fluent chain that terminates at groupBy() → Promise<[]> (no held rows).
+type QueryChain = {
+  from: () => QueryChain;
+  innerJoin: () => QueryChain;
+  where: () => QueryChain;
+  groupBy: () => Promise<unknown[]>;
+};
+const chain: QueryChain = { from: () => chain, innerJoin: () => chain, where: () => chain, groupBy: () => Promise.resolve([]) };
 vi.mock("@/lib/db", () => ({
   db: { query: { channels: { findMany: (...a: unknown[]) => mockFindMany(...a) } }, select: () => chain },
 }));

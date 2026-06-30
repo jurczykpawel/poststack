@@ -98,6 +98,13 @@ describe("Workspace default AI-draft prompt — render + persist (Task 8)", () =
     expect(await wsPrompt()).toBe("Reply warmly.");
   });
 
+  it("POST caps the stored prompt at 4000 chars (parity with the per-channel prompt)", async () => {
+    if (!TEST_DB) return;
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt: "a".repeat(5000) });
+    expect(res.status).toBe(200);
+    expect((await wsPrompt())?.length).toBe(4000);
+  });
+
   it("POST with a blank prompt stores null", async () => {
     if (!TEST_DB) return;
     await db.update(s.workspaces).set({ ai_draft_prompt: "old" }).where(eq(s.workspaces.id, WS));
