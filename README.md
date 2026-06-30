@@ -101,6 +101,10 @@ Edit `.env` -- fill in at minimum:
 - `CRON_SECRET` -- run `openssl rand -hex 32`
 - `META_APP_ID` and `META_APP_SECRET` -- from [Meta for Developers](https://developers.facebook.com)
 - `META_WEBHOOK_VERIFY_TOKEN` -- any random string you choose
+- `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` -- **optional**; only needed to connect an Instagram
+  account via **Instagram Business Login** (and so receive Instagram DMs at Standard Access). These are
+  the **Instagram** app's id/secret (Meta app → Instagram product → "API setup with Instagram login"),
+  **different** from the Facebook app's `META_APP_ID`/`META_APP_SECRET`.
 
 ### Option A: Docker (recommended)
 
@@ -129,6 +133,14 @@ Open http://localhost:3000.
 ---
 
 Register an account, go to **Channels**, and connect your first Facebook Page or Instagram account.
+
+> **Connecting Instagram — two paths.** **Instagram Business Login** (the "+ Instagram (messaging)"
+> button) connects **one** Instagram account on its own — full capabilities incl. **direct messages**,
+> comments, publishing and follow-gate — and needs **no Facebook page**. Alternatively, a
+> **Facebook / System User** connection bulk-connects **all** your linked Instagram accounts at once,
+> but only for **publishing and comments** — Instagram DMs are **not** delivered that way at Standard
+> Access; add Instagram Business Login on that account to get DMs. See
+> [docs/DEPLOY.md](docs/DEPLOY.md) and [docs/META_SYSTEM_USER_SETUP.md](docs/META_SYSTEM_USER_SETUP.md).
 
 > **Dev tunnel required for Meta webhooks.** Meta needs a public HTTPS URL to send events to.
 > Run `cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`, then set the

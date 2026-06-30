@@ -82,6 +82,7 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 | `CRON_SECRET` | `openssl rand -hex 32` |
 | `META_APP_ID`, `META_APP_SECRET` | From [Meta for Developers](https://developers.facebook.com). |
 | `META_WEBHOOK_VERIFY_TOKEN` | Any random string you choose; you re-enter it in the Meta App Dashboard. |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | **Optional.** Only needed to connect an Instagram account via **Instagram Business Login** (DMs + comments + follow-gate + publishing on one account, no Facebook page, at Standard Access). These are the **Instagram** app's id/secret (Meta app → Instagram product → "API setup with Instagram login") — **distinct** from `META_APP_ID`/`META_APP_SECRET`. |
 | `APP_URL` | The public HTTPS URL, e.g. `https://inbox.example.com`. Used for OAuth redirects + webhook URL display. |
 
 **Recommended for production:** pin the image instead of tracking `latest`, so each release is an
@@ -132,6 +133,18 @@ account on an empty instance can always register, to create the owner.
 2. In the dashboard go to **Channels** and connect your first Facebook Page / Instagram account.
    PostStack auto-subscribes the page to the required webhook fields (see **Webhooks → Subscriptions**
    in the dashboard for active-vs-expected status).
+3. **(Optional) Instagram Business Login.** To connect a single Instagram account directly — for
+   DMs + comments + follow-gate + publishing, **without** a Facebook page — set `INSTAGRAM_APP_ID` /
+   `INSTAGRAM_APP_SECRET` (§1.2) and register `APP_URL/api/oauth/instagram-login/callback` as a **Valid
+   OAuth Redirect URI** under the Meta app's **Instagram product → "API setup with Instagram login"**.
+   The IG-Login product webhook callback is the **same** `APP_URL/api/webhooks/meta`, subscribed to the
+   `messages` + `comments` fields. Then use **"+ Instagram (messaging)"** on the Channels page.
+
+> **Two paths for Instagram.** A **Facebook / System User** connection (see
+> [META_SYSTEM_USER_SETUP.md](META_SYSTEM_USER_SETUP.md)) bulk-connects **all** linked Instagram
+> accounts but only for **publishing and comments** — Instagram DMs are **not** delivered that way at
+> Standard Access. **Instagram Business Login** connects one account at a time, including **DMs**. Both
+> run at Meta **Standard Access** (no App Review for your own accounts).
 
 ---
 

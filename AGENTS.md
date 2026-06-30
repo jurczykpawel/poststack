@@ -44,7 +44,7 @@ All planned work lives as **one task per file** under `priv/tasks/*.md`. This di
 Web process (Hono, on Bun):
   - src/server/app.ts             → Hono app: security headers, CORS, routing
   - /api/webhooks/meta            → enqueue jobs
-  - /api/oauth/facebook|instagram → OAuth callbacks
+  - /api/oauth/facebook|instagram|instagram-login → OAuth callbacks (instagram-login = Instagram Business Login)
   - /api/cron/token-refresh       → token refresh trigger
   - /api/v1/*                     → REST API (handlers in src/server/handlers/v1, delegated)
   - /inbox, /channels, ...        → server-rendered dashboard (htmx + Alpine)
@@ -55,6 +55,10 @@ Worker process (graphile-worker, on Bun):
   - token-refresh worker      → refresh expiring OAuth tokens
   - sequence-steps worker     → deliver drip sequence messages
 ```
+
+> **Instagram Business Login routing:** when a channel has no Facebook page token (an IG-Login-only
+> account), Instagram messaging/comments/publish calls route to `graph.instagram.com` using the
+> IG-Login (IGQW) token instead of `graph.facebook.com` with a page token.
 
 ## Landing / marketing site (READ THIS before "deploying the landing")
 
@@ -147,6 +151,8 @@ See `.env.example`. Required:
 | `JWT_SECRET` | Auth JWT secret |
 | `META_APP_ID` | Facebook App ID |
 | `META_APP_SECRET` | Facebook App Secret |
+| `INSTAGRAM_APP_ID` | Optional. Instagram app ID for **Instagram Business Login** (connect one IG account directly; IG DMs at Standard Access). Distinct from `META_APP_ID`. |
+| `INSTAGRAM_APP_SECRET` | Optional. Instagram app secret for Instagram Business Login. Also a valid webhook-signature secret (dual-secret verify). Distinct from `META_APP_SECRET`. |
 | `APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
 | `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
 | `HISTORY_RETENTION_DAYS` | Optional. Compaction window in days; 0 = off; default 60; if set must be >= 30 |

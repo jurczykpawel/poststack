@@ -80,6 +80,16 @@ permission** identifiers — they are part of the API contract and change far le
 > for the full breakdown. (One edge case even on your own accounts: the emoji-reaction webhook
 > `message_reactions` only fires once the app has Advanced Access on `pages_messaging`.)
 
+> **Instagram direct messages need Instagram Business Login.** A System User connects **every** Page
+> and its linked Instagram account in one shot, but at **Standard Access it covers only Instagram
+> *publishing* and *comments* — it does NOT deliver Instagram direct messages.** (Delivering IG DMs
+> through the Facebook/System-User path would require Meta **Advanced Access** / App Review, which
+> self-hosters typically skip.) To enable DMs on an Instagram account — inbox, auto-reply,
+> comment-to-DM, follow-gate — additionally connect **that** account via **Instagram Business Login**
+> (the **"+ Instagram (messaging)"** button on the Channels page), which needs `INSTAGRAM_APP_ID` /
+> `INSTAGRAM_APP_SECRET` set on the instance. That connection runs at Standard Access too (no App
+> Review for your own account). The permissions table above still applies to the System-User connection.
+
 ---
 
 ## Setup — concept-level walkthrough

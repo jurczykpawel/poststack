@@ -25,7 +25,7 @@ Please allow time to patch before public disclosure.
 ## Security Design
 
 - OAuth tokens encrypted at rest (AES-256-GCM)
-- Meta webhook signatures verified on every request (HMAC-SHA256)
+- Meta webhook signatures verified on every request (HMAC-SHA256) — dual-secret: a signature is accepted if it matches **either** the Facebook app secret (`META_APP_SECRET`) **or** the Instagram app secret (`INSTAGRAM_APP_SECRET`), so both Facebook-app and Instagram-Login product webhooks verify
 - All database queries scoped by `workspace_id`
 - No secrets accepted from user input
 - Per-channel webhook secrets (not shared)
