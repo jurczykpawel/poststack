@@ -7,7 +7,7 @@ export const site = {
   name: "PostStack",
   title: "PostStack — own your social automation",
   description:
-    "Self-hosted social media management for Facebook, Instagram, YouTube, Telegram & Gmail (more coming): unified inbox, keyword auto-replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",
+    "Self-hosted social media management for Facebook, Instagram, YouTube, Telegram & Gmail (more coming): unified inbox, keyword auto-replies, AI-drafted replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",
   domain: "https://poststack.techskills.academy",
   // The app and its marketing page are one deployment on the same domain; /login is the app entry.
   appUrl: "https://poststack.techskills.academy/login",
@@ -54,6 +54,11 @@ export const platforms = {
   tiktokNote:
     "* TikTok publishing posts to your TikTok inbox as a draft you finish & confirm in the app — full auto-publish requires TikTok's app approval.",
   tiktokNoteUrl: "https://github.com/jurczykpawel/poststack#tiktok-publishing",
+  // Telegram caveat (rendered with a * on the Telegram chip): it connects as a bot and only handles
+  // private 1:1 DMs. Keep this honest — the provider has no publish, no comment surface, and groups /
+  // channels / Telegram Business inboxes aren't handled yet.
+  telegramNote:
+    "† Telegram is an early, proof-of-concept integration: it connects as a bot and handles private 1:1 DMs (text) only — a bot can't message someone until they start the chat. Groups, channels and Telegram Business account inboxes aren't supported yet; deeper Telegram integration is on the roadmap.",
 };
 
 export const proofSignals = [
@@ -73,12 +78,12 @@ export const metaAccess = {
   title: "No verified Meta app required",
   accent: "verified Meta app",
   intro:
-    "A common myth: that Meta has to approve your app before you can automate Instagram & Facebook. You don't — not for your own accounts. Connect your Pages and go.",
+    "A common myth: that Meta has to approve your app before you can automate Instagram & Facebook. You don't — not for your own accounts. Connect Instagram directly (no Facebook Page required) and go.",
   cards: [
     {
       heading: "Your own accounts",
       ok: true,
-      body: "Inbox, auto-reply, comment→DM and drip sequences all work under Meta's default Standard Access. No App Review, no Business Verification.",
+      body: "Inbox, auto-reply, comment→DM and drip sequences all work under Meta's default Standard Access. No App Review, no Business Verification. Connect an Instagram account directly with Instagram Business Login — no Facebook Page needed — and still get DMs and the follow-gate.",
     },
     {
       heading: "Clients' accounts",
@@ -130,7 +135,7 @@ export const comparison = {
     { tool: "Buffer", line: "when you only need a clean scheduler." },
     { tool: "ManyChat", line: "when basic DM automation is enough." },
   ],
-  us: "when you need scheduling, auto-reply, comment-to-DM funnels, drip sequences, CRM, and a REST API across Facebook, Instagram, YouTube, Telegram & Gmail — on your own server, with no per-contact fees.",
+  us: "when you need scheduling, auto-reply, AI-drafted replies, comment-to-DM funnels, drip sequences, CRM, and a REST API across Facebook, Instagram, YouTube, Telegram & Gmail — on your own server, with no per-contact fees.",
 };
 
 /**
@@ -171,6 +176,12 @@ export const capabilities = [
     title: "Turn keywords and events into replies, DMs, and follow-up flows.",
     body: "Build rules for comments, keywords, postbacks, welcome events, stories, and reactions. Reply publicly, privately, or both — with AI rephrase and interactive buttons.",
     metric: "6 trigger types",
+  },
+  {
+    kicker: "AI-drafted replies",
+    title: "When no rule matches, an LLM drafts the reply — you approve it.",
+    body: "Off-script comments and DMs get an AI-drafted answer waiting in your inbox to accept, edit, or reject — plus an on-demand “Generate reply” button. Never auto-sent by default, and you bring your own model.",
+    metric: "Human-approved",
   },
   {
     kicker: "Drip sequences",
@@ -286,7 +297,7 @@ export const publishMorph = {
   title: "Compose once. Schedule everywhere.",
   body: "Write the post, attach media, pick a time — PostStack publishes across every connected channel and drops the first comment. One screen, every platform.",
   postText: "New episode is live 🎬 full breakdown inside 👇",
-  channels: ["Facebook", "Instagram", "YouTube", "Telegram"],
+  channels: ["Facebook", "Instagram", "YouTube"],
 };
 
 export const useCases = [
@@ -400,8 +411,9 @@ export const roadmap = {
       label: "Live now",
       status: "live" as const,
       items: [
-        "Messaging: Facebook, Instagram, YouTube, Telegram & Gmail",
-        "Inbox, auto-reply & comment-to-DM",
+        "Messaging: Facebook, Instagram, YouTube & Gmail (Telegram: early bot DM)",
+        "Instagram Business Login (connect IG directly, no Facebook Page)",
+        "Inbox, auto-reply, AI-drafted replies & comment-to-DM",
         "Publishing to TikTok, X, LinkedIn & Threads",
         "Drip sequences, CRM & REST API",
       ],
@@ -414,7 +426,12 @@ export const roadmap = {
     {
       label: "On the roadmap",
       status: "planned" as const,
-      items: ["Meta Ads & Google Ads management", "Visual flow builder", "Team roles & permissions"],
+      items: [
+        "Deeper Telegram: groups, channels & Business inboxes",
+        "Meta Ads & Google Ads management",
+        "Visual flow builder",
+        "Team roles & permissions",
+      ],
     },
   ],
 };
@@ -478,7 +495,12 @@ export const faq = [
   {
     question: "Which platforms can I connect?",
     answer:
-      "For two-way messaging (inbox, auto-reply, comment-to-DM): Facebook, Instagram, YouTube, Telegram and Gmail are live today — connect multiple accounts of each. Gmail is a two-way reply/inbox channel (filter by label or query, read-only on your mailbox). For publishing & scheduling you can also post to TikTok, X, LinkedIn and Threads. Coming next on the messaging side: WhatsApp, SMS (Twilio/SMSAPI), generic email (IMAP/SMTP) and Discord — each ships as one provider class. (TikTok, X, LinkedIn and Threads stay publish-only — those platforms don't expose an inbound-messaging API.)",
+      "For two-way messaging (inbox, auto-reply, comment-to-DM): Facebook, Instagram, YouTube, Telegram and Gmail are live today — connect multiple accounts of each. Instagram can be connected directly via Instagram Business Login (no Facebook Page required, DMs at Standard Access) or through a linked Facebook Page. Gmail is a two-way reply/inbox channel (filter by label or query, read-only on your mailbox). Telegram is an early, proof-of-concept integration — it connects as a bot for private 1:1 DMs only (no groups, channels or Telegram Business inboxes yet, and no publishing); deeper Telegram support is on the roadmap. For publishing & scheduling you can also post to TikTok, X, LinkedIn and Threads. Coming next on the messaging side: WhatsApp, SMS (Twilio/SMSAPI), generic email (IMAP/SMTP) and Discord — each ships as one provider class. (TikTok, X, LinkedIn and Threads stay publish-only — those platforms don't expose an inbound-messaging API.)",
+  },
+  {
+    question: "Does the AI-drafted replies feature send my messages to a third party?",
+    answer:
+      "Only if you turn it on, and only to the model endpoint you configure. AI-drafted replies are bring-your-own-key: point them at OpenAI, a self-hosted model, or any OpenAI-compatible endpoint via AI_BASE_URL. Drafts are never sent to the contact automatically — they wait in your inbox for you to accept, edit, or reject (optional per-channel auto-send is off by default). It's a PRO feature.",
   },
   {
     question: "What happens to my data?",
