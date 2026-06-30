@@ -120,4 +120,32 @@ describe("tenancy isolation — A never reads/mutates B", () => {
     await expect(deliveriesSvc.cancelDelivery(d!.id, A)).rejects.toMatchObject({ status: 409 });
     expect(await deliveriesSvc.getDelivery(d!.id, B)).toBeDefined();
   });
+
+  it("deliveries: a held post is cancelable (held -> canceled); a sent post is not (409)", async () => {
+    if (!TEST_DB) return;
+    const { encryptTokens } = await import("@/lib/crypto");
+    const [ch] = await db.insert(schema.channels).values({
+      workspace_id: A, platform: "tiktok", platform_id: `tenA-${Math.random()}`, connection_mode: "manual_token",
+      status: "active", token_encrypted: encryptTokens({ access_token: "T" }), webhook_secret: "wh",
+    }).returning({ id: schema.channels.id });
+    const mk = async (status: "held" | "scheduled" | "sent") => {
+      const [d] = await db.insert(schema.deliveries).values({
+        workspace_id: A, channel_id: ch!.id, format: "video", status,
+        payload: { format: "video", media: [] }, scheduled_at: new Date(), run_at: new Date(),
+      }).returning({ id: schema.deliveries.id });
+      return d!.id;
+    };
+    // The bug: cancelDelivery only matched status='scheduled', but the queue UI offers Cancel for
+    // 'held' too — so cancelling a held (e.g. token-invalid) post 409'd. A held post must be cancelable.
+    const heldId = await mk("held");
+    await deliveriesSvc.cancelDelivery(heldId, A);
+    expect((await deliveriesSvc.getDelivery(heldId, A))!.status).toBe("canceled");
+    // scheduled stays cancelable
+    const schedId = await mk("scheduled");
+    await deliveriesSvc.cancelDelivery(schedId, A);
+    expect((await deliveriesSvc.getDelivery(schedId, A))!.status).toBe("canceled");
+    // a sent post is terminal — not cancelable
+    const sentId = await mk("sent");
+    await expect(deliveriesSvc.cancelDelivery(sentId, A)).rejects.toMatchObject({ status: 409 });
+  });
 });

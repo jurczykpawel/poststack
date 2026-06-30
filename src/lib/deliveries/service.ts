@@ -1,4 +1,4 @@
-import { desc, eq, and, sql } from "drizzle-orm";
+import { desc, eq, and, inArray, sql } from "drizzle-orm";
 import { db, isUniqueViolation } from "@/lib/db";
 import { deliveries, channels } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
@@ -107,7 +107,10 @@ export async function cancelDelivery(id: string, workspaceId: string): Promise<v
   const res = await db
     .update(deliveries)
     .set({ status: "canceled", updated_at: new Date() })
-    .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), eq(deliveries.status, "scheduled")))
+    // A post is cancelable while it's still pending: 'scheduled' (not yet attempted) or 'held'
+    // (attempted, stuck on a retryable error — e.g. an invalid token). The queue UI offers Cancel
+    // for both; this predicate is the compare-and-swap guard (0 rows updated → 409 below).
+    .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"])))
     .returning({ id: deliveries.id });
   if (res.length === 0) throw new ApiError("conflict", "Post is not cancelable", 409);
 }
