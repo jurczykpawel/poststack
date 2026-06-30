@@ -110,7 +110,10 @@ export const youtubeProvider: Provider = {
     // YouTube has no PULL — it needs the bytes. Fetch them (SSRF-guarded), then resumable-upload.
     const dl = await safeFetch(videoUrl);
     // PSA36: download + resumable-init are pre-commit (no video exists until the PUT upload completes).
-    if (!dl.ok) throw classifyHttp(dl.status, `youtube: cannot fetch video for upload (${dl.status})`, "pre_commit");
+    if (!dl.ok) {
+      await dl.body?.cancel().catch(() => {}); // release the streamed socket — body is never read here
+      throw classifyHttp(dl.status, `youtube: cannot fetch video for upload (${dl.status})`, "pre_commit");
+    }
     const bytes = await readProviderBody(dl); // PSA52: streamed size cap (no full-buffer OOM)
     const size = bytes.byteLength;
 
@@ -179,6 +182,8 @@ export const youtubeProvider: Provider = {
               body: imgBytes,
             },
           );
+        } else {
+          await img.body?.cancel().catch(() => {}); // skip path — release the unread streamed socket
         }
       } catch {
         /* thumbnail is best-effort */

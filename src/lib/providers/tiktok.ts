@@ -94,7 +94,10 @@ export const tiktokProvider: Provider = {
     } else {
       const dl = await safeFetch(videoUrl); // SSRF guard on the stored media URL (defense-in-depth)
       // PSA36: download + init are pre-commit (the draft/post isn't created until the chunk upload).
-      if (!dl.ok) throw classifyHttp(dl.status, `tiktok: cannot fetch video for upload (${dl.status})`, "pre_commit");
+      if (!dl.ok) {
+        await dl.body?.cancel().catch(() => {}); // release the streamed socket — body is never read here
+        throw classifyHttp(dl.status, `tiktok: cannot fetch video for upload (${dl.status})`, "pre_commit");
+      }
       // PSA52: cap DURING the read (single-chunk upload tops out at 64 MB) — the old check buffered the
       // whole body first, so the limit didn't prevent the OOM it was meant to bound.
       videoBytes = await readProviderBody(dl, 64 * 1024 * 1024);
@@ -153,7 +156,11 @@ export const tiktokProvider: Provider = {
         },
         body: videoBytes,
       });
-      if (!put.ok) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
+      // The PUT response body is never read (we only check status) — cancel it so the streamed
+      // socket isn't held open until the inactivity timeout.
+      const putFailed = !put.ok;
+      await put.body?.cancel().catch(() => {});
+      if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
     }
 
     return { providerHandle: publishId };

@@ -102,7 +102,10 @@ async function setFacebookThumbnail(
   if (!coverUrl) return;
   try {
     const img = await safeFetch(coverUrl); // SSRF guard — coverUrl is caller-supplied
-    if (!img.ok) return;
+    if (!img.ok) {
+      await img.body?.cancel().catch(() => {}); // release the streamed socket — body is never read here
+      return;
+    }
     const form = new FormData();
     const bytes = await readProviderCover(img); // PSA52: cap the cover download
     form.set("source", new Blob([bytes]));

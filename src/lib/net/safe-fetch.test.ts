@@ -239,6 +239,29 @@ describe("pinnedConnect STREAMING mode (stream:true, local server)", () => {
     );
   }, 20000);
 
+  it("inactivity timeout fires MID-STREAM and propagates to the body reader (no unbounded hang)", async () => {
+    // Server: write headers + a few bytes, then go SILENT (keep the socket open, send nothing more).
+    await withServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        res.write(Buffer.alloc(8, 0x64)); // a few bytes, then deliberate silence (no end, no more data)
+      },
+      async (url) => {
+        const started = Date.now();
+        const res = await safeFetch(
+          url,
+          { method: "GET" },
+          { allow: LOOPBACK, resolve: r(["127.0.0.1"]), stream: true, idleTimeoutMs: 80 },
+        );
+        expect(res.status).toBe(200);
+        // The reader must REJECT once the injected 80ms inactivity timeout destroys the socket —
+        // proving the timeout propagates through Readable.toWeb (no unbounded hang).
+        await expect(new Response(res.body).arrayBuffer()).rejects.toThrow();
+        expect(Date.now() - started).toBeLessThan(3_000); // bounded — not the 15s default
+      },
+    );
+  }, 5000);
+
   it("PINS + refuses a private target BEFORE connecting, in stream mode (SsrfError, connector never reached)", async () => {
     // Pinning: the validated loopback IP reaches the local server (success proves the pin).
     await withServer(

@@ -40,6 +40,9 @@ export type Connector = (a: {
   init: RequestInit;
   /** Hard wall-clock deadline in ms (testable seam; defaults to DEFAULT_DEADLINE_MS). */
   deadlineMs?: number;
+  /** Socket inactivity timeout in ms — no bytes for this long tears the request down. Applies in
+   *  BOTH modes (testable seam; defaults to DEFAULT_TIMEOUT_MS). */
+  idleTimeoutMs?: number;
   /** Response body cap in bytes (testable seam; defaults to MAX_RESPONSE_BYTES). Media ingest passes
    *  a far larger ceiling than the webhook default — its own readBodyCapped governs the real limit. */
   maxResponseBytes?: number;
@@ -99,7 +102,7 @@ function buildResponseHeaders(h: http.IncomingHttpHeaders): Headers {
  * (`redirect: "error"` semantics). Honors `init.signal` and a hard timeout. Verified on Bun + Node
  * (Step-0 spike): both honor `lookup` (pins) and `servername` (cert validates on the hostname).
  */
-export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs, maxResponseBytes, stream }) =>
+export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadlineMs, idleTimeoutMs, maxResponseBytes, stream }) =>
   new Promise<Response>((resolve, reject) => {
     const maxBytes = maxResponseBytes ?? MAX_RESPONSE_BYTES;
     let u: URL;
@@ -184,7 +187,7 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
     signal?.addEventListener("abort", onAbort, { once: true });
     // Inactivity timeout (no bytes for N ms) — kept in BOTH modes so a stuck/hung socket is bounded
     // even when streaming a large download.
-    req.setTimeout(DEFAULT_TIMEOUT_MS, () => req.destroy(new SsrfError("request timed out")));
+    req.setTimeout(idleTimeoutMs ?? DEFAULT_TIMEOUT_MS, () => req.destroy(new SsrfError("request timed out")));
     // Hard wall-clock deadline: applies ONLY to the buffered (webhook) path. In streaming mode it
     // would wrongly abort a legitimately slow/large download that is making steady progress, so it
     // is disabled there — the inactivity timeout above remains the safety bound.
@@ -218,6 +221,7 @@ export async function safeFetch(
     resolve?: Resolver;
     connect?: Connector;
     deadlineMs?: number;
+    idleTimeoutMs?: number;
     maxResponseBytes?: number;
     stream?: boolean;
   },
@@ -229,6 +233,7 @@ export async function safeFetch(
     hostname,
     init,
     deadlineMs: opts.deadlineMs,
+    idleTimeoutMs: opts.idleTimeoutMs,
     maxResponseBytes: opts.maxResponseBytes,
     stream: opts.stream,
   });
