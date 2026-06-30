@@ -1,16 +1,16 @@
 /**
- * Conservative allow-list check for an operator-configured outbound webhook URL (the channel
- * alert hook). Guards against pointing it at a private/link-local address — most
- * importantly the cloud metadata endpoint (169.254.169.254) on managed hosting.
+ * Cheap, synchronous boot-time literal sanity check for the `CHANNEL_ALERT_WEBHOOK_URL` env var,
+ * used by `env.ts`'s zod `.refine` to fail fast on an obviously bad value. It is NOT the runtime
+ * delivery guard: the authoritative DNS-resolving, rebinding-safe guard that actually gates alert
+ * (and outbound) webhook delivery lives in `src/lib/webhooks/safe-target.ts`.
  *
  * Allowed: http or https to a hostname (localhost, a docker-compose service name, a public
  * domain) or to a loopback IP. Rejected: a private/link-local/reserved IP *literal* (RFC1918,
  * 169.254.0.0/16, fc00::/7, fe80::/10, 0.0.0.0/8) and any non-http(s) scheme.
  *
- * This blocks the obvious literal-IP SSRF targets without breaking the common self-host case of
- * an internal hostname over http. It deliberately does NOT resolve DNS, so a hostname that
- * resolves to a private address (DNS rebinding) is out of scope; the alert fetch also uses
- * `redirect: "error"`, so a redirect can't bounce it onto an internal address either.
+ * This catches the obvious malformed / literal-IP values at startup without breaking the common
+ * self-host case of an internal hostname over http. It deliberately does NOT resolve DNS (that is
+ * the runtime guard's job) — this is purely a fast string-level pre-flight on the configured value.
  */
 export function isSafeAlertWebhookUrl(raw: string): boolean {
   let url: URL;

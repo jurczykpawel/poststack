@@ -105,6 +105,10 @@ Edit `.env` -- fill in at minimum:
   account via **Instagram Business Login** (and so receive Instagram DMs at Standard Access). These are
   the **Instagram** app's id/secret (Meta app → Instagram product → "API setup with Instagram login"),
   **different** from the Facebook app's `META_APP_ID`/`META_APP_SECRET`.
+- `WEBHOOK_ALLOW_PRIVATE_TARGETS` -- **optional**, default `false`. Webhook delivery (channel-alert
+  hook + outbound webhooks) is secure-by-default and blocks private/loopback/LAN targets. Set `true`
+  to allow delivery to an internal receiver (e.g. an n8n/ntfy on the same Docker network or LAN).
+  Cloud-metadata and link-local addresses are **always** blocked regardless of this flag.
 
 ### Option A: Docker (recommended)
 

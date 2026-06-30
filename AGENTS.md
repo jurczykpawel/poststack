@@ -155,6 +155,7 @@ See `.env.example`. Required:
 | `INSTAGRAM_APP_SECRET` | Optional. Instagram app secret for Instagram Business Login. Also a valid webhook-signature secret (dual-secret verify). Distinct from `META_APP_SECRET`. |
 | `APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
 | `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
+| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | Optional. Default false. Webhook delivery (alert + outbound) is secure-by-default and blocks private/loopback/LAN targets; set true to allow an internal receiver (n8n/ntfy on the same Docker network/LAN). Cloud-metadata + link-local always blocked. |
 | `HISTORY_RETENTION_DAYS` | Optional. Compaction window in days; 0 = off; default 60; if set must be >= 30 |
 
 ## Important Rules

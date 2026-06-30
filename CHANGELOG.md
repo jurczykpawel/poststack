@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+- **Webhook delivery is now secure-by-default.** The SSRF / URL-safety checks are consolidated into one rebinding-safe HTTP client (DNS-resolved, connect-time IP-pinned, TLS-SNI-preserving) shared by media fetching and webhook delivery. Webhook delivery — the channel-alert hook **and** outbound webhooks — now blocks private/loopback/LAN targets by default; set `WEBHOOK_ALLOW_PRIVATE_TARGETS=true` to opt in for an internal receiver (e.g. an n8n/ntfy on the same Docker network or LAN). Cloud-metadata and link-local addresses are **always** blocked. **Behavior change:** an existing channel-alert webhook pointing at an internal/private address now needs this flag set.
+
 ### Added
 - **Instagram Business Login** — connect a single Instagram account **directly** (no Facebook page required) via the new **"+ Instagram (messaging)"** button on the Channels page. One account, full capabilities at Meta **Standard Access** (no App Review): publishing, comments, **direct messages**, and follow-gate. Configured per instance with `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (the **Instagram** app's id/secret — distinct from the Facebook app's `META_APP_ID`/`META_APP_SECRET`). Includes: dual-secret webhook verification (the Meta webhook now verifies signatures from **either** the Facebook or the Instagram app secret), per-account webhook subscription, an in-panel **"Connecting Instagram"** guide with per-channel capability notes, and IG-Login-aware reconnect plus a webhook-subscription panel. PRO features (follow-gate, sequences, manual replies, …) still require a PRO license regardless of how the account is connected.
 

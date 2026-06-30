@@ -84,6 +84,7 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 | `META_WEBHOOK_VERIFY_TOKEN` | Any random string you choose; you re-enter it in the Meta App Dashboard. |
 | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | **Optional.** Only needed to connect an Instagram account via **Instagram Business Login** (DMs + comments + follow-gate + publishing on one account, no Facebook page, at Standard Access). These are the **Instagram** app's id/secret (Meta app → Instagram product → "API setup with Instagram login") — **distinct** from `META_APP_ID`/`META_APP_SECRET`. |
 | `APP_URL` | The public HTTPS URL, e.g. `https://inbox.example.com`. Used for OAuth redirects + webhook URL display. |
+| `WEBHOOK_ALLOW_PRIVATE_TARGETS` | **Optional**, default `false`. Webhook delivery (channel-alert hook + outbound webhooks) is secure-by-default and blocks private/loopback/LAN targets. Set `true` to allow an **internal** receiver (n8n/ntfy on the same Docker network or LAN). Cloud-metadata + link-local are **always** blocked. |
 
 **Recommended for production:** pin the image instead of tracking `latest`, so each release is an
 intentional bump:
@@ -145,6 +146,12 @@ account on an empty instance can always register, to create the owner.
 > accounts but only for **publishing and comments** — Instagram DMs are **not** delivered that way at
 > Standard Access. **Instagram Business Login** connects one account at a time, including **DMs**. Both
 > run at Meta **Standard Access** (no App Review for your own accounts).
+
+> **Webhook delivery is secure-by-default.** Outbound webhook delivery (the channel-alert hook and
+> the per-workspace outbound webhooks) resolves the target's DNS and connects pinned to the validated
+> IP, blocking private/loopback/LAN addresses by default (cloud-metadata + link-local are blocked
+> always). If your alert or outbound webhook points at an **internal** receiver — e.g. an n8n/ntfy on
+> the same Docker network or LAN — set `WEBHOOK_ALLOW_PRIVATE_TARGETS=true` (§1.2) to allow it.
 
 ---
 
