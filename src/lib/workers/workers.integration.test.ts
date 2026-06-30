@@ -955,6 +955,17 @@ describe("outgoing-private-reply worker", () => {
     expect(sent[0].platform_message_id).toBe("PR-PMID");
   });
 
+  // A comment-triggered first-touch DM can carry interactive content (buttons) — the rule executor
+  // enqueues `content: { text, ...interactive }`. That non-text content must be persisted into
+  // messages.attachments (titles only) so the inbox renders the chips, not "(attachment)".
+  it("persists interactive content (button titles) into messages.attachments", async () => {
+    if (!TEST_DB) return;
+    const content = { text: "Tap to claim:", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] };
+    await w.processOutgoingPrivateReply({ channelId: CH, conversationId: CONV, contactId: CONTACT, commentId: "cmt-pr-att", text: content.text, content }, helpers);
+    const [sent] = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "sent")));
+    expect(sent.attachments).toEqual({ buttons: [{ title: "Chcę odebrać" }] });
+  });
+
   // A comment-triggered DM must land in the contact's DM thread, NOT the comment thread it was
   // passed — so the inbox keeps comment and DM as two separate threads.
   it("routes a comment-triggered DM to the contact's DM thread, not the comment thread", async () => {

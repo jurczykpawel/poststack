@@ -52,6 +52,7 @@ export async function processIncomingEcho(payload: IncomingEchoJob, helpers: Job
       conversation_id: conversation.id,
       direction: "outbound",
       text: text ?? null,
+      // TODO(inbox-attachments): parse + store media from foreign echoes (needs echo-payload parsing)
       platform_message_id: mid,
       // An echo is Meta confirming the message left the platform → it was delivered.
       delivered_at: messageDate,

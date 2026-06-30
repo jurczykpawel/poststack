@@ -333,6 +333,19 @@ function mediaLabel(type: string): string {
   return "📎 File";
 }
 
+/** Only http(s) media urls become clickable links; anything else (`javascript:`/`data:`, malformed,
+ *  or relative) renders as a plain label. The url is already attribute-escaped, so this is defence in
+ *  depth — future-proofing the inbox for when inbound media (with attacker-controlled urls) lands. */
+function isHttpUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const proto = new URL(url).protocol;
+    return proto === "http:" || proto === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Render a DM/comment message bubble's body. Beyond plain text it surfaces the stored non-text
  *  content (follow-gate buttons, quick replies, media) that previously collapsed to an opaque
  *  "(attachment)". EVERY interpolated value is auto-escaped by Hono `html`` (never `raw`): button /
@@ -346,7 +359,7 @@ function renderMessageBody(it: Extract<ThreadItem, { kind: "message" }>): Html {
   for (const m of att?.media ?? []) {
     const label = mediaLabel(m.type);
     chips.push(
-      m.url
+      isHttpUrl(m.url)
         ? html`<a class="msg-chip msg-media" href="${m.url}" target="_blank" rel="noopener">${label}</a>`
         : html`<span class="msg-chip msg-media">${label}</span>`,
     );

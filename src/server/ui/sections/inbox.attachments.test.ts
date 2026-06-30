@@ -59,6 +59,19 @@ describe("renderMessages — message body (attachments/buttons/quick-replies)", 
     expect(out).not.toContain("(attachment)");
   });
 
+  it("renders an http(s) media url as a clickable link", () => {
+    const out = s(renderMessages([msg({ attachments: { media: [{ type: "image", url: "https://cdn.example/x.jpg" }] } })] as never));
+    expect(out).toContain("<a");
+    expect(out).toContain('href="https://cdn.example/x.jpg"');
+  });
+
+  it("renders a media url with a disallowed scheme as plain text, not a link", () => {
+    const out = s(renderMessages([msg({ attachments: { media: [{ type: "image", url: "javascript:alert(1)" }] } })] as never));
+    expect(out).toContain("Image"); // label still shown
+    expect(out).not.toContain("<a"); // but NOT as a clickable link
+    expect(out).not.toContain("javascript:alert(1)"); // url never reaches the markup
+  });
+
   it("escapes button titles (no raw HTML injection)", () => {
     const out = s(renderMessages([msg({ attachments: { buttons: [{ title: "<script>alert(1)</script>" }] } })] as never));
     expect(out).not.toContain("<script>alert(1)</script>");

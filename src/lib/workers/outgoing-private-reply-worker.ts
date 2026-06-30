@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, conversations, commentLogs, channels } from "@/db/schema";
 import { decryptChannelToken } from "@/lib/channels/tokens";
+import { normalizeOutgoingAttachments } from "@/lib/messages/attachments";
 import { getProvider } from "@/lib/platforms/registry";
 import { ensureConversation, DM_THREAD } from "./resolve-contact";
 import { runDelivery, type DeliveryChannel } from "./delivery";
@@ -56,6 +57,7 @@ export async function processOutgoingPrivateReply(
         conversation_id: dmConversationId,
         direction: "outbound",
         text,
+        attachments: normalizeOutgoingAttachments(messageContent),
         status: "held",
         sent_by_rule_id: sentByRuleId ?? null,
       })
@@ -93,6 +95,7 @@ export async function processOutgoingPrivateReply(
           conversation_id: dmConversationId,
           direction: "outbound",
           text,
+          attachments: normalizeOutgoingAttachments(messageContent),
           status: "sent",
           platform_message_id: platformMessageId,
           sent_by_rule_id: sentByRuleId ?? null,
