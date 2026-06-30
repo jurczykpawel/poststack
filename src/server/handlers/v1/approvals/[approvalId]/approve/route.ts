@@ -1,10 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { pendingApprovals, autoReplyRules, contacts } from "@/db/schema";
+import { pendingApprovals, autoReplyRules } from "@/db/schema";
 import { acquireCooldown, incrementSendCount } from "@/lib/rules/limits";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { enqueueCommentReply, enqueueDmReply } from "@/lib/approvals/send";
+import { isContactSubscribed } from "@/lib/contacts/consent";
 import type { ProposedContent } from "@/lib/approvals/draft";
 
 export const runtime = "nodejs";
@@ -64,11 +65,7 @@ export async function POST(
     // normal auto-reply. Re-check like the sequence + follow-gate workers: the
     // human's approve is still recorded, but nothing goes out to an unsubscribed contact and the
     // rule's limits are not charged for a send that never happens.
-    const contact = await tx.query.contacts.findFirst({
-      where: eq(contacts.id, row.contact_id),
-      columns: { is_subscribed: true },
-    });
-    const consented = !!contact?.is_subscribed;
+    const consented = await isContactSubscribed(tx, row.contact_id);
 
     if (hasSomething && consented) {
       // Charge the rule's limits NOW — at the actual send — not when the proposal was

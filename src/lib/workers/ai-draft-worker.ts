@@ -1,12 +1,14 @@
 import type { JobHelpers } from "graphile-worker";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, workspaces, pendingApprovals, outboundDeliveries } from "@/db/schema";
+import { channels, workspaces, pendingApprovals } from "@/db/schema";
 import { env } from "@/lib/env";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { generateDraft, resolveDraftPrompt } from "@/lib/ai/draft";
 import { buildProposedContent, proposedHasDm, proposedHasComment, type ProposedContent } from "@/lib/approvals/draft";
 import { enqueueCommentReply, enqueueDmReply } from "@/lib/approvals/send";
+import { isContactSubscribed } from "@/lib/contacts/consent";
+import { claimJobOnce, isJobClaimed } from "@/lib/queue/idempotency";
 import type { AiDraftJob } from "@/lib/queue/types";
 
 /**
@@ -15,21 +17,27 @@ import type { AiDraftJob } from "@/lib/queue/types";
  * send-enqueue path), and park the rest as a single `pending_approvals` row (source = job.source,
  * no originating rule). All-autosent → no approval row; none-autosent → one row with all parts.
  *
- * Idempotency: anchored on `helpers.job.id` via an `outbound_deliveries` marker (task_name
- * `ai-draft`), mirroring the follow-gate worker. A redelivery after a committed run short-circuits
- * BEFORE the (paid) LLM call, so it never double-generates, double-inserts an approval, or
- * double-enqueues a send. The autosent jobs additionally carry deterministic job/idempotency keys,
- * so even an in-flight retry collapses downstream.
+ * Consent: an autosend re-checks `contacts.is_subscribed` (like the approve handler + outgoing/
+ * sequence/follow-gate workers) BEFORE sending, because the comment→DM (private-reply) and public
+ * surfaces have no consent gate of their own. An unsubscribed contact is never DM'd — the part is
+ * parked for human review instead of silently dropped.
+ *
+ * Idempotency: anchored on `helpers.job.id` via a `rate_limit_counters` marker (a keyed KV that
+ * stats/telemetry do NOT read — a deliberate move away from the old `outbound_deliveries` marker,
+ * which `stats/overview` + `telemetry/collect` counted as a sent message). The marker is claimed
+ * INSIDE the work tx, so a redelivery only short-circuits after a committed run: it never
+ * double-generates (a pre-LLM read skips early), double-inserts an approval, or double-enqueues a
+ * send. The autosent jobs additionally carry deterministic job/idempotency keys, so even an
+ * in-flight retry collapses downstream, and the real 'sent' row is written once by the delivery
+ * worker.
  */
 export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Promise<void> {
   const anchor = `ai-draft:${helpers.job.id}`;
 
-  // Idempotency short-circuit: a prior run already processed this draft (marker written in its tx).
-  const prior = await db.query.outboundDeliveries.findFirst({
-    where: eq(outboundDeliveries.delivery_key, anchor),
-    columns: { id: true },
-  });
-  if (prior) {
+  // Idempotency short-circuit: a prior run already committed this draft (marker written in its tx).
+  // Cheap pre-LLM read so a redelivery never re-pays for generation; the authoritative claim is the
+  // in-tx `claimJobOnce` below.
+  if (await isJobClaimed(anchor)) {
     helpers.logger.info(`ai-draft ${anchor} already processed — skipping`);
     return;
   }
@@ -77,8 +85,18 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
     return;
   }
 
-  const sendDm = hasDm && channel.ai_draft_autosend_dm;
-  const sendComment = hasComment && channel.ai_draft_autosend_public;
+  let sendDm = hasDm && channel.ai_draft_autosend_dm;
+  let sendComment = hasComment && channel.ai_draft_autosend_public;
+
+  // Consent gate on autosend ONLY (parking already defers to the approve handler's gate at send
+  // time). An unsubscribed contact must not be DM'd via the private-reply/public surfaces — those
+  // have no consent gate. Mirror the approve handler: don't send, PARK the part instead so a human
+  // can still see/act on it (never silently dropped). One caller-side gate covers every surface.
+  if ((sendDm || sendComment) && !(await isContactSubscribed(db, job.contactId))) {
+    helpers.logger.info(`ai-draft ${anchor}: contact ${job.contactId} unsubscribed — parking instead of autosend`);
+    sendDm = false;
+    sendComment = false;
+  }
 
   // Parts NOT flagged for autosend are parked together in ONE approval row.
   const held: ProposedContent = {};
@@ -87,22 +105,14 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
   const holdSomething = !!held.content || !!held.comment;
 
   await db.transaction(async (tx) => {
-    // Idempotency marker (the draft-decision record). onConflictDoNothing so a racing redelivery is a
-    // no-op rather than a unique-violation.
-    await tx
-      .insert(outboundDeliveries)
-      .values({
-        delivery_key: anchor,
-        workspace_id: job.workspaceId,
-        channel_id: job.channelId,
-        contact_id: job.contactId,
-        task_name: "ai-draft",
-        payload: { ...job },
-        status: "sent",
-        attempts: 1,
-        updated_at: new Date(),
-      })
-      .onConflictDoNothing({ target: outboundDeliveries.delivery_key });
+    // Claim the job atomically inside the work tx (rate_limit_counters KV — NOT outbound_deliveries,
+    // which stats/telemetry count). A racing/already-committed redelivery fails to claim and bails
+    // out before re-enqueuing a send or re-parking an approval.
+    const claimed = await claimJobOnce(tx, anchor);
+    if (!claimed) {
+      helpers.logger.info(`ai-draft ${anchor}: concurrent redelivery already claimed — skipping`);
+      return;
+    }
 
     if (sendComment) {
       await enqueueCommentReply(tx, {

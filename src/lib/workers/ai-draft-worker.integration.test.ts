@@ -49,6 +49,7 @@ afterAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
+  await db.execute(sql`delete from rate_limit_counters where key like 'ai-draft:%'`);
   await db.delete(s.outboundDeliveries).where(eq(s.outboundDeliveries.workspace_id, WS));
   await db.delete(s.pendingApprovals).where(eq(s.pendingApprovals.workspace_id, WS));
   await db.delete(s.conversations).where(eq(s.conversations.workspace_id, WS));
@@ -112,6 +113,14 @@ async function jobPayloads(task: string) {
     sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = ${task}`,
   );
   return (r.rows as { payload: Record<string, unknown> }[]).map((row) => row.payload);
+}
+async function deliveryCount() {
+  return db.query.outboundDeliveries
+    .findMany({ where: eq(s.outboundDeliveries.workspace_id, WS) })
+    .then((rows) => rows.length);
+}
+async function setSubscribed(value: boolean) {
+  await db.update(s.contacts).set({ is_subscribed: value }).where(eq(s.contacts.id, CONTACT));
 }
 
 describe("ai-draft worker (AIDRAFT1)", () => {
@@ -226,5 +235,71 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     await processAiDraft(baseJob({ target: "dm" }), h);
     expect(await pendingRows()).toHaveLength(1);
     expect(generateDraftMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Fix 1 — consent gate on autosend. The comment→DM autosend goes out via the private-reply
+  // surface, which has NO consent gate of its own; an autosend to an unsubscribed contact would
+  // still DM them. The worker must re-check is_subscribed and PARK instead of sending.
+  it("consent: autosend dm + commentId (private-reply) to an UNSUBSCRIBED contact → no send, parked", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ dm: true });
+    await setSubscribed(false);
+    generateDraftMock.mockResolvedValue("Blocked DM");
+    await processAiDraft(baseJob({ target: "dm", commentId: "CMT-NS" }), helpersFor());
+
+    // Nothing goes out on any surface.
+    expect(await jobCount("outgoing-private-reply")).toBe(0);
+    expect(await jobCount("outgoing-message")).toBe(0);
+    // The part is parked so a human can still see/act on it (never silently dropped).
+    const rows = await pendingRows();
+    expect(rows).toHaveLength(1);
+    const proposed = rows[0]!.proposed_content as { content?: { text?: string } };
+    expect(proposed.content?.text).toBe("Blocked DM");
+  });
+
+  it("consent: autosend dm + commentId (private-reply) to a SUBSCRIBED contact → sends as before", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ dm: true });
+    await setSubscribed(true);
+    generateDraftMock.mockResolvedValue("Allowed DM");
+    await processAiDraft(baseJob({ target: "dm", commentId: "CMT-S" }), helpersFor());
+
+    expect(await jobCount("outgoing-private-reply")).toBe(1);
+    expect(await pendingRows()).toHaveLength(0);
+  });
+
+  // Fix 2 — no phantom "sent" outbound_deliveries marker. stats/overview + telemetry count
+  // outbound_deliveries rows, so a per-draft decision marker double-counted (approval-only drafts
+  // looked "sent"; autosends counted marker + the real delivery). The worker must write NONE.
+  it("no phantom delivery: an approval-only draft writes ZERO outbound_deliveries rows", async () => {
+    if (!TEST_DB) return;
+    generateDraftMock.mockResolvedValue("Parked, not sent");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    expect(await pendingRows()).toHaveLength(1);
+    expect(await deliveryCount()).toBe(0);
+  });
+
+  it("no phantom delivery: an autosend writes ZERO ai-draft delivery rows (only the real send row, later)", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ dm: true });
+    generateDraftMock.mockResolvedValue("Real send");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    // Exactly one real outgoing-message job is enqueued; the actual 'sent' row is written by the
+    // delivery worker when that job runs — so the autosend can never double-count (marker + real).
+    expect(await jobCount("outgoing-message")).toBe(1);
+    expect(await deliveryCount()).toBe(0);
+  });
+
+  it("idempotency without phantom marker: redelivery doesn't double-insert the approval", async () => {
+    if (!TEST_DB) return;
+    generateDraftMock.mockResolvedValue("Idem");
+    const h = helpersFor("stable-job-2");
+    await processAiDraft(baseJob({ target: "dm" }), h);
+    await processAiDraft(baseJob({ target: "dm" }), h);
+    expect(await pendingRows()).toHaveLength(1);
+    expect(generateDraftMock).toHaveBeenCalledTimes(1);
+    expect(await deliveryCount()).toBe(0);
   });
 });
