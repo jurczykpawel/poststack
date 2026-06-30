@@ -292,6 +292,26 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     expect(await deliveryCount()).toBe(0);
   });
 
+  // On-demand path: `ai_manual` is an explicit human "Generate reply" request and is ALWAYS parked
+  // for approval — even when the channel's autosend flags are on (which would autosend `ai_auto`).
+  it("manual always parks: source=ai_manual with autosend_dm ON → no send, ONE approval row", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ dm: true, public: true });
+    await setSubscribed(true);
+    generateDraftMock.mockResolvedValue("Manual draft");
+    await processAiDraft(baseJob({ target: "dm", source: "ai_manual" }), helpersFor());
+
+    // Nothing autosent on any surface.
+    expect(await jobCount("outgoing-message")).toBe(0);
+    expect(await jobCount("outgoing-private-reply")).toBe(0);
+    // The draft is parked for approval, labelled ai_manual.
+    const rows = await pendingRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.source).toBe("ai_manual");
+    const proposed = rows[0]!.proposed_content as { content?: { text?: string } };
+    expect(proposed.content?.text).toBe("Manual draft");
+  });
+
   it("idempotency without phantom marker: redelivery doesn't double-insert the approval", async () => {
     if (!TEST_DB) return;
     generateDraftMock.mockResolvedValue("Idem");

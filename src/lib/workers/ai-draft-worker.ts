@@ -85,8 +85,12 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
     return;
   }
 
-  let sendDm = hasDm && channel.ai_draft_autosend_dm;
-  let sendComment = hasComment && channel.ai_draft_autosend_public;
+  // On-demand drafts (`ai_manual`, the inbox "Generate reply" button) are ALWAYS held for approval —
+  // an explicit human request is never autosent, regardless of the channel's autosend flags. Only the
+  // pipeline path (`ai_auto`) honours autosend.
+  const manualHold = job.source === "ai_manual";
+  let sendDm = !manualHold && hasDm && channel.ai_draft_autosend_dm;
+  let sendComment = !manualHold && hasComment && channel.ai_draft_autosend_public;
 
   // Consent gate on autosend ONLY (parking already defers to the approve handler's gate at send
   // time). An unsubscribed contact must not be DM'd via the private-reply/public surfaces — those

@@ -24,6 +24,7 @@ export const FEATURES = [
   // ── replies wing (the reply/inbox feature set) ──────────────────────────────────────────────
   { key: "personalization", area: "replies", minTier: "pro", status: "live", label: "Personalization placeholders ({imie}/{name})", description: "Insert the contact's name into auto-replies." },
   { key: "ai_rephrase", area: "replies", minTier: "pro", status: "live", label: "AI rephrasing", description: "Rephrase replies with an LLM for variety." },
+  { key: "ai_draft", area: "replies", minTier: "pro", status: "live", label: "AI-drafted replies", description: "Generate an AI draft reply for a conversation (auto, or on demand from the inbox), parked for your approval." },
   { key: "sequences", area: "replies", minTier: "pro", status: "live", label: "Drip sequences", description: "Automated multi-step message sequences." },
   { key: "interactive_messages", area: "replies", minTier: "pro", status: "live", label: "Buttons and quick replies", description: "Send interactive buttons and quick replies." },
   { key: "follow_gate", area: "replies", minTier: "pro", status: "live", label: "Follow-gate", description: "Require a follow before delivering a reply." },

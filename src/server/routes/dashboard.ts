@@ -22,6 +22,8 @@ import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
+import { toastHeader } from "../ui/components/toast";
+import { addJobTx } from "@/lib/queue/client";
 import { platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
@@ -515,9 +517,10 @@ export function renderThread(
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
   // out as if the message went. `canReply` = the manual_reply PRO feature: free can READ the inbox
   // but the human-reply box is locked (rules still auto-reply for free). `upgradeUrl` for the lock.
-  opts: { error?: string; draft?: string; canReply?: boolean; upgradeUrl?: string } = {},
+  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; upgradeUrl?: string } = {},
 ): Html {
   const canReply = opts.canReply ?? true;
+  const canAiDraft = opts.canAiDraft ?? false;
   // Meta 24h-window heads-up: warn when the standard window is closing/closed (the send still goes —
   // a human reply past 24h rides the HUMAN_AGENT tag, see ./messaging-window + the outgoing worker).
   const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at });
@@ -528,6 +531,24 @@ export function renderThread(
   const name = contactName(conv);
   const title = isEmail ? conv.subject || "(no subject)" : name;
   const ctx: ThreadContext = { name, handle: contactHandle(conv) };
+  // On-demand "Generate reply" (PRO): drafts an AI reply that's parked for approval. The public
+  // option only makes sense on a comment thread (the worker addresses the comment). The button
+  // POSTs to /inbox/:id/ai-draft (json-enc) and re-renders the thread with a toast.
+  const isComment = conv.thread_type === "comment";
+  const aiDraftBar = canAiDraft
+    ? html`<div class="ai-draft-bar" style="display:flex;gap:.4rem;padding:.3rem 0">
+        <button class="btn btn-sm" type="button"
+          title="Draft a DM reply with AI — it'll be parked here for your approval."
+          hx-post="/inbox/${conv.id}/ai-draft" hx-ext="json-enc" hx-vals='${`{"target":"dm"}`}'
+          hx-target="#thread" hx-swap="innerHTML">${icon("sparkles", "ico", 13)} Generate reply</button>
+        ${isComment
+          ? html`<button class="btn btn-sm" type="button"
+              title="Draft a public reply to the comment with AI — parked for your approval."
+              hx-post="/inbox/${conv.id}/ai-draft" hx-ext="json-enc" hx-vals='${`{"target":"public"}`}'
+              hx-target="#thread" hx-swap="innerHTML">${icon("comment", "ico", 13)} Generate public reply</button>`
+          : html``}
+      </div>`
+    : html``;
   return html`<div class="thread-head">
       <div class="th-top">
         <span class="th-av">${initialsOf(name)}</span>
@@ -539,6 +560,7 @@ export function renderThread(
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs${isEmail ? " email-list" : ""}" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type, ctx)}</div>
     ${windowNote}
+    ${aiDraftBar}
     ${canReply
       ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
           <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
@@ -1093,7 +1115,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // workspace_id alongside the PK keeps the unread reset tenant-scoped.
     await db.update(conversations).set({ unread_count: 0 }).where(and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId))).catch(() => {});
     const msgs = await loadMessages(id);
-    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), upgradeUrl });
+    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl });
 
     // htmx swaps the bare thread into #thread; a DIRECT navigation (e.g. the deep-link from a webhook
     // event's "Conversation →") must render the FULL inbox page with this thread open — otherwise the
@@ -1153,9 +1175,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!res || res.status >= 400) {
       const errBody = res ? ((await res.json().catch(() => null)) as { error?: { message?: string } } | null) : null;
       const error = errBody?.error?.message ?? "Could not send the reply. Please try again.";
-      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, upgradeUrl }));
+      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, canAiDraft: features.has("ai_draft"), upgradeUrl }));
     }
-    return c.html(renderThread(conv, await loadMessages(id), { canReply, upgradeUrl }));
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: features.has("ai_draft"), upgradeUrl }));
   });
 
   // Conversation controls: status (close/snooze/reopen) + automation pause toggle, delegated to the
@@ -1175,7 +1197,74 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
-    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), upgradeUrl }));
+    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl }));
+  });
+
+  // On-demand AI draft (PRO): the inbox "Generate reply" button. Enqueues an `ai-draft` job with
+  // source `ai_manual`, which the worker ALWAYS parks for approval (never autosends). Workspace-scoped
+  // conversation load, server-side PRO gate, target validation. Re-renders the thread + fires a toast.
+  app.post("/inbox/:id/ai-draft", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return c.notFound();
+    const conv = await loadConversation(id, a.workspaceId);
+    if (!conv) return c.notFound();
+
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const canReply = features.has("manual_reply");
+
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const isComment = conv.thread_type === "comment";
+    // "public" only makes sense on a comment thread (the worker addresses the comment).
+    const target: "dm" | "public" | null = form.target === "dm" ? "dm" : form.target === "public" && isComment ? "public" : null;
+    if (!target) {
+      toastHeader(c, "bad", "Pick a valid reply target.");
+      return c.body(null, 422);
+    }
+
+    // Server-side PRO gate — a forged POST from a free instance never enqueues.
+    if (!features.has("ai_draft")) {
+      toastHeader(c, "warn", "AI-drafted replies are a PRO feature.");
+      return c.html(
+        html`<div class="notice notice-warn">AI-drafted replies are a <strong>PRO</strong> feature. <a href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a></div>`,
+        403,
+      );
+    }
+
+    // The thing to reply to: the latest inbound message. A comment thread's inbound carries the
+    // comment id as its platform_message_id — forward it so the worker can address the public reply
+    // / first-touch DM.
+    const lastInbound = await db.query.messages.findFirst({
+      where: and(eq(messages.conversation_id, id), eq(messages.direction, "inbound")),
+      orderBy: desc(messages.created_at),
+      columns: { text: true, platform_message_id: true },
+    });
+    const incomingText = lastInbound?.text?.trim();
+    const commentId = isComment ? (lastInbound?.platform_message_id ?? undefined) : undefined;
+    if (!incomingText) {
+      toastHeader(c, "warn", "Nothing to reply to yet.");
+      return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl }));
+    }
+    if (target === "public" && !commentId) {
+      toastHeader(c, "bad", "No comment to reply to here.");
+      return c.body(null, 422);
+    }
+
+    await addJobTx(db, "ai-draft", {
+      workspaceId: a.workspaceId,
+      channelId: conv.channel.id,
+      conversationId: id,
+      contactId: conv.contact.id,
+      recipientPlatformId: conv.contact.contact_channels[0]?.platform_sender_id ?? "",
+      incomingText,
+      target,
+      ...(commentId ? { commentId } : {}),
+      source: "ai_manual",
+    });
+
+    toastHeader(c, "ok", "Draft requested - it'll appear here for approval.");
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl }));
   });
 
   // Connect a channel with a pasted long-lived / System User token. On success the unified channels
