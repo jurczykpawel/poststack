@@ -1,8 +1,31 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 
-// Hermetic DNS for the SSRF guard: fake delivery hosts resolve to a public IP.
-vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "93.184.216.34" }] }));
+// Hermetic DNS for the SSRF guard: a host with "private" in it resolves to an RFC1918 address; every
+// other fake delivery host resolves to a public IP. Lets a test pick which IP category the webhook
+// policy will classify (and thus allow/refuse) without any real DNS.
+vi.mock("node:dns/promises", () => ({
+  lookup: async (host: string) =>
+    host.includes("private") ? [{ address: "10.0.0.5" }] : [{ address: "93.184.216.34" }],
+}));
+
+// Deterministic transport for the secure-by-default webhook guard. dispatch now delivers via
+// safeFetchWebhook → @/lib/net/safe-fetch's `safeFetch`, which (unlike the old media guard) connects
+// over node:http/https rather than global fetch. We keep the REAL policy (`assertSafeUrl`, run with
+// the real webhookAllow() set) so secure-by-default is exercised for real, but swap the pinned
+// connector for a controllable stub so no socket is ever opened. A refused target throws in
+// assertSafeUrl BEFORE the stub is reached, so the stub is never called on the SSRF path.
+const { connectStub } = vi.hoisted(() => ({ connectStub: vi.fn<(url: string, init: RequestInit) => Promise<Response>>() }));
+vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/net/safe-fetch")>();
+  return {
+    ...actual,
+    safeFetch: async (url: string, init: RequestInit, opts: Parameters<typeof actual.safeFetch>[2]) => {
+      await actual.assertSafeUrl(url, opts); // REAL secure-by-default policy (public-only unless flag)
+      return connectStub(url, init);
+    },
+  };
+});
 
 import type { JobHelpers } from "graphile-worker";
 
@@ -53,6 +76,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  connectStub.mockReset();
+  connectStub.mockResolvedValue(new Response(null, { status: 200 })); // default: a 2xx receiver
   if (!TEST_DB) return;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
   for (const ws of [WS, OTHER_WS]) {
@@ -133,16 +158,13 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
       .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id })
       .returning({ id: s.webhookDeliveries.id });
     let seen: { body: string; sig: string } | null = null;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
-        seen = {
-          body: String(init?.body),
-          sig: (init?.headers as Record<string, string>)["X-PostStack-Signature"] ?? "",
-        };
-        return new Response(null, { status: 200 });
-      }),
-    );
+    connectStub.mockImplementation(async (_u: string, init: RequestInit) => {
+      seen = {
+        body: String(init.body),
+        sig: (init.headers as Record<string, string>)["X-PostStack-Signature"] ?? "",
+      };
+      return new Response(null, { status: 200 });
+    });
     await processWebhookDelivery({ deliveryId: d!.id }, helpers());
     const after = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d!.id) });
     expect(after!.status).toBe("delivered");
@@ -163,10 +185,29 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
       .insert(s.webhookDeliveries)
       .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id })
       .returning({ id: s.webhookDeliveries.id });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 500 })));
+    connectStub.mockResolvedValue(new Response("nope", { status: 500 }));
     await expect(processWebhookDelivery({ deliveryId: d!.id }, helpers(8, 8))).rejects.toThrow();
     const after = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d!.id) });
     expect(after!.status).toBe("failed");
+  });
+
+  it("refuses a private-resolving endpoint (secure-by-default: WEBHOOK_ALLOW_PRIVATE_TARGETS off) -> failed, never connects", async () => {
+    // The host contains "private" so the hermetic resolver maps it to 10.0.0.5 (RFC1918). With the
+    // flag unset (default), webhookAllow() = {public} only, so assertSafeUrl throws SsrfError before
+    // any connection — the delivery dead-letters on its final attempt and the connector is never hit.
+    // (With WEBHOOK_ALLOW_PRIVATE_TARGETS=true a self-host operator would allow private/loopback/cgnat
+    // and this same target would reach the connector — see safe-target.test.ts for the flag-ON policy.)
+    const ep = await svc.createEndpoint(WS, { url: "https://private.internal.example/hook", eventTypes: [] });
+    const eventId = await emitNow(WS, "post.published");
+    const [d] = await db
+      .insert(s.webhookDeliveries)
+      .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id })
+      .returning({ id: s.webhookDeliveries.id });
+    await expect(processWebhookDelivery({ deliveryId: d!.id }, helpers(8, 8))).rejects.toThrow(/refused/);
+    const after = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d!.id) });
+    expect(after!.status).toBe("failed");
+    expect(after!.last_error).toMatch(/refused/);
+    expect(connectStub).not.toHaveBeenCalled(); // SSRF refusal happens before any socket
   });
 
   it("a re-dispatch of the same event does not double-fan-out to its endpoints", async () => {

@@ -3,7 +3,7 @@ import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { events, webhookEndpoints, webhookDeliveries } from "@/db/schema";
 import { addJobTx } from "@/lib/queue/client";
-import { safeFetch } from "@/lib/media/ssrf";
+import { safeFetchWebhook } from "./safe-target";
 import { redactSecrets } from "@/lib/redact";
 import { getEndpoint } from "./endpoints";
 import { signWebhook } from "./signature";
@@ -82,8 +82,10 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      // safeFetch runs the SSRF guard on the user-supplied URL + forces redirect:"error".
-      const res = await safeFetch(endpoint.url, {
+      // safeFetchWebhook runs the secure-by-default webhook SSRF policy (public only; private/
+      // loopback/cgnat only with WEBHOOK_ALLOW_PRIVATE_TARGETS; metadata/link-local always blocked)
+      // on the user-supplied URL via the rebinding-safe pinned connector (rejects 3xx).
+      const res = await safeFetchWebhook(endpoint.url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
