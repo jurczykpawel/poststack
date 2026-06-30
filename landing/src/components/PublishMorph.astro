@@ -2,6 +2,12 @@
 import { publishMorph } from "../content/landing";
 import { platformIcons } from "../lib/platform-icons";
 const { eyebrow, title, body, postText, channels } = publishMorph;
+
+// Connectors + grid follow the channel count (no hard-coded 4) so removing/adding a channel can't
+// leave a dangling line or an empty grid column. The SVG is 400 wide; each target sits at the centre
+// of its equal column, so the fan-out endpoints are evenly spaced across that width.
+const cols = channels.length;
+const xs = channels.map((_, i) => Math.round((400 * (i + 0.5)) / cols));
 ---
 
 <section class="py-[var(--spacing-section)]">
@@ -35,21 +41,15 @@ const { eyebrow, title, body, postText, channels } = publishMorph;
           </linearGradient>
         </defs>
         <g stroke="url(#pub-grad)" stroke-width="1.5" opacity="0.25">
-          <path d="M200 2 C200 30 50 26 50 54"></path>
-          <path d="M200 2 C200 30 150 26 150 54"></path>
-          <path d="M200 2 C200 30 250 26 250 54"></path>
-          <path d="M200 2 C200 30 350 26 350 54"></path>
+          {xs.map((x) => <path d={`M200 2 C200 30 ${x} 26 ${x} 54`}></path>)}
         </g>
         <g stroke="url(#pub-grad)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 8">
-          <path d="M200 2 C200 30 50 26 50 54"></path>
-          <path d="M200 2 C200 30 150 26 150 54"></path>
-          <path d="M200 2 C200 30 250 26 250 54"></path>
-          <path d="M200 2 C200 30 350 26 350 54"></path>
+          {xs.map((x) => <path d={`M200 2 C200 30 ${x} 26 ${x} 54`}></path>)}
         </g>
       </svg>
 
       <!-- channel targets -->
-      <div class="mt-4 grid grid-cols-2 gap-3 sm:mt-0 sm:grid-cols-4">
+      <div class="pub-targets mt-4 grid gap-3 sm:mt-0" style={`--cols:${cols}`}>
         {
           channels.map((name, i) => (
             <div class="pub-channel rounded-xl border border-border-subtle bg-elevated p-3.5 text-center" style={`--d:${i * 0.45}s`}>
@@ -80,6 +80,17 @@ const { eyebrow, title, body, postText, channels } = publishMorph;
 </section>
 
 <style>
+  /* Targets grid: 2-up on mobile, one column per channel on desktop (driven by --cols, set inline
+     from channels.length) so the layout never assumes a fixed channel count. */
+  .pub-targets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 640px) {
+    .pub-targets {
+      grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+    }
+  }
+
   /* default + paused: show "Queued"; "Scheduled" hidden until the loop plays */
   .pub-s {
     opacity: 0;

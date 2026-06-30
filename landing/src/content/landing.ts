@@ -421,13 +421,18 @@ export const roadmap = {
     {
       label: "Up next",
       status: "next" as const,
-      items: ["WhatsApp messaging", "Email (IMAP/SMTP)", "SMS (Twilio / SMSAPI)", "Discord"],
+      items: [
+        "Deeper Telegram: groups, channels & Business inboxes",
+        "Email (IMAP/SMTP)",
+        "SMS (Twilio / SMSAPI)",
+        "Discord",
+      ],
     },
     {
       label: "On the roadmap",
       status: "planned" as const,
       items: [
-        "Deeper Telegram: groups, channels & Business inboxes",
+        "WhatsApp messaging",
         "Meta Ads & Google Ads management",
         "Visual flow builder",
         "Team roles & permissions",
