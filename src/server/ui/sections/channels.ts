@@ -438,7 +438,7 @@ async function channelsPage(c: Context): Promise<Response> {
                 ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/gmail">+ Gmail</a>` : proConnect("Gmail")}
                 <a class="btn btn-secondary" href="/api/oauth/instagram-login">+ Instagram (messaging)</a>
               </div>
-              <p class="set-lead" style="margin:.5rem 0 0">Instagram (messaging) adds DM send/receive to an Instagram account at Standard Access — no App Review. Connect Instagram first for publishing &amp; comments, then add messaging on top.</p>
+              <p class="set-lead" style="margin:.5rem 0 0">Instagram (messaging) connects an Instagram account directly — DMs, comments and publishing in one, at Standard Access (no App Review), no Facebook page required. Add Facebook only for page-managed publishing across many accounts; the two combine in any order.</p>
               ${instagramLoginInstructions()}
               ${(hasFb || hasIg) && !canMultiChannel
                 ? html`<p class="set-lead" style="margin:.75rem 0 0">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</p>`
