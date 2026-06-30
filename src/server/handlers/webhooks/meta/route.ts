@@ -148,6 +148,7 @@ export async function POST(request: Request) {
   const channelByPage = await resolveChannels(pageIds, platform);
 
   let failed = 0;
+  let loggedAny = false;
 
   for (const entry of payload.entry ?? []) {
     const channelId = channelByPage.get(entry.id) ?? null;
@@ -158,6 +159,7 @@ export async function POST(request: Request) {
     for (const evt of entry.messaging ?? []) {
       const classified = classifyMessagingEvent(evt as Parameters<typeof classifyMessagingEvent>[0], platform, entry.id, payload.object);
       if (!classified) continue;
+      loggedAny = true;
       const enqueueMessaging = () => enqueueFromClassified(classified, evt as MessagingEvent, entry.id, platform);
       failed += await processClassified(classified, channelId, enqueueMessaging);
     }
@@ -166,11 +168,27 @@ export async function POST(request: Request) {
     for (const change of entry.changes ?? []) {
       const classified = classifyChangeEvent(change as Parameters<typeof classifyChangeEvent>[0], platform, payload.object);
       if (!classified) continue;
+      loggedAny = true;
       const enqueueChange = () =>
         classified.job?.task === "incoming-post-reaction"
           ? enqueuePostReaction(classified, change, entry.id, platform)
           : enqueueComment(classified, change, entry.id, platform);
       failed += await processClassified(classified, channelId, enqueueChange);
+    }
+  }
+
+  // Owner rule: we must KNOW about EVERYTHING correctly-signed that reaches this endpoint. A verified
+  // payload that produced no classifiable event (an entry with no messaging/changes we iterate, an
+  // empty entry list, a sender-less messaging event, or a Meta dashboard "Test" event) used to return
+  // 200 with no row — invisible. Leave one catch-all row carrying the object + the full verified
+  // envelope so it surfaces (instance-wide; the WHOBS1 panel lists it under "unhandled types").
+  if (!loggedAny) {
+    const key = `received-no-event-${createHash("sha256").update(rawBody).digest("hex").slice(0, 16)}`;
+    try {
+      await logEvent({ platform, object: payload.object, event_key: key, event_type: "unknown", sender_id: null, recipient_id: null, raw: payload });
+      await markEventStatus(key, "unhandled").catch(() => {});
+    } catch (err) {
+      console.error(`[webhook] failed to log catch-all (no-event) row:`, err);
     }
   }
 

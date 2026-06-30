@@ -365,6 +365,30 @@ describe("webhook_events logging completeness (real Postgres)", () => {
     expect(job.rows[0].payload.eventKey).toBe("msg-mid-log-1"); // threaded for the worker CAS
   });
 
+  it("logs a catch-all row for a signature-verified payload that yields NO classifiable event (Meta dashboard Test)", async () => {
+    if (!TEST_DB) return;
+    // A verified envelope whose entry carries no `messaging` / `changes` we iterate (what a Meta
+    // dashboard "Test" can send) previously returned 200 with NO row — invisible. We must KNOW about
+    // everything correctly-signed that hits the endpoint, so it now leaves one catch-all row.
+    const res = await POST(signed({ object: "instagram", entry: [{ id: "SYNTHETIC_TEST_PAGE", time: 123 }] }));
+    expect(res.status).toBe(200);
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("unknown");
+    expect(all[0].handling_status).toBe("unhandled");
+    expect(all[0].object).toBe("instagram");
+    expect(all[0].channel_id).toBeNull();
+    expect((all[0].raw as { object: string }).object).toBe("instagram"); // full verified envelope stored
+  });
+
+  it("does NOT add a catch-all row when the payload already produced an event", async () => {
+    if (!TEST_DB) return;
+    await POST(signedWebhook("mid-no-dup", "hi"));
+    const all = await rows();
+    expect(all.length).toBe(1); // the message row only — no extra catch-all
+    expect(all[0].event_type).toBe("message");
+  });
+
   it("logs a Facebook feed comment as event_type=comment", async () => {
     if (!TEST_DB) return;
     await POST(signed({ object: "page", entry: [{ id: PAGE, changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: "FB_LOG_C", post_id: "P1", message: "hi", from: { id: "A1", name: "Bo" } } }] }] }));
