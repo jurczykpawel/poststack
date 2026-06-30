@@ -15,6 +15,8 @@ import {
   setChannelDefaultAutoStory,
   setChannelHidden,
   setChannelGmailQuery,
+  setChannelAiDraftSettings,
+  isAiDraftTarget,
   deleteChannel,
   runHealthCheck,
   isChannelSort,
@@ -645,6 +647,59 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
   </section>`;
 }
 
+/** AIDRAFT1 (Task 8): per-channel AI-draft settings (PRO). Enable drafting on this channel, choose
+ *  the surface (dm / public comments / both), an optional prompt override (blank inherits the
+ *  workspace default), and two ADVANCED auto-send toggles that send a high-confidence draft WITHOUT
+ *  manual approval. Mirrors the first-comment/auto-story out-of-band pattern: the form posts to
+ *  /channels/:id/ai-draft, which re-renders #ch-detail-head and refreshes THIS panel out-of-band.
+ *  Every dynamic value is escaped by `html`` (the saved prompt is operator text but escaped anyway). */
+export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
+  const targetOpt = (value: PublicChannel["ai_draft_target"], label: string) =>
+    html`<option value="${value}"${ch.ai_draft_target === value ? raw(" selected") : raw("")}>${label}</option>`;
+  const body = licensed
+    ? html`<p class="set-lead">
+        When enabled, PostStack drafts an AI reply for new activity on this channel and parks it here
+        for your approval. Leave the prompt blank to inherit the workspace default.
+      </p>
+      <form class="panel-form" method="post" action="/channels/${ch.id}/ai-draft"
+        hx-post="/channels/${ch.id}/ai-draft" hx-target="#ch-detail-head" hx-swap="outerHTML">
+        <label class="compose-toggle">
+          <input type="checkbox" name="enabled" value="1" ${ch.ai_draft_enabled ? raw("checked") : raw("")} />
+          <span>Draft AI replies for this channel</span>
+        </label>
+        <label class="fld" style="margin-top:.6rem"><span>Apply to</span>
+          <select name="target" aria-label="AI-draft target">
+            ${targetOpt("dm", "Direct messages")}
+            ${targetOpt("public", "Public comments")}
+            ${targetOpt("both", "Both")}
+          </select>
+        </label>
+        <label class="fld" style="margin-top:.6rem"><span>Prompt override <small>— blank inherits the workspace default</small></span>
+          <textarea name="prompt" rows="3" maxlength="4000"
+            placeholder="Inherit workspace default"
+            aria-label="AI-draft prompt override"
+            style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt ?? ""}</textarea>
+        </label>
+        <label class="compose-toggle" style="margin-top:.6rem">
+          <input type="checkbox" name="autosendDm" value="1" ${ch.ai_draft_autosend_dm ? raw("checked") : raw("")} />
+          <span>Auto-send DM drafts <small>(advanced — sends without review (no approval))</small></span>
+        </label>
+        <label class="compose-toggle">
+          <input type="checkbox" name="autosendPublic" value="1" ${ch.ai_draft_autosend_public ? raw("checked") : raw("")} />
+          <span>Auto-send public drafts <small>(advanced — sends without review (no approval))</small></span>
+        </label>
+        ${btn({ label: "Save AI-draft settings", variant: "secondary", size: "sm" })}
+      </form>`
+    : html`<p class="set-lead">
+        Draft AI replies for new messages and comments on this channel, parked here for your approval.
+      </p>
+      <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 13)} AI-drafted replies (PRO)</a>`;
+  return html`<section class="panel" id="ai-draft-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
+    <div class="panel-head"><h3>AI-drafted replies</h3></div>
+    <div class="set-body">${body}</div>
+  </section>`;
+}
+
 /** Gmail-channel ingest filter panel — shown only for Gmail channels.
  *  Saves gmail_query via POST /api/v1/channels/:id/gmail-filter. */
 function gmailFilterPanel(ch: PublicChannel, oob = false): Html {
@@ -794,6 +849,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
           : html`<section class="panel"><div class="set-body"><p class="set-lead" style="margin:0">${icon("lock", "ico", 13)} Channel stats (posts & messages) are a PRO feature.</p></div></section>`}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
+        ${aiDraftPanel(ch, lic.features.has("ai_draft"), lic.upgradeUrl)}
         ${gmailFilterPanel(ch)}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
@@ -873,6 +929,41 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     await setChannelGmailQuery(ws, id, q);
   }, (ch) => ch.gmail_query ? "Filter saved" : "Filter cleared",
     (ch) => gmailFilterPanel(ch, true)));
+  // AIDRAFT1 (Task 8): persist per-channel AI-draft settings. Dedicated handler (not the generic
+  // `action()`) because it needs feature-specific status codes: free → 403 (no write), invalid
+  // target → 422, foreign channel → 404. PRO gate enforced server-side (defense-in-depth: the UI
+  // hides the form on a free instance, but a forged POST is refused here too).
+  r.post("/channels/:id/ai-draft", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    if (!id || !UUID_RE.test(id)) return c.text("not found", 404);
+    if (!(await hasFeature("ai_draft"))) {
+      if (isHtmx(c)) toastHeader(c, "warn", "AI-drafted replies are a PRO feature.");
+      return c.text(proMessage("ai_draft"), 403);
+    }
+    // Ownership first — a foreign / missing id is a 404 before we read the body.
+    if (!(await getChannel(a.workspaceId, id))) return c.text("not found", 404);
+    const form = await c.req.parseBody();
+    const target = String(form.target ?? "");
+    if (!isAiDraftTarget(target)) {
+      if (isHtmx(c)) toastHeader(c, "bad", "Pick a valid reply target.");
+      return c.text("invalid target", 422);
+    }
+    await setChannelAiDraftSettings(a.workspaceId, id, {
+      enabled: String(form.enabled ?? "") === "1",
+      target,
+      prompt: String(form.prompt ?? ""),
+      autosendDm: String(form.autosendDm ?? "") === "1",
+      autosendPublic: String(form.autosendPublic ?? "") === "1",
+    });
+    const ch = await getChannel(a.workspaceId, id);
+    if (!ch) return c.text("not found", 404);
+    if (!isHtmx(c)) return c.redirect(`/channels/${id}`, 303);
+    toastHeader(c, "ok", "AI-draft settings saved");
+    return c.html(html`${detailHead(ch)}${aiDraftPanel(ch, true, "", true)}`);
+  });
+
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));
   r.post("/channels/:id/unhide", guard, action((ws, id) => setChannelHidden(ws, id, false), () => "Channel unhidden"));
   r.post("/channels/:id/reconnect", guard, action(async (ws, id, c) => {

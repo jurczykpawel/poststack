@@ -14,14 +14,26 @@ let lastErrorNote: typeof import("./channels").lastErrorNote;
 let instagramLoginInstructions: typeof import("./channels").instagramLoginInstructions;
 let reconnectNote: typeof import("./channels").reconnectNote;
 let capabilityBadges: typeof import("./channels").capabilityBadges;
+let aiDraftPanel: typeof import("./channels").aiDraftPanel;
 
 const s = (h: unknown) => String(h);
 // Minimal fixture — only the fields the helpers read matter; cast the rest.
 const ch = (over: Partial<PublicChannel>): PublicChannel =>
-  ({ platform: "instagram", messaging_connection: null, last_error: null, ...over } as PublicChannel);
+  ({
+    id: "11111111-1111-1111-1111-111111111111",
+    platform: "instagram",
+    messaging_connection: null,
+    last_error: null,
+    ai_draft_enabled: false,
+    ai_draft_target: "dm",
+    ai_draft_prompt: null,
+    ai_draft_autosend_dm: false,
+    ai_draft_autosend_public: false,
+    ...over,
+  } as PublicChannel);
 
 beforeAll(async () => {
-  ({ messagingConnectionBadge, messagingHint, lastErrorNote, instagramLoginInstructions, reconnectNote, capabilityBadges } =
+  ({ messagingConnectionBadge, messagingHint, lastErrorNote, instagramLoginInstructions, reconnectNote, capabilityBadges, aiDraftPanel } =
     await import("./channels"));
 });
 
@@ -120,6 +132,43 @@ describe("capabilityBadges (A13) — suppress misleading DM pill for facebook_on
   });
   it("keeps the DM pill for an instagram_login IG channel", () => {
     expect(s(capabilityBadges(ch({ messaging_connection: "instagram_login" })))).toContain(">DM<");
+  });
+});
+
+describe("aiDraftPanel (AIDRAFT1 config — Task 8)", () => {
+  it("PRO: renders the enable toggle, dm/public/both target select, prompt-override textarea, and two autosend toggles", () => {
+    const out = s(aiDraftPanel(ch({}), true, "https://upgrade.example"));
+    expect(out).toContain('name="enabled"');
+    expect(out).toContain('name="target"');
+    expect(out).toContain('value="dm"');
+    expect(out).toContain('value="public"');
+    expect(out).toContain('value="both"');
+    expect(out).toContain('name="prompt"');
+    expect(out).toContain('name="autosendDm"');
+    expect(out).toContain('name="autosendPublic"');
+    expect(out).toContain("/channels/11111111-1111-1111-1111-111111111111/ai-draft");
+  });
+  it("PRO: each auto-send toggle is labelled advanced — sends without review (no approval)", () => {
+    const out = s(aiDraftPanel(ch({}), true, ""));
+    const matches = out.match(/advanced — sends without review \(no approval\)/g) ?? [];
+    expect(matches.length).toBe(2);
+  });
+  it("PRO: reflects saved values — enabled checked + target=both selected + override prefilled", () => {
+    const out = s(aiDraftPanel(ch({ ai_draft_enabled: true, ai_draft_target: "both", ai_draft_prompt: "Be nice" }), true, ""));
+    expect(out).toContain("checked");
+    expect(out).toContain('value="both" selected');
+    expect(out).toContain("Be nice");
+  });
+  it("free: shows a PRO upsell, no form fields", () => {
+    const out = s(aiDraftPanel(ch({}), false, "https://upgrade.example"));
+    expect(out).toContain("PRO");
+    expect(out).toContain("https://upgrade.example");
+    expect(out).not.toContain('name="enabled"');
+  });
+  it("escaping: a saved prompt containing <script> renders inert (escaped)", () => {
+    const out = s(aiDraftPanel(ch({ ai_draft_prompt: "<script>alert(1)</script>" }), true, ""));
+    expect(out).not.toContain("<script>alert(1)</script>");
+    expect(out).toContain("&lt;script&gt;");
   });
 });
 

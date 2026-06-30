@@ -1048,6 +1048,24 @@ function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolea
     </form>`;
 }
 
+/**
+ * AIDRAFT1 (Task 8): the workspace-default AI-draft prompt form (PRO). This default is used whenever a
+ * channel has no per-channel prompt override; blank = the built-in default prompt. PRO-gated UI — a
+ * free instance sees an upsell instead of the textarea (the POST is also gated server-side).
+ */
+function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
+  const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
+  if (!canConfigure) {
+    return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default AI-draft prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
+  }
+  return html`${notice}
+    <form hx-post="/settings/ai-draft-prompt" hx-ext="json-enc" hx-target="#ai-draft-prompt-area" hx-swap="innerHTML" style="max-width:560px">
+      <label class="fld"><span>Default AI-draft prompt <small>— used when a channel has no prompt override; blank = built-in default</small></span>
+        <textarea name="ai_draft_prompt" rows="4" placeholder="e.g. You are a warm, concise support agent for our brand. Answer in the customer's language." style="font:inherit">${prompt ?? ""}</textarea></label>
+      <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
+    </form>`;
+}
+
 /** Parse a `Key: Value` per-line textarea into a header map (ignoring blanks / malformed lines). */
 function parseHeaderLines(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -1573,16 +1591,32 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderAlertWebhook(null, license.features.has("managed_connection"), license.upgradeUrl, "Alert webhook removed."));
   });
 
+  // AIDRAFT1 (Task 8): persist the workspace-default AI-draft prompt (PRO). Blank → null (built-in
+  // default). Server-side PRO gate — a forged POST from a free instance is refused (403, no write).
+  app.post("/settings/ai-draft-prompt", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const license = await getInstanceLicense();
+    if (!license.features.has("ai_draft")) {
+      return c.html(renderAiDraftPrompt(null, false, license.upgradeUrl), 403);
+    }
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const raw = typeof form.ai_draft_prompt === "string" ? form.ai_draft_prompt.trim() : "";
+    await db.update(workspaces).set({ ai_draft_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
+    return c.html(renderAiDraftPrompt(raw || null, true, license.upgradeUrl, "Default AI-draft prompt saved."));
+  });
+
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const [workspace, license, alertWebhook, keys] = await Promise.all([
-      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true } }),
+      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt: true } }),
       getInstanceLicense(),
       getAlertWebhook(a.workspaceId),
       loadKeys(a.workspaceId),
     ]);
     const canAlerts = license.features.has("managed_connection");
+    const canAiDraft = license.features.has("ai_draft");
     const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
@@ -1680,6 +1714,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </div>
             <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
             <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
+          </section>
+          <section class="section">
+            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <h2 style="margin:0">AI-drafted replies</h2>
+              ${canAiDraft ? html`` : proLink(upgradeUrl, "PRO")}
+            </div>
+            <p class="muted" style="margin-bottom:1rem">Set the workspace-default prompt used when drafting AI replies. Each channel can override it (and enable drafting) from its own settings.</p>
+            <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt ?? null, canAiDraft, upgradeUrl)}</div>
           </section>
           </div>
         </div>`,

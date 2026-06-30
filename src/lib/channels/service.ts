@@ -23,6 +23,12 @@ const META_HEALTH_PLATFORMS = new Set(["facebook", "instagram"]);
 export type ChannelStatus = "active" | "needs_reauth" | "paused" | "disabled";
 const CHANNEL_STATUSES: ChannelStatus[] = ["active", "needs_reauth", "paused", "disabled"];
 
+export type AiDraftTarget = "dm" | "public" | "both";
+const AI_DRAFT_TARGETS: AiDraftTarget[] = ["dm", "public", "both"];
+export function isAiDraftTarget(v: string | undefined): v is AiDraftTarget {
+  return !!v && (AI_DRAFT_TARGETS as string[]).includes(v);
+}
+
 export type ChannelSort = "recent" | "name" | "status" | "platform";
 const CHANNEL_SORTS: ChannelSort[] = ["recent", "name", "status", "platform"];
 export function isChannelSort(v: string | undefined): v is ChannelSort {
@@ -59,6 +65,16 @@ export interface PublicChannel {
   messaging_token_expires_at: Date | null;
   /** Derived IG messaging credential shape (instagram_login / facebook_only); null for non-IG. */
   messaging_connection: MessagingConnection | null;
+  /** AIDRAFT1: when true, the inbound pipeline drafts an AI reply for matching activity on this channel. */
+  ai_draft_enabled: boolean;
+  /** AIDRAFT1: which surface AI drafting applies to (dm / public comments / both). */
+  ai_draft_target: AiDraftTarget;
+  /** AIDRAFT1: per-channel prompt override; null inherits the workspace default. */
+  ai_draft_prompt: string | null;
+  /** AIDRAFT1: send a high-confidence DM draft without manual approval (advanced). */
+  ai_draft_autosend_dm: boolean;
+  /** AIDRAFT1: send a high-confidence public-comment draft without manual approval (advanced). */
+  ai_draft_autosend_public: boolean;
 }
 
 type ChannelRow = typeof channels.$inferSelect;
@@ -86,6 +102,11 @@ export function toPublic(r: ChannelRow): PublicChannel {
     last_error: r.last_error ?? null,
     messaging_token_expires_at: r.messaging_token_expires_at ?? null,
     messaging_connection: messagingConnection({ platform: r.platform, messaging_token_expires_at: r.messaging_token_expires_at ?? null }),
+    ai_draft_enabled: r.ai_draft_enabled,
+    ai_draft_target: r.ai_draft_target as AiDraftTarget,
+    ai_draft_prompt: r.ai_draft_prompt,
+    ai_draft_autosend_dm: r.ai_draft_autosend_dm,
+    ai_draft_autosend_public: r.ai_draft_autosend_public,
   };
 }
 
@@ -272,6 +293,33 @@ export async function setChannelDefaultAutoStory(workspaceId: string, id: string
   await db
     .update(channels)
     .set({ default_auto_story: enabled })
+    .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+}
+
+/** AIDRAFT1: per-channel AI-draft settings. Workspace-scoped (404 on a foreign id). A blank prompt
+ *  override stores NULL (= inherit the workspace default). The two auto-send flags bypass approval. */
+export interface AiDraftChannelSettings {
+  enabled: boolean;
+  target: AiDraftTarget;
+  prompt: string;
+  autosendDm: boolean;
+  autosendPublic: boolean;
+}
+export async function setChannelAiDraftSettings(
+  workspaceId: string,
+  id: string,
+  settings: AiDraftChannelSettings,
+): Promise<void> {
+  await ownChannelOr404(workspaceId, id);
+  await db
+    .update(channels)
+    .set({
+      ai_draft_enabled: settings.enabled,
+      ai_draft_target: settings.target,
+      ai_draft_prompt: settings.prompt.trim().slice(0, 4000) || null,
+      ai_draft_autosend_dm: settings.autosendDm,
+      ai_draft_autosend_public: settings.autosendPublic,
+    })
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
