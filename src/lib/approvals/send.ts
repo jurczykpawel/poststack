@@ -1,4 +1,4 @@
-import { sql, type SQL } from "drizzle-orm";
+import { type SQL } from "drizzle-orm";
 import { addJobTx } from "@/lib/queue/client";
 import { TASK_MAX_ATTEMPTS } from "@/lib/queue/spec";
 import type { MessageContent } from "@/lib/platforms/base";
