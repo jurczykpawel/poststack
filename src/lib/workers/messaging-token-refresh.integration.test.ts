@@ -23,6 +23,14 @@ vi.mock("@/lib/platforms/registry", () => ({
   }),
 }));
 
+// dispatchAlert delivers via safeFetchWebhook (node:http(s) pinned connector — NOT globalThis.fetch),
+// so capture dispatched alerts through this primitive rather than a global fetch stub.
+const { safeFetchWebhookMock } = vi.hoisted(() => ({ safeFetchWebhookMock: vi.fn() }));
+vi.mock("@/lib/webhooks/safe-target", async (orig) => {
+  const actual = await orig<typeof import("@/lib/webhooks/safe-target")>();
+  return { ...actual, safeFetchWebhook: safeFetchWebhookMock };
+});
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -36,8 +44,8 @@ const helpers = { logger: { info: () => {}, error: () => {} } } as unknown as Pa
   typeof import("./token-refresh-worker").processTokenRefresh
 >[1];
 
-// Capture dispatched alerts by stubbing fetch (dispatchAlert POSTs to CHANNEL_ALERT_WEBHOOK_URL).
-let realFetch: typeof fetch;
+// Capture dispatched alerts via the safeFetchWebhook spy (dispatchAlert POSTs to
+// CHANNEL_ALERT_WEBHOOK_URL through node:http(s), bypassing globalThis.fetch).
 let alerts: Array<{ type: string; channel_id?: string; detail?: string }>;
 
 const NEAR_EXPIRY_UNIX = Math.floor(Date.now() / 1000) + 5 * 24 * 60 * 60; // 5d out — inside 10d buffer
@@ -61,11 +69,11 @@ beforeEach(async () => {
   process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
   await db.execute(sql`delete from rate_limit_counters where key like 'alert:%'`);
   alerts = [];
-  realFetch = globalThis.fetch;
-  globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    alerts.push(JSON.parse(init!.body as string));
+  safeFetchWebhookMock.mockReset();
+  safeFetchWebhookMock.mockImplementation(async (_url: string, init: RequestInit) => {
+    alerts.push(JSON.parse(init.body as string));
     return new Response("ok", { status: 200 });
-  }) as typeof fetch;
+  });
 
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "MT", slug: `mt-${WS}` });
@@ -89,7 +97,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   if (!TEST_DB) return;
-  globalThis.fetch = realFetch;
   delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
 });
 

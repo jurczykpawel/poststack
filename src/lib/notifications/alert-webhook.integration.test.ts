@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
+// dispatchAlert now delivers via safeFetchWebhook (node:http(s) pinned connector — it does NOT go
+// through globalThis.fetch), so capture the delivery by mocking that primitive, not the global fetch.
+const { safeFetchWebhookMock } = vi.hoisted(() => ({ safeFetchWebhookMock: vi.fn() }));
+vi.mock("@/lib/webhooks/safe-target", async (orig) => {
+  const actual = await orig<typeof import("@/lib/webhooks/safe-target")>();
+  return { ...actual, safeFetchWebhook: safeFetchWebhookMock };
+});
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -9,7 +17,6 @@ let alert: typeof import("./alert");
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "aaaaaaaa-0000-0000-0000-0000000000a1";
-const realFetch = globalThis.fetch;
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -28,12 +35,13 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  safeFetchWebhookMock.mockReset();
+  safeFetchWebhookMock.mockImplementation(async () => new Response("ok", { status: 200 }));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "AW", slug: `aw-${WS}` });
 });
 
 afterEach(() => {
-  globalThis.fetch = realFetch;
   vi.restoreAllMocks();
 });
 
@@ -79,16 +87,6 @@ describe("dispatchAlert — uses the workspace's customized webhook (real Postgr
       extraFields: { subject: "Connection {{display_name}} expires in {{days_left}} days" },
     });
 
-    let captured: { url: string; headers: Record<string, string>; body: Record<string, unknown> } | null = null;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      captured = {
-        url: typeof input === "string" ? input : input.toString(),
-        headers: (init?.headers ?? {}) as Record<string, string>,
-        body: JSON.parse(String(init?.body)),
-      };
-      return new Response("ok", { status: 200 });
-    }) as typeof fetch;
-
     await alert.dispatchAlert({
       type: "token_expiring",
       workspaceId: WS,
@@ -98,11 +96,13 @@ describe("dispatchAlert — uses the workspace's customized webhook (real Postgr
       detail: "soon",
     });
 
-    expect(captured).not.toBeNull();
-    const c = captured!;
-    expect(c.url).toBe("https://example.com/email-hook");
-    expect(c.headers["X-Api-Key"]).toBe("k1");
+    expect(safeFetchWebhookMock).toHaveBeenCalledTimes(1);
+    const [url, init] = safeFetchWebhookMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    const body = JSON.parse(String(init.body));
+    expect(url).toBe("https://example.com/email-hook");
+    expect(headers["X-Api-Key"]).toBe("k1");
     // field selection kept only type+display_name from the standard body; extra subject was templated
-    expect(c.body).toEqual({ type: "token_expiring", display_name: "Acme", subject: "Connection Acme expires in 7 days" });
+    expect(body).toEqual({ type: "token_expiring", display_name: "Acme", subject: "Connection Acme expires in 7 days" });
   });
 });

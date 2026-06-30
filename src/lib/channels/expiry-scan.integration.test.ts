@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
+// dispatchAlert delivers via safeFetchWebhook (node:http(s) pinned connector — NOT globalThis.fetch),
+// so capture the alert POSTs through this primitive rather than a global fetch stub.
+const { safeFetchWebhookMock } = vi.hoisted(() => ({ safeFetchWebhookMock: vi.fn() }));
+vi.mock("@/lib/webhooks/safe-target", async (orig) => {
+  const actual = await orig<typeof import("@/lib/webhooks/safe-target")>();
+  return { ...actual, safeFetchWebhook: safeFetchWebhookMock };
+});
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -9,7 +17,6 @@ let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "cccccccc-0000-0000-0000-0000000000c1";
-const realFetch = globalThis.fetch;
 const DAY = 24 * 60 * 60 * 1000;
 
 // Capture the alert POSTs (dispatchAlert posts to CHANNEL_ALERT_WEBHOOK_URL).
@@ -33,16 +40,16 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   alertBodies = [];
-  globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+  safeFetchWebhookMock.mockReset();
+  safeFetchWebhookMock.mockImplementation(async (_url: string, init: RequestInit) => {
     if (init?.body) alertBodies.push(JSON.parse(String(init.body)));
     return new Response("ok", { status: 200 });
-  }) as typeof fetch;
+  });
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "EX", slug: `ex-${WS}` });
 });
 
 afterEach(() => {
-  globalThis.fetch = realFetch;
   vi.restoreAllMocks();
 });
 

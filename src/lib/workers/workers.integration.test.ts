@@ -21,6 +21,13 @@ const decryptTokens = vi.fn(() => ({ access_token: "x" }));
 vi.mock("@/lib/crypto", () => ({ decryptTokens, encryptTokens: () => "enc", encryptString: () => "enc", decryptString: (s: string) => s }));
 const health = { markChannelNeedsReauth: vi.fn(async () => {}), markChannelHealthy: vi.fn(async () => {}) };
 vi.mock("@/lib/channels/health", () => health);
+// dispatchAlert delivers via safeFetchWebhook (node:http(s) pinned connector — NOT globalThis.fetch),
+// so the alert-trigger block below captures the POSTs through this primitive, not a global fetch stub.
+const { safeFetchWebhookMock } = vi.hoisted(() => ({ safeFetchWebhookMock: vi.fn() }));
+vi.mock("@/lib/webhooks/safe-target", async (orig) => {
+  const actual = await orig<typeof import("@/lib/webhooks/safe-target")>();
+  return { ...actual, safeFetchWebhook: safeFetchWebhookMock };
+});
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -1829,10 +1836,9 @@ describe("webhook_events handling outcome (real Postgres)", () => {
 });
 
 describe("alert triggers (real Postgres)", () => {
-  // dispatchAlert posts to CHANNEL_ALERT_WEBHOOK_URL; capture the POSTs by stubbing fetch. The
-  // throttle uses the real rate_limit_counters — clear the alert keys each test so it doesn't
-  // suppress across tests.
-  let realFetch: typeof fetch;
+  // dispatchAlert posts to CHANNEL_ALERT_WEBHOOK_URL via safeFetchWebhook (node:http(s), bypasses
+  // globalThis.fetch); capture the POSTs through the safeFetchWebhook spy. The throttle uses the real
+  // rate_limit_counters — clear the alert keys each test so it doesn't suppress across tests.
   let alerts: Array<{ type: string; channel_id?: string; detail?: string }>;
 
   beforeEach(async () => {
@@ -1840,14 +1846,13 @@ describe("alert triggers (real Postgres)", () => {
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
     await db.execute(sql`delete from rate_limit_counters where key like 'alert:%'`);
     alerts = [];
-    realFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      alerts.push(JSON.parse(init!.body as string));
+    safeFetchWebhookMock.mockReset();
+    safeFetchWebhookMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      alerts.push(JSON.parse(init.body as string));
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
+    });
   });
   afterEach(() => {
-    globalThis.fetch = realFetch;
     delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
   });
 

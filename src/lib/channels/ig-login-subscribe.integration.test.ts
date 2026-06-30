@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 
 /**
@@ -10,6 +10,14 @@ import { and, eq, sql } from "drizzle-orm";
  *   - a channel that ALSO has an FB page token still receives via the page subscription → never
  *     downgraded by an IG-Login subscribe failure (it just (re)subscribes per-account).
  */
+// dispatchAlert delivers via safeFetchWebhook (node:http(s) pinned connector — NOT globalThis.fetch),
+// so capture the dispatched alert bodies through this primitive rather than a global fetch stub.
+const { safeFetchWebhookMock } = vi.hoisted(() => ({ safeFetchWebhookMock: vi.fn() }));
+vi.mock("@/lib/webhooks/safe-target", async (orig) => {
+  const actual = await orig<typeof import("@/lib/webhooks/safe-target")>();
+  return { ...actual, safeFetchWebhook: safeFetchWebhookMock };
+});
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -21,7 +29,6 @@ let closeQueue: typeof import("@/lib/queue/client").closeQueue;
 
 const WS = "eeeeeeee-0000-0000-0000-0000000000d2";
 const IG_ID = "17841400000999";
-const realFetch = globalThis.fetch;
 // Capture dispatchAlert POSTs (it posts to CHANNEL_ALERT_WEBHOOK_URL).
 let alertBodies: Array<Record<string, unknown>>;
 
@@ -48,17 +55,14 @@ beforeEach(async () => {
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "U", slug: `u-${WS}` });
   vi.restoreAllMocks();
-  // Intercept dispatchAlert's outbound POST (so we can assert "alert fired", non-silently) without a
-  // real network call. subscribeMessagingWebhooks is spied per-test, so it never hits this.
+  // Intercept dispatchAlert's outbound delivery (so we can assert "alert fired", non-silently) without
+  // a real network call. subscribeMessagingWebhooks is spied per-test, so it never hits this.
   alertBodies = [];
-  globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+  safeFetchWebhookMock.mockReset();
+  safeFetchWebhookMock.mockImplementation(async (_url: string, init: RequestInit) => {
     if (init?.body) alertBodies.push(JSON.parse(String(init.body)));
     return new Response("ok", { status: 200 });
-  }) as typeof fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = realFetch;
+  });
 });
 
 afterAll(async () => {

@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 
+// dispatchAlert delivers via safeFetchWebhook (node:http(s) pinned connector — NOT globalThis.fetch),
+// so capture the dispatched alert body through this primitive rather than a global fetch stub.
+const { safeFetchWebhookMock } = vi.hoisted(() => ({ safeFetchWebhookMock: vi.fn() }));
+vi.mock("@/lib/webhooks/safe-target", async (orig) => {
+  const actual = await orig<typeof import("@/lib/webhooks/safe-target")>();
+  return { ...actual, safeFetchWebhook: safeFetchWebhookMock };
+});
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -94,16 +102,16 @@ describe("channel health (real Postgres)", () => {
     // doesn't depend on whether a prior run/test already consumed the window for this channel.
     await db.execute(sql`delete from rate_limit_counters where key = ${"alert:channel_reauth:" + CH}`);
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://example.com/alert-hook";
-    const realFetch = globalThis.fetch;
     const bodies: Array<Record<string, unknown>> = [];
-    globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    safeFetchWebhookMock.mockReset();
+    safeFetchWebhookMock.mockImplementation(async (_url: string, init: RequestInit) => {
       if (init?.body) bodies.push(JSON.parse(String(init.body)));
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
+    });
     try {
       await health.markChannelNeedsReauth(CH, "refresh failed: access_token=EAABSUPERSECRET123 -> 400");
     } finally {
-      globalThis.fetch = realFetch;
+      safeFetchWebhookMock.mockReset();
       delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
     }
     const alert = bodies.find((b) => b.channel_id === CH);
