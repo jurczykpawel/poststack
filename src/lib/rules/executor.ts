@@ -31,6 +31,7 @@ import { sanitizeForLog } from "@/lib/api/safe-log";
 import { hasFeature } from "@/lib/license/gate";
 import { enrollContactInSequence } from "@/lib/sequences/enroll";
 import { applyPersonalization, type PersonalizeContext } from "./personalization";
+import type { ProposedContent } from "@/lib/approvals/draft";
 
 /** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
  *  and as a defensive `limit` on the per-message executor fetch, so neither the sanctioned API nor an
@@ -387,7 +388,7 @@ async function planApproval(input: {
   const sendComment = (!canDM || replyMode === "comment" || replyMode === "both") && !!commentId && !!commentReplyText;
   const shouldDM = canDM && (replyMode === "dm" || replyMode === "both" || (replyMode === "comment" && !sendComment)) && !!dmContent?.text;
 
-  const proposed: { content?: MessageContent | null; comment?: { text: string; commentId: string } } = {};
+  const proposed: ProposedContent = {};
   if (shouldDM) proposed.content = dmContent;
   if (sendComment) proposed.comment = { text: commentReplyText!, commentId: commentId! };
   // Never park an empty proposal (e.g. an unresolvable config) — keep the DM body as a fallback.

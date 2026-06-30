@@ -22,6 +22,7 @@ const ALL_TASKS: TaskName[] = [
   "publish",
   "event-dispatch",
   "webhook-delivery",
+  "ai-draft",
 ];
 
 describe("TASK_MAX_ATTEMPTS — retry parity with former BullMQ config", () => {

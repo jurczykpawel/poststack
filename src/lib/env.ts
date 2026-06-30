@@ -76,6 +76,11 @@ const envSchema = z.object({
   // would otherwise run up an unbounded OpenAI bill; over this cap rephrase fails soft to the
   // operator's base text. Generous default for normal use; tune down for a tight budget.
   AI_REPHRASE_DAILY_LIMIT: z.coerce.number().int().positive().default(1000),
+  // AIDRAFT1: per-workspace daily budget for AI auto-reply DRAFT generation (a separate clock from
+  // the rephrase cap). 0 = unlimited (the default — intended for BYOK / self-hosted; Task 9 owns the
+  // docs + operator gate around this). When > 0, the ai-draft worker skips generation once the
+  // rolling-24h count is exhausted (no draft, no approval row).
+  AI_DRAFT_DAILY_LIMIT: z.coerce.number().int().min(0).default(0),
 
   // Meta (optional — app starts without them, OAuth won't work until configured)
   META_APP_ID: z.string().default(""),

@@ -1,12 +1,11 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pendingApprovals, autoReplyRules, contacts } from "@/db/schema";
 import { acquireCooldown, incrementSendCount } from "@/lib/rules/limits";
-import { TASK_MAX_ATTEMPTS } from "@/lib/queue/spec";
 import { ok, ApiErrors } from "@/lib/api/response";
-import type { MessageContent } from "@/lib/platforms/base";
-import type { OutgoingMessageJob, OutgoingCommentJob, OutgoingPrivateReplyJob } from "@/lib/queue/types";
+import { enqueueCommentReply, enqueueDmReply } from "@/lib/approvals/send";
+import type { ProposedContent } from "@/lib/approvals/draft";
 
 export const runtime = "nodejs";
 
@@ -53,7 +52,7 @@ export async function POST(
       return existing ? { kind: "conflict", status: existing.status } : { kind: "notfound" };
     }
 
-    const proposed = row.proposed_content as { content?: MessageContent | null; comment?: { text?: string; commentId?: string } | null };
+    const proposed = row.proposed_content as ProposedContent;
     const content = proposed.content ?? null;
     const comment = proposed.comment ?? null;
     const hasDm = !!content && (!!content.text || !!content.buttons?.length || !!content.quick_replies?.length);
@@ -90,69 +89,33 @@ export async function POST(
       }
 
       // Public comment reply (reply_mode comment/both). Distinct job_key + idempotency key from the
-      // DM so both can be enqueued in this one transaction without clobbering each other.
+      // DM so both can be enqueued in this one transaction without clobbering each other. The
+      // send/job shape is shared with the AI-draft autosend path (lib/approvals/send.ts).
       if (hasComment) {
-        const commentJob: OutgoingCommentJob = {
+        await enqueueCommentReply(tx, {
           channelId: row.channel_id,
           contactId: row.contact_id,
-          commentId: comment!.commentId!,
-          text: comment!.text!,
+          comment: { text: comment!.text!, commentId: comment!.commentId! },
           sentByRuleId: row.rule_id ?? undefined,
-          idempotencyKey: `approval:${row.id}:comment`,
-        };
-        await tx.execute(sql`
-          select graphile_worker.add_job(
-            'outgoing-comment',
-            ${JSON.stringify(commentJob)}::json,
-            max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-comment"]},
-            job_key => ${`approval-${row.id}-comment`}
-          )
-        `);
+          keys: { jobKey: `approval-${row.id}-comment`, idempotencyKey: `approval:${row.id}:comment` },
+        });
       }
 
       if (hasDm) {
-        // A comment-triggered DM must be addressed by comment_id (private reply) — a first-touch
-        // commenter has no usable PSID yet. A plain keyword/DM approval (no commentId) sends by PSID.
-        // Same transaction as the status flip → atomic outbox: a failed enqueue rolls the flip back
-        // and the approval stays pending (retryable).
-        if (comment?.commentId) {
-          const job: OutgoingPrivateReplyJob = {
-            channelId: row.channel_id,
-            conversationId: row.conversation_id,
-            contactId: row.contact_id,
-            commentId: comment.commentId,
-            text: content!.text ?? "",
-            content: content!,
-            sentByRuleId: row.rule_id ?? undefined,
-            idempotencyKey: `approval:${row.id}`,
-          };
-          await tx.execute(sql`
-            select graphile_worker.add_job(
-              'outgoing-private-reply',
-              ${JSON.stringify(job)}::json,
-              max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-private-reply"]},
-              job_key => ${`approval-${row.id}`}
-            )
-          `);
-        } else {
-          const job: OutgoingMessageJob = {
-            channelId: row.channel_id,
-            conversationId: row.conversation_id,
-            contactId: row.contact_id,
-            recipientPlatformId: row.recipient_platform_id,
-            content: content!,
-            sentByRuleId: row.rule_id ?? undefined,
-            idempotencyKey: `approval:${row.id}`,
-          };
-          await tx.execute(sql`
-            select graphile_worker.add_job(
-              'outgoing-message',
-              ${JSON.stringify(job)}::json,
-              max_attempts => ${TASK_MAX_ATTEMPTS["outgoing-message"]},
-              job_key => ${`approval-${row.id}`}
-            )
-          `);
-        }
+        // A comment-triggered DM goes out as a private reply (by comment_id); a plain keyword/DM
+        // approval sends by PSID. Same transaction as the status flip → atomic outbox: a failed
+        // enqueue rolls the flip back and the approval stays pending (retryable). The branch lives in
+        // the shared helper so the approve + AI-draft paths can't drift.
+        await enqueueDmReply(tx, {
+          channelId: row.channel_id,
+          conversationId: row.conversation_id,
+          contactId: row.contact_id,
+          recipientPlatformId: row.recipient_platform_id,
+          content: content!,
+          commentId: comment?.commentId ?? undefined,
+          sentByRuleId: row.rule_id ?? undefined,
+          keys: { jobKey: `approval-${row.id}`, idempotencyKey: `approval:${row.id}` },
+        });
       }
     }
 

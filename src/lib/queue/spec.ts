@@ -33,6 +33,9 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
   // before the row dead-letters as `failed`.
   "event-dispatch": 3,
   "webhook-delivery": 8,
+  // AIDRAFT1: drafting is idempotent (a job-id-anchored marker short-circuits a redelivery); a few
+  // retries cover a transient LLM/DB blip before the row dead-letters.
+  "ai-draft": 3,
 };
 
 export interface AddJobOptions {

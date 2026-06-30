@@ -17,6 +17,7 @@ import { drainChannel } from "@/lib/channels/drain";
 import { resumeChannelEnrollments } from "@/lib/sequences/resume";
 import { processPublish } from "@/lib/deliveries/publish-worker";
 import { processEventDispatch, processWebhookDelivery } from "@/lib/webhooks/dispatch";
+import { processAiDraft } from "@/lib/workers/ai-draft-worker";
 import type { TaskPayloadMap } from "./types";
 
 /**
@@ -62,5 +63,6 @@ export function createTaskList(): TaskList {
       processEventDispatch(p as TaskPayloadMap["event-dispatch"], h),
     "webhook-delivery": (p, h) =>
       processWebhookDelivery(p as TaskPayloadMap["webhook-delivery"], h),
+    "ai-draft": (p, h) => processAiDraft(p as TaskPayloadMap["ai-draft"], h),
   };
 }

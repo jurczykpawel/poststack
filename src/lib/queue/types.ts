@@ -263,6 +263,30 @@ export interface WebhookDeliveryJob {
   deliveryId: string;
 }
 
+/**
+ * AIDRAFT1: draft an AI auto-reply for a matching inbound, then either autosend the configured
+ * surface(s) or park them for human approval. Enqueued by the inbound pipeline; the worker resolves
+ * the channel's prompt + autosend flags, generates the draft, and writes the decision in one tx.
+ */
+export interface AiDraftJob {
+  workspaceId: string;
+  channelId: string;
+  conversationId: string;
+  contactId: string;
+  /** Platform-native recipient id (PSID / IG user id) — the DM address when autosending a DM. */
+  recipientPlatformId: string;
+  /** The inbound text the draft replies to. */
+  incomingText: string;
+  /** Optional light context prepended to the LLM user message (e.g. the post caption). */
+  context?: string;
+  /** Which surface(s) to draft for. */
+  target: "dm" | "public" | "both";
+  /** Set when the draft was triggered by a comment — addresses the public reply / first-touch DM. */
+  commentId?: string;
+  /** How the resulting approval is labelled (no rule fired): `ai_auto` (pipeline) or `ai_manual`. */
+  source: "ai_auto" | "ai_manual";
+}
+
 /** graphile-worker task identifiers → their payload type. */
 export type TaskPayloadMap = {
   "incoming-message": IncomingMessageJob;
@@ -284,6 +308,7 @@ export type TaskPayloadMap = {
   publish: PublishJob;
   "event-dispatch": EventDispatchJob;
   "webhook-delivery": WebhookDeliveryJob;
+  "ai-draft": AiDraftJob;
 };
 
 export type TaskName = keyof TaskPayloadMap;
