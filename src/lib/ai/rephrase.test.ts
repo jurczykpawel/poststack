@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
+import { resolveRephrasePrompt, defaultRephrasePrompt, DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "./rephrase";
 
 // CONFIG1: rephrase now reads the provider-neutral AI_* keys via getConfig. This is a pure-unit test
 // (no DB), so mock getConfig to read straight from process.env — keeping the per-case env control
@@ -89,6 +90,27 @@ describe("rephrase — AI adapter", () => {
     expect(lastBody!.messages[1]).toEqual({ role: "user", content: "Base" });
   });
 
+  it("uses the workspace default prompt as the system message when no custom_prompt is set", async () => {
+    const rephrase = await loadRephrase();
+    mockFetchOk("ok");
+    await rephrase("Base", { workspacePrompt: "Rephrase concisely in Polish." });
+    expect(lastBody!.messages[0]).toEqual({ role: "system", content: "Rephrase concisely in Polish." });
+  });
+
+  it("a rule custom_prompt wins over the workspace default prompt", async () => {
+    const rephrase = await loadRephrase();
+    mockFetchOk("ok");
+    await rephrase("Base", { customPrompt: "Speak like a pirate.", workspacePrompt: "Concise Polish." });
+    expect(lastBody!.messages[0].content).toBe("Speak like a pirate.");
+  });
+
+  it("falls back to the built-in default prompt when neither custom nor workspace is set", async () => {
+    const rephrase = await loadRephrase();
+    mockFetchOk("ok");
+    await rephrase("Base", {});
+    expect(lastBody!.messages[0].content).toBe(DEFAULT_REPHRASE_PROMPT);
+  });
+
   // the configured model + endpoint are honored (a non-OpenAI OpenAI-compatible provider works).
   it("honors AI_MODEL and AI_BASE_URL overrides (any OpenAI-compatible endpoint)", async () => {
     process.env.AI_MODEL = "llama-3.3-70b-versatile";
@@ -98,5 +120,28 @@ describe("rephrase — AI adapter", () => {
     await rephrase("Base", {});
     expect(lastBody!.model).toBe("llama-3.3-70b-versatile");
     expect(lastUrl).toBe("https://api.groq.com/openai/v1/chat/completions");
+  });
+});
+
+describe("resolveRephrasePrompt (AIPROMPT option A: rule → workspace → built-in default)", () => {
+  it("uses the per-rule prompt when set", () => {
+    expect(resolveRephrasePrompt({ rulePrompt: "R", workspacePrompt: "W" })).toBe("R");
+  });
+
+  it("uses the workspace default when there is no rule prompt", () => {
+    expect(resolveRephrasePrompt({ rulePrompt: "  ", workspacePrompt: "W" })).toBe("W");
+  });
+
+  it("uses the built-in default (with tone) when neither is set", () => {
+    expect(resolveRephrasePrompt({ tone: "blunt" })).toBe(defaultRephrasePrompt("blunt"));
+    expect(resolveRephrasePrompt({})).toBe(DEFAULT_REPHRASE_PROMPT);
+  });
+
+  it("treats blank/whitespace values as unset at every level", () => {
+    expect(resolveRephrasePrompt({ rulePrompt: "  ", workspacePrompt: "\n\t" })).toBe(DEFAULT_REPHRASE_PROMPT);
+  });
+
+  it("DEFAULT_REPHRASE_PROMPT is the built-in prompt with the default tone", () => {
+    expect(DEFAULT_REPHRASE_PROMPT).toContain(`Tone: ${DEFAULT_REPHRASE_TONE}`);
   });
 });
