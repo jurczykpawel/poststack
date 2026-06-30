@@ -309,6 +309,9 @@ async function enqueueFromClassified(
     text: evt.message?.text ?? null,
     quickReplyPayload: evt.message?.quick_reply?.payload,
     postbackPayload: evt.postback?.payload,
+    // TODO(inbox-attachments): parse inbound media from evt.message.attachments ({type,url}) into the
+    // job + persist via the normalized messages.attachments shape, so the inbox renders inbound media
+    // (the render path already handles it once stored). Out of scope here — needs new payload parsing.
     isStoryReply: replyToStory ? true : undefined,
     isStoryMention: isStoryMention ? true : undefined,
     storyId: replyToStory?.id,

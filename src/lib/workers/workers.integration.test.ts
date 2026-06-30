@@ -1033,6 +1033,16 @@ describe("outgoing-message worker", () => {
     expect(sent[0].platform_message_id).toBe("PMID-1");
   });
 
+  // A follow-gate / interactive message carries buttons (and maybe no text). The non-text content must
+  // be persisted into messages.attachments (titles only) so the inbox renders the labels, not "(attachment)".
+  it("persists interactive content (button titles) into messages.attachments", async () => {
+    if (!TEST_DB) return;
+    const content = { text: "Claim your guide", buttons: [{ title: "Chcę odebrać", payload: "CLAIM_LM" }] };
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-att", content }) as never, helpers);
+    const [sent] = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.platform_message_id, "PMID-1")));
+    expect(sent.attachments).toEqual({ buttons: [{ title: "Chcę odebrać" }] });
+  });
+
   // Meta 24h messaging window → HUMAN_AGENT tag for human replies sent past it.
   it("manual reply WITHIN the 24h window → no HUMAN_AGENT tag (standard RESPONSE)", async () => {
     if (!TEST_DB) return;

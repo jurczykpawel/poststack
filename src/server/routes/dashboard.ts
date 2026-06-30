@@ -17,6 +17,7 @@ import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { truncateCodePoints } from "@/lib/text";
+import type { StoredAttachments } from "@/lib/messages/attachments";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
@@ -291,7 +292,7 @@ function renderInboxChannelOptions(chans: InboxChannel[], channelId: string): Ht
 // small centered note; a comment is the post-anchored event that may have triggered an auto-DM/reply;
 // a message is a DM bubble. New channels add item kinds without changing the renderer's shape.
 type ThreadItem =
-  | { kind: "message"; id: string; direction: string; text: string | null; createdAt: Date; deliveredAt?: Date | null; readAt?: Date | null }
+  | { kind: "message"; id: string; direction: string; text: string | null; attachments?: StoredAttachments | null; quickReplyPayload?: string | null; postbackPayload?: string | null; createdAt: Date; deliveredAt?: Date | null; readAt?: Date | null }
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
   | { kind: "comment"; id: string; text: string; postId: string | null; postTitle: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
 
@@ -321,6 +322,45 @@ function messageMeta(it: Extract<ThreadItem, { kind: "message" }>): Html {
           : html` · ${icon("check", "ico", 12)} Sent`
       : html``;
   return html`<span class="msg-meta">${clockTime(it.createdAt)}${receipt}</span>`;
+}
+
+/** Friendly label for a stored media attachment by its platform `type`. Unknown types fall back to a
+ *  generic file label so a new attachment kind still renders something meaningful. */
+function mediaLabel(type: string): string {
+  if (type === "image") return "📷 Image";
+  if (type === "video") return "🎬 Video";
+  if (type === "audio") return "🎵 Audio";
+  return "📎 File";
+}
+
+/** Render a DM/comment message bubble's body. Beyond plain text it surfaces the stored non-text
+ *  content (follow-gate buttons, quick replies, media) that previously collapsed to an opaque
+ *  "(attachment)". EVERY interpolated value is auto-escaped by Hono `html`` (never `raw`): button /
+ *  quick-reply titles come from operator-authored rule config but are escaped anyway, and media urls
+ *  are attacker-influenceable so they're escaped and rendered as a label+link only (no `<img>` — by
+ *  owner decision; thumbnails are a later step). An inbound tap that carries only a payload (no text)
+ *  shows a subtle "tapped: <payload>". Falls back to "(no content)" only when there's truly nothing. */
+function renderMessageBody(it: Extract<ThreadItem, { kind: "message" }>): Html {
+  const att = it.attachments ?? null;
+  const chips: Html[] = [];
+  for (const m of att?.media ?? []) {
+    const label = mediaLabel(m.type);
+    chips.push(
+      m.url
+        ? html`<a class="msg-chip msg-media" href="${m.url}" target="_blank" rel="noopener">${label}</a>`
+        : html`<span class="msg-chip msg-media">${label}</span>`,
+    );
+  }
+  for (const b of att?.buttons ?? []) chips.push(html`<span class="msg-chip">${b.title}</span>`);
+  for (const q of att?.quick_replies ?? []) chips.push(html`<span class="msg-chip">${q.title}</span>`);
+
+  const tap = !it.text && chips.length === 0 ? it.quickReplyPayload || it.postbackPayload || null : null;
+
+  if (!it.text && chips.length === 0 && !tap) return html`(no content)`;
+
+  return html`${it.text ? html`${it.text}` : html``}${chips.length
+    ? html`<div class="msg-extras">${chips}</div>`
+    : html``}${tap ? html`<div class="msg-tap">tapped: ${tap}</div>` : html``}`;
 }
 
 /** The thread timeline. `threadType` shapes the empty-state copy (a comment thread with no follow-up
@@ -399,7 +439,7 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
       </div>`;
     }
     return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}">
-      <div class="bubble">${it.text ?? "(attachment)"}</div>
+      <div class="bubble">${renderMessageBody(it)}</div>
       ${reactPills}
       ${messageMeta(it)}
     </div>`;
@@ -620,7 +660,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       where: eq(messages.conversation_id, conversationId),
       orderBy: desc(messages.created_at),
       limit: 50,
-      columns: { id: true, direction: true, text: true, created_at: true, delivered_at: true, read_at: true },
+      columns: { id: true, direction: true, text: true, attachments: true, quick_reply_payload: true, postback_payload: true, created_at: true, delivered_at: true, read_at: true },
     }),
     db.query.messageReactions.findMany({
       where: eq(messageReactions.conversation_id, conversationId),
@@ -652,7 +692,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
     }
   }
   const items: ThreadItem[] = [
-    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at })),
+    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, attachments: (m.attachments as StoredAttachments | null) ?? null, quickReplyPayload: m.quick_reply_payload, postbackPayload: m.postback_payload, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
     ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postTitle: c.post_id ? postTitleById.get(c.post_id) ?? null : null, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];

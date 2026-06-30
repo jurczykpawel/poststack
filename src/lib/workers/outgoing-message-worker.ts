@@ -10,6 +10,7 @@ import { refreshIfNearExpiry } from "@/lib/channels/refresh-if-near-expiry";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 import { captureFieldFromQuickReplies } from "@/lib/contacts/capture";
+import { normalizeOutgoingAttachments } from "@/lib/messages/attachments";
 
 /**
  * Send an outbound message via the platform API, through the durable delivery state
@@ -85,6 +86,7 @@ export async function processOutgoingMessage(
         conversation_id: conversationId,
         direction: "outbound",
         text: content.text ?? null,
+        attachments: normalizeOutgoingAttachments(content),
         status: "held",
         sent_by_rule_id: sentByRuleId ?? null,
       })
@@ -133,6 +135,7 @@ export async function processOutgoingMessage(
           conversation_id: conversationId,
           direction: "outbound",
           text: content.text ?? null,
+          attachments: normalizeOutgoingAttachments(content),
           platform_message_id: platformMessageId,
           status: "sent",
           sent_by_rule_id: sentByRuleId ?? null,

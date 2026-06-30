@@ -1274,6 +1274,13 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 /* Reaction pill, tucked under the message it belongs to (emoji only — that emoji IS content). */
 .msg-react { display: inline-flex; align-items: center; gap: 3px; margin-top: -7px; background: var(--overlay); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 11px; line-height: 1.4; }
 
+/* Non-text message content (follow-gate buttons, quick replies, media): a wrapped row of small inline
+   chips under the message text. Media chips are clickable labelled links (no inline thumbnail). */
+.msg-extras { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.msg-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--overlay); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 2px 9px; font-size: 11px; line-height: 1.4; color: inherit; text-decoration: none; }
+a.msg-chip.msg-media:hover { border-color: var(--accent); }
+.msg-tap { margin-top: 6px; font-size: 11px; opacity: 0.75; font-family: var(--font-mono); }
+
 /* Comment item: compact card with a “commented on post …” header + auto-DM/reply status lines. */
 .msg-comment { max-width: 86%; }
 .msg-comment .bubble { background: var(--info-bg); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent); color: var(--text-1); white-space: normal; }
