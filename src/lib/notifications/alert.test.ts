@@ -1,4 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { Connector } from "@/lib/net/safe-fetch";
+
+// SECURE-DEFAULT HARDENING (intended behavior change): alert delivery now goes through the shared
+// secure-by-default webhook guard (assertSafeWebhookTarget + safeFetchWebhook). The guard RESOLVES
+// DNS and blocks private/loopback targets BY DEFAULT (allowed only with WEBHOOK_ALLOW_PRIVATE_TARGETS),
+// while metadata/link-local are ALWAYS blocked. The old guard (isSafeAlertWebhookUrl) was literal-IP
+// only and permissive (allowed any hostname + loopback). The cases below assert the NEW policy as
+// observed through dispatchAlert: private skipped by default, allowed with the flag, metadata always
+// skipped — all best-effort (never throws).
 
 // rateLimit is mocked so the throttle is deterministic without a DB.
 const rateLimit = vi.fn();
@@ -14,80 +23,126 @@ vi.mock("@/lib/settings/config", () => ({
   getConfig: async (key: string) => process.env[key] ?? "",
 }));
 
+// vi.mock factories are hoisted above module top-level, so the mutable state they close over must
+// live in vi.hoisted (which runs first) rather than plain top-level consts.
+const { envState, resolverMap, connector, resolve } = vi.hoisted(() => {
+  const envState = { WEBHOOK_ALLOW_PRIVATE_TARGETS: false };
+  const resolverMap = new Map<string, string>();
+  const connector = vi.fn<Connector>(async () => new Response("ok", { status: 200 }));
+  const resolve = async (host: string): Promise<string[]> => {
+    const ip = resolverMap.get(host);
+    if (!ip) throw new Error(`unmapped host in test: ${host}`);
+    return [ip];
+  };
+  return { envState, resolverMap, connector, resolve };
+});
+
+// The secure-default policy reads env.WEBHOOK_ALLOW_PRIVATE_TARGETS at call-time inside webhookAllow().
+// A mutable mock object lets each case flip the flag without resetModules.
+vi.mock("@/lib/env", () => ({ env: envState }));
+
+// We keep the REAL guard (assertSafeWebhookTarget / webhookAllow / classifyIp) so dispatchAlert's
+// skip-vs-deliver decision is driven by the actual policy — but inject a deterministic resolver
+// (hostname → IP map) and a fake connector, so no real DNS/sockets are touched.
+vi.mock("@/lib/webhooks/safe-target", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/webhooks/safe-target")>();
+  return {
+    ...actual,
+    safeFetchWebhook: (url: string, init: RequestInit = {}) =>
+      actual.safeFetchWebhook(url, init, { resolve, connect: connector }),
+  };
+});
+
 import { dispatchAlert } from "./alert";
 
-let originalFetch: typeof fetch;
-
 beforeEach(() => {
-  originalFetch = globalThis.fetch;
   delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
+  envState.WEBHOOK_ALLOW_PRIVATE_TARGETS = false;
+  resolverMap.clear();
+  resolverMap.set("hooks.example", "93.184.216.34"); // public
+  resolverMap.set("internal.example", "192.168.1.5"); // RFC1918 private
+  resolverMap.set("metadata.example", "169.254.169.254"); // cloud metadata (link-local)
   rateLimit.mockResolvedValue({ allowed: true }); // not throttled by default
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   vi.clearAllMocks();
 });
 
 describe("dispatchAlert", () => {
-  it("POSTs the alert with its type discriminator to the configured webhook", async () => {
+  it("POSTs the alert with its type discriminator to a public webhook", async () => {
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
-    const mockFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
-    globalThis.fetch = mockFetch as typeof fetch;
 
     await dispatchAlert({ type: "delivery_failed", channelId: "ch-1", workspaceId: "ws-1", detail: "boom" });
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("https://hooks.example/alert");
-    const body = JSON.parse((opts as RequestInit).body as string);
+    expect(connector).toHaveBeenCalledTimes(1);
+    const arg = connector.mock.calls[0][0];
+    expect(arg.url).toBe("https://hooks.example/alert");
+    expect(arg.pinnedIp).toBe("93.184.216.34"); // pinned to the resolved public IP
+    expect((arg.init.method ?? "").toUpperCase()).toBe("POST");
+    const body = JSON.parse(arg.init.body as string);
     expect(body.type).toBe("delivery_failed");
     expect(body.channel_id).toBe("ch-1");
     expect(body.detail).toBe("boom");
   });
 
   it("is a no-op when no webhook is configured", async () => {
-    const mockFetch = vi.fn();
-    globalThis.fetch = mockFetch as typeof fetch;
     await dispatchAlert({ type: "event_error", detail: "x" });
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(connector).not.toHaveBeenCalled();
   });
 
   it("suppresses a duplicate (same type+channel) within the throttle window", async () => {
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
-    const mockFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
-    globalThis.fetch = mockFetch as typeof fetch;
     // First passes (allowed), second is throttled (not allowed).
     rateLimit.mockResolvedValueOnce({ allowed: true }).mockResolvedValueOnce({ allowed: false });
 
     await dispatchAlert({ type: "delivery_failed", channelId: "ch-1" });
     await dispatchAlert({ type: "delivery_failed", channelId: "ch-1" });
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(connector).toHaveBeenCalledTimes(1);
     // the throttle key is scoped by type + channel.
     expect(rateLimit).toHaveBeenCalledWith("alert:delivery_failed:ch-1", 1, expect.any(Number));
   });
 
   it("never throws if the webhook call fails (best-effort)", async () => {
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network down")) as typeof fetch;
+    connector.mockRejectedValueOnce(new Error("network down"));
     await expect(dispatchAlert({ type: "channel_reauth", channelId: "ch-1" })).resolves.toBeUndefined();
   });
 
-  it("does not fetch a private/link-local target (e.g. cloud metadata)", async () => {
-    process.env.CHANNEL_ALERT_WEBHOOK_URL = "http://169.254.169.254/latest/meta-data/";
-    const mockFetch = vi.fn();
-    globalThis.fetch = mockFetch as typeof fetch;
+  // --- secure-default policy, observed through dispatchAlert ---
+
+  it("ALWAYS skips a cloud-metadata target (169.254.169.254), no throw", async () => {
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "http://metadata.example/latest/meta-data/";
+    await expect(dispatchAlert({ type: "event_error" })).resolves.toBeUndefined();
+    expect(connector).not.toHaveBeenCalled();
+  });
+
+  it("skips a private (RFC1918) target by default, no throw", async () => {
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "http://internal.example/hook";
+    await expect(dispatchAlert({ type: "event_error" })).resolves.toBeUndefined();
+    expect(connector).not.toHaveBeenCalled();
+  });
+
+  it("delivers to a private target when WEBHOOK_ALLOW_PRIVATE_TARGETS is set (self-host opt-in)", async () => {
+    envState.WEBHOOK_ALLOW_PRIVATE_TARGETS = true;
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "http://internal.example/hook";
     await dispatchAlert({ type: "event_error" });
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(connector).toHaveBeenCalledTimes(1);
+    expect(connector.mock.calls[0][0].pinnedIp).toBe("192.168.1.5");
+  });
+
+  it("STILL skips cloud-metadata even with WEBHOOK_ALLOW_PRIVATE_TARGETS (never-allowed category)", async () => {
+    envState.WEBHOOK_ALLOW_PRIVATE_TARGETS = true;
+    process.env.CHANNEL_ALERT_WEBHOOK_URL = "http://metadata.example/latest/meta-data/";
+    await expect(dispatchAlert({ type: "event_error" })).resolves.toBeUndefined();
+    expect(connector).not.toHaveBeenCalled();
   });
 
   it("fails open (still alerts) when the throttle store errors", async () => {
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
-    const mockFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
-    globalThis.fetch = mockFetch as typeof fetch;
     rateLimit.mockRejectedValue(new Error("db down"));
     await dispatchAlert({ type: "delivery_held", channelId: "ch-1" });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(connector).toHaveBeenCalledTimes(1);
   });
 });

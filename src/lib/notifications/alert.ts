@@ -1,8 +1,9 @@
-import { isSafeAlertWebhookUrl } from "./webhook-url";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { getConfig } from "@/lib/settings/config";
 import { getAlertWebhook } from "./alert-webhook";
 import { buildAlertBody, type PlaceholderContext } from "./alert-customization";
+import { safeFetchWebhook } from "@/lib/webhooks/safe-target";
+import { SsrfError } from "@/lib/net/safe-fetch";
 
 /** Alert classes carried on the `type` discriminator. A single outbound webhook receives them all;
  *  the operator routes by `type` on their side (Telegram / n8n / Slack). */
@@ -86,7 +87,9 @@ function placeholderContext(body: Record<string, unknown>): PlaceholderContext {
  *  2. otherwise the global env `CHANNEL_ALERT_WEBHOOK_URL` (the ungated self-host fallback), plain body.
  *
  * Throttled per (type, channel|source) so a persistent failure can't storm. Best-effort: never
- * throws and refuses a private/link-local target — a failed alert must not break the worker.
+ * throws. Delivery goes through the shared secure-by-default webhook guard, which resolves DNS and
+ * refuses a private/loopback target by default (allowed only with WEBHOOK_ALLOW_PRIVATE_TARGETS) and
+ * always refuses metadata/link-local — a refused or failed alert must not break the worker.
  */
 export async function dispatchAlert(alert: Alert): Promise<void> {
   const body = standardBody(alert);
@@ -113,23 +116,23 @@ export async function dispatchAlert(alert: Alert): Promise<void> {
     target = { url, headers: { "Content-Type": "application/json" }, payload: body };
   }
 
-  // Defense-in-depth before the fetch: refuse a private/link-local target (e.g. cloud metadata).
-  if (!isSafeAlertWebhookUrl(target.url)) {
-    console.warn("Alert webhook URL points at a disallowed (private/link-local) host — skipping alert");
-    return;
-  }
-
   if (await isThrottled(alert)) return;
 
   try {
-    await fetch(target.url, {
+    // safeFetchWebhook runs the secure-by-default webhook SSRF policy (resolves DNS; public only,
+    // private/loopback/cgnat only with WEBHOOK_ALLOW_PRIVATE_TARGETS; metadata/link-local always
+    // blocked) on the operator-configured URL via the rebinding-safe pinned connector (rejects 3xx).
+    // It asserts the target before connecting, so a disallowed URL throws SsrfError here — we skip.
+    await safeFetchWebhook(target.url, {
       method: "POST",
       headers: target.headers,
       body: JSON.stringify(target.payload),
-      redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
-  } catch {
-    // Best-effort — a failed notification must never break the worker.
+  } catch (err) {
+    if (err instanceof SsrfError) {
+      console.warn("Alert webhook target refused by the SSRF guard (private/metadata?) — skipping alert");
+    }
+    // Best-effort — a refused or failed notification must never break the worker.
   }
 }
