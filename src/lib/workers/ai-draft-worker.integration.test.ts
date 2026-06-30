@@ -10,6 +10,15 @@ vi.mock("@/lib/ai/draft", async (importOriginal) => {
   return { ...actual, generateDraft: (args: Parameters<typeof actual.generateDraft>[0]) => generateDraftMock(args) };
 });
 
+// PRO gate is instance-global (one license verdict for all workspaces) and verifies against a remote
+// JWKS — stub hasFeature so the worker is deterministic and makes no network call. Default: licensed
+// (true); the free-instance test flips it to false. vi.mock is hoisted; this survives resetModules.
+const hasFeatureMock = vi.fn<(feature: string) => Promise<boolean>>();
+vi.mock("@/lib/license/gate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/license/gate")>();
+  return { ...actual, hasFeature: (feature: string) => hasFeatureMock(feature) };
+});
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -57,6 +66,8 @@ beforeEach(async () => {
   await db.delete(s.channels).where(eq(s.channels.workspace_id, WS));
   generateDraftMock.mockReset();
   generateDraftMock.mockResolvedValue("Here is your reply");
+  hasFeatureMock.mockReset();
+  hasFeatureMock.mockResolvedValue(true); // licensed by default; the free-instance test overrides
 
   const [c] = await db
     .insert(s.channels)
@@ -225,6 +236,44 @@ describe("ai-draft worker (AIDRAFT1)", () => {
       else process.env.AI_DRAFT_DAILY_LIMIT = prev;
       vi.resetModules();
     }
+  });
+
+  it("daily cap: AI_DRAFT_DAILY_LIMIT=0 (default) → rateLimit NOT consulted; generation always proceeds", async () => {
+    if (!TEST_DB) return;
+    // env default is 0 (unlimited). Spy on the shared rate-limit util to prove the cap path is never
+    // taken, and run two distinct jobs to show generation isn't throttled (both park a row).
+    const rl = await import("@/lib/api/rate-limit");
+    const spy = vi.spyOn(rl, "rateLimit");
+    generateDraftMock.mockResolvedValue("Unlimited reply");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor("u-1"));
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor("u-2"));
+    expect(spy).not.toHaveBeenCalled();
+    expect(generateDraftMock).toHaveBeenCalledTimes(2);
+    expect(await pendingRows()).toHaveLength(2);
+  });
+
+  // PRO gate (worker-side). The no-match AUTO path enqueues an ai-draft job regardless of license;
+  // the worker must check hasFeature("ai_draft") BEFORE paying for the LLM, so a free instance never
+  // generates (no draft, no approval row, no charge). The on-demand button + config routes gate too.
+  it("feature gate: a free instance (no ai_draft) → no generation, no draft, no send", async () => {
+    if (!TEST_DB) return;
+    hasFeatureMock.mockResolvedValue(false);
+    generateDraftMock.mockResolvedValue("Should never run");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    expect(generateDraftMock).not.toHaveBeenCalled();
+    expect(await pendingRows()).toHaveLength(0);
+    expect(await jobCount("outgoing-message")).toBe(0);
+  });
+
+  it("feature gate: a licensed instance (ai_draft) → generation proceeds", async () => {
+    if (!TEST_DB) return;
+    hasFeatureMock.mockResolvedValue(true);
+    generateDraftMock.mockResolvedValue("Licensed draft");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    expect(generateDraftMock).toHaveBeenCalledTimes(1);
+    expect(await pendingRows()).toHaveLength(1);
   });
 
   it("idempotency: a redelivery of the same job does not double-park or double-generate", async () => {

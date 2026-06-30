@@ -62,6 +62,25 @@ describe("env validation", () => {
     setEnv({ CHANNEL_ALERT_WEBHOOK_URL: "http://169.254.169.254/latest/meta-data/" });
     await expect(import("@/lib/env")).rejects.toThrow();
   });
+
+  // AIDRAFT1 / Task 9: per-workspace daily budget for AI-draft generation. Default 0 = unlimited
+  // (BYOK / self-hosted). The worker reads env.AI_DRAFT_DAILY_LIMIT; 0 ⇒ no rate-limit call at all.
+  it("AI_DRAFT_DAILY_LIMIT defaults to 0 (unlimited) when unset", async () => {
+    setEnv({ AI_DRAFT_DAILY_LIMIT: undefined });
+    const { env } = await import("@/lib/env");
+    expect(env.AI_DRAFT_DAILY_LIMIT).toBe(0);
+  });
+
+  it("coerces a numeric AI_DRAFT_DAILY_LIMIT from its string env value", async () => {
+    setEnv({ AI_DRAFT_DAILY_LIMIT: "50" });
+    const { env } = await import("@/lib/env");
+    expect(env.AI_DRAFT_DAILY_LIMIT).toBe(50);
+  });
+
+  it("rejects a negative AI_DRAFT_DAILY_LIMIT at startup", async () => {
+    setEnv({ AI_DRAFT_DAILY_LIMIT: "-1" });
+    await expect(import("@/lib/env")).rejects.toThrow();
+  });
 });
 
 // surface a startup warning for security-lax-but-valid production config rather than

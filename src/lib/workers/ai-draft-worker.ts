@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, workspaces, pendingApprovals } from "@/db/schema";
 import { env } from "@/lib/env";
+import { hasFeature } from "@/lib/license/gate";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { generateDraft, resolveDraftPrompt } from "@/lib/ai/draft";
 import { buildProposedContent, proposedHasDm, proposedHasComment, type ProposedContent } from "@/lib/approvals/draft";
@@ -39,6 +40,16 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
   // in-tx `claimJobOnce` below.
   if (await isJobClaimed(anchor)) {
     helpers.logger.info(`ai-draft ${anchor} already processed — skipping`);
+    return;
+  }
+
+  // PRO gate (worker-side). AI drafting is a PRO feature, gated on the on-demand button (T6) and the
+  // config-persist routes (T8). The AUTO no-match path, however, enqueues an ai-draft job regardless
+  // of license — so a free instance would otherwise reach the LLM here. Gate generation BEFORE paying
+  // for it: a free instance creates no draft, no approval row, no charge. The license is instance-
+  // global (one verdict for all workspaces), verified offline; fails closed to free.
+  if (!(await hasFeature("ai_draft"))) {
+    helpers.logger.info(`ai-draft ${anchor}: ai_draft not licensed — skipping generation`);
     return;
   }
 
