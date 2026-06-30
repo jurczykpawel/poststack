@@ -46,6 +46,24 @@ async function outgoingJobCount() {
   return Number((r.rows[0] as { n: number }).n);
 }
 
+type AiDraftPayload = {
+  workspaceId: string;
+  channelId: string;
+  conversationId: string;
+  contactId: string;
+  recipientPlatformId: string;
+  incomingText: string;
+  target: string;
+  source: string;
+  commentId?: string;
+  context?: string;
+};
+
+async function aiDraftJobs(): Promise<AiDraftPayload[]> {
+  const r = await db.execute(sql`select pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.task_identifier = 'ai-draft'`);
+  return r.rows.map((row) => (row as { payload: AiDraftPayload }).payload);
+}
+
 beforeAll(async () => {
   if (!TEST_DB) return;
   process.env.DATABASE_URL = TEST_DB;
@@ -62,6 +80,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
+  await db.delete(s.webhookEvents); // event claims are global by event_key (channel_id is SET NULL on channel delete); clear for isolation
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.delete(s.ruleCooldowns); // cooldown locks are global by (rule,contact); clear for isolation
   await db.insert(s.workspaces).values({ id: WS, name: "E", slug: `e-${WS}` });
@@ -323,5 +342,80 @@ describe("evaluateRules (real Postgres)", () => {
     expect(pc.content?.text).toBe("DM body here"); // the DM to send on approve
     expect(pc.comment?.text).toBe("See your DMs 🙌"); // the public comment reply
     expect(pc.comment?.commentId).toBe("CMT-APPR"); // addressed to the triggering comment
+  });
+
+  // AIDRAFT1: when no rule fires AND the channel opted into AI drafting, the no_match path
+  // enqueues exactly ONE ai-draft job carrying the inbound text + the channel's target + the ids.
+  describe("AI draft on no-match (AIDRAFT1)", () => {
+    async function enableAiDraft(target: "dm" | "public" | "both" = "dm") {
+      await db.update(s.channels).set({ ai_draft_enabled: true, ai_draft_target: target }).where(eq(s.channels.id, CH));
+    }
+
+    it("a DM no-match enqueues one ai-draft job (no commentId) when the channel opts in", async () => {
+      if (!TEST_DB) return;
+      await seedRule(); // matches "hi"; this event won't match it
+      await enableAiDraft("dm");
+      const res = await evaluateRules({ ...baseInput, text: "totally unrelated question", eventKey: "evt-aidraft-dm" });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs.length).toBe(1);
+      const j = jobs[0];
+      expect(j.incomingText).toBe("totally unrelated question");
+      expect(j.target).toBe("dm");
+      expect(j.source).toBe("ai_auto");
+      expect(j.workspaceId).toBe(WS);
+      expect(j.channelId).toBe(CH);
+      expect(j.conversationId).toBe(CONV);
+      expect(j.contactId).toBe(CONTACT);
+      expect(j.recipientPlatformId).toBe("PSID-EXEC");
+      expect(j.commentId).toBeUndefined();
+    });
+
+    it("a comment no-match enqueues one ai-draft job carrying the commentId + channel target", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft("both");
+      const res = await evaluateRules({
+        ...baseInput, text: "no keyword here", eventType: "comment", commentId: "CMT-AID", eventKey: "evt-aidraft-cmt",
+      });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs.length).toBe(1);
+      expect(jobs[0].commentId).toBe("CMT-AID");
+      expect(jobs[0].target).toBe("both");
+      expect(jobs[0].incomingText).toBe("no keyword here");
+      expect(jobs[0].source).toBe("ai_auto");
+    });
+
+    it("does NOT enqueue an ai-draft job when the channel has not opted in (default)", async () => {
+      if (!TEST_DB) return;
+      // ai_draft_enabled defaults to false on a freshly inserted channel.
+      const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-off" });
+      expect(res.outcome).toBe("no_match");
+      expect((await aiDraftJobs()).length).toBe(0);
+    });
+
+    it("does NOT enqueue on an already-handled (lost claim) redelivery", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft("dm");
+      const ek = "evt-aidraft-dup";
+      const first = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: ek });
+      expect(first.outcome).toBe("no_match");
+      expect((await aiDraftJobs()).length).toBe(1);
+      // Isolate the second (already-claimed) delivery: clear the queue, then re-evaluate the SAME
+      // event. A non-fresh claim must enqueue nothing.
+      await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
+      const second = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: ek });
+      expect(second.outcome).toBe("already");
+      expect((await aiDraftJobs()).length).toBe(0);
+    });
+
+    it("does NOT enqueue an ai-draft job for an unsubscribed contact (consent gate)", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft("dm");
+      await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+      const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-unsub" });
+      expect(res.outcome).toBe("no_match");
+      expect((await aiDraftJobs()).length).toBe(0);
+    });
   });
 });

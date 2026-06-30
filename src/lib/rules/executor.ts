@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { and, or, eq, isNull, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { autoReplyRules, pendingApprovals, contacts, sequences } from "@/db/schema";
+import { autoReplyRules, pendingApprovals, contacts, sequences, channels } from "@/db/schema";
 import { acquireCooldown, incrementSendCount, loadRuleLimits } from "./limits";
 import { addJobTx } from "@/lib/queue/client";
 import { claimEvent, isEventTerminal, type EventOutcomeLinks } from "@/lib/idempotency";
@@ -346,10 +346,71 @@ export async function evaluateRules(
   // reply to an old event. A lost claim race means a concurrent delivery already handled it.
   if (eventKey) {
     const claimed = await claimEvent(eventKey, "no_match", links, db, { event_type: eventType });
-    if (claimed) await writeMetric(db, "no_match");
+    if (claimed) {
+      await writeMetric(db, "no_match");
+      // AIDRAFT1: a freshly-claimed no-match on an opted-in channel hands the inbound to the
+      // ai-draft worker (generate → autosend-or-park). Gated on a FRESH claim only — a lost race
+      // (`claimed === false`) means a concurrent delivery owns the outcome, so we never enqueue a
+      // second draft. The consent-gated no-match above (unsubscribed contact) returns earlier and
+      // never reaches here, so an opted-out contact gets no AI draft.
+      await enqueueAiDraftOnNoMatch({ workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, eventKey });
+    }
     return { outcome: claimed ? "no_match" : "already", ruleId: null };
   }
   return { outcome: "no_match", ruleId: null };
+}
+
+/**
+ * AIDRAFT1: on a freshly-claimed no-match, enqueue an `ai-draft` job when the channel has opted into
+ * AI drafting (`ai_draft_enabled`). The LLM stays OUT of the executor — this only enqueues; the
+ * worker resolves the prompt, generates, and autosends-or-parks (consent-gated).
+ *
+ * - The channel flag/target are read here (lazily, only on the no-match terminal path) so the hot
+ *   fired path pays no extra query.
+ * - The incoming text is required for the model to have something to reply to; a textless event
+ *   (e.g. a bare postback/reaction) enqueues nothing.
+ * - `commentId` is forwarded only for a comment event (the worker uses it for the public reply /
+ *   first-touch DM); a DM event carries none.
+ * - Deterministic dedup: the job is keyed on the event key, so an at-least-once redelivery (which
+ *   shouldn't even re-enqueue, since the claim is terminal) collapses to a single job.
+ */
+async function enqueueAiDraftOnNoMatch(input: {
+  workspaceId: string;
+  channelId: string;
+  conversationId: string;
+  contactId: string;
+  recipientPlatformId: string;
+  text: string | null;
+  eventType: EventType;
+  commentId?: string;
+  eventKey: string;
+}): Promise<void> {
+  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, eventKey } = input;
+  const incomingText = text?.trim();
+  if (!incomingText) return; // nothing for the model to reply to
+
+  const channel = await db.query.channels.findFirst({
+    where: eq(channels.id, channelId),
+    columns: { ai_draft_enabled: true, ai_draft_target: true },
+  });
+  if (!channel?.ai_draft_enabled) return;
+
+  await addJobTx(
+    db,
+    "ai-draft",
+    {
+      workspaceId,
+      channelId,
+      conversationId,
+      contactId,
+      recipientPlatformId,
+      incomingText,
+      target: channel.ai_draft_target,
+      ...(eventType === "comment" && commentId ? { commentId } : {}),
+      source: "ai_auto",
+    },
+    { jobKey: `ai-draft:${eventKey}` },
+  );
 }
 
 /**
