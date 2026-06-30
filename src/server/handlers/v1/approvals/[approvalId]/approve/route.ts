@@ -97,7 +97,7 @@ export async function POST(
           contactId: row.contact_id,
           commentId: comment!.commentId!,
           text: comment!.text!,
-          sentByRuleId: row.rule_id,
+          sentByRuleId: row.rule_id ?? undefined,
           idempotencyKey: `approval:${row.id}:comment`,
         };
         await tx.execute(sql`
@@ -123,7 +123,7 @@ export async function POST(
             commentId: comment.commentId,
             text: content!.text ?? "",
             content: content!,
-            sentByRuleId: row.rule_id,
+            sentByRuleId: row.rule_id ?? undefined,
             idempotencyKey: `approval:${row.id}`,
           };
           await tx.execute(sql`
@@ -141,7 +141,7 @@ export async function POST(
             contactId: row.contact_id,
             recipientPlatformId: row.recipient_platform_id,
             content: content!,
-            sentByRuleId: row.rule_id,
+            sentByRuleId: row.rule_id ?? undefined,
             idempotencyKey: `approval:${row.id}`,
           };
           await tx.execute(sql`

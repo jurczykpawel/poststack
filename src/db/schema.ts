@@ -2,6 +2,13 @@ import { pgTable, timestamp, text, integer, bigint, uniqueIndex, index, foreignK
 import { sql } from "drizzle-orm"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
+// Discriminates how a pending approval was created: `rule` = a keyword/auto-reply rule proposed it
+// (the legacy path, rule_id set); `ai_auto` = an AI draft generated automatically by the inbound
+// pipeline; `ai_manual` = an AI draft requested on demand for an agent. AI sources carry no rule_id.
+export const approvalSource = pgEnum("approval_source", ['rule', 'ai_auto', 'ai_manual'])
+// Where an AI auto-draft is allowed to act for a channel: `dm` = direct messages only, `public` =
+// public comment replies only, `both` = either.
+export const aiDraftTarget = pgEnum("ai_draft_target", ['dm', 'public', 'both'])
 // `system` is reserved/forward-looking: actorFromAuth only ever emits user/api_key, and no
 // cron/worker/maintenance path audits yet, so it's currently unreachable. Kept for when system
 // actions (token-refresh / maintenance) start writing audit rows.
@@ -228,6 +235,16 @@ export const channels = pgTable("channels", {
 	hidden_at: timestamp("hidden_at", { precision: 3, mode: 'date' }),
 	gmail_query: text("gmail_query"),
 	gmail_sync_cursor: text("gmail_sync_cursor"),
+	// AIDRAFT1: per-channel AI auto-reply drafting. When enabled, the inbound pipeline drafts an AI
+	// reply for matching messages on this channel and queues it as a pending approval (source ai_auto).
+	ai_draft_enabled: boolean("ai_draft_enabled").default(false).notNull(),
+	// Which surface AI drafting applies to: dm / public comments / both.
+	ai_draft_target: aiDraftTarget("ai_draft_target").default('dm').notNull(),
+	// Optional per-channel prompt override; falls back to the workspace prompt when null.
+	ai_draft_prompt: text("ai_draft_prompt"),
+	// When true, a high-confidence AI draft for that surface is sent without manual approval.
+	ai_draft_autosend_dm: boolean("ai_draft_autosend_dm").default(false).notNull(),
+	ai_draft_autosend_public: boolean("ai_draft_autosend_public").default(false).notNull(),
 }, (table) => [
 	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
 	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
@@ -269,6 +286,9 @@ export const workspaces = pgTable("workspaces", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	message_retention_days: integer("message_retention_days"),
+	// AIDRAFT1: workspace-default prompt used when drafting AI replies; per-channel
+	// ai_draft_prompt overrides it. Null = use the built-in default prompt.
+	ai_draft_prompt: text("ai_draft_prompt"),
 }, (table) => [
 	uniqueIndex("workspaces_slug_key").using("btree", table.slug.asc().nullsLast()),
 ]);
@@ -945,7 +965,11 @@ export const webhookEvents = pgTable("webhook_events", {
 export const pendingApprovals = pgTable("pending_approvals", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
-	rule_id: uuid("rule_id").notNull(),
+	// Nullable: AI-drafted approvals (source ai_auto / ai_manual) have no originating rule.
+	// Rule-sourced approvals still set this (FK below stays).
+	rule_id: uuid("rule_id"),
+	// How this approval was created — drives UI labelling and lets the queue mix rule + AI drafts.
+	source: approvalSource().default('rule').notNull(),
 	conversation_id: uuid("conversation_id").notNull(),
 	contact_id: uuid("contact_id").notNull(),
 	channel_id: uuid("channel_id").notNull(),

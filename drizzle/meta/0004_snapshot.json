@@ -1245,6 +1245,41 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "ai_draft_enabled": {
+          "name": "ai_draft_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "ai_draft_target": {
+          "name": "ai_draft_target",
+          "type": "ai_draft_target",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'dm'"
+        },
+        "ai_draft_prompt": {
+          "name": "ai_draft_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_draft_autosend_dm": {
+          "name": "ai_draft_autosend_dm",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "ai_draft_autosend_public": {
+          "name": "ai_draft_autosend_public",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {
@@ -4146,7 +4181,15 @@
           "name": "rule_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "approval_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'rule'"
         },
         "conversation_id": {
           "name": "conversation_id",
@@ -6832,6 +6875,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "ai_draft_prompt": {
+          "name": "ai_draft_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6867,6 +6916,24 @@
         "active",
         "needs_reauth",
         "disabled"
+      ]
+    },
+    "public.ai_draft_target": {
+      "name": "ai_draft_target",
+      "schema": "public",
+      "values": [
+        "dm",
+        "public",
+        "both"
+      ]
+    },
+    "public.approval_source": {
+      "name": "approval_source",
+      "schema": "public",
+      "values": [
+        "rule",
+        "ai_auto",
+        "ai_manual"
       ]
     },
     "public.approval_status": {
