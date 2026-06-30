@@ -7,6 +7,7 @@
 import type { db as Db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { hostFromUrl } from "@/lib/license/format";
+import { classifyIp } from "@/lib/net/ip-classify";
 import { buildEnvelope } from "./collect";
 import { claimSend, confirmSend } from "./identity";
 import { SEND_WINDOW_MS, RETRY_LEASE_MS } from "./constants";
@@ -25,15 +26,16 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  */
 export function isNonDeploymentHost(appUrl: string | undefined): boolean {
   const host = (hostFromUrl(appUrl ?? "") ?? "").toLowerCase();
-  return (
-    host === "" ||
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "0.0.0.0" ||
-    host.endsWith(".local") ||
-    host.endsWith(".localhost")
-  );
+  if (host === "" || host === "localhost" || host.endsWith(".local") || host.endsWith(".localhost")) {
+    return true;
+  }
+  // An IP-literal APP_URL that isn't a public address (loopback — the whole 127/8 + ::1 — or
+  // private/LAN, CGNAT, link-local, unspecified, multicast) is dev or internal, never a public
+  // deployment, so suppress it: a fresh instance id would otherwise inflate the fleet. Reuses the SSRF
+  // IP classifier (DRY) instead of an ad-hoc literal list. A hostname classifies as `unknown` and
+  // reports normally. Strip IPv6 brackets first — a URL host is `[::1]`, the classifier wants `::1`.
+  const cat = classifyIp(host.replace(/^\[|\]$/g, ""));
+  return cat !== "public" && cat !== "unknown";
 }
 
 /** One POST attempt. Resolves true on a 2xx response, false otherwise (non-2xx or thrown). */

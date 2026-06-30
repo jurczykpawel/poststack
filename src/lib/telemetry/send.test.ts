@@ -313,4 +313,26 @@ describe("isNonDeploymentHost", () => {
       expect(isNonDeploymentHost(url)).toBe(false);
     }
   });
+
+  // TELEM-LOCALHOST1 completeness: the guard listed only the literal 127.0.0.1, so the rest of the
+  // loopback range and any private/LAN/CGNAT/link-local IP-literal APP_URL still phoned home.
+  it("suppresses the whole loopback range + private/LAN/CGNAT/link-local IP literals (not just 127.0.0.1)", async () => {
+    const { isNonDeploymentHost } = await loadSend({});
+    for (const url of [
+      "http://127.0.0.5:3000",    // 127/8 loopback, not the literal .1
+      "http://[::1]:3000",         // ipv6 loopback
+      "http://10.0.0.5",           // 10/8 private
+      "http://192.168.1.10:8080",  // 192.168/16 private LAN
+      "http://172.16.4.4",         // 172.16/12 private
+      "http://100.64.0.1",         // 100.64/10 CGNAT
+      "http://169.254.169.254",    // link-local (cloud metadata)
+    ]) {
+      expect(isNonDeploymentHost(url)).toBe(true);
+    }
+  });
+
+  it("still lets a genuine public IP-literal deployment report", async () => {
+    const { isNonDeploymentHost } = await loadSend({});
+    expect(isNonDeploymentHost("http://5.6.7.8:3000")).toBe(false);
+  });
 });
