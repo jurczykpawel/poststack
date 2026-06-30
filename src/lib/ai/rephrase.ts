@@ -1,9 +1,4 @@
-import { getConfig } from "@/lib/settings/config";
-
-// Defaults mirror the env schema (env.ts), since getConfig falls back to raw process.env (no zod
-// defaults): an unset model/base-url resolves to "" here, so we apply the same defaults.
-const DEFAULT_MODEL = "gpt-4o-mini";
-const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+import { chatComplete } from "./client";
 
 export interface RephraseOptions {
   /** Full system prompt override. Takes precedence over `tone`. */
@@ -15,44 +10,22 @@ export interface RephraseOptions {
 /**
  * Rephrase a message to sound natural and varied while keeping its meaning.
  * Provider-agnostic (any OpenAI-compatible chat-completions endpoint, set via
- * OPENAI_BASE_URL + AI_REPHRASE_MODEL). Best-effort: returns the original text
- * unchanged if no key is configured or the call fails. Keeps the rule engine
- * free of any provider-specific code.
+ * AI_BASE_URL + AI_MODEL). Best-effort: returns the original text unchanged if
+ * no key is configured or the call fails. Keeps the rule engine free of any
+ * provider-specific code by delegating to the shared LLM client.
  */
 export async function rephrase(baseText: string, opts: RephraseOptions = {}): Promise<string> {
-  const apiKey = await getConfig("AI_API_KEY");
-  if (!apiKey) return baseText;
-
-  const model = (await getConfig("AI_MODEL")) || DEFAULT_MODEL;
-  const baseUrl = (await getConfig("AI_BASE_URL")) || DEFAULT_BASE_URL;
   const tone = opts.tone ?? "friendly and professional";
   const systemContent = opts.customPrompt
     ? opts.customPrompt
     : `You rephrase messages to sound natural and varied while keeping the same meaning and intent. Tone: ${tone}. Reply with ONLY the rephrased message, nothing else. Keep it similar length. Do not add greetings or sign-offs unless the original has them.`;
 
-  try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        max_tokens: 300,
-        temperature: 0.8,
-        messages: [
-          { role: "system", content: systemContent },
-          { role: "user", content: baseText },
-        ],
-      }),
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
+  const rephrased = await chatComplete({
+    system: systemContent,
+    user: baseText,
+    maxTokens: 300,
+    temperature: 0.8,
+  });
 
-    if (!res.ok) return baseText;
-
-    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-    const rephrased = data.choices?.[0]?.message?.content?.trim();
-    return rephrased && rephrased.length > 0 ? rephrased : baseText;
-  } catch {
-    return baseText;
-  }
+  return rephrased ?? baseText;
 }
