@@ -43,16 +43,19 @@ describe("webhook-fields (WEBHOOKSUB1 source of truth)", () => {
 });
 
 describe("instagramLoginFields (IG-Login per-account subscribed_apps set)", () => {
-  it("is exactly the 5 instagram-object fields including `comments`", () => {
+  it("is exactly the 6 instagram-object fields including `comments` + `live_comments`", () => {
     expect(instagramLoginFields()).toEqual([
       "messages",
       "messaging_postbacks",
       "message_reactions",
       "messaging_seen",
       "comments",
+      "live_comments",
     ]);
-    // `comments` is REQUIRED so an IG-Login-only channel receives comment webhooks for comment→DM.
+    // `comments` + `live_comments` are REQUIRED so an IG-Login-only channel receives comment webhooks
+    // (incl. comments left during an IG Live) for comment→DM automation.
     expect(instagramLoginFields()).toContain("comments");
+    expect(instagramLoginFields()).toContain("live_comments");
   });
 
   it("uses the exact instagram-object field names (v25.0 dashboard), NOT invalid/page-only names", () => {

@@ -276,8 +276,9 @@ export function classifyChangeEvent(
     }
   }
 
-  // Instagram comment: field=comments with a flatter shape.
-  if (field === "comments" && v.id) {
+  // Instagram comment: field=comments (or live_comments, left during an IG Live) — same flatter shape.
+  // Both route into the comment pipeline so comment→DM automation fires either way.
+  if ((field === "comments" || field === "live_comments") && v.id) {
     const key = `cmt-${v.id}-add`;
     return {
       log: {

@@ -230,6 +230,35 @@ describe("webhook ingestion: Instagram comments (real Postgres)", () => {
     expect(p.raw).toBeUndefined();
   });
 
+  it("ingests an Instagram live_comments event (field=live_comments) and enqueues incoming-comment", async () => {
+    if (!TEST_DB) return;
+    const res = await POST(signed({
+      object: "instagram",
+      entry: [{
+        id: "IG_PAGE",
+        changes: [{
+          field: "live_comments",
+          value: { id: "IG_LC_1", text: "great live!", from: { id: "IGSID9", username: "joe" }, media: { id: "MEDIA_LIVE" } },
+        }],
+      }],
+    }));
+    expect(res.status).toBe(200);
+
+    const job = await pool.query(
+      "select j.task_identifier, pj.payload from graphile_worker.jobs j join graphile_worker._private_jobs pj on pj.id = j.id where j.key = $1",
+      ["comment-IG_LC_1"],
+    );
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0].task_identifier).toBe("incoming-comment");
+    const p = job.rows[0].payload;
+    expect(p.platform).toBe("instagram");
+    expect(p.commentId).toBe("IG_LC_1");
+    expect(p.postId).toBe("MEDIA_LIVE");
+    expect(p.text).toBe("great live!");
+    expect(p.senderId).toBe("IGSID9");
+    expect(p.senderName).toBe("joe");
+  });
+
   it("flags a story reply (message.reply_to.story) on the incoming-message job", async () => {
     if (!TEST_DB) return;
     const res = await POST(signed({

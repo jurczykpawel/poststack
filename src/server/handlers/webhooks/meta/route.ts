@@ -398,7 +398,9 @@ function normalizeComment(change: ChangeEvent): NormalizedComment | null {
     };
   }
 
-  if (change.field === "comments") {
+  // Instagram comments — `comments` and `live_comments` (a comment during an IG Live) share the
+  // flat shape, so both build the same comment job.
+  if (change.field === "comments" || change.field === "live_comments") {
     if (!v.id) return null;
     return {
       commentId: v.id,

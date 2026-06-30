@@ -46,4 +46,15 @@ describe("classifyChangeEvent — post reactions/likes", () => {
     const c = classifyChangeEvent(feed({ item: "comment", verb: "add", comment_id: "C1", from: { id: "U1", name: "Ann" }, message: "hi" }), "facebook", "page");
     expect(c?.job?.task).toBe("incoming-comment");
   });
+
+  it("classifies an Instagram live_comments add as an incoming-comment job (same flat shape as comments)", () => {
+    const c = classifyChangeEvent(
+      { field: "live_comments", value: { id: "LC1", text: "hi from the live", from: { id: "IGSID9", username: "joe" }, media: { id: "M1" } } },
+      "instagram",
+      "instagram",
+    );
+    expect(c?.job?.task).toBe("incoming-comment");
+    expect(c?.log.event_type).toBe("comment");
+    expect(c?.log.platform_message_id).toBe("LC1");
+  });
 });
