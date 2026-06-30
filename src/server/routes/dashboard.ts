@@ -2,7 +2,7 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNotNull, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNull, isNotNull, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
@@ -965,6 +965,54 @@ function renderWebhookStats(s: WebhookStats): Html {
   return html`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:.5rem 0 1rem">
     ${tiles.map(([label, n, tone]) => kpi({ label, value: n, tone: label === "Errors" && n > 0 ? "bad" : tone }))}
   </div>`;
+}
+
+// WHOBS1: a classified-but-unhandled inbound event type (an arriving webhook we log but don't act on
+// — e.g. a Meta field we have no handler for). Aggregate only: object/field/event_type + how many +
+// last seen. No payload/PII, so instance-wide channel-less rows are safe to surface here.
+export type UnhandledTypeRow = { object: string | null; field: string | null; eventType: string; count: number; lastAt: Date };
+
+/** WHOBS1: classified-but-unhandled inbound events (handling_status `unhandled` OR event_type
+ *  `unknown`) grouped by type, newest-first, so an arriving-but-unrouted webhook type is noticed.
+ *  Scope: the workspace's own channels PLUS instance-wide channel-less rows (test events / unknown
+ *  pages) — the grouped view exposes no payload, so this stays PII-safe. Read-only. */
+export async function loadUnhandledTypes(channelIds: string[]): Promise<UnhandledTypeRow[]> {
+  const scope = channelIds.length
+    ? or(isNull(webhookEvents.channel_id), inArray(webhookEvents.channel_id, channelIds))
+    : isNull(webhookEvents.channel_id);
+  const rows = await db
+    .select({
+      object: webhookEvents.object,
+      field: webhookEvents.field,
+      eventType: webhookEvents.event_type,
+      n: count(),
+      lastAt: sql<Date>`max(${webhookEvents.received_at})`,
+    })
+    .from(webhookEvents)
+    .where(and(
+      or(eq(webhookEvents.handling_status, "unhandled"), eq(webhookEvents.event_type, "unknown")),
+      scope,
+    ))
+    .groupBy(webhookEvents.object, webhookEvents.field, webhookEvents.event_type)
+    .orderBy(desc(sql`max(${webhookEvents.received_at})`))
+    .limit(50);
+  return rows.map((r) => ({ object: r.object, field: r.field, eventType: r.eventType, count: Number(r.n), lastAt: r.lastAt as Date }));
+}
+
+/** WHOBS1: the read-only "unhandled types" breakdown. Count + last-seen per type, no per-row raw view
+ *  (instance-wide rows carry no channel; the per-channel log above already opens channel events). */
+export function renderUnhandledTypes(rows: UnhandledTypeRow[]): Html {
+  if (rows.length === 0) {
+    return html`<p class="muted" style="font-size:.82rem">Nothing unrouted — every inbound event type arriving is being handled.</p>`;
+  }
+  return html`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Count</th><th>Last seen</th></tr></thead>
+    <tbody>${rows.map(
+      (r) => html`<tr>
+        <td><span class="mono">${[PLATFORM_LABELS[r.object ?? ""] ?? r.object ?? "—", r.field, r.eventType].filter(Boolean).join(" · ")}</span></td>
+        <td><span class="mono">${r.count}</span></td>
+        <td><span class="muted-mono">${timeAgo(r.lastAt)}</span></td>
+      </tr>`,
+    )}</tbody></table></div>`;
 }
 
 // OBS1: one row of endpoint activity (a handshake or a rejected-before-record hit). These have no
@@ -2253,6 +2301,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canInsights = features.has("webhook_insights");
     const canOutbound = features.has("outbound_webhooks");
     const stats = canInsights ? await loadWebhookStats(channelIds) : null;
+    const unhandledTypes = canInsights ? await loadUnhandledTypes(channelIds) : null;
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Webhooks" }),
@@ -2296,6 +2345,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     <td><button class="btn btn-sm" hx-get="/webhooks/${e.id}" hx-target="#wh-detail" hx-swap="innerHTML" title="Full payload + what it triggered">View</button></td>
                   </tr>`,
                 )}</tbody></table>`}
+          ${unhandledTypes
+            ? html`<h3 style="margin-top:1.5rem">Unhandled event types</h3>
+              <p class="muted" style="font-size:.85rem">Event types that arrived and were logged (with their raw payload) but have no handler yet — so you can spot something the platforms send that the app isn't acting on. Includes instance-wide hits with no channel.</p>
+              ${renderUnhandledTypes(unhandledTypes)}`
+            : ""}
           <h3 style="margin-top:1.5rem">Endpoint activity — handshakes &amp; rejected hits</h3>
           <p class="muted" style="font-size:.85rem">Every hit on your webhook URL that never became an event: the Meta subscription handshake, plus requests refused before processing (bad signature, unparseable body, unknown object, oversized). Instance-wide — these carry no channel or message content.</p>
           <div id="wh-endpoint" hx-get="/webhooks/endpoint-activity" hx-trigger="load" hx-swap="innerHTML">
