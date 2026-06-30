@@ -54,6 +54,7 @@ import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSub
 import { btn } from "../ui/components/button";
 import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
+import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
@@ -992,6 +993,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // Every dashboard route runs the first-party origin check (a no-op on safe methods) before the
   // session check, so a cross-site write is refused even before auth runs.
   const guard = every(requireSameOrigin, sessionGuard);
+  // Outbound webhook endpoints — register BEFORE the `/webhooks/:id` inbound-event route so its static
+  // `/webhooks/outbound*` paths aren't captured by the `:id` param (mirrors endpoint-activity / subscriptions).
+  registerWebhooksOutbound(app, guard);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
@@ -1974,6 +1978,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     ]);
     const canAlerts = features.has("managed_connection");
     const canInsights = features.has("webhook_insights");
+    const canOutbound = features.has("outbound_webhooks");
     const stats = canInsights ? await loadWebhookStats(channelIds) : null;
     return c.html(
       dashboardDoc(
@@ -2047,6 +2052,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   </p>
                 </div>`
               : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#alert">Set it up in Settings →</a></p></div>`}
+          <h3 style="margin-top:1.5rem">Outbound webhook endpoints ${canOutbound ? "" : proLink(upgradeUrl, "PRO")}</h3>
+          <p class="muted" style="font-size:.85rem">Subscribe one or more external URLs (n8n, Zapier, your own service) to events like <code>post.published</code> or <code>contact.created</code>. Each delivery is HMAC-signed with a per-endpoint secret. The same endpoints are manageable via <a href="/api/docs">the API</a>.</p>
+          ${outboundWebhooksMount()}
           </div>
         </div>`,
         features,
