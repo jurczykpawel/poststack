@@ -28,6 +28,7 @@ import {
 import { can } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform } from "@/lib/providers";
+import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import type { Platform } from "@/db/schema";
 import { listDeliveries } from "@/lib/deliveries/service";
 import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/service";
@@ -674,12 +675,13 @@ export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: s
             ${targetOpt("both", "Both")}
           </select>
         </label>
-        <label class="fld" style="margin-top:.6rem"><span>Prompt override <small>— blank inherits the workspace default</small></span>
+        <label class="fld" style="margin-top:.6rem"><span>Prompt override <small>— blank inherits the workspace default, then the built-in default below</small></span>
           <textarea name="prompt" rows="3" maxlength="4000"
             placeholder="Inherit workspace default"
             aria-label="AI-draft prompt override"
             style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt ?? ""}</textarea>
         </label>
+        <p class="muted" style="font-size:.72rem;margin:.2rem 0 0">Built-in default (used when both are blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
         <label class="compose-toggle" style="margin-top:.6rem">
           <input type="checkbox" name="autosendDm" value="1" ${ch.ai_draft_autosend_dm ? raw("checked") : raw("")} />
           <span>Auto-send DM drafts <small>(advanced — sends without review (no approval))</small></span>

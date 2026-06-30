@@ -59,6 +59,7 @@ import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
+import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
@@ -1109,8 +1110,9 @@ function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgra
   }
   return html`${notice}
     <form hx-post="/settings/ai-draft-prompt" hx-ext="json-enc" hx-target="#ai-draft-prompt-area" hx-swap="innerHTML" style="max-width:560px">
-      <label class="fld"><span>Default AI-draft prompt <small>— used when a channel has no prompt override; blank = built-in default</small></span>
-        <textarea name="ai_draft_prompt" rows="4" maxlength="4000" placeholder="e.g. You are a warm, concise support agent for our brand. Answer in the customer's language." style="font:inherit">${prompt ?? ""}</textarea></label>
+      <label class="fld"><span>Default AI-draft prompt <small>— used when a channel has no prompt override; blank = the built-in default below</small></span>
+        <textarea name="ai_draft_prompt" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${prompt ?? ""}</textarea></label>
+      <p class="muted" style="font-size:.78rem;margin:.25rem 0 0">Built-in default (used when blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
       <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
     </form>`;
 }
