@@ -41,6 +41,7 @@ import * as rules from "@/server/handlers/v1/rules/route";
 import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
 import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
 import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
+import type { ProposedContent } from "@/lib/approvals/draft";
 import * as sequences from "@/server/handlers/v1/sequences/route";
 import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
@@ -299,6 +300,16 @@ type ThreadItem =
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
   | { kind: "comment"; id: string; text: string; postId: string | null; postTitle: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
 
+/** A pending `pending_approvals` row rendered as an in-thread draft bubble. `source` drives the tag
+ *  ("AI draft · awaiting approval" for ai_auto/ai_manual; "Held for approval" for a rule-hold). A draft
+ *  can carry a DM part and/or a public-comment part — both are shown, each with its own target tag. */
+export type DraftBubble = {
+  id: string;
+  source: "rule" | "ai_auto" | "ai_manual";
+  dmText: string | null;
+  commentText: string | null;
+};
+
 /** Fallback public URL for the post a comment was on, built from the id alone. Used only when no
  *  permalink was stored on the row (comment_logs.post_url). Facebook post ids resolve directly;
  *  Instagram media ids carry no shortcode, so IG relies on the stored permalink (resolved at log
@@ -511,15 +522,65 @@ function renderConvControls(conv: ConvControls): Html {
   </div>`;
 }
 
+/** Pending approvals for this conversation, as draft bubbles (workspace-scoped, oldest first so a
+ *  draft sits after the message it answers). Pulls the DM text and/or the public-comment text out of
+ *  the parked `proposed_content`. */
+async function loadDrafts(conversationId: string, workspaceId: string): Promise<DraftBubble[]> {
+  const rows = await db
+    .select({ id: pendingApprovals.id, source: pendingApprovals.source, proposed: pendingApprovals.proposed_content, created_at: pendingApprovals.created_at })
+    .from(pendingApprovals)
+    .where(and(
+      eq(pendingApprovals.conversation_id, conversationId),
+      eq(pendingApprovals.workspace_id, workspaceId),
+      eq(pendingApprovals.status, "pending"),
+    ))
+    .orderBy(asc(pendingApprovals.created_at));
+  return rows.map((r) => {
+    const pc = (r.proposed ?? {}) as { content?: { text?: string } | null; comment?: { text?: string } | null };
+    return { id: r.id, source: r.source, dmText: pc.content?.text ?? null, commentText: pc.comment?.text ?? null };
+  });
+}
+
+/** A pending approval rendered as an outbound-side draft bubble: the proposed text (DM and/or public),
+ *  a source tag, target chips, and an editable textarea with Accept / Edit / Reject. A rule-hold and an
+ *  AI draft render identically (only the tag copy differs). All dynamic text is escaped by `html``. */
+function renderDraftBubble(d: DraftBubble): Html {
+  const isAi = d.source !== "rule";
+  const tag = isAi ? "AI draft · awaiting approval" : "Held for approval";
+  // Both parts share one edited text on save (the Edit route updates whichever exist), so the textarea
+  // prefills with the DM body when present, else the public-comment text.
+  const prefill = d.dmText ?? d.commentText ?? "";
+  return html`<div class="msg msg-out msg-draft" data-approval-id="${d.id}">
+    <div class="bubble draft-bubble">
+      <div class="draft-tag">${icon(isAi ? "sparkles" : "clock", "ico", 12)} ${tag}</div>
+      ${d.commentText
+        ? html`<div class="draft-part"><span class="badge tone-info">public comment reply</span><div class="draft-text">${d.commentText}</div></div>`
+        : html``}
+      ${d.dmText
+        ? html`<div class="draft-part"><span class="badge tone-neutral">DM</span><div class="draft-text">${d.dmText}</div></div>`
+        : html``}
+      <form class="draft-edit" hx-post="/inbox/approval/${d.id}/edit" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
+        <textarea class="textarea" name="text" rows="2" required>${prefill}</textarea>
+        <div class="draft-actions">
+          <button class="btn btn-sm btn-primary" type="button" hx-post="/inbox/approval/${d.id}/approve" hx-target="#thread" hx-swap="innerHTML">Accept</button>
+          <button class="btn btn-sm" type="submit">Edit</button>
+          <button class="btn btn-sm btn-danger" type="button" hx-post="/inbox/approval/${d.id}/reject" hx-target="#thread" hx-swap="innerHTML">Reject</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+}
+
 export function renderThread(
   conv: ConvName & ConvControls,
   messages: ThreadItem[],
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
   // out as if the message went. `canReply` = the manual_reply PRO feature: free can READ the inbox
   // but the human-reply box is locked (rules still auto-reply for free). `upgradeUrl` for the lock.
-  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; upgradeUrl?: string } = {},
+  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; upgradeUrl?: string; drafts?: DraftBubble[] } = {},
 ): Html {
   const canReply = opts.canReply ?? true;
+  const drafts = opts.drafts ?? [];
   const canAiDraft = opts.canAiDraft ?? false;
   // Meta 24h-window heads-up: warn when the standard window is closing/closed (the send still goes —
   // a human reply past 24h rides the HUMAN_AGENT tag, see ./messaging-window + the outgoing worker).
@@ -559,6 +620,9 @@ export function renderThread(
     </div>
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs${isEmail ? " email-list" : ""}" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type, ctx)}</div>
+    ${drafts.length
+      ? html`<div id="thread-drafts" class="thread-drafts">${drafts.map(renderDraftBubble)}</div>`
+      : html``}
     ${windowNote}
     ${aiDraftBar}
     ${canReply
@@ -1114,8 +1178,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!conv) return c.notFound();
     // workspace_id alongside the PK keeps the unread reset tenant-scoped.
     await db.update(conversations).set({ unread_count: 0 }).where(and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId))).catch(() => {});
-    const msgs = await loadMessages(id);
-    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl });
+    const [msgs, drafts] = await Promise.all([loadMessages(id), loadDrafts(id, a.workspaceId)]);
+    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl, drafts });
 
     // htmx swaps the bare thread into #thread; a DIRECT navigation (e.g. the deep-link from a webhook
     // event's "Conversation →") must render the FULL inbox page with this thread open — otherwise the
@@ -1172,12 +1236,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canReply = features.has("manual_reply");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
+    const drafts = await loadDrafts(id, a.workspaceId);
     if (!res || res.status >= 400) {
       const errBody = res ? ((await res.json().catch(() => null)) as { error?: { message?: string } } | null) : null;
       const error = errBody?.error?.message ?? "Could not send the reply. Please try again.";
-      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, canAiDraft: features.has("ai_draft"), upgradeUrl }));
+      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, canAiDraft: features.has("ai_draft"), upgradeUrl, drafts }));
     }
-    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: features.has("ai_draft"), upgradeUrl }));
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: features.has("ai_draft"), upgradeUrl, drafts }));
   });
 
   // Conversation controls: status (close/snooze/reopen) + automation pause toggle, delegated to the
@@ -1197,7 +1262,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
-    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl }));
+    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
   });
 
   // On-demand AI draft (PRO): the inbox "Generate reply" button. Enqueues an `ai-draft` job with
@@ -1244,7 +1309,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const commentId = isComment ? (lastInbound?.platform_message_id ?? undefined) : undefined;
     if (!incomingText) {
       toastHeader(c, "warn", "Nothing to reply to yet.");
-      return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl }));
+      return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
     }
     if (target === "public" && !commentId) {
       toastHeader(c, "bad", "No comment to reply to here.");
@@ -1264,7 +1329,71 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     });
 
     toastHeader(c, "ok", "Draft requested - it'll appear here for approval.");
-    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl }));
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
+  });
+
+  // In-thread approval drafts (rule-holds + AI drafts shown as bubbles in the inbox). Accept/Reject
+  // REUSE the v1 approve/reject handlers (the same send/consent/charge-in-one-tx path the Approvals
+  // tab uses) but re-render the THREAD instead of the approvals list. Edit updates the parked
+  // proposed_content text in place (workspace-scoped) and re-renders — it never sends.
+  const reRenderThreadForConv = async (c: Context, a: AuthContext, convId: string, error?: string) => {
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const conv = await loadConversation(convId, a.workspaceId);
+    if (!conv) return c.notFound();
+    const [msgs, drafts] = await Promise.all([loadMessages(convId), loadDrafts(convId, a.workspaceId)]);
+    return c.html(renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl, drafts, error }));
+  };
+
+  // Resolve a pending approval to its conversation, workspace-scoped — a foreign/missing row → 404
+  // before any handler runs.
+  const approvalConv = async (id: string, workspaceId: string) =>
+    db.query.pendingApprovals.findFirst({
+      where: and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, workspaceId)),
+      columns: { conversation_id: true, proposed_content: true },
+    });
+
+  app.post("/inbox/approval/:id/approve", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const appr = await approvalConv(id, a.workspaceId);
+    if (!appr) return c.notFound();
+    const res = await approvalApprove.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
+    return reRenderThreadForConv(c, a, appr.conversation_id, await noticeFrom(res, "Could not approve — the reply was not sent."));
+  });
+
+  app.post("/inbox/approval/:id/reject", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const appr = await approvalConv(id, a.workspaceId);
+    if (!appr) return c.notFound();
+    const res = await approvalReject.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
+    return reRenderThreadForConv(c, a, appr.conversation_id, await noticeFrom(res, "Could not reject the reply."));
+  });
+
+  app.post("/inbox/approval/:id/edit", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const appr = await approvalConv(id, a.workspaceId);
+    if (!appr) return c.notFound();
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const text = typeof form.text === "string" ? form.text.trim() : "";
+    if (text) {
+      // One edited text feeds whichever parts the parked reply has — a DM body and/or a public-comment
+      // reply. Only update the pending row (a concurrently-approved/rejected row is left untouched).
+      const pc = (appr.proposed_content ?? {}) as ProposedContent;
+      const next: ProposedContent = { ...pc };
+      if (next.content) next.content = { ...next.content, text };
+      if (next.comment) next.comment = { ...next.comment, text };
+      if (!next.content && !next.comment) next.content = { text };
+      await db
+        .update(pendingApprovals)
+        .set({ proposed_content: next })
+        .where(and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, a.workspaceId), eq(pendingApprovals.status, "pending")));
+    }
+    return reRenderThreadForConv(c, a, appr.conversation_id);
   });
 
   // Connect a channel with a pasted long-lived / System User token. On success the unified channels
