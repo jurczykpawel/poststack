@@ -153,6 +153,12 @@ const envSchema = z.object({
   POSTSTACK_TELEMETRY_ENABLED: z.string().default("true"),
   TELEMETRY_URL: z.string().url().default("https://telemetry.techskills.academy/v1/ingest"),
 
+  // Webhook safe-target policy (SSRF). Secure-by-default: OFF. When "false" (default), outbound
+  // webhook delivery refuses private/loopback/link-local/LAN targets. Set "true" ONLY for a
+  // deliberately internal deployment that must POST to a private host. Raw string here; loadEnv()
+  // folds it into the resolved WEBHOOK_ALLOW_PRIVATE_TARGETS boolean the policy reads.
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: z.string().default("false"),
+
   // Cron
   CRON_SECRET: z.string().min(32),
 
@@ -192,7 +198,11 @@ function loadEnv() {
   const TELEMETRY_ENABLED =
     !truthy(parsed.data.POSTSTACK_TELEMETRY_DISABLED) && truthy(parsed.data.POSTSTACK_TELEMETRY_ENABLED);
 
-  return { ...parsed.data, TELEMETRY_ENABLED };
+  // Secure-by-default: webhook delivery may target private/loopback/LAN addresses only when this
+  // raw flag is explicitly truthy. Folded to a boolean here so the policy (Task 6) reads one type.
+  const WEBHOOK_ALLOW_PRIVATE_TARGETS = truthy(parsed.data.WEBHOOK_ALLOW_PRIVATE_TARGETS);
+
+  return { ...parsed.data, TELEMETRY_ENABLED, WEBHOOK_ALLOW_PRIVATE_TARGETS };
 }
 
 export const env = loadEnv();
