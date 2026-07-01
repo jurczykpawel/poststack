@@ -1512,6 +1512,24 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       columns: { conversation_id: true, proposed_content: true },
     });
 
+  // ADUX2: shared by the inbox-thread edit route and the /approvals page edit route (DRY) — one
+  // edited text feeds whichever parts the parked reply has (a DM body and/or a public-comment
+  // reply). Blank text is a silent no-op (the textarea is `required`, so this only guards a
+  // direct/malformed POST). Only updates while still `status='pending'` — a row a concurrent
+  // approve/reject already resolved is left untouched.
+  const updateProposedText = async (workspaceId: string, id: string, proposedContent: unknown, text: string): Promise<void> => {
+    if (!text) return;
+    const pc = (proposedContent ?? {}) as ProposedContent;
+    const next: ProposedContent = { ...pc };
+    if (next.content) next.content = { ...next.content, text };
+    if (next.comment) next.comment = { ...next.comment, text };
+    if (!next.content && !next.comment) next.content = { text };
+    await db
+      .update(pendingApprovals)
+      .set({ proposed_content: next })
+      .where(and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, workspaceId), eq(pendingApprovals.status, "pending")));
+  };
+
   app.post("/inbox/approval/:id/approve", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -1540,19 +1558,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!appr) return c.notFound();
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const text = typeof form.text === "string" ? form.text.trim() : "";
-    if (text) {
-      // One edited text feeds whichever parts the parked reply has — a DM body and/or a public-comment
-      // reply. Only update the pending row (a concurrently-approved/rejected row is left untouched).
-      const pc = (appr.proposed_content ?? {}) as ProposedContent;
-      const next: ProposedContent = { ...pc };
-      if (next.content) next.content = { ...next.content, text };
-      if (next.comment) next.comment = { ...next.comment, text };
-      if (!next.content && !next.comment) next.content = { text };
-      await db
-        .update(pendingApprovals)
-        .set({ proposed_content: next })
-        .where(and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, a.workspaceId), eq(pendingApprovals.status, "pending")));
-    }
+    await updateProposedText(a.workspaceId, id, appr.proposed_content, text);
     return reRenderThreadForConv(c, a, appr.conversation_id);
   });
 
@@ -2365,6 +2371,24 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     return c.html(await renderApprovalsView(a.workspaceId, await noticeFrom(res, "Could not reject the reply.")));
+  });
+
+  // ADUX2: edit a draft's text straight from the Approvals list (previously only possible from the
+  // inbox thread). Reuses updateProposedText (DRY with /inbox/approval/:id/edit) but re-renders the
+  // approvals list, not a thread.
+  app.post("/approvals/:id/edit", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const existing = await db.query.pendingApprovals.findFirst({
+      where: and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, a.workspaceId)),
+      columns: { proposed_content: true },
+    });
+    if (!existing) return c.notFound();
+    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const text = typeof form.text === "string" ? form.text.trim() : "";
+    await updateProposedText(a.workspaceId, id, existing.proposed_content, text);
+    return c.html(await renderApprovalsView(a.workspaceId));
   });
 
   // Events — the workspace activity log (a nav target). Read-only, identity-free type/time rows.
@@ -3720,19 +3744,23 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
     const who = a.contactName ?? a.recipient;
     const channel = a.threadType === "comment" ? "comment" : "DM";
     const meta = [a.channelName, channel, a.ruleName ?? "rule", timeAgo(a.created_at)].filter(Boolean).join(" · ");
-    return html`<div class="appr">
+    // ADUX2: one edited text feeds whichever parts the parked reply has — same single-textarea
+    // semantics as the inbox thread's edit form (updateProposedText applies it to both).
+    const editPrefill = dmText ?? commentText ?? "";
+    return html`<div class="appr" x-data="{ editing: false }">
       <div class="appr-top">
         <div>
           <div class="appr-who">${who}</div>
           <div class="appr-meta">${meta} · <a href="/inbox?open=${a.conversationId}">open in inbox →</a></div>
         </div>
-        <div class="appr-actions">
+        <div class="appr-actions" x-show="!editing">
           <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
+          <button class="btn btn-sm" type="button" @click="editing = true">Edit</button>
           <button class="btn btn-sm btn-danger" hx-post="/approvals/${a.id}/reject" hx-target="#approvals-list" hx-swap="innerHTML">Reject</button>
         </div>
       </div>
       ${a.trigger ? html`<blockquote class="appr-trigger">${a.trigger}</blockquote>` : html``}
-      <div class="appr-replies">
+      <div class="appr-replies" x-show="!editing">
         ${commentText ? html`<div class="appr-reply">
           <div class="appr-reply-head"><span class="badge tone-info">Public comment</span></div>
           <div class="appr-reply-text">${commentText}</div>
@@ -3742,6 +3770,13 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
           <div class="appr-reply-text">${dmText}</div>
         </div>` : (!commentText ? html`<div class="appr-reply"><div class="appr-reply-text is-empty">(no reply text)</div></div>` : html``)}
       </div>
+      <form class="draft-edit" x-show="editing" x-cloak hx-post="/approvals/${a.id}/edit" hx-ext="json-enc" hx-target="#approvals-list" hx-swap="innerHTML">
+        <textarea class="textarea" name="text" rows="3" required x-ref="ta">${editPrefill}</textarea>
+        <div class="draft-actions">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+          <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue">Cancel</button>
+        </div>
+      </form>
     </div>`;
   })}</div>${renderResolvedApprovals(resolved)}`;
 }

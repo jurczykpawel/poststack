@@ -173,6 +173,63 @@ describe("dashboard action error surfacing", () => {
     expect(body).toContain("Odrzucona odpowiedź"); // the rejected text is visible in history
   });
 
+  // ADUX2: editing straight from the Approvals list, previously only possible from the inbox thread.
+  it("approvals card renders an Edit toggle (Alpine) + edit form posting to /approvals/:id/edit", async () => {
+    if (!TEST_DB) return;
+    const [rule] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Edit-toggle rule", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "x" }, requires_approval: true,
+    }).returning({ id: s.autoReplyRules.id });
+    const [appr] = await db.insert(s.pendingApprovals).values({
+      workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH,
+      recipient_platform_id: "PSID-D", proposed_content: { content: { text: "Original draft text" } },
+    }).returning({ id: s.pendingApprovals.id });
+    const body = await (await app.request("/approvals", { headers: { cookie } })).text();
+    expect(body).toContain('x-data="{ editing: false }"');
+    expect(body).toContain(`hx-post="/approvals/${appr!.id}/edit"`);
+    expect(body).toContain("Save");
+    expect(body).toContain("Cancel");
+    expect(body).toContain("Original draft text"); // prefilled into the edit textarea
+    // No unconditional textarea outside the x-show="editing" form.
+    expect(body).toMatch(/x-show="editing"[^>]*>[\s\S]*<textarea/);
+  });
+
+  it("POST /approvals/:id/edit persists the new text and re-renders the approvals list", async () => {
+    if (!TEST_DB) return;
+    const [rule] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Edit-persist rule", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+      response_type: "text", response_config: { text: "x" }, requires_approval: true,
+    }).returning({ id: s.autoReplyRules.id });
+    const [appr] = await db.insert(s.pendingApprovals).values({
+      workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH,
+      recipient_platform_id: "PSID-D", proposed_content: { content: { text: "Before edit" } },
+    }).returning({ id: s.pendingApprovals.id });
+    const res = await app.request(`/approvals/${appr!.id}/edit`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "After edit — saved live" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("After edit — saved live");
+    expect(body).not.toContain("Before edit");
+    const [row] = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.id, appr!.id));
+    const pc = row.proposed_content as { content?: { text?: string } };
+    expect(pc.content?.text).toBe("After edit — saved live");
+  });
+
+  it("POST /approvals/:id/edit on a foreign/missing approval -> 404", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/approvals/dddddddd-0000-4000-8000-00000000aa02/edit", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "nope" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
   it("inbox deep-link (?open=) self-loads the target conversation thread", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request(`/inbox?open=${CONV}`, { headers: { cookie } })).text();
