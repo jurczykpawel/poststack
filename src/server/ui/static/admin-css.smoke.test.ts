@@ -90,4 +90,15 @@ describe("admin.css visual layer", () => {
   it("suppresses the global htmx-request spinner on .conv-item (it would reflow the row)", () => {
     expect(css).toMatch(/\.conv-item\.htmx-request::before\s*\{[^}]*content:\s*none/);
   });
+
+  // Follow-up: removing the spinner outright left NO click feedback at all (felt broken/unresponsive).
+  // Fix: hide the timestamp text (visibility:hidden — its layout space stays reserved) and overlay a
+  // spinner ABSOLUTELY positioned in that same reserved slot, so it appears without taking or shifting
+  // any layout space — the "neutral position" the owner asked for.
+  it("shows a non-reflowing spinner over the (space-reserving) hidden timestamp while a conv-item request is in flight", () => {
+    expect(css).toMatch(/\.conv-item\.htmx-request\s+\.conv-time\s*\{[^}]*visibility:\s*hidden/);
+    const overlayRule = css.match(/\.conv-item\.htmx-request\s+\.conv-time-wrap::after\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(overlayRule).toContain("position: absolute");
+    expect(overlayRule).toContain("ps-spin");
+  });
 });
