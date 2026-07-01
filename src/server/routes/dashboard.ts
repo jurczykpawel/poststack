@@ -1159,7 +1159,7 @@ function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolea
  * channel has no per-channel prompt override; blank = the built-in default prompt. PRO-gated UI — a
  * free instance sees an upsell instead of the textarea (the POST is also gated server-side).
  */
-function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
+function renderAiDraftPrompt(promptDm: string | null, promptPublic: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
   const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
   if (!canConfigure) {
     return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default AI-draft prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
@@ -1168,9 +1168,11 @@ function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgra
   const aiOff = aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts");
   return html`${notice}${aiOff}
     <form hx-post="/settings/ai-draft-prompt" hx-ext="json-enc" hx-target="#ai-draft-prompt-area" hx-swap="innerHTML" style="max-width:560px">
-      <label class="fld"><span>Default AI-draft prompt <small>— used when a channel has no prompt override; blank = the built-in default below</small></span>
-        <textarea name="ai_draft_prompt" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${prompt ?? ""}</textarea></label>
-      <p class="muted" style="font-size:.78rem;margin:.25rem 0 0">Built-in default (used when blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
+      <label class="fld"><span>Default DM prompt <small>— used when a channel has no DM prompt override; blank = the built-in default below</small></span>
+        <textarea name="ai_draft_prompt_dm" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${promptDm ?? ""}</textarea></label>
+      <label class="fld" style="margin-top:.6rem"><span>Default public comment prompt <small>— used when a channel has no public comment prompt override; blank = the built-in default below</small></span>
+        <textarea name="ai_draft_prompt_public" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${promptPublic ?? ""}</textarea></label>
+      <p class="muted" style="font-size:.78rem;margin:.25rem 0 0">Built-in default (used when both are blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
       <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
     </form>`;
 }
@@ -1827,14 +1829,15 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const license = await getInstanceLicense();
     if (!license.features.has("ai_draft")) {
-      return c.html(renderAiDraftPrompt(null, false, license.upgradeUrl), 403);
+      return c.html(renderAiDraftPrompt(null, null, false, license.upgradeUrl), 403);
     }
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     // Cap at 4000 chars for parity with the per-channel prompt (channels/service.ts) — both feed the
     // same LLM prompt builder, so an unbounded workspace default must not slip past the channel cap.
-    const raw = typeof form.ai_draft_prompt === "string" ? form.ai_draft_prompt.trim().slice(0, 4000) : "";
-    await db.update(workspaces).set({ ai_draft_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
-    return c.html(renderAiDraftPrompt(raw || null, true, license.upgradeUrl, "Default AI-draft prompt saved.", await isAiConfigured()));
+    const rawDm = typeof form.ai_draft_prompt_dm === "string" ? form.ai_draft_prompt_dm.trim().slice(0, 4000) : "";
+    const rawPublic = typeof form.ai_draft_prompt_public === "string" ? form.ai_draft_prompt_public.trim().slice(0, 4000) : "";
+    await db.update(workspaces).set({ ai_draft_prompt_dm: rawDm || null, ai_draft_prompt_public: rawPublic || null }).where(eq(workspaces.id, a.workspaceId));
+    return c.html(renderAiDraftPrompt(rawDm || null, rawPublic || null, true, license.upgradeUrl, "Default AI-draft prompt saved.", await isAiConfigured()));
   });
 
   // AIPROMPT1: persist the workspace-default rephrase prompt (PRO). Blank → null (built-in default).
@@ -1857,7 +1860,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const [workspace, license, alertWebhook, keys] = await Promise.all([
-      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt: true, ai_rephrase_prompt: true } }),
+      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt_dm: true, ai_draft_prompt_public: true, ai_rephrase_prompt: true } }),
       getInstanceLicense(),
       getAlertWebhook(a.workspaceId),
       loadKeys(a.workspaceId),
@@ -1972,7 +1975,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               ${canAiDraft ? html`` : proLink(upgradeUrl, "PRO")}
             </div>
             <p class="muted" style="margin-bottom:1rem">Set the workspace-default prompt used when drafting AI replies. Each channel can override it (and enable drafting) from its own settings.</p>
-            <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt ?? null, canAiDraft, upgradeUrl, undefined, aiConfigured)}</div>
+            <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt_dm ?? null, workspace?.ai_draft_prompt_public ?? null, canAiDraft, upgradeUrl, undefined, aiConfigured)}</div>
           </section>
           <section class="section">
             <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">

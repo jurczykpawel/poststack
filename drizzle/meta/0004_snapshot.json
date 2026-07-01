@@ -1392,8 +1392,14 @@
           "notNull": true,
           "default": "'dm'"
         },
-        "ai_draft_prompt": {
-          "name": "ai_draft_prompt",
+        "ai_draft_prompt_dm": {
+          "name": "ai_draft_prompt_dm",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_draft_prompt_public": {
+          "name": "ai_draft_prompt_public",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -7020,8 +7026,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "ai_draft_prompt": {
-          "name": "ai_draft_prompt",
+        "ai_draft_prompt_dm": {
+          "name": "ai_draft_prompt_dm",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_draft_prompt_public": {
+          "name": "ai_draft_prompt_public",
           "type": "text",
           "primaryKey": false,
           "notNull": false

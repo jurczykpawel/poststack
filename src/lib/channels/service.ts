@@ -69,8 +69,10 @@ export interface PublicChannel {
   ai_draft_enabled: boolean;
   /** AIDRAFT1: which surface AI drafting applies to (dm / public comments / both). */
   ai_draft_target: AiDraftTarget;
-  /** AIDRAFT1: per-channel prompt override; null inherits the workspace default. */
-  ai_draft_prompt: string | null;
+  /** ADPROMPT2: per-channel DM-reply prompt override; null inherits the workspace default. */
+  ai_draft_prompt_dm: string | null;
+  /** ADPROMPT2: per-channel public-comment-reply prompt override; null inherits the workspace default. */
+  ai_draft_prompt_public: string | null;
   /** AIDRAFT1: send a high-confidence DM draft without manual approval (advanced). */
   ai_draft_autosend_dm: boolean;
   /** AIDRAFT1: send a high-confidence public-comment draft without manual approval (advanced). */
@@ -104,7 +106,8 @@ export function toPublic(r: ChannelRow): PublicChannel {
     messaging_connection: messagingConnection({ platform: r.platform, messaging_token_expires_at: r.messaging_token_expires_at ?? null }),
     ai_draft_enabled: r.ai_draft_enabled,
     ai_draft_target: r.ai_draft_target as AiDraftTarget,
-    ai_draft_prompt: r.ai_draft_prompt,
+    ai_draft_prompt_dm: r.ai_draft_prompt_dm,
+    ai_draft_prompt_public: r.ai_draft_prompt_public,
     ai_draft_autosend_dm: r.ai_draft_autosend_dm,
     ai_draft_autosend_public: r.ai_draft_autosend_public,
   };
@@ -296,12 +299,14 @@ export async function setChannelDefaultAutoStory(workspaceId: string, id: string
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
-/** AIDRAFT1: per-channel AI-draft settings. Workspace-scoped (404 on a foreign id). A blank prompt
- *  override stores NULL (= inherit the workspace default). The two auto-send flags bypass approval. */
+/** AIDRAFT1/ADPROMPT2: per-channel AI-draft settings. Workspace-scoped (404 on a foreign id). A
+ *  blank prompt override stores NULL (= inherit the matching workspace default). The two prompt
+ *  overrides are independent (DM vs public comment reply). The two auto-send flags bypass approval. */
 export interface AiDraftChannelSettings {
   enabled: boolean;
   target: AiDraftTarget;
-  prompt: string;
+  promptDm: string;
+  promptPublic: string;
   autosendDm: boolean;
   autosendPublic: boolean;
 }
@@ -316,7 +321,8 @@ export async function setChannelAiDraftSettings(
     .set({
       ai_draft_enabled: settings.enabled,
       ai_draft_target: settings.target,
-      ai_draft_prompt: settings.prompt.trim().slice(0, 4000) || null,
+      ai_draft_prompt_dm: settings.promptDm.trim().slice(0, 4000) || null,
+      ai_draft_prompt_public: settings.promptPublic.trim().slice(0, 4000) || null,
       ai_draft_autosend_dm: settings.autosendDm,
       ai_draft_autosend_public: settings.autosendPublic,
     })

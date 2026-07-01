@@ -55,7 +55,7 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
 
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, job.channelId),
-    columns: { ai_draft_prompt: true, ai_draft_autosend_dm: true, ai_draft_autosend_public: true },
+    columns: { ai_draft_prompt_dm: true, ai_draft_prompt_public: true, ai_draft_autosend_dm: true, ai_draft_autosend_public: true },
   });
   if (!channel) {
     helpers.logger.info(`ai-draft: channel ${job.channelId} not found — skipping`);
@@ -64,11 +64,14 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
 
   const workspace = await db.query.workspaces.findFirst({
     where: eq(workspaces.id, job.workspaceId),
-    columns: { ai_draft_prompt: true },
+    columns: { ai_draft_prompt_dm: true, ai_draft_prompt_public: true },
   });
+  // ADPROMPT2: a "both" draft is ALSO posted publicly, so it must read the public persona/tone even
+  // though it's also sent as a DM — only a plain "dm" target ever uses the DM-specific prompt.
+  const isPublicFacing = job.target === "public" || job.target === "both";
   const prompt = resolveDraftPrompt({
-    channelPrompt: channel.ai_draft_prompt,
-    workspacePrompt: workspace?.ai_draft_prompt,
+    channelPrompt: isPublicFacing ? channel.ai_draft_prompt_public : channel.ai_draft_prompt_dm,
+    workspacePrompt: isPublicFacing ? workspace?.ai_draft_prompt_public : workspace?.ai_draft_prompt_dm,
   });
 
   // Per-workspace daily budget for draft generation. 0 = unlimited (BYOK / self-hosted). Over the

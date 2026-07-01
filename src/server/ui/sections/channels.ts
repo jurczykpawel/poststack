@@ -678,11 +678,17 @@ export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: s
             ${targetOpt("both", "Both")}
           </select>
         </label>
-        <label class="fld" style="margin-top:.6rem"><span>Prompt override <small>— blank inherits the workspace default, then the built-in default below</small></span>
-          <textarea name="prompt" rows="3" maxlength="4000"
+        <label class="fld" style="margin-top:.6rem"><span>DM prompt override <small>— blank inherits the workspace default, then the built-in default below</small></span>
+          <textarea name="promptDm" rows="3" maxlength="4000"
             placeholder="Inherit workspace default"
-            aria-label="AI-draft prompt override"
-            style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt ?? ""}</textarea>
+            aria-label="AI-draft DM prompt override"
+            style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt_dm ?? ""}</textarea>
+        </label>
+        <label class="fld" style="margin-top:.6rem"><span>Public comment prompt override <small>— blank inherits the workspace default, then the built-in default below</small></span>
+          <textarea name="promptPublic" rows="3" maxlength="4000"
+            placeholder="Inherit workspace default"
+            aria-label="AI-draft public comment prompt override"
+            style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt_public ?? ""}</textarea>
         </label>
         <p class="muted" style="font-size:.72rem;margin:.2rem 0 0">Built-in default (used when both are blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
         <label class="compose-toggle" style="margin-top:.6rem">
@@ -959,7 +965,8 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     await setChannelAiDraftSettings(a.workspaceId, id, {
       enabled: String(form.enabled ?? "") === "1",
       target,
-      prompt: String(form.prompt ?? ""),
+      promptDm: String(form.promptDm ?? ""),
+      promptPublic: String(form.promptPublic ?? ""),
       autosendDm: String(form.autosendDm ?? "") === "1",
       autosendPublic: String(form.autosendPublic ?? "") === "1",
     });

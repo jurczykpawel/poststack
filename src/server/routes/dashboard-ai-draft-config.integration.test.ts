@@ -68,68 +68,85 @@ function postForm(path: string, fields: Record<string, string>) {
   });
 }
 
-async function wsPrompt(): Promise<string | null> {
-  const row = await db.query.workspaces.findFirst({ where: eq(s.workspaces.id, WS), columns: { ai_draft_prompt: true } });
-  return row?.ai_draft_prompt ?? null;
+async function wsPrompts(): Promise<{ dm: string | null; pub: string | null }> {
+  const row = await db.query.workspaces.findFirst({ where: eq(s.workspaces.id, WS), columns: { ai_draft_prompt_dm: true, ai_draft_prompt_public: true } });
+  return { dm: row?.ai_draft_prompt_dm ?? null, pub: row?.ai_draft_prompt_public ?? null };
 }
 async function chRow() {
   return db.query.channels.findFirst({ where: eq(s.channels.id, CH) });
 }
 
-describe("Workspace default AI-draft prompt — render + persist (Task 8)", () => {
-  it("GET /settings (PRO) renders the default-prompt textarea", async () => {
+describe("Workspace default AI-draft prompt — render + persist (Task 8 / ADPROMPT2)", () => {
+  it("GET /settings (PRO) renders both the DM and public-comment default-prompt textareas", async () => {
     if (!TEST_DB) return;
     const html = await (await get("/settings")).text();
-    expect(html).toContain('name="ai_draft_prompt"');
+    expect(html).toContain('name="ai_draft_prompt_dm"');
+    expect(html).toContain('name="ai_draft_prompt_public"');
   });
 
-  it("GET /settings (free) shows a PRO upsell, no textarea", async () => {
+  it("GET /settings (free) shows a PRO upsell, no textareas", async () => {
     if (!TEST_DB) return;
     await gate.clearLicense();
     gate.invalidateLicenseCache();
     const html = await (await get("/settings")).text();
-    expect(html).not.toContain('name="ai_draft_prompt"');
+    expect(html).not.toContain('name="ai_draft_prompt_dm"');
+    expect(html).not.toContain('name="ai_draft_prompt_public"');
   });
 
-  it("POST persists ai_draft_prompt (workspace-scoped)", async () => {
+  it("POST persists ai_draft_prompt_dm and ai_draft_prompt_public independently (workspace-scoped)", async () => {
     if (!TEST_DB) return;
-    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt: "Reply warmly." });
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "Reply warmly.", ai_draft_prompt_public: "Stay concise and public-safe." });
     expect(res.status).toBe(200);
-    expect(await wsPrompt()).toBe("Reply warmly.");
+    expect(await wsPrompts()).toEqual({ dm: "Reply warmly.", pub: "Stay concise and public-safe." });
   });
 
-  it("POST caps the stored prompt at 4000 chars (parity with the per-channel prompt)", async () => {
+  it("setting only the DM prompt leaves the public prompt untouched, and vice versa", async () => {
     if (!TEST_DB) return;
-    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt: "a".repeat(5000) });
+    await db.update(s.workspaces).set({ ai_draft_prompt_public: "Existing public prompt." }).where(eq(s.workspaces.id, WS));
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "New DM prompt." });
     expect(res.status).toBe(200);
-    expect((await wsPrompt())?.length).toBe(4000);
+    // The route persists both fields from the submitted form each time (blank → null), matching a
+    // real form submit where both textareas are always present — so an omitted key means "blank".
+    expect(await wsPrompts()).toEqual({ dm: "New DM prompt.", pub: null });
   });
 
-  it("POST with a blank prompt stores null", async () => {
+  it("POST caps each stored prompt at 4000 chars independently (parity with the per-channel prompt)", async () => {
     if (!TEST_DB) return;
-    await db.update(s.workspaces).set({ ai_draft_prompt: "old" }).where(eq(s.workspaces.id, WS));
-    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt: "   " });
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "a".repeat(5000), ai_draft_prompt_public: "b".repeat(5000) });
     expect(res.status).toBe(200);
-    expect(await wsPrompt()).toBeNull();
+    const { dm, pub } = await wsPrompts();
+    expect(dm?.length).toBe(4000);
+    expect(pub?.length).toBe(4000);
+    expect(dm?.[0]).toBe("a");
+    expect(pub?.[0]).toBe("b");
+  });
+
+  it("POST with blank prompts stores null for both", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.workspaces).set({ ai_draft_prompt_dm: "old dm", ai_draft_prompt_public: "old public" }).where(eq(s.workspaces.id, WS));
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "   ", ai_draft_prompt_public: "  " });
+    expect(res.status).toBe(200);
+    expect(await wsPrompts()).toEqual({ dm: null, pub: null });
   });
 
   it("free instance → 403, no write", async () => {
     if (!TEST_DB) return;
     await gate.clearLicense();
     gate.invalidateLicenseCache();
-    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt: "nope" });
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "nope", ai_draft_prompt_public: "nope" });
     expect(res.status).toBe(403);
-    expect(await wsPrompt()).toBeNull();
+    expect(await wsPrompts()).toEqual({ dm: null, pub: null });
   });
 });
 
-describe("Per-channel AI-draft settings — persist (Task 8)", () => {
-  it("POST writes all six fields (workspace-scoped)", async () => {
+describe("Per-channel AI-draft settings — persist (Task 8 / ADPROMPT2)", () => {
+  it("POST writes all seven fields (workspace-scoped)", async () => {
     if (!TEST_DB) return;
     const res = await postForm(`/channels/${CH}/ai-draft`, {
       enabled: "1",
       target: "both",
-      prompt: "Channel voice.",
+      promptDm: "Channel DM voice.",
+      promptPublic: "Channel public voice.",
       autosendDm: "1",
       autosendPublic: "1",
     });
@@ -137,19 +154,31 @@ describe("Per-channel AI-draft settings — persist (Task 8)", () => {
     const row = await chRow();
     expect(row?.ai_draft_enabled).toBe(true);
     expect(row?.ai_draft_target).toBe("both");
-    expect(row?.ai_draft_prompt).toBe("Channel voice.");
+    expect(row?.ai_draft_prompt_dm).toBe("Channel DM voice.");
+    expect(row?.ai_draft_prompt_public).toBe("Channel public voice.");
     expect(row?.ai_draft_autosend_dm).toBe(true);
     expect(row?.ai_draft_autosend_public).toBe(true);
   });
 
-  it("unchecked toggles persist as false; blank prompt → null (inherit)", async () => {
+  it("the DM and public prompt overrides are independent — setting one doesn't touch the other", async () => {
     if (!TEST_DB) return;
-    await db.update(s.channels).set({ ai_draft_enabled: true, ai_draft_prompt: "x", ai_draft_autosend_dm: true }).where(eq(s.channels.id, CH));
-    const res = await postForm(`/channels/${CH}/ai-draft`, { target: "dm", prompt: "" });
+    await db.update(s.channels).set({ ai_draft_prompt_dm: "old dm", ai_draft_prompt_public: "old public" }).where(eq(s.channels.id, CH));
+    const res = await postForm(`/channels/${CH}/ai-draft`, { target: "dm", promptDm: "new dm", promptPublic: "old public" });
+    expect(res.status).toBe(200);
+    const row = await chRow();
+    expect(row?.ai_draft_prompt_dm).toBe("new dm");
+    expect(row?.ai_draft_prompt_public).toBe("old public");
+  });
+
+  it("unchecked toggles persist as false; blank prompts → null (inherit)", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ ai_draft_enabled: true, ai_draft_prompt_dm: "x", ai_draft_prompt_public: "y", ai_draft_autosend_dm: true }).where(eq(s.channels.id, CH));
+    const res = await postForm(`/channels/${CH}/ai-draft`, { target: "dm", promptDm: "", promptPublic: "" });
     expect(res.status).toBe(200);
     const row = await chRow();
     expect(row?.ai_draft_enabled).toBe(false);
-    expect(row?.ai_draft_prompt).toBeNull();
+    expect(row?.ai_draft_prompt_dm).toBeNull();
+    expect(row?.ai_draft_prompt_public).toBeNull();
     expect(row?.ai_draft_autosend_dm).toBe(false);
     expect(row?.ai_draft_autosend_public).toBe(false);
   });

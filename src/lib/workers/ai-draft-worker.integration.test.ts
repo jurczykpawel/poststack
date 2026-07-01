@@ -103,6 +103,20 @@ async function setAutosend(over: { dm?: boolean; public?: boolean }) {
     .where(eq(s.channels.id, CH));
 }
 
+async function setChannelPrompts(over: { dm?: string | null; public?: string | null }) {
+  await db
+    .update(s.channels)
+    .set({ ai_draft_prompt_dm: over.dm ?? null, ai_draft_prompt_public: over.public ?? null })
+    .where(eq(s.channels.id, CH));
+}
+
+async function setWorkspacePrompts(over: { dm?: string | null; public?: string | null }) {
+  await db
+    .update(s.workspaces)
+    .set({ ai_draft_prompt_dm: over.dm ?? null, ai_draft_prompt_public: over.public ?? null })
+    .where(eq(s.workspaces.id, WS));
+}
+
 function baseJob(over: Partial<import("@/lib/queue/types").AiDraftJob> = {}): import("@/lib/queue/types").AiDraftJob {
   return {
     workspaceId: WS,
@@ -227,6 +241,60 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     await processAiDraft(baseJob({ target: "dm" }), helpersFor());
 
     expect(generateDraftMock.mock.calls[0][0].conversationId).toBe(CONV);
+  });
+
+  // ADPROMPT2: the single ai_draft_prompt override was split into an independent DM one and public
+  // comment one — prove the worker resolves the CORRECT one per job.target, not just that resolution
+  // happens (already covered in isolation by draft.test.ts's resolveDraftPrompt unit tests).
+  it("target dm: uses the channel's DM prompt override", async () => {
+    if (!TEST_DB) return;
+    await setChannelPrompts({ dm: "Channel DM voice.", public: "Channel public voice." });
+    generateDraftMock.mockResolvedValue("Drafted DM");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    expect(generateDraftMock.mock.calls[0][0].prompt).toBe("Channel DM voice.");
+  });
+
+  it("target public: uses the channel's public-comment prompt override, not the DM one", async () => {
+    if (!TEST_DB) return;
+    await setChannelPrompts({ dm: "Channel DM voice.", public: "Channel public voice." });
+    generateDraftMock.mockResolvedValue("Public reply");
+    await processAiDraft(baseJob({ target: "public", commentId: "CMT-PROMPT-1", isComment: true }), helpersFor());
+
+    expect(generateDraftMock.mock.calls[0][0].prompt).toBe("Channel public voice.");
+  });
+
+  it("target both: uses the public-comment prompt (the text is also posted publicly)", async () => {
+    if (!TEST_DB) return;
+    await setChannelPrompts({ dm: "Channel DM voice.", public: "Channel public voice." });
+    generateDraftMock.mockResolvedValue("Both reply");
+    await processAiDraft(baseJob({ target: "both", commentId: "CMT-PROMPT-2", isComment: true }), helpersFor());
+
+    expect(generateDraftMock.mock.calls[0][0].prompt).toBe("Channel public voice.");
+  });
+
+  it("falls back to the matching workspace prompt when the channel override is unset, per target", async () => {
+    if (!TEST_DB) return;
+    await setWorkspacePrompts({ dm: "Workspace DM default.", public: "Workspace public default." });
+    generateDraftMock.mockResolvedValue("Drafted DM");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+    expect(generateDraftMock.mock.calls[0][0].prompt).toBe("Workspace DM default.");
+
+    generateDraftMock.mockClear();
+    await processAiDraft(baseJob({ target: "public", commentId: "CMT-PROMPT-3", isComment: true }), helpersFor());
+    expect(generateDraftMock.mock.calls[0][0].prompt).toBe("Workspace public default.");
+  });
+
+  it("a channel DM override does not leak into a public-target generation, and vice versa", async () => {
+    if (!TEST_DB) return;
+    await setChannelPrompts({ dm: "DM_ONLY_MARKER", public: null });
+    await setWorkspacePrompts({ public: "Workspace public fallback." });
+    generateDraftMock.mockResolvedValue("Public reply");
+    await processAiDraft(baseJob({ target: "public", commentId: "CMT-PROMPT-4", isComment: true }), helpersFor());
+
+    // Public target with no channel public override falls through to the WORKSPACE public prompt —
+    // never to the channel's DM override, even though one is set.
+    expect(generateDraftMock.mock.calls[0][0].prompt).toBe("Workspace public fallback.");
   });
 
   it("target both, autosend_dm on / autosend_public off: DM sends (private reply), public part parked", async () => {

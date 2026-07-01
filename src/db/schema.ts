@@ -243,8 +243,11 @@ export const channels = pgTable("channels", {
 	ai_draft_enabled: boolean("ai_draft_enabled").default(false).notNull(),
 	// Which surface AI drafting applies to: dm / public comments / both.
 	ai_draft_target: aiDraftTarget("ai_draft_target").default('dm').notNull(),
-	// Optional per-channel prompt override; falls back to the workspace prompt when null.
-	ai_draft_prompt: text("ai_draft_prompt"),
+	// ADPROMPT2: optional per-channel prompt override, split by response type (a DM and a public
+	// comment reply often want a different persona/tone) — each falls back independently to the
+	// matching workspace prompt when null.
+	ai_draft_prompt_dm: text("ai_draft_prompt_dm"),
+	ai_draft_prompt_public: text("ai_draft_prompt_public"),
 	// When true, a high-confidence AI draft for that surface is sent without manual approval.
 	ai_draft_autosend_dm: boolean("ai_draft_autosend_dm").default(false).notNull(),
 	ai_draft_autosend_public: boolean("ai_draft_autosend_public").default(false).notNull(),
@@ -289,9 +292,10 @@ export const workspaces = pgTable("workspaces", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 	message_retention_days: integer("message_retention_days"),
-	// AIDRAFT1: workspace-default prompt used when drafting AI replies; per-channel
-	// ai_draft_prompt overrides it. Null = use the built-in default prompt.
-	ai_draft_prompt: text("ai_draft_prompt"),
+	// AIDRAFT1/ADPROMPT2: workspace-default prompts used when drafting AI replies, split by response
+	// type; a per-channel ai_draft_prompt_dm/_public overrides the matching one. Null = built-in default.
+	ai_draft_prompt_dm: text("ai_draft_prompt_dm"),
+	ai_draft_prompt_public: text("ai_draft_prompt_public"),
 	// AIPROMPT1: workspace-default rephrase prompt; a per-rule custom_prompt overrides it.
 	// Null = use the built-in default rephrase prompt (DEFAULT_REPHRASE_PROMPT).
 	ai_rephrase_prompt: text("ai_rephrase_prompt"),

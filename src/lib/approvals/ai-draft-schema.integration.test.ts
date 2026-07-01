@@ -87,14 +87,23 @@ describe("AI-draft schema additions", () => {
     const [row] = await db.select().from(s.channels).where(eq(s.channels.id, CH));
     expect(row.ai_draft_enabled).toBe(false);
     expect(row.ai_draft_target).toBe("dm");
-    expect(row.ai_draft_prompt).toBeNull();
     expect(row.ai_draft_autosend_dm).toBe(false);
     expect(row.ai_draft_autosend_public).toBe(false);
   });
 
-  it("workspaces.ai_draft_prompt defaults to null", async () => {
+  // ADPROMPT2: the single ai_draft_prompt override was split into an independent DM one and public
+  // comment one — both default to null (inherit the workspace default).
+  it("a freshly inserted channel defaults ai_draft_prompt_dm and ai_draft_prompt_public to null", async () => {
+    if (!TEST_DB) return;
+    const [row] = await db.select().from(s.channels).where(eq(s.channels.id, CH));
+    expect(row.ai_draft_prompt_dm).toBeNull();
+    expect(row.ai_draft_prompt_public).toBeNull();
+  });
+
+  it("workspaces.ai_draft_prompt_dm and ai_draft_prompt_public default to null", async () => {
     if (!TEST_DB) return;
     const [row] = await db.select().from(s.workspaces).where(eq(s.workspaces.id, WS));
-    expect(row.ai_draft_prompt).toBeNull();
+    expect(row.ai_draft_prompt_dm).toBeNull();
+    expect(row.ai_draft_prompt_public).toBeNull();
   });
 });
