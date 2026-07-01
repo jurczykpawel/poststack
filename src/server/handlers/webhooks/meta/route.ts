@@ -116,11 +116,21 @@ export async function POST(request: Request) {
     return new Response("Bad Request", { status: 400 });
   }
 
-  // Validate platform - Meta sends "page" for FB page webhooks, "instagram" for IG
+  // Validate platform - Meta sends "page" for FB page webhooks, "instagram" for IG. Anything else is
+  // signature-verified (we passed the HMAC check above) but not a shape we process — notably the Meta
+  // dashboard "Test" button, which POSTs a bare { field, value } with NO object/entry. Owner rule: KNOW
+  // about everything correctly-signed. Log it DURABLY via logWebhookMeta directly — bypassing the
+  // pre-verification rejection throttle (allowRejectionLog), which exists to cap UNAUTHENTICATED floods
+  // (bad signature / oversized), not trusted Meta traffic. Surface the tested `field` as safe metadata;
+  // never the raw body (unknown shape → stored-XSS defence). Then 200 so Meta doesn't retry.
   if (!VALID_PLATFORMS.has(payload.object)) {
-    // OBS1: an unknown object type was previously a silent 200 — record it (the object type is safe
-    // operator metadata; the body is not stored).
-    await logRejection(request, "rejected_object", { reason: "unsupported object type", object: payload.object, bodyLength: actualLength });
+    const rawField = (payload as { field?: unknown }).field;
+    const testedField = typeof rawField === "string" ? rawField : null;
+    await logWebhookMeta("rejected_object", {
+      reason: testedField ? `unsupported object type (field=${testedField})` : "unsupported object type",
+      object: payload.object,
+      bodyLength: actualLength,
+    }).catch(() => {});
     return Response.json({ status: "ignored", reason: "unsupported object type" });
   }
 

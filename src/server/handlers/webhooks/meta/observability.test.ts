@@ -122,6 +122,19 @@ describe("OBS1: rejected-before-record observability (POST)", () => {
     // PII guard: the object type is passed through for the operator, never raw body content.
     expect(logWebhookMeta.mock.calls.at(-1)?.[1]).toMatchObject({ object: "weather_station" });
   });
+
+  it("logs a SIGNED unsupported-object event even when the throttle is exhausted, surfacing the tested field (Meta dashboard Test)", async () => {
+    // A Meta dashboard "Test" POSTs a bare { field, value } — no object → unsupported — but it is
+    // signature-verified, so we must still KNOW it arrived (owner rule). Unlike a bad-signature reject,
+    // this is trusted Meta traffic, so it bypasses the pre-verification rejection-log throttle.
+    for (let i = 0; i < 100; i++) await POST(postReq(JSON.stringify({ object: "page", entry: [] }), "sha256=deadbeef"));
+    logWebhookMeta.mockClear();
+    const body = JSON.stringify({ field: "message_reactions", value: { reaction: { emoji: "❤️" } } });
+    const res = await POST(postReq(body, sign(body)));
+    expect(res.status).toBe(200);
+    expect(lastStatus()).toBe("rejected_object"); // logged despite the exhausted throttle
+    expect(JSON.stringify(logWebhookMeta.mock.calls.at(-1)?.[1])).toContain("message_reactions"); // tested field surfaced
+  });
 });
 
 describe("OBS1 follow-up: throttling the unauthenticated rejection log", () => {
