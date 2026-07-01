@@ -1379,6 +1379,13 @@ a.msg-chip.msg-media:hover { border-color: var(--accent); }
 /* Forms posting via htmx (no explicit indicator button) dim gently while in flight. */
 form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 
+/* ADPOLL1: visible feedback while an AI draft is generating (the drafts-region self-poll). Spins for
+   the whole wait, not just the ~100ms of each poll request — reuses ps-spin above. */
+.draft-generating { display: flex; align-items: center; gap: 8px; padding: 6px 2px; color: var(--text-3); font-size: 0.82rem; }
+.draft-spinner { display: inline-block; width: 13px; height: 13px; flex: 0 0 auto;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: ps-spin 0.6s linear infinite; }
+
 /* License upsell — gated tabs (API keys, etc.) show this instead of the locked UI. */
 .upsell { max-width: 44rem; border: 1px solid var(--border); border-radius: var(--r-card);
   background: var(--surface); padding: 18px 18px 16px; }

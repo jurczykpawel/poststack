@@ -606,7 +606,12 @@ function renderDraftsRegion(drafts: DraftBubble[], conversationId: string, poll:
   if (poll === false || poll >= MAX_DRAFT_POLL_ATTEMPTS) {
     return html`<div id="thread-drafts" class="thread-drafts"></div>`;
   }
-  return html`<div id="thread-drafts" class="thread-drafts" hx-get="/inbox/${conversationId}/drafts?attempt=${poll + 1}" hx-trigger="load delay:3s" hx-swap="outerHTML"></div>`;
+  // Visible feedback for the whole waiting window — the button's own click-spinner (.htmx-request,
+  // admin.css) only lasts for the ~100ms enqueue request itself, not the several seconds the LLM
+  // call actually takes. Reuses the same ps-spin keyframe for a consistent look.
+  return html`<div id="thread-drafts" class="thread-drafts" hx-get="/inbox/${conversationId}/drafts?attempt=${poll + 1}" hx-trigger="load delay:3s" hx-swap="outerHTML">
+    <div class="draft-generating"><span class="draft-spinner" aria-hidden="true"></span>AI is generating a reply…</div>
+  </div>`;
 }
 
 export function renderThread(

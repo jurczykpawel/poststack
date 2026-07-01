@@ -169,6 +169,12 @@ describe("renderThread — drafts-region self-terminating poll", () => {
     expect(out).toContain('hx-swap="outerHTML"');
   });
 
+  it("shows a spinner + 'generating' text while polling, so the wait isn't silent", async () => {
+    const out = s(await renderThread(makeConv(), [], { drafts: [], pollDrafts: true }));
+    expect(out).toContain('class="draft-spinner"');
+    expect(out).toContain("AI is generating a reply");
+  });
+
   it("stops polling (no hx-get) once a draft exists, even when pollDrafts=true", async () => {
     const out = s(
       await renderThread(makeConv(), [], {
@@ -177,6 +183,7 @@ describe("renderThread — drafts-region self-terminating poll", () => {
       }),
     );
     expect(out).toContain("Your reply is ready.");
+    expect(out).not.toContain("draft-spinner");
     expect(out).not.toMatch(/thread-drafts"[^>]*hx-get/);
   });
 });
