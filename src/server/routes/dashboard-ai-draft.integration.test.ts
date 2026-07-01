@@ -57,6 +57,9 @@ beforeEach(async () => {
   // PRO by default; the free-instance test clears it.
   await licenseInstance();
   gate.invalidateLicenseCache();
+  // An AI provider key is present by default so the enqueue tests exercise the real path; the
+  // "no AI configured" test clears it.
+  process.env.AI_API_KEY = "test-key";
 });
 
 afterAll(async () => {
@@ -142,6 +145,22 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     const res = await aiDraft(CONV_DM, { target: "public" });
     expect(res.status).toBe(422);
     expect(await aiDraftJobs()).toHaveLength(0);
+  });
+
+  it("no AI provider configured → warns, disables the buttons, no enqueue (not a silent 'Draft requested')", async () => {
+    if (!TEST_DB) return;
+    delete process.env.AI_API_KEY;
+    delete process.env.OPENAI_API_KEY; // alias — must also be clear so the fallback doesn't resolve it
+    try {
+      const res = await aiDraft(CONV_DM, { target: "dm" });
+      expect(res.status).toBe(200);
+      expect(await aiDraftJobs()).toHaveLength(0);
+      const html = await res.text();
+      expect(html).toContain("No AI provider configured"); // the inbox banner
+      expect(html).toContain('type="button" disabled'); // the Generate reply button is disabled
+    } finally {
+      process.env.AI_API_KEY = "test-key";
+    }
   });
 
   it("free instance (no ai_draft feature) → PRO response, no enqueue", async () => {

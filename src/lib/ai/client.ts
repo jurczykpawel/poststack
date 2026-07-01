@@ -5,6 +5,16 @@ import { getConfig } from "@/lib/settings/config";
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
+/**
+ * Whether an AI provider is configured (an API key is set — via Settings or the `AI_API_KEY` env).
+ * The single source of truth for "can AI actually run": the UI disables AI actions and the API
+ * reports `ai_configured` off this, mirroring what makes `chatComplete` return `null`. Model and
+ * base-url have defaults, so only the key gates availability.
+ */
+export async function isAiConfigured(): Promise<boolean> {
+  return (await getConfig("AI_API_KEY")) !== "";
+}
+
 export interface ChatCompleteOptions {
   /** System prompt. */
   system: string;

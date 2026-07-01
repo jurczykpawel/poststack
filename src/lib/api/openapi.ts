@@ -1015,9 +1015,11 @@ export const openApiSpec = {
     "/license": {
       get: {
         tags: ["License"],
-        summary: "Get the instance license status (tier, features; never the token)",
+        summary: "Get the instance license + capability status (tier, features, ai_configured; never the token)",
+        description:
+          "Returns { tier, status, expires_at, source, features, upgrade_url, ai_configured }. `ai_configured` is true when an AI provider key is set: the AI-dependent features (`ai_draft`, `rephrase`) only run when they are BOTH present in `features` (PRO) AND `ai_configured` is true — check both before relying on AI drafts/rephrasing.",
         responses: {
-          "200": { description: "License status" },
+          "200": { description: "Instance license + capability status" },
           "401": { $ref: "#/components/responses/Unauthorized" },
         },
       },

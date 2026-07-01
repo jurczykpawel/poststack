@@ -83,6 +83,20 @@ describe("/api/v1/license (real Postgres)", () => {
     expect(body.data.status).toBe("none");
     expect(body.data.features).toEqual([]);
     expect(body.data).not.toHaveProperty("token");
+    // AI-provider discovery: agents/automations read this to know AI-dependent actions are inert.
+    expect(body.data.ai_configured).toBe(false);
+  });
+
+  it("GET reports ai_configured=true once an AI provider key is set", async () => {
+    if (!TEST_DB) return;
+    process.env.AI_API_KEY = "sk-test-key";
+    try {
+      const res = await app.request("/api/v1/license", { headers: authHeaders });
+      const body = await res.json();
+      expect(body.data.ai_configured).toBe(true);
+    } finally {
+      delete process.env.AI_API_KEY;
+    }
   });
 
   it("POST rejects a malformed token with 422 + reason", async () => {

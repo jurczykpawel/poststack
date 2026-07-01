@@ -60,6 +60,7 @@ import { registerQueue } from "../ui/sections/queue";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
+import { isAiConfigured } from "@/lib/ai/client";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
@@ -579,11 +580,14 @@ export function renderThread(
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
   // out as if the message went. `canReply` = the manual_reply PRO feature: free can READ the inbox
   // but the human-reply box is locked (rules still auto-reply for free). `upgradeUrl` for the lock.
-  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; upgradeUrl?: string; drafts?: DraftBubble[] } = {},
+  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; aiConfigured?: boolean; upgradeUrl?: string; drafts?: DraftBubble[] } = {},
 ): Html {
   const canReply = opts.canReply ?? true;
   const drafts = opts.drafts ?? [];
   const canAiDraft = opts.canAiDraft ?? false;
+  // Whether an AI provider key is set. Defaults to true so callers that don't pass it keep the old
+  // behaviour; the inbox handlers pass the real value so the buttons disable when AI can't run.
+  const aiConfigured = opts.aiConfigured ?? true;
   // Meta 24h-window heads-up: warn when the standard window is closing/closed (the send still goes —
   // a human reply past 24h rides the HUMAN_AGENT tag, see ./messaging-window + the outgoing worker).
   const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at });
@@ -598,18 +602,26 @@ export function renderThread(
   // option only makes sense on a comment thread (the worker addresses the comment). The button
   // POSTs to /inbox/:id/ai-draft (json-enc) and re-renders the thread with a toast.
   const isComment = conv.thread_type === "comment";
+  // Without a provider key the buttons are disabled (a click would only ever park an empty
+  // generation) and a notice points to Settings — the same signal the API's `ai_configured` carries.
+  const aiOffNote = "AI provider not configured — set an API key in Settings.";
   const aiDraftBar = canAiDraft
-    ? html`<div class="ai-draft-bar" style="display:flex;gap:.4rem;padding:.3rem 0">
-        <button class="btn btn-sm" type="button"
-          title="Draft a DM reply with AI — it'll be parked here for your approval."
-          hx-post="/inbox/${conv.id}/ai-draft" hx-ext="json-enc" hx-vals='${`{"target":"dm"}`}'
-          hx-target="#thread" hx-swap="innerHTML">${icon("sparkles", "ico", 13)} Generate reply</button>
-        ${isComment
-          ? html`<button class="btn btn-sm" type="button"
-              title="Draft a public reply to the comment with AI — parked for your approval."
-              hx-post="/inbox/${conv.id}/ai-draft" hx-ext="json-enc" hx-vals='${`{"target":"public"}`}'
-              hx-target="#thread" hx-swap="innerHTML">${icon("comment", "ico", 13)} Generate public reply</button>`
+    ? html`<div class="ai-draft-bar" style="display:flex;flex-direction:column;gap:.35rem;padding:.3rem 0">
+        ${!aiConfigured
+          ? html`<div class="notice notice-warn" style="font-size:.76rem;display:flex;align-items:center;gap:6px">${icon("sparkles", "ico", 13)}<span>No AI provider configured — <a href="/settings">add an API key in Settings</a> to enable AI drafts.</span></div>`
           : html``}
+        <div style="display:flex;gap:.4rem">
+          <button class="btn btn-sm" type="button" ${aiConfigured ? "" : "disabled"}
+            title="${aiConfigured ? "Draft a DM reply with AI — it'll be parked here for your approval." : aiOffNote}"
+            hx-post="/inbox/${conv.id}/ai-draft" hx-ext="json-enc" hx-vals='${`{"target":"dm"}`}'
+            hx-target="#thread" hx-swap="innerHTML">${icon("sparkles", "ico", 13)} Generate reply</button>
+          ${isComment
+            ? html`<button class="btn btn-sm" type="button" ${aiConfigured ? "" : "disabled"}
+                title="${aiConfigured ? "Draft a public reply to the comment with AI — parked for your approval." : aiOffNote}"
+                hx-post="/inbox/${conv.id}/ai-draft" hx-ext="json-enc" hx-vals='${`{"target":"public"}`}'
+                hx-target="#thread" hx-swap="innerHTML">${icon("comment", "ico", 13)} Generate public reply</button>`
+            : html``}
+        </div>
       </div>`
     : html``;
   return html`<div class="thread-head">
@@ -1103,12 +1115,23 @@ function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolea
  * channel has no per-channel prompt override; blank = the built-in default prompt. PRO-gated UI — a
  * free instance sees an upsell instead of the textarea (the POST is also gated server-side).
  */
-function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
+/**
+ * Shared "no AI provider configured" banner, shown wherever AI drafts/rephrasing are configured when
+ * no provider key is set — the same signal the inbox buttons and the API's `ai_configured` carry.
+ * `what` names the affected feature. The key lives in Settings → Credentials ("AI rephrasing" group).
+ */
+function aiUnconfiguredBanner(what: string): Html {
+  return html`<div class="notice notice-warn" style="font-size:.8rem;display:flex;align-items:center;gap:6px">${icon("sparkles", "ico", 14)}<span>No AI provider configured — ${what} won't run until you add an API key in <a href="/settings">Settings → Credentials (AI rephrasing)</a>.</span></div>`;
+}
+
+function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
   const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
   if (!canConfigure) {
     return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default AI-draft prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
   }
-  return html`${notice}
+  // No provider key → the prompt is saved but nothing will run. Flag it where it's configured.
+  const aiOff = aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts");
+  return html`${notice}${aiOff}
     <form hx-post="/settings/ai-draft-prompt" hx-ext="json-enc" hx-target="#ai-draft-prompt-area" hx-swap="innerHTML" style="max-width:560px">
       <label class="fld"><span>Default AI-draft prompt <small>— used when a channel has no prompt override; blank = the built-in default below</small></span>
         <textarea name="ai_draft_prompt" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${prompt ?? ""}</textarea></label>
@@ -1122,12 +1145,13 @@ function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgra
  * blank; blank here = the built-in default rephrase prompt (shown as the textarea placeholder so the
  * operator always sees what will run if left empty — AIPROMPT2). PRO-gated UI + server-side gate.
  */
-function renderAiRephrasePrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
+function renderAiRephrasePrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
   const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
   if (!canConfigure) {
     return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default rephrase prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
   }
-  return html`${notice}
+  const aiOff = aiConfigured ? html`` : aiUnconfiguredBanner("AI rephrasing");
+  return html`${notice}${aiOff}
     <form hx-post="/settings/ai-rephrase-prompt" hx-ext="json-enc" hx-target="#ai-rephrase-prompt-area" hx-swap="innerHTML" style="max-width:560px">
       <label class="fld"><span>Default rephrase prompt <small>— used when a rule has no custom prompt; blank = the built-in default below</small></span>
         <textarea name="ai_rephrase_prompt" rows="4" maxlength="4000" placeholder="${DEFAULT_REPHRASE_PROMPT}" style="font:inherit">${prompt ?? ""}</textarea></label>
@@ -1142,8 +1166,10 @@ function renderAiRephrasePrompt(prompt: string | null, canConfigure: boolean, up
  * when the toggle is off. The custom-prompt placeholder + the hint show what applies when left blank
  * (workspace default → built-in default) — AIPROMPT2 visibility. Shared by the create + edit forms.
  */
-function rephrasePromptFields(tone: string | null, customPrompt: string | null): Html {
+function rephrasePromptFields(tone: string | null, customPrompt: string | null, aiConfigured = true): Html {
+  const aiOff = aiConfigured ? html`` : aiUnconfiguredBanner("rephrasing");
   return html`<div x-show="responseMode === 'text' && aiRephrase" x-cloak class="card" style="display:grid;gap:.5rem;margin:.25rem 0">
+    ${aiOff}
     <label class="fld"><span>Tone <small>— optional; steers the built-in prompt (e.g. casual, warm)</small></span>
       <input class="input" name="tone" maxlength="100" placeholder="${DEFAULT_REPHRASE_TONE}" value="${tone ?? ""}" :disabled="!aiRephrase" /></label>
     <label class="fld"><span>Custom prompt <small>— optional; fully overrides the prompt. Blank = your workspace default (Settings → Automation), or the built-in default below</small></span>
@@ -1276,13 +1302,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       return c.req.header("hx-request") === "true" ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
     }
     const { features, products, upgradeUrl } = await getInstanceLicense();
+    const aiConfigured = await isAiConfigured();
     const id = c.req.param("id");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     // workspace_id alongside the PK keeps the unread reset tenant-scoped.
     await db.update(conversations).set({ unread_count: 0 }).where(and(eq(conversations.id, id), eq(conversations.workspace_id, a.workspaceId))).catch(() => {});
     const [msgs, drafts] = await Promise.all([loadMessages(id), loadDrafts(id, a.workspaceId)]);
-    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl, drafts });
+    const thread = renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts });
 
     // htmx swaps the bare thread into #thread; a DIRECT navigation (e.g. the deep-link from a webhook
     // event's "Conversation →") must render the FULL inbox page with this thread open — otherwise the
@@ -1336,6 +1363,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const { features, upgradeUrl } = await getInstanceLicense();
+    const aiConfigured = await isAiConfigured();
     const canReply = features.has("manual_reply");
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
@@ -1343,9 +1371,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!res || res.status >= 400) {
       const errBody = res ? ((await res.json().catch(() => null)) as { error?: { message?: string } } | null) : null;
       const error = errBody?.error?.message ?? "Could not send the reply. Please try again.";
-      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, canAiDraft: features.has("ai_draft"), upgradeUrl, drafts }));
+      return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts }));
     }
-    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: features.has("ai_draft"), upgradeUrl, drafts }));
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts }));
   });
 
   // Conversation controls: status (close/snooze/reopen) + automation pause toggle, delegated to the
@@ -1362,10 +1390,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const { features, upgradeUrl } = await getInstanceLicense();
+    const aiConfigured = await isAiConfigured();
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
-    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
+    return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
   });
 
   // On-demand AI draft (PRO): the inbox "Generate reply" button. Enqueues an `ai-draft` job with
@@ -1380,6 +1409,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!conv) return c.notFound();
 
     const { features, upgradeUrl } = await getInstanceLicense();
+    const aiConfigured = await isAiConfigured();
     const canReply = features.has("manual_reply");
 
     // Server-side PRO gate — a forged POST from a free instance never enqueues. Runs BEFORE the
@@ -1391,6 +1421,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         html`<div class="notice notice-warn">AI-drafted replies are a <strong>PRO</strong> feature. <a href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a></div>`,
         403,
       );
+    }
+
+    // Even with the PRO feature, AI can't run without a provider key — don't promise a draft that
+    // never appears (the worker would only log "empty generation — nothing parked"). Tell the
+    // operator and re-render with the buttons disabled. Mirrors the API's `ai_configured=false`.
+    if (!aiConfigured) {
+      toastHeader(c, "warn", "AI provider not configured - set an API key in Settings.");
+      return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, aiConfigured, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
     }
 
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -1426,7 +1464,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     }
     if (!incomingText) {
       toastHeader(c, "warn", "Nothing to reply to yet.");
-      return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
+      return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, aiConfigured, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
     }
     if (target === "public" && !commentId) {
       toastHeader(c, "bad", "No comment to reply to here.");
@@ -1455,7 +1493,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     });
 
     toastHeader(c, "ok", "Draft requested - it'll appear here for approval.");
-    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, aiConfigured, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
   });
 
   // In-thread approval drafts (rule-holds + AI drafts shown as bubbles in the inbox). Accept/Reject
@@ -1464,10 +1502,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // proposed_content text in place (workspace-scoped) and re-renders — it never sends.
   const reRenderThreadForConv = async (c: Context, a: AuthContext, convId: string, error?: string) => {
     const { features, upgradeUrl } = await getInstanceLicense();
+    const aiConfigured = await isAiConfigured();
     const conv = await loadConversation(convId, a.workspaceId);
     if (!conv) return c.notFound();
     const [msgs, drafts] = await Promise.all([loadMessages(convId), loadDrafts(convId, a.workspaceId)]);
-    return c.html(renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), upgradeUrl, drafts, error }));
+    return c.html(renderThread(conv, msgs, { canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts, error }));
   };
 
   // Resolve a pending approval to its conversation, workspace-scoped — a foreign/missing row → 404
@@ -1713,7 +1752,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // same LLM prompt builder, so an unbounded workspace default must not slip past the channel cap.
     const raw = typeof form.ai_draft_prompt === "string" ? form.ai_draft_prompt.trim().slice(0, 4000) : "";
     await db.update(workspaces).set({ ai_draft_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
-    return c.html(renderAiDraftPrompt(raw || null, true, license.upgradeUrl, "Default AI-draft prompt saved."));
+    return c.html(renderAiDraftPrompt(raw || null, true, license.upgradeUrl, "Default AI-draft prompt saved.", await isAiConfigured()));
   });
 
   // AIPROMPT1: persist the workspace-default rephrase prompt (PRO). Blank → null (built-in default).
@@ -1729,7 +1768,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // Cap at 4000 (parity with the AI-draft prompt + the per-rule custom_prompt 2000 is the override).
     const raw = typeof form.ai_rephrase_prompt === "string" ? form.ai_rephrase_prompt.trim().slice(0, 4000) : "";
     await db.update(workspaces).set({ ai_rephrase_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
-    return c.html(renderAiRephrasePrompt(raw || null, true, license.upgradeUrl, "Default rephrase prompt saved."));
+    return c.html(renderAiRephrasePrompt(raw || null, true, license.upgradeUrl, "Default rephrase prompt saved.", await isAiConfigured()));
   });
 
   app.get("/settings", guard, async (c) => {
@@ -1744,6 +1783,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canAlerts = license.features.has("managed_connection");
     const canAiDraft = license.features.has("ai_draft");
     const canAiRephrase = license.features.has("ai_rephrase");
+    const aiConfigured = await isAiConfigured();
     const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
@@ -1848,7 +1888,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               ${canAiDraft ? html`` : proLink(upgradeUrl, "PRO")}
             </div>
             <p class="muted" style="margin-bottom:1rem">Set the workspace-default prompt used when drafting AI replies. Each channel can override it (and enable drafting) from its own settings.</p>
-            <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt ?? null, canAiDraft, upgradeUrl)}</div>
+            <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt ?? null, canAiDraft, upgradeUrl, undefined, aiConfigured)}</div>
           </section>
           <section class="section">
             <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
@@ -1856,7 +1896,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               ${canAiRephrase ? html`` : proLink(upgradeUrl, "PRO")}
             </div>
             <p class="muted" style="margin-bottom:1rem">Default prompt used when a rule rephrases its reply with AI (the “Rephrase with AI for variety” toggle). A rule can override it with its own Tone / Custom prompt. Blank = the built-in default shown below.</p>
-            <div id="ai-rephrase-prompt-area">${renderAiRephrasePrompt(workspace?.ai_rephrase_prompt ?? null, canAiRephrase, upgradeUrl)}</div>
+            <div id="ai-rephrase-prompt-area">${renderAiRephrasePrompt(workspace?.ai_rephrase_prompt ?? null, canAiRephrase, upgradeUrl, undefined, aiConfigured)}</div>
           </section>
           </div>
         </div>`,
@@ -1982,6 +2022,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canReactionTrigger = features.has("reaction_trigger");
     const canSequence = features.has("sequences");
     const canAiRephrase = features.has("ai_rephrase");
+    const aiConfigured = await isAiConfigured();
     const ruleChannels = await loadInboxChannels(a.workspaceId);
     // Active sequences a rule can enroll a matched contact into (SEQTRIGGER1).
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
@@ -2062,7 +2103,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                   : html`<input type="checkbox" disabled />
                       <span class="muted">🔒 Rephrase with AI for variety — ${proLink(upgradeUrl)}</span>`}
               </label>
-              ${canAiRephrase ? rephrasePromptFields(null, null) : ""}
+              ${canAiRephrase ? rephrasePromptFields(null, null, aiConfigured) : ""}
               <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
 
               ${interactiveRuleFields(canInteractive, upgradeUrl)}
@@ -2202,7 +2243,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { features, upgradeUrl } = await getInstanceLicense();
     const channels = await loadInboxChannels(a.workspaceId);
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
-    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels, activeSequences, features.has("ai_rephrase")));
+    return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels, activeSequences, features.has("ai_rephrase"), await isAiConfigured()));
   });
 
   app.post("/rules/:id", guard, async (c) => {
@@ -3517,6 +3558,7 @@ function renderRuleEditForm(
   channels: InboxChannel[],
   activeSequences: Array<{ id: string; name: string; _count: { enrollments: number } }> = [],
   canAiRephrase = false,
+  aiConfigured = true,
 ): Html {
   const tc = (r.trigger_config ?? {}) as Record<string, unknown>;
   const rc = (r.response_config ?? {}) as Record<string, unknown>;
@@ -3570,7 +3612,7 @@ function renderRuleEditForm(
         <span>Rephrase with AI for variety <small class="muted">— sends a reworded version each time</small></span>
       </label>
       <input type="hidden" name="ai_rephrase" :value="aiRephrase" />
-      ${rephrasePromptFields(typeof rc.tone === "string" ? rc.tone : null, typeof rc.custom_prompt === "string" ? rc.custom_prompt : null)}` : ""}
+      ${rephrasePromptFields(typeof rc.tone === "string" ? rc.tone : null, typeof rc.custom_prompt === "string" ? rc.custom_prompt : null, aiConfigured)}` : ""}
       <label class="row-center" style="font-size:.875rem;cursor:pointer">
         <input type="checkbox" name="requires_approval" value="true"${r.requires_approval ? raw(" checked") : raw("")} />
         Hold for human approval before sending

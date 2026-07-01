@@ -23,6 +23,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Instagram `live_comments`** are handled → routed into the comment pipeline with per-account auto-subscribe (previously dropped).
 - **Configurable AI rephrase prompt** — a workspace-default rephrase prompt plus a per-rule Tone + Custom-prompt override, with the built-in default shown everywhere it can be overridden.
 - **Rich inbox rendering** — incoming message attachments / buttons / quick-replies render as real content instead of an opaque "(attachment)", and outbound interactive content is persisted.
+- **AI availability is surfaced end-to-end.** With no AI provider key set, the inbox "Generate reply" buttons are disabled with a notice, the Settings AI-draft / rephrase prompt forms and the rule "Rephrase with AI" fields show a "no provider configured" banner, and the on-demand draft endpoint refuses with a clear message instead of silently promising a draft that never appears. The API exposes **`ai_configured`** on `GET /api/v1/license` so agents / automations can check it (together with the `ai_draft` / `rephrase` PRO features) before relying on AI.
 
 ### Changed
 - **Recognized Facebook `feed` noise is logged as `ignored`, not `unhandled`.** The Page editing its own content (video / post / status lifecycle), reactions on comments, and comment edits/removes are still durably recorded but kept out of the "Unhandled event types" surface, so that panel stays focused on genuinely-unrouted shapes.
