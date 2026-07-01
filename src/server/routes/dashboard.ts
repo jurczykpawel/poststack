@@ -1402,16 +1402,28 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       return c.body(null, 422);
     }
 
-    // The thing to reply to: the latest inbound message. A comment thread's inbound carries the
-    // comment id as its platform_message_id — forward it so the worker can address the public reply
-    // / first-touch DM.
-    const lastInbound = await db.query.messages.findFirst({
-      where: and(eq(messages.conversation_id, id), eq(messages.direction, "inbound")),
-      orderBy: desc(messages.created_at),
-      columns: { text: true, platform_message_id: true },
-    });
-    const incomingText = lastInbound?.text?.trim();
-    const commentId = isComment ? (lastInbound?.platform_message_id ?? undefined) : undefined;
+    // The thing to reply to. The two thread types store their inbound content in DIFFERENT tables:
+    // a DM lives in `messages`; a comment lives in `commentLogs` (a comment thread has NO messages
+    // rows). Source from the right table, and forward the comment id so the worker can address the
+    // public reply / first-touch DM.
+    let incomingText: string | undefined;
+    let commentId: string | undefined;
+    if (isComment) {
+      const lastComment = await db.query.commentLogs.findFirst({
+        where: eq(commentLogs.conversation_id, id),
+        orderBy: desc(commentLogs.created_at),
+        columns: { comment_text: true, platform_comment_id: true },
+      });
+      incomingText = lastComment?.comment_text?.trim();
+      commentId = lastComment?.platform_comment_id ?? undefined;
+    } else {
+      const lastInbound = await db.query.messages.findFirst({
+        where: and(eq(messages.conversation_id, id), eq(messages.direction, "inbound")),
+        orderBy: desc(messages.created_at),
+        columns: { text: true },
+      });
+      incomingText = lastInbound?.text?.trim();
+    }
     if (!incomingText) {
       toastHeader(c, "warn", "Nothing to reply to yet.");
       return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));

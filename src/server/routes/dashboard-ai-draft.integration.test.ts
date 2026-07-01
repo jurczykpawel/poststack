@@ -49,9 +49,11 @@ beforeEach(async () => {
   // DM thread with one inbound message.
   await db.insert(s.conversations).values({ id: CONV_DM, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "dm" });
   await db.insert(s.messages).values({ conversation_id: CONV_DM, direction: "inbound", text: "Where is my order?", platform_message_id: "MID-1" });
-  // Comment thread with one inbound comment (platform_message_id = comment id).
+  // Comment thread — a real comment lives in commentLogs (the messages table is the DM store, so a
+  // comment thread has ZERO messages rows). This mirrors prod: the on-demand draft must source the
+  // comment text/id from commentLogs, not messages.
   await db.insert(s.conversations).values({ id: CONV_COMMENT, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "comment", thread_ref: "POST-1" });
-  await db.insert(s.messages).values({ conversation_id: CONV_COMMENT, direction: "inbound", text: "Nice post!", platform_message_id: "CMT-99" });
+  await db.insert(s.commentLogs).values({ channel_id: CH, workspace_id: WS, conversation_id: CONV_COMMENT, platform_comment_id: "CMT-99", comment_text: "Nice post!", post_id: "POST-1", author_id: "PSID-E", author_name: "Ann" });
   // PRO by default; the free-instance test clears it.
   await licenseInstance();
   gate.invalidateLicenseCache();
@@ -97,13 +99,26 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     expect(j.commentId).toBeUndefined();
   });
 
-  it("forwards the commentId for a comment thread's public draft", async () => {
+  it("forwards the commentId AND comment text for a comment thread's public draft (sourced from commentLogs, not messages)", async () => {
     if (!TEST_DB) return;
     const res = await aiDraft(CONV_COMMENT, { target: "public" });
     expect(res.status).toBe(200);
     const jobs = await aiDraftJobs();
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.target).toBe("public");
+    expect(jobs[0]!.commentId).toBe("CMT-99");
+    expect(jobs[0]!.incomingText).toBe("Nice post!");
+    expect(jobs[0]!.source).toBe("ai_manual");
+  });
+
+  it("generates a DM (first-touch) draft for a comment thread — comment text sourced from commentLogs", async () => {
+    if (!TEST_DB) return;
+    const res = await aiDraft(CONV_COMMENT, { target: "dm" });
+    expect(res.status).toBe(200);
+    const jobs = await aiDraftJobs();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.target).toBe("dm");
+    expect(jobs[0]!.incomingText).toBe("Nice post!");
     expect(jobs[0]!.commentId).toBe("CMT-99");
     expect(jobs[0]!.source).toBe("ai_manual");
   });
