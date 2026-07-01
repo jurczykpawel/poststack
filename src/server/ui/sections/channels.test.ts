@@ -24,8 +24,8 @@ const ch = (over: Partial<PublicChannel>): PublicChannel =>
     platform: "instagram",
     messaging_connection: null,
     last_error: null,
-    ai_draft_enabled: false,
-    ai_draft_target: "dm",
+    ai_draft_dm_enabled: false,
+    ai_draft_public_enabled: false,
     ai_draft_prompt_dm: null,
     ai_draft_prompt_public: null,
     ai_draft_autosend_dm: false,
@@ -136,14 +136,13 @@ describe("capabilityBadges (A13) — suppress misleading DM pill for facebook_on
   });
 });
 
-describe("aiDraftPanel (AIDRAFT1 config — Task 8 / ADPROMPT2)", () => {
-  it("PRO: renders the enable toggle, dm/public/both target select, DM + public prompt-override textareas, and two autosend toggles", () => {
+describe("aiDraftPanel (AIDRAFT1 config — Task 8 / ADPROMPT3)", () => {
+  it("PRO: renders independent DM + public enable toggles, DM + public prompt-override textareas, and two autosend toggles — no target select", () => {
     const out = s(aiDraftPanel(ch({}), true, "https://upgrade.example"));
-    expect(out).toContain('name="enabled"');
-    expect(out).toContain('name="target"');
-    expect(out).toContain('value="dm"');
-    expect(out).toContain('value="public"');
-    expect(out).toContain('value="both"');
+    expect(out).toContain('name="dmEnabled"');
+    expect(out).toContain('name="publicEnabled"');
+    expect(out).not.toContain('name="enabled"');
+    expect(out).not.toContain('name="target"');
     expect(out).toContain('name="promptDm"');
     expect(out).toContain('name="promptPublic"');
     expect(out).toContain('name="autosendDm"');
@@ -155,12 +154,21 @@ describe("aiDraftPanel (AIDRAFT1 config — Task 8 / ADPROMPT2)", () => {
     const matches = out.match(/advanced — sends without review \(no approval\)/g) ?? [];
     expect(matches.length).toBe(2);
   });
-  it("PRO: reflects saved values — enabled checked + target=both selected + both overrides prefilled independently", () => {
-    const out = s(aiDraftPanel(ch({ ai_draft_enabled: true, ai_draft_target: "both", ai_draft_prompt_dm: "Be nice in DMs", ai_draft_prompt_public: "Be brief in public" }), true, ""));
-    expect(out).toContain("checked");
-    expect(out).toContain('value="both" selected');
+  it("PRO: reflects saved values — both enable toggles checked + both overrides prefilled independently", () => {
+    const out = s(aiDraftPanel(ch({ ai_draft_dm_enabled: true, ai_draft_public_enabled: true, ai_draft_prompt_dm: "Be nice in DMs", ai_draft_prompt_public: "Be brief in public" }), true, ""));
+    const dmToggleMatch = out.match(/name="dmEnabled"[^>]*/)?.[0];
+    const publicToggleMatch = out.match(/name="publicEnabled"[^>]*/)?.[0];
+    expect(dmToggleMatch).toContain("checked");
+    expect(publicToggleMatch).toContain("checked");
     expect(out).toContain("Be nice in DMs");
     expect(out).toContain("Be brief in public");
+  });
+  it("PRO: the DM enable toggle can be on while the public one stays off", () => {
+    const out = s(aiDraftPanel(ch({ ai_draft_dm_enabled: true, ai_draft_public_enabled: false }), true, ""));
+    const dmToggleMatch = out.match(/name="dmEnabled"[^>]*/)?.[0];
+    const publicToggleMatch = out.match(/name="publicEnabled"[^>]*/)?.[0];
+    expect(dmToggleMatch).toContain("checked");
+    expect(publicToggleMatch).not.toContain("checked");
   });
   it("PRO: the DM override does not leak into the public textarea, and vice versa", () => {
     const out = s(aiDraftPanel(ch({ ai_draft_prompt_dm: "DM_ONLY_MARKER" }), true, ""));
@@ -171,7 +179,7 @@ describe("aiDraftPanel (AIDRAFT1 config — Task 8 / ADPROMPT2)", () => {
     const out = s(aiDraftPanel(ch({}), false, "https://upgrade.example"));
     expect(out).toContain("PRO");
     expect(out).toContain("https://upgrade.example");
-    expect(out).not.toContain('name="enabled"');
+    expect(out).not.toContain('name="dmEnabled"');
   });
   it("escaping: a saved DM or public prompt containing <script> renders inert (escaped)", () => {
     const out = s(aiDraftPanel(ch({ ai_draft_prompt_dm: "<script>alert(1)</script>", ai_draft_prompt_public: "<img src=x onerror=alert(2)>" }), true, ""));
@@ -183,7 +191,7 @@ describe("aiDraftPanel (AIDRAFT1 config — Task 8 / ADPROMPT2)", () => {
   it("PRO but no AI provider configured: shows the shared 'no AI provider' banner atop the form", () => {
     const out = s(aiDraftPanel(ch({}), true, "", false, false));
     expect(out).toContain("No AI provider configured");
-    expect(out).toContain('name="enabled"'); // the form still renders (config is still editable)
+    expect(out).toContain('name="dmEnabled"'); // the form still renders (config is still editable)
   });
   it("PRO with an AI provider configured: no banner", () => {
     const out = s(aiDraftPanel(ch({}), true, "", false, true));

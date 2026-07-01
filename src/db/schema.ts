@@ -6,9 +6,6 @@ export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 
 // (the legacy path, rule_id set); `ai_auto` = an AI draft generated automatically by the inbound
 // pipeline; `ai_manual` = an AI draft requested on demand for an agent. AI sources carry no rule_id.
 export const approvalSource = pgEnum("approval_source", ['rule', 'ai_auto', 'ai_manual'])
-// Where an AI auto-draft is allowed to act for a channel: `dm` = direct messages only, `public` =
-// public comment replies only, `both` = either.
-export const aiDraftTarget = pgEnum("ai_draft_target", ['dm', 'public', 'both'])
 // ADLOG1: which caller made a `chatComplete` call — the AI-drafted-reply generator or the rule
 // rephrase step. Lets the log panel and any future per-feature stats filter by origin.
 export const aiGenerationKind = pgEnum("ai_generation_kind", ['draft', 'rephrase'])
@@ -238,11 +235,12 @@ export const channels = pgTable("channels", {
 	hidden_at: timestamp("hidden_at", { precision: 3, mode: 'date' }),
 	gmail_query: text("gmail_query"),
 	gmail_sync_cursor: text("gmail_sync_cursor"),
-	// AIDRAFT1: per-channel AI auto-reply drafting. When enabled, the inbound pipeline drafts an AI
-	// reply for matching messages on this channel and queues it as a pending approval (source ai_auto).
-	ai_draft_enabled: boolean("ai_draft_enabled").default(false).notNull(),
-	// Which surface AI drafting applies to: dm / public comments / both.
-	ai_draft_target: aiDraftTarget("ai_draft_target").default('dm').notNull(),
+	// ADPROMPT3: per-channel AI auto-reply drafting, gated independently per reply surface (replaces
+	// the old ai_draft_enabled + ai_draft_target(dm/public/both) pair). A genuine DM only ever
+	// consults the DM toggle; a comment consults both — DM-only replies privately (the "comment
+	// SŁOWO, get a link on priv" pattern), public-only replies publicly, both does both.
+	ai_draft_dm_enabled: boolean("ai_draft_dm_enabled").default(false).notNull(),
+	ai_draft_public_enabled: boolean("ai_draft_public_enabled").default(false).notNull(),
 	// ADPROMPT2: optional per-channel prompt override, split by response type (a DM and a public
 	// comment reply often want a different persona/tone) — each falls back independently to the
 	// matching workspace prompt when null.

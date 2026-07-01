@@ -82,11 +82,13 @@ describe("AI-draft schema additions", () => {
     expect(row.source).toBe("rule");
   });
 
-  it("a freshly inserted channel defaults ai_draft_enabled=false and ai_draft_target='dm'", async () => {
+  // ADPROMPT3: the single ai_draft_enabled + ai_draft_target(dm/public/both) was replaced with two
+  // independent per-surface toggles — both default to false (drafting off for both surfaces).
+  it("a freshly inserted channel defaults ai_draft_dm_enabled and ai_draft_public_enabled to false", async () => {
     if (!TEST_DB) return;
     const [row] = await db.select().from(s.channels).where(eq(s.channels.id, CH));
-    expect(row.ai_draft_enabled).toBe(false);
-    expect(row.ai_draft_target).toBe("dm");
+    expect(row.ai_draft_dm_enabled).toBe(false);
+    expect(row.ai_draft_public_enabled).toBe(false);
     expect(row.ai_draft_autosend_dm).toBe(false);
     expect(row.ai_draft_autosend_public).toBe(false);
   });

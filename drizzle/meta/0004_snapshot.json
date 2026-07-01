@@ -1377,20 +1377,19 @@
           "primaryKey": false,
           "notNull": false
         },
-        "ai_draft_enabled": {
-          "name": "ai_draft_enabled",
+        "ai_draft_dm_enabled": {
+          "name": "ai_draft_dm_enabled",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": false
         },
-        "ai_draft_target": {
-          "name": "ai_draft_target",
-          "type": "ai_draft_target",
-          "typeSchema": "public",
+        "ai_draft_public_enabled": {
+          "name": "ai_draft_public_enabled",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "'dm'"
+          "default": false
         },
         "ai_draft_prompt_dm": {
           "name": "ai_draft_prompt_dm",
@@ -7078,15 +7077,6 @@
         "active",
         "needs_reauth",
         "disabled"
-      ]
-    },
-    "public.ai_draft_target": {
-      "name": "ai_draft_target",
-      "schema": "public",
-      "values": [
-        "dm",
-        "public",
-        "both"
       ]
     },
     "public.ai_generation_kind": {

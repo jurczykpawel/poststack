@@ -344,17 +344,22 @@ describe("evaluateRules (real Postgres)", () => {
     expect(pc.comment?.commentId).toBe("CMT-APPR"); // addressed to the triggering comment
   });
 
-  // AIDRAFT1: when no rule fires AND the channel opted into AI drafting, the no_match path
-  // enqueues exactly ONE ai-draft job carrying the inbound text + the channel's target + the ids.
-  describe("AI draft on no-match (AIDRAFT1)", () => {
-    async function enableAiDraft(target: "dm" | "public" | "both" = "dm") {
-      await db.update(s.channels).set({ ai_draft_enabled: true, ai_draft_target: target }).where(eq(s.channels.id, CH));
+  // AIDRAFT1/ADPROMPT3: when no rule fires AND the channel opted into AI drafting, the no_match path
+  // enqueues exactly ONE ai-draft job carrying the inbound text + the resolved target + the ids.
+  // ADPROMPT3 replaced the single enabled+target(dm/public/both) config with two independent
+  // per-surface toggles (dm/public), matching how the prompt override + autosend are already split.
+  describe("AI draft on no-match (AIDRAFT1 / ADPROMPT3)", () => {
+    async function enableAiDraft(surfaces: { dm?: boolean; public?: boolean }) {
+      await db
+        .update(s.channels)
+        .set({ ai_draft_dm_enabled: surfaces.dm ?? false, ai_draft_public_enabled: surfaces.public ?? false })
+        .where(eq(s.channels.id, CH));
     }
 
-    it("a DM no-match enqueues one ai-draft job (no commentId) when the channel opts in", async () => {
+    it("a DM no-match enqueues one ai-draft job (no commentId) when the DM toggle is on", async () => {
       if (!TEST_DB) return;
       await seedRule(); // matches "hi"; this event won't match it
-      await enableAiDraft("dm");
+      await enableAiDraft({ dm: true });
       const res = await evaluateRules({ ...baseInput, text: "totally unrelated question", eventKey: "evt-aidraft-dm" });
       expect(res.outcome).toBe("no_match");
       const jobs = await aiDraftJobs();
@@ -371,9 +376,21 @@ describe("evaluateRules (real Postgres)", () => {
       expect(j.commentId).toBeUndefined();
     });
 
-    it("a comment no-match enqueues one ai-draft job carrying the commentId + channel target", async () => {
+    // The public toggle is meaningless for a genuine DM (there's no comment to attach a public
+    // reply to) — a DM must NEVER enqueue (and burn an LLM call) off the public toggle alone. This
+    // is the bug the old single enabled+target model had: target="public" still fired on every DM,
+    // generating a completion that could never produce a sendable part.
+    it("a DM no-match enqueues NOTHING when only the public toggle is on (DM toggle off)", async () => {
       if (!TEST_DB) return;
-      await enableAiDraft("both");
+      await enableAiDraft({ public: true });
+      const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-dm-public-only" });
+      expect(res.outcome).toBe("no_match");
+      expect((await aiDraftJobs()).length).toBe(0);
+    });
+
+    it("a comment no-match with BOTH toggles on enqueues target='both'", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft({ dm: true, public: true });
       const res = await evaluateRules({
         ...baseInput, text: "no keyword here", eventType: "comment", commentId: "CMT-AID", eventKey: "evt-aidraft-cmt",
       });
@@ -386,12 +403,49 @@ describe("evaluateRules (real Postgres)", () => {
       expect(jobs[0].source).toBe("ai_auto");
     });
 
+    // The classic "comment SŁOWO below, get the link on priv" growth pattern: a comment triggers
+    // generation, but the reply goes out ONLY as a DM — never posted publicly.
+    it("a comment no-match with ONLY the DM toggle on enqueues target='dm' (reply via DM, not publicly)", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft({ dm: true });
+      const res = await evaluateRules({
+        ...baseInput, text: "SŁOWO please", eventType: "comment", commentId: "CMT-DM-ONLY", eventKey: "evt-aidraft-cmt-dm-only",
+      });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs.length).toBe(1);
+      expect(jobs[0].target).toBe("dm");
+      expect(jobs[0].commentId).toBe("CMT-DM-ONLY");
+    });
+
+    it("a comment no-match with ONLY the public toggle on enqueues target='public'", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft({ public: true });
+      const res = await evaluateRules({
+        ...baseInput, text: "nice post", eventType: "comment", commentId: "CMT-PUB-ONLY", eventKey: "evt-aidraft-cmt-pub-only",
+      });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs.length).toBe(1);
+      expect(jobs[0].target).toBe("public");
+      expect(jobs[0].commentId).toBe("CMT-PUB-ONLY");
+    });
+
+    it("a comment no-match enqueues NOTHING when both toggles are off", async () => {
+      if (!TEST_DB) return;
+      const res = await evaluateRules({
+        ...baseInput, text: "no keyword here", eventType: "comment", commentId: "CMT-NEITHER", eventKey: "evt-aidraft-cmt-neither",
+      });
+      expect(res.outcome).toBe("no_match");
+      expect((await aiDraftJobs()).length).toBe(0);
+    });
+
     // ADCTX1: when the comment's parent post was published through PostStack (a local `posts` row
     // matches its platform post id), its caption rides along as `job.context` — otherwise the model
     // sees only the bare comment text.
     it("prepends the parent post's caption as context when the post has a local record", async () => {
       if (!TEST_DB) return;
-      await enableAiDraft("public");
+      await enableAiDraft({ public: true });
       const [c] = await db.insert(s.content).values({ workspace_id: WS, title: "Editorial title" }).returning({ id: s.content.id });
       await db.insert(s.posts).values({ workspace_id: WS, content_id: c!.id, platform: "facebook", platform_post_id: "POST-AID", description: "We shipped a new feature today!" });
       const res = await evaluateRules({
@@ -410,7 +464,7 @@ describe("evaluateRules (real Postgres)", () => {
     it("builds the IDENTICAL context for an autosend-configured channel (no approval step) as for a park-for-approval one", async () => {
       if (!TEST_DB) return;
       await db.update(s.channels)
-        .set({ ai_draft_enabled: true, ai_draft_target: "public", ai_draft_autosend_public: true })
+        .set({ ai_draft_public_enabled: true, ai_draft_autosend_public: true })
         .where(eq(s.channels.id, CH));
       const [c] = await db.insert(s.content).values({ workspace_id: WS, title: "Editorial title" }).returning({ id: s.content.id });
       await db.insert(s.posts).values({ workspace_id: WS, content_id: c!.id, platform: "facebook", platform_post_id: "POST-AUTOSEND", description: "We shipped a new feature today!" });
@@ -426,7 +480,7 @@ describe("evaluateRules (real Postgres)", () => {
 
     it("has no context when the comment's post has no local record (published outside PostStack)", async () => {
       if (!TEST_DB) return;
-      await enableAiDraft("public");
+      await enableAiDraft({ public: true });
       const res = await evaluateRules({
         ...baseInput, text: "congrats!", eventType: "comment", commentId: "CMT-NOCTX", postId: "POST-UNKNOWN", eventKey: "evt-aidraft-noctx",
       });
@@ -437,7 +491,7 @@ describe("evaluateRules (real Postgres)", () => {
 
     it("a DM no-match never carries post context, even if postId is somehow set", async () => {
       if (!TEST_DB) return;
-      await enableAiDraft("dm");
+      await enableAiDraft({ dm: true });
       const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-dm-noctx" });
       expect(res.outcome).toBe("no_match");
       const jobs = await aiDraftJobs();
@@ -446,7 +500,7 @@ describe("evaluateRules (real Postgres)", () => {
 
     it("does NOT enqueue an ai-draft job when the channel has not opted in (default)", async () => {
       if (!TEST_DB) return;
-      // ai_draft_enabled defaults to false on a freshly inserted channel.
+      // ai_draft_dm_enabled / ai_draft_public_enabled default to false on a freshly inserted channel.
       const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-off" });
       expect(res.outcome).toBe("no_match");
       expect((await aiDraftJobs()).length).toBe(0);
@@ -454,7 +508,7 @@ describe("evaluateRules (real Postgres)", () => {
 
     it("does NOT enqueue on an already-handled (lost claim) redelivery", async () => {
       if (!TEST_DB) return;
-      await enableAiDraft("dm");
+      await enableAiDraft({ dm: true });
       const ek = "evt-aidraft-dup";
       const first = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: ek });
       expect(first.outcome).toBe("no_match");
@@ -469,7 +523,7 @@ describe("evaluateRules (real Postgres)", () => {
 
     it("does NOT enqueue an ai-draft job for an unsubscribed contact (consent gate)", async () => {
       if (!TEST_DB) return;
-      await enableAiDraft("dm");
+      await enableAiDraft({ dm: true });
       await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
       const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-unsub" });
       expect(res.outcome).toBe("no_match");

@@ -371,12 +371,22 @@ export async function evaluateRules(
 }
 
 /**
- * AIDRAFT1: on a freshly-claimed no-match, enqueue an `ai-draft` job when the channel has opted into
- * AI drafting (`ai_draft_enabled`). The LLM stays OUT of the executor — this only enqueues; the
- * worker resolves the prompt, generates, and autosends-or-parks (consent-gated).
+ * AIDRAFT1/ADPROMPT3: on a freshly-claimed no-match, enqueue an `ai-draft` job when the channel has
+ * opted into AI drafting for the surface this event can reply on. The LLM stays OUT of the executor
+ * — this only enqueues; the worker resolves the prompt, generates, and autosends-or-parks
+ * (consent-gated).
  *
- * - The channel flag/target are read here (lazily, only on the no-match terminal path) so the hot
- *   fired path pays no extra query.
+ * `ai_draft_dm_enabled` / `ai_draft_public_enabled` are two INDEPENDENT toggles, not "which surface
+ * to reply on" picked from a shared setting — each says whether that reply surface is allowed at
+ * all, regardless of what triggered it:
+ *  - A genuine DM can only ever reply via DM — the public toggle never applies to it (there is no
+ *    comment to attach a public reply to), so it's checked FIRST, before ever enqueueing/paying for
+ *    a generation the public-only config could never use.
+ *  - A comment can reply publicly, via DM, or both. DM-only is the classic "comment SŁOWO below,
+ *    get a link on priv" pattern — the trigger is public but the reply stays private.
+ *
+ * - The channel flags are read here (lazily, only on the no-match terminal path) so the hot fired
+ *   path pays no extra query.
  * - The incoming text is required for the model to have something to reply to; a textless event
  *   (e.g. a bare postback/reaction) enqueues nothing.
  * - `commentId` is forwarded only for a comment event (the worker uses it for the public reply /
@@ -402,9 +412,18 @@ async function enqueueAiDraftOnNoMatch(input: {
 
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, channelId),
-    columns: { ai_draft_enabled: true, ai_draft_target: true },
+    columns: { ai_draft_dm_enabled: true, ai_draft_public_enabled: true },
   });
-  if (!channel?.ai_draft_enabled) return;
+  if (!channel) return;
+
+  let target: "dm" | "public" | "both";
+  if (eventType === "comment") {
+    if (!channel.ai_draft_dm_enabled && !channel.ai_draft_public_enabled) return;
+    target = channel.ai_draft_dm_enabled && channel.ai_draft_public_enabled ? "both" : channel.ai_draft_dm_enabled ? "dm" : "public";
+  } else {
+    if (!channel.ai_draft_dm_enabled) return;
+    target = "dm";
+  }
 
   // ADCTX1+ADCTX2+ADCTX3: post caption (comment threads only) + recent conversation history, as ONE
   // context string — the exact same builder the on-demand "Generate reply" button uses (dashboard.ts),
@@ -422,7 +441,7 @@ async function enqueueAiDraftOnNoMatch(input: {
       recipientPlatformId,
       incomingText,
       isComment: eventType === "comment",
-      target: channel.ai_draft_target,
+      target,
       ...(eventType === "comment" && commentId ? { commentId } : {}),
       ...(context ? { context } : {}),
       source: "ai_auto",

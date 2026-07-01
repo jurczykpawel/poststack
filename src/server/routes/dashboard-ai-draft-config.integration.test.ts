@@ -139,12 +139,12 @@ describe("Workspace default AI-draft prompt — render + persist (Task 8 / ADPRO
   });
 });
 
-describe("Per-channel AI-draft settings — persist (Task 8 / ADPROMPT2)", () => {
-  it("POST writes all seven fields (workspace-scoped)", async () => {
+describe("Per-channel AI-draft settings — persist (Task 8 / ADPROMPT3)", () => {
+  it("POST writes all six fields (workspace-scoped)", async () => {
     if (!TEST_DB) return;
     const res = await postForm(`/channels/${CH}/ai-draft`, {
-      enabled: "1",
-      target: "both",
+      dmEnabled: "1",
+      publicEnabled: "1",
       promptDm: "Channel DM voice.",
       promptPublic: "Channel public voice.",
       autosendDm: "1",
@@ -152,18 +152,27 @@ describe("Per-channel AI-draft settings — persist (Task 8 / ADPROMPT2)", () =>
     });
     expect(res.status).toBe(200);
     const row = await chRow();
-    expect(row?.ai_draft_enabled).toBe(true);
-    expect(row?.ai_draft_target).toBe("both");
+    expect(row?.ai_draft_dm_enabled).toBe(true);
+    expect(row?.ai_draft_public_enabled).toBe(true);
     expect(row?.ai_draft_prompt_dm).toBe("Channel DM voice.");
     expect(row?.ai_draft_prompt_public).toBe("Channel public voice.");
     expect(row?.ai_draft_autosend_dm).toBe(true);
     expect(row?.ai_draft_autosend_public).toBe(true);
   });
 
+  it("the DM and public enable toggles are independent — only DM checked leaves public off", async () => {
+    if (!TEST_DB) return;
+    const res = await postForm(`/channels/${CH}/ai-draft`, { dmEnabled: "1" });
+    expect(res.status).toBe(200);
+    const row = await chRow();
+    expect(row?.ai_draft_dm_enabled).toBe(true);
+    expect(row?.ai_draft_public_enabled).toBe(false);
+  });
+
   it("the DM and public prompt overrides are independent — setting one doesn't touch the other", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ ai_draft_prompt_dm: "old dm", ai_draft_prompt_public: "old public" }).where(eq(s.channels.id, CH));
-    const res = await postForm(`/channels/${CH}/ai-draft`, { target: "dm", promptDm: "new dm", promptPublic: "old public" });
+    const res = await postForm(`/channels/${CH}/ai-draft`, { promptDm: "new dm", promptPublic: "old public" });
     expect(res.status).toBe(200);
     const row = await chRow();
     expect(row?.ai_draft_prompt_dm).toBe("new dm");
@@ -172,11 +181,12 @@ describe("Per-channel AI-draft settings — persist (Task 8 / ADPROMPT2)", () =>
 
   it("unchecked toggles persist as false; blank prompts → null (inherit)", async () => {
     if (!TEST_DB) return;
-    await db.update(s.channels).set({ ai_draft_enabled: true, ai_draft_prompt_dm: "x", ai_draft_prompt_public: "y", ai_draft_autosend_dm: true }).where(eq(s.channels.id, CH));
-    const res = await postForm(`/channels/${CH}/ai-draft`, { target: "dm", promptDm: "", promptPublic: "" });
+    await db.update(s.channels).set({ ai_draft_dm_enabled: true, ai_draft_public_enabled: true, ai_draft_prompt_dm: "x", ai_draft_prompt_public: "y", ai_draft_autosend_dm: true }).where(eq(s.channels.id, CH));
+    const res = await postForm(`/channels/${CH}/ai-draft`, { promptDm: "", promptPublic: "" });
     expect(res.status).toBe(200);
     const row = await chRow();
-    expect(row?.ai_draft_enabled).toBe(false);
+    expect(row?.ai_draft_dm_enabled).toBe(false);
+    expect(row?.ai_draft_public_enabled).toBe(false);
     expect(row?.ai_draft_prompt_dm).toBeNull();
     expect(row?.ai_draft_prompt_public).toBeNull();
     expect(row?.ai_draft_autosend_dm).toBe(false);
@@ -185,25 +195,17 @@ describe("Per-channel AI-draft settings — persist (Task 8 / ADPROMPT2)", () =>
 
   it("foreign / missing channel → 404", async () => {
     if (!TEST_DB) return;
-    const res = await postForm(`/channels/${FOREIGN}/ai-draft`, { target: "dm" });
+    const res = await postForm(`/channels/${FOREIGN}/ai-draft`, { dmEnabled: "1" });
     expect(res.status).toBe(404);
-  });
-
-  it("invalid target → 422, no write", async () => {
-    if (!TEST_DB) return;
-    const res = await postForm(`/channels/${CH}/ai-draft`, { enabled: "1", target: "carrier-pigeon" });
-    expect(res.status).toBe(422);
-    const row = await chRow();
-    expect(row?.ai_draft_enabled).toBe(false);
   });
 
   it("free instance → 403, no write", async () => {
     if (!TEST_DB) return;
     await gate.clearLicense();
     gate.invalidateLicenseCache();
-    const res = await postForm(`/channels/${CH}/ai-draft`, { enabled: "1", target: "dm" });
+    const res = await postForm(`/channels/${CH}/ai-draft`, { dmEnabled: "1" });
     expect(res.status).toBe(403);
     const row = await chRow();
-    expect(row?.ai_draft_enabled).toBe(false);
+    expect(row?.ai_draft_dm_enabled).toBe(false);
   });
 });

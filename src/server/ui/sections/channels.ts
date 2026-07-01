@@ -16,7 +16,6 @@ import {
   setChannelHidden,
   setChannelGmailQuery,
   setChannelAiDraftSettings,
-  isAiDraftTarget,
   deleteChannel,
   runHealthCheck,
   isChannelSort,
@@ -650,55 +649,51 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
   </section>`;
 }
 
-/** AIDRAFT1 (Task 8): per-channel AI-draft settings (PRO). Enable drafting on this channel, choose
- *  the surface (dm / public comments / both), an optional prompt override (blank inherits the
- *  workspace default), and two ADVANCED auto-send toggles that send a high-confidence draft WITHOUT
- *  manual approval. Mirrors the first-comment/auto-story out-of-band pattern: the form posts to
- *  /channels/:id/ai-draft, which re-renders #ch-detail-head and refreshes THIS panel out-of-band.
- *  Every dynamic value is escaped by `html`` (the saved prompt is operator text but escaped anyway). */
+/** AIDRAFT1/ADPROMPT3 (Task 8): per-channel AI-draft settings (PRO). Two INDEPENDENT toggles enable
+ *  drafting per reply surface (a comment with only the DM one on replies privately — "comment
+ *  SŁOWO, get a link on priv"; only the public one on replies publicly; both on replies both ways; a
+ *  genuine DM only ever consults the DM toggle), an optional prompt override per surface (blank
+ *  inherits the workspace default), and two ADVANCED auto-send toggles that send a high-confidence
+ *  draft WITHOUT manual approval. Mirrors the first-comment/auto-story out-of-band pattern: the form
+ *  posts to /channels/:id/ai-draft, which re-renders #ch-detail-head and refreshes THIS panel
+ *  out-of-band. Every dynamic value is escaped by `html`` (the saved prompt is operator text but
+ *  escaped anyway). */
+/** One "on/off" checkbox row, shared by the enable and autosend toggle pairs below (DRY — four
+ *  toggles, one markup shape). */
+function aiDraftToggle(name: string, label: Html, checked: boolean): Html {
+  return html`<label class="compose-toggle">
+    <input type="checkbox" name="${name}" value="1" ${checked ? raw("checked") : raw("")} />
+    <span>${label}</span>
+  </label>`;
+}
+
+/** One prompt-override textarea, shared by the DM and public-comment fields (DRY — same shape,
+ *  different name/label/value). */
+function aiDraftPromptField(name: string, label: string, ariaLabel: string, value: string | null): Html {
+  return html`<label class="fld" style="margin-top:.6rem"><span>${label} <small>— blank inherits the workspace default, then the built-in default below</small></span>
+    <textarea name="${name}" rows="3" maxlength="4000"
+      placeholder="Inherit workspace default"
+      aria-label="${ariaLabel}"
+      style="width:100%;resize:vertical;font:inherit">${value ?? ""}</textarea>
+  </label>`;
+}
+
 export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false, aiConfigured = true): Html {
-  const targetOpt = (value: PublicChannel["ai_draft_target"], label: string) =>
-    html`<option value="${value}"${ch.ai_draft_target === value ? raw(" selected") : raw("")}>${label}</option>`;
   const body = licensed
     ? html`${aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts")}
       <p class="set-lead">
         When enabled, PostStack drafts an AI reply for new activity on this channel and parks it here
-        for your approval. Leave the prompt blank to inherit the workspace default.
+        for your approval. Leave a prompt blank to inherit the workspace default.
       </p>
       <form class="panel-form" method="post" action="/channels/${ch.id}/ai-draft"
         hx-post="/channels/${ch.id}/ai-draft" hx-target="#ch-detail-head" hx-swap="outerHTML">
-        <label class="compose-toggle">
-          <input type="checkbox" name="enabled" value="1" ${ch.ai_draft_enabled ? raw("checked") : raw("")} />
-          <span>Draft AI replies for this channel</span>
-        </label>
-        <label class="fld" style="margin-top:.6rem"><span>Apply to</span>
-          <select name="target" aria-label="AI-draft target">
-            ${targetOpt("dm", "Direct messages")}
-            ${targetOpt("public", "Public comments")}
-            ${targetOpt("both", "Both")}
-          </select>
-        </label>
-        <label class="fld" style="margin-top:.6rem"><span>DM prompt override <small>— blank inherits the workspace default, then the built-in default below</small></span>
-          <textarea name="promptDm" rows="3" maxlength="4000"
-            placeholder="Inherit workspace default"
-            aria-label="AI-draft DM prompt override"
-            style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt_dm ?? ""}</textarea>
-        </label>
-        <label class="fld" style="margin-top:.6rem"><span>Public comment prompt override <small>— blank inherits the workspace default, then the built-in default below</small></span>
-          <textarea name="promptPublic" rows="3" maxlength="4000"
-            placeholder="Inherit workspace default"
-            aria-label="AI-draft public comment prompt override"
-            style="width:100%;resize:vertical;font:inherit">${ch.ai_draft_prompt_public ?? ""}</textarea>
-        </label>
+        ${aiDraftToggle("dmEnabled", html`Draft AI replies for direct messages`, ch.ai_draft_dm_enabled)}
+        ${aiDraftToggle("publicEnabled", html`Draft AI replies for public comments`, ch.ai_draft_public_enabled)}
+        ${aiDraftPromptField("promptDm", "DM prompt override", "AI-draft DM prompt override", ch.ai_draft_prompt_dm)}
+        ${aiDraftPromptField("promptPublic", "Public comment prompt override", "AI-draft public comment prompt override", ch.ai_draft_prompt_public)}
         <p class="muted" style="font-size:.72rem;margin:.2rem 0 0">Built-in default (used when both are blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
-        <label class="compose-toggle" style="margin-top:.6rem">
-          <input type="checkbox" name="autosendDm" value="1" ${ch.ai_draft_autosend_dm ? raw("checked") : raw("")} />
-          <span>Auto-send DM drafts <small>(advanced — sends without review (no approval))</small></span>
-        </label>
-        <label class="compose-toggle">
-          <input type="checkbox" name="autosendPublic" value="1" ${ch.ai_draft_autosend_public ? raw("checked") : raw("")} />
-          <span>Auto-send public drafts <small>(advanced — sends without review (no approval))</small></span>
-        </label>
+        ${aiDraftToggle("autosendDm", html`Auto-send DM drafts <small>(advanced — sends without review (no approval))</small>`, ch.ai_draft_autosend_dm)}
+        ${aiDraftToggle("autosendPublic", html`Auto-send public drafts <small>(advanced — sends without review (no approval))</small>`, ch.ai_draft_autosend_public)}
         ${btn({ label: "Save AI-draft settings", variant: "secondary", size: "sm" })}
       </form>`
     : html`<p class="set-lead">
@@ -957,14 +952,9 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     // Ownership first — a foreign / missing id is a 404 before we read the body.
     if (!(await getChannel(a.workspaceId, id))) return c.text("not found", 404);
     const form = await c.req.parseBody();
-    const target = String(form.target ?? "");
-    if (!isAiDraftTarget(target)) {
-      if (isHtmx(c)) toastHeader(c, "bad", "Pick a valid reply target.");
-      return c.text("invalid target", 422);
-    }
     await setChannelAiDraftSettings(a.workspaceId, id, {
-      enabled: String(form.enabled ?? "") === "1",
-      target,
+      dmEnabled: String(form.dmEnabled ?? "") === "1",
+      publicEnabled: String(form.publicEnabled ?? "") === "1",
       promptDm: String(form.promptDm ?? ""),
       promptPublic: String(form.promptPublic ?? ""),
       autosendDm: String(form.autosendDm ?? "") === "1",

@@ -23,12 +23,6 @@ const META_HEALTH_PLATFORMS = new Set(["facebook", "instagram"]);
 export type ChannelStatus = "active" | "needs_reauth" | "paused" | "disabled";
 const CHANNEL_STATUSES: ChannelStatus[] = ["active", "needs_reauth", "paused", "disabled"];
 
-export type AiDraftTarget = "dm" | "public" | "both";
-const AI_DRAFT_TARGETS: AiDraftTarget[] = ["dm", "public", "both"];
-export function isAiDraftTarget(v: string | undefined): v is AiDraftTarget {
-  return !!v && (AI_DRAFT_TARGETS as string[]).includes(v);
-}
-
 export type ChannelSort = "recent" | "name" | "status" | "platform";
 const CHANNEL_SORTS: ChannelSort[] = ["recent", "name", "status", "platform"];
 export function isChannelSort(v: string | undefined): v is ChannelSort {
@@ -65,10 +59,12 @@ export interface PublicChannel {
   messaging_token_expires_at: Date | null;
   /** Derived IG messaging credential shape (instagram_login / facebook_only); null for non-IG. */
   messaging_connection: MessagingConnection | null;
-  /** AIDRAFT1: when true, the inbound pipeline drafts an AI reply for matching activity on this channel. */
-  ai_draft_enabled: boolean;
-  /** AIDRAFT1: which surface AI drafting applies to (dm / public comments / both). */
-  ai_draft_target: AiDraftTarget;
+  /** ADPROMPT3: when true, the inbound pipeline drafts an AI reply to a genuine DM. */
+  ai_draft_dm_enabled: boolean;
+  /** ADPROMPT3: when true, the inbound pipeline drafts an AI reply to a public comment (a comment
+   *  with ONLY this on replies publicly; with ONLY the DM one on, it replies privately instead —
+   *  the "comment SŁOWO, get a link on priv" pattern; both on replies both ways). */
+  ai_draft_public_enabled: boolean;
   /** ADPROMPT2: per-channel DM-reply prompt override; null inherits the workspace default. */
   ai_draft_prompt_dm: string | null;
   /** ADPROMPT2: per-channel public-comment-reply prompt override; null inherits the workspace default. */
@@ -104,8 +100,8 @@ export function toPublic(r: ChannelRow): PublicChannel {
     last_error: r.last_error ?? null,
     messaging_token_expires_at: r.messaging_token_expires_at ?? null,
     messaging_connection: messagingConnection({ platform: r.platform, messaging_token_expires_at: r.messaging_token_expires_at ?? null }),
-    ai_draft_enabled: r.ai_draft_enabled,
-    ai_draft_target: r.ai_draft_target as AiDraftTarget,
+    ai_draft_dm_enabled: r.ai_draft_dm_enabled,
+    ai_draft_public_enabled: r.ai_draft_public_enabled,
     ai_draft_prompt_dm: r.ai_draft_prompt_dm,
     ai_draft_prompt_public: r.ai_draft_prompt_public,
     ai_draft_autosend_dm: r.ai_draft_autosend_dm,
@@ -299,12 +295,13 @@ export async function setChannelDefaultAutoStory(workspaceId: string, id: string
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
-/** AIDRAFT1/ADPROMPT2: per-channel AI-draft settings. Workspace-scoped (404 on a foreign id). A
- *  blank prompt override stores NULL (= inherit the matching workspace default). The two prompt
- *  overrides are independent (DM vs public comment reply). The two auto-send flags bypass approval. */
+/** AIDRAFT1/ADPROMPT2/ADPROMPT3: per-channel AI-draft settings. Workspace-scoped (404 on a foreign
+ *  id). `dmEnabled`/`publicEnabled` independently gate each reply surface (replaces the old single
+ *  enabled+target pair). A blank prompt override stores NULL (= inherit the matching workspace
+ *  default). The two auto-send flags bypass approval. */
 export interface AiDraftChannelSettings {
-  enabled: boolean;
-  target: AiDraftTarget;
+  dmEnabled: boolean;
+  publicEnabled: boolean;
   promptDm: string;
   promptPublic: string;
   autosendDm: boolean;
@@ -319,8 +316,8 @@ export async function setChannelAiDraftSettings(
   await db
     .update(channels)
     .set({
-      ai_draft_enabled: settings.enabled,
-      ai_draft_target: settings.target,
+      ai_draft_dm_enabled: settings.dmEnabled,
+      ai_draft_public_enabled: settings.publicEnabled,
       ai_draft_prompt_dm: settings.promptDm.trim().slice(0, 4000) || null,
       ai_draft_prompt_public: settings.promptPublic.trim().slice(0, 4000) || null,
       ai_draft_autosend_dm: settings.autosendDm,
