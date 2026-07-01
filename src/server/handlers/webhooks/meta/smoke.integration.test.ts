@@ -464,14 +464,25 @@ describe("webhook_events logging completeness (real Postgres)", () => {
     expect(job.rows[0].n).toBe(0);
   });
 
-  it("logs an unknown change field as unhandled, no job", async () => {
+  it("logs a genuinely-unrecognized change field as unhandled, no job", async () => {
     if (!TEST_DB) return;
-    await POST(signed({ object: "page", entry: [{ id: PAGE, changes: [{ field: "feed", value: { item: "status", verb: "add", post_id: "P9" } }] }] }));
+    await POST(signed({ object: "page", entry: [{ id: PAGE, changes: [{ field: "ratings", value: { rating: 5 } }] }] }));
     const all = await rows();
     expect(all.length).toBe(1);
     expect(all[0].event_type).toBe("unknown");
     expect(all[0].handling_status).toBe("unhandled");
     const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier = 'incoming-comment'");
+    expect(job.rows[0].n).toBe(0);
+  });
+
+  it("logs recognized FB feed noise (a Page status post) as ignored, no job — kept out of the unhandled surface", async () => {
+    if (!TEST_DB) return;
+    await POST(signed({ object: "page", entry: [{ id: PAGE, changes: [{ field: "feed", value: { item: "status", verb: "add", post_id: "P9" } }] }] }));
+    const all = await rows();
+    expect(all.length).toBe(1);
+    expect(all[0].event_type).toBe("ignored");
+    expect(all[0].handling_status).toBe("ignored");
+    const job = await pool.query("select count(*)::int as n from graphile_worker.jobs where task_identifier like 'incoming-%'");
     expect(job.rows[0].n).toBe(0);
   });
 

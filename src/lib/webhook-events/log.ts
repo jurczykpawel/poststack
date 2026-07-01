@@ -296,14 +296,25 @@ export function classifyChangeEvent(
   const verb = v.verb;
   const keyId = commentId ?? hash16(JSON.stringify(change));
   const key = `change-${field}-${keyId}${verb ? `-${verb}` : ""}`;
+  // Recognized FB `feed` activity we deliberately don't act on — the Page editing its OWN content
+  // (video/post/status/photo/share…), a reaction on a COMMENT (not a post), or a comment edit/remove —
+  // is logged `ignored` (still durable + inspectable) rather than `unknown`/`unhandled`, so the
+  // "unhandled types" surface stays focused on genuinely-unrouted shapes, not this known noise.
+  const isRecognizedFeedNoise =
+    field === "feed" && (
+      (v.item !== "comment" && v.item !== "reaction" && v.item !== "like") || // Page content lifecycle
+      ((v.item === "reaction" || v.item === "like") && !!v.comment_id) ||      // reaction on a comment
+      (v.item === "comment" && v.verb !== "add")                              // comment edit / remove / hide
+    );
   return {
     log: {
       platform, object, field, raw: change as unknown,
-      event_key: key, event_type: "unknown",
+      event_key: key,
+      event_type: isRecognizedFeedNoise ? "ignored" : "unknown",
       platform_message_id: typeof commentId === "string" ? commentId : null,
       sender_id: v.from?.id ?? null,
     },
     job: null,
-    terminalStatus: "unhandled",
+    terminalStatus: isRecognizedFeedNoise ? "ignored" : "unhandled",
   };
 }
