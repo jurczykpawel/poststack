@@ -23,6 +23,9 @@ const ep = (over: Partial<WebhookEndpoint>): WebhookEndpoint =>
     secret_secondary: null,
     event_types: [],
     active: true,
+    custom_headers_encrypted: null,
+    extra_payload_fields: {},
+    headers: {},
     created_at: new Date(),
     updated_at: new Date(),
     ...over,
@@ -96,6 +99,30 @@ describe("renderOutboundWebhooks — add form", () => {
     const out = s(renderOutboundWebhooks([], base));
     expect(out).toContain('hx-post="/webhooks/outbound"');
     expect(out).toContain('hx-target="#wh-outbound"');
+  });
+});
+
+describe("renderOutboundWebhooks — custom headers + extra payload fields (edit form)", () => {
+  it("hints at configured header NAMES but never renders a header value", () => {
+    const out = s(renderOutboundWebhooks([ep({ headers: { Authorization: "Bearer secret123" } })], base));
+    expect(out).toContain("Authorization");
+    expect(out).not.toContain("secret123");
+  });
+
+  it("shows no 'currently set' hint when there are no custom headers", () => {
+    const out = s(renderOutboundWebhooks([ep({ headers: {} })], base));
+    expect(out).not.toContain("currently set");
+  });
+
+  it("prefills the extra payload fields textarea with the current JSON (not secret)", () => {
+    const out = s(renderOutboundWebhooks([ep({ extra_payload_fields: { source: "poststack" } })], base));
+    expect(out).toContain('"source": "poststack"');
+  });
+
+  it("escapes a malicious header name so injected markup is inert", () => {
+    const out = s(renderOutboundWebhooks([ep({ headers: { '"><script>alert(1)</script>': "x" } })], base));
+    expect(out).not.toContain("<script>alert(1)</script>");
+    expect(out).toContain("&lt;script&gt;");
   });
 });
 

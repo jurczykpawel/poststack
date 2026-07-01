@@ -1,14 +1,15 @@
 /**
- * Pure (no-IO) helpers that shape an outbound alert body per workspace webhook config, mirroring
+ * Pure (no-IO) helpers that shape an outbound webhook body per workspace customization, mirroring
  * Sellf's webhook_endpoints customization:
- *  - field selection over the standard alert fields,
+ *  - field selection over a standard body,
  *  - extra top-level fields with {{placeholder}} substitution.
  * Substitution happens only at JSON string leaves, so a value can never break out of its position.
+ * Shared by the alert webhook (notifications/alert.ts) and outbound webhook endpoints (webhooks/dispatch.ts).
  */
 
 export type PlaceholderContext = Record<string, string>;
 
-export interface AlertCustomization {
+export interface PayloadCustomization {
   field_selection?: string[] | null;
   extra_payload_fields?: Record<string, unknown> | null;
 }
@@ -48,9 +49,9 @@ export function renderTemplate(fields: unknown, ctx: PlaceholderContext): unknow
  * extra fields. Extra fields win on key collision so an operator can override a standard field
  * (e.g. shape an email `subject`/`to` from {{placeholder}}s).
  */
-export function buildAlertBody(
+export function buildCustomizedBody(
   standard: Record<string, unknown>,
-  customization: AlertCustomization,
+  customization: PayloadCustomization,
   ctx: PlaceholderContext,
 ): Record<string, unknown> {
   const selected = selectFields(standard, customization.field_selection);

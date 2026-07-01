@@ -7,6 +7,7 @@ import { safeFetchWebhook } from "./safe-target";
 import { redactSecrets } from "@/lib/redact";
 import { getEndpoint } from "./endpoints";
 import { signWebhook } from "./signature";
+import { renderTemplate, type PlaceholderContext } from "./payload-customization";
 import type { EventDispatchJob, WebhookDeliveryJob } from "@/lib/queue/types";
 
 /**
@@ -64,12 +65,27 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
   // is the subject's id (the contact / post / channel), so a receiver can correlate the event with
   // the REST resource (e.g. GET /api/v1/contacts/{data.id}). The event payload is merged in for the
   // event-specific extras (platform, providerHandle, …).
-  const body = JSON.stringify({
+  const standardBody: Record<string, unknown> = {
     id: event.id,
     type: event.type,
     created_at: event.created_at,
     data: { id: event.subject_id, type: event.subject_type, ...(event.payload as Record<string, unknown>) },
-  });
+  };
+  // {{placeholder}} context for extra payload fields — the envelope's own scalar fields only (not
+  // the nested `data`, which varies per event type and isn't a flat string leaf).
+  const placeholderContext: PlaceholderContext = {
+    id: event.id,
+    type: event.type,
+    created_at: String(event.created_at),
+    subject_id: event.subject_id ?? "",
+    subject_type: event.subject_type ?? "",
+  };
+  // Extra fields win on key collision (an operator can reshape/override a standard field), mirroring
+  // the alert webhook's customization semantics.
+  const extra = Object.keys(endpoint.extra_payload_fields as Record<string, unknown>).length
+    ? (renderTemplate(endpoint.extra_payload_fields, placeholderContext) as Record<string, unknown>)
+    : {};
+  const body = JSON.stringify({ ...standardBody, ...extra });
   const ts = Math.floor(Date.now() / 1000);
   const signature = signWebhook([endpoint.secret, endpoint.secret_secondary ?? ""], ts, body);
 
@@ -87,7 +103,11 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
       // on the user-supplied URL via the rebinding-safe pinned connector (rejects 3xx).
       const res = await safeFetchWebhook(endpoint.url, {
         method: "POST",
+        // The operator's custom headers are spread FIRST (e.g. an Authorization token for their
+        // receiver) — the reserved delivery headers are spread AFTER so a custom header can never
+        // shadow the signature/event/timestamp/content-type the receiver relies on to verify.
         headers: {
+          ...endpoint.headers,
           "content-type": "application/json",
           "X-PostStack-Event": event.type,
           "X-PostStack-Timestamp": String(ts),

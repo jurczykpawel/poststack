@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { alertWebhooks } from "@/db/schema";
-import { encryptString, decryptString } from "@/lib/crypto";
+import { encryptHeaderMap, decryptHeaderMap, type HeaderMap } from "@/lib/webhooks/header-map";
 
-export type HeaderMap = Record<string, string>;
+export type { HeaderMap };
 
 export interface AlertWebhookConfig {
   url: string;
@@ -23,22 +23,6 @@ export interface AlertWebhookInput {
   fieldSelection?: string[] | null;
 }
 
-/** Encrypt a header map into the text stored in alert_webhooks.custom_headers_encrypted. */
-function encryptHeaders(map: HeaderMap | undefined): string | null {
-  if (!map || Object.keys(map).length === 0) return null;
-  return encryptString(JSON.stringify(map));
-}
-
-/** Decrypt stored header text back into a map. Null/garbage → {} (never throws into the send path). */
-function decryptHeaders(stored: string | null): HeaderMap {
-  if (!stored) return {};
-  try {
-    return JSON.parse(decryptString(stored)) as HeaderMap;
-  } catch {
-    return {};
-  }
-}
-
 /**
  * Load a workspace's configured alert webhook (decrypted), or null if none. Used by dispatchAlert to
  * decide whether to send a customized webhook for this workspace (vs the env fallback).
@@ -49,7 +33,7 @@ export async function getAlertWebhook(workspaceId: string): Promise<AlertWebhook
   return {
     url: row.url,
     enabled: row.enabled,
-    headers: decryptHeaders(row.custom_headers_encrypted),
+    headers: decryptHeaderMap(row.custom_headers_encrypted),
     extraFields: (row.extra_payload_fields as Record<string, unknown>) ?? {},
     fieldSelection: (row.field_selection as string[] | null) ?? null,
   };
@@ -66,7 +50,7 @@ export async function upsertAlertWebhook(workspaceId: string, input: AlertWebhoo
   const values = {
     enabled: input.enabled ?? true,
     url: input.url,
-    custom_headers_encrypted: encryptHeaders(input.headers),
+    custom_headers_encrypted: encryptHeaderMap(input.headers),
     extra_payload_fields: input.extraFields ?? {},
     field_selection: input.fieldSelection ?? null,
   };

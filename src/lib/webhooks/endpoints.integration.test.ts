@@ -190,6 +190,58 @@ describe.skipIf(!TEST_DB)("webhook endpoint service", () => {
     ).rejects.toBeInstanceOf(ApiError);
   });
 
+  it("createEndpoint encrypts custom headers at rest and decrypts them back on the returned/loaded row", async () => {
+    const ep = await svc.createEndpoint(WS, {
+      url: "https://hook.example.com/hdr",
+      headers: { Authorization: "Bearer secret123" },
+    });
+    expect(ep.headers).toEqual({ Authorization: "Bearer secret123" });
+
+    const fromDb = await db.query.webhookEndpoints.findFirst({ where: eq(s.webhookEndpoints.id, ep.id) });
+    expect(fromDb!.custom_headers_encrypted).toBeTruthy();
+    expect(fromDb!.custom_headers_encrypted).not.toContain("secret123"); // encrypted at rest
+
+    const loaded = await svc.getEndpoint(WS, ep.id);
+    expect(loaded!.headers).toEqual({ Authorization: "Bearer secret123" });
+  });
+
+  it("createEndpoint with no headers stores none (empty map, not an error)", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/nohdr" });
+    expect(ep.headers).toEqual({});
+  });
+
+  it("createEndpoint persists extra payload fields", async () => {
+    const ep = await svc.createEndpoint(WS, {
+      url: "https://hook.example.com/extra",
+      extraFields: { source: "poststack", note: "hi {{type}}" },
+    });
+    expect(ep.extra_payload_fields).toEqual({ source: "poststack", note: "hi {{type}}" });
+  });
+
+  it("updateEndpoint replaces custom headers", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/hu", headers: { "X-Old": "1" } });
+    const updated = await svc.updateEndpoint(WS, ep.id, { headers: { "X-New": "2" } });
+    expect(updated.headers).toEqual({ "X-New": "2" });
+  });
+
+  it("updateEndpoint with headers omitted leaves existing headers untouched", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/hp", headers: { "X-Keep": "1" } });
+    const updated = await svc.updateEndpoint(WS, ep.id, { active: false });
+    expect(updated.headers).toEqual({ "X-Keep": "1" });
+  });
+
+  it("updateEndpoint with an empty header map clears stored headers", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/hc", headers: { "X-Gone": "1" } });
+    const updated = await svc.updateEndpoint(WS, ep.id, { headers: {} });
+    expect(updated.headers).toEqual({});
+  });
+
+  it("updateEndpoint replaces extra payload fields", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/eu", extraFields: { a: 1 } });
+    const updated = await svc.updateEndpoint(WS, ep.id, { extraFields: { b: 2 } });
+    expect(updated.extra_payload_fields).toEqual({ b: 2 });
+  });
+
   it("is tenant-isolated: another workspace can neither read, update, nor delete the endpoint", async () => {
     const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/iso" });
     expect(await svc.getEndpoint(OTHER_WS, ep.id)).toBeUndefined();

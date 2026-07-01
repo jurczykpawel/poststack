@@ -136,6 +136,51 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
     expect(after!.event_types).toEqual(["contact.created", "contact.updated"]);
   });
 
+  it("creates with custom headers + extra payload fields: headers encrypted (name shown, value never), extra fields prefilled for editing", async () => {
+    const res = await form("/webhooks/outbound", {
+      url: "https://hooks.example.com/hdr",
+      headers: "Authorization: Bearer secret123",
+      extra: '{"source":"poststack"}',
+    });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain("secret123"); // value never rendered back
+    expect(body).toContain("Authorization"); // name hint in the edit form
+    expect(body).toContain('"source": "poststack"'); // not secret — prefilled for editing
+
+    const made = (await endpoints.listEndpoints(workspaceId)).find((r) => r.url === "https://hooks.example.com/hdr");
+    expect(made!.headers).toEqual({ Authorization: "Bearer secret123" });
+    expect(made!.extra_payload_fields).toEqual({ source: "poststack" });
+  });
+
+  it("editing with the headers textarea left blank preserves existing headers (values are never echoed, so blank means unchanged)", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/hpreserve", headers: { "X-Keep": "1" } });
+    const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, headers: "" });
+    expect(res.status).toBe(200);
+    expect((await endpoints.getEndpoint(workspaceId, ep.id))!.headers).toEqual({ "X-Keep": "1" });
+  });
+
+  it("editing with new header lines replaces the stored headers", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/hreplace", headers: { "X-Old": "1" } });
+    const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, headers: "X-New: 2" });
+    expect(res.status).toBe(200);
+    expect((await endpoints.getEndpoint(workspaceId, ep.id))!.headers).toEqual({ "X-New": "2" });
+  });
+
+  it("leaving extra payload fields blank on edit clears them (they're visible, so blank is an intentional clear)", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/eclear", extraFields: { a: 1 } });
+    const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, extra: "" });
+    expect(res.status).toBe(200);
+    expect((await endpoints.getEndpoint(workspaceId, ep.id))!.extra_payload_fields).toEqual({});
+  });
+
+  it("rejects malformed extra-fields JSON with an inline notice (nothing changed)", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/ebad", extraFields: { a: 1 } });
+    const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, extra: "{not json" });
+    expect(res.status).toBe(200);
+    expect((await endpoints.getEndpoint(workspaceId, ep.id))!.extra_payload_fields).toEqual({ a: 1 }); // unchanged
+  });
+
   it("rotates the signing secret (new secret, distinct)", async () => {
     const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/rotate" });
     const before = ep.secret;

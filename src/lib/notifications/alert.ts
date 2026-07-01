@@ -1,7 +1,7 @@
 import { rateLimit } from "@/lib/api/rate-limit";
 import { getConfig } from "@/lib/settings/config";
 import { getAlertWebhook } from "./alert-webhook";
-import { buildAlertBody, type PlaceholderContext } from "./alert-customization";
+import { buildCustomizedBody, type PlaceholderContext } from "@/lib/webhooks/payload-customization";
 import { safeFetchWebhook } from "@/lib/webhooks/safe-target";
 import { SsrfError } from "@/lib/net/safe-fetch";
 
@@ -104,7 +104,7 @@ export async function dispatchAlert(alert: Alert): Promise<void> {
         target = {
           url: cfg.url,
           headers: { "Content-Type": "application/json", ...cfg.headers },
-          payload: buildAlertBody(body, { field_selection: cfg.fieldSelection, extra_payload_fields: cfg.extraFields }, placeholderContext(body)),
+          payload: buildCustomizedBody(body, { field_selection: cfg.fieldSelection, extra_payload_fields: cfg.extraFields }, placeholderContext(body)),
         };
       }
     } catch {

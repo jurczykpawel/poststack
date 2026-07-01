@@ -178,6 +178,52 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
     expect(parsed.data.platform).toBe("facebook"); // event payload merged in
   });
 
+  it("merges custom headers into the delivery, without letting them override the signature/event/timestamp/content-type headers", async () => {
+    const ep = await svc.createEndpoint(WS, {
+      url: "https://hook.test/hdr",
+      eventTypes: [],
+      headers: { Authorization: "Bearer secret123", "X-PostStack-Event": "spoofed", "content-type": "text/plain" },
+    });
+    const eventId = await emitNow(WS, "post.published");
+    const [d] = await db
+      .insert(s.webhookDeliveries)
+      .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id })
+      .returning({ id: s.webhookDeliveries.id });
+    let seenHeaders: Record<string, string> | null = null;
+    connectStub.mockImplementation(async (_u: string, init: RequestInit) => {
+      seenHeaders = init.headers as Record<string, string>;
+      return new Response(null, { status: 200 });
+    });
+    await processWebhookDelivery({ deliveryId: d!.id }, helpers());
+    expect(seenHeaders!.Authorization).toBe("Bearer secret123");
+    expect(seenHeaders!["X-PostStack-Event"]).toBe("post.published"); // reserved header wins over the custom one
+    expect(seenHeaders!["content-type"]).toBe("application/json"); // reserved header wins
+  });
+
+  it("merges extra payload fields into the delivered body, with {{placeholder}} substitution from the event envelope, and keeps the signature valid for the actual sent body", async () => {
+    const ep = await svc.createEndpoint(WS, {
+      url: "https://hook.test/extra",
+      eventTypes: [],
+      extraFields: { source: "poststack", note: "event {{type}} / {{id}}" },
+    });
+    const eventId = await emitNow(WS, "post.published");
+    const [d] = await db
+      .insert(s.webhookDeliveries)
+      .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id })
+      .returning({ id: s.webhookDeliveries.id });
+    let seen: { body: string; sig: string } | null = null;
+    connectStub.mockImplementation(async (_u: string, init: RequestInit) => {
+      seen = { body: String(init.body), sig: (init.headers as Record<string, string>)["X-PostStack-Signature"] ?? "" };
+      return new Response(null, { status: 200 });
+    });
+    await processWebhookDelivery({ deliveryId: d!.id }, helpers());
+    expect(verifyWebhook(ep.secret, seen!.sig, seen!.body)).toBe(true); // signature covers the FINAL (customized) body
+    const parsed = JSON.parse(seen!.body) as { type: string; id: string; source: string; note: string };
+    expect(parsed.source).toBe("poststack");
+    expect(parsed.note).toBe(`event post.published / ${eventId}`);
+    expect(parsed.type).toBe("post.published"); // standard fields still present (extra fields only add/override)
+  });
+
   it("non-2xx -> throws (retry); marks failed on the final attempt", async () => {
     const ep = await svc.createEndpoint(WS, { url: "https://hook.test/x", eventTypes: [] });
     const eventId = await emitNow(WS, "post.failed");

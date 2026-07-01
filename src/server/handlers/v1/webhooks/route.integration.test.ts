@@ -124,6 +124,34 @@ describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
     expect(got.status).toBe(404);
   });
 
+  it("accepts custom headers + extra payload fields on create; GET/list echo header NAMES only, never values", async () => {
+    const { json } = await createOne({
+      url: "https://hook.example.com/hdr",
+      headers: { Authorization: "Bearer secret123" },
+      extra_payload_fields: { source: "poststack" },
+    });
+    expect(json.data.header_names).toEqual(["Authorization"]);
+    expect(json.data.headers).toBeUndefined(); // values never serialized
+    expect(json.data.extra_payload_fields).toEqual({ source: "poststack" }); // not secret, echoed in full
+
+    const row = await db.query.webhookEndpoints.findFirst({ where: eq(s.webhookEndpoints.id, json.data.id) });
+    expect(row!.custom_headers_encrypted).not.toContain("secret123");
+
+    const got = await call("GET", `/webhooks/${json.data.id}`);
+    expect((await got.json()).data.header_names).toEqual(["Authorization"]);
+  });
+
+  it("PATCH replaces custom headers and extra payload fields", async () => {
+    const { json } = await createOne({ url: "https://hook.example.com/hp", headers: { "X-Old": "1" } });
+    const res = await call("PATCH", `/webhooks/${json.data.id}`, {
+      headers: { "X-New": "2" },
+      extra_payload_fields: { note: "hi" },
+    });
+    const { data } = await res.json();
+    expect(data.header_names).toEqual(["X-New"]);
+    expect(data.extra_payload_fields).toEqual({ note: "hi" });
+  });
+
   it("returns 402 when the instance is not licensed for outbound webhooks", async () => {
     await gate.clearLicense();
     const res = await call("POST", "/webhooks", { url: "https://hook.example.com/nope" });

@@ -3,11 +3,16 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { webhookEndpoints, webhookDeliveries } from "@/db/schema";
 import { encryptString, decryptString } from "@/lib/crypto";
+import { encryptHeaderMap, decryptHeaderMap, type HeaderMap } from "@/lib/webhooks/header-map";
 import { ApiError } from "@/lib/api/response";
 import { isKnownEventType } from "@/lib/events";
 import { classifyIp } from "@/lib/net/ip-classify";
 
-export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect;
+export type { HeaderMap };
+// Adds the decrypted `headers` map alongside the raw (ciphertext) `custom_headers_encrypted` column —
+// callers that only need to know header NAMES (the edit form) or actual values (the dispatcher) both
+// read `headers`; nothing needs to touch the ciphertext column directly outside this module.
+export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect & { headers: HeaderMap };
 
 /** A signing secret: `whsec_` + 48 hex chars. Used to HMAC-sign outbound deliveries. */
 function newSecret(): string {
@@ -19,11 +24,12 @@ function newSecret(): string {
  * the single boundary — it encrypts on write and hands the decrypted plaintext back to callers (the
  * dashboard display + the dispatcher's signer), so a read-only DB leak never exposes a usable secret.
  */
-function decryptEndpoint(row: WebhookEndpoint): WebhookEndpoint {
+function decryptEndpoint(row: typeof webhookEndpoints.$inferSelect): WebhookEndpoint {
   return {
     ...row,
     secret: decryptString(row.secret),
     secret_secondary: row.secret_secondary ? decryptString(row.secret_secondary) : null,
+    headers: decryptHeaderMap(row.custom_headers_encrypted),
   };
 }
 
@@ -65,14 +71,22 @@ function assertValidEventTypes(eventTypes: string[]): void {
 
 export async function createEndpoint(
   workspaceId: string,
-  input: { url: string; eventTypes?: string[] },
+  input: { url: string; eventTypes?: string[]; headers?: HeaderMap; extraFields?: Record<string, unknown> },
 ): Promise<WebhookEndpoint> {
   const eventTypes = input.eventTypes ?? [];
   assertValidUrl(input.url);
   assertValidEventTypes(eventTypes);
   const [row] = await db
     .insert(webhookEndpoints)
-    .values({ workspace_id: workspaceId, url: input.url, secret: encryptString(newSecret()), event_types: eventTypes, active: true })
+    .values({
+      workspace_id: workspaceId,
+      url: input.url,
+      secret: encryptString(newSecret()),
+      event_types: eventTypes,
+      active: true,
+      custom_headers_encrypted: encryptHeaderMap(input.headers),
+      extra_payload_fields: input.extraFields ?? {},
+    })
     .returning();
   return decryptEndpoint(row!); // returns the freshly-minted plaintext once
 }
@@ -98,7 +112,15 @@ export async function getEndpoint(workspaceId: string, id: string): Promise<Webh
 export async function updateEndpoint(
   workspaceId: string,
   id: string,
-  patch: { url?: string; eventTypes?: string[]; active?: boolean },
+  patch: {
+    url?: string;
+    eventTypes?: string[];
+    active?: boolean;
+    /** Omitted = leave existing headers untouched; {} explicitly clears them (never echoed back, so a
+     *  no-op read-modify-write can't accidentally wipe a value it never saw). */
+    headers?: HeaderMap;
+    extraFields?: Record<string, unknown>;
+  },
 ): Promise<WebhookEndpoint> {
   const existing = await getEndpoint(workspaceId, id);
   if (!existing) throw new ApiError("not_found", "Webhook endpoint not found", 404);
@@ -113,6 +135,8 @@ export async function updateEndpoint(
     set.event_types = patch.eventTypes;
   }
   if (patch.active !== undefined) set.active = patch.active;
+  if (patch.headers !== undefined) set.custom_headers_encrypted = encryptHeaderMap(patch.headers);
+  if (patch.extraFields !== undefined) set.extra_payload_fields = patch.extraFields;
 
   if (Object.keys(set).length === 0) return existing;
 

@@ -30,6 +30,7 @@ import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, 
 import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
 import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
+import { parseHeaderLines } from "@/lib/webhooks/header-map";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
@@ -1165,19 +1166,6 @@ function rephrasePromptFields(tone: string | null, customPrompt: string | null, 
     <label class="fld"><span>Custom prompt <small>— optional; fully overrides the prompt. Blank = your workspace default (Settings → Automation), or the built-in default below</small></span>
       <textarea class="input" name="custom_prompt" rows="3" maxlength="2000" placeholder="${DEFAULT_REPHRASE_PROMPT}" style="font:inherit" :disabled="!aiRephrase">${customPrompt ?? ""}</textarea></label>
   </div>`;
-}
-
-/** Parse a `Key: Value` per-line textarea into a header map (ignoring blanks / malformed lines). */
-function parseHeaderLines(raw: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of raw.split("\n")) {
-    const i = line.indexOf(":");
-    if (i <= 0) continue;
-    const key = line.slice(0, i).trim();
-    const val = line.slice(i + 1).trim();
-    if (key) out[key] = val;
-  }
-  return out;
 }
 
 // ─── registration ─────────────────────────────────────────────────────────────

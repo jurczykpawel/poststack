@@ -227,6 +227,8 @@ export const openApiSpec = {
           url: { type: "string", format: "uri" },
           event_types: { type: "array", items: { type: "string" }, description: "Empty = subscribe to all event types" },
           active: { type: "boolean" },
+          header_names: { type: "array", items: { type: "string" }, description: "Names of the configured custom headers (never values — set-only via `headers` on create/PATCH)." },
+          extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body. Not secret — returned in full. String leaves support {{id}} {{type}} {{created_at}} {{subject_id}} {{subject_type}} placeholders." },
           created_at: { type: "string", format: "date-time" },
           updated_at: { type: "string", format: "date-time" },
           secret: { type: "string", example: "whsec_…", description: "HMAC signing secret. Returned ONLY on create and rotate-secret — store it then; it is never echoed by GET." },
@@ -1103,7 +1105,7 @@ export const openApiSpec = {
         tags: ["Webhooks"],
         summary: "Register a webhook endpoint",
         description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license.",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
         responses: {
           "201": { description: "Created (includes the signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
@@ -1128,7 +1130,7 @@ export const openApiSpec = {
         tags: ["Webhooks"],
         summary: "Update a webhook endpoint",
         parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" } }, active: { type: "boolean" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" } }, active: { type: "boolean" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Replaces the configured custom headers. Omit to leave them untouched; {} clears them." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Replaces the extra payload fields." } } } } } },
         responses: {
           "200": { description: "Updated", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },

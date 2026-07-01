@@ -13,6 +13,10 @@ const patchSchema = z.object({
   url: z.string().min(1).max(2000).optional(),
   event_types: z.array(z.string().min(1).max(100)).max(50).optional(),
   active: z.boolean().optional(),
+  // Omitted = leave existing headers untouched; {} explicitly clears them (mirrors the service layer —
+  // see endpoints.ts updateEndpoint). Never echoed back.
+  headers: z.record(z.string().min(1).max(200), z.string().max(4000)).optional(),
+  extra_payload_fields: z.record(z.string(), z.unknown()).optional(),
 });
 
 // GET /api/v1/webhooks/:webhookId
@@ -45,6 +49,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     url: parsed.data.url,
     eventTypes: parsed.data.event_types,
     active: parsed.data.active,
+    headers: parsed.data.headers,
+    extraFields: parsed.data.extra_payload_fields,
   });
   return ok(serializeEndpoint(ep));
 }

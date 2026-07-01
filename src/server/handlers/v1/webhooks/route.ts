@@ -12,6 +12,12 @@ const createSchema = z.object({
   // Subscribe to specific event types, or omit/empty for ALL. Names are validated against the
   // catalog in the service (a 422 with the offending types), so the schema only bounds shape/size.
   event_types: z.array(z.string().min(1).max(100)).max(50).optional(),
+  // Custom HTTP headers merged into every delivery (e.g. an Authorization token for the receiver).
+  // Encrypted at rest; never echoed back — GET/list return `header_names` only.
+  headers: z.record(z.string().min(1).max(200), z.string().max(4000)).optional(),
+  // Extra top-level fields merged into the delivered body ({{id}} {{type}} {{created_at}}
+  // {{subject_id}} {{subject_type}} placeholders supported in string leaves). Not secret.
+  extra_payload_fields: z.record(z.string(), z.unknown()).optional(),
 });
 
 // GET /api/v1/webhooks — list this workspace's webhook endpoints (without signing secrets).
@@ -37,6 +43,11 @@ export async function POST(request: Request) {
   if (!parsed.success) return ApiErrors.validationError(zodDetails(parsed.error));
 
   // createEndpoint throws ApiError(422) for a bad url / unknown event type — mapped by app.onError.
-  const ep = await createEndpoint(auth.workspaceId, { url: parsed.data.url, eventTypes: parsed.data.event_types });
+  const ep = await createEndpoint(auth.workspaceId, {
+    url: parsed.data.url,
+    eventTypes: parsed.data.event_types,
+    headers: parsed.data.headers,
+    extraFields: parsed.data.extra_payload_fields,
+  });
   return created(serializeEndpointWithSecret(ep));
 }

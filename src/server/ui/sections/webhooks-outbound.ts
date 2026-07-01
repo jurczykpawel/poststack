@@ -8,6 +8,7 @@ import {
   createEndpoint, listEndpoints, updateEndpoint, rotateSecret, deleteEndpoint,
   type WebhookEndpoint,
 } from "@/lib/webhooks/endpoints";
+import { parseHeaderLines, type HeaderMap } from "@/lib/webhooks/header-map";
 import { icon } from "../components/icons";
 
 type Html = ReturnType<typeof html>;
@@ -18,15 +19,35 @@ async function auth(c: Context): Promise<AuthContext | null> {
   return authenticate(c.req.raw).catch(() => null);
 }
 
-/** Pull the (possibly repeated) `event_types` checkbox values + url out of a form body. */
-async function readEndpointForm(c: Context): Promise<{ url: string; eventTypes: string[] }> {
+/** Pull the (possibly repeated) `event_types` checkbox values + url + headers/extra textareas out of a form body. */
+async function readEndpointForm(
+  c: Context,
+): Promise<{ url: string; eventTypes: string[]; headersRaw: string; extraRaw: string }> {
   const body = await c.req.parseBody({ all: true });
   const url = String(body.url ?? "").trim();
   const raw = body.event_types;
   const eventTypes = (raw === undefined ? [] : Array.isArray(raw) ? raw : [raw])
     .map((v) => String(v).trim())
     .filter(Boolean);
-  return { url, eventTypes };
+  const headersRaw = typeof body.headers === "string" ? body.headers : "";
+  const extraRaw = typeof body.extra === "string" ? body.extra : "";
+  return { url, eventTypes, headersRaw, extraRaw };
+}
+
+/** Parse the "extra payload fields" JSON textarea. Blank -> {}. Throws ApiError(422) on bad JSON —
+ *  callers already catch ApiError from create/updateEndpoint and surface `.message` as an inline notice. */
+function parseExtraFields(raw: string): Record<string, unknown> {
+  if (!raw.trim()) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ApiError("invalid_request", "Extra payload fields must be valid JSON — nothing saved.", 422);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ApiError("invalid_request", "Extra payload fields must be a JSON object — nothing saved.", 422);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 /** "All events" when nothing is selected, otherwise the explicit subscription list. */
@@ -46,9 +67,25 @@ function eventChecks(selected: ReadonlySet<string>, idPrefix: string): Html {
   </div>`;
 }
 
+/**
+ * Custom headers + extra payload fields inputs, shared by the add-form and each card's edit-form
+ * (DRY, mirrors the alert webhook's Settings form). Header VALUES are never echoed back — only the
+ * configured NAMES (`headerNames`), so the operator knows what's set without leaking secrets. Extra
+ * fields aren't secret, so `extraJson` prefills the textarea with the current value.
+ */
+function headerAndExtraFields(headerNames: string[], extraJson: string): Html {
+  return html`<label class="fld"><span>Custom headers <small>— one <code>Key: Value</code> per line, encrypted at rest${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</small></span>
+      <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${MONO}"></textarea></label>
+    <label class="fld"><span>Extra payload fields <small>— JSON; supports {{id}} {{type}} {{created_at}} {{subject_id}} {{subject_type}}</small></span>
+      <textarea name="extra" rows="3" placeholder='{ "source": "poststack" }' style="${MONO}">${extraJson}</textarea></label>`;
+}
+
 /** One endpoint card: url, events, active toggle, revealable secret, edit form, rotate, delete. */
 function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
   const selected = new Set(ep.event_types ?? []);
+  const headerNames = Object.keys(ep.headers);
+  const extraFields = ep.extra_payload_fields as Record<string, unknown>;
+  const extraJson = Object.keys(extraFields).length ? JSON.stringify(extraFields, null, 2) : "";
   return html`<div class="card${highlight ? " wh-just-created" : ""}" style="margin:.6rem 0${highlight ? ";border-color:var(--accent)" : ""}">
     <div class="row" style="align-items:center;gap:.5rem">
       <span class="badge tone-${ep.active ? "ok" : "neutral"}">${ep.active ? "Active" : "Inactive"}</span>
@@ -68,7 +105,7 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
       <button class="btn btn-sm btn-danger" hx-delete="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Delete this endpoint? Future events will no longer be delivered to it." data-confirm-label="Delete">Delete</button>
     </div>
     <details style="margin-top:.5rem">
-      <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Edit URL &amp; events</summary>
+      <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Edit URL, events &amp; headers</summary>
       <form hx-post="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" style="margin-top:.5rem">
         <label class="fld"><span>Endpoint URL</span>
           <input type="url" name="url" value="${ep.url}" required style="${MONO}" /></label>
@@ -76,6 +113,7 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
           <legend style="font-size:.8rem;padding:0 .3rem">Events <small class="muted">— none checked = all events</small></legend>
           ${eventChecks(selected, `edit-${ep.id}`)}
         </fieldset>
+        ${headerAndExtraFields(headerNames, extraJson)}
         <button class="btn btn-sm btn-primary" type="submit">Save changes</button>
       </form>
     </details>
@@ -107,6 +145,7 @@ export function renderOutboundWebhooks(
           <legend style="font-size:.8rem;padding:0 .3rem">Subscribe to events <small class="muted">— leave all unchecked to receive every event</small></legend>
           ${eventChecks(new Set<string>(), "new")}
         </fieldset>
+        ${headerAndExtraFields([], "")}
         <button class="btn btn-primary" type="submit">${icon("plus", "ico", 14)} Add endpoint</button>
       </form>
     </details>
@@ -150,9 +189,11 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     const g = await ctx(c);
     if (g instanceof Response) return g;
     if (!g.canManage) return c.html(await renderPanel(g.a.workspaceId, false, g.upgradeUrl));
-    const { url, eventTypes } = await readEndpointForm(c);
+    const { url, eventTypes, headersRaw, extraRaw } = await readEndpointForm(c);
     try {
-      const ep = await createEndpoint(g.a.workspaceId, { url, eventTypes });
+      const extraFields = parseExtraFields(extraRaw);
+      const headers: HeaderMap = parseHeaderLines(headersRaw);
+      const ep = await createEndpoint(g.a.workspaceId, { url, eventTypes, headers, extraFields });
       return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, {
         notice: "Endpoint added — reveal the signing secret below and store it now.",
         highlightId: ep.id,
@@ -163,16 +204,21 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     }
   });
 
-  // Edit url + event-type selection.
+  // Edit url + event-type selection + headers/extra fields.
   r.post("/webhooks/outbound/:id", guard, async (c) => {
     const g = await ctx(c);
     if (g instanceof Response) return g;
     const id = c.req.param("id");
     if (!id || !UUID_RE.test(id)) return c.text("not found", 404);
     if (!g.canManage) return c.html(await renderPanel(g.a.workspaceId, false, g.upgradeUrl));
-    const { url, eventTypes } = await readEndpointForm(c);
+    const { url, eventTypes, headersRaw, extraRaw } = await readEndpointForm(c);
     try {
-      await updateEndpoint(g.a.workspaceId, id, { url, eventTypes });
+      const extraFields = parseExtraFields(extraRaw); // blank textarea -> {} (visible, so blank = clear)
+      const headerLines = parseHeaderLines(headersRaw);
+      // Blank textarea (no parsed keys) -> leave existing headers untouched (values are never echoed
+      // back, so a blank submission almost certainly means "didn't intend to change them").
+      const headers = Object.keys(headerLines).length ? headerLines : undefined;
+      await updateEndpoint(g.a.workspaceId, id, { url, eventTypes, headers, extraFields });
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
       if (err instanceof ApiError) return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }));

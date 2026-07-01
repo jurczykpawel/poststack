@@ -1322,6 +1322,12 @@ export const webhookEndpoints = pgTable("webhook_endpoints", {
 	secret_secondary: text("secret_secondary"),
 	event_types: text("event_types").array().notNull().default([]),
 	active: boolean().default(true).notNull(),
+	// AES-256-GCM ciphertext of a JSON header map (mirrors alert_webhooks). NULL = no custom headers.
+	// Merged into the delivery's HTTP headers; values are never returned from the API/UI after save.
+	custom_headers_encrypted: text("custom_headers_encrypted"),
+	// Extra top-level fields merged into the delivered body; string leaves get {{placeholder}}
+	// substitution against the event envelope (id/type/created_at/subject_id/subject_type).
+	extra_payload_fields: jsonb("extra_payload_fields").default({}).notNull(),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [

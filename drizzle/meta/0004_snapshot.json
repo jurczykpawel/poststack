@@ -6290,6 +6290,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "custom_headers_encrypted": {
+          "name": "custom_headers_encrypted",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extra_payload_fields": {
+          "name": "extra_payload_fields",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         }
       },
       "indexes": {

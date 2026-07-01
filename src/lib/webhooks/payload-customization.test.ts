@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectFields, renderTemplate, buildAlertBody } from "./alert-customization";
+import { selectFields, renderTemplate, buildCustomizedBody } from "./payload-customization";
 
 describe("selectFields", () => {
   it("keeps only whitelisted keys", () => {
@@ -30,11 +30,11 @@ describe("renderTemplate", () => {
   });
 });
 
-describe("buildAlertBody", () => {
+describe("buildCustomizedBody", () => {
   const standard = { type: "token_expiring", days_left: 7, detail: "soon", workspace_id: "ws" };
 
   it("merges rendered extra fields over the (optionally selected) standard body", () => {
-    const out = buildAlertBody(
+    const out = buildCustomizedBody(
       standard,
       { field_selection: ["type", "days_left"], extra_payload_fields: { subject: "Expires in {{days_left}} days", to: "ops@x.com" } },
       { type: "token_expiring", days_left: "7", detail: "soon", workspace_id: "ws" },
@@ -43,6 +43,6 @@ describe("buildAlertBody", () => {
   });
 
   it("returns the full standard body when nothing is customized", () => {
-    expect(buildAlertBody(standard, {}, {})).toEqual(standard);
+    expect(buildCustomizedBody(standard, {}, {})).toEqual(standard);
   });
 });
