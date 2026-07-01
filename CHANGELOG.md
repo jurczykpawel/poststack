@@ -23,7 +23,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Instagram `live_comments`** are handled → routed into the comment pipeline with per-account auto-subscribe (previously dropped).
 - **Configurable AI rephrase prompt** — a workspace-default rephrase prompt plus a per-rule Tone + Custom-prompt override, with the built-in default shown everywhere it can be overridden.
 - **Rich inbox rendering** — incoming message attachments / buttons / quick-replies render as real content instead of an opaque "(attachment)", and outbound interactive content is persisted.
-- **AI availability is surfaced end-to-end.** With no AI provider key set, the inbox "Generate reply" buttons are disabled with a notice, the Settings AI-draft / rephrase prompt forms and the rule "Rephrase with AI" fields show a "no provider configured" banner, and the on-demand draft endpoint refuses with a clear message instead of silently promising a draft that never appears. The API exposes **`ai_configured`** on `GET /api/v1/license` so agents / automations can check it (together with the `ai_draft` / `rephrase` PRO features) before relying on AI.
+- **AI availability is surfaced end-to-end.** With no AI provider key set, the inbox "Generate reply" buttons are disabled with a notice, the Settings AI-draft / rephrase prompt forms, the per-channel AI-drafted-replies panel, and the rule "Rephrase with AI" fields all show a "no provider configured" banner, and the on-demand draft endpoint refuses with a clear message instead of silently promising a draft that never appears. The API exposes **`ai_configured`** on `GET /api/v1/license` so agents / automations can check it (together with the `ai_draft` / `rephrase` PRO features) before relying on AI.
 
 ### Changed
 - **Recognized Facebook `feed` noise is logged as `ignored`, not `unhandled`.** The Page editing its own content (video / post / status lifecycle), reactions on comments, and comment edits/removes are still durably recorded but kept out of the "Unhandled event types" surface, so that panel stays focused on genuinely-unrouted shapes.
@@ -35,6 +35,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Instagram Business Login hardening** (audit pass): preserve the IG-Login messaging token on a Facebook-side channel upsert and on token refresh; race-safe token-refresh writes; redact secrets before persisting re-auth reasons / `last_error`; truthful per-channel subscription health (no "active, receiving nothing"); correct `message_reactions` field name; IG-Login-only comments/permalink routed to `graph.instagram.com`.
 - **Publishing:** IG feed images send `image_url` (not a bare `url`); a benign Meta 400 no longer flags a channel `needs_reauth`.
 - **Queue:** a **held** post can now be cancelled (not only a scheduled one).
+- **Inbox:** the on-demand **"Generate reply"** button returned "Nothing to reply to yet" on every comment thread — it read the inbound text from the DM store (`messages`) instead of the comment store (`commentLogs`), so it had nothing to work with on the exact case (public/first-touch comment replies) it's most useful for.
 
 ## [0.8.6] - 2026-06-28
 
