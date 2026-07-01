@@ -189,7 +189,7 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
     return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
       <span class="conv-av"><span class="conv-av-i">${initials}</span><span class="conv-pg" style="background:${platformColor(conv.platform)}">${raw(platformGlyphString(conv.platform, 9))}</span></span>
       <span class="conv-body">
-        <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time">${timeAgo(conv.last_message_at)}</span></span>
+        <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time-wrap">${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}<span class="conv-time">${timeAgo(conv.last_message_at)}</span></span></span>
         ${isEmail ? html`<span class="conv-subject">${conv.subject ?? "(no subject)"}</span>` : html``}
         <span class="conv-preview">${conv.last_message_preview ?? "No messages"}</span>
         <span class="conv-meta">
@@ -200,7 +200,6 @@ function renderConvItems(conversations: Array<Awaited<ReturnType<typeof loadConv
           ${conv.needs_manual_reply ? html`<span class="conv-flag">${icon("alert", "ico", 11)} Needs reply</span>` : html``}
         </span>
       </span>
-      ${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}
     </button>`;
   })}`;
 }

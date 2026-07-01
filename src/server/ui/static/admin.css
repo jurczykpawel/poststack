@@ -1059,7 +1059,12 @@ select.ps-native-hidden { display: none !important; }
 .conv-top { display: flex; align-items: baseline; gap: 8px; }
 .conv-name { font-size: 13px; color: var(--text-1); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-item.unread .conv-name { font-weight: 700; }
-.conv-time { margin-left: auto; font-size: 10.5px; color: var(--text-3); font-family: var(--font-mono); flex: 0 0 auto; }
+/* Bug fix: the unread dot used to be position:absolute at the same right edge as the timestamp,
+   overlapping its last character(s). Flowing both inside one flex wrapper (dot always renders here,
+   just conditionally empty) keeps the timestamp flush right in every state and puts a real gap
+   between the two when the dot is present — they can never overlap again. */
+.conv-time-wrap { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.conv-time { font-size: 10.5px; color: var(--text-3); font-family: var(--font-mono); }
 .conv-subject { font-size: 12px; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-preview { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .conv-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
@@ -1069,7 +1074,7 @@ select.ps-native-hidden { display: none !important; }
 .conv-kind .ico { width: 11px; height: 11px; }
 .conv-kind-email { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
 .conv-kind-comment { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 35%, transparent); }
-.conv-unread { position: absolute; right: 12px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.conv-unread { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
 
 .thread-legend { font-size: .72rem; width: 100%; }
 .thread-legend > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px; color: var(--text-3); }
@@ -1225,14 +1230,10 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .conv-contact-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .conv-contact-chip .btn-ic { flex: 0 0 auto; }
 #conv-list-items { flex: 1; min-height: 0; overflow-y: auto; }
-/* .conv-item is defined in the Inbox v2 block above (flex row w/ avatar). This legacy duplicate set
-   display:block and, being later in source order, overrode v2 — stacking the avatar above the text.
-   Removed so v2's flex row governs. (Other legacy .conv-* here are v2-unique or harmless and stay.) */
-.conv-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.conv-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-name.unread { font-weight: 700; }
-.conv-time { font-size: 11px; color: var(--text-2); flex-shrink: 0; }
-.conv-preview { font-size: 12.5px; color: var(--text-2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* .conv-item/.conv-top/.conv-name/.conv-time/.conv-preview are defined in the Inbox v2 block above
+   (flex row w/ avatar) — this used to re-declare all of them here too, later in source order, so
+   equal-specificity properties (font-size/color on .conv-time, e.g.) silently overrode v2's values.
+   Removed the duplicates; only the genuinely v2-unique rule below stays. */
 .conv-item .badge { position: absolute; right: 12px; bottom: 8px; }
 
 .thread { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -1378,6 +1379,11 @@ a.msg-chip.msg-media:hover { border-color: var(--accent); }
 }
 /* Forms posting via htmx (no explicit indicator button) dim gently while in flight. */
 form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
+/* Bug fix: .conv-item is a bare <button> covering a whole clickable inbox row (not a `.btn` action
+   button), so it inherited the generic spinner above — an INSERTED ::before pseudo-element, which
+   shoves the row's flex content ~18px right for the request's (near-instant) duration, then snaps
+   back. Keep the dim + no-double-click protection; drop only the layout-shifting spinner itself. */
+.conv-item.htmx-request::before { content: none; }
 
 /* ADPOLL1: visible feedback while an AI draft is generating (the drafts-region self-poll). Spins for
    the whole wait, not just the ~100ms of each poll request — reuses ps-spin above. */

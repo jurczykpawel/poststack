@@ -75,4 +75,19 @@ describe("admin.css visual layer", () => {
     const hex = css.match(/#[0-9a-fA-F]{3,6}\b/g);
     expect(hex, `unexpected raw hex in admin.css: ${hex?.join(", ")}`).toBeNull();
   });
+
+  // Bug: .conv-unread was position:absolute at the SAME right edge as .conv-time, overlapping the
+  // timestamp text. Fixed by flowing both inside one flex wrapper instead of floating the dot on top.
+  it("keeps the unread dot in normal flex flow (not position:absolute) so it can't overlap the timestamp", () => {
+    expect(css).toContain(".conv-time-wrap");
+    const unreadRule = css.match(/\.conv-unread\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(unreadRule).not.toContain("position: absolute");
+  });
+
+  // Bug: .conv-item is a bare <button> (whole clickable inbox row, not a `.btn` action button) that
+  // inherited the global htmx-request::before spinner — an INSERTED pseudo-element that reflowed the
+  // row's flex layout for the request's duration, looking like a jump to the right on click.
+  it("suppresses the global htmx-request spinner on .conv-item (it would reflow the row)", () => {
+    expect(css).toMatch(/\.conv-item\.htmx-request::before\s*\{[^}]*content:\s*none/);
+  });
 });

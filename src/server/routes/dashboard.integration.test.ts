@@ -648,6 +648,27 @@ describe("dashboard inbox conversation controls", () => {
     expect(scoped).toContain("contact=all"); // the ✕ clears back to everyone
   });
 
+  // Bug: the unread dot was position:absolute at the same right edge as the timestamp, so it visually
+  // overlapped the last character(s) of "36m" etc. Fixed by moving the dot INTO the same flex wrapper
+  // as the timestamp (both flush right together, with a real gap between them) instead of floating an
+  // absolutely-positioned circle on top of it.
+  it("places the unread dot inside the same flex wrapper as the timestamp, not overlapping it", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ unread_count: 2 }).where(eq(s.conversations.id, CONV));
+    const html = await (await app.request("/inbox/list?filter=all", { headers: { cookie } })).text();
+    // conv-unread and conv-time must be siblings inside one wrapper — not conv-unread trailing the
+    // whole row after </span></button> (its old position, which overlapped via position:absolute).
+    expect(html).toMatch(/<span class="conv-time-wrap">\s*<span class="conv-unread"[^>]*><\/span>\s*<span class="conv-time">/);
+  });
+
+  it("renders no unread dot (and no empty wrapper artifact) for a read conversation", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.conversations).set({ unread_count: 0 }).where(eq(s.conversations.id, CONV));
+    const html = await (await app.request("/inbox/list?filter=all", { headers: { cookie } })).text();
+    expect(html).not.toContain("conv-unread");
+    expect(html).toContain("conv-time-wrap"); // the wrapper itself always renders (keeps time flush right)
+  });
+
   it("control bar has a self-explanatory legend + clear labels", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
