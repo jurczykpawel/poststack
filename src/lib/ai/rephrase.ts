@@ -55,7 +55,7 @@ export interface RephraseOptions {
  * the original text unchanged if no key is configured or the call fails. The system prompt is resolved
  * by `resolveRephrasePrompt` (rule → workspace → built-in default).
  */
-export async function rephrase(baseText: string, opts: RephraseOptions = {}): Promise<string> {
+export async function rephrase(workspaceId: string, baseText: string, opts: RephraseOptions = {}): Promise<string> {
   const systemContent = resolveRephrasePrompt({
     rulePrompt: opts.customPrompt,
     workspacePrompt: opts.workspacePrompt,
@@ -63,6 +63,8 @@ export async function rephrase(baseText: string, opts: RephraseOptions = {}): Pr
   });
 
   const rephrased = await chatComplete({
+    workspaceId,
+    kind: "rephrase",
     system: systemContent,
     user: baseText,
     maxTokens: 300,

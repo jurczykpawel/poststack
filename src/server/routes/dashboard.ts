@@ -23,6 +23,8 @@ import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
 import { toastHeader } from "../ui/components/toast";
+import { timeAgo } from "../ui/components/time";
+import { proLink } from "../ui/components/pro-link";
 import { addJobTx } from "@/lib/queue/client";
 import { platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
@@ -32,6 +34,7 @@ import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
 import { resolvePostContext } from "@/lib/ai/post-context";
+import { loadAiGenerationLogs, renderAiGenerationLogs } from "../ui/sections/ai-generation-logs";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
@@ -88,16 +91,6 @@ function jsonReq(c: Context, body: unknown): Request {
   return new Request(c.req.url, { method: "POST", headers, body: JSON.stringify(body) });
 }
 
-function timeAgo(iso: string | Date | null): string {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
 
 /** Wall-clock HH:MM for a message's own timestamp — the mono time under each thread bubble. */
 function clockTime(iso: string | Date | null): string {
@@ -1770,7 +1763,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canAlerts = license.features.has("managed_connection");
     const canAiDraft = license.features.has("ai_draft");
     const canAiRephrase = license.features.has("ai_rephrase");
+    const canAiLogs = canAiDraft || canAiRephrase;
     const aiConfigured = await isAiConfigured();
+    const aiGenerationLogRows = canAiLogs ? await loadAiGenerationLogs(a.workspaceId) : [];
     const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
@@ -1884,6 +1879,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             </div>
             <p class="muted" style="margin-bottom:1rem">Default prompt used when a rule rephrases its reply with AI (the “Rephrase with AI for variety” toggle). A rule can override it with its own Tone / Custom prompt. Blank = the built-in default shown below.</p>
             <div id="ai-rephrase-prompt-area">${renderAiRephrasePrompt(workspace?.ai_rephrase_prompt ?? null, canAiRephrase, upgradeUrl, undefined, aiConfigured)}</div>
+          </section>
+          <section class="section">
+            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <h2 style="margin:0">AI generation log</h2>
+              ${canAiLogs ? html`` : proLink(upgradeUrl, "PRO")}
+            </div>
+            <p class="muted" style="margin-bottom:1rem">Every AI-drafted reply and rephrase, exactly as sent to and received from the model — expand a row to see the full system/user prompt and response or failure reason.</p>
+            ${renderAiGenerationLogs(aiGenerationLogRows, canAiLogs, upgradeUrl)}
           </section>
           </div>
         </div>`,
@@ -2932,9 +2935,6 @@ function metaConfigRow(label: string, value: string): Html {
   </div>`;
 }
 
-function proLink(upgradeUrl: string, label = "PRO"): Html {
-  return html`<a href="${upgradeUrl}" target="_blank" rel="noopener" class="pro-link" style="color:var(--primary);text-decoration:none;white-space:nowrap">${icon("lock", "ico", 12)} ${label}</a>`;
-}
 
 // Full-page upsell shown when a free instance opens a PRO-only view (inbox / contacts).
 // Free keeps unlimited message handling; seeing individual people is the paid CRM layer.

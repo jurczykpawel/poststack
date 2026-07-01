@@ -35,6 +35,7 @@ export function resolveDraftPrompt(args: {
  * / empty completion), in which case the caller creates no draft.
  */
 export async function generateDraft(args: {
+  workspaceId: string;
   incomingText: string;
   context?: string;
   prompt: string;
@@ -44,6 +45,8 @@ export async function generateDraft(args: {
     : args.incomingText;
 
   return chatComplete({
+    workspaceId: args.workspaceId,
+    kind: "draft",
     system: args.prompt,
     user,
     maxTokens: 400,

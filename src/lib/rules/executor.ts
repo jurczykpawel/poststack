@@ -100,7 +100,7 @@ async function resolveDmText(
       where: eq(workspaces.id, workspaceId),
       columns: { ai_rephrase_prompt: true },
     });
-    const rephrased = await rephrase(baseText, {
+    const rephrased = await rephrase(workspaceId, baseText, {
       customPrompt: responseConfig.custom_prompt as string | undefined,
       workspacePrompt: ws?.ai_rephrase_prompt ?? null,
       tone: responseConfig.tone as string | undefined,

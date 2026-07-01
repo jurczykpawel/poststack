@@ -9,6 +9,9 @@ export const approvalSource = pgEnum("approval_source", ['rule', 'ai_auto', 'ai_
 // Where an AI auto-draft is allowed to act for a channel: `dm` = direct messages only, `public` =
 // public comment replies only, `both` = either.
 export const aiDraftTarget = pgEnum("ai_draft_target", ['dm', 'public', 'both'])
+// ADLOG1: which caller made a `chatComplete` call — the AI-drafted-reply generator or the rule
+// rephrase step. Lets the log panel and any future per-feature stats filter by origin.
+export const aiGenerationKind = pgEnum("ai_generation_kind", ['draft', 'rephrase'])
 // `system` is reserved/forward-looking: actorFromAuth only ever emits user/api_key, and no
 // cron/worker/maintenance path audits yet, so it's currently unreachable. Kept for when system
 // actions (token-refresh / maintenance) start writing audit rows.
@@ -1008,6 +1011,30 @@ export const pendingApprovals = pgTable("pending_approvals", {
 			columns: [table.channel_id],
 			foreignColumns: [channels.id],
 			name: "pending_approvals_channel_id_fkey"
+		}).onUpdate("cascade").onDelete("cascade"),
+]);
+
+// ADLOG1: one row per `chatComplete` call (AI-drafted replies + rule rephrase), written from inside
+// the shared client itself — the single choke point both callers go through — so the panel shows
+// EXACTLY what was sent to the LLM and exactly what came back, without needing to reproduce the bug
+// by re-reading code. A non-2xx or an empty completion sets `error` and leaves `response` null.
+export const aiGenerationLogs = pgTable("ai_generation_logs", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	kind: aiGenerationKind().notNull(),
+	model: text().notNull(),
+	system_prompt: text("system_prompt").notNull(),
+	user_message: text("user_message").notNull(),
+	response: text(),
+	error: text(),
+	duration_ms: integer("duration_ms").notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	index("ai_generation_logs_workspace_created_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.desc().nullsLast()),
+	foreignKey({
+			columns: [table.workspace_id],
+			foreignColumns: [workspaces.id],
+			name: "ai_generation_logs_workspace_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 

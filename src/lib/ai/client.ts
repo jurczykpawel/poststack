@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/settings/config";
+import { logGeneration } from "@/lib/ai/generation-log";
 
 // Defaults mirror the env schema (env.ts), since getConfig falls back to raw process.env (no zod
 // defaults): an unset model/base-url resolves to "" here, so we apply the same defaults.
@@ -16,6 +17,11 @@ export async function isAiConfigured(): Promise<boolean> {
 }
 
 export interface ChatCompleteOptions {
+  /** Which workspace this call is on behalf of (AI_API_KEY itself is instance-wide/BYOK, but the
+   *  generation log — ADLOG1 — is workspace-scoped so an operator can see their own traffic). */
+  workspaceId: string;
+  /** Which feature made this call — labels the log entry (draft vs rephrase). */
+  kind: "draft" | "rephrase";
   /** System prompt. */
   system: string;
   /** User message. */
@@ -33,16 +39,23 @@ export interface ChatCompleteOptions {
  * endpoint, set via AI_BASE_URL + AI_MODEL, key via AI_API_KEY — all resolved through getConfig).
  * Best-effort: returns `null` if no key is configured, the call fails (non-2xx / throw / timeout),
  * or the completion is empty. Keeps callers free of any provider-specific code.
+ *
+ * ADLOG1: every real attempt (i.e. past the "no key configured" gate) is logged — exact system/user
+ * sent, exact response or failure reason, model, duration — regardless of outcome, so a "why did the
+ * model say that" question never requires re-reading code to answer.
  */
 export async function chatComplete(opts: ChatCompleteOptions): Promise<string | null> {
-  const { system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
+  const { workspaceId, kind, system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
 
   const apiKey = await getConfig("AI_API_KEY");
-  if (!apiKey) return null;
+  if (!apiKey) return null; // not configured — not a real attempt, nothing to log
 
   const model = (await getConfig("AI_MODEL")) || DEFAULT_MODEL;
   const baseUrl = (await getConfig("AI_BASE_URL")) || DEFAULT_BASE_URL;
 
+  const startedAt = Date.now();
+  let response: string | null = null;
+  let error: string | null = null;
   try {
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -60,12 +73,18 @@ export async function chatComplete(opts: ChatCompleteOptions): Promise<string | 
       signal: AbortSignal.timeout(timeoutMs),
     });
 
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-    const content = data.choices?.[0]?.message?.content?.trim();
-    return content && content.length > 0 ? content : null;
-  } catch {
-    return null;
+    if (!res.ok) {
+      error = `HTTP ${res.status}`;
+    } else {
+      const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+      const content = data.choices?.[0]?.message?.content?.trim();
+      if (content && content.length > 0) response = content;
+      else error = "empty completion";
+    }
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
   }
+
+  await logGeneration({ workspaceId, kind, model, system, user, response, error, durationMs: Date.now() - startedAt });
+  return response;
 }

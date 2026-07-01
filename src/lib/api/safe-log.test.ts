@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeForLog } from "./safe-log";
+import { sanitizeForLog, neutralizeHtml } from "./safe-log";
 
 describe("sanitizeForLog", () => {
   it("strips CR/LF from a value", () => {
@@ -12,5 +12,15 @@ describe("sanitizeForLog", () => {
 
   it("leaves a clean value unchanged", () => {
     expect(sanitizeForLog("203.0.113.7")).toBe("203.0.113.7");
+  });
+});
+
+describe("neutralizeHtml", () => {
+  it("maps <, >, & to fullwidth look-alikes", () => {
+    expect(neutralizeHtml('<script>alert(1)</script> & "stuff"')).toBe("＜script＞alert(1)＜/script＞ ＆ \"stuff\"");
+  });
+
+  it("leaves a clean value unchanged", () => {
+    expect(neutralizeHtml("hello world")).toBe("hello world");
   });
 });

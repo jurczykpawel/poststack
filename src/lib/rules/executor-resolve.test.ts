@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 
 // resolveReplyContent runs the AI-rephrase path: workspace LLM budget + output clamp
 //. Mock the LLM call and the rate limiter so this is a pure unit test (no network/db).
-const rephrase = vi.fn(async (t: string, _opts?: unknown) => t);
-vi.mock("@/lib/ai/rephrase", () => ({ rephrase: (...a: unknown[]) => rephrase(...(a as [string, unknown])) }));
+const rephrase = vi.fn(async (_workspaceId: string, t: string, _opts?: unknown) => t);
+vi.mock("@/lib/ai/rephrase", () => ({ rephrase: (...a: unknown[]) => rephrase(...(a as [string, string, unknown])) }));
 const rateLimit = vi.fn(async () => ({ allowed: true, remaining: 1, retryAfter: 0 }));
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLimit(...(a as [])) }));
 // AIPROMPT1: resolveDmText reads the workspace-default rephrase prompt; stub it (no DB in this unit
@@ -26,7 +26,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  rephrase.mockReset().mockImplementation(async (t: string) => t);
+  rephrase.mockReset().mockImplementation(async (_ws: string, t: string) => t);
   rateLimit.mockReset().mockResolvedValue({ allowed: true, remaining: 1, retryAfter: 0 });
 });
 
@@ -43,9 +43,10 @@ describe("AI-rephrase per-workspace budget", () => {
     wsRephrasePrompt.mockReturnValueOnce("WS default rephrase prompt");
     await resolveReplyContent(WS, "ai_rephrase", { text: "hello", custom_prompt: "rule prompt", tone: "blunt" });
     expect(rephrase).toHaveBeenCalledTimes(1);
+    expect(rephrase.mock.calls[0]![0]).toBe(WS); // ADLOG1: workspaceId forwarded for the generation log
     // The executor must forward the workspace prompt (loaded from the DB) + the rule's overrides — the
     // resolver (unit-tested separately) then applies precedence. Dropping any of these regresses here.
-    expect(rephrase.mock.calls[0]![1]).toMatchObject({
+    expect(rephrase.mock.calls[0]![2]).toMatchObject({
       workspacePrompt: "WS default rephrase prompt",
       customPrompt: "rule prompt",
       tone: "blunt",

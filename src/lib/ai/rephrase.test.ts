@@ -8,6 +8,9 @@ import { resolveRephrasePrompt, defaultRephrasePrompt, DEFAULT_REPHRASE_PROMPT, 
 vi.mock("@/lib/settings/config", () => ({
   getConfig: async (key: string) => process.env[key] ?? "",
 }));
+// ADLOG1: chatComplete (called under the hood) now writes a generation log — mock the write
+// boundary so this stays a pure-unit test (no DB).
+vi.mock("@/lib/ai/generation-log", () => ({ logGeneration: async () => {} }));
 
 const originalFetch = globalThis.fetch;
 
@@ -53,19 +56,19 @@ describe("rephrase — AI adapter", () => {
   it("returns the base text when no API key is configured", async () => {
     delete process.env.AI_API_KEY;
     const rephrase = await loadRephrase();
-    expect(await rephrase("Hello", {})).toBe("Hello");
+    expect(await rephrase("WS-1", "Hello", {})).toBe("Hello");
   });
 
   it("returns the rephrased completion on success", async () => {
     const rephrase = await loadRephrase();
     mockFetchOk("  Rephrased  ");
-    expect(await rephrase("Hello", {})).toBe("Rephrased");
+    expect(await rephrase("WS-1", "Hello", {})).toBe("Rephrased");
   });
 
   it("falls back to base text on an API error", async () => {
     const rephrase = await loadRephrase();
     globalThis.fetch = vi.fn(async () => new Response("boom", { status: 500 })) as typeof fetch;
-    expect(await rephrase("Hello", {})).toBe("Hello");
+    expect(await rephrase("WS-1", "Hello", {})).toBe("Hello");
   });
 
   it("falls back to base text when the request throws", async () => {
@@ -73,19 +76,19 @@ describe("rephrase — AI adapter", () => {
     globalThis.fetch = vi.fn(async () => {
       throw new Error("network");
     }) as typeof fetch;
-    expect(await rephrase("Hello", {})).toBe("Hello");
+    expect(await rephrase("WS-1", "Hello", {})).toBe("Hello");
   });
 
   it("falls back to base text on an empty completion", async () => {
     const rephrase = await loadRephrase();
     mockFetchOk("   ");
-    expect(await rephrase("Hello", {})).toBe("Hello");
+    expect(await rephrase("WS-1", "Hello", {})).toBe("Hello");
   });
 
   it("uses custom_prompt as the system message", async () => {
     const rephrase = await loadRephrase();
     mockFetchOk("ok");
-    await rephrase("Base", { customPrompt: "Speak like a pirate." });
+    await rephrase("WS-1", "Base", { customPrompt: "Speak like a pirate." });
     expect(lastBody!.messages[0]).toEqual({ role: "system", content: "Speak like a pirate." });
     expect(lastBody!.messages[1]).toEqual({ role: "user", content: "Base" });
   });
@@ -93,21 +96,21 @@ describe("rephrase — AI adapter", () => {
   it("uses the workspace default prompt as the system message when no custom_prompt is set", async () => {
     const rephrase = await loadRephrase();
     mockFetchOk("ok");
-    await rephrase("Base", { workspacePrompt: "Rephrase concisely in Polish." });
+    await rephrase("WS-1", "Base", { workspacePrompt: "Rephrase concisely in Polish." });
     expect(lastBody!.messages[0]).toEqual({ role: "system", content: "Rephrase concisely in Polish." });
   });
 
   it("a rule custom_prompt wins over the workspace default prompt", async () => {
     const rephrase = await loadRephrase();
     mockFetchOk("ok");
-    await rephrase("Base", { customPrompt: "Speak like a pirate.", workspacePrompt: "Concise Polish." });
+    await rephrase("WS-1", "Base", { customPrompt: "Speak like a pirate.", workspacePrompt: "Concise Polish." });
     expect(lastBody!.messages[0].content).toBe("Speak like a pirate.");
   });
 
   it("falls back to the built-in default prompt when neither custom nor workspace is set", async () => {
     const rephrase = await loadRephrase();
     mockFetchOk("ok");
-    await rephrase("Base", {});
+    await rephrase("WS-1", "Base", {});
     expect(lastBody!.messages[0].content).toBe(DEFAULT_REPHRASE_PROMPT);
   });
 
@@ -117,7 +120,7 @@ describe("rephrase — AI adapter", () => {
     process.env.AI_BASE_URL = "https://api.groq.com/openai/v1";
     const rephrase = await loadRephrase();
     mockFetchOk("ok");
-    await rephrase("Base", {});
+    await rephrase("WS-1", "Base", {});
     expect(lastBody!.model).toBe("llama-3.3-70b-versatile");
     expect(lastUrl).toBe("https://api.groq.com/openai/v1/chat/completions");
   });
