@@ -213,6 +213,17 @@ export abstract class SocialProvider {
   getPostUrl?(tokens: TokenData, postId: string): Promise<string | null>;
 
   /**
+   * Resolve a post/media id to its caption/message text. Used to give the AI-draft model context
+   * about what a comment is replying to when the post has no local PostStack record (it was
+   * published outside PostStack, so there's no `posts` row to read a caption from). Optional —
+   * unlike {@link getPostUrl}, there's no way to construct caption text without a call, so every
+   * platform that supports comment auto-reply implements it. Best-effort at the call site: a failed
+   * fetch must not block draft generation.
+   * @param postId - Platform-native post/media id
+   */
+  getPostText?(tokens: TokenData, postId: string): Promise<string | null>;
+
+  /**
    * Whether a user follows the connected business account.
    * Used by the follow-gate. Optional — only platforms with a follow graph
    * implement it (Instagram). Platforms without one leave the gate open.

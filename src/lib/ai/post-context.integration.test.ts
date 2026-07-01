@@ -1,11 +1,17 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
+
+// ADCTX2: mock the network boundary (the live Graph fallback) — the DB stays real.
+const provider = { getPostText: vi.fn(async (_t: unknown, postId: string) => `live caption for ${postId}`) };
+vi.mock("@/lib/platforms/registry", () => ({ getProvider: () => provider }));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let seedWorkspace: typeof import("../../../tests/helpers/workspace").seedWorkspace;
 let resolveLocalPostCaption: typeof import("./post-context").resolveLocalPostCaption;
+let resolvePostContext: typeof import("./post-context").resolvePostContext;
+let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 
 const WS = "c0ffee06-0000-4000-8000-000000000c01";
 
@@ -19,11 +25,13 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
-  ({ resolveLocalPostCaption } = await import("./post-context"));
+  ({ resolveLocalPostCaption, resolvePostContext } = await import("./post-context"));
+  ({ encryptTokens } = await import("@/lib/crypto"));
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  provider.getPostText.mockClear();
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await seedWorkspace(db, s, { id: WS, slug: `ctx-${WS}` });
 });
@@ -45,6 +53,45 @@ async function seedPost(opts: { platformPostId: string; description?: string | n
     hashtags: opts.hashtags ?? null,
   });
 }
+
+async function seedChannel(): Promise<string> {
+  const [ch] = await db
+    .insert(s.channels)
+    .values({ workspace_id: WS, platform: "facebook", platform_id: "PG-CTX", token_encrypted: encryptTokens({ access_token: "tok" }), webhook_secret: "w", status: "active" })
+    .returning({ id: s.channels.id });
+  return ch!.id;
+}
+
+describe.skipIf(!TEST_DB)("resolvePostContext (ADCTX2 — local join, then live Graph fallback)", () => {
+  it("returns the local caption without ever calling the live provider", async () => {
+    await seedPost({ platformPostId: "pfbid-local", description: "Local caption" });
+    const chId = await seedChannel();
+    expect(await resolvePostContext(WS, chId, "pfbid-local")).toBe("Local caption");
+    expect(provider.getPostText).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the live Graph API when no local post record exists", async () => {
+    const chId = await seedChannel();
+    expect(await resolvePostContext(WS, chId, "pfbid-external")).toBe("live caption for pfbid-external");
+    expect(provider.getPostText).toHaveBeenCalledTimes(1);
+  });
+
+  it("is best-effort: a failed live fetch resolves to undefined, never throws", async () => {
+    provider.getPostText.mockRejectedValueOnce(new Error("Meta 500"));
+    const chId = await seedChannel();
+    await expect(resolvePostContext(WS, chId, "pfbid-fails")).resolves.toBeUndefined();
+  });
+
+  it("returns undefined immediately when platformPostId is undefined — no DB or network calls", async () => {
+    const chId = await seedChannel();
+    expect(await resolvePostContext(WS, chId, undefined)).toBeUndefined();
+    expect(provider.getPostText).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined when the channel does not exist (defensive — should not happen in practice)", async () => {
+    expect(await resolvePostContext(WS, "00000000-0000-4000-8000-000000000000", "pfbid-x")).toBeUndefined();
+  });
+});
 
 describe.skipIf(!TEST_DB)("resolveLocalPostCaption", () => {
   it("returns the built caption (description + hashtags) for a locally-published post", async () => {

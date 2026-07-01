@@ -32,7 +32,7 @@ import { hasFeature } from "@/lib/license/gate";
 import { enrollContactInSequence } from "@/lib/sequences/enroll";
 import { applyPersonalization, type PersonalizeContext } from "./personalization";
 import type { ProposedContent } from "@/lib/approvals/draft";
-import { resolveLocalPostCaption } from "@/lib/ai/post-context";
+import { resolvePostContext } from "@/lib/ai/post-context";
 
 /** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
  *  and as a defensive `limit` on the per-message executor fetch, so neither the sanctioned API nor an
@@ -403,12 +403,12 @@ async function enqueueAiDraftOnNoMatch(input: {
   });
   if (!channel?.ai_draft_enabled) return;
 
-  // ADCTX1: for a comment event, prepend the parent post's caption as light context — without it the
-  // model sees only the bare comment text (e.g. "Congratulations 🎉" with zero idea what's being
-  // congratulated). Best-effort: a post published outside PostStack has no local row, so this
-  // resolves to undefined and the draft still generates from the comment text alone (ADCTX2 adds a
-  // live API fallback for that case).
-  const context = eventType === "comment" ? await resolveLocalPostCaption(workspaceId, postId) : undefined;
+  // ADCTX1+ADCTX2: for a comment event, prepend the parent post's caption as light context —
+  // without it the model sees only the bare comment text (e.g. "Congratulations 🎉" with zero idea
+  // what's being congratulated). Local PostStack record first, then a live platform-API fetch when
+  // the post was published outside PostStack. Best-effort either way — a failed resolve just means
+  // the draft generates from the comment text alone.
+  const context = eventType === "comment" ? await resolvePostContext(workspaceId, channelId, postId) : undefined;
 
   await addJobTx(
     db,

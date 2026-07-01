@@ -67,6 +67,34 @@ describe("FacebookProvider.getUserProfile", () => {
   });
 });
 
+describe("FacebookProvider.getPostText", () => {
+  it("resolves a Page post id to its message text (ADCTX2)", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify({ id: "PAGE_POST-1", message: "We shipped a new feature today!" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const fb = new FacebookProvider();
+    const text = await fb.getPostText({ access_token: "pagetok" }, "PAGE_POST-1");
+    expect(text).toBe("We shipped a new feature today!");
+    expect(calls[0].url).toContain("/PAGE_POST-1?fields=message");
+    expect(calls[0].url).toContain("access_token=pagetok");
+  });
+
+  it("returns null when the API omits a message (e.g. an image-only post)", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: "PAGE_POST-2" }), { status: 200, headers: { "content-type": "application/json" } }),
+    ) as typeof fetch;
+    const fb = new FacebookProvider();
+    expect(await fb.getPostText({ access_token: "t" }, "PAGE_POST-2")).toBeNull();
+  });
+
+  it("throws on a non-ok response (caller decides best-effort handling)", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("nope", { status: 400 })) as typeof fetch;
+    const fb = new FacebookProvider();
+    await expect(fb.getPostText({ access_token: "t" }, "PAGE_POST-3")).rejects.toThrow();
+  });
+});
+
 describe("FacebookProvider.sendPrivateReply", () => {
   it("returns the message id so the echo of our DM can be deduped", async () => {
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ recipient_id: "u1", message_id: "m_PR123" }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;

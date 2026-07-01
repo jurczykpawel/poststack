@@ -105,6 +105,37 @@ describe("InstagramProvider.getPostUrl", () => {
   });
 });
 
+describe("InstagramProvider.getPostText", () => {
+  it("resolves a media id to its caption (ADCTX2)", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify({ caption: "New drop! 🎉" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    const ig = new InstagramProvider();
+    const text = await ig.getPostText({ access_token: "tok" }, "18115367134699712");
+
+    expect(text).toBe("New drop! 🎉");
+    const call = calls.find((c) => c.url.includes("18115367134699712"))!;
+    expect(call.url).toContain("fields=caption");
+    expect(call.url).toContain("access_token=tok");
+  });
+
+  it("returns null when the API omits a caption", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: "18115367134699712" }), { status: 200, headers: { "content-type": "application/json" } }),
+    ) as typeof fetch;
+    const ig = new InstagramProvider();
+    expect(await ig.getPostText({ access_token: "tok" }, "18115367134699712")).toBeNull();
+  });
+
+  it("throws on a non-ok response (caller decides best-effort handling)", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("bad", { status: 500 })) as typeof fetch;
+    const ig = new InstagramProvider();
+    await expect(ig.getPostText({ access_token: "tok" }, "x")).rejects.toThrow();
+  });
+});
+
 describe("InstagramProvider.sendMessage messaging window", () => {
   const send = (call: { init?: RequestInit }) => JSON.parse(call.init!.body as string);
 

@@ -368,6 +368,18 @@ export class InstagramProvider extends SocialProvider {
     return data.permalink ?? null;
   }
 
+  /** The IG media's caption text (ADCTX2 — AI-draft context for a post published outside PostStack). */
+  override async getPostText(tokens: TokenData, mediaId: string): Promise<string | null> {
+    const { base, token } = this.contentTransport(tokens);
+    const res = await fetch(
+      `${base}/${mediaId}?` + new URLSearchParams({ fields: "caption", access_token: token }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    await assertMetaOk(res, "Instagram get post text");
+    const data = (await res.json().catch(() => ({}))) as { caption?: string };
+    return data.caption ?? null;
+  }
+
   override async sendPrivateReply(
     tokens: TokenData,
     commentId: string,

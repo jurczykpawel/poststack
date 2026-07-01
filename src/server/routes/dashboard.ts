@@ -31,7 +31,7 @@ import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/s
 import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
-import { resolveLocalPostCaption } from "@/lib/ai/post-context";
+import { resolvePostContext } from "@/lib/ai/post-context";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
@@ -1461,10 +1461,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       where: and(eq(contactChannels.contact_id, conv.contact.id), eq(contactChannels.channel_id, conv.channel.id)),
       columns: { platform_sender_id: true },
     });
-    // ADCTX1: prepend the parent post's caption as light context for a comment reply — without it the
-    // model sees only the bare comment text. Best-effort; a post published outside PostStack has no
-    // local row and resolves to undefined (ADCTX2 adds a live API fallback for that case).
-    const context = isComment ? await resolveLocalPostCaption(a.workspaceId, postId) : undefined;
+    // ADCTX1+ADCTX2: prepend the parent post's caption as light context for a comment reply —
+    // without it the model sees only the bare comment text. Local PostStack record first, then a
+    // live platform-API fetch when the post was published outside PostStack. Best-effort either way.
+    const context = isComment ? await resolvePostContext(a.workspaceId, conv.channel.id, postId) : undefined;
 
     await addJobTx(db, "ai-draft", {
       workspaceId: a.workspaceId,

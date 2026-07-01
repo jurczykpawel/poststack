@@ -217,6 +217,17 @@ export class FacebookProvider extends SocialProvider {
     return { platformMessageId: data.id ?? null };
   }
 
+  /** The Page post's message text (ADCTX2 — AI-draft context for a post published outside PostStack). */
+  override async getPostText(tokens: TokenData, postId: string): Promise<string | null> {
+    const res = await fetch(
+      `${GRAPH_API}/${postId}?` + new URLSearchParams({ fields: "message", access_token: tokens.access_token }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    await assertMetaOk(res, "Facebook get post text");
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return data.message ?? null;
+  }
+
   /**
    * Post a NEW top-level comment on one of our own Page posts (the "first comment"). On Facebook the
    * top-level edge is `POST /{post-id}/comments` — the SAME endpoint {@link sendComment} uses — so we
