@@ -162,27 +162,61 @@ describe("renderThread — drafts-region self-terminating poll", () => {
     expect(out).not.toMatch(/thread-drafts"[^>]*hx-get/);
   });
 
-  it("starts polling when pollDrafts=true and there is no draft yet (right after 'Generate reply')", async () => {
-    const out = s(await renderThread(makeConv(), [], { drafts: [], pollDrafts: true }));
-    expect(out).toContain(`hx-get="/inbox/${CONV_ID}/drafts?attempt=1"`);
+  it("starts polling when pollDrafts=0 and there is no draft yet (right after the FIRST 'Generate reply')", async () => {
+    const out = s(await renderThread(makeConv(), [], { drafts: [], pollDrafts: 0 }));
+    expect(out).toContain(`hx-get="/inbox/${CONV_ID}/drafts?attempt=1&since=0"`);
     expect(out).toContain('hx-trigger="load delay:3s"');
     expect(out).toContain('hx-swap="outerHTML"');
   });
 
   it("shows a spinner + 'generating' text while polling, so the wait isn't silent", async () => {
-    const out = s(await renderThread(makeConv(), [], { drafts: [], pollDrafts: true }));
+    const out = s(await renderThread(makeConv(), [], { drafts: [], pollDrafts: 0 }));
     expect(out).toContain('class="draft-spinner"');
     expect(out).toContain("AI is generating a reply");
   });
 
-  it("stops polling (no hx-get) once a draft exists, even when pollDrafts=true", async () => {
+  it("stops polling (no hx-get) once the first draft exists", async () => {
     const out = s(
       await renderThread(makeConv(), [], {
-        pollDrafts: true,
+        pollDrafts: 0,
         drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "Your reply is ready.", commentText: null }],
       }),
     );
     expect(out).toContain("Your reply is ready.");
+    expect(out).not.toContain("draft-spinner");
+    expect(out).not.toMatch(/thread-drafts"[^>]*hx-get/);
+  });
+
+  // Regression: "generate one reply, it appears; generate a second — it doesn't appear
+  // automatically." Cause: the poll used to stop the moment ANY draft existed, so requesting a
+  // SECOND draft while the first (still unapproved) one was already there disabled polling
+  // immediately. Fix: poll until the count grows past however many existed before THIS click.
+  it("keeps polling for a SECOND draft while an earlier unapproved one is already showing", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        pollDrafts: 1, // one draft already existed when this click's job was enqueued
+        drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "First reply.", commentText: null }],
+      }),
+    );
+    // The existing draft must still be visible...
+    expect(out).toContain("First reply.");
+    // ...AND polling must still be active (waiting for a SECOND row to appear).
+    expect(out).toContain('class="draft-spinner"');
+    expect(out).toMatch(/thread-drafts"[^>]*hx-get="\/inbox\/[^"]+\/drafts\?attempt=1&since=1"/);
+  });
+
+  it("stops polling once the SECOND draft's count is actually reached", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        pollDrafts: 1,
+        drafts: [
+          { id: APPR_ID, source: "ai_auto", dmText: "First reply.", commentText: null },
+          { id: "33333333-3333-3333-3333-333333333333", source: "ai_auto", dmText: "Second reply.", commentText: null },
+        ],
+      }),
+    );
+    expect(out).toContain("First reply.");
+    expect(out).toContain("Second reply.");
     expect(out).not.toContain("draft-spinner");
     expect(out).not.toMatch(/thread-drafts"[^>]*hx-get/);
   });

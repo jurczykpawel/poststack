@@ -236,41 +236,46 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
 // poll: GET /inbox/:id/drafts, hit by the drafts region's own hx-get, re-schedules itself until a
 // draft appears (or the attempt cap is hit).
 describe("GET /inbox/:id/drafts — self-terminating draft poll", () => {
-  function drafts(convId: string, attempt?: number) {
-    return app.request(`/inbox/${convId}/drafts${attempt ? `?attempt=${attempt}` : ""}`, { headers: { cookie } });
+  function drafts(convId: string, attempt?: number, since?: number) {
+    const qs = attempt ? `?attempt=${attempt}&since=${since ?? 0}` : "";
+    return app.request(`/inbox/${convId}/drafts${qs}`, { headers: { cookie } });
   }
 
-  it("the enqueue response (POST .../ai-draft) starts the poll — no draft yet, so it schedules attempt=1", async () => {
+  async function seedDraft(text: string) {
+    await db.insert(s.pendingApprovals).values({
+      workspace_id: WS, source: "ai_manual", conversation_id: CONV_DM, contact_id: CONTACT, channel_id: CH,
+      recipient_platform_id: "PSID-E", status: "pending", proposed_content: { content: { text } },
+    });
+  }
+
+  it("the enqueue response (POST .../ai-draft) starts the poll — no draft yet, so it schedules attempt=1&since=0", async () => {
     if (!TEST_DB) return;
     const res = await aiDraft(CONV_DM, { target: "dm" });
     const body = await res.text();
-    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=1"`);
+    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=1&since=0"`);
     expect(body).toContain('hx-trigger="load delay:3s"');
   });
 
-  it("no draft yet → reschedules itself with attempt+1", async () => {
+  it("no draft yet → reschedules itself with attempt+1, same since", async () => {
     if (!TEST_DB) return;
-    const res = await drafts(CONV_DM, 3);
+    const res = await drafts(CONV_DM, 3, 0);
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=4"`);
+    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=4&since=0"`);
   });
 
   it("a draft now exists → renders it, with NO further hx-get (polling stops)", async () => {
     if (!TEST_DB) return;
-    await db.insert(s.pendingApprovals).values({
-      workspace_id: WS, source: "ai_manual", conversation_id: CONV_DM, contact_id: CONTACT, channel_id: CH,
-      recipient_platform_id: "PSID-E", status: "pending", proposed_content: { content: { text: "Your order ships tomorrow." } },
-    });
-    const res = await drafts(CONV_DM, 2);
+    await seedDraft("Your order ships tomorrow.");
+    const res = await drafts(CONV_DM, 2, 0);
     const body = await res.text();
     expect(body).toContain("Your order ships tomorrow.");
     expect(body).not.toMatch(/thread-drafts"[^>]*hx-get/);
   });
 
-  it("hits the attempt cap → gives up polling (empty region, no hx-get), instead of forever", async () => {
+  it("hits the attempt cap → gives up polling (no hx-get), rendering whatever exists", async () => {
     if (!TEST_DB) return;
-    const res = await drafts(CONV_DM, 20);
+    const res = await drafts(CONV_DM, 20, 0);
     const body = await res.text();
     expect(body).toContain('id="thread-drafts"');
     expect(body).not.toMatch(/thread-drafts"[^>]*hx-get/);
@@ -278,7 +283,43 @@ describe("GET /inbox/:id/drafts — self-terminating draft poll", () => {
 
   it("a foreign/missing conversation id → 404, not another workspace's drafts", async () => {
     if (!TEST_DB) return;
-    const res = await drafts(FOREIGN, 1);
+    const res = await drafts(FOREIGN, 1, 0);
     expect(res.status).toBe(404);
+  });
+
+  // Regression: "generate one reply, it appears; generate a second — it doesn't appear
+  // automatically." The poll used to stop the instant ANY draft existed; requesting a second draft
+  // while the first (still unapproved) one was already there switched polling off immediately.
+  describe("second draft while the first is still unapproved (the reported bug)", () => {
+    it("with since=1 (one already existed) and still only 1 row → keeps polling AND shows the first draft", async () => {
+      if (!TEST_DB) return;
+      await seedDraft("First reply.");
+      const res = await drafts(CONV_DM, 1, 1);
+      const body = await res.text();
+      expect(body).toContain("First reply.");
+      expect(body).toContain('class="draft-spinner"');
+      expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=2&since=1"`);
+    });
+
+    it("once the second row lands (count > since) → stops polling and shows BOTH drafts", async () => {
+      if (!TEST_DB) return;
+      await seedDraft("First reply.");
+      await seedDraft("Second reply.");
+      const res = await drafts(CONV_DM, 2, 1);
+      const body = await res.text();
+      expect(body).toContain("First reply.");
+      expect(body).toContain("Second reply.");
+      expect(body).not.toContain("draft-spinner");
+      expect(body).not.toMatch(/thread-drafts"[^>]*hx-get/);
+    });
+
+    it("the SECOND click's enqueue response carries since=1 (the count from BEFORE this click), not since=0", async () => {
+      if (!TEST_DB) return;
+      await seedDraft("First reply.");
+      const res = await aiDraft(CONV_DM, { target: "dm" });
+      const body = await res.text();
+      expect(body).toContain("First reply."); // still visible
+      expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=1&since=1"`);
+    });
   });
 });

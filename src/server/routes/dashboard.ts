@@ -587,31 +587,37 @@ function renderDraftBubble(d: DraftBubble): Html {
 }
 
 // A generated draft is written by an async worker (graphile-worker job), not inside the enqueue
-// request — so right after clicking "Generate reply" the thread has no draft yet. Self-terminating
-// poll: while there's nothing to show, re-fetch this region after a short delay; once a draft
-// exists, render it with NO further hx-get/hx-trigger, so htmx (bound to the swapped-out element)
-// stops polling on its own. Bounded to MAX_DRAFT_POLL_ATTEMPTS so an idle tab on a thread whose
-// generation failed silently doesn't poll forever. Deliberately a SEPARATE region/poll from
-// `#thread-msgs`'s own 5s poll: swapping the whole drafts region on a timer would blow away an
-// in-progress Edit (ADUX1's `x-data="{editing:true}"` lives inside the draft bubble) — this poll
-// stops itself the moment a draft appears, so it can never fire again while someone is editing it.
+// request — so right after clicking "Generate reply" the thread has no NEW draft yet. Self-
+// terminating poll: while the draft count hasn't grown past what it was BEFORE this click
+// (`expectMoreThan` — not "are there any drafts at all", which broke the moment a SECOND draft was
+// requested while an unapproved first one was still sitting there), re-fetch this region after a
+// short delay; once it has, render with NO further hx-get/hx-trigger, so htmx (bound to the
+// swapped-out element) stops polling on its own. Bounded to MAX_DRAFT_POLL_ATTEMPTS so an idle tab
+// on a thread whose generation failed silently doesn't poll forever. Deliberately a SEPARATE
+// region/poll from `#thread-msgs`'s own 5s poll: swapping the whole drafts region on a timer would
+// blow away an in-progress Edit (ADUX1's `x-data="{editing:true}"` lives inside the draft bubble) —
+// this poll can't fire again once the awaited draft exists, so it never collides with an open edit.
 const MAX_DRAFT_POLL_ATTEMPTS = 20; // ~60s at 3s intervals — comfortably past normal LLM latency
 // `poll` only starts a chain right after the "Generate reply" click (the response that ENQUEUED the
 // job) — a plain thread load/refresh never starts one, so opening an ordinary comment/DM thread with
 // AI drafting enabled but no generation ever requested costs nothing extra.
-function renderDraftsRegion(drafts: DraftBubble[], conversationId: string, poll: number | false = false): Html {
-  if (drafts.length) {
-    return html`<div id="thread-drafts" class="thread-drafts">${drafts.map(renderDraftBubble)}</div>`;
-  }
-  if (poll === false || poll >= MAX_DRAFT_POLL_ATTEMPTS) {
-    return html`<div id="thread-drafts" class="thread-drafts"></div>`;
+function renderDraftsRegion(
+  drafts: DraftBubble[],
+  conversationId: string,
+  poll: { attempt: number; expectMoreThan: number } | false = false,
+): Html {
+  const waiting = poll !== false && drafts.length <= poll.expectMoreThan && poll.attempt < MAX_DRAFT_POLL_ATTEMPTS;
+  // Existing drafts (already-generated, still-pending ones from an earlier click) always render —
+  // waiting on a NEW one must never hide them.
+  const existing = drafts.map(renderDraftBubble);
+  if (!waiting) {
+    return html`<div id="thread-drafts" class="thread-drafts">${existing}</div>`;
   }
   // Visible feedback for the whole waiting window — the button's own click-spinner (.htmx-request,
   // admin.css) only lasts for the ~100ms enqueue request itself, not the several seconds the LLM
   // call actually takes. Reuses the same ps-spin keyframe for a consistent look.
-  return html`<div id="thread-drafts" class="thread-drafts" hx-get="/inbox/${conversationId}/drafts?attempt=${poll + 1}" hx-trigger="load delay:3s" hx-swap="outerHTML">
-    <div class="draft-generating"><span class="draft-spinner" aria-hidden="true"></span>AI is generating a reply…</div>
-  </div>`;
+  const spinner = html`<div class="draft-generating"><span class="draft-spinner" aria-hidden="true"></span>AI is generating a reply…</div>`;
+  return html`<div id="thread-drafts" class="thread-drafts" hx-get="/inbox/${conversationId}/drafts?attempt=${poll.attempt + 1}&since=${poll.expectMoreThan}" hx-trigger="load delay:3s" hx-swap="outerHTML">${existing}${spinner}</div>`;
 }
 
 export function renderThread(
@@ -620,7 +626,9 @@ export function renderThread(
   // On a failed send, show the error and keep the operator's typed text instead of clearing it
   // out as if the message went. `canReply` = the manual_reply PRO feature: free can READ the inbox
   // but the human-reply box is locked (rules still auto-reply for free). `upgradeUrl` for the lock.
-  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; aiConfigured?: boolean; upgradeUrl?: string; drafts?: DraftBubble[]; pollDrafts?: boolean } = {},
+  // `pollDrafts`: how many drafts already existed right BEFORE this click's job was enqueued — the
+  // poll waits for the count to grow past this, not just "is there any draft" (see renderDraftsRegion).
+  opts: { error?: string; draft?: string; canReply?: boolean; canAiDraft?: boolean; aiConfigured?: boolean; upgradeUrl?: string; drafts?: DraftBubble[]; pollDrafts?: number } = {},
 ): Html {
   const canReply = opts.canReply ?? true;
   const drafts = opts.drafts ?? [];
@@ -672,7 +680,7 @@ export function renderThread(
     </div>
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
     <div id="thread-msgs" class="thread-msgs${isEmail ? " email-list" : ""}" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type, ctx)}</div>
-    ${renderDraftsRegion(drafts, conv.id, opts.pollDrafts ? 0 : false)}
+    ${renderDraftsRegion(drafts, conv.id, opts.pollDrafts !== undefined ? { attempt: 0, expectMoreThan: opts.pollDrafts } : false)}
     ${windowNote}
     ${aiDraftBar}
     ${canReply
@@ -1374,7 +1382,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     const attempt = Number(c.req.query("attempt"));
-    return c.html(renderDraftsRegion(await loadDrafts(id, a.workspaceId), id, Number.isFinite(attempt) && attempt > 0 ? attempt : 0));
+    const since = Number(c.req.query("since"));
+    return c.html(renderDraftsRegion(await loadDrafts(id, a.workspaceId), id, {
+      attempt: Number.isFinite(attempt) && attempt > 0 ? attempt : 0,
+      expectMoreThan: Number.isFinite(since) && since >= 0 ? since : 0,
+    }));
   });
 
   app.post("/inbox/:id/reply", guard, async (c) => {
@@ -1528,9 +1540,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     });
 
     toastHeader(c, "ok", "Draft requested - it'll appear here for approval.");
-    // The job runs async (worker), so there's no draft to show yet — start the self-terminating poll
-    // (renderDraftsRegion) instead of leaving the operator to refresh manually.
-    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, aiConfigured, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId), pollDrafts: true }));
+    // The job runs async (worker), so its result isn't in `drafts` yet — start the self-terminating
+    // poll (renderDraftsRegion), waiting for the count to grow past however many already existed
+    // (an earlier, still-unapproved draft on this same conversation must keep showing, not vanish).
+    const drafts = await loadDrafts(id, a.workspaceId);
+    return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: true, aiConfigured, upgradeUrl, drafts, pollDrafts: drafts.length }));
   });
 
   // In-thread approval drafts (rule-holds + AI drafts shown as bubbles in the inbox). Accept/Reject
