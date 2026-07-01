@@ -230,3 +230,55 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     expect(jobs[0]!.recipientPlatformId).toBe("PSID-E");
   });
 });
+
+// Bug: after clicking "Generate reply" the draft only showed up on a manual browser refresh — the
+// job runs async (worker), so the enqueue response has no draft yet. Fixed with a self-terminating
+// poll: GET /inbox/:id/drafts, hit by the drafts region's own hx-get, re-schedules itself until a
+// draft appears (or the attempt cap is hit).
+describe("GET /inbox/:id/drafts — self-terminating draft poll", () => {
+  function drafts(convId: string, attempt?: number) {
+    return app.request(`/inbox/${convId}/drafts${attempt ? `?attempt=${attempt}` : ""}`, { headers: { cookie } });
+  }
+
+  it("the enqueue response (POST .../ai-draft) starts the poll — no draft yet, so it schedules attempt=1", async () => {
+    if (!TEST_DB) return;
+    const res = await aiDraft(CONV_DM, { target: "dm" });
+    const body = await res.text();
+    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=1"`);
+    expect(body).toContain('hx-trigger="load delay:3s"');
+  });
+
+  it("no draft yet → reschedules itself with attempt+1", async () => {
+    if (!TEST_DB) return;
+    const res = await drafts(CONV_DM, 3);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=4"`);
+  });
+
+  it("a draft now exists → renders it, with NO further hx-get (polling stops)", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.pendingApprovals).values({
+      workspace_id: WS, source: "ai_manual", conversation_id: CONV_DM, contact_id: CONTACT, channel_id: CH,
+      recipient_platform_id: "PSID-E", status: "pending", proposed_content: { content: { text: "Your order ships tomorrow." } },
+    });
+    const res = await drafts(CONV_DM, 2);
+    const body = await res.text();
+    expect(body).toContain("Your order ships tomorrow.");
+    expect(body).not.toMatch(/thread-drafts"[^>]*hx-get/);
+  });
+
+  it("hits the attempt cap → gives up polling (empty region, no hx-get), instead of forever", async () => {
+    if (!TEST_DB) return;
+    const res = await drafts(CONV_DM, 20);
+    const body = await res.text();
+    expect(body).toContain('id="thread-drafts"');
+    expect(body).not.toMatch(/thread-drafts"[^>]*hx-get/);
+  });
+
+  it("a foreign/missing conversation id → 404, not another workspace's drafts", async () => {
+    if (!TEST_DB) return;
+    const res = await drafts(FOREIGN, 1);
+    expect(res.status).toBe(404);
+  });
+});

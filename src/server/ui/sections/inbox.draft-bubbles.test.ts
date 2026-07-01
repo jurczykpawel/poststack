@@ -151,3 +151,32 @@ describe("renderThread — pending-approval draft bubble Delete (ADDEL1)", () =>
     expect(out).toContain("Delete");
   });
 });
+
+// Bug: clicking "Generate reply" required a manual browser refresh to see the drafted reply appear,
+// because the AI-draft job runs async (worker) and the enqueue response has no draft yet. Fixed with
+// a self-terminating poll of the drafts region (see renderDraftsRegion in dashboard.ts).
+describe("renderThread — drafts-region self-terminating poll", () => {
+  it("does NOT poll on a plain thread load with no drafts (pollDrafts unset — the common case)", async () => {
+    const out = s(await renderThread(makeConv(), [], { drafts: [] }));
+    expect(out).toContain('id="thread-drafts"');
+    expect(out).not.toMatch(/thread-drafts"[^>]*hx-get/);
+  });
+
+  it("starts polling when pollDrafts=true and there is no draft yet (right after 'Generate reply')", async () => {
+    const out = s(await renderThread(makeConv(), [], { drafts: [], pollDrafts: true }));
+    expect(out).toContain(`hx-get="/inbox/${CONV_ID}/drafts?attempt=1"`);
+    expect(out).toContain('hx-trigger="load delay:3s"');
+    expect(out).toContain('hx-swap="outerHTML"');
+  });
+
+  it("stops polling (no hx-get) once a draft exists, even when pollDrafts=true", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        pollDrafts: true,
+        drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "Your reply is ready.", commentText: null }],
+      }),
+    );
+    expect(out).toContain("Your reply is ready.");
+    expect(out).not.toMatch(/thread-drafts"[^>]*hx-get/);
+  });
+});
