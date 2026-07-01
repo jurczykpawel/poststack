@@ -9,12 +9,31 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-01
+
 ### Security
 - **Webhook delivery is now secure-by-default.** The SSRF / URL-safety checks are consolidated into one rebinding-safe HTTP client (DNS-resolved, connect-time IP-pinned, TLS-SNI-preserving) shared by media fetching and webhook delivery. Webhook delivery — the channel-alert hook **and** outbound webhooks — now blocks private/loopback/LAN targets by default; set `WEBHOOK_ALLOW_PRIVATE_TARGETS=true` to opt in for an internal receiver (e.g. an n8n/ntfy on the same Docker network or LAN). Cloud-metadata and link-local addresses are **always** blocked. **Behavior change:** an existing channel-alert webhook pointing at an internal/private address now needs this flag set.
+- **Endpoint-create-time rejection of literal cloud-metadata / link-local targets**, and defence-in-depth neutralization of HTML metacharacters in webhook diagnostic fields.
 
 ### Added
 - **AI-drafted replies (PRO).** When **no** auto-reply rule matches an incoming comment/DM and the channel has AI-draft enabled, an LLM prepares a **draft** reply for human approval — plus an on-demand **"Generate reply"** button in the inbox. Drafts are reviewed, edited, accepted or rejected straight in the inbox thread (and the Approvals tab); rule-based **"hold for approval"** replies now surface in the inbox too. **Never auto-sent by default** — optional per-channel auto-send toggles (DM / public, default off, consent-gated). Reuses the existing AI provider config (`AI_API_KEY` / `AI_MODEL` / `AI_BASE_URL`, **BYOK**); per-workspace daily budget via `AI_DRAFT_DAILY_LIMIT` (default `0` = unlimited). Prompt is configurable (workspace default + per-channel override). Schema ships inside migration `0004`; existing prod instances apply the idempotent `priv/deploy/ai-draft-prod-delta.sql` once at deploy (see docs/DEPLOY.md §2.4).
 - **Instagram Business Login** — connect a single Instagram account **directly** (no Facebook page required) via the new **"+ Instagram (messaging)"** button on the Channels page. One account, full capabilities at Meta **Standard Access** (no App Review): publishing, comments, **direct messages**, and follow-gate. Configured per instance with `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (the **Instagram** app's id/secret — distinct from the Facebook app's `META_APP_ID`/`META_APP_SECRET`). Includes: dual-secret webhook verification (the Meta webhook now verifies signatures from **either** the Facebook or the Instagram app secret), per-account webhook subscription, an in-panel **"Connecting Instagram"** guide with per-channel capability notes, and IG-Login-aware reconnect plus a webhook-subscription panel. PRO features (follow-gate, sequences, manual replies, …) still require a PRO license regardless of how the account is connected.
+- **Outbound webhooks management UI** — a dashboard section to manage multiple endpoints: list / add / edit / enable-disable / rotate signing secret / delete, each with its own per-event subscription.
+- **Webhook observability.** Every signature-verified payload that hits the Meta endpoint is now durably logged and inspectable — including ones with no classifiable event and the Meta dashboard **"Test"** button. The Webhooks page surfaces an **"Unhandled event types"** panel so genuinely-unrouted inbound shapes are visible instead of silently dropped. The GET handshake and each POST refused before classification (bad signature, too large, unparseable, unknown object) also leave a throttled trace.
+- **Instagram `live_comments`** are handled → routed into the comment pipeline with per-account auto-subscribe (previously dropped).
+- **Configurable AI rephrase prompt** — a workspace-default rephrase prompt plus a per-rule Tone + Custom-prompt override, with the built-in default shown everywhere it can be overridden.
+- **Rich inbox rendering** — incoming message attachments / buttons / quick-replies render as real content instead of an opaque "(attachment)", and outbound interactive content is persisted.
+
+### Changed
+- **Recognized Facebook `feed` noise is logged as `ignored`, not `unhandled`.** The Page editing its own content (video / post / status lifecycle), reactions on comments, and comment edits/removes are still durably recorded but kept out of the "Unhandled event types" surface, so that panel stays focused on genuinely-unrouted shapes.
+- **Telemetry phone-home is suppressed for the whole loopback + private / LAN / CGNAT / link-local range**, not just `127.0.0.1` — local and internal deployments never emit a usage report.
+
+### Fixed
+- **Landing:** root image assets (hero / showcase) 404 fixed (extension-guarded asset route); the publish animation is data-driven off the real channel list; roadmap lanes corrected.
+- **Media fetch** routed through the shared rebinding-safe pinned client (SSRF parity now includes media), with streaming restored — no whole-video buffering and no 15s cap on large uploads.
+- **Instagram Business Login hardening** (audit pass): preserve the IG-Login messaging token on a Facebook-side channel upsert and on token refresh; race-safe token-refresh writes; redact secrets before persisting re-auth reasons / `last_error`; truthful per-channel subscription health (no "active, receiving nothing"); correct `message_reactions` field name; IG-Login-only comments/permalink routed to `graph.instagram.com`.
+- **Publishing:** IG feed images send `image_url` (not a bare `url`); a benign Meta 400 no longer flags a channel `needs_reauth`.
+- **Queue:** a **held** post can now be cancelled (not only a scheduled one).
 
 ## [0.8.6] - 2026-06-28
 
