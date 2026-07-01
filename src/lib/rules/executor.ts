@@ -86,6 +86,7 @@ async function resolveDmText(
   workspaceId: string,
   responseType: string,
   responseConfig: Record<string, unknown>,
+  conversationId?: string,
 ): Promise<string | null> {
   const { baseText, aiEnabled } = selectResponse(responseType, responseConfig);
   if (aiEnabled && baseText) {
@@ -104,6 +105,7 @@ async function resolveDmText(
       customPrompt: responseConfig.custom_prompt as string | undefined,
       workspacePrompt: ws?.ai_rephrase_prompt ?? null,
       tone: responseConfig.tone as string | undefined,
+      conversationId,
     });
     return clampOutboundText(rephrased);
   }
@@ -119,8 +121,9 @@ export async function resolveReplyContent(
   workspaceId: string,
   responseType: string,
   responseConfig: Record<string, unknown>,
+  conversationId?: string,
 ): Promise<MessageContent | null> {
-  const text = await resolveDmText(workspaceId, responseType, responseConfig);
+  const text = await resolveDmText(workspaceId, responseType, responseConfig, conversationId);
   if (!text) return null;
   return { text, ...buildInteractiveContent(responseConfig) };
 }
@@ -451,7 +454,7 @@ async function planApproval(input: {
   const canDM = platformSupportsDM(platform);
 
   // The DM body (text + interactive add-ons), personalized — exactly what Approve will send.
-  const dmContent = await resolveReplyContent(workspaceId, rule.response_type, rule.response_config);
+  const dmContent = await resolveReplyContent(workspaceId, rule.response_type, rule.response_config, conversationId);
   if (dmContent?.text) dmContent.text = applyPersonalization(dmContent.text, personalize);
 
   // Public comment reply (reply_mode comment/both, or any no-DM platform) — mirrors planResponse so
@@ -598,7 +601,7 @@ async function planResponse(input: PlanResponseInput): Promise<CommitFn> {
 
   // Resolve the text to send (single or random pick, optionally LLM-rephrased), then personalize
   // (placeholders substituted when licensed, safely stripped otherwise).
-  const rawDmText = await resolveDmText(workspaceId, rule.response_type, rule.response_config);
+  const rawDmText = await resolveDmText(workspaceId, rule.response_type, rule.response_config, conversationId);
   const dmText = rawDmText !== null ? applyPersonalization(rawDmText, personalize) : null;
 
   // Public comment reply (reply_mode: "comment" or "both"). A non-empty pool rotates uniformly

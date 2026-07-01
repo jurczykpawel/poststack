@@ -73,6 +73,19 @@ async function seedLog(workspaceId: string, over: Partial<typeof s.aiGenerationL
   });
 }
 
+async function seedConversation(workspaceId: string): Promise<string> {
+  const [ch] = await db
+    .insert(s.channels)
+    .values({ workspace_id: workspaceId, platform: "facebook", platform_id: `PG-${Math.random()}`, token_encrypted: "x", webhook_secret: "s" })
+    .returning({ id: s.channels.id });
+  const [contact] = await db.insert(s.contacts).values({ workspace_id: workspaceId }).returning({ id: s.contacts.id });
+  const [conv] = await db
+    .insert(s.conversations)
+    .values({ workspace_id: workspaceId, channel_id: ch!.id, contact_id: contact!.id, platform: "facebook", status: "open" })
+    .returning({ id: s.conversations.id });
+  return conv!.id;
+}
+
 describe("GET /settings — AI generation log (ADLOG1)", () => {
   it("PRO: renders recent generations with model/kind/response, newest first", async () => {
     if (!TEST_DB) return;
@@ -106,5 +119,21 @@ describe("GET /settings — AI generation log (ADLOG1)", () => {
     const html = await (await get("/settings")).text();
     expect(html).not.toContain("SHOULD_NOT_APPEAR");
     expect(html).toContain("AI generation log");
+  });
+
+  // ADLOG2: a row links straight to the inbox conversation it was generated for.
+  it("links a row to /inbox/:id when it has a conversation_id", async () => {
+    if (!TEST_DB) return;
+    const convId = await seedConversation(WS);
+    await seedLog(WS, { conversation_id: convId });
+    const html = await (await get("/settings")).text();
+    expect(html).toContain(`href="/inbox/${convId}"`);
+  });
+
+  it("renders no conversation link for a row with no conversation_id (e.g. a rule preview)", async () => {
+    if (!TEST_DB) return;
+    await seedLog(WS);
+    const html = await (await get("/settings")).text();
+    expect(html).not.toContain('href="/inbox/');
   });
 });

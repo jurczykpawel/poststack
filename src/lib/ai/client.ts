@@ -22,6 +22,9 @@ export interface ChatCompleteOptions {
   workspaceId: string;
   /** Which feature made this call — labels the log entry (draft vs rephrase). */
   kind: "draft" | "rephrase";
+  /** ADLOG2: the inbox conversation this call was made for — logged so the generation-log panel
+   *  can link straight to it. Absent for a call with no live conversation to attribute it to. */
+  conversationId?: string;
   /** System prompt. */
   system: string;
   /** User message. */
@@ -45,7 +48,7 @@ export interface ChatCompleteOptions {
  * model say that" question never requires re-reading code to answer.
  */
 export async function chatComplete(opts: ChatCompleteOptions): Promise<string | null> {
-  const { workspaceId, kind, system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
+  const { workspaceId, kind, conversationId, system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
 
   const apiKey = await getConfig("AI_API_KEY");
   if (!apiKey) return null; // not configured — not a real attempt, nothing to log
@@ -85,6 +88,6 @@ export async function chatComplete(opts: ChatCompleteOptions): Promise<string | 
     error = err instanceof Error ? err.message : String(err);
   }
 
-  await logGeneration({ workspaceId, kind, model, system, user, response, error, durationMs: Date.now() - startedAt });
+  await logGeneration({ workspaceId, kind, model, system, user, response, error, durationMs: Date.now() - startedAt, conversationId });
   return response;
 }

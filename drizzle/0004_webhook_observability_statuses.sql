@@ -29,8 +29,10 @@ CREATE TABLE "ai_generation_logs" (
 	"response" text,
 	"error" text,
 	"duration_ms" integer NOT NULL,
+	"conversation_id" uuid,
 	"created_at" timestamp (3) DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
 ALTER TABLE "ai_generation_logs" ADD CONSTRAINT "ai_generation_logs_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "ai_generation_logs" ADD CONSTRAINT "ai_generation_logs_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
 CREATE INDEX "ai_generation_logs_workspace_created_idx" ON "ai_generation_logs" USING btree ("workspace_id","created_at" DESC NULLS LAST);

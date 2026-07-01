@@ -83,6 +83,7 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
 
   const draft = await generateDraft({
     workspaceId: job.workspaceId,
+    conversationId: job.conversationId,
     incomingText: job.incomingText,
     isComment: job.isComment,
     target: job.target,

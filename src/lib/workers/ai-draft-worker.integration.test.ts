@@ -5,7 +5,7 @@ import { eq, sql } from "drizzle-orm";
 // Drafting goes through the shared LLM client — stub it per-test so the worker is deterministic and
 // makes no network call. vi.mock is hoisted; the factory returns a controllable mock.
 const generateDraftMock = vi.fn<
-  (args: { incomingText: string; isComment: boolean; target: "dm" | "public" | "both"; context?: string; prompt: string }) => Promise<string | null>
+  (args: { conversationId: string; incomingText: string; isComment: boolean; target: "dm" | "public" | "both"; context?: string; prompt: string }) => Promise<string | null>
 >();
 vi.mock("@/lib/ai/draft", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/draft")>();
@@ -216,6 +216,17 @@ describe("ai-draft worker (AIDRAFT1)", () => {
 
     expect(generateDraftMock).toHaveBeenCalledTimes(1);
     expect(generateDraftMock.mock.calls[0][0].context).toBe("Post: we shipped a new feature\n\nRecent conversation:\nCustomer: hi\nYou: hello");
+  });
+
+  // ADLOG2: the generation-log panel links to the conversation a draft was made for — that only
+  // works if the worker actually forwards job.conversationId into generateDraft (and from there,
+  // into chatComplete's log write).
+  it("forwards job.conversationId to generateDraft (ADLOG2)", async () => {
+    if (!TEST_DB) return;
+    generateDraftMock.mockResolvedValue("Drafted DM");
+    await processAiDraft(baseJob({ target: "dm" }), helpersFor());
+
+    expect(generateDraftMock.mock.calls[0][0].conversationId).toBe(CONV);
   });
 
   it("target both, autosend_dm on / autosend_public off: DM sends (private reply), public part parked", async () => {

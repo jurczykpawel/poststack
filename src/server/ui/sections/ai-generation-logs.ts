@@ -18,6 +18,9 @@ export interface AiGenerationLogRow {
   error: string | null;
   durationMs: number;
   createdAt: Date;
+  /** ADLOG2: the inbox conversation this call was made for, or `null` when there wasn't one (e.g. a
+   *  rule preview). Used to link the row straight to `/inbox/:id`. */
+  conversationId: string | null;
 }
 
 /** ADLOG1: the workspace's most recent AI generations (drafts + rephrases), newest first. */
@@ -37,6 +40,7 @@ export async function loadAiGenerationLogs(workspaceId: string, limit = 50): Pro
     error: r.error,
     durationMs: r.duration_ms,
     createdAt: r.created_at,
+    conversationId: r.conversation_id,
   }));
 }
 
@@ -63,6 +67,7 @@ export function renderAiGenerationLogs(rows: AiGenerationLogRow[], canView: bool
         <span class="muted" style="font-size:.78rem;margin-left:auto">${timeAgo(r.createdAt)}</span>
       </summary>
       <div style="margin-top:.5rem;display:grid;gap:.4rem;font-size:.82rem">
+        ${r.conversationId ? html`<div><a href="/inbox/${r.conversationId}">${icon("comment", "ico", 13)} Open conversation →</a></div>` : html``}
         <div><strong>System</strong><pre class="mono" style="white-space:pre-wrap;margin:.2rem 0">${r.systemPrompt}</pre></div>
         <div><strong>User</strong><pre class="mono" style="white-space:pre-wrap;margin:.2rem 0">${r.userMessage}</pre></div>
         ${r.response ? html`<div><strong>Response</strong><pre class="mono" style="white-space:pre-wrap;margin:.2rem 0">${r.response}</pre></div>` : html``}

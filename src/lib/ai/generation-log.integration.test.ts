@@ -38,6 +38,19 @@ async function rows() {
   return db.query.aiGenerationLogs.findMany({ where: eq(s.aiGenerationLogs.workspace_id, WS) });
 }
 
+async function seedConversation(): Promise<string> {
+  const [ch] = await db
+    .insert(s.channels)
+    .values({ workspace_id: WS, platform: "facebook", platform_id: `PG-${Math.random()}`, token_encrypted: "x", webhook_secret: "s" })
+    .returning({ id: s.channels.id });
+  const [contact] = await db.insert(s.contacts).values({ workspace_id: WS }).returning({ id: s.contacts.id });
+  const [conv] = await db
+    .insert(s.conversations)
+    .values({ workspace_id: WS, channel_id: ch!.id, contact_id: contact!.id, platform: "facebook", status: "open" })
+    .returning({ id: s.conversations.id });
+  return conv!.id;
+}
+
 describe.skipIf(!TEST_DB)("logGeneration", () => {
   it("writes a full row on a successful completion", async () => {
     await logGeneration({ workspaceId: WS, kind: "draft", model: "gpt-4o-mini", system: "sys", user: "usr", response: "hi there", error: null, durationMs: 123 });
@@ -84,6 +97,26 @@ describe.skipIf(!TEST_DB)("logGeneration", () => {
   it("is best-effort: an invalid workspace_id (FK violation) is swallowed, never throws", async () => {
     await expect(
       logGeneration({ workspaceId: "00000000-0000-4000-8000-000000000000", kind: "draft", model: "m", system: "s", user: "u", response: "r", error: null, durationMs: 1 }),
+    ).resolves.toBeUndefined();
+  });
+
+  // ADLOG2: the log panel links to the conversation a call was made for.
+  it("writes conversation_id when given", async () => {
+    const convId = await seedConversation();
+    await logGeneration({ workspaceId: WS, kind: "draft", model: "m", system: "s", user: "u", response: "r", error: null, durationMs: 1, conversationId: convId });
+    const [row] = await rows();
+    expect(row.conversation_id).toBe(convId);
+  });
+
+  it("writes conversation_id as null when not given", async () => {
+    await logGeneration({ workspaceId: WS, kind: "rephrase", model: "m", system: "s", user: "u", response: "r", error: null, durationMs: 1 });
+    const [row] = await rows();
+    expect(row.conversation_id).toBeNull();
+  });
+
+  it("is best-effort: an invalid conversation_id (FK violation) is swallowed, never throws", async () => {
+    await expect(
+      logGeneration({ workspaceId: WS, kind: "draft", model: "m", system: "s", user: "u", response: "r", error: null, durationMs: 1, conversationId: "00000000-0000-4000-8000-000000000000" }),
     ).resolves.toBeUndefined();
   });
 });

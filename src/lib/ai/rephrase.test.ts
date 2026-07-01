@@ -9,8 +9,10 @@ vi.mock("@/lib/settings/config", () => ({
   getConfig: async (key: string) => process.env[key] ?? "",
 }));
 // ADLOG1: chatComplete (called under the hood) now writes a generation log — mock the write
-// boundary so this stays a pure-unit test (no DB).
-vi.mock("@/lib/ai/generation-log", () => ({ logGeneration: async () => {} }));
+// boundary so this stays a pure-unit test (no DB). A vi.fn() (not a no-op) so ADLOG2 can assert
+// rephrase() forwards conversationId through to it.
+const logGeneration = vi.fn(async (_entry: unknown) => {});
+vi.mock("@/lib/ai/generation-log", () => ({ logGeneration: (...a: unknown[]) => logGeneration(...(a as [unknown])) }));
 
 const originalFetch = globalThis.fetch;
 
@@ -45,6 +47,7 @@ beforeEach(() => {
   delete process.env.AI_BASE_URL;
   lastUrl = "";
   lastBody = null;
+  logGeneration.mockClear();
 });
 
 afterEach(() => {
@@ -123,6 +126,20 @@ describe("rephrase — AI adapter", () => {
     await rephrase("WS-1", "Base", {});
     expect(lastBody!.model).toBe("llama-3.3-70b-versatile");
     expect(lastUrl).toBe("https://api.groq.com/openai/v1/chat/completions");
+  });
+
+  it("forwards opts.conversationId to the generation log, through chatComplete (ADLOG2)", async () => {
+    const rephrase = await loadRephrase();
+    mockFetchOk("ok");
+    await rephrase("WS-1", "Base", { conversationId: "CONV-1" });
+    expect(logGeneration.mock.calls[0][0]).toMatchObject({ conversationId: "CONV-1" });
+  });
+
+  it("logs conversationId=undefined when the caller doesn't pass one", async () => {
+    const rephrase = await loadRephrase();
+    mockFetchOk("ok");
+    await rephrase("WS-1", "Base", {});
+    expect(logGeneration.mock.calls[0][0]).toMatchObject({ conversationId: undefined });
   });
 });
 

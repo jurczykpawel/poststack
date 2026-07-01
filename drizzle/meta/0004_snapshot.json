@@ -230,6 +230,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3)",
@@ -273,6 +279,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "ai_generation_logs_conversation_id_fkey": {
+          "name": "ai_generation_logs_conversation_id_fkey",
+          "tableFrom": "ai_generation_logs",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "cascade"
         }
       },
@@ -6389,6 +6408,19 @@
           "notNull": true,
           "default": true
         },
+        "custom_headers_encrypted": {
+          "name": "custom_headers_encrypted",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extra_payload_fields": {
+          "name": "extra_payload_fields",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3)",
@@ -6402,19 +6434,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "custom_headers_encrypted": {
-          "name": "custom_headers_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "extra_payload_fields": {
-          "name": "extra_payload_fields",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         }
       },
       "indexes": {

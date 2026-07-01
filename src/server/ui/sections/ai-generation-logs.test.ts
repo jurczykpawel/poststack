@@ -22,6 +22,7 @@ const row = (over: Partial<AiGenerationLogRow>): AiGenerationLogRow =>
     error: null,
     durationMs: 842,
     createdAt: new Date(),
+    conversationId: null,
     ...over,
   } as AiGenerationLogRow);
 
@@ -75,5 +76,20 @@ describe("renderAiGenerationLogs — rows", () => {
     const out = s(renderAiGenerationLogs([row({ userMessage: evil })], true, ""));
     expect(out).not.toContain("<script>alert(1)</script>");
     expect(out).toContain("&lt;script&gt;");
+  });
+});
+
+// ADLOG2: a row knows which inbox conversation it was generated for — link straight to it.
+describe("renderAiGenerationLogs — conversation link", () => {
+  it("links to /inbox/:id when the row has a conversationId", () => {
+    const out = s(renderAiGenerationLogs([row({ conversationId: "22222222-2222-4222-8222-222222222222" })], true, ""));
+    expect(out).toContain('href="/inbox/22222222-2222-4222-8222-222222222222"');
+    expect(out).toContain("Open conversation");
+  });
+
+  it("renders no conversation link when the row has no conversationId (e.g. a rule preview)", () => {
+    const out = s(renderAiGenerationLogs([row({ conversationId: null })], true, ""));
+    expect(out).not.toContain("Open conversation");
+    expect(out).not.toContain('href="/inbox/');
   });
 });

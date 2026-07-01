@@ -51,6 +51,7 @@ describe("generateDraft", () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     const result = await generateDraft({
       workspaceId: "WS-1",
+      conversationId: "CONV-1",
       incomingText: "Hi there",
       isComment: false,
       target: "dm",
@@ -69,6 +70,7 @@ describe("generateDraft", () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     await generateDraft({
       workspaceId: "WS-1",
+      conversationId: "CONV-1",
       incomingText: "Nice post!",
       isComment: true,
       target: "public",
@@ -85,6 +87,7 @@ describe("generateDraft", () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     await generateDraft({
       workspaceId: "WS-1",
+      conversationId: "CONV-1",
       incomingText: "Nice post!",
       isComment: true,
       target: "both",
@@ -97,11 +100,12 @@ describe("generateDraft", () => {
     );
   });
 
-  it("forwards workspaceId and kind='draft' to chatComplete (ADLOG1)", async () => {
+  it("forwards workspaceId, conversationId, and kind='draft' to chatComplete (ADLOG1/ADLOG2)", async () => {
     chatCompleteMock.mockResolvedValue("draft reply");
-    await generateDraft({ workspaceId: "WS-log", incomingText: "Hi", isComment: false, target: "dm", prompt: "be nice" });
+    await generateDraft({ workspaceId: "WS-log", conversationId: "CONV-log", incomingText: "Hi", isComment: false, target: "dm", prompt: "be nice" });
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.workspaceId).toBe("WS-log");
+    expect(call.conversationId).toBe("CONV-log");
     expect(call.kind).toBe("draft");
   });
 
@@ -109,6 +113,7 @@ describe("generateDraft", () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     await generateDraft({
       workspaceId: "WS-1",
+      conversationId: "CONV-1",
       incomingText: "Hi there",
       isComment: false,
       target: "dm",
@@ -126,14 +131,14 @@ describe("generateDraft", () => {
   it("returns chatComplete's string verbatim", async () => {
     chatCompleteMock.mockResolvedValue("verbatim");
     expect(
-      await generateDraft({ workspaceId: "WS-1", incomingText: "x", isComment: false, target: "dm", prompt: "p" }),
+      await generateDraft({ workspaceId: "WS-1", conversationId: "CONV-1", incomingText: "x", isComment: false, target: "dm", prompt: "p" }),
     ).toBe("verbatim");
   });
 
   it("returns null when chatComplete returns null", async () => {
     chatCompleteMock.mockResolvedValue(null);
     expect(
-      await generateDraft({ workspaceId: "WS-1", incomingText: "x", isComment: false, target: "dm", prompt: "p" }),
+      await generateDraft({ workspaceId: "WS-1", conversationId: "CONV-1", incomingText: "x", isComment: false, target: "dm", prompt: "p" }),
     ).toBeNull();
   });
 });

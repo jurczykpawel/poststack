@@ -51,6 +51,7 @@ function describeReplyTarget(target: "dm" | "public" | "both"): string {
  */
 export async function generateDraft(args: {
   workspaceId: string;
+  conversationId: string;
   incomingText: string;
   isComment: boolean;
   target: "dm" | "public" | "both";
@@ -64,6 +65,7 @@ export async function generateDraft(args: {
 
   return chatComplete({
     workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
     kind: "draft",
     system: args.prompt,
     user,

@@ -1028,6 +1028,10 @@ export const aiGenerationLogs = pgTable("ai_generation_logs", {
 	response: text(),
 	error: text(),
 	duration_ms: integer("duration_ms").notNull(),
+	// ADLOG2: which inbox thread this call was made for, so the log panel can link straight to it.
+	// Nullable — a rule-preview rephrase (no live conversation) logs with no id. onDelete set null
+	// keeps the log row if the conversation is later purged by retention (mirrors comment_logs).
+	conversation_id: uuid("conversation_id"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	index("ai_generation_logs_workspace_created_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.desc().nullsLast()),
@@ -1036,6 +1040,11 @@ export const aiGenerationLogs = pgTable("ai_generation_logs", {
 			foreignColumns: [workspaces.id],
 			name: "ai_generation_logs_workspace_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.conversation_id],
+			foreignColumns: [conversations.id],
+			name: "ai_generation_logs_conversation_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
 export const revokedTokens = pgTable("revoked_tokens", {

@@ -47,6 +47,9 @@ export interface RephraseOptions {
   workspacePrompt?: string | null;
   /** Desired tone — only applied to the built-in default (no custom/workspace prompt). */
   tone?: string;
+  /** ADLOG2: the inbox conversation this rephrase was made for, so the generation-log panel can
+   *  link straight to it. Absent for a call with no live conversation to attribute it to. */
+  conversationId?: string;
 }
 
 /**
@@ -64,6 +67,7 @@ export async function rephrase(workspaceId: string, baseText: string, opts: Reph
 
   const rephrased = await chatComplete({
     workspaceId,
+    conversationId: opts.conversationId,
     kind: "rephrase",
     system: systemContent,
     user: baseText,

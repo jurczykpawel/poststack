@@ -12,6 +12,9 @@ export interface GenerationLogEntry {
    *  `null` on a successful non-empty completion. */
   error: string | null;
   durationMs: number;
+  /** ADLOG2: the inbox conversation this call was made for, so the log panel can link straight to
+   *  it. Absent for a call with no live conversation to attribute it to. */
+  conversationId?: string;
 }
 
 /** Cap free-text fields so a very long comment/response can't bloat storage. */
@@ -38,6 +41,7 @@ export async function logGeneration(entry: GenerationLogEntry): Promise<void> {
       response: entry.response != null ? safe(entry.response) : null,
       error: entry.error != null ? safe(entry.error) : null,
       duration_ms: entry.durationMs,
+      conversation_id: entry.conversationId ?? null,
     });
   } catch {
     // best-effort — never break the caller

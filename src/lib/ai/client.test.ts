@@ -152,4 +152,18 @@ describe("chatComplete — ADLOG1 generation logging", () => {
     await chatComplete({ workspaceId: "WS-log", kind: "draft", system: "sys", user: "usr" });
     expect(logGeneration).not.toHaveBeenCalled();
   });
+
+  it("forwards conversationId to the log entry when given (ADLOG2)", async () => {
+    const chatComplete = await loadChatComplete();
+    mockFetchOk("ok");
+    await chatComplete({ workspaceId: "WS-log", conversationId: "CONV-1", kind: "draft", system: "sys", user: "usr" });
+    expect(logGeneration.mock.calls[0][0]).toMatchObject({ conversationId: "CONV-1" });
+  });
+
+  it("logs conversationId=undefined when the caller doesn't pass one", async () => {
+    const chatComplete = await loadChatComplete();
+    mockFetchOk("ok");
+    await chatComplete({ workspaceId: "WS-log", kind: "draft", system: "sys", user: "usr" });
+    expect(logGeneration.mock.calls[0][0]).toMatchObject({ conversationId: undefined });
+  });
 });
