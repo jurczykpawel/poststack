@@ -540,30 +540,45 @@ async function loadDrafts(conversationId: string, workspaceId: string): Promise<
   });
 }
 
-/** A pending approval rendered as an outbound-side draft bubble: the proposed text (DM and/or public),
- *  a source tag, target chips, and an editable textarea with Accept / Edit / Reject. A rule-hold and an
- *  AI draft render identically (only the tag copy differs). All dynamic text is escaped by `html``. */
+/**
+ * ADUX1: a pending approval rendered as a draft card — the proposed text (DM and/or public), a source
+ * tag, and Accept / Edit / Reject. A rule-hold and an AI draft render identically (only the tag copy
+ * differs). All dynamic text is escaped by `html``.
+ *
+ * Edit is a client-side toggle (Alpine `editing`), not an always-visible textarea: the read-only view
+ * (Accept/Edit/Reject) and the edit form (textarea + Save/Cancel) are mutually exclusive `x-show`
+ * blocks sharing one `editing` flag. Cancel resets the textarea to its original `defaultValue` before
+ * hiding it — Alpine's `x-show` only toggles visibility, so an abandoned edit would otherwise still be
+ * sitting in the DOM the next time Edit is clicked. Save still posts to the existing
+ * `/inbox/approval/:id/edit` route (unchanged) and re-renders the thread.
+ */
 function renderDraftBubble(d: DraftBubble): Html {
   const isAi = d.source !== "rule";
   const tag = isAi ? "AI draft · awaiting approval" : "Held for approval";
   // Both parts share one edited text on save (the Edit route updates whichever exist), so the textarea
   // prefills with the DM body when present, else the public-comment text.
   const prefill = d.dmText ?? d.commentText ?? "";
-  return html`<div class="msg msg-out msg-draft" data-approval-id="${d.id}">
+  return html`<div class="msg msg-draft" data-approval-id="${d.id}" x-data="{ editing: false }">
     <div class="bubble draft-bubble">
       <div class="draft-tag">${icon(isAi ? "sparkles" : "clock", "ico", 12)} ${tag}</div>
-      ${d.commentText
-        ? html`<div class="draft-part"><span class="badge tone-info">public comment reply</span><div class="draft-text">${d.commentText}</div></div>`
-        : html``}
-      ${d.dmText
-        ? html`<div class="draft-part"><span class="badge tone-neutral">DM</span><div class="draft-text">${d.dmText}</div></div>`
-        : html``}
-      <form class="draft-edit" hx-post="/inbox/approval/${d.id}/edit" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
-        <textarea class="textarea" name="text" rows="2" required>${prefill}</textarea>
+      <div x-show="!editing">
+        ${d.commentText
+          ? html`<div class="draft-part"><span class="badge tone-info">public comment reply</span><div class="draft-text">${d.commentText}</div></div>`
+          : html``}
+        ${d.dmText
+          ? html`<div class="draft-part"><span class="badge tone-neutral">DM</span><div class="draft-text">${d.dmText}</div></div>`
+          : html``}
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="button" hx-post="/inbox/approval/${d.id}/approve" hx-target="#thread" hx-swap="innerHTML">Accept</button>
-          <button class="btn btn-sm" type="submit">Edit</button>
+          <button class="btn btn-sm" type="button" @click="editing = true">Edit</button>
           <button class="btn btn-sm btn-danger" type="button" hx-post="/inbox/approval/${d.id}/reject" hx-target="#thread" hx-swap="innerHTML">Reject</button>
+        </div>
+      </div>
+      <form class="draft-edit" x-show="editing" x-cloak hx-post="/inbox/approval/${d.id}/edit" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
+        <textarea class="textarea" name="text" rows="3" required x-ref="ta">${prefill}</textarea>
+        <div class="draft-actions">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>
+          <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue">Cancel</button>
         </div>
       </form>
     </div>

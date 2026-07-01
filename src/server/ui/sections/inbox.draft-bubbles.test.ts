@@ -101,3 +101,38 @@ describe("renderThread — pending-approval draft bubbles", () => {
     expect(out).not.toContain("/inbox/approval/");
   });
 });
+
+// ADUX1: Edit is a client-side toggle (Alpine `editing`), not an always-visible textarea — the
+// textarea only exists inside the `x-show="editing"` edit form, and Save/Cancel replace Accept/
+// Edit/Reject while editing.
+describe("renderThread — pending-approval draft bubble edit toggle (ADUX1)", () => {
+  it("does not render an unconditional/always-visible textarea", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "Your order ships today.", commentText: null }],
+      }),
+    );
+    // The textarea must live inside the x-show="editing" form, not sit bare in the markup.
+    expect(out).toMatch(/x-show="editing"[^>]*>[\s\S]*<textarea/);
+  });
+
+  it("has an Alpine edit toggle with Save/Cancel available in the edit state", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "Your order ships today.", commentText: null }],
+      }),
+    );
+    expect(out).toContain('x-data="{ editing: false }"');
+    expect(out).toContain("Save");
+    expect(out).toContain("Cancel");
+  });
+
+  it("Cancel resets the textarea to its original value before hiding it (no stale abandoned edit)", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "Your order ships today.", commentText: null }],
+      }),
+    );
+    expect(out).toContain("$refs.ta.value = $refs.ta.defaultValue");
+  });
+});

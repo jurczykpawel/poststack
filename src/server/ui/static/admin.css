@@ -1268,6 +1268,20 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .msg .bubble { padding: 9px 12px; border-radius: 14px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
 .msg-in .bubble { background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 5px; color: var(--text-1); }
 .msg-out .bubble { background: var(--accent); color: var(--accent-contrast); border-bottom-right-radius: 5px; }
+/* ADUX1: a pending draft/rule-hold is NOT a sent message — it gets its own card treatment (surface +
+   accent left rail) instead of the confirmed-outbound blue bubble, so "awaiting approval" reads as a
+   distinct state rather than looking like it already went out. */
+.msg-draft { align-self: flex-end; align-items: flex-end; max-width: 88%; }
+.msg-draft .draft-bubble { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-card); padding: var(--sp-3) var(--sp-4); color: var(--text-1); white-space: normal; }
+.draft-tag { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--accent); margin-bottom: var(--sp-2); }
+.draft-tag .ico { width: 13px; height: 13px; }
+.draft-part { margin-bottom: var(--sp-2); }
+.draft-part:last-child { margin-bottom: 0; }
+.draft-part .badge { margin-bottom: 4px; }
+.draft-text { font-size: var(--fs-body); line-height: 1.5; color: var(--text-1); white-space: pre-wrap; word-break: break-word; }
+.draft-edit .textarea { width: 100%; margin-top: 2px; }
+.draft-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); flex-wrap: wrap; }
+
 /* Per-message mono meta line (clock time + outbound delivery receipt). */
 .msg-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); display: flex; align-items: center; gap: 5px; }
 .msg-meta .ico { width: 12px; height: 12px; color: var(--info); }
