@@ -136,3 +136,18 @@ describe("renderThread — pending-approval draft bubble edit toggle (ADUX1)", (
     expect(out).toContain("$refs.ta.value = $refs.ta.defaultValue");
   });
 });
+
+// ADDEL1: a "Delete" button lets an operator discard a draft entirely (distinct from Reject, which
+// keeps a rejected row visible in "Recently resolved").
+describe("renderThread — pending-approval draft bubble Delete (ADDEL1)", () => {
+  it("renders a Delete button wired to DELETE /inbox/approval/:id with a confirm prompt", async () => {
+    const out = s(
+      await renderThread(makeConv(), [], {
+        drafts: [{ id: APPR_ID, source: "ai_auto", dmText: "Your order ships today.", commentText: null }],
+      }),
+    );
+    expect(out).toContain(`hx-delete="/inbox/approval/${APPR_ID}"`);
+    expect(out).toContain("hx-confirm=");
+    expect(out).toContain("Delete");
+  });
+});

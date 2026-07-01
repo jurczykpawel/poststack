@@ -230,6 +230,61 @@ describe("dashboard action error surfacing", () => {
     expect(res.status).toBe(404);
   });
 
+  // ADDEL1: full deletion — distinct from Reject (which keeps a visible resolved row). Both the
+  // inbox thread and the Approvals page render the SAME pendingApprovals row, so a delete via
+  // either route makes it disappear from both surfaces at once.
+  describe("ADDEL1 — delete a draft/approval entirely", () => {
+    async function seedDraft(overrides: Record<string, unknown> = {}) {
+      const [rule] = await db.insert(s.autoReplyRules).values({
+        workspace_id: WS, name: "Delete-me rule", trigger_type: "keyword",
+        trigger_config: { keywords: [{ value: "x", match_type: "contains" }] },
+        response_type: "text", response_config: { text: "x" }, requires_approval: true,
+      }).returning({ id: s.autoReplyRules.id });
+      const [appr] = await db.insert(s.pendingApprovals).values({
+        workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH,
+        recipient_platform_id: "PSID-D", proposed_content: { content: { text: "Delete me" } },
+        ...overrides,
+      }).returning({ id: s.pendingApprovals.id });
+      return appr!.id;
+    }
+
+    it("DELETE /inbox/approval/:id removes the row from the DB and re-renders the thread", async () => {
+      if (!TEST_DB) return;
+      const id = await seedDraft();
+      const res = await app.request(`/inbox/approval/${id}`, { method: "DELETE", headers: { cookie } });
+      expect(res.status).toBe(200);
+      expect(await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) })).toBeUndefined();
+    });
+
+    it("DELETE /approvals/:id removes the row and it is gone from BOTH the inbox thread and Approvals", async () => {
+      if (!TEST_DB) return;
+      const id = await seedDraft();
+      const res = await app.request(`/approvals/${id}`, { method: "DELETE", headers: { cookie } });
+      expect(res.status).toBe(200);
+      expect(await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) })).toBeUndefined();
+      const approvalsBody = await (await app.request("/approvals", { headers: { cookie } })).text();
+      expect(approvalsBody).not.toContain("Delete me");
+      const threadBody = await (await app.request(`/inbox/${CONV}`, { headers: { cookie, "hx-request": "true" } })).text();
+      expect(threadBody).not.toContain("Delete me");
+    });
+
+    it("DELETE on a resolved (non-pending) row also removes it — history is purgeable", async () => {
+      if (!TEST_DB) return;
+      const id = await seedDraft({ status: "rejected", resolved_at: new Date() });
+      const res = await app.request(`/approvals/${id}`, { method: "DELETE", headers: { cookie } });
+      expect(res.status).toBe(200);
+      expect(await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) })).toBeUndefined();
+    });
+
+    it("DELETE on a foreign/missing id -> 404, nothing removed", async () => {
+      if (!TEST_DB) return;
+      const id = await seedDraft();
+      const res = await app.request("/approvals/dddddddd-0000-4000-8000-00000000aa03", { method: "DELETE", headers: { cookie } });
+      expect(res.status).toBe(404);
+      expect(await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, id) })).toBeTruthy();
+    });
+  });
+
   it("inbox deep-link (?open=) self-loads the target conversation thread", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request(`/inbox?open=${CONV}`, { headers: { cookie } })).text();

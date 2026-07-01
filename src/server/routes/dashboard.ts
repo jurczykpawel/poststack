@@ -572,6 +572,7 @@ function renderDraftBubble(d: DraftBubble): Html {
           <button class="btn btn-sm btn-primary" type="button" hx-post="/inbox/approval/${d.id}/approve" hx-target="#thread" hx-swap="innerHTML">Accept</button>
           <button class="btn btn-sm" type="button" @click="editing = true">Edit</button>
           <button class="btn btn-sm btn-danger" type="button" hx-post="/inbox/approval/${d.id}/reject" hx-target="#thread" hx-swap="innerHTML">Reject</button>
+          <button class="btn btn-sm btn-danger" type="button" hx-delete="/inbox/approval/${d.id}" hx-target="#thread" hx-swap="innerHTML" hx-confirm="Delete this draft? It will be gone from the inbox and from Approvals." data-confirm-label="Delete">Delete</button>
         </div>
       </div>
       <form class="draft-edit" x-show="editing" x-cloak hx-post="/inbox/approval/${d.id}/edit" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
@@ -1530,6 +1531,19 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       .where(and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, workspaceId), eq(pendingApprovals.status, "pending")));
   };
 
+  // ADDEL1: hard-delete a draft/approval — used by the "Delete" button in the inbox thread, on the
+  // Approvals page, and in its "Recently resolved" history. The inbox thread and Approvals page both
+  // render the SAME pendingApprovals row, so one delete clears it from both surfaces at once. Any
+  // status (not just pending) — a resolved row can be purged from history too. Does NOT touch the
+  // underlying commentLogs/messages that triggered the draft — only the draft/approval entry itself.
+  const deletePendingApproval = async (workspaceId: string, id: string): Promise<boolean> => {
+    const deleted = await db
+      .delete(pendingApprovals)
+      .where(and(eq(pendingApprovals.id, id), eq(pendingApprovals.workspace_id, workspaceId)))
+      .returning({ id: pendingApprovals.id });
+    return deleted.length > 0;
+  };
+
   app.post("/inbox/approval/:id/approve", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -1559,6 +1573,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const text = typeof form.text === "string" ? form.text.trim() : "";
     await updateProposedText(a.workspaceId, id, appr.proposed_content, text);
+    return reRenderThreadForConv(c, a, appr.conversation_id);
+  });
+
+  // ADDEL1: delete a draft/approval entirely from the inbox thread (hx-confirm on the button).
+  app.delete("/inbox/approval/:id", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const appr = await approvalConv(id, a.workspaceId);
+    if (!appr) return c.notFound();
+    await deletePendingApproval(a.workspaceId, id);
     return reRenderThreadForConv(c, a, appr.conversation_id);
   });
 
@@ -2388,6 +2413,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const text = typeof form.text === "string" ? form.text.trim() : "";
     await updateProposedText(a.workspaceId, id, existing.proposed_content, text);
+    return c.html(await renderApprovalsView(a.workspaceId));
+  });
+
+  // ADDEL1: delete a draft/approval entirely from the Approvals page — any status, so a resolved row
+  // can be purged from "Recently resolved" too (hx-confirm on the button).
+  app.delete("/approvals/:id", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    const ok = await deletePendingApproval(a.workspaceId, id);
+    if (!ok) return c.notFound();
     return c.html(await renderApprovalsView(a.workspaceId));
   });
 
@@ -3725,6 +3761,7 @@ function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApp
         <span>${who}</span>
         ${txt ? html`<span class="appr-resolved-snippet">“${truncateCodePoints(txt, 60)}”</span>` : html``}
         <span class="appr-resolved-time">${r.resolved_at ? timeAgo(r.resolved_at) : ""}</span>
+        <button class="btn btn-sm btn-ghost" type="button" title="Delete from history" hx-delete="/approvals/${r.id}" hx-target="#approvals-list" hx-swap="innerHTML" hx-confirm="Delete this from history?" data-confirm-label="Delete">${icon("close", "ico", 12)}</button>
       </div>`;
     })}
   </details>`;
@@ -3757,6 +3794,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
           <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
           <button class="btn btn-sm" type="button" @click="editing = true">Edit</button>
           <button class="btn btn-sm btn-danger" hx-post="/approvals/${a.id}/reject" hx-target="#approvals-list" hx-swap="innerHTML">Reject</button>
+          <button class="btn btn-sm btn-danger" hx-delete="/approvals/${a.id}" hx-target="#approvals-list" hx-swap="innerHTML" hx-confirm="Delete this draft? It will be gone from Approvals and from the inbox." data-confirm-label="Delete">Delete</button>
         </div>
       </div>
       ${a.trigger ? html`<blockquote class="appr-trigger">${a.trigger}</blockquote>` : html``}
