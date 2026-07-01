@@ -29,6 +29,8 @@ import { can } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform } from "@/lib/providers";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
+import { isAiConfigured } from "@/lib/ai/client";
+import { aiUnconfiguredBanner } from "../components/ai-notice";
 import type { Platform } from "@/db/schema";
 import { listDeliveries } from "@/lib/deliveries/service";
 import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/service";
@@ -654,11 +656,12 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
  *  manual approval. Mirrors the first-comment/auto-story out-of-band pattern: the form posts to
  *  /channels/:id/ai-draft, which re-renders #ch-detail-head and refreshes THIS panel out-of-band.
  *  Every dynamic value is escaped by `html`` (the saved prompt is operator text but escaped anyway). */
-export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
+export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false, aiConfigured = true): Html {
   const targetOpt = (value: PublicChannel["ai_draft_target"], label: string) =>
     html`<option value="${value}"${ch.ai_draft_target === value ? raw(" selected") : raw("")}>${label}</option>`;
   const body = licensed
-    ? html`<p class="set-lead">
+    ? html`${aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts")}
+      <p class="set-lead">
         When enabled, PostStack drafts an AI reply for new activity on this channel and parks it here
         for your approval. Leave the prompt blank to inherit the workspace default.
       </p>
@@ -797,6 +800,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
 
   const name = ch.display_name ?? ch.provider_account_id;
   const lic = await getInstanceLicense();
+  const aiConfigured = await isAiConfigured();
   // Per-channel activity stats — PRO (reuses contacts_crm: knowing your audience/volume).
   const canStats = lic.features.has("contacts_crm");
   const stats = canStats
@@ -851,7 +855,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
           : html`<section class="panel"><div class="set-body"><p class="set-lead" style="margin:0">${icon("lock", "ico", 13)} Channel stats (posts & messages) are a PRO feature.</p></div></section>`}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
-        ${aiDraftPanel(ch, lic.features.has("ai_draft"), lic.upgradeUrl)}
+        ${aiDraftPanel(ch, lic.features.has("ai_draft"), lic.upgradeUrl, false, aiConfigured)}
         ${gmailFilterPanel(ch)}
         <div class="detail-grid">${tokenPanel(ch)}${ratePanel(rate)}</div>
         <div class="detail-grid">
@@ -963,7 +967,7 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     if (!ch) return c.text("not found", 404);
     if (!isHtmx(c)) return c.redirect(`/channels/${id}`, 303);
     toastHeader(c, "ok", "AI-draft settings saved");
-    return c.html(html`${detailHead(ch)}${aiDraftPanel(ch, true, "", true)}`);
+    return c.html(html`${detailHead(ch)}${aiDraftPanel(ch, true, "", true, await isAiConfigured())}`);
   });
 
   r.post("/channels/:id/hide", guard, action((ws, id) => setChannelHidden(ws, id, true), () => "Channel hidden"));

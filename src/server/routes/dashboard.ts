@@ -61,6 +61,7 @@ import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
+import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
@@ -607,9 +608,7 @@ export function renderThread(
   const aiOffNote = "AI provider not configured — set an API key in Settings.";
   const aiDraftBar = canAiDraft
     ? html`<div class="ai-draft-bar" style="display:flex;flex-direction:column;gap:.35rem;padding:.3rem 0">
-        ${!aiConfigured
-          ? html`<div class="notice notice-warn" style="font-size:.76rem;display:flex;align-items:center;gap:6px">${icon("sparkles", "ico", 13)}<span>No AI provider configured — <a href="/settings">add an API key in Settings</a> to enable AI drafts.</span></div>`
-          : html``}
+        ${aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts")}
         <div style="display:flex;gap:.4rem">
           <button class="btn btn-sm" type="button" ${aiConfigured ? "" : "disabled"}
             title="${aiConfigured ? "Draft a DM reply with AI — it'll be parked here for your approval." : aiOffNote}"
@@ -1115,15 +1114,6 @@ function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolea
  * channel has no per-channel prompt override; blank = the built-in default prompt. PRO-gated UI — a
  * free instance sees an upsell instead of the textarea (the POST is also gated server-side).
  */
-/**
- * Shared "no AI provider configured" banner, shown wherever AI drafts/rephrasing are configured when
- * no provider key is set — the same signal the inbox buttons and the API's `ai_configured` carry.
- * `what` names the affected feature. The key lives in Settings → Credentials ("AI rephrasing" group).
- */
-function aiUnconfiguredBanner(what: string): Html {
-  return html`<div class="notice notice-warn" style="font-size:.8rem;display:flex;align-items:center;gap:6px">${icon("sparkles", "ico", 14)}<span>No AI provider configured — ${what} won't run until you add an API key in <a href="/settings">Settings → Credentials (AI rephrasing)</a>.</span></div>`;
-}
-
 function renderAiDraftPrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
   const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
   if (!canConfigure) {

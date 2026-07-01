@@ -170,6 +170,19 @@ describe("aiDraftPanel (AIDRAFT1 config — Task 8)", () => {
     expect(out).not.toContain("<script>alert(1)</script>");
     expect(out).toContain("&lt;script&gt;");
   });
+  it("PRO but no AI provider configured: shows the shared 'no AI provider' banner atop the form", () => {
+    const out = s(aiDraftPanel(ch({}), true, "", false, false));
+    expect(out).toContain("No AI provider configured");
+    expect(out).toContain('name="enabled"'); // the form still renders (config is still editable)
+  });
+  it("PRO with an AI provider configured: no banner", () => {
+    const out = s(aiDraftPanel(ch({}), true, "", false, true));
+    expect(out).not.toContain("No AI provider configured");
+  });
+  it("free instance: the AI banner is never shown (PRO upsell takes precedence)", () => {
+    const out = s(aiDraftPanel(ch({}), false, "https://upgrade.example", false, false));
+    expect(out).not.toContain("No AI provider configured");
+  });
 });
 
 describe("lastErrorNote (B3)", () => {
