@@ -12,7 +12,7 @@ function clip(text: string): string {
 
 /**
  * Recent back-and-forth in a DM conversation, oldest first, EXCLUDING the newest row — that's the
- * triggering inbound message, which the caller already sends separately as "Message: ...".
+ * triggering inbound message, which the caller already sends separately as the newest labeled turn.
  */
 async function resolveDmHistory(conversationId: string, turns: number): Promise<string[]> {
   const rows = await db.query.messages.findMany({

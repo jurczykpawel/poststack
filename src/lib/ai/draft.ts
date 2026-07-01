@@ -34,7 +34,7 @@ export function resolveDraftPrompt(args: {
 function describeReplyTarget(target: "dm" | "public" | "both"): string {
   if (target === "dm") return "a private direct message";
   if (target === "public") return "a public comment reply";
-  return "a public comment reply (the same text is also sent as a private DM)";
+  return "a public comment reply (also sent as a DM)";
 }
 
 /**
@@ -42,8 +42,10 @@ function describeReplyTarget(target: "dm" | "public" | "both"): string {
  * message; the user message is built from (optional) light context, an explicit reply-target line
  * (ADCTX4 — so the model knows whether it's writing for a public audience or a private DM, since that
  * never differed in the raw prompt before, even though the caller always knew it), and the incoming
- * text labeled by its own source ("Public comment" vs "Direct message" — distinct from the reply
- * target: a comment can be answered via DM, and a comment→DM automation answers both at once).
+ * text labeled as the customer's newest turn. The label reuses the transcript's `Customer` voice (so
+ * the model reads it as the same speaker as the history, not a new role) and names its own surface
+ * ("public comment" vs "direct message" — distinct from the reply target: a comment can be answered
+ * via DM, and a comment→DM automation answers both at once) plus which message to reply to.
  * Best-effort: returns chatComplete's result verbatim — a trimmed string, or `null` (no key / failure
  * / empty completion), in which case the caller creates no draft.
  */
@@ -55,7 +57,8 @@ export async function generateDraft(args: {
   context?: string;
   prompt: string;
 }): Promise<string | null> {
-  const source = args.isComment ? "Public comment" : "Direct message";
+  const surface = args.isComment ? "new public comment" : "new direct message";
+  const source = `Customer (${surface} — the message to reply to)`;
   const instruction = `Reply target: ${describeReplyTarget(args.target)}\n${source}: ${args.incomingText}`;
   const user = args.context ? `${args.context}\n\n---\n${instruction}` : instruction;
 

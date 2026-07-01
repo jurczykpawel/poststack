@@ -47,7 +47,7 @@ describe("resolveDraftPrompt", () => {
 });
 
 describe("generateDraft", () => {
-  it("labels the message 'Direct message' and states a private-DM reply target (no context)", async () => {
+  it("labels the message as the customer's new DM and states a private-DM reply target (no context)", async () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     const result = await generateDraft({
       workspaceId: "WS-1",
@@ -60,10 +60,12 @@ describe("generateDraft", () => {
     expect(result).toBe("draft reply");
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.system).toBe("be nice");
-    expect(call.user).toBe("Reply target: a private direct message\nDirect message: Hi there");
+    expect(call.user).toBe(
+      "Reply target: a private direct message\nCustomer (new direct message — the message to reply to): Hi there",
+    );
   });
 
-  it("labels the message 'Public comment' and states a public-comment reply target", async () => {
+  it("labels the message as the customer's new public comment and states a public-comment reply target", async () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     await generateDraft({
       workspaceId: "WS-1",
@@ -74,7 +76,9 @@ describe("generateDraft", () => {
     });
 
     const call = chatCompleteMock.mock.calls[0][0];
-    expect(call.user).toBe("Reply target: a public comment reply\nPublic comment: Nice post!");
+    expect(call.user).toBe(
+      "Reply target: a public comment reply\nCustomer (new public comment — the message to reply to): Nice post!",
+    );
   });
 
   it("states that a 'both' target also sends the same text as a DM", async () => {
@@ -89,7 +93,7 @@ describe("generateDraft", () => {
 
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.user).toBe(
-      "Reply target: a public comment reply (the same text is also sent as a private DM)\nPublic comment: Nice post!",
+      "Reply target: a public comment reply (also sent as a DM)\nCustomer (new public comment — the message to reply to): Nice post!",
     );
   });
 
@@ -115,7 +119,7 @@ describe("generateDraft", () => {
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.system).toBe("be nice");
     expect(call.user).toBe(
-      "Customer is asking about refunds.\n\n---\nReply target: a private direct message\nDirect message: Hi there",
+      "Customer is asking about refunds.\n\n---\nReply target: a private direct message\nCustomer (new direct message — the message to reply to): Hi there",
     );
   });
 
