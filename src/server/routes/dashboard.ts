@@ -3125,7 +3125,7 @@ function renderEngagement(posts: EngagementPost[], dms: DmReaction[], filter: En
 /** WEBHOOKSUB1: per-account webhook subscription health (active vs missing fields) + a one-click Fix.
  *  `message_reactions` may be subscribed yet undelivered by Meta until pages_messaging has Advanced
  *  Access — so a present-but-noted hint is shown rather than implying a local misconfig. */
-function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
+export function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
   if (statuses.length === 0) {
     return html`<div id="wh-subs"><div class="empty"><span class="empty-ic">${icon("channels", "ico", 20)}</span><p class="empty-title">No accounts connected</p><p class="empty-body">Connect a Facebook or Instagram account to manage its webhook subscriptions.</p></div></div>`;
   }
@@ -3139,13 +3139,16 @@ function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): Html {
           ${s.kind === "instagram_login"
             ? html`<div style="font-size:.68rem;color:var(--text-3);margin-top:2px"><small>Per-account Instagram Login subscription</small></div>`
             : ""}
+          ${s.igLogin
+            ? html`<div style="font-size:.66rem;color:var(--text-3);margin-top:2px"><small>Two subscriptions: the linked <strong>Facebook Page</strong> (the fields on the right) and <strong>Instagram Login</strong> (per-account, shown below).</small></div>`
+            : ""}
           ${s.error
             ? html`<div style="font-size:.72rem;color:var(--bad-text);margin-top:3px">${s.error}</div>`
             : s.ok
-              ? html`<div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-3);margin-top:3px">${dot("ok")} Fully subscribed</div>`
-              : html`<div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-3);margin-top:3px">${dot("warn")} Missing ${s.missing.length} field(s)</div>`}
-          ${s.active.includes("message_reactions")
-            ? html`<div style="display:flex;align-items:flex-start;gap:5px;font-size:.68rem;color:var(--text-3);margin-top:4px">${icon("info", "ico", 12)}<span>message_reactions is subscribed but Meta only delivers it once <code>pages_messaging</code> has Advanced Access (App Review).</span></div>`
+              ? html`<div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-3);margin-top:3px">${dot("ok")} ${s.igLogin ? "Facebook Page — fully subscribed" : "Fully subscribed"}</div>`
+              : html`<div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-3);margin-top:3px">${dot("warn")} ${s.igLogin ? "Facebook Page — " : ""}Missing ${s.missing.length} field(s)</div>`}
+          ${s.kind === "page" && s.active.includes("message_reactions")
+            ? html`<div style="display:flex;align-items:flex-start;gap:5px;font-size:.68rem;color:var(--text-3);margin-top:4px">${icon("info", "ico", 12)}<span>message_reactions on the Facebook Page is subscribed, but Meta only delivers it once <code>pages_messaging</code> has Advanced Access (App Review).${s.igLogin ? " Instagram DM reactions (via Instagram Login below) deliver on Standard Access — no review needed." : ""}</span></div>`
             : ""}
           ${s.igLogin
             ? html`<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
