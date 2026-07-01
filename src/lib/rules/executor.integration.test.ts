@@ -386,6 +386,42 @@ describe("evaluateRules (real Postgres)", () => {
       expect(jobs[0].source).toBe("ai_auto");
     });
 
+    // ADCTX1: when the comment's parent post was published through PostStack (a local `posts` row
+    // matches its platform post id), its caption rides along as `job.context` — otherwise the model
+    // sees only the bare comment text.
+    it("prepends the parent post's caption as context when the post has a local record", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft("public");
+      const [c] = await db.insert(s.content).values({ workspace_id: WS, title: "Editorial title" }).returning({ id: s.content.id });
+      await db.insert(s.posts).values({ workspace_id: WS, content_id: c!.id, platform: "facebook", platform_post_id: "POST-AID", description: "We shipped a new feature today!" });
+      const res = await evaluateRules({
+        ...baseInput, text: "congrats!", eventType: "comment", commentId: "CMT-CTX", postId: "POST-AID", eventKey: "evt-aidraft-ctx",
+      });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs[0].context).toBe("We shipped a new feature today!");
+    });
+
+    it("has no context when the comment's post has no local record (published outside PostStack)", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft("public");
+      const res = await evaluateRules({
+        ...baseInput, text: "congrats!", eventType: "comment", commentId: "CMT-NOCTX", postId: "POST-UNKNOWN", eventKey: "evt-aidraft-noctx",
+      });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs[0].context).toBeUndefined();
+    });
+
+    it("a DM no-match never carries post context, even if postId is somehow set", async () => {
+      if (!TEST_DB) return;
+      await enableAiDraft("dm");
+      const res = await evaluateRules({ ...baseInput, text: "unrelated", eventKey: "evt-aidraft-dm-noctx" });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      expect(jobs[0].context).toBeUndefined();
+    });
+
     it("does NOT enqueue an ai-draft job when the channel has not opted in (default)", async () => {
       if (!TEST_DB) return;
       // ai_draft_enabled defaults to false on a freshly inserted channel.

@@ -114,6 +114,36 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     expect(jobs[0]!.source).toBe("ai_manual");
   });
 
+  // ADCTX1: a comment reply enqueued with no local post record for it (the DM thread's message has
+  // none, and the comment thread's post "POST-1" isn't seeded as a `posts` row in beforeEach) carries
+  // no context — the LLM would see only the raw comment. Once a matching local post exists, its
+  // caption rides along as `job.context` so the model knows what the comment is replying to.
+  it("has no context when the comment's post has no local record (published outside PostStack)", async () => {
+    if (!TEST_DB) return;
+    const res = await aiDraft(CONV_COMMENT, { target: "public" });
+    expect(res.status).toBe(200);
+    const jobs = await aiDraftJobs();
+    expect(jobs[0]!.context).toBeUndefined();
+  });
+
+  it("prepends the parent post's caption as context when the post was published through PostStack", async () => {
+    if (!TEST_DB) return;
+    const [c] = await db.insert(s.content).values({ workspace_id: WS, title: "Editorial title" }).returning({ id: s.content.id });
+    await db.insert(s.posts).values({ workspace_id: WS, content_id: c!.id, platform: "facebook", platform_post_id: "POST-1", description: "We shipped a new feature today!" });
+    const res = await aiDraft(CONV_COMMENT, { target: "public" });
+    expect(res.status).toBe(200);
+    const jobs = await aiDraftJobs();
+    expect(jobs[0]!.context).toBe("We shipped a new feature today!");
+  });
+
+  it("a DM draft (no comment) never carries post context", async () => {
+    if (!TEST_DB) return;
+    const res = await aiDraft(CONV_DM, { target: "dm" });
+    expect(res.status).toBe(200);
+    const jobs = await aiDraftJobs();
+    expect(jobs[0]!.context).toBeUndefined();
+  });
+
   it("generates a DM (first-touch) draft for a comment thread — comment text sourced from commentLogs", async () => {
     if (!TEST_DB) return;
     const res = await aiDraft(CONV_COMMENT, { target: "dm" });

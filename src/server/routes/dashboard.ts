@@ -31,6 +31,7 @@ import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/s
 import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
+import { resolveLocalPostCaption } from "@/lib/ai/post-context";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
@@ -1424,14 +1425,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // public reply / first-touch DM.
     let incomingText: string | undefined;
     let commentId: string | undefined;
+    let postId: string | undefined;
     if (isComment) {
       const lastComment = await db.query.commentLogs.findFirst({
         where: eq(commentLogs.conversation_id, id),
         orderBy: desc(commentLogs.created_at),
-        columns: { comment_text: true, platform_comment_id: true },
+        columns: { comment_text: true, platform_comment_id: true, post_id: true },
       });
       incomingText = lastComment?.comment_text?.trim();
       commentId = lastComment?.platform_comment_id ?? undefined;
+      postId = lastComment?.post_id ?? undefined;
     } else {
       const lastInbound = await db.query.messages.findFirst({
         where: and(eq(messages.conversation_id, id), eq(messages.direction, "inbound")),
@@ -1458,6 +1461,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       where: and(eq(contactChannels.contact_id, conv.contact.id), eq(contactChannels.channel_id, conv.channel.id)),
       columns: { platform_sender_id: true },
     });
+    // ADCTX1: prepend the parent post's caption as light context for a comment reply — without it the
+    // model sees only the bare comment text. Best-effort; a post published outside PostStack has no
+    // local row and resolves to undefined (ADCTX2 adds a live API fallback for that case).
+    const context = isComment ? await resolveLocalPostCaption(a.workspaceId, postId) : undefined;
+
     await addJobTx(db, "ai-draft", {
       workspaceId: a.workspaceId,
       channelId: conv.channel.id,
@@ -1467,6 +1475,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       incomingText,
       target,
       ...(commentId ? { commentId } : {}),
+      ...(context ? { context } : {}),
       source: "ai_manual",
     });
 

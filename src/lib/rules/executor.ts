@@ -32,6 +32,7 @@ import { hasFeature } from "@/lib/license/gate";
 import { enrollContactInSequence } from "@/lib/sequences/enroll";
 import { applyPersonalization, type PersonalizeContext } from "./personalization";
 import type { ProposedContent } from "@/lib/approvals/draft";
+import { resolveLocalPostCaption } from "@/lib/ai/post-context";
 
 /** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
  *  and as a defensive `limit` on the per-message executor fetch, so neither the sanctioned API nor an
@@ -359,7 +360,7 @@ export async function evaluateRules(
       // (`claimed === false`) means a concurrent delivery owns the outcome, so we never enqueue a
       // second draft. The consent-gated no-match above (unsubscribed contact) returns earlier and
       // never reaches here, so an opted-out contact gets no AI draft.
-      await enqueueAiDraftOnNoMatch({ workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, eventKey });
+      await enqueueAiDraftOnNoMatch({ workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, postId, eventKey });
     }
     return { outcome: claimed ? "no_match" : "already", ruleId: null };
   }
@@ -389,9 +390,10 @@ async function enqueueAiDraftOnNoMatch(input: {
   text: string | null;
   eventType: EventType;
   commentId?: string;
+  postId?: string;
   eventKey: string;
 }): Promise<void> {
-  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, eventKey } = input;
+  const { workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, postId, eventKey } = input;
   const incomingText = text?.trim();
   if (!incomingText) return; // nothing for the model to reply to
 
@@ -400,6 +402,13 @@ async function enqueueAiDraftOnNoMatch(input: {
     columns: { ai_draft_enabled: true, ai_draft_target: true },
   });
   if (!channel?.ai_draft_enabled) return;
+
+  // ADCTX1: for a comment event, prepend the parent post's caption as light context — without it the
+  // model sees only the bare comment text (e.g. "Congratulations 🎉" with zero idea what's being
+  // congratulated). Best-effort: a post published outside PostStack has no local row, so this
+  // resolves to undefined and the draft still generates from the comment text alone (ADCTX2 adds a
+  // live API fallback for that case).
+  const context = eventType === "comment" ? await resolveLocalPostCaption(workspaceId, postId) : undefined;
 
   await addJobTx(
     db,
@@ -413,6 +422,7 @@ async function enqueueAiDraftOnNoMatch(input: {
       incomingText,
       target: channel.ai_draft_target,
       ...(eventType === "comment" && commentId ? { commentId } : {}),
+      ...(context ? { context } : {}),
       source: "ai_auto",
     },
     { jobKey: `ai-draft:${eventKey}` },
