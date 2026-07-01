@@ -47,45 +47,89 @@ describe("resolveDraftPrompt", () => {
 });
 
 describe("generateDraft", () => {
-  it("passes the prompt as system and the message as user (no context)", async () => {
+  it("labels the message 'Direct message' and states a private-DM reply target (no context)", async () => {
     chatCompleteMock.mockResolvedValue("draft reply");
-    const result = await generateDraft({ workspaceId: "WS-1", incomingText: "Hi there", prompt: "be nice" });
+    const result = await generateDraft({
+      workspaceId: "WS-1",
+      incomingText: "Hi there",
+      isComment: false,
+      target: "dm",
+      prompt: "be nice",
+    });
 
     expect(result).toBe("draft reply");
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.system).toBe("be nice");
-    expect(call.user).toBe("Hi there");
+    expect(call.user).toBe("Reply target: a private direct message\nDirect message: Hi there");
+  });
+
+  it("labels the message 'Public comment' and states a public-comment reply target", async () => {
+    chatCompleteMock.mockResolvedValue("draft reply");
+    await generateDraft({
+      workspaceId: "WS-1",
+      incomingText: "Nice post!",
+      isComment: true,
+      target: "public",
+      prompt: "be nice",
+    });
+
+    const call = chatCompleteMock.mock.calls[0][0];
+    expect(call.user).toBe("Reply target: a public comment reply\nPublic comment: Nice post!");
+  });
+
+  it("states that a 'both' target also sends the same text as a DM", async () => {
+    chatCompleteMock.mockResolvedValue("draft reply");
+    await generateDraft({
+      workspaceId: "WS-1",
+      incomingText: "Nice post!",
+      isComment: true,
+      target: "both",
+      prompt: "be nice",
+    });
+
+    const call = chatCompleteMock.mock.calls[0][0];
+    expect(call.user).toBe(
+      "Reply target: a public comment reply (the same text is also sent as a private DM)\nPublic comment: Nice post!",
+    );
   });
 
   it("forwards workspaceId and kind='draft' to chatComplete (ADLOG1)", async () => {
     chatCompleteMock.mockResolvedValue("draft reply");
-    await generateDraft({ workspaceId: "WS-log", incomingText: "Hi", prompt: "be nice" });
+    await generateDraft({ workspaceId: "WS-log", incomingText: "Hi", isComment: false, target: "dm", prompt: "be nice" });
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.workspaceId).toBe("WS-log");
     expect(call.kind).toBe("draft");
   });
 
-  it("includes the context plus the message in the user content when context is given", async () => {
+  it("puts the context first, then a '---' separator, then the reply target + labeled message", async () => {
     chatCompleteMock.mockResolvedValue("draft reply");
     await generateDraft({
       workspaceId: "WS-1",
       incomingText: "Hi there",
+      isComment: false,
+      target: "dm",
       context: "Customer is asking about refunds.",
       prompt: "be nice",
     });
 
     const call = chatCompleteMock.mock.calls[0][0];
     expect(call.system).toBe("be nice");
-    expect(call.user).toBe("Customer is asking about refunds.\n\n---\nMessage: Hi there");
+    expect(call.user).toBe(
+      "Customer is asking about refunds.\n\n---\nReply target: a private direct message\nDirect message: Hi there",
+    );
   });
 
   it("returns chatComplete's string verbatim", async () => {
     chatCompleteMock.mockResolvedValue("verbatim");
-    expect(await generateDraft({ workspaceId: "WS-1", incomingText: "x", prompt: "p" })).toBe("verbatim");
+    expect(
+      await generateDraft({ workspaceId: "WS-1", incomingText: "x", isComment: false, target: "dm", prompt: "p" }),
+    ).toBe("verbatim");
   });
 
   it("returns null when chatComplete returns null", async () => {
     chatCompleteMock.mockResolvedValue(null);
-    expect(await generateDraft({ workspaceId: "WS-1", incomingText: "x", prompt: "p" })).toBeNull();
+    expect(
+      await generateDraft({ workspaceId: "WS-1", incomingText: "x", isComment: false, target: "dm", prompt: "p" }),
+    ).toBeNull();
   });
 });

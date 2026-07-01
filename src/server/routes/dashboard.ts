@@ -1533,6 +1533,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       contactId: conv.contact.id,
       recipientPlatformId: recipientChannel?.platform_sender_id ?? "",
       incomingText,
+      isComment,
       target,
       ...(commentId ? { commentId } : {}),
       ...(context ? { context } : {}),

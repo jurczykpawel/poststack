@@ -133,7 +133,7 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     const res = await aiDraft(CONV_COMMENT, { target: "public" });
     expect(res.status).toBe(200);
     const jobs = await aiDraftJobs();
-    expect(jobs[0]!.context).toBe("We shipped a new feature today!");
+    expect(jobs[0]!.context).toBe("Post caption: We shipped a new feature today!");
   });
 
   it("a DM draft (no comment) never carries post context", async () => {

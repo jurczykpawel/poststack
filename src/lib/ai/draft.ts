@@ -7,6 +7,8 @@ import { chatComplete } from "@/lib/ai/client";
  */
 export const DEFAULT_DRAFT_PROMPT =
   "You draft a concise, on-brand reply to a customer's message or comment. " +
+  "The user message states the reply target and labels the text to reply to — match your tone to " +
+  "that target: public comment replies must stay appropriate for a public audience, DMs can be more personal. " +
   "Reply with ONLY the message text — no greetings or sign-offs unless natural, no quotes, no preamble. " +
   "Keep it short and helpful. If the message is unclear, ask one brief clarifying question.";
 
@@ -28,21 +30,34 @@ export function resolveDraftPrompt(args: {
   return nonBlank(args.channelPrompt) ?? nonBlank(args.workspacePrompt) ?? DEFAULT_DRAFT_PROMPT;
 }
 
+/** How the reply target reads in the prompt, per surface(s) the draft will be sent to. */
+function describeReplyTarget(target: "dm" | "public" | "both"): string {
+  if (target === "dm") return "a private direct message";
+  if (target === "public") return "a public comment reply";
+  return "a public comment reply (the same text is also sent as a private DM)";
+}
+
 /**
  * Draft a reply to an incoming comment/DM via the shared LLM client. The `prompt` becomes the system
- * message; the incoming text (optionally prefixed with light context) becomes the user message.
+ * message; the user message is built from (optional) light context, an explicit reply-target line
+ * (ADCTX4 — so the model knows whether it's writing for a public audience or a private DM, since that
+ * never differed in the raw prompt before, even though the caller always knew it), and the incoming
+ * text labeled by its own source ("Public comment" vs "Direct message" — distinct from the reply
+ * target: a comment can be answered via DM, and a comment→DM automation answers both at once).
  * Best-effort: returns chatComplete's result verbatim — a trimmed string, or `null` (no key / failure
  * / empty completion), in which case the caller creates no draft.
  */
 export async function generateDraft(args: {
   workspaceId: string;
   incomingText: string;
+  isComment: boolean;
+  target: "dm" | "public" | "both";
   context?: string;
   prompt: string;
 }): Promise<string | null> {
-  const user = args.context
-    ? `${args.context}\n\n---\nMessage: ${args.incomingText}`
-    : args.incomingText;
+  const source = args.isComment ? "Public comment" : "Direct message";
+  const instruction = `Reply target: ${describeReplyTarget(args.target)}\n${source}: ${args.incomingText}`;
+  const user = args.context ? `${args.context}\n\n---\n${instruction}` : instruction;
 
   return chatComplete({
     workspaceId: args.workspaceId,

@@ -399,7 +399,7 @@ describe("evaluateRules (real Postgres)", () => {
       });
       expect(res.outcome).toBe("no_match");
       const jobs = await aiDraftJobs();
-      expect(jobs[0].context).toBe("We shipped a new feature today!");
+      expect(jobs[0].context).toBe("Post caption: We shipped a new feature today!");
     });
 
     // Owner's concern: does an autosend-configured channel (no human approval step) build context
@@ -421,7 +421,7 @@ describe("evaluateRules (real Postgres)", () => {
       const jobs = await aiDraftJobs();
       // Same builder, same result as the park-for-approval test above — autosend vs. park is a
       // POST-generation dispatch decision in the worker, never a different context path.
-      expect(jobs[0].context).toBe("We shipped a new feature today!");
+      expect(jobs[0].context).toBe("Post caption: We shipped a new feature today!");
     });
 
     it("has no context when the comment's post has no local record (published outside PostStack)", async () => {

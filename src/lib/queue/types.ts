@@ -277,6 +277,9 @@ export interface AiDraftJob {
   recipientPlatformId: string;
   /** The inbound text the draft replies to. */
   incomingText: string;
+  /** Whether the inbound that triggered this draft was a public comment (false = a DM). Labels the
+   *  incoming text for the LLM (ADCTX4) — distinct from `target`, which is where the reply goes. */
+  isComment: boolean;
   /** Optional light context prepended to the LLM user message (e.g. the post caption). */
   context?: string;
   /** Which surface(s) to draft for. */

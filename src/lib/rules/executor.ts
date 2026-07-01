@@ -418,6 +418,7 @@ async function enqueueAiDraftOnNoMatch(input: {
       contactId,
       recipientPlatformId,
       incomingText,
+      isComment: eventType === "comment",
       target: channel.ai_draft_target,
       ...(eventType === "comment" && commentId ? { commentId } : {}),
       ...(context ? { context } : {}),

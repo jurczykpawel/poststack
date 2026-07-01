@@ -20,9 +20,11 @@ export async function buildDraftContext(args: {
   isComment: boolean;
   postId?: string;
 }): Promise<string | undefined> {
-  const postContext = args.isComment
+  const caption = args.isComment
     ? await resolvePostContext(args.workspaceId, args.channelId, args.postId)
     : undefined;
+  // Labeled so the model can't mistake the post caption for the customer's own message (ADCTX4).
+  const postContext = caption ? `Post caption: ${caption}` : undefined;
   const history = await resolveConversationHistory(args.conversationId, args.isComment);
   return combineDraftContext([postContext, history]);
 }

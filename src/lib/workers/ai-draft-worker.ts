@@ -81,7 +81,14 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
     }
   }
 
-  const draft = await generateDraft({ workspaceId: job.workspaceId, incomingText: job.incomingText, context: job.context, prompt });
+  const draft = await generateDraft({
+    workspaceId: job.workspaceId,
+    incomingText: job.incomingText,
+    isComment: job.isComment,
+    target: job.target,
+    context: job.context,
+    prompt,
+  });
   if (!draft || !draft.trim()) {
     // No usable completion (no key / failure / empty) → create NOTHING, not an empty approval.
     helpers.logger.info(`ai-draft ${anchor}: empty generation — nothing parked`);

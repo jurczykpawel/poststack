@@ -4,7 +4,9 @@ import { eq, sql } from "drizzle-orm";
 
 // Drafting goes through the shared LLM client — stub it per-test so the worker is deterministic and
 // makes no network call. vi.mock is hoisted; the factory returns a controllable mock.
-const generateDraftMock = vi.fn<(args: { incomingText: string; context?: string; prompt: string }) => Promise<string | null>>();
+const generateDraftMock = vi.fn<
+  (args: { incomingText: string; isComment: boolean; target: "dm" | "public" | "both"; context?: string; prompt: string }) => Promise<string | null>
+>();
 vi.mock("@/lib/ai/draft", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/draft")>();
   return { ...actual, generateDraft: (args: Parameters<typeof actual.generateDraft>[0]) => generateDraftMock(args) };
@@ -109,6 +111,7 @@ function baseJob(over: Partial<import("@/lib/queue/types").AiDraftJob> = {}): im
     contactId: CONTACT,
     recipientPlatformId: "PSID-A",
     incomingText: "hello",
+    isComment: false,
     target: "dm",
     source: "ai_auto",
     ...over,
@@ -156,7 +159,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
   it("target public: proposed_content.comment === {text, commentId}", async () => {
     if (!TEST_DB) return;
     generateDraftMock.mockResolvedValue("Public reply");
-    await processAiDraft(baseJob({ target: "public", commentId: "CMT-1" }), helpersFor());
+    await processAiDraft(baseJob({ target: "public", commentId: "CMT-1", isComment: true }), helpersFor());
 
     const rows = await pendingRows();
     expect(rows).toHaveLength(1);
@@ -168,7 +171,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
   it("target both, autosend off: one row holds BOTH content + comment", async () => {
     if (!TEST_DB) return;
     generateDraftMock.mockResolvedValue("Both reply");
-    await processAiDraft(baseJob({ target: "both", commentId: "CMT-2" }), helpersFor());
+    await processAiDraft(baseJob({ target: "both", commentId: "CMT-2", isComment: true }), helpersFor());
 
     const rows = await pendingRows();
     expect(rows).toHaveLength(1);
@@ -180,7 +183,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
   it("generateDraft → null: inserts NOTHING (no empty approval, no send)", async () => {
     if (!TEST_DB) return;
     generateDraftMock.mockResolvedValue(null);
-    await processAiDraft(baseJob({ target: "both", commentId: "CMT-3" }), helpersFor());
+    await processAiDraft(baseJob({ target: "both", commentId: "CMT-3", isComment: true }), helpersFor());
 
     expect(await pendingRows()).toHaveLength(0);
     expect(await jobCount("outgoing-message")).toBe(0);
@@ -219,7 +222,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     if (!TEST_DB) return;
     await setAutosend({ dm: true, public: false });
     generateDraftMock.mockResolvedValue("Mixed reply");
-    await processAiDraft(baseJob({ target: "both", commentId: "CMT-4" }), helpersFor());
+    await processAiDraft(baseJob({ target: "both", commentId: "CMT-4", isComment: true }), helpersFor());
 
     // DM (comment-triggered) goes out as a first-touch private reply.
     expect(await jobCount("outgoing-private-reply")).toBe(1);
@@ -318,7 +321,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     await setAutosend({ dm: true });
     await setSubscribed(false);
     generateDraftMock.mockResolvedValue("Blocked DM");
-    await processAiDraft(baseJob({ target: "dm", commentId: "CMT-NS" }), helpersFor());
+    await processAiDraft(baseJob({ target: "dm", commentId: "CMT-NS", isComment: true }), helpersFor());
 
     // Nothing goes out on any surface.
     expect(await jobCount("outgoing-private-reply")).toBe(0);
@@ -335,7 +338,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     await setAutosend({ dm: true });
     await setSubscribed(true);
     generateDraftMock.mockResolvedValue("Allowed DM");
-    await processAiDraft(baseJob({ target: "dm", commentId: "CMT-S" }), helpersFor());
+    await processAiDraft(baseJob({ target: "dm", commentId: "CMT-S", isComment: true }), helpersFor());
 
     expect(await jobCount("outgoing-private-reply")).toBe(1);
     expect(await pendingRows()).toHaveLength(0);
@@ -368,7 +371,7 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     await setAutosend({ public: true });
     await setSubscribed(false);
     generateDraftMock.mockResolvedValue("Blocked public comment");
-    await processAiDraft(baseJob({ target: "public", commentId: "CMT-PUB-NS" }), helpersFor());
+    await processAiDraft(baseJob({ target: "public", commentId: "CMT-PUB-NS", isComment: true }), helpersFor());
 
     expect(await jobCount("outgoing-comment")).toBe(0);
     const rows = await pendingRows();

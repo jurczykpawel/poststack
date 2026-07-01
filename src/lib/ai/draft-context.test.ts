@@ -15,17 +15,17 @@ beforeEach(async () => {
 });
 
 describe("buildDraftContext — DRY composer shared by both the on-demand and auto AI-draft paths", () => {
-  it("joins post context + history with a blank line, post first", async () => {
-    resolvePostContext.mockResolvedValue("Post: we launched a new feature");
+  it("joins the labeled post caption + history with a blank line, caption first (ADCTX4)", async () => {
+    resolvePostContext.mockResolvedValue("we launched a new feature");
     resolveConversationHistory.mockResolvedValue("Recent conversation:\nCustomer: hi\nYou: hello");
     const ctx = await buildDraftContext({ workspaceId: "WS", channelId: "CH", conversationId: "CONV", isComment: true, postId: "P1" });
-    expect(ctx).toBe("Post: we launched a new feature\n\nRecent conversation:\nCustomer: hi\nYou: hello");
+    expect(ctx).toBe("Post caption: we launched a new feature\n\nRecent conversation:\nCustomer: hi\nYou: hello");
   });
 
-  it("returns just the post context when there is no history", async () => {
-    resolvePostContext.mockResolvedValue("Post: we launched a new feature");
+  it("returns just the labeled post caption when there is no history", async () => {
+    resolvePostContext.mockResolvedValue("we launched a new feature");
     const ctx = await buildDraftContext({ workspaceId: "WS", channelId: "CH", conversationId: "CONV", isComment: true, postId: "P1" });
-    expect(ctx).toBe("Post: we launched a new feature");
+    expect(ctx).toBe("Post caption: we launched a new feature");
   });
 
   it("returns just the history when there is no post context (e.g. a DM thread)", async () => {
