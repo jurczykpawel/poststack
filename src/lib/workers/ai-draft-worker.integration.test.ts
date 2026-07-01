@@ -200,6 +200,21 @@ describe("ai-draft worker (AIDRAFT1)", () => {
     expect((payload as { recipientPlatformId: string }).recipientPlatformId).toBe("PSID-A");
   });
 
+  // Owner's concern: does an autosend reply (no human approval step) get generated with the SAME
+  // context (post caption + conversation history) as a parked one? There is only ONE generateDraft
+  // call in this worker (above the autosend/park dispatch), fed job.context verbatim — autosend vs.
+  // park only decides where the ALREADY-GENERATED text goes. Prove the context reaches the LLM call
+  // unchanged even when the channel is configured to autosend.
+  it("passes job.context to generateDraft unchanged for an autosend-configured channel — context building doesn't differ by outcome", async () => {
+    if (!TEST_DB) return;
+    await setAutosend({ dm: true });
+    generateDraftMock.mockResolvedValue("Autosent with context");
+    await processAiDraft(baseJob({ target: "dm", context: "Post: we shipped a new feature\n\nRecent conversation:\nCustomer: hi\nYou: hello" }), helpersFor());
+
+    expect(generateDraftMock).toHaveBeenCalledTimes(1);
+    expect(generateDraftMock.mock.calls[0][0].context).toBe("Post: we shipped a new feature\n\nRecent conversation:\nCustomer: hi\nYou: hello");
+  });
+
   it("target both, autosend_dm on / autosend_public off: DM sends (private reply), public part parked", async () => {
     if (!TEST_DB) return;
     await setAutosend({ dm: true, public: false });

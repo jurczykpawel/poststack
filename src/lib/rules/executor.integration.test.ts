@@ -402,6 +402,28 @@ describe("evaluateRules (real Postgres)", () => {
       expect(jobs[0].context).toBe("We shipped a new feature today!");
     });
 
+    // Owner's concern: does an autosend-configured channel (no human approval step) build context
+    // the same way as a park-for-approval one? Yes — context is resolved ONCE at enqueue time here,
+    // before the worker ever decides autosend-vs-park (that decision reads the SAME job.context to
+    // generate, then only picks where the already-generated text goes). Prove it explicitly instead
+    // of relying on reading the worker's code.
+    it("builds the IDENTICAL context for an autosend-configured channel (no approval step) as for a park-for-approval one", async () => {
+      if (!TEST_DB) return;
+      await db.update(s.channels)
+        .set({ ai_draft_enabled: true, ai_draft_target: "public", ai_draft_autosend_public: true })
+        .where(eq(s.channels.id, CH));
+      const [c] = await db.insert(s.content).values({ workspace_id: WS, title: "Editorial title" }).returning({ id: s.content.id });
+      await db.insert(s.posts).values({ workspace_id: WS, content_id: c!.id, platform: "facebook", platform_post_id: "POST-AUTOSEND", description: "We shipped a new feature today!" });
+      const res = await evaluateRules({
+        ...baseInput, text: "congrats!", eventType: "comment", commentId: "CMT-AUTOSEND", postId: "POST-AUTOSEND", eventKey: "evt-aidraft-autosend",
+      });
+      expect(res.outcome).toBe("no_match");
+      const jobs = await aiDraftJobs();
+      // Same builder, same result as the park-for-approval test above — autosend vs. park is a
+      // POST-generation dispatch decision in the worker, never a different context path.
+      expect(jobs[0].context).toBe("We shipped a new feature today!");
+    });
+
     it("has no context when the comment's post has no local record (published outside PostStack)", async () => {
       if (!TEST_DB) return;
       await enableAiDraft("public");

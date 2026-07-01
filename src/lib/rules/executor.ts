@@ -32,7 +32,7 @@ import { hasFeature } from "@/lib/license/gate";
 import { enrollContactInSequence } from "@/lib/sequences/enroll";
 import { applyPersonalization, type PersonalizeContext } from "./personalization";
 import type { ProposedContent } from "@/lib/approvals/draft";
-import { resolvePostContext } from "@/lib/ai/post-context";
+import { buildDraftContext } from "@/lib/ai/draft-context";
 
 /** Upper bound on active auto-reply rules a workspace may have — enforced at create (a clean 422)
  *  and as a defensive `limit` on the per-message executor fetch, so neither the sanctioned API nor an
@@ -403,12 +403,10 @@ async function enqueueAiDraftOnNoMatch(input: {
   });
   if (!channel?.ai_draft_enabled) return;
 
-  // ADCTX1+ADCTX2: for a comment event, prepend the parent post's caption as light context —
-  // without it the model sees only the bare comment text (e.g. "Congratulations 🎉" with zero idea
-  // what's being congratulated). Local PostStack record first, then a live platform-API fetch when
-  // the post was published outside PostStack. Best-effort either way — a failed resolve just means
-  // the draft generates from the comment text alone.
-  const context = eventType === "comment" ? await resolvePostContext(workspaceId, channelId, postId) : undefined;
+  // ADCTX1+ADCTX2+ADCTX3: post caption (comment threads only) + recent conversation history, as ONE
+  // context string — the exact same builder the on-demand "Generate reply" button uses (dashboard.ts),
+  // so the auto pipeline and the on-demand button can never construct context differently.
+  const context = await buildDraftContext({ workspaceId, channelId, conversationId, isComment: eventType === "comment", postId });
 
   await addJobTx(
     db,

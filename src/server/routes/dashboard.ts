@@ -33,7 +33,7 @@ import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/s
 import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
-import { resolvePostContext } from "@/lib/ai/post-context";
+import { buildDraftContext } from "@/lib/ai/draft-context";
 import { loadAiGenerationLogs, renderAiGenerationLogs } from "../ui/sections/ai-generation-logs";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
@@ -1470,10 +1470,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       where: and(eq(contactChannels.contact_id, conv.contact.id), eq(contactChannels.channel_id, conv.channel.id)),
       columns: { platform_sender_id: true },
     });
-    // ADCTX1+ADCTX2: prepend the parent post's caption as light context for a comment reply —
-    // without it the model sees only the bare comment text. Local PostStack record first, then a
-    // live platform-API fetch when the post was published outside PostStack. Best-effort either way.
-    const context = isComment ? await resolvePostContext(a.workspaceId, conv.channel.id, postId) : undefined;
+    // ADCTX1+ADCTX2+ADCTX3: post caption (comment threads only) + recent conversation history, as
+    // ONE context string — the exact same builder the automatic no-match path uses (rules/executor.ts),
+    // so the on-demand button and the auto pipeline can never construct context differently.
+    const context = await buildDraftContext({ workspaceId: a.workspaceId, channelId: conv.channel.id, conversationId: id, isComment, postId });
 
     await addJobTx(db, "ai-draft", {
       workspaceId: a.workspaceId,
