@@ -144,6 +144,25 @@ describe("publishPost", () => {
     await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toMatchObject({ status: 422 });
   });
 
+  it("an empty-string video_url does not mask a real media_url [APIFIX3]", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await fixtures({ video_url: "", media_url: "https://cdn/real.mp4", media_urls: [] });
+    const { delivery, post } = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
+    expect(delivery.status).toBe("scheduled");
+    expect(post.status).toBe("scheduled");
+  });
+
+  it("carries a title into the publish request: content.title by default, post.title wins [APIFIX4]", async () => {
+    if (!TEST_DB) return;
+    const fromContent = await fixtures(); // content.title = "Reel", post.title null
+    const r1 = await publishPost({ postId: fromContent.postId, channelId: fromContent.channelId, when: "now" }, WS, fakeRegister);
+    expect((r1.delivery.payload as { title?: string }).title).toBe("Reel");
+
+    const withOwn = await fixtures({ title: "Own Title" });
+    const r2 = await publishPost({ postId: withOwn.postId, channelId: withOwn.channelId, when: "now" }, WS, fakeRegister);
+    expect((r2.delivery.payload as { title?: string }).title).toBe("Own Title");
+  });
+
   it("respects a format override", async () => {
     if (!TEST_DB) return;
     const { channelId, postId } = await fixtures();

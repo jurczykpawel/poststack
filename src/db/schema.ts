@@ -1287,6 +1287,9 @@ export const posts = pgTable("posts", {
 	content_id: uuid("content_id"),
 	delivery_id: uuid("delivery_id"),
 	platform: text("platform").notNull(),
+	// Per-post title. Publish targets that require one (YouTube, LinkedIn articles) use it; falls back
+	// to the linked content's title when null. Lets a standalone post (no content_id) set a title.
+	title: text("title"),
 	description: text("description"),
 	hashtags: text("hashtags"),
 	cta_type: text("cta_type"),

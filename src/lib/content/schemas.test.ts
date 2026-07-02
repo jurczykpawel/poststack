@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { contentCreate, postCreate, contentPatch } from "./schemas";
+import { contentCreate, postCreate, postPatch, contentPatch } from "./schemas";
 
 describe("content schemas", () => {
   it("requires a title on content create", () => {
@@ -31,5 +31,20 @@ describe("content schemas", () => {
   it("patch is fully partial", () => {
     expect(contentPatch.safeParse({}).success).toBe(true);
     expect(contentPatch.safeParse({ status: "approved" }).success).toBe(true);
+  });
+
+  it("accepts empty/null media URLs and preserves absent [APIFIX3]", () => {
+    // "" is accepted (not rejected); it's normalized to null at the service layer, not here.
+    expect(postCreate.safeParse({ platform: "instagram", videoUrl: "" }).success).toBe(true);
+    // null is accepted so a PATCH can clear a URL.
+    expect(postPatch.parse({ videoUrl: null }).videoUrl).toBeNull();
+    // absent field stays absent (a PATCH must not clobber it).
+    expect("videoUrl" in postPatch.parse({ coverUrl: "https://cdn/c.png" })).toBe(false);
+  });
+
+  it("accepts an optional post title, nullable so it can be cleared [APIFIX4]", () => {
+    expect(postCreate.parse({ platform: "youtube", title: "Hello" }).title).toBe("Hello");
+    expect(postPatch.parse({ title: null }).title).toBeNull();
+    expect("title" in postPatch.parse({ platform: "youtube" })).toBe(false);
   });
 });

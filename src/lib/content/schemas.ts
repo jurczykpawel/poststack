@@ -4,6 +4,11 @@ import { LIMITS } from "@/lib/api/limits";
 const iso = z.string().refine((s) => !Number.isNaN(Date.parse(s)), "invalid ISO datetime");
 const urls = z.array(z.string().max(LIMITS.url)).max(LIMITS.arrayLen).optional();
 
+// A single-URL field that is nullable so a PATCH can clear it (send null). Empty/whitespace strings
+// are normalized to null at the service layer (mapFields) so a URL column is never stored as "",
+// which would otherwise poison the publish media resolver.
+const optionalUrl = z.string().max(LIMITS.url).nullish();
+
 // Open-set string fields stay free text (doctrine §1) — validated structurally, not as closed enums,
 // so values imported from NocoDB are never rejected. Inbound JSON is camelCase.
 
@@ -58,6 +63,8 @@ export const autoReplyInput = z
 export const postCreate = z.object({
   contentId: z.string().uuid().optional(),
   platform: z.string().min(1).max(LIMITS.line),
+  // Per-post title (required by YouTube / LinkedIn articles at publish; falls back to content.title).
+  title: z.string().max(LIMITS.name).nullish(),
   autoReply: autoReplyInput.nullish(),
   // COMPOSE1: per-post automation overrides (null/absent = inherit the channel default).
   firstComment: z.string().max(LIMITS.text).nullish(),
@@ -68,9 +75,9 @@ export const postCreate = z.object({
   scheduledDate: iso.optional(),
   notes: z.string().max(LIMITS.text).optional(),
   language: z.string().max(LIMITS.line).optional(),
-  mediaUrl: z.string().max(LIMITS.url).optional(),
-  videoUrl: z.string().max(LIMITS.url).optional(),
-  coverUrl: z.string().max(LIMITS.url).optional(),
+  mediaUrl: optionalUrl,
+  videoUrl: optionalUrl,
+  coverUrl: optionalUrl,
   mediaUrls: urls,
   assetNotes: z.string().max(LIMITS.text).optional(),
   sourceRef: z.string().max(LIMITS.ref).optional(),

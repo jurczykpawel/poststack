@@ -104,8 +104,10 @@ export async function publishPost(
   }
 
   const urls = Array.isArray(post.media_urls) ? (post.media_urls as unknown[]) : [];
-  const mediaUrl =
-    post.video_url ?? post.media_url ?? (typeof urls[0] === "string" ? (urls[0] as string) : undefined);
+  // Blank-aware: treat "" / whitespace as absent so a legacy row with an empty video_url doesn't win
+  // the coalesce and mask a real media_url / media_urls entry (APIFIX3).
+  const pickUrl = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v : undefined);
+  const mediaUrl = pickUrl(post.video_url) ?? pickUrl(post.media_url) ?? pickUrl(urls[0]);
   if (!mediaUrl) throw new ApiError("invalid_request", "Post has no media to publish", 422);
 
   // Register media BEFORE the tx — createDelivery validates media on a separate connection.
@@ -118,9 +120,13 @@ export async function publishPost(
   const caption = buildCaption(post.description, post.hashtags);
   const resolved = resolveFormat(post.platform, content?.content_type, mediaUrl);
   const format = input.format ?? resolved.format;
+  // Title for publish targets that require one (YouTube / LinkedIn article): the post's own title
+  // wins, else the linked content's (APIFIX4). Blank normalizes to absent.
+  const title = [post.title, content?.title].map((t) => t?.trim()).find((t) => !!t);
   const request: PublishRequest = {
     format,
     media: [{ mediaId: media.id }],
+    ...(title ? { title } : {}),
     ...(caption ? { caption } : {}),
     options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}) },
     // COMPOSE1: per-post automation overrides. Only set when explicitly chosen on the post — a null

@@ -25,7 +25,7 @@ const CONTENT_MAP: Record<string, string> = {
 const CONTENT_DATES = new Set(["lastPublishedAt", "approvedAt"]);
 
 const POST_MAP: Record<string, string> = {
-  contentId: "content_id", platform: "platform", description: "description", hashtags: "hashtags",
+  contentId: "content_id", platform: "platform", title: "title", description: "description", hashtags: "hashtags",
   ctaType: "cta_type", scheduledDate: "scheduled_date", status: "status", postizId: "postiz_id",
   publishedUrl: "published_url", publishedAt: "published_at", notes: "notes", language: "language",
   mediaUrl: "media_url", videoUrl: "video_url", coverUrl: "cover_url", mediaUrls: "media_urls",
@@ -33,12 +33,22 @@ const POST_MAP: Record<string, string> = {
   autoReply: "auto_reply", firstComment: "first_comment", autoStory: "auto_story",
 };
 const POST_DATES = new Set(["scheduledDate", "publishedAt"]);
+// URL fields normalized "" / whitespace → null on write, so a blank never gets stored (which would
+// poison the publish media resolver) — APIFIX3.
+const POST_BLANK_TO_NULL = new Set(["mediaUrl", "videoUrl", "coverUrl"]);
 
-function mapFields(input: Record<string, unknown>, map: Record<string, string>, dates: Set<string>) {
+function mapFields(
+  input: Record<string, unknown>,
+  map: Record<string, string>,
+  dates: Set<string>,
+  blankToNull: Set<string> = new Set(),
+) {
   const out: Record<string, unknown> = {};
   for (const [camel, col] of Object.entries(map)) {
-    const v = input[camel];
-    if (v !== undefined) out[col] = dates.has(camel) && typeof v === "string" ? new Date(v) : v;
+    let v = input[camel];
+    if (v === undefined) continue;
+    if (blankToNull.has(camel) && typeof v === "string" && v.trim() === "") v = null;
+    out[col] = dates.has(camel) && typeof v === "string" ? new Date(v) : v;
   }
   return out;
 }
@@ -136,7 +146,7 @@ export async function deleteContent(id: string, workspaceId: string): Promise<bo
 // ── editorial posts (workspace-scoped) ────────────────────────────────────────────
 
 export async function createPost(input: PostWritable, workspaceId: string, idempotencyKey?: string): Promise<PostRow> {
-  const values = mapFields(input, POST_MAP, POST_DATES) as typeof posts.$inferInsert;
+  const values = mapFields(input, POST_MAP, POST_DATES, POST_BLANK_TO_NULL) as typeof posts.$inferInsert;
   values.workspace_id = workspaceId;
   if (idempotencyKey) values.idempotency_key = idempotencyKey;
   const [row] = await db.insert(posts).values(values).onConflictDoNothing().returning();
@@ -180,7 +190,7 @@ export async function getPost(id: string, workspaceId: string): Promise<PostRow 
 }
 
 export async function patchPost(id: string, workspaceId: string, patch: Partial<PostWritable>): Promise<PostRow | undefined> {
-  const values = mapFields(patch, POST_MAP, POST_DATES);
+  const values = mapFields(patch, POST_MAP, POST_DATES, POST_BLANK_TO_NULL);
   const [row] = await db
     .update(posts)
     .set({ ...values, updated_at: new Date() })
