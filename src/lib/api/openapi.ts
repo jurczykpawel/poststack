@@ -85,6 +85,7 @@ export const openApiSpec = {
           messaging_token_expires_at: { type: "string", format: "date-time", nullable: true, description: "Instagram-Login messaging token expiry (IG channels with Instagram Business Login)." },
           messaging_connection: { type: "string", enum: ["instagram_login", "facebook_only"], nullable: true, description: "IG messaging credential shape: instagram_login (DMs via Instagram Login) or facebook_only (IG DM receipt not guaranteed at Standard Access)." },
           capabilities: { type: "array", items: { type: "string", enum: ["publish", "comment_reply", "dm", "poll_comments", "receive_webhooks", "enumerate_subaccounts"] }, description: "Computed capabilities for this channel." },
+          can_publish: { type: "boolean", description: "Whether this channel can publish posts (true when capabilities include 'publish'). False for inbox-only channels such as Telegram." },
           created_at: { type: "string", format: "date-time" },
         },
       },

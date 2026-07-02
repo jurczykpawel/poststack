@@ -70,5 +70,30 @@ describe("GET /api/v1/channels — IG-Login messaging state + capabilities", () 
     expect(new Date(c.messaging_token_expires_at)).toEqual(exp);
     expect(c.messaging_connection).toBe("instagram_login");
     expect(c.capabilities).toEqual(expect.arrayContaining(["dm", "publish"]));
+    expect(c.can_publish).toBe(true);
+  });
+
+  it("reports can_publish=false for an inbox-only channel (Telegram)", async () => {
+    mockFindMany.mockResolvedValueOnce([
+      {
+        id: "ch-tg",
+        platform: "telegram",
+        platform_id: "T1",
+        display_name: "Bot",
+        username: "bot",
+        profile_picture: null,
+        status: "active",
+        connection_mode: "manual_token",
+        last_error: null,
+        last_health_at: null,
+        created_at: new Date("2026-01-01T00:00:00Z"),
+        messaging_token_expires_at: null,
+      },
+    ]);
+
+    const res = await GET(get());
+    const c = (await res.json()).data[0];
+    expect(c.capabilities).not.toContain("publish");
+    expect(c.can_publish).toBe(false);
   });
 });

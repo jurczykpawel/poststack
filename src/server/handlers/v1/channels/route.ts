@@ -46,13 +46,19 @@ export async function GET(request: Request) {
         .groupBy(conversations.channel_id)
     : [];
   const heldByChannel = new Map(heldCounts.map((h) => [h.channel_id, Number(h.n)]));
-  const withHeld = rows.map((c) => ({
-    ...c,
-    is_active: c.status === "active",
-    held_count: heldByChannel.get(c.id) ?? 0,
-    messaging_token_expires_at: c.messaging_token_expires_at ?? null,
-    messaging_connection: messagingConnection({ platform: c.platform, messaging_token_expires_at: c.messaging_token_expires_at ?? null }),
-    capabilities: channelCapabilities({ platform: c.platform, connection_mode: c.connection_mode }),
-  }));
+  const withHeld = rows.map((c) => {
+    const capabilities = channelCapabilities({ platform: c.platform, connection_mode: c.connection_mode });
+    return {
+      ...c,
+      is_active: c.status === "active",
+      held_count: heldByChannel.get(c.id) ?? 0,
+      messaging_token_expires_at: c.messaging_token_expires_at ?? null,
+      messaging_connection: messagingConnection({ platform: c.platform, messaging_token_expires_at: c.messaging_token_expires_at ?? null }),
+      capabilities,
+      // Explicit up-front publish flag so a client doesn't have to publish-and-fail to learn an
+      // inbox-only channel (e.g. Telegram) can't publish.
+      can_publish: capabilities.includes("publish"),
+    };
+  });
   return ok(withHeld);
 }
