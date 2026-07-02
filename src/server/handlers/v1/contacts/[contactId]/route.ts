@@ -5,6 +5,7 @@ import { contacts, commentLogs, conversations, sequenceEnrollments, webhookEvent
 import { ok, noContent, ApiErrors } from "@/lib/api/response";
 import { proGate } from "@/lib/api/pro-gate";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
+import { emitEvent } from "@/lib/events";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -131,6 +132,12 @@ export async function PATCH(
         if (validIds.length > 0) {
           await tx.insert(contactTags).values(validIds.map((tag_id) => ({ contact_id: contactId, tag_id })));
         }
+      }
+
+      // Fire contact.updated when the PATCH actually changed something (scalar fields or the tag set),
+      // in-tx so the WHOUT1 fan-out commits atomically. Skip a no-op PATCH ({}), which mutates nothing.
+      if (row && (Object.keys(fields).length > 0 || tag_ids !== undefined)) {
+        await emitEvent(tx, auth.workspaceId, "contact.updated", { type: "contact", id: contactId });
       }
 
       return row;

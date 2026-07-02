@@ -69,6 +69,9 @@ async function upsertOne(
           .where(and(eq(contactChannels.channel_id, row.channel_id), eq(contactChannels.platform_sender_id, senderId)));
       }
       await applyTagsByName(tx, workspaceId, existing.contact_id, row.tags);
+      // A re-import that updates an existing contact fires contact.updated (in-tx, so the WHOUT1
+      // fan-out commits atomically) — webhook subscribers see API/import edits, not just DM captures.
+      await emitEvent(tx, workspaceId, "contact.updated", { type: "contact", id: existing.contact_id });
     });
     return { status: "updated", contactId: existing.contact_id };
   }
@@ -113,6 +116,7 @@ async function upsertOne(
     await db.transaction(async (tx) => {
       await applyContactFields(tx, winner!.contact_id, workspaceId, row);
       await applyTagsByName(tx, workspaceId, winner!.contact_id, row.tags);
+      await emitEvent(tx, workspaceId, "contact.updated", { type: "contact", id: winner!.contact_id });
     });
     return { status: "updated", contactId: winner!.contact_id };
   }

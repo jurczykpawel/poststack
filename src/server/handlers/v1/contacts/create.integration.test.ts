@@ -109,7 +109,7 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
     expect(tagLinks).toHaveLength(2); // lead + vip, additive
   });
 
-  it("emits contact.created on a create but NOT on a re-import (update)", async () => {
+  it("emits contact.created on a create and contact.updated on a re-import (update)", async () => {
     await post({ channel_id: CH, platform_username: "carol" });
     const afterCreate = await db
       .select()
@@ -118,11 +118,17 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
     expect(afterCreate).toHaveLength(1);
 
     await post({ channel_id: CH, platform_username: "carol", email: "carol@example.com" }); // update
-    const afterReimport = await db
+    const created = await db
       .select()
       .from(s.events)
       .where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "contact.created")));
-    expect(afterReimport).toHaveLength(1); // unchanged — a re-import is not a creation
+    expect(created).toHaveLength(1); // unchanged — a re-import is not a creation
+    const updated = await db
+      .select()
+      .from(s.events)
+      .where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "contact.updated")));
+    expect(updated).toHaveLength(1); // the re-import fired contact.updated [APIFIX2]
+    expect(updated[0].subject_id).toBe(afterCreate[0].subject_id);
   });
 
   it("reports per-row errors without aborting the batch (unknown / cross-tenant channel)", async () => {
