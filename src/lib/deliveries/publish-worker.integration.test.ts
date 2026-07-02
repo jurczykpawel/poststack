@@ -202,7 +202,11 @@ describe("publish worker (AUD27)", () => {
 
   async function linkEditorial(deliveryId: string, postStatus = "scheduled") {
     const [content] = await db.insert(schema.content).values({ workspace_id: WS, title: "x" }).returning();
-    await db.insert(schema.posts).values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId });
+    const [p] = await db
+      .insert(schema.posts)
+      .values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId })
+      .returning();
+    return p!.id;
   }
   const editorialStatus = async (deliveryId: string) =>
     (await db.query.posts.findFirst({ where: eq(schema.posts.delivery_id, deliveryId) }))!.status;
@@ -212,12 +216,35 @@ describe("publish worker (AUD27)", () => {
   it("an 'unknown' landing emits an event and reflects editorial as needs_attention [PSA3]", async () => {
     if (!TEST_DB) return;
     const { postId } = await scenario();
-    await linkEditorial(postId);
+    const editorialId = await linkEditorial(postId);
     await db.update(schema.deliveries).set({ status: "sending" }).where(eq(schema.deliveries.id, postId));
     await processPublish({ postId }, helpers);
     expect(await status(postId)).toBe("unknown");
     expect(await editorialStatus(postId)).toBe("needs_attention");
-    expect(await events(postId)).toContain("post.unknown");
+    // APIFIX1: the event is keyed to the editorial post, with the delivery id in the payload.
+    expect(await events(editorialId)).toContain("post.unknown");
+    const ev = (await db.query.events.findMany({ where: eq(schema.events.subject_id, editorialId) })).find((e) => e.type === "post.unknown");
+    expect((ev!.payload as { deliveryId?: string }).deliveryId).toBe(postId);
+  });
+
+  it("post.published is keyed to the editorial post id, with the delivery id in the payload [APIFIX1]", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario();
+    const editorialId = await linkEditorial(postId);
+    const spy = vi.spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish").mockResolvedValue({ providerHandle: "post_abc" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      const published = (await db.query.events.findMany({ where: eq(schema.events.subject_id, editorialId) })).find((e) => e.type === "post.published");
+      expect(published).toBeTruthy(); // subject id resolves via GET /posts/{id}
+      expect(published!.subject_type).toBe("post");
+      expect((published!.payload as { deliveryId?: string }).deliveryId).toBe(postId);
+      // and nothing was emitted under the delivery id
+      const underDelivery = (await db.query.events.findMany({ where: eq(schema.events.subject_id, postId) })).filter((e) => e.type.startsWith("post."));
+      expect(underDelivery).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("a held delivery reflects editorial as held; drain reflects it back to scheduled [PSA3]", async () => {
@@ -237,7 +264,7 @@ describe("publish worker (AUD27)", () => {
   it("stuckSendingSweep surfaces deliveries stuck in 'sending' past the window, leaving fresh ones [PSA3]", async () => {
     if (!TEST_DB) return;
     const { postId: stuck, channelId } = await scenario();
-    await linkEditorial(stuck);
+    const stuckEditorialId = await linkEditorial(stuck);
     await db
       .update(schema.deliveries)
       .set({ status: "sending", attempt_started_at: new Date(Date.now() - 60 * 60 * 1000) })
@@ -252,7 +279,7 @@ describe("publish worker (AUD27)", () => {
     expect(n).toBeGreaterThanOrEqual(1);
     expect(await status(stuck)).toBe("unknown");
     expect(await editorialStatus(stuck)).toBe("needs_attention");
-    expect(await events(stuck)).toContain("post.unknown");
+    expect(await events(stuckEditorialId)).toContain("post.unknown"); // APIFIX1: keyed to editorial post
     expect(await status(fresh)).toBe("sending"); // too recent to sweep
   });
 
@@ -511,7 +538,7 @@ describe("publish worker (AUD27)", () => {
   it("redacts a token echoed in a provider error before persisting / emitting [PSA13]", async () => {
     if (!TEST_DB) return;
     const { postId } = await scenario();
-    await linkEditorial(postId);
+    const editorialId = await linkEditorial(postId);
     const tt = (await import("@/lib/providers/tiktok")).tiktokProvider;
     const spy = vi.spyOn(tt, "publish").mockRejectedValue(
       new errs.PermanentError("Graph 400 for https://x?access_token=EAABLEAKEDTOKEN999 — bad request"),
@@ -522,7 +549,7 @@ describe("publish worker (AUD27)", () => {
       const row = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
       expect(row!.last_error).not.toContain("EAABLEAKEDTOKEN999");
       expect(row!.last_error).toContain("[REDACTED]");
-      const ev = (await db.query.events.findMany({ where: eq(schema.events.subject_id, postId) })).find((e) => e.type === "post.failed");
+      const ev = (await db.query.events.findMany({ where: eq(schema.events.subject_id, editorialId) })).find((e) => e.type === "post.failed");
       expect(JSON.stringify(ev!.payload)).not.toContain("EAABLEAKEDTOKEN999");
     } finally {
       spy.mockRestore();
