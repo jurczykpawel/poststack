@@ -43,7 +43,7 @@ export const FEATURES = [
 
   // ── publishing wing (PostStack feature set — placeholders wired up in Phase 1/3) ─────────────
   { key: "multi_brand", area: "publishing", minTier: "pro", status: "live", label: "Multiple brands", description: "Manage more than one brand — run it as an agency or across projects." },
-  { key: "webhook_filtering", area: "publishing", minTier: "pro", status: "live", label: "Webhook event filtering", description: "Choose which events each webhook receives (free sends all events)." },
+  { key: "webhook_filtering", area: "publishing", minTier: "pro", status: "live", label: "Webhook event filtering", description: "Restrict an outbound webhook to specific event types. An endpoint with no filter receives every event type." },
   { key: "auto_story", area: "publishing", minTier: "pro", status: "live", label: "Auto-Story", description: "Auto-publish a generated Story card about every post published to a channel." },
   { key: "first_comment", area: "publishing", minTier: "pro", status: "live", label: "Automatic first comment", description: "Auto-post a first comment (e.g. “link in the comments”) under every published post." },
   { key: "multi_api_key", area: "core", minTier: "pro", status: "live", label: "Multiple API keys", description: "Issue more than one API key (e.g. one per client/integration)." },
