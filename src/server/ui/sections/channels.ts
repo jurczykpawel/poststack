@@ -26,7 +26,7 @@ import {
 } from "@/lib/channels/service";
 import { can } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
-import { getProviderForPlatform } from "@/lib/providers";
+import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../components/ai-notice";
@@ -401,6 +401,16 @@ async function channelsPage(c: Context): Promise<Response> {
   // A locked connect affordance: links to the upgrade page instead of connecting.
   const proConnect = (label: string) =>
     html`<a class="btn btn-secondary" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 12)} ${label} (PRO)</a>`;
+  // Direct-OAuth publishers (the generic /api/oauth/connect/:platform flow). Surfaced as connect
+  // buttons only when the provider has credentials configured — no dead buttons that 400 on click.
+  const genericOAuthConnects = (
+    [
+      ["linkedin", "LinkedIn"],
+      ["x", "X"],
+      ["tiktok", "TikTok"],
+      ["threads", "Threads"],
+    ] as const
+  ).filter(([id]) => getPublishProvider(id).oauthConfig?.() != null);
 
   return c.html(
     renderPage({
@@ -440,6 +450,9 @@ async function channelsPage(c: Context): Promise<Response> {
                   ? html`<button class="btn btn-secondary" type="button" @click="tg = !tg">+ Telegram</button>`
                   : proConnect("Telegram")}
                 ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/gmail">+ Gmail</a>` : proConnect("Gmail")}
+                ${genericOAuthConnects.map(([id, label]) =>
+                  canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/connect/${id}">+ ${label}</a>` : proConnect(label),
+                )}
                 <a class="btn btn-secondary" href="/api/oauth/instagram-login">+ Instagram (messaging)</a>
               </div>
               <p class="set-lead" style="margin:.5rem 0 0">Instagram (messaging) connects an Instagram account directly — DMs, comments and publishing in one, at Standard Access (no App Review), no Facebook page required. Add Facebook only for page-managed publishing across many accounts; the two combine in any order.</p>

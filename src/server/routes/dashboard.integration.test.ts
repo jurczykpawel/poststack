@@ -732,6 +732,12 @@ describe("settings — Meta App config + alert webhook UI", () => {
     expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
     expect(body).toContain("http://localhost:3000/api/oauth/youtube/callback"); // YouTube redirect URI
     expect(body).toContain("http://localhost:3000/api/webhooks/meta");
+    // Direct-OAuth publishers (generic /api/oauth/connect/:platform flow) — LinkedIn/X/TikTok/Threads
+    // must be listed too, not just the Meta-family + YouTube dedicated routes.
+    expect(body).toContain("http://localhost:3000/api/oauth/connect/linkedin/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/connect/x/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/connect/tiktok/callback");
+    expect(body).toContain("http://localhost:3000/api/oauth/connect/threads/callback");
   });
 
   it("saves an alert webhook with encrypted headers and echoes header NAMES (not values)", async () => {

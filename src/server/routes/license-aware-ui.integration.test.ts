@@ -112,6 +112,38 @@ describe("license-aware dashboard UI", () => {
     expect(body).not.toContain("Telegram (PRO)");
   });
 
+  it("licensed /channels shows a direct-OAuth connect button for a CONFIGURED generic provider (LinkedIn)", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    const prevId = process.env.LINKEDIN_CLIENT_ID;
+    const prevSecret = process.env.LINKEDIN_CLIENT_SECRET;
+    process.env.LINKEDIN_CLIENT_ID = "test-li-id";
+    process.env.LINKEDIN_CLIENT_SECRET = "test-li-secret";
+    try {
+      const body = await (await get("/channels")).text();
+      expect(body).toContain("/api/oauth/connect/linkedin");
+      expect(body).toContain("+ LinkedIn");
+    } finally {
+      if (prevId === undefined) delete process.env.LINKEDIN_CLIENT_ID;
+      else process.env.LINKEDIN_CLIENT_ID = prevId;
+      if (prevSecret === undefined) delete process.env.LINKEDIN_CLIENT_SECRET;
+      else process.env.LINKEDIN_CLIENT_SECRET = prevSecret;
+    }
+  });
+
+  it("licensed /channels hides the connect button for an UNCONFIGURED generic provider (no dead button)", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    const prevId = process.env.TIKTOK_CLIENT_KEY;
+    delete process.env.TIKTOK_CLIENT_KEY;
+    try {
+      const body = await (await get("/channels")).text();
+      expect(body).not.toContain("/api/oauth/connect/tiktok");
+    } finally {
+      if (prevId !== undefined) process.env.TIKTOK_CLIENT_KEY = prevId;
+    }
+  });
+
   it("free /overview: inbox is free (real nav link), contacts CRM stays locked", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/overview")).text();

@@ -1947,6 +1947,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             ${metaConfigRow("Valid OAuth Redirect URI (Instagram Business Login → API setup with Instagram login)", `${env.APP_URL}/api/oauth/instagram-login/callback`)}
             ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
             ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
+            <h3 style="margin:1rem 0 .25rem">Other publishing platforms</h3>
+            <p class="muted" style="margin-bottom:.75rem">Direct-OAuth publishers. Paste each redirect URI into that platform's developer app.</p>
+            ${(
+              [
+                ["LinkedIn (LinkedIn Developers → Auth → Authorized redirect URLs)", "linkedin"],
+                ["X / Twitter (developer portal → User authentication settings → Callback URI)", "x"],
+                ["TikTok (developers.tiktok.com → Login Kit → Redirect URI)", "tiktok"],
+                ["Threads (developers.facebook.com → Threads app → Redirect Callback URLs)", "threads"],
+              ] as const
+            ).map(([label, id]) => metaConfigRow(label, `${env.APP_URL}/api/oauth/connect/${id}/callback`))}
             <h3 style="margin:1rem 0 .25rem">Your credentials</h3>
             <p class="muted" style="margin-bottom:.75rem">Paste your integration credentials here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>. Grouped by integration below.</p>
             ${renderCredentials(await configStatus())}
