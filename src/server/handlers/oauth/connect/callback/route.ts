@@ -19,13 +19,23 @@ export async function GET(request: Request, platform: string): Promise<Response>
   const state = searchParams.get("state");
   const error = searchParams.get("error");
 
-  if (error) return redirect("/channels?error=access_denied");
-  if (!code || !state) return redirect("/channels?error=missing_params");
+  // Observability: the provider round-trip is otherwise a black box — log the callback shape (never the
+  // code value) so a failed connect is diagnosable instead of a silent "?error=" redirect.
+  const qkeys = [...searchParams.keys()].join(",");
+  if (error) {
+    console.error(`[oauth-connect] ${platform} callback returned error=${error} desc=${searchParams.get("error_description") ?? "-"} keys=${qkeys}`);
+    return redirect("/channels?error=access_denied");
+  }
+  if (!code || !state) {
+    console.error(`[oauth-connect] ${platform} callback missing params (code=${!!code} state=${!!state}) keys=${qkeys}`);
+    return redirect("/channels?error=missing_params");
+  }
 
   // Verify CSRF state up front for a precise error (completePublishOAuth re-verifies defensively).
   try {
     verifyOAuthState(state, request.headers.get("cookie"));
   } catch {
+    console.error(`[oauth-connect] ${platform} invalid_state (state present, cookie mismatch/absent)`);
     return redirect("/channels?error=invalid_state");
   }
 
@@ -45,6 +55,7 @@ export async function GET(request: Request, platform: string): Promise<Response>
     return redirect(`/channels?connected=${platform}&count=1`, r.clearCookies);
   } catch (err) {
     if (err instanceof ProRequiredError) return redirect("/channels?error=pro_required");
+    console.error(`[oauth-connect] ${platform} connect failed:`, err instanceof Error ? err.message : err);
     return redirect("/channels?error=oauth_failed");
   }
 }
