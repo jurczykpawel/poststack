@@ -59,10 +59,11 @@ export const xProvider: Provider = {
   },
 
   async publish({ tokens, request }): Promise<PublishHandle> {
-    if (!["text", "image", "video"].includes(request.format)) {
-      throw new PermanentError(`x: unsupported format '${request.format}'`);
+    if (request.format !== "text") {
+      // Media (image/video) needs a prior chunked media upload (v1.1 media/upload INIT/APPEND/FINALIZE)
+      // — not implemented yet. Fail LOUD rather than silently posting text and dropping the media.
+      throw new PermanentError(`x: ${request.format} publishing not implemented (media chunked upload)`);
     }
-    // NOTE: media (image/video) requires a prior chunked media upload — flagged for live work.
     const res = await fetch(`${API}/tweets`, {
       method: "POST",
       headers: { authorization: `Bearer ${tokens.accessToken}`, "content-type": "application/json" },

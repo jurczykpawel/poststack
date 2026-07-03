@@ -49,4 +49,15 @@ describe("x provider", () => {
       xProvider.publish({ tokens, accountId: "u1", request: { format: "text", media: [], caption: "hi" }, mediaUrls: [] }),
     ).rejects.toThrow(); // classified error, not "[object Object]" stored as the handle
   });
+
+  // LIPUB1: chunked media upload isn't implemented — a media post must FAIL LOUDLY, never silently drop
+  // the image/video and post text only (which is what the old code path did once a media format reached it).
+  it.each(["image", "video"])("a %s post fails loudly (media upload not implemented) — never a silent text-only tweet", async (format) => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ data: { id: "tw_x" } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      xProvider.publish({ tokens, accountId: "u1", request: { format, media: [{ mediaId: "m" }], caption: "c" }, mediaUrls: ["https://cdn/x"] }),
+    ).rejects.toThrow(/not implemented/);
+    expect(fetchSpy).not.toHaveBeenCalled(); // never hit the tweets endpoint
+  });
 });
