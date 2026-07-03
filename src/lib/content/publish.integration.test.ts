@@ -234,3 +234,69 @@ describe("publishPost", () => {
     expect((delivery.payload as { autoStory?: boolean }).autoStory).toBe(false);
   });
 });
+
+// LIPUB1: text-only publishing. The editorial pipeline used to hard-require media for EVERY post
+// (`publishPost` 422'd before it ever looked at the platform), so a LinkedIn/X/Threads text post —
+// which the providers fully support (a `text` capability with media.max=0) — could never be published
+// through the app. A post with no media is now published as `format:"text"` when the target provider
+// advertises a text format; media-only platforms (IG/FB/YouTube/TikTok) still reject a media-less post.
+describe("publishPost — text-only, no media [LIPUB1]", () => {
+  type PlatformEnum = typeof schema.channels.$inferInsert.platform;
+  async function textFixtures(platform: PlatformEnum, postOverrides: Partial<typeof schema.posts.$inferInsert> = {}) {
+    const [ch] = await db
+      .insert(schema.channels)
+      .values({
+        workspace_id: WS,
+        platform,
+        platform_id: `acct-${Math.random()}`,
+        connection_mode: "oauth",
+        token_encrypted: encryptTokens({ access_token: "t" }),
+        webhook_secret: "wh",
+      })
+      .returning();
+    const [p] = await db
+      .insert(schema.posts)
+      .values({ workspace_id: WS, platform, description: "Hello from PostStack", status: "planned", ...postOverrides })
+      .returning();
+    return { channelId: ch!.id, postId: p!.id };
+  }
+
+  // Note: X's RS platform value is "twitter" (aliased to the "x" publish provider); the enum has no "x".
+  it.each(["linkedin", "twitter", "threads"] as const)("publishes a text-only %s post (no media) as format 'text'", async (platform) => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await textFixtures(platform);
+    const { delivery, post } = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
+    expect(delivery.status).toBe("scheduled");
+    expect(delivery.format).toBe("text");
+    expect((delivery.payload as { media?: unknown[] }).media).toEqual([]);
+    expect((delivery.payload as { caption?: string }).caption).toBe("Hello from PostStack");
+    expect(post.status).toBe("scheduled");
+    expect(post.delivery_id).toBe(delivery.id);
+  });
+
+  it("does NOT register media for a text-only post", async () => {
+    if (!TEST_DB) return;
+    let called = false;
+    const spyDeps: PublishPostDeps = {
+      registerMedia: async (u, w) => {
+        called = true;
+        return fakeRegister.registerMedia(u, w);
+      },
+    };
+    const { channelId, postId } = await textFixtures("linkedin");
+    await publishPost({ postId, channelId, when: "now" }, WS, spyDeps);
+    expect(called).toBe(false);
+  });
+
+  it("still 422s a media-only platform (facebook) published without media", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await textFixtures("facebook");
+    await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toThrow(/no media to publish/);
+  });
+
+  it("422s a text-only post with no caption (the provider's text format requires one)", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await textFixtures("linkedin", { description: null, hashtags: null });
+    await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toThrow(/caption is required/);
+  });
+});

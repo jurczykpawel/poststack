@@ -8,6 +8,7 @@ import { registerByUrl } from "@/lib/media/service";
 import { getStorage } from "@/lib/storage";
 import { defaultProbe } from "@/lib/media/probe";
 import type { PublishRequest } from "@/lib/providers/types";
+import { getProviderForPlatform } from "@/lib/providers";
 
 /** description + hashtags → a single caption (blank-line separated). */
 export function buildCaption(description?: string | null, hashtags?: string | null): string | undefined {
@@ -108,32 +109,52 @@ export async function publishPost(
   // the coalesce and mask a real media_url / media_urls entry (APIFIX3).
   const pickUrl = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v : undefined);
   const mediaUrl = pickUrl(post.video_url) ?? pickUrl(post.media_url) ?? pickUrl(urls[0]);
-  if (!mediaUrl) throw new ApiError("invalid_request", "Post has no media to publish", 422);
-
-  // Register media BEFORE the tx — createDelivery validates media on a separate connection.
-  const media = await deps.registerMedia(mediaUrl, workspaceId);
 
   const content = post.content_id
     ? await db.query.content.findFirst({ where: and(eq(contentTable.id, post.content_id), eq(contentTable.workspace_id, workspaceId)) })
     : undefined;
 
   const caption = buildCaption(post.description, post.hashtags);
-  const resolved = resolveFormat(post.platform, content?.content_type, mediaUrl);
-  const format = input.format ?? resolved.format;
   // Title for publish targets that require one (YouTube / LinkedIn article): the post's own title
   // wins, else the linked content's (APIFIX4). Blank normalizes to absent.
   const title = [post.title, content?.title].map((t) => t?.trim()).find((t) => !!t);
-  const request: PublishRequest = {
-    format,
-    media: [{ mediaId: media.id }],
-    ...(title ? { title } : {}),
-    ...(caption ? { caption } : {}),
-    options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}) },
-    // COMPOSE1: per-post automation overrides. Only set when explicitly chosen on the post — a null
-    // column leaves the field absent so the publish-worker falls back to the channel default.
+  // COMPOSE1: per-post automation overrides. Only set when explicitly chosen on the post — a null
+  // column leaves the field absent so the publish-worker falls back to the channel default.
+  const overrides = {
     ...(post.first_comment != null ? { firstComment: post.first_comment } : {}),
     ...(post.auto_story != null ? { autoStory: post.auto_story } : {}),
   };
+
+  let request: PublishRequest;
+  if (mediaUrl) {
+    // Register media BEFORE the tx — createDelivery validates media on a separate connection.
+    const media = await deps.registerMedia(mediaUrl, workspaceId);
+    const resolved = resolveFormat(post.platform, content?.content_type, mediaUrl);
+    request = {
+      format: input.format ?? resolved.format,
+      media: [{ mediaId: media.id }],
+      ...(title ? { title } : {}),
+      ...(caption ? { caption } : {}),
+      options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}) },
+      ...overrides,
+    };
+  } else {
+    // LIPUB1: no media file. Allowed only when the target provider advertises a text format that needs
+    // no media (LinkedIn / X / Threads); media-only platforms (IG/FB/YouTube/TikTok) still 422 here.
+    // The rest of the capability rules (incl. "caption required") are enforced downstream by validate().
+    const supportsText = getProviderForPlatform(post.platform)
+      .capabilities()
+      .some((c) => c.format === "text" && c.media.min === 0);
+    if (!supportsText) throw new ApiError("invalid_request", "Post has no media to publish", 422);
+    request = {
+      format: input.format ?? "text",
+      media: [],
+      ...(title ? { title } : {}),
+      ...(caption ? { caption } : {}),
+      options: {},
+      ...overrides,
+    };
+  }
   const scheduledAt = (input.when === "now" ? new Date() : new Date(input.when)).toISOString();
   if (Number.isNaN(Date.parse(scheduledAt))) throw new ApiError("invalid_request", "Invalid when", 422);
 
