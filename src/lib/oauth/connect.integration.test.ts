@@ -167,6 +167,36 @@ describe("completePublishOAuth (real Postgres)", () => {
     expect(new URLSearchParams(bodies[0]!).get("code_verifier")).toBe(verifier);
   });
 
+  // The generic connect URL is keyed by PROVIDER id (/connect/x), but a channel's `platform` column is
+  // the RS platform value "twitter" — the enum has no "x". completePublishOAuth must map the connect id
+  // to the platform, else the channel upsert fails ("invalid input value for enum platform: 'x'").
+  it("connecting via provider id 'x' stores the channel under platform 'twitter'", async () => {
+    if (!TEST_DB) return;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("oauth2/token")) return Response.json({ access_token: "AT", expires_in: 7200 });
+      if (url.includes("users/me") || url.includes("/2/users")) return Response.json({ data: { id: "x-acc-2", username: "xuser2" } });
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+
+    await licenseInstance("pro");
+    const { state, setCookie } = generateOAuthState();
+    const { verifier } = createPkcePair();
+    const cookieHeader = `${setCookie.split(";")[0]}; ${pkceCookie(verifier).split(";")[0]}`;
+
+    const r = await connect.completePublishOAuth({
+      platform: "x", // ← the provider id, as the /connect/x URL passes it
+      code: "C",
+      state,
+      cookieHeader,
+      redirectUri: "https://app/cb",
+      workspaceId: WS,
+    });
+    const ch = await db.query.channels.findFirst({ where: eq(s.channels.id, r.channelId) });
+    expect(ch!.platform).toBe("twitter"); // stored under the RS platform, not "x"
+    expect(ch!.platform_id).toBe("x-acc-2");
+  });
+
   it("gates a non-Meta channel behind PRO on a free instance (ProRequiredError → 402)", async () => {
     if (!TEST_DB) return;
     mockTikTok("tt-acc-free");

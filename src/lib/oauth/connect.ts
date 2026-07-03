@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, type Platform } from "@/db/schema";
 import type { ConnectedAccount } from "@/lib/platforms/base";
-import { getProviderForPlatform } from "@/lib/providers";
+import { getProviderForPlatform, platformForConnectId } from "@/lib/providers";
 import { fromTokenSet } from "@/lib/providers/token-codec";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { buildAuthorizeUrl, createPkcePair } from "./authorize";
@@ -76,7 +76,9 @@ export async function completePublishOAuth(args: {
     profilePicture: info.avatarUrl,
     tokens: fromTokenSet(tokens),
   };
-  const platform = args.platform as Platform;
+  // The connect URL is keyed by provider id (/connect/x); the channel's platform column is the RS
+  // value (twitter). Map so /connect/x stores platform "twitter", not the invalid enum "x".
+  const platform = platformForConnectId(args.platform) as Platform;
   // License gate: a non-Meta channel needs `non_meta_channels` (throws ProRequiredError → 402).
   await assertChannelsAllowed(args.workspaceId, platform, [account]);
   await upsertChannels(args.workspaceId, platform, [account], { connectionMode: "oauth" });

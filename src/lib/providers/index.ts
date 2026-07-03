@@ -32,6 +32,15 @@ export function providerIdForPlatform(platform: string): string {
   return PLATFORM_PROVIDER_ALIAS[platform] ?? platform;
 }
 
+// Reverse of the alias for the OAuth connect flow: its URL is keyed by PROVIDER id (/connect/:id).
+// For every connectable provider that id equals the RS platform value — except X, whose provider is
+// "x" but whose channel platform is "twitter". Map the connect id to the platform a channel must be
+// stored under, so /connect/x writes platform "twitter" (valid enum) not "x" (which the DB rejects).
+const CONNECT_ID_TO_PLATFORM: Record<string, string> = { x: "twitter" };
+export function platformForConnectId(connectId: string): string {
+  return CONNECT_ID_TO_PLATFORM[connectId] ?? connectId;
+}
+
 /** The publish provider for a channel's platform (resolves FB/IG→meta, twitter→x). */
 export function getProviderForPlatform(platform: string) {
   return getProvider(providerIdForPlatform(platform));
