@@ -41,13 +41,15 @@ describe("resolveFormat (per-platform)", () => {
     expect(resolveFormat("facebook", "video", "x.mp4").format).toBe("reel");
     expect(resolveFormat("youtube", "video", "x.mp4").format).toBe("short");
     expect(resolveFormat("tiktok", "video", "x.mp4").format).toBe("video");
-    expect(resolveFormat("x", "video", "x.mp4").format).toBe("video");
+    // X's RS platform value is "twitter" (not "x") — resolveFormat must key on the platform value that
+    // actually reaches it, else a twitter video falls back to "reel" and the x provider rejects it.
+    expect(resolveFormat("twitter", "video", "x.mp4").format).toBe("video");
     expect(resolveFormat("threads", "video", "x.mp4").format).toBe("video");
     expect(resolveFormat("linkedin", "video", "x.mp4").format).toBe("video");
   });
   it("maps an image to each platform's format name", () => {
     expect(resolveFormat("instagram", "image", "x.jpg").format).toBe("feed_post");
-    expect(resolveFormat("x", "image", "x.jpg").format).toBe("image");
+    expect(resolveFormat("twitter", "image", "x.jpg").format).toBe("image");
     expect(resolveFormat("linkedin", "image", "x.jpg").format).toBe("image");
   });
   it("infers kind from the URL, accepts legacy types, falls back for unknown platforms", () => {

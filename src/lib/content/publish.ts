@@ -44,7 +44,10 @@ const PLATFORM_FORMAT: Record<string, { video: string; image: string }> = {
   youtube: { video: "short", image: "short" },
   tiktok: { video: "video", image: "video" },
   threads: { video: "video", image: "image" },
-  x: { video: "video", image: "image" },
+  // X's RS platform value is "twitter" (aliased to the "x" publish provider). resolveFormat is called
+  // with the platform value, so this MUST be keyed "twitter" — keyed "x" it never matched and a
+  // twitter video fell back to "reel", which the x provider rejects ("unsupported format 'reel'").
+  twitter: { video: "video", image: "image" },
   linkedin: { video: "video", image: "image" },
 };
 
