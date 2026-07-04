@@ -55,7 +55,9 @@ export const xProvider: Provider = {
     if (!res.ok) throw classifyHttp(res.status, json.detail);
     const id = asString(json.data?.id); // PSA55 (PSA51 class)
     if (!id) throw classifyHttp(404, "no x user");
-    return { accountId: id, displayName: json.data?.username };
+    // handle = @username: unique per platform, so it reliably links a pre-migration handle-keyed
+    // channel row to this account (used by the connect flow's reauth-orphan cleanup).
+    return { accountId: id, displayName: json.data?.username, handle: json.data?.username };
   },
 
   async publish({ tokens, request }): Promise<PublishHandle> {

@@ -197,6 +197,61 @@ describe("completePublishOAuth (real Postgres)", () => {
     expect(ch!.platform_id).toBe("x-acc-2");
   });
 
+  // SEEDCH1 self-cleanup: reconnecting mints a new API-id-keyed row; the old handle-keyed row it
+  // supersedes (flagged needs_reauth) should be soft-deleted automatically, so no orphan lingers.
+  function mockX(id: string, username: string) {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("oauth2/token")) return Response.json({ access_token: "AT", expires_in: 7200 });
+      if (url.includes("users/me") || url.includes("/2/users")) return Response.json({ data: { id, username } });
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+  }
+  async function seedChannel(platform: string, platform_id: string, status: string) {
+    const [row] = await db
+      .insert(s.channels)
+      .values({ workspace_id: WS, platform: platform as never, platform_id, status: status as never, token_encrypted: "x", webhook_secret: "x" })
+      .returning();
+    return row!.id;
+  }
+  async function connectX(handleUsername: string, numericId: string) {
+    const { state, setCookie } = generateOAuthState();
+    const { verifier } = createPkcePair();
+    const cookieHeader = `${setCookie.split(";")[0]}; ${pkceCookie(verifier).split(";")[0]}`;
+    mockX(numericId, handleUsername);
+    return connect.completePublishOAuth({ platform: "twitter", code: "C", state, cookieHeader, redirectUri: "https://app/cb", workspaceId: WS });
+  }
+
+  it("soft-deletes a needs_reauth handle-orphan for the same account on reconnect", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance("pro");
+    const orphan = await seedChannel("twitter", "oldhandle", "needs_reauth");
+    const r = await connectX("oldhandle", "55501");
+    const newCh = await db.query.channels.findFirst({ where: eq(s.channels.id, r.channelId) });
+    expect(newCh!.platform_id).toBe("55501");
+    expect(newCh!.deleted_at).toBeNull();
+    const orphaned = await db.query.channels.findFirst({ where: eq(s.channels.id, orphan) });
+    expect(orphaned!.deleted_at).not.toBeNull(); // swept
+  });
+
+  it("leaves a needs_reauth sibling with a DIFFERENT handle untouched", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance("pro");
+    const other = await seedChannel("twitter", "differenthandle", "needs_reauth");
+    await connectX("oldhandle", "55502");
+    const still = await db.query.channels.findFirst({ where: eq(s.channels.id, other) });
+    expect(still!.deleted_at).toBeNull(); // not this account — kept
+  });
+
+  it("never touches an ACTIVE sibling even with a matching handle", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance("pro");
+    const active = await seedChannel("twitter", "oldhandle", "active");
+    await connectX("oldhandle", "55503");
+    const still = await db.query.channels.findFirst({ where: eq(s.channels.id, active) });
+    expect(still!.deleted_at).toBeNull(); // only needs_reauth rows are swept
+  });
+
   it("gates a non-Meta channel behind PRO on a free instance (ProRequiredError → 402)", async () => {
     if (!TEST_DB) return;
     mockTikTok("tt-acc-free");

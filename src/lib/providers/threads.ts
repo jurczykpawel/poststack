@@ -55,13 +55,20 @@ export const threadsProvider: Provider = {
 
   async healthCheck(tokens: TokenSet): Promise<AccountInfo> {
     const res = await fetch(
-      `${GRAPH}/v1.0/me?fields=id&access_token=${encodeURIComponent(tokens.accessToken)}`,
+      `${GRAPH}/v1.0/me?fields=id,username&access_token=${encodeURIComponent(tokens.accessToken)}`,
     );
-    const json = (await res.json().catch(() => ({}))) as { id?: unknown; error?: { message?: string } };
+    const json = (await res.json().catch(() => ({}))) as {
+      id?: unknown;
+      username?: unknown;
+      error?: { message?: string };
+    };
     if (!res.ok) throw classifyHttp(res.status, json.error?.message);
     const accountId = asString(json.id); // PSA51
     if (!accountId) throw classifyHttp(404, "no threads user");
-    return { accountId };
+    // handle = @username: unique per platform; links a pre-migration handle-keyed row to this account
+    // for the connect flow's reauth-orphan cleanup.
+    const username = asString(json.username) || undefined;
+    return { accountId, displayName: username, handle: username };
   },
 
   async publish({ tokens, accountId, request, mediaUrls }): Promise<PublishHandle> {
