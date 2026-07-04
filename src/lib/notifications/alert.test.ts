@@ -54,6 +54,7 @@ vi.mock("@/lib/webhooks/safe-target", async (importOriginal) => {
 });
 
 import { dispatchAlert } from "./alert";
+import { getAlertWebhook } from "./alert-webhook";
 
 beforeEach(() => {
   delete process.env.CHANNEL_ALERT_WEBHOOK_URL;
@@ -84,6 +85,49 @@ describe("dispatchAlert", () => {
     expect(body.type).toBe("delivery_failed");
     expect(body.channel_id).toBe("ch-1");
     expect(body.detail).toBe("boom");
+  });
+
+  it("renders a channel_reauth_urgent alert through the customized (mailstack) body — subject + days_left + expires_at", async () => {
+    // Per-workspace path (mirrors prod: mailstack trusted-mode, subject/message from {{placeholders}}).
+    vi.mocked(getAlertWebhook).mockResolvedValueOnce({
+      url: "https://hooks.example/v1/send",
+      enabled: true,
+      headers: { Authorization: "Bearer secret" },
+      fieldSelection: null,
+      extraFields: {
+        brand: "tsa",
+        template: "contact",
+        to: "op@example.com",
+        subject: "[PostStack] {{type}} — {{display_name}}",
+        message: "{{days_left}} day(s) left — reconnect before {{expires_at}}",
+      },
+    });
+
+    await dispatchAlert({
+      type: "channel_reauth_urgent",
+      channelId: "ch-9",
+      workspaceId: "ws-1",
+      platform: "linkedin",
+      displayName: "Paweł Jurczyk",
+      detail: "Reconnect required before the access token expires.",
+      expiresAt: "2026-08-12T13:00:00.000Z",
+      daysLeft: 1,
+    });
+
+    expect(connector).toHaveBeenCalledTimes(1);
+    const arg = connector.mock.calls[0][0];
+    expect(arg.url).toBe("https://hooks.example/v1/send");
+    expect((arg.init.headers as Record<string, string>).Authorization).toBe("Bearer secret");
+    const body = JSON.parse(arg.init.body as string);
+    // standard fields still present + the urgent discriminator
+    expect(body.type).toBe("channel_reauth_urgent");
+    expect(body.platform).toBe("linkedin");
+    expect(body.expires_at).toBe("2026-08-12T13:00:00.000Z");
+    expect(body.days_left).toBe(1);
+    // {{placeholder}} substitution into the mail subject/message + fixed recipient
+    expect(body.subject).toBe("[PostStack] channel_reauth_urgent — Paweł Jurczyk");
+    expect(body.message).toBe("1 day(s) left — reconnect before 2026-08-12T13:00:00.000Z");
+    expect(body.to).toBe("op@example.com");
   });
 
   it("is a no-op when no webhook is configured", async () => {
