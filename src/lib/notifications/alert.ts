@@ -9,6 +9,7 @@ import { SsrfError } from "@/lib/net/safe-fetch";
  *  the operator routes by `type` on their side (Telegram / n8n / Slack). */
 export type AlertType =
   | "channel_reauth"
+  | "channel_reauth_urgent" // final higher-priority nudge ~24h before a needs_reauth channel hard-expires
   | "channel_degraded" // still active but impaired (e.g. publishes but can't receive a class of events)
   | "delivery_failed"
   | "delivery_held"

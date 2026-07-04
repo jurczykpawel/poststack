@@ -1,7 +1,8 @@
-import { and, eq, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gt, isNotNull, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
+import { dispatchAlert } from "@/lib/notifications/alert";
 import { getProvider } from "@/lib/platforms/registry";
 import { decryptTokens } from "@/lib/crypto";
 import { sanitizeForLog } from "@/lib/api/safe-log";
@@ -75,6 +76,47 @@ export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
       { jobKey: `messaging-token-refresh-${channel.id}` },
     );
     enqueued++;
+  }
+
+  // REAUTH2 (final reminder): the ok→down `channel_reauth` alert fired ~7 days out, then the channel
+  // dropped out of the scan (status != active) and went silent. A slow operator can miss that one mail
+  // and lose the channel at expiry — LinkedIn especially, whose token can't be refreshed programmatically
+  // (invalid_grant) so a manual reconnect is the ONLY recovery. Send ONE higher-priority nudge in the
+  // last 24h before the hard `token_expires_at`. Guarded once per expiry via metadata, keyed to the
+  // exact expiry timestamp so a reconnect (new token, new expiry) self-resets it — no flag to clear.
+  const reminderWindow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const reauthRows = await db.query.channels.findMany({
+    where: and(
+      eq(channels.status, "needs_reauth"),
+      eq(channels.connection_mode, "oauth"),
+      isNotNull(channels.token_expires_at),
+      gt(channels.token_expires_at, new Date()),
+      lte(channels.token_expires_at, reminderWindow),
+    ),
+    columns: {
+      id: true, platform: true, display_name: true, workspace_id: true,
+      token_expires_at: true, metadata: true, needs_reauth_reason: true,
+    },
+  });
+  for (const ch of reauthRows) {
+    const expiresAtIso = ch.token_expires_at!.toISOString();
+    const meta = (ch.metadata ?? {}) as Record<string, unknown>;
+    if (meta.finalReauthReminderForExpiry === expiresAtIso) continue; // already nudged for this expiry
+    const daysLeft = Math.max(0, Math.ceil((ch.token_expires_at!.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+    await dispatchAlert({
+      type: "channel_reauth_urgent",
+      workspaceId: ch.workspace_id,
+      channelId: ch.id,
+      platform: ch.platform,
+      displayName: ch.display_name,
+      detail: ch.needs_reauth_reason ?? "Reconnect required before the access token expires.",
+      expiresAt: expiresAtIso,
+      daysLeft,
+    });
+    await db
+      .update(channels)
+      .set({ metadata: { ...meta, finalReauthReminderForExpiry: expiresAtIso } })
+      .where(eq(channels.id, ch.id));
   }
 
   return { enqueued };
