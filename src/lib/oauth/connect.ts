@@ -50,7 +50,7 @@ export function startPublishOAuth(platform: string, redirectUri: string): { url:
 // resolved account's handle to a needs_reauth row's stored handle proves it's the same account — so
 // soft-delete it. Scoped to needs_reauth rows only: a live channel is never touched.
 const normHandle = (s: string) => s.trim().toLowerCase().replace(/^@/, "");
-async function softDeleteReauthOrphans(
+export async function softDeleteReauthOrphans(
   workspaceId: string,
   platform: Platform,
   handle: string | undefined,

@@ -155,6 +155,12 @@ describe("getMyChannel", () => {
   it("resolves the authenticated channel", async () => {
     const fetchImpl = vi.fn(async () => jsonRes({ items: [{ id: "UCabc", snippet: { title: "My Channel", thumbnails: { default: { url: "u" } } } }] })) as unknown as typeof fetch;
     const r = await getMyChannel({ accessToken: "t", fetchImpl });
-    expect(r).toEqual({ id: "UCabc", title: "My Channel", thumbnail: "u" });
+    expect(r).toEqual({ id: "UCabc", title: "My Channel", thumbnail: "u", handle: null });
+  });
+
+  it("returns the @handle from customUrl (for reauth-orphan cleanup)", async () => {
+    const fetchImpl = vi.fn(async () => jsonRes({ items: [{ id: "UCabc", snippet: { title: "My Channel", customUrl: "@techskills" } }] })) as unknown as typeof fetch;
+    const r = await getMyChannel({ accessToken: "t", fetchImpl });
+    expect(r?.handle).toBe("@techskills");
   });
 });

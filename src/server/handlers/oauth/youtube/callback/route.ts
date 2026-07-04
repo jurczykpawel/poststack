@@ -1,6 +1,10 @@
 import { authenticate } from "@/lib/auth";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
+import { softDeleteReauthOrphans } from "@/lib/oauth/connect";
+import { db } from "@/lib/db";
+import { channels } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { ProRequiredError } from "@/lib/license/gate";
 import { env } from "@/lib/env";
 import { getConfig } from "@/lib/settings/config";
@@ -55,6 +59,12 @@ export async function GET(request: Request) {
     };
     await assertChannelsAllowed(auth.workspaceId, "youtube", [account]);
     await upsertChannels(auth.workspaceId, "youtube", [account]);
+    // Sweep any pre-migration @handle-keyed orphan for this same channel (SEEDCH1 self-cleanup).
+    const newCh = await db.query.channels.findFirst({
+      where: and(eq(channels.workspace_id, auth.workspaceId), eq(channels.platform, "youtube"), eq(channels.platform_id, ch.id)),
+      columns: { id: true },
+    });
+    if (newCh) await softDeleteReauthOrphans(auth.workspaceId, "youtube", ch.handle ?? undefined, newCh.id);
     return redirect("/channels?connected=youtube&count=1");
   } catch (err) {
     if (err instanceof ProRequiredError) return redirect("/channels?error=pro_required");

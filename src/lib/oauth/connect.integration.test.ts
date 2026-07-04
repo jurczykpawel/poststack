@@ -252,6 +252,16 @@ describe("completePublishOAuth (real Postgres)", () => {
     expect(still!.deleted_at).toBeNull(); // only needs_reauth rows are swept
   });
 
+  it("softDeleteReauthOrphans sweeps a youtube @handle orphan (used by the YouTube callback)", async () => {
+    if (!TEST_DB) return;
+    const orphan = await seedChannel("youtube", "@tipstack-ai", "needs_reauth");
+    const keep = await seedChannel("youtube", "UCrealchannelid00000000", "active");
+    const n = await connect.softDeleteReauthOrphans(WS, "youtube" as never, "@tipstack-ai", keep);
+    expect(n).toBe(1);
+    expect((await db.query.channels.findFirst({ where: eq(s.channels.id, orphan) }))!.deleted_at).not.toBeNull();
+    expect((await db.query.channels.findFirst({ where: eq(s.channels.id, keep) }))!.deleted_at).toBeNull();
+  });
+
   it("gates a non-Meta channel behind PRO on a free instance (ProRequiredError → 402)", async () => {
     if (!TEST_DB) return;
     mockTikTok("tt-acc-free");

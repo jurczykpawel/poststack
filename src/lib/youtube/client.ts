@@ -300,7 +300,7 @@ export async function refreshGoogleAccessToken(opts: {
 export async function getMyChannel(opts: {
   accessToken: string;
   fetchImpl?: typeof fetch;
-}): Promise<{ id: string; title: string; thumbnail: string | null } | null> {
+}): Promise<{ id: string; title: string; thumbnail: string | null; handle: string | null } | null> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const res = await fetchImpl(`${YT_API}/channels?part=snippet&mine=true`, {
     headers: { Authorization: `Bearer ${opts.accessToken}` },
@@ -311,8 +311,9 @@ export async function getMyChannel(opts: {
     const body = await res.text().catch(() => "");
     throw new YouTubeApiError(res.status, `channels.list ${res.status}: ${body.slice(0, 200)}`);
   }
-  const data = (await res.json()) as { items?: Array<{ id: string; snippet?: { title?: string; thumbnails?: { default?: { url?: string } } } }> };
+  const data = (await res.json()) as { items?: Array<{ id: string; snippet?: { title?: string; customUrl?: string; thumbnails?: { default?: { url?: string } } } }> };
   const ch = data.items?.[0];
   if (!ch) return null;
-  return { id: ch.id, title: ch.snippet?.title ?? ch.id, thumbnail: ch.snippet?.thumbnails?.default?.url ?? null };
+  // customUrl is the @handle (e.g. "@techskills") — used to sweep a pre-migration handle-keyed orphan.
+  return { id: ch.id, title: ch.snippet?.title ?? ch.id, thumbnail: ch.snippet?.thumbnails?.default?.url ?? null, handle: ch.snippet?.customUrl ?? null };
 }
