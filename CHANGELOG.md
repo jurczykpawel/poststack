@@ -9,6 +9,28 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-04
+
+### Added
+- **Direct-OAuth publishing for LinkedIn, X (Twitter) and Threads** (plus TikTok), alongside the existing Meta/YouTube flows. The Channels and Settings → Integrations pages now show **Connect** buttons and the exact **redirect/callback URIs** for every direct-OAuth publisher, so an account can be connected without leaving the app. Publishing itself now supports **text-only posts** (LinkedIn / X / Threads) and **LinkedIn image & video** uploads via the LinkedIn Assets API. `GET /api/v1/channels` exposes **`can_publish`** per channel so an API client can tell an inbox-only channel (e.g. Telegram) from a publishable one.
+- **Self-healing reconnects.** Reconnecting a channel now auto-removes the stale pre-migration row it supersedes: a channel keyed by a vanity handle instead of the provider's API id can't publish and is flagged `needs_reauth`; the reconnect mints a correct row and **soft-deletes the handle-keyed orphan** for the same account (X, Threads, YouTube — matched on the platform-unique @handle, scoped to `needs_reauth` rows only, never touching a live channel).
+- **Final re-auth reminder.** In addition to the one alert sent when a channel first flips `needs_reauth` (~7 days before a token expires), a second **higher-priority** `channel_reauth_urgent` alert now goes out ~24h before the token hard-expires if the channel still hasn't been reconnected — sent **once per expiry** (self-resetting after a reconnect), so a slow reconnect can't silently lose the channel. Especially relevant for LinkedIn, whose token can't be refreshed programmatically and requires a manual reconnect.
+- **Post-level `title`** is reachable through the posts API, enabling **YouTube publishing** via the API (title is required there).
+
+### Changed
+- **X/Twitter is keyed consistently as the `twitter` platform** across the publish path and the OAuth connect flow (the publish provider is `x`, aliased both ways), fixing X connect and media-format resolution.
+- **OAuth connect-callback failures are now logged** with context instead of being silently swallowed behind a generic `?error=` redirect, making a failed connect diagnosable.
+
+### Fixed
+- **Publishing:** text-only posts are no longer rejected for "no media"; **X media publish now fails loud** instead of silently posting text and dropping the media; blank `video_url` no longer poisons media-URL resolution (`videoUrl:""` masking a real `media_url`).
+- **Events:** `post.*` lifecycle events are keyed to the editorial post id, not the delivery id.
+- **Contacts:** `contact.updated` is emitted on API / import updates.
+- **Inbox:** the conversation-row click spinner no longer reflows the row, and the unread dot no longer overlaps the timestamp.
+- **Docs/license:** corrected the `webhook_filtering` feature description.
+
+### Migrations
+- `0005_post_title.sql` — adds the post-level `title` column (forward-only, snapshot without drift).
+
 ## [0.9.0] - 2026-07-01
 
 ### Security
