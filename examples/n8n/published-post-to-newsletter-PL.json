@@ -1,0 +1,506 @@
+{
+  "name": "PostStack: Opublikowane posty → szkice newslettera",
+  "nodes": [
+    {
+      "id": "sticky-overview",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -380
+      ],
+      "parameters": {
+        "color": 1,
+        "width": 700,
+        "height": 420,
+        "content": "## Zamieniaj każdy opublikowany post w szkic newslettera w Listmonku, przez PostStacka\n\n### Jak to działa\nPublikujesz raz, dystrybuujesz wszędzie: gdy [PostStack](https://poststack.techskills.academy) - self-hostowana platforma publikacji social media - opublikuje post, emituje podpisany webhook `post.published`. Ten workflow weryfikuje nagłówek HMAC `X-PostStack-Signature`, pobiera pełny tekst posta z REST API PostStacka i tworzy gotowy do edycji **szkic** kampanii w [Listmonku](https://listmonk.app) - Twoim self-hostowanym narzędziu newsletterowym. Nic nie wysyła się automatycznie: otwierasz szkic, szlifujesz, klikasz wyślij.\n\n### Konfiguracja\n1. W PostStacku otwórz **Webhooks → Outbound webhooks**, kliknij **Add endpoint** z adresem Production URL tego workflowa (node **PostStack Webhook**) i skopiuj signing secret. Webhooki wychodzące i dostęp API to funkcje PostStack Pro.\n2. Utwórz klucz API (**Settings → API keys**).\n3. W Listmonku utwórz użytkownika API (**Admin → Settings → Users**) i zanotuj id listy docelowej.\n4. Uzupełnij **Configuration (EDIT ME)**: adres PostStacka, klucz API, sekret webhooka, adres Listmonka, użytkownika API, token i id listy.\n5. Czerwona notka przy **Verify Signature** opisuje jedno wymagane ustawienie środowiska n8n.\n\n### Możliwości modyfikacji\nEdytuj **Build the Draft**, żeby zmienić szablon kampanii (temat, nagłówek, stopka). Wolisz tygodniowy digest? Podmień node Listmonka na zapis do Google Sheets i dołóż workflow z harmonogramem, który skleja wiersze tygodnia w jedną kampanię."
+      }
+    },
+    {
+      "id": "sticky-receive",
+      "name": "Section: Receive & Verify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1120,
+        "height": 380,
+        "content": "## Odbiór i weryfikacja\nPrzyjmuje webhook PostStacka i sprawdza podpis HMAC, zanim zaufa danym."
+      }
+    },
+    {
+      "id": "sticky-filter",
+      "name": "Section: Acknowledge & Filter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 820,
+        "height": 220,
+        "content": "## Potwierdzenie i filtr\nOdpowiada od razu, przepuszcza tylko `post.published` i buduje zapytanie do API."
+      }
+    },
+    {
+      "id": "sticky-fetch",
+      "name": "Section: Fetch the Post",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 520,
+        "height": 220,
+        "content": "## Pobranie posta\nEvent niesie tylko id posta - pełny tekst pobieramy z API PostStacka."
+      }
+    },
+    {
+      "id": "sticky-draft",
+      "name": "Section: Draft the Newsletter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 820,
+        "height": 220,
+        "content": "## Szkic newslettera\nBuduje kampanię HTML z posta i zapisuje jako SZKIC w Listmonku - zawsze przeglądasz przed wysyłką."
+      }
+    },
+    {
+      "id": "sticky-crypto",
+      "name": "Warning: crypto module",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -130,
+        370
+      ],
+      "parameters": {
+        "color": 3,
+        "width": 260,
+        "height": 160,
+        "content": "## Wymagane ustawienie\nTen node Code potrzebuje `require('crypto')`. Self-hosted n8n: ustaw `NODE_FUNCTION_ALLOW_BUILTIN=crypto` w środowisku n8n i zrestartuj."
+      }
+    },
+    {
+      "id": "webhook-1",
+      "name": "PostStack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        400
+      ],
+      "parameters": {
+        "path": "poststack-post-to-newsletter",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "notes": "Paste this node's Production URL into PostStack → Webhooks → Outbound webhooks → Add endpoint.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "config-1",
+      "name": "Configuration (EDIT ME)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "postStackUrl",
+              "value": "https://your-poststack.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "apiKey",
+              "value": "rs_live_your-api-key",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "webhookSecret",
+              "value": "paste-the-endpoint-signing-secret",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "listmonkUrl",
+              "value": "https://your-listmonk.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "listmonkUser",
+              "value": "api-user-name",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "listmonkToken",
+              "value": "paste-the-api-user-token",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "listmonkListId",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "notes": "listmonkUser/listmonkToken = an API user from Listmonk -> Admin -> Settings -> Users."
+    },
+    {
+      "id": "verify-1",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst config = $('Configuration (EDIT ME)').first().json;\nconst item = $input.first();\n\nconst header = (item.json.headers && item.json.headers['x-poststack-signature']) || '';\nconst rawBody = item.binary && item.binary.data\n  ? Buffer.from(item.binary.data.data, 'base64').toString('utf8')\n  : JSON.stringify(item.json.body || {});\n\n// Header format (Stripe/Svix style): t=<unix>,v1=<hex>[,v1=<hex2 during secret rotation>]\nlet t = null;\nconst sigs = [];\nfor (const part of header.split(',')) {\n  const eq = part.indexOf('=');\n  if (eq === -1) continue;\n  const key = part.slice(0, eq).trim();\n  const value = part.slice(eq + 1).trim();\n  if (key === 't') t = value;\n  else if (key === 'v1') sigs.push(value);\n}\n\nlet valid = false;\nif (t && sigs.length && config.webhookSecret) {\n  const expected = crypto.createHmac('sha256', config.webhookSecret).update(`${t}.${rawBody}`).digest('hex');\n  const withinTolerance = Math.abs(Math.floor(Date.now() / 1000) - Number(t)) <= 300;\n  valid = withinTolerance && sigs.some((v1) =>\n    v1.length === expected.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1)));\n}\n\nreturn [{ json: { valid, body: JSON.parse(rawBody) } }];"
+      }
+    },
+    {
+      "id": "if-valid",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-401",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        560
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\":false,\"error\":\"invalid signature\"}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"ok\"}"
+      },
+      "notes": "Acknowledge before processing - PostStack retries deliveries that don't get a 2xx within 10s."
+    },
+    {
+      "id": "switch-pub",
+      "name": "Published Event?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "post.published",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "post.published"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "notes": "Other events are dropped - subscribe the endpoint to post.published only to keep deliveries lean."
+    },
+    {
+      "id": "prepare-1",
+      "name": "Prepare Post Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst event = $input.first().json.body;\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\n\n// post.published's data.id is the DELIVERY id - resolve it to the editorial post via the list below.\nreturn [{ json: {\n  url: `${baseUrl}/api/v1/posts?limit=100`,\n  deliveryId: event.data.id,\n  platform: event.data.platform || '',\n  publishedAt: event.created_at,\n} }];"
+      },
+      "notes": "post.published carries the delivery id, not the editorial post id - the next two nodes resolve it via the posts list."
+    },
+    {
+      "id": "http-post",
+      "name": "Get Recent Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "draft-1",
+      "name": "Build the Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const meta = $('Prepare Post Lookup').first().json;\nconst items = ($input.first().json.data || {}).items || [];\nconst post = items.find((p) => p.deliveryId === meta.deliveryId);\nif (!post) throw new Error(`No post found for delivery ${meta.deliveryId} in the last 100 posts`);\n\nconst text = String(post.description || '').trim();\nif (!text) throw new Error('Published post has no text to draft from');\nconst hashtags = String(post.hashtags || '').trim();\nconst firstLine = text.split('\\n')[0].slice(0, 80);\n\nconst paragraphs = text.split(/\\n{2,}/).map((p) => `<p>${p.replace(/\\n/g, '<br>')}</p>`).join('\\n');\nconst body = `${paragraphs}\\n${hashtags ? `<p><em>${hashtags}</em></p>` : ''}<hr><p><small>Drafted automatically from a post published on ${meta.platform} at ${meta.publishedAt}.</small></p>`;\n\nreturn [{ json: {\n  name: `Social repost: ${firstLine}`,\n  subject: firstLine,\n  body,\n} }];"
+      },
+      "notes": "The campaign template lives here - subject from the first line, body from the post text."
+    },
+    {
+      "id": "listmonk-1",
+      "name": "Create Draft Campaign in Listmonk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuration (EDIT ME)').item.json.listmonkUrl }}/api/campaigns",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'token ' + $('Configuration (EDIT ME)').item.json.listmonkUser + ':' + $('Configuration (EDIT ME)').item.json.listmonkToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.name, subject: $json.subject, lists: [Number($('Configuration (EDIT ME)').item.json.listmonkListId)], type: 'regular', content_type: 'html', body: $json.body }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "notes": "Creates a DRAFT - Listmonk never sends anything until you review and hit send."
+    }
+  ],
+  "connections": {
+    "PostStack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Configuration (EDIT ME)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (EDIT ME)": {
+      "main": [
+        [
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond OK": {
+      "main": [
+        [
+          {
+            "node": "Published Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Published Event?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Post Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Post Lookup": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the Draft": {
+      "main": [
+        [
+          {
+            "node": "Create Draft Campaign in Listmonk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Posts": {
+      "main": [
+        [
+          {
+            "node": "Build the Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "poststack"
+  }
+}

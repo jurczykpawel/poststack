@@ -1,0 +1,341 @@
+{
+  "name": "PostStack: Blog RSS → posty social media",
+  "nodes": [
+    {
+      "id": "sticky-overview",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -400
+      ],
+      "parameters": {
+        "color": 1,
+        "width": 720,
+        "height": 440,
+        "content": "## Publikuj nowe wpisy z bloga (RSS) w social mediach automatycznie, przez PostStacka\n\n### Jak to działa\nGdy Twój blog (albo dowolny feed RSS/Atom) opublikuje nowy artykuł, ten workflow buduje post z jego tytułu, zajawki i linku, a potem publikuje go przez [PostStacka](https://poststack.techskills.academy) - self-hostowaną platformę publikacji i automatyzacji social media - na każdy wskazany kanał: Facebook, Instagram, YouTube i inne, jednym API. Trigger feedu sam deduplikuje, więc każdy artykuł wychodzi dokładnie raz. Bez Buffera, bez podatku Zapiera - Twój blog promuje się sam, z Twojej infrastruktury.\n\n### Konfiguracja\n1. W PostStacku utwórz klucz API (**Settings → API keys**). Dostęp API to funkcja PostStack Pro.\n2. Skopiuj id kanałów, na które chcesz publikować, z **Channels** (albo `GET /api/v1/channels`).\n3. Uzupełnij **Configuration (EDIT ME)**: adres PostStacka, klucz API, id kanałów po przecinku i zapasowy URL obrazka (większość platform wymaga media; obrazek z feedu wygrywa, gdy jest).\n4. Wskaż w **New Feed Item** URL swojego feedu i aktywuj.\n\n### Możliwości modyfikacji\nEdytuj **Build Caption**, żeby zmienić format posta (domyślnie tytuł + zajawka + link). Chcesz zajawkę pisaną przez AI w Twoim brand voice? Wstaw node OpenAI między **Build Caption** a **Get Channels** - dokładny wzorzec znajdziesz w szablonie \"AI Social Media Manager\" PostStacka."
+      }
+    },
+    {
+      "id": "sticky-feed",
+      "name": "Section: Catch the Article",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 820,
+        "height": 220,
+        "content": "## Złapanie artykułu\nOdpala się raz na nowy element feedu i zamienia go w gotowy caption."
+      }
+    },
+    {
+      "id": "sticky-publish",
+      "name": "Section: Publish via PostStack",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1420,
+        "height": 220,
+        "content": "## Publikacja przez PostStacka\nRozwiązuje Twoje kanały, tworzy jeden post na kanał i publikuje każdy - wszystko przez REST API PostStacka."
+      }
+    },
+    {
+      "id": "trigger-1",
+      "name": "New Feed Item",
+      "type": "n8n-nodes-base.rssFeedReadTrigger",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        400
+      ],
+      "parameters": {
+        "feedUrl": "https://your-blog.example.com/rss.xml",
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour"
+            }
+          ]
+        }
+      },
+      "notes": "Point at your blog's RSS/Atom feed. The trigger remembers seen items - each article fires exactly once."
+    },
+    {
+      "id": "config-1",
+      "name": "Configuration (EDIT ME)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "postStackUrl",
+              "value": "https://your-poststack.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "apiKey",
+              "value": "rs_live_your-api-key",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channelIds",
+              "value": "channel-uuid-1, channel-uuid-2",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "imageUrl",
+              "value": "https://example.com/your-brand-card.png",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "notes": "channelIds: comma-separated ids from PostStack -> Channels. imageUrl: fallback image - most platforms require media on a post."
+    },
+    {
+      "id": "caption-1",
+      "name": "Build Caption",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const item = $('New Feed Item').first().json;\nconst config = $('Configuration (EDIT ME)').first().json;\n\nconst title = String(item.title || '').trim();\nif (!title) throw new Error('Feed item has no title');\nconst snippet = String(item.contentSnippet || '').trim().slice(0, 200);\nconst link = String(item.link || '').trim();\n\nconst caption = [title, snippet, link].filter(Boolean).join('\\n\\n');\n\n// Prefer the article's own image (enclosure / media tags), fall back to the configured brand card.\nconst enclosure = item.enclosure && item.enclosure.url ? item.enclosure.url : null;\nconst picture = enclosure || item['media:content'] || item['ht:picture'] || null;\n\nreturn [{ json: { caption, hashtags: '', picture } }];"
+      },
+      "notes": "Post format lives here: title + snippet + link. Trim or extend to taste."
+    },
+    {
+      "id": "channels-1",
+      "name": "Get Channels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration (EDIT ME)').item.json.postStackUrl }}/api/v1/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "plan-1",
+      "name": "Build Posts per Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst draft = $('Build Caption').first().json;\nconst channels = $input.first().json.data || [];\n\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\nconst wanted = String(config.channelIds || '').split(',').map((s) => s.trim()).filter(Boolean);\nif (!wanted.length) throw new Error('channelIds in Configuration is empty');\n\nconst byId = new Map(channels.map((c) => [c.id, c]));\nreturn wanted.map((id) => {\n  const channel = byId.get(id);\n  if (!channel) throw new Error(`Channel ${id} not found in PostStack - check channelIds`);\n  return { json: {\n    channelId: channel.id,\n    platform: channel.platform,\n    channelName: channel.display_name,\n    caption: draft.caption,\n    hashtags: draft.hashtags,\n    imageUrl: draft.picture || config.imageUrl,\n    createUrl: `${baseUrl}/api/v1/posts`,\n  } };\n});"
+      },
+      "notes": "One output item per target channel, with the platform resolved from the PostStack API."
+    },
+    {
+      "id": "create-1",
+      "name": "Create Post in PostStack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.createUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ platform: $json.platform, description: $json.caption, hashtags: $json.hashtags, mediaUrl: $json.imageUrl }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "prep-1",
+      "name": "Prepare Publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\n\nreturn $input.all().map((item, i) => {\n  const postId = item.json.data && item.json.data.id;\n  if (!postId) throw new Error('Post creation did not return an id');\n  const plan = $('Build Posts per Channel').all()[i].json;\n  return { json: {\n    publishUrl: `${baseUrl}/api/v1/posts/${postId}/publish`,\n    channelId: plan.channelId,\n    channelName: plan.channelName,\n  } };\n});"
+      },
+      "notes": "Pairs each created post with its target channel. URLs built here - n8n template validation dislikes multi-part expressions in URL fields."
+    },
+    {
+      "id": "publish-1",
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.publishUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channelId: $json.channelId, when: 'now' }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "notes": "Change when to an ISO timestamp to schedule instead of publishing immediately. Pair with the post-alerts workflow to get notified about the outcome."
+    }
+  ],
+  "connections": {
+    "New Feed Item": {
+      "main": [
+        [
+          {
+            "node": "Configuration (EDIT ME)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (EDIT ME)": {
+      "main": [
+        [
+          {
+            "node": "Build Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Caption": {
+      "main": [
+        [
+          {
+            "node": "Get Channels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Channels": {
+      "main": [
+        [
+          {
+            "node": "Build Posts per Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Posts per Channel": {
+      "main": [
+        [
+          {
+            "node": "Create Post in PostStack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Post in PostStack": {
+      "main": [
+        [
+          {
+            "node": "Prepare Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Publish": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "poststack"
+  }
+}

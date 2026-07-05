@@ -1,0 +1,538 @@
+{
+  "name": "PostStack: Komentarz→DM zbieranie emaili (alternatywa ManyChat)",
+  "nodes": [
+    {
+      "id": "sticky-overview",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -380
+      ],
+      "parameters": {
+        "color": 1,
+        "width": 700,
+        "height": 440,
+        "content": "## Zbieraj emaile z lejków komentarz→DM na Instagramie (darmowa alternatywa ManyChat)\n\n### Jak to działa\n\"Skomentuj GUIDE, a wyślę Ci w DM\" - lejek, za który ManyChat liczy od kontaktu. [PostStack](https://poststack.techskills.academy) - self-hostowana platforma automatyzacji social media - obsługuje całą pętlę natywnie: reguła odpowiada na komentarz, wysyła DM i prosi o email natywnym quick reply (jeden tap, Meta podstawia adres). Ten workflow to ostatnia mila: PostStack emituje podpisany webhook `contact.created`/`contact.updated`, n8n weryfikuje podpis HMAC, pobiera pełny kontakt z REST API i zapisuje każdy zebrany email do arkusza Google.\n\n### Konfiguracja\n1. W PostStacku utwórz regułę auto-odpowiedzi (**Rules**): trigger \"komentarz zawiera słowo kluczowe\" (np. GUIDE) pod Twoim postem, z publiczną odpowiedzią oraz DM-em zawierającym **quick reply Email** - gdy osoba go tapnie, PostStack zapisuje adres na kontakcie.\n2. Otwórz **Webhooks → Outbound webhooks**, kliknij **Add endpoint** z adresem Production URL tego workflowa i skopiuj signing secret. Webhooki wychodzące, dostęp API i quick replies to funkcje PostStack Pro.\n3. Utwórz klucz API (**Settings → API keys**) ze scope `contacts:read`.\n4. Uzupełnij **Configuration (EDIT ME)** i podłącz konto Google w **Save Lead to Google Sheets**; dodaj wiersz nagłówkowy: `Email, Name, Phone, Platform, Username, Captured at, Contact ID`.\n5. Czerwona notka przy **Verify Signature** opisuje jedno wymagane ustawienie środowiska n8n.\n\n### Możliwości modyfikacji\nPodmień node Google Sheets na Listmonk, Mailchimp albo dowolny CRM. Dołóż follow-gate PostStacka, żeby wymagać obserwacji przed wysłaniem DM-a."
+      }
+    },
+    {
+      "id": "sticky-receive",
+      "name": "Section: Receive & Verify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1120,
+        "height": 380,
+        "content": "## Odbiór i weryfikacja\nPrzyjmuje webhook PostStacka i sprawdza podpis HMAC, zanim zaufa danym."
+      }
+    },
+    {
+      "id": "sticky-filter",
+      "name": "Section: Acknowledge & Filter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 820,
+        "height": 220,
+        "content": "## Potwierdzenie i filtr\nOdpowiada od razu, potem przepuszcza tylko eventy `contact.created` / `contact.updated` i buduje zapytanie do API."
+      }
+    },
+    {
+      "id": "sticky-fetch",
+      "name": "Section: Fetch the Contact",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 520,
+        "height": 220,
+        "content": "## Pobranie kontaktu\nEvent niesie tylko id kontaktu - pełny rekord (email, imię, kanały) pobieramy z API PostStacka."
+      }
+    },
+    {
+      "id": "sticky-save",
+      "name": "Section: Save the Lead",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        180
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 320,
+        "height": 540,
+        "content": "## Zapis leada\nKontakty ze zebranym emailem są dopisywane lub aktualizowane w arkuszu (dopasowanie po emailu); reszta jest pomijana."
+      }
+    },
+    {
+      "id": "sticky-crypto",
+      "name": "Warning: crypto module",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -130,
+        370
+      ],
+      "parameters": {
+        "color": 3,
+        "width": 260,
+        "height": 160,
+        "content": "## Wymagane ustawienie\nTen node Code potrzebuje `require('crypto')`. Self-hosted n8n: ustaw `NODE_FUNCTION_ALLOW_BUILTIN=crypto` w środowisku n8n i zrestartuj."
+      }
+    },
+    {
+      "id": "webhook-1",
+      "name": "PostStack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        400
+      ],
+      "parameters": {
+        "path": "poststack-comment-dm-leads",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "notes": "Paste this node's Production URL into PostStack → Webhooks → Outbound webhooks → Add endpoint.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "config-1",
+      "name": "Configuration (EDIT ME)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "postStackUrl",
+              "value": "https://your-poststack.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "apiKey",
+              "value": "rs_live_your-api-key",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "webhookSecret",
+              "value": "paste-the-endpoint-signing-secret",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "googleSheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/your-sheet-id/edit",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "sheetTabName",
+              "value": "Leads",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "notes": "apiKey needs the contacts:read scope. webhookSecret is the endpoint's signing secret from PostStack → Webhooks → Outbound webhooks."
+    },
+    {
+      "id": "verify-1",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst config = $('Configuration (EDIT ME)').first().json;\nconst item = $input.first();\n\nconst header = (item.json.headers && item.json.headers['x-poststack-signature']) || '';\nconst rawBody = item.binary && item.binary.data\n  ? Buffer.from(item.binary.data.data, 'base64').toString('utf8')\n  : JSON.stringify(item.json.body || {});\n\n// Header format (Stripe/Svix style): t=<unix>,v1=<hex>[,v1=<hex2 during secret rotation>]\nlet t = null;\nconst sigs = [];\nfor (const part of header.split(',')) {\n  const eq = part.indexOf('=');\n  if (eq === -1) continue;\n  const key = part.slice(0, eq).trim();\n  const value = part.slice(eq + 1).trim();\n  if (key === 't') t = value;\n  else if (key === 'v1') sigs.push(value);\n}\n\nlet valid = false;\nif (t && sigs.length && config.webhookSecret) {\n  const expected = crypto.createHmac('sha256', config.webhookSecret).update(`${t}.${rawBody}`).digest('hex');\n  const withinTolerance = Math.abs(Math.floor(Date.now() / 1000) - Number(t)) <= 300;\n  valid = withinTolerance && sigs.some((v1) =>\n    v1.length === expected.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1)));\n}\n\nreturn [{ json: { valid, body: JSON.parse(rawBody) } }];"
+      }
+    },
+    {
+      "id": "if-valid",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-401",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        560
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\":false,\"error\":\"invalid signature\"}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"ok\"}"
+      },
+      "notes": "Acknowledge before processing - PostStack retries deliveries that don't get a 2xx within 10s."
+    },
+    {
+      "id": "switch-contact",
+      "name": "Contact Event?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "contact.",
+                    "operator": {
+                      "type": "string",
+                      "operation": "startsWith"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "contact.*"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "notes": "Matches contact.created and contact.updated. Other events (post.*, channel.*, source.*) are dropped."
+    },
+    {
+      "id": "prepare-1",
+      "name": "Prepare Contact Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst event = $input.first().json.body;\n\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\n\nreturn [{ json: {\n  url: `${baseUrl}/api/v1/contacts/${event.data.id}`,\n  contactId: event.data.id,\n  eventType: event.type,\n  occurredAt: event.created_at,\n} }];"
+      },
+      "notes": "The URL is assembled here because n8n template validation dislikes multi-part expressions in HTTP URL fields."
+    },
+    {
+      "id": "http-contact",
+      "name": "Get Contact from PostStack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "if-email",
+      "name": "Has Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1700,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.data.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "sheets-1",
+      "name": "Save Lead to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2000,
+        240
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Configuration (EDIT ME)').item.json.googleSheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('Configuration (EDIT ME)').item.json.sheetTabName }}"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Email": "={{ $json.data.email }}",
+            "Name": "={{ $json.data.display_name || '' }}",
+            "Phone": "={{ $json.data.phone || '' }}",
+            "Platform": "={{ $json.data.contact_channels && $json.data.contact_channels[0] ? $json.data.contact_channels[0].channel.platform : '' }}",
+            "Username": "={{ $json.data.contact_channels && $json.data.contact_channels[0] ? ($json.data.contact_channels[0].platform_username || '') : '' }}",
+            "Captured at": "={{ $('Prepare Contact Lookup').item.json.occurredAt }}",
+            "Contact ID": "={{ $json.data.id }}"
+          },
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "notes": "Upserts by Email so a contact.updated re-delivery updates the row instead of duplicating it."
+    },
+    {
+      "id": "noop-skip",
+      "name": "Skip (No Email)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        560
+      ],
+      "parameters": {},
+      "notes": "Contact exists but no email was captured yet - nothing to save. A later contact.updated will bring it in."
+    }
+  ],
+  "connections": {
+    "PostStack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Configuration (EDIT ME)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (EDIT ME)": {
+      "main": [
+        [
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond OK": {
+      "main": [
+        [
+          {
+            "node": "Contact Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact Event?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Contact Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Contact Lookup": {
+      "main": [
+        [
+          {
+            "node": "Get Contact from PostStack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Contact from PostStack": {
+      "main": [
+        [
+          {
+            "node": "Has Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Email?": {
+      "main": [
+        [
+          {
+            "node": "Save Lead to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip (No Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "poststack"
+  }
+}

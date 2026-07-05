@@ -1,0 +1,549 @@
+{
+  "name": "PostStack: Posty z obrazami AI z trendów",
+  "nodes": [
+    {
+      "id": "sticky-overview",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -400
+      ],
+      "parameters": {
+        "color": 1,
+        "width": 720,
+        "height": 460,
+        "content": "## Generuj posty z obrazami AI na bazie trendów i publikuj przez PostStacka\n\n### Jak to działa\nZgodnie z harmonogramem ten workflow wybiera trendujący temat z feedu RSS (domyślnie Google Trends), prosi OpenAI o caption plus prompt obrazu w stylu Twojej niszy (ścisły JSON), generuje obraz modelem graficznym OpenAI i publikuje gotowy post przez [PostStacka](https://poststack.techskills.academy) - self-hostowaną platformę publikacji social media - na każdy wskazany kanał (Instagram, Facebook i inne, jedno API). Świeży, wizualny content na czasie, zero ręcznej roboty.\n\n### Konfiguracja\n1. W PostStacku utwórz klucz API (**Settings → API keys**). Dostęp API to funkcja PostStack Pro.\n2. Skopiuj id kanałów z **Channels**.\n3. Uzupełnij **Configuration (EDIT ME)**: adres PostStacka, klucz API, id kanałów po przecinku, URL feedu tematów i brief stylu niszy (napędza caption i obraz).\n4. Podłącz konto OpenAI w **Write the Concept** i **Generate the Image** (generacja obrazów billowana przez OpenAI - BYOK).\n5. Dostosuj harmonogram **Daily Trigger** i aktywuj.\n\n### Możliwości modyfikacji\nDostrój `nicheStyle` dla spójnej identyfikacji wizualnej. Podmień feed na RSS Twojej branży. Wolisz inny model graficzny? Zastąp **Generate the Image** wywołaniem HTTP Replicate/Flux - jedyny kontrakt to publiczny URL obrazu podany do **Build Posts per Channel**."
+      }
+    },
+    {
+      "id": "sticky-topic",
+      "name": "Section: Pick a Topic",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1120,
+        "height": 220,
+        "content": "## Wybór tematu\nOdpala się z harmonogramu, czyta feed trendów i bierze temat dnia."
+      }
+    },
+    {
+      "id": "sticky-ai",
+      "name": "Section: Create with AI",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1120,
+        "height": 220,
+        "content": "## Tworzenie z AI\nOpenAI pisze caption + prompt obrazu, potem model graficzny renderuje wizual."
+      }
+    },
+    {
+      "id": "sticky-publish",
+      "name": "Section: Publish via PostStack",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1420,
+        "height": 220,
+        "content": "## Publikacja przez PostStacka\nRozwiązuje Twoje kanały, tworzy jeden post na kanał z wygenerowanym obrazem i publikuje każdy."
+      }
+    },
+    {
+      "id": "trigger-1",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -700,
+        400
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "notes": "Runs once a day at 09:00. Adjust to your posting rhythm."
+    },
+    {
+      "id": "config-1",
+      "name": "Configuration (EDIT ME)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "postStackUrl",
+              "value": "https://your-poststack.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "apiKey",
+              "value": "rs_live_your-api-key",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channelIds",
+              "value": "channel-uuid-1, channel-uuid-2",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "topicFeedUrl",
+              "value": "https://trends.google.com/trending/rss?geo=US",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "nicheStyle",
+              "value": "A tech-savvy small business audience. Clean, modern flat illustration style, bold colors, no text in the image.",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "imgbbApiKey",
+              "value": "your-free-imgbb-api-key",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "notes": "channelIds: comma-separated ids from PostStack -> Channels. imgbbApiKey: free key from api.imgbb.com - hosts the generated image so PostStack can ingest it (swap for S3/R2 if you prefer)."
+    },
+    {
+      "id": "rss-1",
+      "name": "Fetch Trending Topics",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -100,
+        400
+      ],
+      "parameters": {
+        "url": "={{ $('Configuration (EDIT ME)').item.json.topicFeedUrl }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "pick-1",
+      "name": "Pick a Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (!items.length) throw new Error('The topic feed returned no items');\nconst top = items[0].json;\n\n// Google Trends carries an item picture; other feeds may not - Build Posts falls back to config imageUrl.\nconst picture = top['ht:picture'] || top['media:content'] || null;\n\nreturn [{ json: {\n  topic: top.title,\n  context: (top.contentSnippet || top.content || '').slice(0, 500),\n  link: top.link || '',\n  picture,\n} }];"
+      },
+      "notes": "Takes the top feed item. Swap for a random pick or a loop over the top N."
+    },
+    {
+      "id": "ai-1",
+      "name": "Write the Concept",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        500,
+        400
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ 'You are a social media creative director for: ' + $('Configuration (EDIT ME)').item.json.nicheStyle + ' Reply with STRICT JSON only, no markdown fences: {\"caption\": \"post text, max 400 chars, no hashtags inside\", \"hashtags\": \"#three #relevant #tags\", \"imagePrompt\": \"a detailed prompt for an image generator, matching the style brief\"}' }}"
+            },
+            {
+              "content": "=Create a social media post concept about this trending topic: {{ $json.topic }}\n\nContext: {{ $json.context }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "Connect your OpenAI credentials here."
+    },
+    {
+      "id": "parse-1",
+      "name": "Parse the Concept",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const out = $input.first().json;\nlet text = (out.message && out.message.content) || out.output || out.text || (out.choices && out.choices[0] && out.choices[0].message.content) || '';\nif (typeof text !== 'string') text = JSON.stringify(text);\n\nlet parsed = {};\ntry {\n  const match = text.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(match ? match[0] : text);\n} catch (e) {\n  throw new Error('The model did not return valid JSON: ' + text.slice(0, 200));\n}\nconst caption = String(parsed.caption || '').trim();\nconst imagePrompt = String(parsed.imagePrompt || '').trim();\nif (!caption || !imagePrompt) throw new Error('Missing caption or imagePrompt in the model output');\n\nreturn [{ json: { caption, hashtags: String(parsed.hashtags || '').trim(), imagePrompt } }];"
+      }
+    },
+    {
+      "id": "img-1",
+      "name": "Generate the Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-image-1', prompt: $json.imagePrompt, size: '1024x1024', quality: 'medium' }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "notes": "Calls the OpenAI Images API directly (gpt-image-1 returns base64). Billed by OpenAI - BYOK."
+    },
+    {
+      "id": "host-1",
+      "name": "Host the Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.imgbb.com/1/upload",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $('Configuration (EDIT ME)').item.json.imgbbApiKey }}"
+            },
+            {
+              "name": "image",
+              "value": "={{ $json.data[0].b64_json }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "notes": "Free image hosting so PostStack has a public URL to ingest. Swap for your own S3/R2 upload if you prefer."
+    },
+    {
+      "id": "channels-1",
+      "name": "Get Channels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration (EDIT ME)').item.json.postStackUrl }}/api/v1/channels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "plan-1",
+      "name": "Build Posts per Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst draft = $('Parse the Concept').first().json;\nconst image = $('Host the Image').first().json;\nconst channels = $input.first().json.data || [];\n\nconst imageUrl = image.data && image.data.url;\nif (!imageUrl) throw new Error('Image generation returned no URL');\n\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\nconst wanted = String(config.channelIds || '').split(',').map((s) => s.trim()).filter(Boolean);\nif (!wanted.length) throw new Error('channelIds in Configuration is empty');\n\nconst byId = new Map(channels.map((c) => [c.id, c]));\nreturn wanted.map((id) => {\n  const channel = byId.get(id);\n  if (!channel) throw new Error(`Channel ${id} not found in PostStack - check channelIds`);\n  return { json: {\n    channelId: channel.id,\n    platform: channel.platform,\n    caption: draft.caption,\n    hashtags: draft.hashtags,\n    imageUrl,\n    createUrl: `${baseUrl}/api/v1/posts`,\n  } };\n});"
+      }
+    },
+    {
+      "id": "create-1",
+      "name": "Create Post in PostStack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2300,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.createUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ platform: $json.platform, description: $json.caption, hashtags: $json.hashtags, mediaUrl: $json.imageUrl }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "prep-1",
+      "name": "Prepare Publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\n\nreturn $input.all().map((item, i) => {\n  const postId = item.json.data && item.json.data.id;\n  if (!postId) throw new Error('Post creation did not return an id');\n  const plan = $('Build Posts per Channel').all()[i].json;\n  return { json: {\n    publishUrl: `${baseUrl}/api/v1/posts/${postId}/publish`,\n    channelId: plan.channelId,\n    channelName: plan.channelName,\n  } };\n});"
+      },
+      "notes": "Pairs each created post with its target channel. URLs built here - n8n template validation dislikes multi-part expressions in URL fields."
+    },
+    {
+      "id": "publish-1",
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2900,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.publishUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channelId: $json.channelId, when: 'now' }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "notes": "Change when to an ISO timestamp to schedule instead of publishing immediately. Pair with the post-alerts workflow to get notified about the outcome."
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Configuration (EDIT ME)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (EDIT ME)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Trending Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Trending Topics": {
+      "main": [
+        [
+          {
+            "node": "Pick a Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick a Topic": {
+      "main": [
+        [
+          {
+            "node": "Write the Concept",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Concept": {
+      "main": [
+        [
+          {
+            "node": "Parse the Concept",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse the Concept": {
+      "main": [
+        [
+          {
+            "node": "Generate the Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate the Image": {
+      "main": [
+        [
+          {
+            "node": "Host the Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Channels": {
+      "main": [
+        [
+          {
+            "node": "Build Posts per Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Posts per Channel": {
+      "main": [
+        [
+          {
+            "node": "Create Post in PostStack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Post in PostStack": {
+      "main": [
+        [
+          {
+            "node": "Prepare Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Publish": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Host the Image": {
+      "main": [
+        [
+          {
+            "node": "Get Channels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "poststack"
+  }
+}

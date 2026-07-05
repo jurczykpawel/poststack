@@ -1,0 +1,549 @@
+{
+  "name": "PostStack: DM Leads → Listmonk",
+  "nodes": [
+    {
+      "id": "sticky-overview",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -380
+      ],
+      "parameters": {
+        "color": 1,
+        "width": 700,
+        "height": 440,
+        "content": "## Save Instagram and Facebook DM leads to Listmonk\n\n### How it works\n[PostStack](https://poststack.techskills.academy) - a self-hosted social media automation platform (publishing, auto-replies, contact CRM) - can ask a contact for their email right inside an Instagram or Facebook DM (auto-reply rules with email capture). Whenever a contact is created or updated, PostStack POSTs a signed webhook. This workflow verifies the `X-PostStack-Signature` header, fetches the full contact from the PostStack REST API (the event only carries the contact's id), and - if an email was captured - subscribes the lead to a [Listmonk](https://listmonk.app) list with the platform and username stored as attributes. A fully self-hosted lead pipeline: no ManyChat, no Mailchimp.\n\n### Setup\n1. In PostStack open **Webhooks → Outbound webhooks**, click **Add endpoint** with this workflow's Production URL (the **PostStack Webhook** node) and copy the signing secret. Outbound webhooks and API access are PostStack Pro features.\n2. Create an API key in PostStack (**Settings → API keys**) with the `contacts:read` scope.\n3. In Listmonk create an API user (**Admin → Settings → Users**) and note the target list's id.\n4. Fill in **Configuration (EDIT ME)**: PostStack URL, API key, webhook secret, Listmonk URL, API user, token and list id.\n5. See the red note on **Verify Signature** for one required n8n environment setting.\n\n### Customization tips\nDouble opt-in stays on by default - flip `preconfirm_subscriptions` to `true` in **Add Subscriber to Listmonk** to skip the confirmation email. The `attribs` object (source, platform, username) is queryable in Listmonk for segmentation."
+      }
+    },
+    {
+      "id": "sticky-receive",
+      "name": "Section: Receive & Verify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1120,
+        "height": 380,
+        "content": "## Receive & Verify\nAccepts the PostStack webhook and checks its HMAC signature before trusting the payload."
+      }
+    },
+    {
+      "id": "sticky-filter",
+      "name": "Section: Acknowledge & Filter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 820,
+        "height": 220,
+        "content": "## Acknowledge & Filter\nResponds immediately, then keeps only `contact.created` / `contact.updated` events and builds the API lookup."
+      }
+    },
+    {
+      "id": "sticky-fetch",
+      "name": "Section: Fetch the Contact",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        340
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 520,
+        "height": 220,
+        "content": "## Fetch the Contact\nThe event only carries the contact's id - fetch the full record (email, name, channels) from the PostStack API."
+      }
+    },
+    {
+      "id": "sticky-save",
+      "name": "Section: Subscribe the Lead",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        180
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 320,
+        "height": 540,
+        "content": "## Subscribe the Lead\nContacts with a captured email are subscribed to your Listmonk list; 409 means already subscribed. The rest are skipped."
+      }
+    },
+    {
+      "id": "sticky-crypto",
+      "name": "Warning: crypto module",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -130,
+        370
+      ],
+      "parameters": {
+        "color": 3,
+        "width": 260,
+        "height": 160,
+        "content": "## Node setting required\nThis Code node needs `require('crypto')`. Self-hosted n8n: set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` in the n8n environment, then restart."
+      }
+    },
+    {
+      "id": "webhook-1",
+      "name": "PostStack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        400
+      ],
+      "parameters": {
+        "path": "poststack-dm-leads-listmonk",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "notes": "Paste this node's Production URL into PostStack → Webhooks → Outbound webhooks → Add endpoint.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "config-1",
+      "name": "Configuration (EDIT ME)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "postStackUrl",
+              "value": "https://your-poststack.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "apiKey",
+              "value": "rs_live_your-api-key",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "webhookSecret",
+              "value": "paste-the-endpoint-signing-secret",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "listmonkUrl",
+              "value": "https://your-listmonk.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "listmonkUser",
+              "value": "api-user-name",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "listmonkToken",
+              "value": "paste-the-api-user-token",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "listmonkListId",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "notes": "apiKey needs the contacts:read scope. listmonkUser/listmonkToken = an API user from Listmonk → Admin → Settings → Users."
+    },
+    {
+      "id": "verify-1",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst config = $('Configuration (EDIT ME)').first().json;\nconst item = $input.first();\n\nconst header = (item.json.headers && item.json.headers['x-poststack-signature']) || '';\nconst rawBody = item.binary && item.binary.data\n  ? Buffer.from(item.binary.data.data, 'base64').toString('utf8')\n  : JSON.stringify(item.json.body || {});\n\n// Header format (Stripe/Svix style): t=<unix>,v1=<hex>[,v1=<hex2 during secret rotation>]\nlet t = null;\nconst sigs = [];\nfor (const part of header.split(',')) {\n  const eq = part.indexOf('=');\n  if (eq === -1) continue;\n  const key = part.slice(0, eq).trim();\n  const value = part.slice(eq + 1).trim();\n  if (key === 't') t = value;\n  else if (key === 'v1') sigs.push(value);\n}\n\nlet valid = false;\nif (t && sigs.length && config.webhookSecret) {\n  const expected = crypto.createHmac('sha256', config.webhookSecret).update(`${t}.${rawBody}`).digest('hex');\n  const withinTolerance = Math.abs(Math.floor(Date.now() / 1000) - Number(t)) <= 300;\n  valid = withinTolerance && sigs.some((v1) =>\n    v1.length === expected.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1)));\n}\n\nreturn [{ json: { valid, body: JSON.parse(rawBody) } }];"
+      }
+    },
+    {
+      "id": "if-valid",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-401",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        560
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\":false,\"error\":\"invalid signature\"}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"ok\"}"
+      },
+      "notes": "Acknowledge before processing - PostStack retries deliveries that don't get a 2xx within 10s."
+    },
+    {
+      "id": "switch-contact",
+      "name": "Contact Event?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "contact.",
+                    "operator": {
+                      "type": "string",
+                      "operation": "startsWith"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "contact.*"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "notes": "Matches contact.created and contact.updated. Other events (post.*, channel.*, source.*) are dropped."
+    },
+    {
+      "id": "prepare-1",
+      "name": "Prepare Contact Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const config = $('Configuration (EDIT ME)').first().json;\nconst event = $input.first().json.body;\n\nconst baseUrl = String(config.postStackUrl || '').replace(/\\/+$/, '');\n\nreturn [{ json: {\n  url: `${baseUrl}/api/v1/contacts/${event.data.id}`,\n  contactId: event.data.id,\n  eventType: event.type,\n  occurredAt: event.created_at,\n} }];"
+      },
+      "notes": "The URL is assembled here because n8n template validation dislikes multi-part expressions in HTTP URL fields."
+    },
+    {
+      "id": "http-contact",
+      "name": "Get Contact from PostStack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Configuration (EDIT ME)').item.json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "if-email",
+      "name": "Has Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1700,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.data.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "listmonk-1",
+      "name": "Add Subscriber to Listmonk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuration (EDIT ME)').item.json.listmonkUrl }}/api/subscribers",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'token ' + $('Configuration (EDIT ME)').item.json.listmonkUser + ':' + $('Configuration (EDIT ME)').item.json.listmonkToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.data.email, name: $json.data.display_name || '', status: 'enabled', lists: [Number($('Configuration (EDIT ME)').item.json.listmonkListId)], preconfirm_subscriptions: false, attribs: { source: 'poststack-dm', platform: $json.data.contact_channels && $json.data.contact_channels[0] ? $json.data.contact_channels[0].channel.platform : '', username: $json.data.contact_channels && $json.data.contact_channels[0] ? ($json.data.contact_channels[0].platform_username || '') : '', contact_id: $json.data.id } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "notes": "fullResponse + neverError: statusCode 200 = subscribed, 409 = already on the list (safe to ignore). Set preconfirm_subscriptions to true to skip the double opt-in email."
+    },
+    {
+      "id": "noop-skip",
+      "name": "Skip (No Email)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        560
+      ],
+      "parameters": {},
+      "notes": "Contact exists but no email was captured yet - nothing to save. A later contact.updated will bring it in."
+    }
+  ],
+  "connections": {
+    "PostStack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Configuration (EDIT ME)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (EDIT ME)": {
+      "main": [
+        [
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond OK": {
+      "main": [
+        [
+          {
+            "node": "Contact Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact Event?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Contact Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Contact Lookup": {
+      "main": [
+        [
+          {
+            "node": "Get Contact from PostStack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Contact from PostStack": {
+      "main": [
+        [
+          {
+            "node": "Has Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Email?": {
+      "main": [
+        [
+          {
+            "node": "Add Subscriber to Listmonk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip (No Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "poststack"
+  }
+}
