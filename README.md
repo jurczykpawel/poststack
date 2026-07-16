@@ -654,6 +654,13 @@ git commit -m "feat: your feature"
 
 ---
 
+## Support
+
+PostStack's core is free and self-hosted. If it replaced a scheduler subscription for
+you — Meta changes its API at 2 a.m. and pizza helps keeping up:
+
+[![🍕 Buy me a pizza](https://img.shields.io/badge/🍕_Buy_me_a_pizza-FFDD00)](https://sellf.techskills.academy/checkout/tip-poststack?utm_source=github&utm_medium=readme&utm_campaign=tip-jar)
+
 ## License
 
 [Elastic License 2.0](LICENSE) — source-available.
