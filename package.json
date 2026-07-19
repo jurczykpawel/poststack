@@ -39,7 +39,7 @@
     "html-to-text": "^10.0.0",
     "jose": "6.2.3",
     "pg": "^8.22.0",
-    "sharp": "^0.35.2",
+    "sharp": "^0.35.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
