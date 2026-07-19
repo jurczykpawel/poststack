@@ -67,6 +67,10 @@ const envSchema = z.object({
   AI_API_KEY: z.string().default(""),
   AI_MODEL: z.string().default("gpt-4o-mini"),
   AI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  // Optional JSON array of backup providers ([{ apiKey, model, baseUrl? }]) tried in order when the
+  // primary fails for any reason. Free-form JSON string (parsed + validated in ai/client.ts, which
+  // ignores malformed entries) — not a URL, so kept as a plain string here.
+  AI_FALLBACKS: z.string().default(""),
   // Legacy aliases (deprecated — kept so env-based configs still validate at boot).
   OPENAI_API_KEY: z.string().default(""),
   AI_REPHRASE_MODEL: z.string().default("gpt-4o-mini"),

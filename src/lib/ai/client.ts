@@ -6,14 +6,68 @@ import { logGeneration } from "@/lib/ai/generation-log";
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
+/** A single OpenAI-compatible provider in the fallback chain. */
+export interface Provider {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
 /**
- * Whether an AI provider is configured (an API key is set — via Settings or the `AI_API_KEY` env).
- * The single source of truth for "can AI actually run": the UI disables AI actions and the API
- * reports `ai_configured` off this, mirroring what makes `chatComplete` return `null`. Model and
- * base-url have defaults, so only the key gates availability.
+ * Parse AI_FALLBACKS — a JSON array of `{ apiKey, model, baseUrl? }` — into providers. Malformed JSON,
+ * a non-array, or entries missing apiKey/model are skipped and never throw: a broken fallback config
+ * must never take down the primary provider. `baseUrl` defaults to OpenAI when omitted.
+ */
+export function parseFallbacks(raw: string): Provider[] {
+  if (!raw.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const providers: Provider[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const apiKey = typeof o.apiKey === "string" ? o.apiKey.trim() : "";
+    const model = typeof o.model === "string" ? o.model.trim() : "";
+    if (!apiKey || !model) continue;
+    const baseUrl = typeof o.baseUrl === "string" && o.baseUrl.trim() ? o.baseUrl.trim() : DEFAULT_BASE_URL;
+    providers.push({ apiKey, model, baseUrl });
+  }
+  return providers;
+}
+
+/**
+ * The ordered provider chain that {@link chatComplete} walks: the primary provider
+ * (AI_API_KEY / AI_BASE_URL / AI_MODEL) first, then every AI_FALLBACKS entry. The primary is included
+ * only when its key is set, so a fallback-only setup is valid too. This is what makes the whole
+ * feature — free→paid tiers, or resilience against a provider outage / rate-limit / bad response —
+ * a pure config change: each provider is tried in turn until one returns a usable completion.
+ */
+export async function buildProviderChain(): Promise<Provider[]> {
+  const [apiKey, baseUrl, model, fallbacks] = await Promise.all([
+    getConfig("AI_API_KEY"),
+    getConfig("AI_BASE_URL"),
+    getConfig("AI_MODEL"),
+    getConfig("AI_FALLBACKS"),
+  ]);
+  const chain: Provider[] = [];
+  if (apiKey) chain.push({ apiKey, baseUrl: baseUrl || DEFAULT_BASE_URL, model: model || DEFAULT_MODEL });
+  chain.push(...parseFallbacks(fallbacks));
+  return chain;
+}
+
+/**
+ * Whether an AI provider is configured — the chain has at least one provider (a primary key, or any
+ * AI_FALLBACKS entry). The single source of truth for "can AI actually run": the UI disables AI
+ * actions and the API reports `ai_configured` off this, mirroring what makes `chatComplete` return
+ * `null` (an empty chain).
  */
 export async function isAiConfigured(): Promise<boolean> {
-  return (await getConfig("AI_API_KEY")) !== "";
+  return (await buildProviderChain()).length > 0;
 }
 
 export interface ChatCompleteOptions {
@@ -66,25 +120,26 @@ function samplingParams(model: string, maxTokens: number, temperature: number): 
     : { max_tokens: maxTokens, temperature };
 }
 
-export async function chatComplete(opts: ChatCompleteOptions): Promise<string | null> {
-  const { workspaceId, kind, conversationId, system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
-
-  const apiKey = await getConfig("AI_API_KEY");
-  if (!apiKey) return null; // not configured — not a real attempt, nothing to log
-
-  const model = (await getConfig("AI_MODEL")) || DEFAULT_MODEL;
-  const baseUrl = (await getConfig("AI_BASE_URL")) || DEFAULT_BASE_URL;
-
-  const startedAt = Date.now();
-  let response: string | null = null;
-  let error: string | null = null;
+/**
+ * Run ONE provider attempt. Returns the completion text, or `null` with the failure reason — a non-2xx
+ * (any status), a thrown/timed-out request, or an empty/malformed completion all count as failures, so
+ * the caller can fall through to the next provider. Never throws.
+ */
+async function attemptCompletion(
+  provider: Provider,
+  system: string,
+  user: string,
+  maxTokens: number,
+  temperature: number,
+  timeoutMs: number,
+): Promise<{ response: string | null; error: string | null }> {
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
       body: JSON.stringify({
-        model,
-        ...samplingParams(model, maxTokens, temperature),
+        model: provider.model,
+        ...samplingParams(provider.model, maxTokens, temperature),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -93,19 +148,31 @@ export async function chatComplete(opts: ChatCompleteOptions): Promise<string | 
       redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
     });
-
-    if (!res.ok) {
-      error = `HTTP ${res.status}`;
-    } else {
-      const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-      const content = data.choices?.[0]?.message?.content?.trim();
-      if (content && content.length > 0) response = content;
-      else error = "empty completion";
-    }
+    if (!res.ok) return { response: null, error: `HTTP ${res.status}` };
+    const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = data.choices?.[0]?.message?.content?.trim();
+    if (content && content.length > 0) return { response: content, error: null };
+    return { response: null, error: "empty completion" };
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
+    return { response: null, error: err instanceof Error ? err.message : String(err) };
   }
+}
 
-  await logGeneration({ workspaceId, kind, model, system, user, response, error, durationMs: Date.now() - startedAt, conversationId });
-  return response;
+export async function chatComplete(opts: ChatCompleteOptions): Promise<string | null> {
+  const { workspaceId, kind, conversationId, system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
+
+  const chain = await buildProviderChain();
+  if (chain.length === 0) return null; // not configured — not a real attempt, nothing to log
+
+  // Walk the chain: the first provider to return a usable completion wins. EVERY attempt — success or
+  // failure — is logged (ADLOG1) with that provider's model + the exact failure reason, so a
+  // fallthrough is fully visible. Fall through on ANY failure (bad status, outage, timeout, empty
+  // completion), regardless of cause, so a reply keeps generating as long as one provider is healthy.
+  for (const provider of chain) {
+    const startedAt = Date.now();
+    const { response, error } = await attemptCompletion(provider, system, user, maxTokens, temperature, timeoutMs);
+    await logGeneration({ workspaceId, kind, model: provider.model, system, user, response, error, durationMs: Date.now() - startedAt, conversationId });
+    if (response) return response;
+  }
+  return null;
 }
