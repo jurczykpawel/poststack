@@ -22,6 +22,8 @@ export interface AttentionItem {
   tone: Tone;
   reason: string;
   action: Omit<AttentionAction, "variant">;
+  /** Where clicking the row lands — the entity's detail/management view. Undefined → row not linked. */
+  detailHref?: string;
 }
 export interface AttentionRow extends Omit<AttentionItem, "action"> {
   action: AttentionAction;
@@ -46,10 +48,11 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
   });
   for (const ch of chans) {
     const name = ch.display_name ?? ch.platform_id;
+    const detailHref = `/channels/${ch.id}`;
     if (ch.status === "needs_reauth") {
-      items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "warn", reason: ch.needs_reauth_reason ?? "Token needs reauthorization", action: { label: "Reconnect", href: reconnectHref(ch) } });
+      items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "warn", reason: ch.needs_reauth_reason ?? "Token needs reauthorization", action: { label: "Reconnect", href: reconnectHref(ch) }, detailHref });
     } else {
-      items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "neutral", reason: "Paused — not publishing", action: { label: "Resume", href: "/channels" } });
+      items.push({ kind: "channel", platform: ch.platform, metadata: ch.metadata, title: name, tone: "neutral", reason: "Paused — not publishing", action: { label: "Resume", href: "/channels" }, detailHref });
     }
   }
 
@@ -76,6 +79,7 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
       tone: bad ? "bad" : "warn",
       reason: bad ? (s.needs_reauth_reason ?? "Master token invalid") : "Data-access window closing",
       action: { label: "Reconnect master", href: "/sources" },
+      detailHref: "/sources",
     });
   }
 
@@ -101,7 +105,7 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
     .limit(MAX_ITEMS);
   for (const p of failed) {
     const detail = p.lastError ? p.lastError : `failed${p.attempts ? ` · attempt ${p.attempts}` : ""}`;
-    items.push({ kind: "post", platform: p.platform, metadata: p.metadata, title: p.name ?? p.account, tone: "bad", reason: detail, action: { label: "Retry", href: "/queue" } });
+    items.push({ kind: "post", platform: p.platform, metadata: p.metadata, title: p.name ?? p.account, tone: "bad", reason: detail, action: { label: "Retry", href: "/queue" }, detailHref: "/queue" });
   }
 
   items.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone]);

@@ -26,7 +26,7 @@ import { toastHeader } from "../ui/components/toast";
 import { timeAgo } from "../ui/components/time";
 import { proLink } from "../ui/components/pro-link";
 import { addJobTx } from "@/lib/queue/client";
-import { platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
+import { platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
 import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
@@ -2139,90 +2139,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <p class="muted">Auto-replies for DMs and comments. Leave keywords blank on a comment rule with a post to reply to every comment on that post.</p>
           <details class="card" style="margin:1rem 0">
             <summary style="cursor:pointer;font-weight:600">+ New rule</summary>
-            <form hx-post="/rules" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem"
-              x-data="{
-                quickReplies: [],
-                buttons: [],
-                requiresApproval: false,
-                aiRephrase: false,
-                triggerType: 'keyword',
-                responseMode: 'text',
-                ${raw(RULE_EDITOR_METHODS)}
-              }">
-              <div><label class="label">Name</label><input class="input" name="name" required /></div>
-              ${ruleChannelSelect(ruleChannels, null)}
-              <div><label class="label">Trigger</label>
-                <select class="input" name="trigger_type" x-model="triggerType">
-                  <option value="keyword">DM keyword</option>
-                  <option value="comment_keyword">Comment keyword</option>
-                  <option value="postback">Button tap (postback)</option>
-                  ${canReactionTrigger
-                    ? html`<option value="reaction">Message reaction</option>`
-                    : html`<option value="reaction" disabled>🔒 Message reaction (PRO)</option>`}
-                </select>
-              </div>
-              <div x-show="triggerType !== 'postback' && triggerType !== 'reaction'"><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" placeholder="hello, hi, info" /></div>
-              <div x-show="triggerType === 'reaction'"><p class="muted" style="font-size:.78rem">Fires when someone reacts to one of your messages — sends the reply below as a DM.</p></div>
-              <div x-show="triggerType === 'postback'"><label class="label">Button payload (must match the payload of the button you sent)</label><input class="input" name="payload" placeholder="CLAIM_LM" /></div>
-              <div x-show="triggerType === 'comment_keyword'"><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" placeholder="leave blank for any post" /></div>
-              <div x-show="triggerType === 'comment_keyword' && responseMode === 'text'"><label class="label">Reply via</label>
-                <select class="input" name="reply_mode">
-                  <option value="dm">DM only</option>
-                  <option value="comment">Public comment only</option>
-                  <option value="both">Both</option>
-                </select>
-              </div>
-
-              <div><label class="label">Response</label>
-                <select class="input" name="response_mode" x-model="responseMode">
-                  <option value="text">Text reply (with optional buttons / quick replies)</option>
-                  ${canFollowGate
-                    ? html`<option value="follow_gate">Follow-gate (unlock only after they follow)</option>`
-                    : html`<option value="follow_gate" disabled>🔒 Follow-gate (PRO)</option>`}
-                  ${canSequence
-                    ? html`<option value="sequence">Enroll in a drip sequence</option>`
-                    : html`<option value="sequence" disabled>🔒 Enroll in a drip sequence (PRO)</option>`}
-                </select>
-              </div>
-
-              ${sequenceResponseField(activeSequences, null)}
-
-              <!-- Follow-gate branches -->
-              <div x-show="responseMode === 'follow_gate'" class="stack">
-                <p class="muted" style="font-size:.75rem">Use with a Button-tap trigger. On each tap we check if they follow you, then send one of these. Instagram only.</p>
-                <div><label class="label">When they follow — final message (e.g. your resource link)</label><textarea class="textarea" name="followed_text" rows="2"></textarea></div>
-                <div><label class="label">When they don't follow yet — re-prompt message</label><textarea class="textarea" name="not_followed_text" rows="2" placeholder="Follow us first, then tap again 🙏"></textarea></div>
-                <div><label class="label">Re-prompt button label</label><input class="input" name="claim_label" maxlength="20" placeholder="Chcę odebrać" /></div>
-              </div>
-
-              <div x-show="responseMode === 'text'"><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2"></textarea>
-                <p class="muted" style="font-size:.72rem;margin-top:.25rem">${canPersonalize
-                  ? html`Personalization: <code>{imie}</code> = first name, <code>{name}</code> = full name.`
-                  : html`Personalization (<code>{imie}</code>/<code>{name}</code>) — ${proLink(upgradeUrl)}`}</p>
-              </div>
-              <label x-show="responseMode === 'text'" class="row-center" style="font-size:.875rem;cursor:pointer">
-                ${canAiRephrase
-                  ? html`<input type="checkbox" x-model="aiRephrase" />
-                      <span>Rephrase with AI for variety <small class="muted">— sends a reworded version each time (needs an AI provider in Settings)</small></span>`
-                  : html`<input type="checkbox" disabled />
-                      <span class="muted">🔒 Rephrase with AI for variety — ${proLink(upgradeUrl)}</span>`}
-              </label>
-              ${canAiRephrase ? rephrasePromptFields(null, null, aiConfigured) : ""}
-              <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" /></div>
-
-              ${interactiveRuleFields(canInteractive, upgradeUrl)}
-
-              <label class="row-center" style="font-size:.875rem;cursor:pointer">
-                <input type="checkbox" x-model="requiresApproval" />
-                Hold for human approval before sending (review in Approvals)
-              </label>
-
-              <input type="hidden" name="quick_replies_json" :value="qrJson()" />
-              <input type="hidden" name="buttons_json" :value="btnJson()" />
-              <input type="hidden" name="ai_rephrase" :value="aiRephrase" />
-              <input type="hidden" name="requires_approval" :value="requiresApproval" />
-              <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create rule</button>
-            </form>
+            ${ruleCreateForm(
+              { canFollowGate, canInteractive, canPersonalize, canReactionTrigger, canSequence, canAiRephrase, aiConfigured, upgradeUrl },
+              ruleChannels,
+              activeSequences,
+              null,
+              false,
+            )}
           </details>
           <div id="rules-list">${renderRules(await loadRules(a.workspaceId))}</div>
         </div>`,
@@ -2348,6 +2271,32 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const channels = await loadInboxChannels(a.workspaceId);
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
     return c.html(renderRuleEditForm(r, features.has("interactive_messages"), upgradeUrl, channels, activeSequences, features.has("ai_rephrase"), await isAiConfigured()));
+  });
+
+  // Duplicate = the Create form pre-filled with the source rule's settings, swapped into #rules-list.
+  // It POSTs to /rules (create), so nothing is saved until Submit and the source rule is untouched.
+  app.get("/rules/:id/duplicate", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
+    if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
+    const { features, upgradeUrl } = await getInstanceLicense();
+    const channels = await loadInboxChannels(a.workspaceId);
+    const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
+    const caps: RuleCaps = {
+      canFollowGate: features.has("follow_gate"),
+      canInteractive: features.has("interactive_messages"),
+      canPersonalize: features.has("personalization"),
+      canReactionTrigger: features.has("reaction_trigger"),
+      canSequence: features.has("sequences"),
+      canAiRephrase: features.has("ai_rephrase"),
+      aiConfigured: await isAiConfigured(),
+      upgradeUrl,
+    };
+    return c.html(html`<section class="panel" style="margin-bottom:1rem">
+      <div class="panel-head"><h3>Duplicate rule</h3><span class="panel-sub">${r.trigger_type} → ${r.response_type}</span></div>
+      ${ruleCreateForm(caps, channels, activeSequences, r, true)}
+    </section>`);
   });
 
   app.post("/rules/:id", guard, async (c) => {
@@ -3365,13 +3314,20 @@ function renderPublishingOverview(pub: OverviewPublishing): Html {
   const attention = pub.attention.length
     ? html`<section class="panel" style="margin:1rem 0">
         <div class="panel-head"><h3>Needs attention</h3><span class="panel-count">${pub.attention.length}</span></div>
-        ${pub.attention.map(
-          (a) => html`<div class="attn-row">
+        ${pub.attention.map((a) => {
+          // Title body (name · reason). Linked to the entity's detail view when we know where it
+          // lives, so the whole row is a click-through — otherwise a plain span (no dead link).
+          const body = html`${a.title} <span style="color:var(--text-3);font-weight:400">· ${a.reason}</span>`;
+          const title = a.detailHref
+            ? html`<a class="attn-title attn-link" href="${a.detailHref}" title="${a.reason}">${body}</a>`
+            : html`<span class="attn-title" title="${a.reason}">${body}</span>`;
+          return html`<div class="attn-row">
             ${dot(a.tone)}
-            <span class="attn-title" title="${a.reason}">${a.title} <span style="color:var(--text-3);font-weight:400">· ${a.reason}</span></span>
+            ${a.platform ? html`<span class="attn-plat">${platformCell(a.platform, a.metadata)}</span>` : ""}
+            ${title}
             <span class="attn-acts"><a class="btn btn-sm ${a.action.variant === "primary" ? "btn-primary" : "btn-secondary"}" href="${a.action.href}">${a.action.label}</a></span>
-          </div>`,
-        )}
+          </div>`;
+        })}
       </section>`
     : html`<section class="panel" style="margin:1rem 0"><div class="panel-head"><h3>Needs attention</h3></div><div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">All healthy</p><p class="empty-body">No channels, sources or deliveries need a fix.</p></div></section>`;
   const upcoming = html`<section class="panel">
@@ -3562,6 +3518,7 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: s
         <td>${r.is_active ? html`<span class="badge tone-ok">Active</span>` : html`<span class="badge tone-neutral">Paused</span>`}</td>
         <td class="th-act"><div class="wh-actions" style="justify-content:flex-end">
           <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
+          <button class="btn btn-sm" hx-get="/rules/${r.id}/duplicate" hx-target="#rules-list" hx-swap="innerHTML">Duplicate</button>
           <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
           <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
         </div></td>
@@ -3753,6 +3710,146 @@ function renderRuleEditForm(
       </div>
     </form>
   </section>`;
+}
+
+type RuleCaps = {
+  canFollowGate: boolean;
+  canInteractive: boolean;
+  canPersonalize: boolean;
+  canReactionTrigger: boolean;
+  canSequence: boolean;
+  canAiRephrase: boolean;
+  aiConfigured: boolean;
+  upgradeUrl: string;
+};
+
+/** The full rule editor form — the same one behind "+ New rule", but with every field
+ *  pre-fillable. `prefill` is the source rule (for Duplicate); pass `null` for a blank form.
+ *  The form always POSTs to `/rules` (create): Duplicate is "create, pre-filled", not an edit —
+ *  nothing is saved until Submit and the source rule is never touched. `cancel` adds a Cancel
+ *  button (Duplicate swaps #rules-list in place, so it needs an escape hatch back to the list). */
+function ruleCreateForm(
+  caps: RuleCaps,
+  channels: InboxChannel[],
+  activeSequences: Array<{ id: string; name: string; _count: { enrollments: number } }>,
+  prefill: NonNullable<Awaited<ReturnType<typeof loadRuleForEdit>>> | null,
+  cancel: boolean,
+): Html {
+  const p = prefill;
+  const tc = p ? ((p.trigger_config ?? {}) as Record<string, unknown>) : {};
+  const rc = p ? ((p.response_config ?? {}) as Record<string, unknown>) : {};
+  const triggerType = p?.trigger_type ?? "keyword";
+  const responseMode = p?.response_type ?? "text";
+  const keywords = Array.isArray(tc.keywords)
+    ? (tc.keywords as Array<string | { value?: string }>).map((k) => (typeof k === "string" ? k : k.value ?? "")).filter(Boolean).join(", ")
+    : "";
+  const postId = typeof tc.post_id === "string" ? tc.post_id : "";
+  const payload = typeof tc.payload === "string" ? tc.payload : "";
+  const text = typeof rc.text === "string" ? rc.text : "";
+  const replyMode = typeof rc.reply_mode === "string" ? rc.reply_mode : "dm";
+  const commentReply = typeof rc.comment_reply_text === "string" ? rc.comment_reply_text : "";
+  const followedText = typeof (rc.followed as { text?: string } | undefined)?.text === "string" ? (rc.followed as { text?: string }).text! : "";
+  const nf = rc.not_followed as { text?: string; buttons?: Array<{ title?: string }> } | undefined;
+  const notFollowedText = typeof nf?.text === "string" ? nf.text : "";
+  const claimLabel = nf?.buttons?.[0]?.title ?? "";
+  const selectedSequence = typeof rc.sequence_id === "string" ? rc.sequence_id : null;
+  const aiRephrase = rc.ai_rephrase === true;
+  const requiresApproval = p?.requires_approval === true;
+  const name = p ? `${p.name} (copy)` : "";
+  const channelId = p?.channel_id ?? null;
+  const { quickReplies, buttons } = p ? buttonsToEditor(rc) : { quickReplies: [], buttons: [] };
+
+  const tSel = (v: string) => (v === triggerType ? raw(" selected") : raw(""));
+  const rSel = (v: string) => (v === responseMode ? raw(" selected") : raw(""));
+  const rmSel = (v: string) => (v === replyMode ? raw(" selected") : raw(""));
+
+  return html`<form hx-post="/rules" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="margin-top:.75rem"
+      x-data="{
+        quickReplies: ${JSON.stringify(quickReplies)},
+        buttons: ${JSON.stringify(buttons)},
+        requiresApproval: ${requiresApproval ? raw("true") : raw("false")},
+        aiRephrase: ${aiRephrase ? raw("true") : raw("false")},
+        triggerType: '${triggerType}',
+        responseMode: '${responseMode}',
+        ${raw(RULE_EDITOR_METHODS)}
+      }">
+      <div><label class="label">Name</label><input class="input" name="name" value="${name}" required /></div>
+      ${ruleChannelSelect(channels, channelId)}
+      <div><label class="label">Trigger</label>
+        <select class="input" name="trigger_type" x-model="triggerType">
+          <option value="keyword"${tSel("keyword")}>DM keyword</option>
+          <option value="comment_keyword"${tSel("comment_keyword")}>Comment keyword</option>
+          <option value="postback"${tSel("postback")}>Button tap (postback)</option>
+          ${caps.canReactionTrigger
+            ? html`<option value="reaction"${tSel("reaction")}>Message reaction</option>`
+            : html`<option value="reaction" disabled>🔒 Message reaction (PRO)</option>`}
+        </select>
+      </div>
+      <div x-show="triggerType !== 'postback' && triggerType !== 'reaction'"><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" value="${keywords}" placeholder="hello, hi, info" /></div>
+      <div x-show="triggerType === 'reaction'"><p class="muted" style="font-size:.78rem">Fires when someone reacts to one of your messages — sends the reply below as a DM.</p></div>
+      <div x-show="triggerType === 'postback'"><label class="label">Button payload (must match the payload of the button you sent)</label><input class="input" name="payload" value="${payload}" placeholder="CLAIM_LM" /></div>
+      <div x-show="triggerType === 'comment_keyword'"><label class="label">Post ID (blank = any post)</label><input class="input" name="post_id" value="${postId}" placeholder="leave blank for any post" /></div>
+      <div x-show="triggerType === 'comment_keyword' && responseMode === 'text'"><label class="label">Reply via</label>
+        <select class="input" name="reply_mode">
+          <option value="dm"${rmSel("dm")}>DM only</option>
+          <option value="comment"${rmSel("comment")}>Public comment only</option>
+          <option value="both"${rmSel("both")}>Both</option>
+        </select>
+      </div>
+
+      <div><label class="label">Response</label>
+        <select class="input" name="response_mode" x-model="responseMode">
+          <option value="text"${rSel("text")}>Text reply (with optional buttons / quick replies)</option>
+          ${caps.canFollowGate
+            ? html`<option value="follow_gate"${rSel("follow_gate")}>Follow-gate (unlock only after they follow)</option>`
+            : html`<option value="follow_gate" disabled>🔒 Follow-gate (PRO)</option>`}
+          ${caps.canSequence
+            ? html`<option value="sequence"${rSel("sequence")}>Enroll in a drip sequence</option>`
+            : html`<option value="sequence" disabled>🔒 Enroll in a drip sequence (PRO)</option>`}
+        </select>
+      </div>
+
+      ${sequenceResponseField(activeSequences, selectedSequence)}
+
+      <!-- Follow-gate branches -->
+      <div x-show="responseMode === 'follow_gate'" class="stack">
+        <p class="muted" style="font-size:.75rem">Use with a Button-tap trigger. On each tap we check if they follow you, then send one of these. Instagram only.</p>
+        <div><label class="label">When they follow — final message (e.g. your resource link)</label><textarea class="textarea" name="followed_text" rows="2">${followedText}</textarea></div>
+        <div><label class="label">When they don't follow yet — re-prompt message</label><textarea class="textarea" name="not_followed_text" rows="2" placeholder="Follow us first, then tap again 🙏">${notFollowedText}</textarea></div>
+        <div><label class="label">Re-prompt button label</label><input class="input" name="claim_label" maxlength="20" value="${claimLabel}" placeholder="Chcę odebrać" /></div>
+      </div>
+
+      <div x-show="responseMode === 'text'"><label class="label">Reply text (DM / fallback)</label><textarea class="textarea" name="text" rows="2">${text}</textarea>
+        <p class="muted" style="font-size:.72rem;margin-top:.25rem">${caps.canPersonalize
+          ? html`Personalization: <code>{imie}</code> = first name, <code>{name}</code> = full name.`
+          : html`Personalization (<code>{imie}</code>/<code>{name}</code>) — ${proLink(caps.upgradeUrl)}`}</p>
+      </div>
+      <label x-show="responseMode === 'text'" class="row-center" style="font-size:.875rem;cursor:pointer">
+        ${caps.canAiRephrase
+          ? html`<input type="checkbox" x-model="aiRephrase" />
+              <span>Rephrase with AI for variety <small class="muted">— sends a reworded version each time (needs an AI provider in Settings)</small></span>`
+          : html`<input type="checkbox" disabled />
+              <span class="muted">🔒 Rephrase with AI for variety — ${proLink(caps.upgradeUrl)}</span>`}
+      </label>
+      ${caps.canAiRephrase ? rephrasePromptFields(typeof rc.tone === "string" ? rc.tone : null, typeof rc.custom_prompt === "string" ? rc.custom_prompt : null, caps.aiConfigured) : ""}
+      <div x-show="responseMode === 'text' && triggerType === 'comment_keyword'"><label class="label">Public comment reply text (optional)</label><input class="input" name="comment_reply_text" value="${commentReply}" /></div>
+
+      ${interactiveRuleFields(caps.canInteractive, caps.upgradeUrl)}
+
+      <label class="row-center" style="font-size:.875rem;cursor:pointer">
+        <input type="checkbox" x-model="requiresApproval" />
+        Hold for human approval before sending (review in Approvals)
+      </label>
+
+      <input type="hidden" name="quick_replies_json" :value="qrJson()" />
+      <input type="hidden" name="buttons_json" :value="btnJson()" />
+      <input type="hidden" name="ai_rephrase" :value="aiRephrase" />
+      <input type="hidden" name="requires_approval" :value="requiresApproval" />
+      <div class="row" style="gap:.5rem;align-self:flex-start">
+        <button class="btn btn-primary" type="submit">Create rule</button>
+        ${cancel ? html`<button class="btn btn-sm" type="button" hx-get="/rules/list" hx-target="#rules-list" hx-swap="innerHTML">Cancel</button>` : html``}
+      </div>
+    </form>`;
 }
 
 function loadApprovals(workspaceId: string) {

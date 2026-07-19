@@ -90,6 +90,17 @@ describe("dashboard-data gatherAttention", () => {
     expect(rows.find((r) => r.title === "FB Page")?.action.href).toBe("/api/oauth/facebook");
     expect(rows.find((r) => r.title === "IG Derived")?.action.href).toBe("/sources");
   });
+
+  it("links each channel row to its detail view and carries the platform for the icon", async () => {
+    if (!TEST_DB) return;
+    const id = await channel(WS_A, "needs_reauth");
+    const rows = await dd.gatherAttention(WS_A);
+    const row = rows.find((r) => r.title === "Chan");
+    // The whole row is a click-through to the channel's detail/management page…
+    expect(row?.detailHref).toBe(`/channels/${id}`);
+    // …and the platform is exposed so the renderer can show the brand icon + label.
+    expect(row?.platform).toBe("instagram");
+  });
 });
 
 describe("dashboard-data upcomingScheduled + recentEvents", () => {

@@ -59,7 +59,7 @@ afterAll(async () => {
   if (closeQueue) await closeQueue();
 });
 
-async function channel(platform: "facebook" | "instagram" | "telegram", token: string, status: "active" = "active") {
+async function channel(platform: "facebook" | "instagram" | "telegram", token: string, status: "active" | "needs_reauth" = "active") {
   const [row] = await db
     .insert(s.channels)
     .values({
@@ -110,5 +110,32 @@ describe("sweepChannelHealth (real Postgres)", () => {
     expect(r.checked).toBe(0);
     expect(r.flagged).toBe(0);
     expect(await statusOf(tg)).toBe("active");
+  });
+
+  it("self-heals a needs_reauth channel when debug_token re-confirms the token is valid", async () => {
+    if (!TEST_DB) return;
+    verdicts["FLAP"] = { is_valid: true }; // a healthy token that was latched by a transient blip
+    const ch = await channel("facebook", "FLAP", "needs_reauth");
+    const r = await sweep.sweepChannelHealth();
+    expect(r.recovered).toBe(1);
+    expect(await statusOf(ch)).toBe("active");
+  });
+
+  it("leaves a needs_reauth channel down when the token is still confirmed bad (no re-alert)", async () => {
+    if (!TEST_DB) return;
+    verdicts["DEAD"] = { is_valid: false };
+    const ch = await channel("instagram", "DEAD", "needs_reauth");
+    const r = await sweep.sweepChannelHealth();
+    expect(r.recovered).toBe(0);
+    expect(r.flagged).toBe(0); // already needs_reauth — not counted/re-flagged
+    expect(await statusOf(ch)).toBe("needs_reauth");
+  });
+
+  it("does NOT recover a needs_reauth channel on an inconclusive (transient/404) check", async () => {
+    if (!TEST_DB) return;
+    const ch = await channel("facebook", "NOVERDICT", "needs_reauth"); // 404 → null inspection
+    const r = await sweep.sweepChannelHealth();
+    expect(r.recovered).toBe(0);
+    expect(await statusOf(ch)).toBe("needs_reauth");
   });
 });

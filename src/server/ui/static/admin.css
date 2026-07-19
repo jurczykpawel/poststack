@@ -348,6 +348,10 @@
   .attn-row:first-child { border-top: 0; }
   .attn-title { font-weight: 600; color: var(--text-1); min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  a.attn-link { text-decoration: none; }
+  a.attn-link:hover { text-decoration: underline; }
+  .attn-plat { flex: 0 0 auto; display: inline-flex; align-items: center; }
+  .attn-plat .platform { font-size: 12px; font-weight: 500; color: var(--text-2); }
   .attn-acts { margin-left: auto; display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
 
   /* ---- Two-column feed grid (upcoming + activity) ---- */
