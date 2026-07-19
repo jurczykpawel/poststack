@@ -15,8 +15,9 @@ const originalFetch = globalThis.fetch;
 let lastUrl = "";
 let lastBody: {
   model: string;
-  max_tokens: number;
-  temperature: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  temperature?: number;
   messages: Array<{ role: string; content: string }>;
 } | null = null;
 
@@ -101,6 +102,27 @@ describe("chatComplete — shared LLM client", () => {
     ]);
   });
 
+  it("uses max_completion_tokens and omits temperature for GPT-5 / o-series reasoning models", async () => {
+    process.env.AI_MODEL = "gpt-5.6-terra";
+    const chatComplete = await loadChatComplete();
+    mockFetchOk("ok");
+    await chatComplete({ workspaceId: "WS-1", kind: "draft", system: "s", user: "u", maxTokens: 200, temperature: 0.7 });
+    expect(lastBody!.model).toBe("gpt-5.6-terra");
+    expect(lastBody!.max_completion_tokens).toBe(200);
+    expect(lastBody!.max_tokens).toBeUndefined(); // GPT-5 rejects max_tokens
+    expect(lastBody!.temperature).toBeUndefined(); // GPT-5 only accepts the default (1) → omit it
+  });
+
+  it("keeps classic max_tokens + temperature for non-reasoning models (gpt-4o, Groq, …)", async () => {
+    process.env.AI_MODEL = "gpt-4o";
+    const chatComplete = await loadChatComplete();
+    mockFetchOk("ok");
+    await chatComplete({ workspaceId: "WS-1", kind: "draft", system: "s", user: "u", maxTokens: 200, temperature: 0.7 });
+    expect(lastBody!.max_tokens).toBe(200);
+    expect(lastBody!.temperature).toBe(0.7);
+    expect(lastBody!.max_completion_tokens).toBeUndefined();
+  });
+
   it("honors AI_MODEL and AI_BASE_URL overrides", async () => {
     process.env.AI_MODEL = "llama-3.3-70b-versatile";
     process.env.AI_BASE_URL = "https://api.groq.com/openai/v1";
@@ -165,5 +187,17 @@ describe("chatComplete — ADLOG1 generation logging", () => {
     mockFetchOk("ok");
     await chatComplete({ workspaceId: "WS-log", kind: "draft", system: "sys", user: "usr" });
     expect(logGeneration.mock.calls[0][0]).toMatchObject({ conversationId: undefined });
+  });
+});
+
+describe("isReasoningModel — model-family detection", () => {
+  it("matches GPT-5 and o-series (incl. provider-prefixed), not gpt-4o or other providers", async () => {
+    const { isReasoningModel } = await import("./client");
+    for (const m of ["gpt-5", "gpt-5.6-terra", "gpt-5.4-nano", "o1", "o3-mini", "openai/gpt-5.6-terra"]) {
+      expect(isReasoningModel(m)).toBe(true);
+    }
+    for (const m of ["gpt-4o", "gpt-4o-mini", "llama-3.3-70b-versatile", "anthropic/claude-3.5-haiku"]) {
+      expect(isReasoningModel(m)).toBe(false);
+    }
   });
 });

@@ -47,6 +47,25 @@ export interface ChatCompleteOptions {
  * sent, exact response or failure reason, model, duration — regardless of outcome, so a "why did the
  * model say that" question never requires re-reading code to answer.
  */
+/**
+ * OpenAI's GPT-5 and o-series ("reasoning") models renamed `max_tokens` → `max_completion_tokens`
+ * and reject any non-default `temperature` (only 1 is allowed). Detect them by name so they work
+ * through this shared OpenAI-compatible client, while every other model — gpt-4o, plus non-OpenAI
+ * providers reached via AI_BASE_URL (Groq / Ollama / OpenRouter / a Claude proxy) — keeps the classic
+ * `max_tokens` + `temperature` shape it already accepts. Matches an optional `provider/` prefix so an
+ * OpenRouter id like `openai/gpt-5.6-terra` is caught too.
+ */
+export function isReasoningModel(model: string): boolean {
+  return /(^|\/)(o[1-9]|gpt-5)/.test(model);
+}
+
+/** The token-limit + temperature params for a model, in the shape that model's API accepts. */
+function samplingParams(model: string, maxTokens: number, temperature: number): Record<string, number> {
+  return isReasoningModel(model)
+    ? { max_completion_tokens: maxTokens } // temperature omitted → provider default (1), the only value these accept
+    : { max_tokens: maxTokens, temperature };
+}
+
 export async function chatComplete(opts: ChatCompleteOptions): Promise<string | null> {
   const { workspaceId, kind, conversationId, system, user, maxTokens = 300, temperature = 0.8, timeoutMs = 10_000 } = opts;
 
@@ -65,8 +84,7 @@ export async function chatComplete(opts: ChatCompleteOptions): Promise<string | 
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model,
-        max_tokens: maxTokens,
-        temperature,
+        ...samplingParams(model, maxTokens, temperature),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
