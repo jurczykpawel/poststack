@@ -11,6 +11,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [0.11.0] - 2026-07-19
 
+### Added
+- **Duplicate an auto-reply rule.** Each rule in the list has a **Duplicate** action that opens the Create form pre-filled with the source rule's settings (name suffixed " (copy)", trigger, keywords, response text, buttons, quick replies, approval flag). It POSTs as a brand-new rule on submit — the original is never touched — so a proven rule can be cloned and tweaked instead of rebuilt from scratch.
+
 ### Fixed
 - **The hourly Meta health sweep no longer latches a channel to `needs_reauth` on a transient blip.** It used to only ever *trip* the breaker: a single transient `is_valid:false` from Meta's `debug_token` flagged a channel `needs_reauth` with no confirmation — and since `needs_reauth` channels were excluded from the sweep and derived Facebook/Instagram channels have no OAuth refresh path, a perfectly valid channel could never recover on its own. The sweep now reconciles in **both** directions, mirroring the on-demand health check: it still trips a healthy channel on a confirmed-bad token, and **self-heals** a `needs_reauth` channel the moment `debug_token` re-confirms the same stored token is valid. Recovery fires only on a positive re-confirmation, never on a transient/inconclusive check, so an unattended loop never flaps. `sweepChannelHealth` now also reports `recovered`.
 

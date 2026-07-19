@@ -412,6 +412,62 @@ describe("dashboard rule builder", () => {
     expect(body).toContain("Grab the deal here"); // reply text preview
     expect(body).toContain("https://sellf.example/p/deal"); // button link
   });
+
+  it("duplicate opens a pre-filled Create form (no save until submit, source untouched)", async () => {
+    if (!TEST_DB) return;
+    const [seeded] = await db.insert(s.autoReplyRules).values({
+      workspace_id: WS, name: "Original rule", trigger_type: "comment_keyword", is_active: true, cooldown_seconds: 0,
+      trigger_config: { keywords: [{ value: "info", match_type: "contains" }] },
+      response_type: "text",
+      response_config: {
+        text: "Here you go!", reply_mode: "both",
+        buttons: [{ title: "Get the kit", url: "https://sellf.example/p/kit" }],
+        quick_replies: [{ content_type: "user_email" }],
+      },
+      requires_approval: true,
+    }).returning({ id: s.autoReplyRules.id });
+
+    // The list offers a Duplicate button per rule.
+    const list = await (await app.request("/rules", { headers: { cookie } })).text();
+    expect(list).toContain(`/rules/${seeded!.id}/duplicate`);
+
+    // The duplicate form is a CREATE form (POSTs to /rules), pre-filled with the source's values.
+    const form = await (await app.request(`/rules/${seeded!.id}/duplicate`, { headers: { cookie } })).text();
+    expect(form).toContain("Duplicate rule");
+    expect(form).toContain('hx-post="/rules"'); // create, not PATCH to the source
+    expect(form).not.toContain(`hx-post="/rules/${seeded!.id}"`);
+    expect(form).toContain("Original rule (copy)"); // name pre-filled with the copy suffix
+    expect(form).toContain("value=\"info\""); // keywords
+    expect(form).toContain("Here you go!"); // reply text
+    expect(form).toContain("https://sellf.example/p/kit"); // button carried over
+    expect(form).toContain("user_email"); // quick reply carried over
+    expect(form).toContain("Cancel"); // escape hatch back to the list
+
+    // Opening the duplicate form must NOT have persisted anything — the source is the only rule.
+    expect(await db.query.autoReplyRules.findMany({ where: eq(s.autoReplyRules.workspace_id, WS) })).toHaveLength(1);
+
+    // Submitting the duplicated payload creates a NEW rule (the source keeps its id/name).
+    const created = await app.request("/rules", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Original rule (copy)", trigger_type: "comment_keyword", keywords: "info",
+        text: "Here you go!", reply_mode: "both",
+        buttons_json: JSON.stringify([{ title: "Get the kit", url: "https://sellf.example/p/kit" }]),
+        quick_replies_json: JSON.stringify([{ content_type: "user_email" }]),
+        requires_approval: "true",
+      }),
+    });
+    expect(created.status).toBe(200);
+    const all = await db.query.autoReplyRules.findMany({ where: eq(s.autoReplyRules.workspace_id, WS) });
+    expect(all).toHaveLength(2);
+    const copy = await db.query.autoReplyRules.findFirst({ where: eq(s.autoReplyRules.name, "Original rule (copy)") });
+    expect(copy!.id).not.toBe(seeded!.id); // a brand-new rule, not the source mutated
+    const rc = copy!.response_config as Record<string, unknown>;
+    expect(rc.text).toBe("Here you go!");
+    expect(rc.buttons).toEqual([{ title: "Get the kit", url: "https://sellf.example/p/kit" }]);
+    expect(copy!.requires_approval).toBe(true);
+  });
 });
 
 describe("channel detail page", () => {
