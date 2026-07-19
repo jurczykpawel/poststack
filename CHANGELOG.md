@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-19
+
+### Fixed
+- **AI drafting now works with OpenAI's GPT-5 and o-series models.** Those "reasoning" models renamed `max_tokens` → `max_completion_tokens` and reject any non-default `temperature`, so the shared chat client's classic `max_tokens` + `temperature` request returned HTTP 400 and produced no draft. The client now detects GPT-5/o-series models by name and sends `max_completion_tokens` with temperature omitted, while every other model (gpt-4o, and non-OpenAI providers via `AI_BASE_URL` — Groq/Ollama/OpenRouter/Claude proxy) keeps the shape it already accepts. Set `AI_MODEL` to e.g. `gpt-5.6-terra` to use it.
+
 ## [0.11.0] - 2026-07-19
 
 ### Added
