@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-19
+
+### Fixed
+- **The hourly Meta health sweep no longer latches a channel to `needs_reauth` on a transient blip.** It used to only ever *trip* the breaker: a single transient `is_valid:false` from Meta's `debug_token` flagged a channel `needs_reauth` with no confirmation — and since `needs_reauth` channels were excluded from the sweep and derived Facebook/Instagram channels have no OAuth refresh path, a perfectly valid channel could never recover on its own. The sweep now reconciles in **both** directions, mirroring the on-demand health check: it still trips a healthy channel on a confirmed-bad token, and **self-heals** a `needs_reauth` channel the moment `debug_token` re-confirms the same stored token is valid. Recovery fires only on a positive re-confirmation, never on a transient/inconclusive check, so an unattended loop never flaps. `sweepChannelHealth` now also reports `recovered`.
+
+### Changed
+- **The overview "Needs attention" rows now show the platform** (brand icon + label) and the whole row is a **click-through to the channel's detail page** (`/channels/{id}`), so a broken channel is identifiable and reachable in one click. The Reconnect action is unchanged (derived channels still route to `/sources`).
+
 ## [0.10.0] - 2026-07-04
 
 ### Added
