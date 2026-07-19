@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-19
+
+### Added
+- **AI provider fallback chain (resilience + cost tiers).** The AI client can now be given an ordered list of backup providers via a new `AI_FALLBACKS` setting (JSON array of `{ apiKey, model, baseUrl? }`). `chatComplete` walks the chain — the primary (`AI_API_KEY`/`AI_BASE_URL`/`AI_MODEL`) first, then each fallback — and the first provider to return a usable completion wins. It falls through on **any** failure (non-2xx of any status, a thrown/timed-out request, or an empty/malformed completion), regardless of cause, so a reply keeps generating as long as one provider is healthy — and so you can run a free/cheap primary that automatically falls back to a paid one during an outage or once a rate-limit is exhausted. Each provider's request is built for its own model (GPT-5/o-series reasoning params respected per model), and every attempt is logged with its model + failure reason so a fallthrough is fully visible in the AI generation log. A fallback-only setup (no primary key) is valid; a malformed `AI_FALLBACKS` is ignored and never breaks the primary. Backward compatible: with no `AI_FALLBACKS` the behaviour is identical to before. Applies to both AI-drafted replies and AI rephrasing.
+
 ## [0.11.1] - 2026-07-19
 
 ### Fixed
