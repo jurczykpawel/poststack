@@ -81,7 +81,7 @@ abandoned plan — a cert issue on the subdomain — so the app currently lives 
 
 PostStack is API-first. All features exposed via REST at `/api/v1/*`.
 
-- **Dual auth:** session JWT cookie (dashboard) + `Authorization: Bearer rs_live_<key>` (external)
+- **Dual auth:** session JWT cookie (dashboard) + `Authorization: Bearer sk_live_<key>` (external, prefix from `BRAND.idPrefix`)
 - **CORS:** enabled on all `/api/v1/*` routes
 - **OpenAPI spec:** `src/lib/api/openapi.ts` — update when adding new routes
 - **Scalar UI:** `/api/docs` (no npm dep, CDN-loaded)

@@ -2930,7 +2930,7 @@ function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awa
   // obvious that API/agent access needs PRO (mirrors the onboarding wizard's License→API step).
   if (!canApi) return apiKeysUpsell(license.upgradeUrl);
   return html`
-    <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer rs_live_…</code>. Keys are shown once on creation — store them securely.</p>
+    <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer ${BRAND.idPrefix}…</code>. Keys are shown once on creation — store them securely.</p>
     <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
       x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
       <div class="row">

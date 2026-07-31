@@ -17,7 +17,7 @@
  *
  * USAGE:
  *   PROBE_API_BASE=https://poststack.techskills.academy \
- *   PROBE_API_KEY=rs_live_… \                       # API key for the workspace owning the page
+ *   PROBE_API_KEY=sk_live_… \                     # API key for the workspace owning the page
  *   PROBE_KEYWORD=KOT [PROBE_REPLY_TEXT="…"] [PROBE_TIMEOUT_S=180] \
  *   # auto-publish (else set PROBE_POST_ID + PROBE_PERMALINK):
  *   META_PROBE_PAGE_TOKEN=… META_PROBE_PAGE_ID=… [META_PROBE_VERSION=v25.0] \
