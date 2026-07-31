@@ -40,6 +40,7 @@ import * as postPublish from "@/server/handlers/v1/posts/[postId]/publish/route"
 import * as mediaRegister from "@/server/handlers/v1/media/route";
 import * as brandsList from "@/server/handlers/v1/brands/route";
 import * as brandItem from "@/server/handlers/v1/brands/[brandKey]/route";
+import * as brandChannels from "@/server/handlers/v1/brands/[brandKey]/channels/route";
 import * as statsResponseTimes from "@/server/handlers/v1/stats/response-times/route";
 import * as webhooksList from "@/server/handlers/v1/webhooks/route";
 import * as webhookItem from "@/server/handlers/v1/webhooks/[webhookId]/route";
@@ -208,6 +209,9 @@ v1.post("/posts/:postId/publish", (c) =>
 v1.post("/media", (c) => mediaRegister.POST(c.req.raw));
 v1.get("/brands", (c) => brandsList.GET(c.req.raw));
 v1.post("/brands", (c) => brandsList.POST(c.req.raw));
+v1.get("/brands/:brandKey/channels", (c) =>
+  brandChannels.GET(c.req.raw, { params: Promise.resolve({ brandKey: c.req.param("brandKey") }) }),
+);
 v1.patch("/brands/:brandKey", (c) =>
   brandItem.PATCH(c.req.raw, { params: Promise.resolve({ brandKey: c.req.param("brandKey") }) }),
 );

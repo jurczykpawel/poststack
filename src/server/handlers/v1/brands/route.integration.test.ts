@@ -108,3 +108,61 @@ describe.skipIf(!TEST_DB)("/api/v1/brands", () => {
     expect((await call("GET", "/brands", undefined, null)).status).toBe(401);
   });
 });
+
+// BRANDCH1: brand → channel resolution over the API. The `/content-pipeline` skill already documents
+// this endpoint (script → post → publish needs "which channel does brand X publish YouTube to"), so
+// the shape here must stay exactly `{ platform, channel: { id, label } | null, ambiguous }`.
+describe.skipIf(!TEST_DB)("GET /api/v1/brands/:brandKey/channels", () => {
+  type ChannelInsert = (typeof import("@/db/schema"))["channels"]["$inferInsert"];
+  const chan = (id: string, platform: ChannelInsert["platform"], extra: Partial<ChannelInsert> = {}): ChannelInsert => ({
+    id,
+    workspace_id: WS,
+    platform,
+    platform_id: `${String(platform)}-${id.slice(-4)}`,
+    token_encrypted: "x",
+    webhook_secret: "s",
+    ...extra,
+  });
+
+  it("resolves the mapped channel per editorial platform", async () => {
+    await call("POST", "/brands", { key: "acme", name: "Acme" });
+    await db.insert(s.channels).values([
+      chan("c0ffee06-0000-4000-8000-0000000000c1", "youtube", { brand_key: "acme", display_name: "Acme TV" }),
+      // Unmapped channel on another platform — must NOT resolve into the brand's slots.
+      chan("c0ffee06-0000-4000-8000-0000000000c2", "instagram"),
+    ]);
+
+    const res = await call("GET", "/brands/acme/channels");
+    expect(res.status).toBe(200);
+    const slots = (await res.json()).data as Array<{ platform: string; channel: { id: string; label: string } | null; ambiguous: boolean }>;
+
+    const yt = slots.find((s) => s.platform === "youtube");
+    expect(yt).toMatchObject({ channel: { id: "c0ffee06-0000-4000-8000-0000000000c1", label: "Acme TV" }, ambiguous: false });
+    expect(slots.find((s) => s.platform === "instagram")).toMatchObject({ channel: null, ambiguous: false });
+    // Every editorial platform gets a slot, so a caller can tell "unmapped" from "unsupported".
+    expect(slots.map((s) => s.platform)).toEqual(
+      expect.arrayContaining(["instagram", "facebook", "tiktok", "youtube", "threads", "x", "linkedin"]),
+    );
+  });
+
+  it("flags ambiguity instead of guessing when a brand has two channels on one platform", async () => {
+    await call("POST", "/brands", { key: "dual", name: "Dual" });
+    await db.insert(s.channels).values([
+      chan("c0ffee06-0000-4000-8000-0000000000d1", "youtube", { brand_key: "dual", display_name: "One" }),
+      chan("c0ffee06-0000-4000-8000-0000000000d2", "youtube", { brand_key: "dual", display_name: "Two" }),
+    ]);
+
+    const slots = (await (await call("GET", "/brands/dual/channels")).json()).data as Array<{ platform: string; channel: unknown; ambiguous: boolean }>;
+    expect(slots.find((s) => s.platform === "youtube")).toMatchObject({ channel: null, ambiguous: true });
+  });
+
+  it("404s for an unregistered brand (so a caller stops instead of publishing blind)", async () => {
+    expect((await call("GET", "/brands/nope/channels")).status).toBe(404);
+  });
+
+  it("is tenant-isolated and requires auth", async () => {
+    await call("POST", "/brands", { key: "mine2", name: "Mine" });
+    expect((await call("GET", "/brands/mine2/channels", undefined, OTHER_KEY)).status).toBe(404);
+    expect((await call("GET", "/brands/mine2/channels", undefined, null)).status).toBe(401);
+  });
+});
