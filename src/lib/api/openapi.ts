@@ -270,11 +270,24 @@ export const openApiSpec = {
     },
     "/posts": {
       get: { tags: ["Publishing"], summary: "List editorial posts", responses: { "200": { description: "List of posts" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      post: { tags: ["Publishing"], summary: "Create an editorial post", responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } } },
+      post: {
+        tags: ["Publishing"],
+        summary: "Create an editorial post",
+        description:
+          "Body also accepts youtubePrivacy/youtubeTags/youtubeCategoryId/youtubeMadeForKids (YouTube publish " +
+          "options) and aiDisclosure/aiDisclosureNote (declared AI-involvement level + optional in-content note; " +
+          "the resulting per-platform disclosure evidence is server-written, not accepted here).",
+        responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } },
+      },
     },
     "/posts/{postId}": {
       get: { tags: ["Publishing"], summary: "Get a post", responses: { "200": { description: "Post" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      patch: { tags: ["Publishing"], summary: "Update a post", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      patch: {
+        tags: ["Publishing"],
+        summary: "Update a post",
+        description: "Same body as create (all fields optional), including the YouTube options and AI-disclosure fields.",
+        responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
       delete: { tags: ["Publishing"], summary: "Delete a post", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
     },
     "/posts/{postId}/publish": {
@@ -285,7 +298,26 @@ export const openApiSpec = {
     },
     "/brands": {
       get: { tags: ["Publishing"], summary: "List brands", responses: { "200": { description: "List of brands" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      post: { tags: ["Publishing"], summary: "Create a brand", responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      post: { tags: ["Publishing"], summary: "Create a brand",
+        description:
+          "Accepts `default_ai_disclosure` (`none` | `ai_assisted` | `ai_generated`) and " +
+          "`default_ai_disclosure_note` — the brand-wide AI declaration inherited by any post that sets " +
+          "none of its own (resolution order: post → channel → brand). Null on both = this brand declares nothing.", responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+    },
+    "/brands/{brandKey}/channels": {
+      get: {
+        tags: ["Publishing"],
+        summary: "Resolve this brand's channel per editorial platform",
+        description:
+          "Returns one slot per editorial platform: `{ platform, channel: { id, label } | null, ambiguous }`. " +
+          "`channel: null` means unmapped, or ambiguous (`ambiguous: true` — several candidates, so resolution refuses to guess). " +
+          "Use the returned `channel.id` as `channelId` when calling POST /posts/{postId}/publish.",
+        responses: {
+          "200": { description: "Per-platform resolution slots" },
+          "404": { description: "Brand not registered in this workspace" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
     },
     "/brands/{brandKey}": {
       patch: { tags: ["Publishing"], summary: "Update a brand", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },

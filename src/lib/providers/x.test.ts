@@ -50,6 +50,42 @@ describe("x provider", () => {
     ).rejects.toThrow(); // classified error, not "[object Object]" stored as the handle
   });
 
+  it("publish text post includes made_with_ai when options.aiDisclosed is a boolean [AIDISC1]", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify({ data: { id: "tw_ai" } }), { status: 200 });
+      }),
+    );
+    await xProvider.publish({
+      tokens,
+      accountId: "u1",
+      request: { format: "text", media: [], caption: "hi", options: { aiDisclosed: true } },
+      mediaUrls: [],
+    });
+    expect(body.made_with_ai).toBe(true);
+  });
+
+  it("publish text post omits made_with_ai when options.aiDisclosed is not a boolean", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify({ data: { id: "tw_noai" } }), { status: 200 });
+      }),
+    );
+    await xProvider.publish({
+      tokens,
+      accountId: "u1",
+      request: { format: "text", media: [], caption: "hi" },
+      mediaUrls: [],
+    });
+    expect("made_with_ai" in body).toBe(false);
+  });
+
   // LIPUB1: chunked media upload isn't implemented — a media post must FAIL LOUDLY, never silently drop
   // the image/video and post text only (which is what the old code path did once a media format reached it).
   it.each(["image", "video"])("a %s post fails loudly (media upload not implemented) — never a silent text-only tweet", async (format) => {

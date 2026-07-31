@@ -88,6 +88,34 @@ async function scenario(channelStatus: "active" | "needs_reauth" = "active") {
     .returning();
   return { channelId: c!.id, postId: p!.id };
 }
+/**
+ * AIDISC2: merge into the delivery payload what `publishPost()` puts there once a declaration resolves.
+ * The audit trail is deliberately built from the payload — the object actually sent — rather than
+ * recomputed from the post row, so a test that only sets the post's columns proves nothing about it.
+ * Keeps the scenario's real media reference so the publish still reaches its success branch.
+ */
+async function withDisclosurePayload(
+  deliveryId: string,
+  aiDisclosure: { level: string; levelSource?: string; note: string | null; noteSource?: string } | null,
+  aiDisclosed?: boolean,
+) {
+  const existing = (await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, deliveryId) }))!;
+  const payload = existing.payload as Record<string, unknown>;
+  await db
+    .update(schema.deliveries)
+    .set({
+      payload: {
+        ...payload,
+        options: {
+          ...((payload.options as Record<string, unknown>) ?? {}),
+          ...(aiDisclosure ? { aiDisclosure: { levelSource: "post", noteSource: "post", ...aiDisclosure } } : {}),
+          ...(aiDisclosed !== undefined ? { aiDisclosed } : {}),
+        },
+      },
+    })
+    .where(eq(schema.deliveries.id, deliveryId));
+}
+
 const status = async (id: string) =>
   (await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, id) }))!.status;
 
@@ -200,11 +228,15 @@ describe("publish worker (AUD27)", () => {
     expect(await status(postId)).toBe("unknown");
   });
 
-  async function linkEditorial(deliveryId: string, postStatus = "scheduled") {
+  async function linkEditorial(
+    deliveryId: string,
+    postStatus = "scheduled",
+    extra: Partial<typeof schema.posts.$inferInsert> = {},
+  ) {
     const [content] = await db.insert(schema.content).values({ workspace_id: WS, title: "x" }).returning();
     const [p] = await db
       .insert(schema.posts)
-      .values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId })
+      .values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId, ...extra })
       .returning();
     return p!.id;
   }
@@ -242,6 +274,165 @@ describe("publish worker (AUD27)", () => {
       // and nothing was emitted under the delivery id
       const underDelivery = (await db.query.events.findMany({ where: eq(schema.events.subject_id, postId) })).filter((e) => e.type.startsWith("post."));
       expect(underDelivery).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // ── AIDISC1: the ai_disclosure_sent audit trail written onto the editorial post at publish ────
+  it("published post's ai_disclosure_sent records what actually went out, from the post's own declared level [AIDISC1]", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario(); // channel platform = tiktok
+    const editorialId = await linkEditorial(postId, "scheduled", {
+      platform: "tiktok",
+      ai_disclosure: "ai_generated",
+      ai_disclosure_note: "This video was made with AI.",
+    });
+    await withDisclosurePayload(postId, { level: "ai_generated", note: "This video was made with AI." }, true);
+    const spy = vi
+      .spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish")
+      .mockResolvedValue({ providerHandle: "post_disc1" });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      const row = await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) });
+      const sent = row!.ai_disclosure_sent as Record<string, unknown>;
+      expect(sent).toMatchObject({
+        level: "ai_generated",
+        platform: "tiktok",
+        field: "post_info.is_aigc",
+        value: true,
+        supported: true,
+        note: "This video was made with AI.",
+      });
+      expect(typeof sent.reason).toBe("string");
+      expect(typeof sent.at).toBe("string");
+      expect(new Date(sent.at as string).toISOString()).toBe(sent.at); // a real ISO timestamp
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("ai_disclosure 'none' records that the platform HAS a field we deliberately left unset, with a null note", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario();
+    const editorialId = await linkEditorial(postId, "scheduled", {
+      platform: "tiktok",
+      ai_disclosure: "none",
+      // A stray note should never surface once the level is 'none'.
+      ai_disclosure_note: "leftover text",
+    });
+    const spy = vi
+      .spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish")
+      .mockResolvedValue({ providerHandle: "post_disc2" });
+    try {
+      await processPublish({ postId }, helpers);
+      const row = await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) });
+      const sent = row!.ai_disclosure_sent as Record<string, unknown>;
+      // `value: null` = nothing was sent (nothing was declared), while `supported: true` + a field name
+      // still prove the platform offers one — the audit trail keeps "no field exists" and "we chose not
+      // to set the field" apart. `consistent` holds because sending nothing is exactly what was required.
+      expect(sent).toMatchObject({
+        level: "none",
+        platform: "tiktok",
+        field: "post_info.is_aigc",
+        value: null,
+        sentFlag: null,
+        consistent: true,
+        supported: true,
+        note: null,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a platform with no native disclosure field records supported=false, field=null, value=null", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario(); // still delivers via the tiktok provider (mocked)
+    const editorialId = await linkEditorial(postId, "scheduled", {
+      platform: "facebook", // no AI-disclosure API field exists for Facebook
+      ai_disclosure: "ai_assisted",
+      ai_disclosure_note: "Partially AI-assisted.",
+    });
+    // Facebook has no native field, so publishPost emits the audit object but no `aiDisclosed` flag.
+    await withDisclosurePayload(postId, { level: "ai_assisted", note: "Partially AI-assisted." });
+    const spy = vi
+      .spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish")
+      .mockResolvedValue({ providerHandle: "post_disc3" });
+    try {
+      await processPublish({ postId }, helpers);
+      const row = await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) });
+      const sent = row!.ai_disclosure_sent as Record<string, unknown>;
+      expect(sent).toMatchObject({
+        level: "ai_assisted",
+        platform: "facebook",
+        field: null,
+        value: null,
+        supported: false,
+        note: "Partially AI-assisted.",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a failure building the ai_disclosure_sent audit trail never loses the publish result, and is logged [best-effort]", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario();
+    await linkEditorial(postId, "scheduled", { platform: "tiktok", ai_disclosure: "ai_generated" });
+    const spy = vi
+      .spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish")
+      .mockResolvedValue({ providerHandle: "post_disc_fail" });
+    const findFirstSpy = vi.spyOn(db.query.posts, "findFirst").mockRejectedValueOnce(new Error("boom"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent"); // the publish result is preserved despite the audit failure
+      expect(errSpy).toHaveBeenCalled(); // the failure was logged, not silently swallowed
+    } finally {
+      spy.mockRestore();
+      findFirstSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
+
+  // The evidence record has to be an OBSERVATION, not just a recomputation of our own policy — these
+  // two assert the difference. `value` is what the rule requires, `sentFlag` is what the outgoing
+  // request actually carried, and `consistent` is the tripwire that catches the plumbing silently
+  // dropping the flag while the audit trail keeps happily claiming the field was set.
+  it("records the flag observed in the outgoing request, and marks it consistent with the rule [AIDISC1]", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario();
+    const editorialId = await linkEditorial(postId, "scheduled", { platform: "tiktok", ai_disclosure: "ai_generated" });
+    await withDisclosurePayload(postId, { level: "ai_generated", note: null }, true);
+    const spy = vi
+      .spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish")
+      .mockResolvedValue({ providerHandle: "post_disc_obs" });
+    try {
+      await processPublish({ postId }, helpers);
+      const row = await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) });
+      expect(row!.ai_disclosure_sent).toMatchObject({ value: true, sentFlag: true, consistent: true });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("flags inconsistency when the request carried no flag but the rule required one [AIDISC1]", async () => {
+    if (!TEST_DB) return;
+    const { postId } = await scenario();
+    const editorialId = await linkEditorial(postId, "scheduled", { platform: "tiktok", ai_disclosure: "ai_generated" });
+    // The declaration resolved and rode along, but the normalized flag never made it into the request —
+    // exactly the plumbing drift the audit trail has to expose rather than paper over.
+    await withDisclosurePayload(postId, { level: "ai_generated", note: null });
+    const spy = vi
+      .spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish")
+      .mockResolvedValue({ providerHandle: "post_disc_drift" });
+    try {
+      await processPublish({ postId }, helpers);
+      const row = await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) });
+      // Records the truth — nothing was sent — instead of asserting the rule's value as fact.
+      expect(row!.ai_disclosure_sent).toMatchObject({ value: true, sentFlag: null, consistent: false });
     } finally {
       spy.mockRestore();
     }

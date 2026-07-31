@@ -43,6 +43,13 @@
       "when": 1782980939784,
       "tag": "0005_post_title",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785512942587,
+      "tag": "0006_youtube_options_and_ai_disclosure",
+      "breakpoints": true
     }
   ]
 }

@@ -31,6 +31,8 @@ const POST_MAP: Record<string, string> = {
   mediaUrl: "media_url", videoUrl: "video_url", coverUrl: "cover_url", mediaUrls: "media_urls",
   assetStatus: "asset_status", assetNotes: "asset_notes", sourceRef: "source_ref",
   autoReply: "auto_reply", firstComment: "first_comment", autoStory: "auto_story",
+  youtubePrivacy: "youtube_privacy", youtubeTags: "youtube_tags", youtubeCategoryId: "youtube_category_id",
+  youtubeMadeForKids: "youtube_made_for_kids", aiDisclosure: "ai_disclosure", aiDisclosureNote: "ai_disclosure_note",
 };
 const POST_DATES = new Set(["scheduledDate", "publishedAt"]);
 // URL fields normalized "" / whitespace → null on write, so a blank never gets stored (which would

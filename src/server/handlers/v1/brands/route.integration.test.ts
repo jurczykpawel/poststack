@@ -107,6 +107,42 @@ describe.skipIf(!TEST_DB)("/api/v1/brands", () => {
   it("401 without auth", async () => {
     expect((await call("GET", "/brands", undefined, null)).status).toBe(401);
   });
+
+  // AIDISC2: the brand is the level that matters most in practice — one piece of material goes out to
+  // every channel of a brand — so its default has to be settable over the API, not only in SQL.
+  it("stores and updates the brand's default AI declaration, and can clear it back to nothing", async () => {
+    const created = await call("POST", "/brands", {
+      key: "aibrand",
+      name: "AI Brand",
+      default_ai_disclosure: "ai_generated",
+      default_ai_disclosure_note: "Made with AI.",
+    });
+    expect(created.status).toBe(201);
+    expect((await created.json()).data).toMatchObject({
+      defaultAiDisclosure: "ai_generated",
+      defaultAiDisclosureNote: "Made with AI.",
+    });
+
+    const patched = await call("PATCH", "/brands/aibrand", { default_ai_disclosure: "ai_assisted" });
+    expect((await patched.json()).data).toMatchObject({
+      defaultAiDisclosure: "ai_assisted",
+      defaultAiDisclosureNote: "Made with AI.", // untouched by a patch that doesn't mention it
+    });
+
+    // Explicit null switches a brand-wide declaration off without deleting the brand.
+    const cleared = await call("PATCH", "/brands/aibrand", { default_ai_disclosure: null });
+    expect((await cleared.json()).data).toMatchObject({ defaultAiDisclosure: null });
+  });
+
+  it("defaults to no declaration when a brand is created without one", async () => {
+    const res = await call("POST", "/brands", { key: "plain", name: "Plain" });
+    expect((await res.json()).data).toMatchObject({ defaultAiDisclosure: null, defaultAiDisclosureNote: null });
+  });
+
+  it("rejects an AI level that isn't one of the three", async () => {
+    const res = await call("POST", "/brands", { key: "bad", name: "Bad", default_ai_disclosure: "mostly" });
+    expect(res.status).toBe(422);
+  });
 });
 
 // BRANDCH1: brand → channel resolution over the API. The `/content-pipeline` skill already documents

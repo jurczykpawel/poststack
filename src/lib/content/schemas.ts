@@ -81,6 +81,24 @@ export const postCreate = z.object({
   mediaUrls: urls,
   assetNotes: z.string().max(LIMITS.text).optional(),
   sourceRef: z.string().max(LIMITS.ref).optional(),
+  // YTOPTS1: YouTube-specific publish options. All nullish so a PATCH can clear them back to "inherit
+  // the provider's own safe defaults" (private, no tags, no category, madeForKids=false).
+  youtubePrivacy: z.enum(["private", "unlisted", "public"]).nullish(),
+  // YouTube caps total tag length at 500 chars (its own limit, not ours — hence the refinement instead
+  // of a flat LIMITS entry) and rejects empty tags; 50 is a generous ceiling under LIMITS.arrayLen.
+  youtubeTags: z
+    .array(z.string().min(1).max(LIMITS.line))
+    .max(50)
+    .nullish()
+    .refine((tags) => !tags || tags.join("").length <= 500, "youtubeTags: combined tag length must not exceed 500 characters"),
+  youtubeCategoryId: z.string().regex(/^\d+$/, "youtubeCategoryId must be digits only").max(10).nullish(),
+  youtubeMadeForKids: z.boolean().nullish(),
+  // AIDISC1: the declared AI level (EU AI Act Art. 50) + an optional in-content note override. The
+  // engine-written audit trail (`ai_disclosure_sent`) is deliberately NOT here — see PSA8 note above.
+  // Nullish, not just optional: null clears it back to "nothing set on this post", which is what a
+  // future per-channel default would fill in. Distinct from an explicit "none" ("no AI here").
+  aiDisclosure: z.enum(["none", "ai_assisted", "ai_generated"]).nullish(),
+  aiDisclosureNote: z.string().max(LIMITS.line).nullish(),
 });
 export const postPatch = postCreate.partial();
 

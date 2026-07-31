@@ -56,6 +56,7 @@ beforeEach(async () => {
   await db.delete(schema.media).where(eq(schema.media.workspace_id, WS));
   await db.delete(schema.content).where(eq(schema.content.workspace_id, WS));
   await db.delete(schema.channels).where(eq(schema.channels.workspace_id, WS));
+  await db.delete(schema.brands).where(eq(schema.brands.workspace_id, WS));
 });
 
 // Seed an instagram channel + an instagram editorial post. The trunk stores instagram as a distinct
@@ -298,5 +299,142 @@ describe("publishPost — text-only, no media [LIPUB1]", () => {
     if (!TEST_DB) return;
     const { channelId, postId } = await textFixtures("linkedin", { description: null, hashtags: null });
     await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toThrow(/caption is required/);
+  });
+});
+
+// AIDISC2: the declaration cascade end to end. The unit tests in lib/ai-disclosure prove the resolution
+// rules; these prove publishPost actually applies them — that a brand-level default reaches both the
+// caption the audience reads and the payload the audit trail is later built from.
+describe("publishPost — AI-disclosure cascade (post → channel → brand)", () => {
+  async function branded(opts: {
+    brand?: { level?: string | null; note?: string | null };
+    channel?: { level?: string | null; note?: string | null };
+    post?: Partial<typeof schema.posts.$inferInsert>;
+  }) {
+    const key = `brand-${Math.random().toString(36).slice(2)}`;
+    if (opts.brand) {
+      await db.insert(schema.brands).values({
+        workspace_id: WS,
+        key,
+        name: "B",
+        default_ai_disclosure: (opts.brand.level ?? null) as never,
+        default_ai_disclosure_note: opts.brand.note ?? null,
+      });
+    }
+    const [ch] = await db
+      .insert(schema.channels)
+      .values({
+        workspace_id: WS,
+        platform: "instagram",
+        platform_id: `acct-${Math.random()}`,
+        connection_mode: "manual_token",
+        token_encrypted: encryptTokens({ access_token: "t" }),
+        webhook_secret: "wh",
+        ...(opts.brand ? { brand_key: key } : {}),
+        default_ai_disclosure: (opts.channel?.level ?? null) as never,
+        default_ai_disclosure_note: opts.channel?.note ?? null,
+      })
+      .returning();
+    const [p] = await db
+      .insert(schema.posts)
+      .values({
+        workspace_id: WS,
+        platform: "instagram",
+        description: "caption here",
+        hashtags: "#a #b",
+        video_url: "https://cdn/x.mp4",
+        status: "planned",
+        ...opts.post,
+      })
+      .returning();
+    return { channelId: ch!.id, postId: p!.id };
+  }
+
+  const publishedPayload = async (channelId: string, postId: string) => {
+    const { delivery } = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
+    return delivery.payload as { caption?: string; options?: Record<string, unknown> };
+  };
+
+  it("applies the brand's default to a post that declares nothing", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await branded({ brand: { level: "ai_generated", note: "Brand AI line." } });
+    const payload = await publishedPayload(channelId, postId);
+
+    // The line the audience actually sees, ahead of the caption.
+    expect(payload.caption).toBe("Brand AI line.\n\ncaption here\n\n#a #b");
+    // Instagram has a native field, so the normalized flag rides along too.
+    expect(payload.options).toMatchObject({ aiDisclosed: true });
+    expect(payload.options?.aiDisclosure).toMatchObject({
+      level: "ai_generated",
+      levelSource: "brand",
+      note: "Brand AI line.",
+      noteSource: "brand",
+    });
+  });
+
+  it("lets the channel override the brand, and the post override both", async () => {
+    if (!TEST_DB) return;
+    const chanWins = await branded({
+      brand: { level: "ai_generated", note: "Brand." },
+      channel: { level: "ai_assisted", note: "Channel." },
+    });
+    expect((await publishedPayload(chanWins.channelId, chanWins.postId)).options?.aiDisclosure).toMatchObject({
+      level: "ai_assisted",
+      levelSource: "channel",
+      note: "Channel.",
+      noteSource: "channel",
+    });
+
+    const postWins = await branded({
+      brand: { level: "ai_generated", note: "Brand." },
+      channel: { level: "ai_assisted", note: "Channel." },
+      post: { ai_disclosure: "ai_generated", ai_disclosure_note: "Post." },
+    });
+    expect((await publishedPayload(postWins.channelId, postWins.postId)).options?.aiDisclosure).toMatchObject({
+      level: "ai_generated",
+      levelSource: "post",
+      note: "Post.",
+      noteSource: "post",
+    });
+  });
+
+  it("reuses the brand's wording when the post only escalates the level", async () => {
+    if (!TEST_DB) return;
+    // The everyday case: one standard line on the brand, individual posts just say "this one is AI".
+    const { channelId, postId } = await branded({
+      brand: { note: "Brand AI line." },
+      post: { ai_disclosure: "ai_generated" },
+    });
+    const payload = await publishedPayload(channelId, postId);
+    expect(payload.caption?.startsWith("Brand AI line.")).toBe(true);
+    expect(payload.options?.aiDisclosure).toMatchObject({ levelSource: "post", noteSource: "brand" });
+  });
+
+  it("lets an explicit 'none' on the post switch a brand-wide declaration off", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await branded({
+      brand: { level: "ai_generated", note: "Brand AI line." },
+      post: { ai_disclosure: "none" },
+    });
+    const payload = await publishedPayload(channelId, postId);
+    expect(payload.caption).toBe("caption here\n\n#a #b"); // no line
+    expect(payload.options?.aiDisclosed).toBeUndefined();
+    expect(payload.options?.aiDisclosure).toBeUndefined();
+  });
+
+  it("adds nothing anywhere when neither the post, the channel nor the brand declares anything", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await branded({ brand: {} });
+    const payload = await publishedPayload(channelId, postId);
+    expect(payload.caption).toBe("caption here\n\n#a #b");
+    expect(payload.options?.aiDisclosed).toBeUndefined();
+    expect(payload.options?.aiDisclosure).toBeUndefined();
+  });
+
+  it("works for a channel with no brand at all", async () => {
+    if (!TEST_DB) return;
+    const { channelId, postId } = await branded({ post: { ai_disclosure: "ai_assisted" } });
+    const payload = await publishedPayload(channelId, postId);
+    expect(payload.options?.aiDisclosure).toMatchObject({ level: "ai_assisted", levelSource: "post", noteSource: "default" });
   });
 });

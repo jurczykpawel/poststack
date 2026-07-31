@@ -66,10 +66,17 @@ export const xProvider: Provider = {
       // — not implemented yet. Fail LOUD rather than silently posting text and dropping the media.
       throw new PermanentError(`x: ${request.format} publishing not implemented (media chunked upload)`);
     }
+    // AIDISC1: publish-worker-normalized boolean (see lib/ai-disclosure/mapping.ts). Goes on the
+    // tweet-create call itself, not the (unimplemented) media-upload call above.
+    const aiDisclosed =
+      typeof request.options?.aiDisclosed === "boolean" ? request.options.aiDisclosed : undefined;
     const res = await fetch(`${API}/tweets`, {
       method: "POST",
       headers: { authorization: `Bearer ${tokens.accessToken}`, "content-type": "application/json" },
-      body: JSON.stringify({ text: request.caption ?? "" }),
+      body: JSON.stringify({
+        text: request.caption ?? "",
+        ...(aiDisclosed !== undefined ? { made_with_ai: aiDisclosed } : {}),
+      }),
     });
     const json = (await res.json().catch(() => ({}))) as { data?: { id?: unknown }; detail?: string };
     const handle = asString(json.data?.id); // PSA51: narrow before trusting

@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, isUniqueViolation } from "@/lib/db";
-import { brands, channels } from "@/db/schema";
+import { brands, channels, type AiDisclosureLevel } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { STORY_TEMPLATES } from "@/lib/stories";
 
@@ -18,7 +18,15 @@ function validateStoryTemplate(id: string | null | undefined): string | null {
 export type DbExec = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function createBrand(
-  input: { key: string; name: string; accent?: string | null; icon?: string | null; story_template?: string | null },
+  input: {
+    key: string;
+    name: string;
+    accent?: string | null;
+    icon?: string | null;
+    story_template?: string | null;
+    default_ai_disclosure?: AiDisclosureLevel | null;
+    default_ai_disclosure_note?: string | null;
+  },
   workspaceId: string,
   exec: DbExec = db,
 ): Promise<BrandRow> {
@@ -28,7 +36,17 @@ export async function createBrand(
   const story_template = validateStoryTemplate(input.story_template);
   const inserted = await exec
     .insert(brands)
-    .values({ workspace_id: workspaceId, key, name: input.name.trim(), accent: input.accent ?? null, icon: input.icon ?? null, story_template })
+    .values({
+      workspace_id: workspaceId,
+      key,
+      name: input.name.trim(),
+      accent: input.accent ?? null,
+      icon: input.icon ?? null,
+      story_template,
+      // AIDISC2: the brand's default AI declaration. Undefined stays NULL = this brand sets no default.
+      default_ai_disclosure: input.default_ai_disclosure ?? null,
+      default_ai_disclosure_note: input.default_ai_disclosure_note ?? null,
+    })
     .returning()
     .catch((err: unknown) => {
       if (isUniqueViolation(err)) throw new ApiError("conflict", "This brand already exists", 409);
@@ -48,13 +66,24 @@ export async function getBrand(workspaceId: string, key: string): Promise<BrandR
 export async function updateBrand(
   workspaceId: string,
   key: string,
-  patch: { name?: string; accent?: string | null; icon?: string | null; story_template?: string | null },
+  patch: {
+    name?: string;
+    accent?: string | null;
+    icon?: string | null;
+    story_template?: string | null;
+    default_ai_disclosure?: AiDisclosureLevel | null;
+    default_ai_disclosure_note?: string | null;
+  },
 ): Promise<BrandRow> {
   const set: Partial<typeof brands.$inferInsert> = { updated_at: new Date() };
   if (patch.name !== undefined) set.name = patch.name;
   if (patch.accent !== undefined) set.accent = patch.accent;
   if (patch.icon !== undefined) set.icon = patch.icon;
   if (patch.story_template !== undefined) set.story_template = validateStoryTemplate(patch.story_template);
+  // Explicit null clears the default back to "this brand declares nothing", so a brand-wide declaration
+  // can be switched off without deleting the brand.
+  if (patch.default_ai_disclosure !== undefined) set.default_ai_disclosure = patch.default_ai_disclosure;
+  if (patch.default_ai_disclosure_note !== undefined) set.default_ai_disclosure_note = patch.default_ai_disclosure_note;
   const [row] = await db
     .update(brands)
     .set(set)

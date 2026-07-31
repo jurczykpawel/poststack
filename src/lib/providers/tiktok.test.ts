@@ -154,6 +154,82 @@ describe("tiktok provider", () => {
     });
   });
 
+  it("direct mode sets post_info.is_aigc when options.aiDisclosed is a boolean [AIDISC1]", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify({ data: { publish_id: "pub_ai" }, error: { code: "ok" } }), {
+          status: 200,
+        });
+      }),
+    );
+    await tiktokProvider.publish({
+      tokens,
+      accountId: "ttuser",
+      request: {
+        format: "video",
+        media: [{ mediaId: "m" }],
+        caption: "c",
+        options: { publishMode: "direct", ingestion: "pull_url", aiDisclosed: true },
+      },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect((body.post_info as { is_aigc?: boolean }).is_aigc).toBe(true);
+  });
+
+  it("direct mode omits is_aigc when options.aiDisclosed is not a boolean", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify({ data: { publish_id: "pub_noai" }, error: { code: "ok" } }), {
+          status: 200,
+        });
+      }),
+    );
+    await tiktokProvider.publish({
+      tokens,
+      accountId: "ttuser",
+      request: {
+        format: "video",
+        media: [{ mediaId: "m" }],
+        options: { publishMode: "direct", ingestion: "pull_url" },
+      },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect("is_aigc" in (body.post_info as object)).toBe(false);
+  });
+
+  it("inbox mode (no post_info at all) never carries is_aigc even when aiDisclosed is set", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://cdn/x.mp4") return new Response(new Uint8Array([1, 2]), { status: 200 });
+        if (url.includes("/inbox/video/init/")) {
+          body = JSON.parse(String(init?.body ?? "{}"));
+          return new Response(
+            JSON.stringify({ data: { publish_id: "pub_inbox", upload_url: "https://upload.tiktok/u2" }, error: { code: "ok" } }),
+            { status: 200 },
+          );
+        }
+        if (url === "https://upload.tiktok/u2") return new Response("", { status: 201 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    await tiktokProvider.publish({
+      tokens,
+      accountId: "ttuser",
+      request: { format: "video", media: [{ mediaId: "m" }], options: { aiDisclosed: true } },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(body.post_info).toBeUndefined();
+  });
+
   it("surfaces a TikTok 200-with-error (e.g. url_ownership_unverified)", async () => {
     vi.stubGlobal(
       "fetch",

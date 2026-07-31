@@ -38,6 +38,19 @@ export const outboundDeliveryStatus = pgEnum("outbound_delivery_status", ['pendi
 // are forward-looking placeholders, currently unreachable.
 export const platform = pgEnum("platform", ['facebook', 'instagram', 'telegram', 'tiktok', 'twitter', 'gmail', 'discord', 'youtube', 'linkedin', 'threads'])
 export type Platform = (typeof platform.enumValues)[number]
+// AIDISC1 (EU AI Act Art. 50): how much AI is in a post, in the ONE vocabulary that maps deterministically
+// onto every platform's native disclosure flag. Three levels, not a boolean, because the platforms do not
+// mean the same thing: YouTube's `containsSyntheticMedia` is specifically about REALISTIC altered/synthetic
+// depiction (YouTube states production assistance needs no disclosure), while Instagram's `is_ai_generated`
+// is a broad "self-disclosure of AI usage". Mapping lives in `lib/ai-disclosure/mapping.ts` (single source).
+//   none         — no AI-generated or AI-altered content
+//   ai_assisted  — AI used in production, but nothing that realistically depicts a real person/event/place
+//   ai_generated — realistic AI-generated or AI-altered depiction (the Art. 50(4) "deep fake" category)
+export const aiDisclosureLevel = pgEnum("ai_disclosure_level", ['none', 'ai_assisted', 'ai_generated'])
+export type AiDisclosureLevel = (typeof aiDisclosureLevel.enumValues)[number]
+// YTOPTS1: YouTube visibility. NULL on a post = the provider's safe default (`private`), i.e. exactly the
+// behaviour that existed before this column, so no historical post silently changes visibility.
+export const youtubePrivacy = pgEnum("youtube_privacy", ['private', 'unlisted', 'public'])
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate'])
 // `paused` is reserved/forward-looking: pausing happens at the channel/conversation level
 // (`is_automation_paused`, `channel.status='paused'`) and the worker DEFERS a step via a delayed job
@@ -229,6 +242,15 @@ export const channels = pgTable("channels", {
 	// card about it (IG/FB). Off by default. A per-post `autoStory` on the PublishRequest overrides it.
 	// Only acts on platforms whose publish provider implements publishStory (facebook / instagram).
 	default_auto_story: boolean("default_auto_story").default(false).notNull(),
+	// AIDISC1 — RESERVED, NOT WIRED YET (owner's call, 2026-07-31: land the columns now so enabling the
+	// feature later needs no second migration). The intended semantics, mirroring the
+	// default_first_comment / default_auto_story pattern above: a post whose `ai_disclosure` is NULL
+	// ("nothing set") inherits the channel's default; a post that sets its own level overrides it.
+	// NULL here = the channel has no default either, which resolves to no disclosure flag being sent.
+	// Nothing reads these columns today — `lib/content/publish.ts` resolves `post.ai_disclosure ?? "none"`
+	// directly. Wiring them up means changing that one resolution point (and its tests), not the schema.
+	default_ai_disclosure: aiDisclosureLevel("default_ai_disclosure"),
+	default_ai_disclosure_note: text("default_ai_disclosure_note"),
 	// Soft delete: a removed channel keeps its row but is excluded from every read.
 	deleted_at: timestamp("deleted_at", { precision: 3, mode: 'date' }),
 	// Hidden: stays connected but filtered out of the default list (e.g. sandbox/old test accounts).
@@ -1182,6 +1204,13 @@ export const brands = pgTable("brands", {
 	// Free-form id (not an enum) on purpose — the template set is intentionally extensible (PRO custom
 	// templates register at runtime); the API validates it against the live registry on write.
 	story_template: text("story_template"),
+	// AIDISC2: the brand's default AI-disclosure level + note. This is the level that matters most in
+	// practice — one piece of material goes out to every channel of a brand, so the declaration belongs
+	// to the brand, not to each account. Resolution is a most-specific-wins cascade
+	// (post → channel → brand → nothing); see `lib/ai-disclosure/resolve.ts`, which is the only place
+	// that decides it. NULL = this brand sets no default.
+	default_ai_disclosure: aiDisclosureLevel("default_ai_disclosure"),
+	default_ai_disclosure_note: text("default_ai_disclosure_note"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [
@@ -1315,6 +1344,33 @@ export const posts = pgTable("posts", {
 	// post only (an empty first_comment string = explicitly "no first comment").
 	first_comment: text("first_comment"),
 	auto_story: boolean("auto_story"),
+	// YTOPTS1: YouTube-specific publish options. All NULL = pre-YTOPTS1 behaviour (private, no tags, no
+	// category, madeForKids=false) — the provider keeps its own safe defaults, these only override them.
+	youtube_privacy: youtubePrivacy("youtube_privacy"),
+	youtube_tags: jsonb("youtube_tags"),
+	youtube_category_id: text("youtube_category_id"),
+	youtube_made_for_kids: boolean("youtube_made_for_kids"),
+	// AIDISC1 (EU AI Act Art. 50, applies 2026-08-02): the declared AI level for THIS post, and the
+	// evidence of what that declaration turned into on the wire.
+	//   ai_disclosure      — what the operator declared (see the enum comment for the levels). NULLABLE
+	//     on purpose: NULL means "nothing was set on this post", which is what lets a future per-channel
+	//     default (`channels.default_ai_disclosure`) apply — a NOT NULL column with a default would give
+	//     every post a concrete value and no channel default could ever win. It also separates "nobody
+	//     said" (NULL — every pre-feature post) from "the operator declared there is no AI" (`none`).
+	//     Both resolve to sending no disclosure flag today, so the distinction costs nothing yet.
+	//   ai_disclosure_note — visible in-content disclosure appended to the caption. Load-bearing: three of
+	//     the six publish targets (Facebook Pages, Threads, LinkedIn) have NO API disclosure field at all,
+	//     and a platform-rendered badge is a platform-controlled artefact, not a disclosure the deployer
+	//     authored into the content. NULL + a non-`none` level = fall back to the built-in default line
+	//     for that level (`lib/ai-disclosure/note.ts`); an empty string = explicitly no in-content note.
+	//   ai_disclosure_sent — the AUDIT TRAIL, written back at publish: per platform, which native field was
+	//     set to which value (or that the platform has none), plus the note that went out, plus when.
+	//     Lives HERE and not on the delivery row on purpose: terminal `outbound_deliveries` rows are
+	//     hard-deleted after 90 days (`lib/maintenance.ts:19,66-73`), so the delivery payload cannot serve
+	//     as evidence; a `posts` row is only ever removed by an explicit user delete.
+	ai_disclosure: aiDisclosureLevel("ai_disclosure"),
+	ai_disclosure_note: text("ai_disclosure_note"),
+	ai_disclosure_sent: jsonb("ai_disclosure_sent"),
 	// UNIFY P2.2 (REPLYSTACK1 native): optional comment→DM auto-reply attached to this published post.
 	// On publish, the loop-back provisions an `auto_reply_rules` row scoped to the resulting media id.
 	// Shape validated by `autoReplySchema` (lib/autoreply/provision.ts); null = no auto-reply.

@@ -115,10 +115,18 @@ export const tiktokProvider: Provider = {
         typeof request.options?.privacyLevel === "string"
           ? request.options.privacyLevel
           : "SELF_ONLY"; // unaudited clients are restricted to private regardless
+      // AIDISC1: publish-worker-normalized boolean (see lib/ai-disclosure/mapping.ts). Only the
+      // direct/video init endpoint takes post_info at all — the Inbox path above never builds this
+      // object, so an inbox-only publish carries no disclosure field regardless of aiDisclosed. The
+      // PHOTO post endpoint (/v2/post/publish/content/init/) has no such field either, but this
+      // provider has no photo path yet, so there's nothing to gate there today.
+      const aiDisclosed =
+        typeof request.options?.aiDisclosed === "boolean" ? request.options.aiDisclosed : undefined;
       initBody.post_info = {
         title: request.caption ?? "",
         privacy_level: privacy,
         ...(coverTs !== undefined ? { video_cover_timestamp_ms: coverTs } : {}),
+        ...(aiDisclosed !== undefined ? { is_aigc: aiDisclosed } : {}),
       };
     }
 

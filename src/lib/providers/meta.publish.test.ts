@@ -252,6 +252,77 @@ describe("meta.publish", () => {
     expect(calls.every((u) => !u.includes("/video_reels"))).toBe(true);
   });
 
+  it("IG media container sets is_ai_generated when options.aiDisclosed is a boolean [AIDISC1]", async () => {
+    let createBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/media_publish"))
+          return new Response(JSON.stringify({ id: "ig_post_ai" }), { status: 200 });
+        if (url.includes("?fields=status_code"))
+          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        createBody = String(init?.body ?? "");
+        return new Response(JSON.stringify({ id: "container_ai" }), { status: 200 });
+      }),
+    );
+    await metaProvider.publish({
+      tokens,
+      accountId: "IGACCT",
+      request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "hi", options: { aiDisclosed: true } },
+      mediaUrls: ["https://cdn/photo.png"],
+    });
+    const params = new URLSearchParams(createBody);
+    expect(params.get("is_ai_generated")).toBe("true");
+  });
+
+  it("IG media container omits is_ai_generated when options.aiDisclosed is not a boolean", async () => {
+    let createBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/media_publish"))
+          return new Response(JSON.stringify({ id: "ig_post_noai" }), { status: 200 });
+        if (url.includes("?fields=status_code"))
+          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+        createBody = String(init?.body ?? "");
+        return new Response(JSON.stringify({ id: "container_noai" }), { status: 200 });
+      }),
+    );
+    await metaProvider.publish({
+      tokens,
+      accountId: "IGACCT",
+      request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "hi" },
+      mediaUrls: ["https://cdn/photo.png"],
+    });
+    const params = new URLSearchParams(createBody);
+    expect(params.has("is_ai_generated")).toBe(false);
+  });
+
+  it("Facebook Page publish never sends is_ai_generated — Meta has no such field on the Page path [AIDISC1]", async () => {
+    let body = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = String(init?.body ?? "");
+        return new Response(JSON.stringify({ id: "fbvid_ai" }), { status: 200 });
+      }),
+    );
+    await metaProvider.publish({
+      tokens,
+      accountId: "PAGE123",
+      request: {
+        format: "feed_post",
+        media: [{ mediaId: "m" }],
+        caption: "hello fb",
+        options: { target: "facebook", aiDisclosed: true },
+      },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect(decodeURIComponent(body)).not.toContain("is_ai_generated");
+  });
+
   it("throws PermanentError for an unsupported format", async () => {
     await expect(
       metaProvider.publish({

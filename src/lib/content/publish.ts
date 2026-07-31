@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { posts, content as contentTable, channels, deliveries } from "@/db/schema";
+import { posts, content as contentTable, channels, deliveries, brands } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { createDelivery } from "@/lib/deliveries/service";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
@@ -9,11 +9,30 @@ import { getStorage } from "@/lib/storage";
 import { defaultProbe } from "@/lib/media/probe";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getProviderForPlatform } from "@/lib/providers";
+import { disclosureFlag } from "@/lib/ai-disclosure/mapping";
+import { resolveDisclosure, type ResolvedDisclosure } from "@/lib/ai-disclosure/resolve";
 
 /** description + hashtags → a single caption (blank-line separated). */
 export function buildCaption(description?: string | null, hashtags?: string | null): string | undefined {
   const parts = [description?.trim(), hashtags?.trim()].filter((s): s is string => !!s);
   return parts.length ? parts.join("\n\n") : undefined;
+}
+
+/**
+ * AIDISC1: put the in-content disclosure note at the TOP of the caption, on its own line.
+ *
+ * Leading, not trailing, on purpose. The Commission's Code of Practice wants the label "immediately
+ * perceivable without requiring user interaction" and, for text, near the top — and Instagram/TikTok
+ * collapse long captions behind a "more" tap, so a note appended after the hashtags is precisely the
+ * placement that would NOT be seen. Costs a little polish at the start of a caption; that is the trade
+ * this feature exists to make. An operator who wants it elsewhere writes it into the description
+ * themselves and sets `ai_disclosure_note` to an empty string to suppress this one.
+ *
+ * `note` absent → caption returned unchanged (no stray blank line); caption absent → the note stands alone.
+ */
+export function prependDisclosureNote(caption: string | undefined, note: string | null): string | undefined {
+  if (!note) return caption;
+  return caption ? `${note}\n\n${caption}` : note;
 }
 
 const VIDEO_RE = /\.(mp4|mov|webm|m4v)(\?|$)/i;
@@ -61,6 +80,53 @@ export function resolveFormat(
   const map = PLATFORM_FORMAT[platform.trim().toLowerCase()];
   const format = map ? map[kind] : kind === "video" ? "reel" : "image";
   return { format, kind };
+}
+
+/**
+ * YTOPTS1: the extra `options` a post's YouTube columns contribute to a publish request. Every field is
+ * omitted when its source column is null (or, for `youtube_tags`, not an array), so a post with them all
+ * null contributes an empty object and the pre-YTOPTS1 request shape stays byte-identical. Option names
+ * are a FIXED CONTRACT the publish providers read.
+ */
+export function postPublishOptions(post: {
+  youtube_privacy: string | null;
+  youtube_tags: unknown;
+  youtube_category_id: string | null;
+  youtube_made_for_kids: boolean | null;
+}): Record<string, unknown> {
+  return {
+    ...(post.youtube_privacy ? { privacyStatus: post.youtube_privacy } : {}),
+    ...(Array.isArray(post.youtube_tags) ? { tags: post.youtube_tags } : {}),
+    ...(post.youtube_category_id ? { categoryId: post.youtube_category_id } : {}),
+    ...(post.youtube_made_for_kids != null ? { madeForKids: post.youtube_made_for_kids } : {}),
+  };
+}
+
+/**
+ * AIDISC1/2: what a resolved declaration contributes to a publish request.
+ *
+ *  - `aiDisclosed` — the normalized boolean each provider translates into its own vendor field. Absent
+ *    when the platform has no such field, or when nothing was declared.
+ *  - `aiDisclosure` — the full resolution (level + note + where each came from), carried so the publish
+ *    worker can record the audit trail from the payload it actually sent instead of recomputing it from
+ *    the post afterwards. Omitted entirely at level `none`, which keeps a post that declares nothing
+ *    byte-identical to the pre-feature request shape.
+ */
+export function disclosureOptions(platform: string, resolved: ResolvedDisclosure): Record<string, unknown> {
+  const aiDisclosed = disclosureFlag(platform, resolved.level);
+  return {
+    ...(aiDisclosed !== undefined ? { aiDisclosed } : {}),
+    ...(resolved.level === "none"
+      ? {}
+      : {
+          aiDisclosure: {
+            level: resolved.level,
+            levelSource: resolved.levelSource,
+            note: resolved.note,
+            noteSource: resolved.noteSource,
+          },
+        }),
+  };
 }
 
 export interface PublishPostInput {
@@ -117,10 +183,22 @@ export async function publishPost(
     ? await db.query.content.findFirst({ where: and(eq(contentTable.id, post.content_id), eq(contentTable.workspace_id, workspaceId)) })
     : undefined;
 
-  const caption = buildCaption(post.description, post.hashtags);
+  // AIDISC2: resolve the declaration down the post → channel → brand cascade. The brand row is only
+  // fetched when the channel is actually assigned to one, so the common unbranded case adds no query.
+  const brand = channel.brand_key
+    ? await db.query.brands.findFirst({
+        where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, channel.brand_key)),
+      })
+    : undefined;
+  const disclosure = resolveDisclosure({ post, channel, brand });
+  // AIDISC1: the in-content disclosure line (if any) goes into the caption BEFORE the request is built,
+  // so it reaches every platform — including the three with no native disclosure field at all, where it
+  // is the only disclosure the audience ever sees.
+  const caption = prependDisclosureNote(buildCaption(post.description, post.hashtags), disclosure.note);
   // Title for publish targets that require one (YouTube / LinkedIn article): the post's own title
   // wins, else the linked content's (APIFIX4). Blank normalizes to absent.
   const title = [post.title, content?.title].map((t) => t?.trim()).find((t) => !!t);
+  const extraOptions = { ...postPublishOptions(post), ...disclosureOptions(post.platform, disclosure) };
   // COMPOSE1: per-post automation overrides. Only set when explicitly chosen on the post — a null
   // column leaves the field absent so the publish-worker falls back to the channel default.
   const overrides = {
@@ -138,7 +216,7 @@ export async function publishPost(
       media: [{ mediaId: media.id }],
       ...(title ? { title } : {}),
       ...(caption ? { caption } : {}),
-      options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}) },
+      options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}), ...extraOptions },
       ...overrides,
     };
   } else {
@@ -154,7 +232,7 @@ export async function publishPost(
       media: [],
       ...(title ? { title } : {}),
       ...(caption ? { caption } : {}),
-      options: {},
+      options: { ...extraOptions },
       ...overrides,
     };
   }

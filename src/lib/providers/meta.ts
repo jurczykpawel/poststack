@@ -354,11 +354,19 @@ export const metaProvider: Provider = {
       // 1) create media container. IG image feed posts take `image_url` (Meta rejects a bare `url`
       // with #100 "The parameter image_url is required" — same param the Story path uses); reels take
       // `video_url` with media_type REELS.
+      // AIDISC1: Instagram's self-disclosure field, published-worker-normalized to one boolean (see
+      // lib/ai-disclosure/mapping.ts). Facebook Page publishing has no equivalent field, so this only
+      // ever runs on the IG branch below — never add it to the isFacebook block above. NOTE for a
+      // future carousel implementation: Meta's docs say this parameter is "not available for carousel
+      // children" — it belongs on the PARENT container only, never on a child item container.
+      const aiDisclosed =
+        typeof request.options?.aiDisclosed === "boolean" ? request.options.aiDisclosed : undefined;
       const createBody = new URLSearchParams({
         ...(isReel ? { media_type: "REELS", video_url: url ?? "" } : { image_url: url ?? "" }),
         ...(request.caption ? { caption: request.caption } : {}),
         ...(isReel && coverUrl ? { cover_url: coverUrl } : {}),
         ...(isReel && !coverUrl && thumbOffset !== undefined ? { thumb_offset: String(thumbOffset) } : {}),
+        ...(aiDisclosed !== undefined ? { is_ai_generated: String(aiDisclosed) } : {}),
         access_token: igRawToken,
       });
       const create = await fetch(`${igBase}/${accountId}/media`, { method: "POST", body: createBody });

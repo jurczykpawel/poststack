@@ -209,6 +209,54 @@ describe("youtube provider", () => {
     expect(calls.some((u) => u.includes("/upload/youtube/v3/thumbnails/set?videoId=vid_9"))).toBe(true);
   });
 
+  it("sets status.containsSyntheticMedia from options.aiDisclosed when it is a boolean [AIDISC1]", async () => {
+    let initBody: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://cdn/x.mp4") return new Response(new Uint8Array([1, 2]), { status: 200 });
+        if (url.includes("/upload/youtube/v3/videos")) {
+          initBody = JSON.parse(String(init?.body ?? "{}"));
+          return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess" } });
+        }
+        if (url === "https://upload.googleapis.com/sess") return new Response(JSON.stringify({ id: "vid_ai" }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    await youtubeProvider.publish({
+      tokens,
+      accountId: "UC",
+      request: { format: "short", media: [{ mediaId: "m" }], title: "T", options: { aiDisclosed: true } },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect((initBody.status as { containsSyntheticMedia?: boolean }).containsSyntheticMedia).toBe(true);
+  });
+
+  it("omits containsSyntheticMedia entirely when options.aiDisclosed is not a boolean", async () => {
+    let initBody: Record<string, unknown> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://cdn/x.mp4") return new Response(new Uint8Array([1, 2]), { status: 200 });
+        if (url.includes("/upload/youtube/v3/videos")) {
+          initBody = JSON.parse(String(init?.body ?? "{}"));
+          return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess" } });
+        }
+        if (url === "https://upload.googleapis.com/sess") return new Response(JSON.stringify({ id: "vid_noai" }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    await youtubeProvider.publish({
+      tokens,
+      accountId: "UC",
+      request: { format: "short", media: [{ mediaId: "m" }], title: "T" },
+      mediaUrls: ["https://cdn/x.mp4"],
+    });
+    expect("containsSyntheticMedia" in (initBody.status as object)).toBe(false);
+  });
+
   it("publish surfaces an init error", async () => {
     vi.stubGlobal(
       "fetch",

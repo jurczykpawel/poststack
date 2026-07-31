@@ -18,6 +18,8 @@ import { emitEventNow } from "@/lib/events";
 import type { PublishRequest } from "@/lib/providers/types";
 import { resolveMedia } from "./resolve-media";
 import { redactSecrets } from "@/lib/redact";
+import { disclosureForPlatform } from "@/lib/ai-disclosure/mapping";
+import type { AiDisclosureLevel } from "@/db/schema";
 
 type DeliveryRow = typeof deliveries.$inferSelect;
 
@@ -38,6 +40,62 @@ async function reflectEditorial(
   extra: Partial<typeof posts.$inferInsert> = {},
 ): Promise<void> {
   await db.update(posts).set({ status, updated_at: new Date(), ...extra }).where(eq(posts.delivery_id, deliveryId));
+}
+
+/**
+ * AIDISC1/2: build the audit trail of what disclosure actually went out for a just-published delivery.
+ *
+ * Everything about the declaration is read off the REQUEST PAYLOAD — the exact object that was sent —
+ * rather than recomputed from the post afterwards. That is what makes this evidence: a recomputation
+ * only ever proves what our own rules say, and would keep asserting a field was set even if the
+ * plumbing that sets it had broken. `value` (what the rule requires) is kept alongside `sentFlag` (what
+ * the request carried) precisely so `consistent: false` can catch that drift.
+ *
+ * Written onto the `posts` row, not the delivery: terminal `outbound_deliveries` rows are hard-deleted
+ * after 90 days (`lib/maintenance.ts:19,66-73`), so the ledger cannot serve as evidence, while a `posts`
+ * row only disappears on an explicit user delete. Best-effort (returns undefined on failure) — a broken
+ * audit write must never cost an already-succeeded publish — but a real failure IS logged.
+ */
+async function buildAiDisclosureSent(
+  deliveryId: string,
+  request: PublishRequest,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const editorial = await db.query.posts.findFirst({
+      where: eq(posts.delivery_id, deliveryId),
+      columns: { platform: true },
+    });
+    if (!editorial) return undefined; // no linked editorial post — nothing to record
+    // Absent = nothing was declared (publishPost omits the object entirely at level `none`).
+    const sent = (request.options?.aiDisclosure ?? null) as {
+      level?: AiDisclosureLevel;
+      levelSource?: string;
+      note?: string | null;
+      noteSource?: string;
+    } | null;
+    const level: AiDisclosureLevel = sent?.level ?? "none";
+    const d = disclosureForPlatform(editorial.platform, level);
+    const sentFlag = typeof request.options?.aiDisclosed === "boolean" ? request.options.aiDisclosed : null;
+    return {
+      level,
+      // Which layer of the post → channel → brand cascade supplied it. The audit trail's answer to
+      // "why did this post disclose at all?" — often "because the brand says so", not the post.
+      levelSource: sent?.levelSource ?? "default",
+      platform: d.platform,
+      field: d.field,
+      value: d.value,
+      sentFlag,
+      consistent: sentFlag === d.value,
+      supported: d.supported,
+      reason: d.reason,
+      note: sent?.note ?? null,
+      noteSource: sent?.noteSource ?? "default",
+      at: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.error("[publish-worker] failed to build ai_disclosure_sent audit trail for", deliveryId, err);
+    return undefined;
+  }
 }
 
 /**
@@ -298,7 +356,12 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });
     // Capture the platform-assigned post id (the same provider handle used for first-comment / story)
     // onto the editorial post, so a later comment on it can resolve back to this content's title.
-    await reflectEditorial(postId, "published", { published_at: new Date(), platform_post_id: handle.providerHandle });
+    const aiDisclosureSent = await buildAiDisclosureSent(postId, request); // AIDISC1 audit trail (best-effort)
+    await reflectEditorial(postId, "published", {
+      published_at: new Date(),
+      platform_post_id: handle.providerHandle,
+      ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}),
+    });
     await emitPostEvent(ws, "post.published", postId, { providerHandle: handle.providerHandle, platform: channel.platform });
     // REPLYSTACK1 native (UNIFY P2.2): if the editorial post carries an auto-reply, provision the
     // comment→DM rule scoped to the just-published media id — in-process, idempotent, best-effort.

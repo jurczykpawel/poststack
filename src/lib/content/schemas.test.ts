@@ -47,4 +47,43 @@ describe("content schemas", () => {
     expect(postPatch.parse({ title: null }).title).toBeNull();
     expect("title" in postPatch.parse({ platform: "youtube" })).toBe(false);
   });
+
+  it("validates YouTube publish options [YTOPTS1]", () => {
+    const base = { platform: "youtube" };
+    expect(postCreate.safeParse({ ...base, youtubePrivacy: "unlisted" }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubePrivacy: "hidden" }).success).toBe(false);
+    // nullish so a PATCH can clear it
+    expect(postPatch.parse({ youtubePrivacy: null }).youtubePrivacy).toBeNull();
+
+    expect(postCreate.safeParse({ ...base, youtubeTags: ["a", "b"] }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeTags: [""] }).success).toBe(false); // no empty tags
+    expect(postCreate.safeParse({ ...base, youtubeTags: Array(51).fill("x") }).success).toBe(false); // cap 50
+    // total combined length over YouTube's 500-char limit
+    const tooLong = { ...base, youtubeTags: ["x".repeat(250), "y".repeat(251)] };
+    expect(postCreate.safeParse(tooLong).success).toBe(false);
+    const justUnder = { ...base, youtubeTags: ["x".repeat(250), "y".repeat(250)] };
+    expect(postCreate.safeParse(justUnder).success).toBe(true);
+
+    expect(postCreate.safeParse({ ...base, youtubeCategoryId: "22" }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeCategoryId: "not-a-number" }).success).toBe(false);
+    expect(postCreate.safeParse({ ...base, youtubeCategoryId: "12345678901" }).success).toBe(false); // > max 10
+
+    expect(postCreate.safeParse({ ...base, youtubeMadeForKids: true }).success).toBe(true);
+    expect(postPatch.parse({ youtubeMadeForKids: null }).youtubeMadeForKids).toBeNull();
+  });
+
+  it("validates AI disclosure fields [AIDISC1]", () => {
+    const base = { platform: "youtube" };
+    expect(postCreate.safeParse({ ...base, aiDisclosure: "ai_generated" }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, aiDisclosure: "fully_synthetic" }).success).toBe(false);
+    expect(postCreate.safeParse({ ...base, aiDisclosureNote: "Made with AI." }).success).toBe(true);
+    expect(postPatch.parse({ aiDisclosureNote: null }).aiDisclosureNote).toBeNull();
+    expect(postCreate.safeParse({ ...base, aiDisclosureNote: "x".repeat(300) }).success).toBe(false); // > LIMITS.line
+  });
+
+  it("never accepts ai_disclosure_sent from the public body — engine-written audit trail [AIDISC1]", () => {
+    const parsed = postCreate.parse({ platform: "youtube", ai_disclosure_sent: { youtube: true } } as never);
+    expect("ai_disclosure_sent" in parsed).toBe(false);
+    expect("aiDisclosureSent" in parsed).toBe(false);
+  });
 });

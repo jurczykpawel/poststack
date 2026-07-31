@@ -13,6 +13,9 @@ const brandCreate = z.object({
   accent: z.string().max(LIMITS.line).optional(),
   icon: z.string().max(LIMITS.line).optional(),
   story_template: z.string().max(LIMITS.ref).nullable().optional(),
+  // AIDISC2: brand-wide default AI declaration. Explicit null clears it.
+  default_ai_disclosure: z.enum(["none", "ai_assisted", "ai_generated"]).nullish(),
+  default_ai_disclosure_note: z.string().max(LIMITS.line).nullish(),
 });
 
 export async function GET(request: Request): Promise<Response> {

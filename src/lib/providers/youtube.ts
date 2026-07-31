@@ -130,6 +130,11 @@ export const youtubeProvider: Provider = {
       status: {
         privacyStatus,
         selfDeclaredMadeForKids: opts.madeForKids === true, // required by the API
+        // AIDISC1: publish-worker normalizes the post's declared AI level into this one boolean
+        // (see lib/ai-disclosure/mapping.ts — YouTube's flag is scoped to realistic synthetic media,
+        // so "ai_assisted" resolves to false there). Omitted entirely when undefined rather than
+        // sent as false, so an untouched video keeps whatever YouTube defaults to.
+        ...(typeof opts.aiDisclosed === "boolean" ? { containsSyntheticMedia: opts.aiDisclosed } : {}),
       },
     };
 
