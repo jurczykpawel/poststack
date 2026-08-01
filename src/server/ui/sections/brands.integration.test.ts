@@ -146,6 +146,51 @@ describe("Brands section", () => {
     expect((await app.request("/brands/storybrand/story-preview?template=bogus", { headers: { cookie } })).status).toBe(200);
   });
 
+  // AIDISC2: the brand's AI declaration is the one an operator actually reaches for — one material goes
+  // out to every channel of a brand — so it has to be settable in the dashboard, not only over the API.
+  it("sets a brand's default AI disclosure via edit and reflects it back in the form", async () => {
+    if (!TEST_DB) return;
+    await app.request("/brands", form({ key: "aibrand", name: "AI Brand" }));
+    const edited = await app.request(
+      "/brands/aibrand/edit",
+      form({ name: "AI Brand", default_ai_disclosure: "ai_generated", default_ai_disclosure_note: "Made with AI." }),
+    );
+    expect(edited.status).toBeLessThan(400);
+
+    const page = await (await app.request("/brands", { headers: { cookie } })).text();
+    expect(page).toContain('name="default_ai_disclosure"');
+    expect(page).toContain('<option value="ai_generated" selected>'); // saved level reflected
+    expect(page).toContain('value="Made with AI."'); // saved wording reflected
+    expect(page).toContain('x-model="disc"'); // the picker drives the note field's visibility + placeholder
+
+    const row = await db.query.brands.findFirst({
+      where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, "aibrand")),
+    });
+    expect(row).toMatchObject({ default_ai_disclosure: "ai_generated", default_ai_disclosure_note: "Made with AI." });
+  });
+
+  it("a blank level clears the declaration, and a blank note falls back to the built-in wording", async () => {
+    if (!TEST_DB) return;
+    await app.request("/brands", form({ key: "clearme", name: "Clear Me" }));
+    await app.request(
+      "/brands/clearme/edit",
+      form({ name: "Clear Me", default_ai_disclosure: "ai_assisted", default_ai_disclosure_note: "Custom." }),
+    );
+    // Blank note → NULL (use the built-in copy), NOT "" (which would mean "publish no line at all").
+    await app.request("/brands/clearme/edit", form({ name: "Clear Me", default_ai_disclosure: "ai_assisted", default_ai_disclosure_note: "" }));
+    let row = await db.query.brands.findFirst({
+      where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, "clearme")),
+    });
+    expect(row).toMatchObject({ default_ai_disclosure: "ai_assisted", default_ai_disclosure_note: null });
+
+    // Blank level → the brand declares nothing again, and each post decides for itself.
+    await app.request("/brands/clearme/edit", form({ name: "Clear Me", default_ai_disclosure: "" }));
+    row = await db.query.brands.findFirst({
+      where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, "clearme")),
+    });
+    expect(row!.default_ai_disclosure).toBeNull();
+  });
+
   it("assigns a channel to a brand+platform slot via PUT", async () => {
     if (!TEST_DB) return;
     await createBrandSvc({ key: "tsa", name: "TSA" }, workspaceId);

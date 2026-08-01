@@ -12,6 +12,7 @@ import {
   setChannelStatus,
   setChannelDisplayName,
   setChannelDefaultFirstComment,
+  setChannelDefaultAiDisclosure,
   setChannelDefaultAutoStory,
   setChannelHidden,
   setChannelGmailQuery,
@@ -597,6 +598,45 @@ function platformSupportsFirstComment(platform: string): boolean {
 
 /** FIRSTCOMMENT1: per-channel default first-comment editor (shown only for platforms that can
  *  comment on their own posts). The per-post override travels on the publish request, not here. */
+const CH_DISCLOSURE_LABELS: Array<[string, string]> = [
+  ["", "Not set — inherit the brand's"],
+  ["none", "No AI — nothing to disclose"],
+  ["ai_assisted", "AI-assisted — AI used in production"],
+  ["ai_generated", "AI-generated — realistic AI content"],
+];
+
+/**
+ * AIDISC2: per-channel AI declaration — the middle layer of the post → channel → brand cascade, for
+ * when one platform's output differs from the rest of the brand's. Most operators should set this on
+ * the BRAND instead (one material goes out to every channel of a brand); this is the exception hatch.
+ */
+function aiDisclosurePanel(ch: PublicChannel, oob = false): Html {
+  const cur = ch.default_ai_disclosure ?? "";
+  return html`<section class="panel" id="ai-disclosure-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
+    <div class="panel-head"><h3>AI disclosure</h3></div>
+    <div class="set-body">
+      <p class="set-lead">
+        Declared for posts on this channel that don't set their own. Overrides the brand's default;
+        leave unset to inherit it. Sets the platform's native AI flag where one exists and puts the
+        line at the start of the caption.
+      </p>
+      <form class="panel-form" method="post" action="/channels/${ch.id}/ai-disclosure"
+        hx-post="/channels/${ch.id}/ai-disclosure" hx-target="#ch-detail-head" hx-swap="outerHTML"
+        x-data="{ disc: '${cur}' }">
+        <select name="level" aria-label="Default AI disclosure" x-model="disc" style="width:100%">
+          ${CH_DISCLOSURE_LABELS.map(([v, label]) => html`<option value="${v}"${cur === v ? raw(" selected") : raw("")}>${label}</option>`)}
+        </select>
+        <input name="note" value="${ch.default_ai_disclosure_note ?? ""}" maxlength="255"
+          aria-label="Disclosure line shown in the caption"
+          placeholder="Standard wording used when a level is set"
+          x-show="disc === 'ai_assisted' || disc === 'ai_generated'" x-cloak
+          style="width:100%;margin-top:6px;font:inherit" />
+        ${btn({ label: "Save AI disclosure", variant: "secondary", size: "sm" })}
+      </form>
+    </div>
+  </section>`;
+}
+
 function firstCommentPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
   if (!platformSupportsFirstComment(ch.platform)) return html``;
   // Same out-of-band pattern as the Auto-Story panel: the control lives here, not in #ch-detail-head,
@@ -868,6 +908,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
               </div></section>`
           : html`<section class="panel"><div class="set-body"><p class="set-lead" style="margin:0">${icon("lock", "ico", 13)} Channel stats (posts & messages) are a PRO feature.</p></div></section>`}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
+        ${aiDisclosurePanel(ch)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
         ${aiDraftPanel(ch, lic.features.has("ai_draft"), lic.upgradeUrl, false, aiConfigured)}
         ${gmailFilterPanel(ch)}
@@ -938,6 +979,15 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     await setChannelDefaultFirstComment(ws, id, String(form.firstComment ?? ""));
   }, (ch) => ch.default_first_comment ? "First comment saved" : "First comment turned off",
     (ch) => firstCommentPanel(ch, true, "", true), "first_comment"));
+  r.post("/channels/:id/ai-disclosure", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    const raw = String(form.level ?? "");
+    const level = raw === "none" || raw === "ai_assisted" || raw === "ai_generated" ? raw : null;
+    await setChannelDefaultAiDisclosure(ws, id, level, String(form.note ?? ""));
+  }, (ch) => ch.default_ai_disclosure ? "AI disclosure saved" : "AI disclosure cleared",
+    // Deliberately NOT license-gated: this is a legal-compliance control (EU AI Act Art. 50), not a
+    // premium feature. Everything else on this page passes a feature name here; this one must not.
+    (ch) => aiDisclosurePanel(ch, true)));
   r.post("/channels/:id/auto-story", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");

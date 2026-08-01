@@ -152,6 +152,31 @@ describe("channels service — getChannel + mutations are workspace-scoped", () 
     expect((await svc.getChannel(WS_A, id))?.default_first_comment).toBeNull();
   });
 
+  it("AIDISC2: setChannelDefaultAiDisclosure sets, trims, and clears the channel's declaration", async () => {
+    if (!TEST_DB) return;
+    const id = await makeChannel(WS_A, { platform: "instagram", platformId: "AID1" });
+    const read = async () => await svc.getChannel(WS_A, id);
+    expect(await read()).toMatchObject({ default_ai_disclosure: null, default_ai_disclosure_note: null });
+
+    await svc.setChannelDefaultAiDisclosure(WS_A, id, "ai_generated", "  Contains AI.  ");
+    expect(await read()).toMatchObject({ default_ai_disclosure: "ai_generated", default_ai_disclosure_note: "Contains AI." });
+
+    // A blank note falls back to the built-in wording (NULL), it does NOT suppress the line — that is a
+    // per-post decision, and a form cannot tell an empty input from an unset one.
+    await svc.setChannelDefaultAiDisclosure(WS_A, id, "ai_generated", "   ");
+    expect(await read()).toMatchObject({ default_ai_disclosure: "ai_generated", default_ai_disclosure_note: null });
+
+    // null level = this channel adds nothing, so the brand's default applies again.
+    await svc.setChannelDefaultAiDisclosure(WS_A, id, null, "");
+    expect(await read()).toMatchObject({ default_ai_disclosure: null });
+  });
+
+  it("AIDISC2: setChannelDefaultAiDisclosure refuses a cross-workspace id (404)", async () => {
+    if (!TEST_DB) return;
+    const idB = await makeChannel(WS_B, { platform: "instagram", platformId: "AID-B" });
+    await expect(svc.setChannelDefaultAiDisclosure(WS_A, idB, "ai_generated", "x")).rejects.toThrow();
+  });
+
   it("FIRSTCOMMENT1: setChannelDefaultFirstComment refuses a cross-workspace id (404)", async () => {
     if (!TEST_DB) return;
     const idB = await makeChannel(WS_B, { platform: "instagram", platformId: "FC-B" });

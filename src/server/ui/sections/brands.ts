@@ -130,6 +130,46 @@ function storyTemplateField(brand: BrandRow): Html {
     </select>
   </div>`;
 }
+const DISCLOSURE_LABELS: Array<[string, string]> = [
+  ["", "Not set — each post decides"],
+  ["none", "No AI — nothing to disclose"],
+  ["ai_assisted", "AI-assisted — AI used in production"],
+  ["ai_generated", "AI-generated — realistic AI content"],
+];
+
+/**
+ * AIDISC2: the brand's default AI declaration (EU AI Act Art. 50, applicable 2 August 2026).
+ *
+ * This is the level that matters in practice — one piece of material goes out to every channel of a
+ * brand — so it is set here once rather than on each post. A post that declares nothing inherits it;
+ * a post that declares its own level (including an explicit "No AI") overrides it.
+ *
+ * Note field: blank means "use the built-in wording for the level", NOT "publish no line". A form
+ * cannot tell an empty input from an unset one, and at brand level the useful reading is the former —
+ * suppressing the line for a single post is a per-post decision, available over the API.
+ */
+function aiDisclosureField(brand: BrandRow): Html {
+  const cur = brand.default_ai_disclosure ?? "";
+  return html`<div class="brand-fld" x-data>
+    <span>AI disclosure <small>(default for posts on this brand that don't set their own)</small></span>
+    <select name="default_ai_disclosure" aria-label="Default AI disclosure" x-model="disc">
+      ${DISCLOSURE_LABELS.map(([v, label]) => html`<option value="${v}"${cur === v ? raw(" selected") : raw("")}>${label}</option>`)}
+    </select>
+    <input name="default_ai_disclosure_note" value="${brand.default_ai_disclosure_note ?? ""}"
+      aria-label="Disclosure line shown in the caption"
+      :placeholder="disc === 'ai_generated' ? 'Contains AI-generated content.' : disc === 'ai_assisted' ? 'Created with AI assistance.' : 'Standard wording used when a level is set'"
+      placeholder="Standard wording used when a level is set"
+      x-show="disc === 'ai_assisted' || disc === 'ai_generated'" x-cloak
+      style="margin-top:6px" />
+    <span class="muted" style="font-size:.72rem;margin-top:4px"
+      x-show="disc === 'ai_assisted' || disc === 'ai_generated'" x-cloak>
+      Goes at the start of the caption on every platform, and sets the native AI flag where the platform
+      has one (YouTube, Instagram, TikTok, X). Facebook, Threads and LinkedIn have no such flag — there
+      this line is the only disclosure the audience sees.
+    </span>
+  </div>`;
+}
+
 /** Live preview thumbnail. The `:src` re-renders the moment the picker changes (Alpine `tpl`), so you
  *  see the chosen template BEFORE saving; the static `src` is the no-JS fallback (saved template). */
 function storyPreview(brand: BrandRow): Html {
@@ -180,16 +220,17 @@ function brandCard(brand: BrandRow, slots: { rows: Html; connected: number }, lo
     <div class="compose-body">
       ${slots.rows}
       <details class="brand-edit">
-        <summary>Edit name, colour &amp; Story</summary>
+        <summary>Edit name, colour, Story &amp; AI disclosure</summary>
         <form class="brand-edit-form" method="post" action="/brands/${brand.key}/edit"
           hx-post="/brands/${brand.key}/edit" hx-target="#${cardId}" hx-swap="outerHTML"
-          x-data="{ tpl: '${brand.story_template ?? ""}' }">
+          x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
           <label class="brand-fld"><span>Brand name</span>
             <input name="name" value="${brand.name}" required /></label>
           ${accentField(brand.accent ?? "")}
           ${iconField(brand.icon ?? "")}
           ${storyTemplateField(brand)}
           ${storyPreview(brand)}
+          ${aiDisclosureField(brand)}
           ${btn({ label: "Save changes", variant: "primary", size: "sm" })}
         </form>
       </details>
@@ -371,6 +412,14 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
         accent: form.accent ? String(form.accent) : null,
         icon: form.icon ? String(form.icon) : null,
         story_template: form.story_template ? String(form.story_template) : null,
+        // AIDISC2: "" from the select = not set (this brand declares nothing). A blank note falls back
+        // to the built-in wording for the level rather than suppressing the line — see aiDisclosureField.
+        default_ai_disclosure: form.default_ai_disclosure
+          ? (String(form.default_ai_disclosure) as "none" | "ai_assisted" | "ai_generated")
+          : null,
+        default_ai_disclosure_note: form.default_ai_disclosure_note
+          ? String(form.default_ai_disclosure_note).trim() || null
+          : null,
       });
     } catch (err) {
       if (err instanceof ApiError) return c.text(err.message, err.status as 400);

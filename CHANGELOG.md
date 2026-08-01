@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- **AI-disclosure controls in the dashboard.** The brand's default AI declaration is now set on the Brands page (level + the wording that goes into the caption), and a per-channel override lives on the channel detail page for the case where one platform's output differs from the rest of the brand's. Previously these were reachable only over the API (brands) or in the database (channels), which made a legally load-bearing feature effectively unavailable in normal use. The note field appears only once a level is chosen and previews the built-in wording for that level; leaving it blank uses that wording rather than suppressing the line. **Not license-gated** — this is a compliance control, not a premium feature.
+
 ## [0.13.0] - 2026-07-31
 
 ### Added

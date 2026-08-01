@@ -47,6 +47,8 @@ export interface PublicChannel {
   hidden_at: Date | null;
   /** FIRSTCOMMENT1: default first-comment text auto-posted under posts published to this channel. */
   default_first_comment: string | null;
+  default_ai_disclosure: "none" | "ai_assisted" | "ai_generated" | null;
+  default_ai_disclosure_note: string | null;
   /** STORY1: when true, every post published to this channel also auto-publishes a Story card. */
   default_auto_story: boolean;
   metadata: Record<string, unknown> | null;
@@ -93,6 +95,8 @@ export function toPublic(r: ChannelRow): PublicChannel {
     needs_reauth_reason: r.needs_reauth_reason,
     hidden_at: r.hidden_at,
     default_first_comment: r.default_first_comment,
+    default_ai_disclosure: r.default_ai_disclosure,
+    default_ai_disclosure_note: r.default_ai_disclosure_note,
     default_auto_story: r.default_auto_story,
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
@@ -282,6 +286,27 @@ export async function setChannelDefaultFirstComment(workspaceId: string, id: str
   await db
     .update(channels)
     .set({ default_first_comment: trimmed || null })
+    .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+}
+
+/**
+ * AIDISC2: the channel's default AI declaration — the middle layer of the post → channel → brand
+ * cascade, for the case where one platform's output genuinely differs from the rest of the brand's.
+ * `null` level = this channel adds nothing and the brand's default (if any) applies. A blank note falls
+ * back to the built-in wording for the level rather than suppressing the line; suppressing it is a
+ * per-post decision.
+ */
+export async function setChannelDefaultAiDisclosure(
+  workspaceId: string,
+  id: string,
+  level: "none" | "ai_assisted" | "ai_generated" | null,
+  note: string,
+): Promise<void> {
+  await ownChannelOr404(workspaceId, id);
+  const trimmed = note.trim().slice(0, 255);
+  await db
+    .update(channels)
+    .set({ default_ai_disclosure: level, default_ai_disclosure_note: trimmed || null })
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
