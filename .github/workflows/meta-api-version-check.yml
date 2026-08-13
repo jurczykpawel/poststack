@@ -92,7 +92,7 @@ jobs:
           NEXT="${{ steps.version.outputs.latest }}"
           gh issue create \
             --title "Meta Graph API ${NEXT} available — strict validation required" \
-            --label "dependencies,meta-api" \
+            --label "dependencies" \
             --body "$(cat <<EOF
           Meta Graph API ${NEXT} is available; PostStack remains on ${CURRENT}.
 
@@ -206,7 +206,7 @@ jobs:
           NEXT="${{ steps.version.outputs.latest }}"
           gh issue create \
             --title "Meta Graph API ${NEXT} available — strict validation failed" \
-            --label "dependencies,meta-api" \
+            --label "dependencies" \
             --body "$(cat <<EOF
           Strict validation for Meta Graph API ${CURRENT} → ${NEXT} did not pass. No PR was created.
 

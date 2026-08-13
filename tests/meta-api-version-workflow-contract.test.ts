@@ -14,6 +14,8 @@ describe("Meta API version-update gate", () => {
     expect(workflow).toContain("bun scripts/meta-version-probe.ts");
     expect(workflow).not.toContain("scripts/meta-api-probe.sh");
     expect(workflow).not.toContain('"$PROBE" = "skipped"');
+    expect(workflow).toContain('--label "dependencies"');
+    expect(workflow).not.toContain('"dependencies,meta-api"');
   });
 
   it("makes skipped probe coverage fail closed in strict mode", () => {
