@@ -15,17 +15,17 @@ import { createTaskList } from "../src/lib/queue/tasks";
 import { cronTaskList, CRONTAB } from "../src/lib/workers/cron";
 import { db } from "../src/lib/db";
 import { sendTelemetryOnBoot } from "../src/lib/telemetry/send";
+import { WorkerHeartbeat } from "./heartbeat";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
 
 // Liveness heartbeat. `restart: always` recovers a CRASHED worker, but a HUNG one (blocked
 // event loop, dead pool) stays "running" and invisible — Docker, the operator and alerting see
-// nothing. graphile fires worker:getJob:* on every poll, even while idle, so we advance an in-memory
-// timestamp on those events ("the worker loop is alive and polling") and a separate timer flushes it
-// to a file the container healthcheck reads. If polling stops, the file stops advancing → unhealthy.
+// nothing. Successful idle polls prove DB connectivity; active jobs plus this file-flush timer prove
+// the event loop is responsive. If neither is true, the file stops advancing → unhealthy.
 const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? "/tmp/replystack-worker.heartbeat";
-let lastActivityMs = Date.now();
+const heartbeat = new WorkerHeartbeat();
 
 async function main() {
   const taskList = {
@@ -48,20 +48,15 @@ async function main() {
   // never blocks startup). No-op when telemetry is disabled.
   void sendTelemetryOnBoot(db);
 
-  const noteActivity = () => { lastActivityMs = Date.now(); };
-  // Tick only on evidence the worker SUCCESSFULLY reached the DB, never on a poll attempt:
-  // `worker:getJob:empty` fires after a poll query that found no work (healthy idle), and a job
-  // completing proves a round-trip too. `worker:getJob:start` fires BEFORE the query, so a dead pool
-  // (start → query throws → error → reschedule → start …) would keep ticking and falsely read healthy
-  // — the exact failure mode this probe must catch.
-  runner.events.on("worker:getJob:empty", noteActivity); // poll reached the DB, no work
-  runner.events.on("job:success", noteActivity);
-  runner.events.on("job:failed", noteActivity);
-  // Flush the LAST-polled timestamp (not "now"): if graphile stops polling, the file freezes even
-  // though this timer keeps running, so `now - heartbeat` grows and the healthcheck trips.
+  // Never advance on `worker:getJob:start`: it fires before the database query. `job:start` means a
+  // job was fetched successfully; `job:complete` is emitted after its result was persisted.
+  runner.events.on("worker:getJob:empty", () => heartbeat.databaseReached());
+  runner.events.on("job:start", () => heartbeat.jobStarted());
+  runner.events.on("job:complete", () => heartbeat.jobCompleted());
+
   const flushHeartbeat = () => {
     try {
-      writeFileSync(HEARTBEAT_FILE, String(Math.floor(lastActivityMs / 1000)));
+      writeFileSync(HEARTBEAT_FILE, String(heartbeat.timestampSeconds()));
     } catch {
       /* best effort — a missing heartbeat file simply reads as stale → unhealthy */
     }

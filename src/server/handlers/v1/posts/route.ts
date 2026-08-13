@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { ok, created, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { clampLimit } from "@/lib/api/pagination";
@@ -9,7 +9,7 @@ import { readIdempotencyKey } from "@/server/handlers/v1/_publishing";
 export const runtime = "nodejs";
 
 export async function GET(request: Request): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "posts:read");
   if (!auth) return ApiErrors.unauthorized();
   const q = new URL(request.url).searchParams;
   const res = await listPosts({
@@ -26,7 +26,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "posts:write");
   if (!auth) return ApiErrors.unauthorized();
   const body = await request.json().catch(() => ({}));
   const parsed = postCreate.safeParse(body);

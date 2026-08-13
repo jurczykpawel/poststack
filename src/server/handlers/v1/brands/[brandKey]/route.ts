@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { ok, noContent, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { updateBrand, deleteBrand } from "@/lib/brands/service";
@@ -20,7 +20,7 @@ const brandPatch = z.object({
 });
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "brands:write");
   if (!auth) return ApiErrors.unauthorized();
   const { brandKey } = await ctx.params;
   const body = await request.json().catch(() => ({}));
@@ -31,7 +31,7 @@ export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
 }
 
 export async function DELETE(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "brands:write");
   if (!auth) return ApiErrors.unauthorized();
   const { brandKey } = await ctx.params;
   await deleteBrand(auth.workspaceId, brandKey);

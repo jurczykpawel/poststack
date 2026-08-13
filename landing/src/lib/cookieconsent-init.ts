@@ -1,5 +1,5 @@
 import ccStyles from "vanilla-cookieconsent/dist/cookieconsent.css?inline";
-import * as CC from "vanilla-cookieconsent";
+import { acceptCategory, run, showPreferences, validConsent } from "vanilla-cookieconsent";
 
 declare global {
   interface Window {
@@ -125,7 +125,7 @@ export async function initCookieConsent() {
     restoreConsentCookie(storedCategories);
   }
 
-  await CC.run({
+  await run({
     cookie: {
       name: COOKIE_NAME,
       expiresAfterDays: 365,
@@ -223,12 +223,12 @@ export async function initCookieConsent() {
     onChange: ({ cookie }) => updateGtag(cookie as ConsentCookie),
   });
 
-  if (storedCategories && !CC.validConsent()) {
-    CC.acceptCategory(storedCategories as string[]);
+  if (storedCategories && !validConsent()) {
+    acceptCategory(storedCategories as string[]);
   }
 }
 
 export function showCookiePreferences() {
   ensureStyles();
-  CC.showPreferences();
+  showPreferences();
 }

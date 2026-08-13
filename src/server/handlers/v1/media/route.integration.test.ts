@@ -31,6 +31,8 @@ let getStorage: typeof import("@/lib/storage").getStorage;
 let resetStorage: typeof import("@/lib/storage").__resetStorage;
 let WS = "";
 const RAW_KEY = "sk_live_media_fastpath_key_0123456789abcd";
+const WRITE_KEY = "sk_live_media_write_key_0123456789abcde";
+const UNRELATED_KEY = "sk_live_media_unrelated_0123456789abcdef";
 const SHA = "c".repeat(64);
 // Minimal ftyp/mp42 header so the fallback probe accepts the body as a video.
 const mp4 = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32]);
@@ -52,12 +54,28 @@ beforeAll(async () => {
   resetStorage = storage.__resetStorage;
   app = buildApp();
   WS = await seedWorkspace(db, schema, { slug: `media-route-${Date.now()}` });
-  await db.insert(schema.apiKeys).values({
-    workspace_id: WS,
-    name: "media",
-    key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
-    key_prefix: RAW_KEY.slice(0, 16),
-  });
+  await db.insert(schema.apiKeys).values([
+    {
+      workspace_id: WS,
+      name: "media",
+      key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
+      key_prefix: RAW_KEY.slice(0, 16),
+    },
+    {
+      workspace_id: WS,
+      name: "media-writer",
+      key_hash: createHash("sha256").update(WRITE_KEY).digest("hex"),
+      key_prefix: WRITE_KEY.slice(0, 16),
+      scopes: ["media:write"],
+    },
+    {
+      workspace_id: WS,
+      name: "media-unrelated",
+      key_hash: createHash("sha256").update(UNRELATED_KEY).digest("hex"),
+      key_prefix: UNRELATED_KEY.slice(0, 16),
+      scopes: ["stats:read"],
+    },
+  ]);
 });
 
 afterAll(async () => {
@@ -74,10 +92,20 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 const auth = { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" };
-const post = (body: unknown) =>
-  app.request("/api/v1/media", { method: "POST", headers: auth, body: JSON.stringify(body) });
+const post = (body: unknown, key = RAW_KEY) =>
+  app.request("/api/v1/media", {
+    method: "POST",
+    headers: { ...auth, authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+  });
 
 describe("POST /api/v1/media — sha256 reference fast-path", () => {
+  it("requires media:write before validating the request", async () => {
+    if (!TEST_DB) return;
+    expect((await post({}, UNRELATED_KEY)).status).toBe(401);
+    expect((await post({}, WRITE_KEY)).status).toBe(422);
+  });
+
   it("links an already-stored object by reference WITHOUT fetching the source URL", async () => {
     if (!TEST_DB) return;
     await getStorage().putBytes(casKey(SHA, "video/mp4"), mp4, "video/mp4", { sha256: SHA });

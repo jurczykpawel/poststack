@@ -8,10 +8,14 @@ process.env.APP_URL ??= "http://localhost:3000";
 vi.mock("@/lib/env", () => ({ env: { APP_URL: "http://localhost:3000" } }));
 
 const mockAuthenticate = vi.fn();
-vi.mock("@/lib/auth", () => ({ authenticate: (...a: unknown[]) => mockAuthenticate(...a) }));
+vi.mock("@/lib/auth", () => ({
+  authenticate: (...a: unknown[]) => mockAuthenticate(...a),
+  authenticateSession: (...a: unknown[]) => mockAuthenticate(...a),
+}));
 
 vi.mock("@/lib/oauth/state", () => ({
-  generateOAuthState: () => ({ state: "STATE123", setCookie: "rs_oauth_state=STATE123; HttpOnly; Path=/" }),
+  OAUTH_FLOWS: { instagramLogin: "instagram-login" },
+  generateOAuthState: (..._a: unknown[]) => ({ state: "STATE123", setCookie: "rs_oauth_state=STATE123; HttpOnly; Path=/" }),
 }));
 
 // Configurable per-test config: both INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET must be set for the
@@ -31,7 +35,7 @@ describe("GET /api/oauth/instagram-login", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     configValues = { INSTAGRAM_APP_ID: "ig-app-id-123", INSTAGRAM_APP_SECRET: "ig-app-secret-xyz" };
-    mockAuthenticate.mockResolvedValue({ workspaceId: "ws-1", userId: "u-1", authMethod: "session", scopes: [] });
+    mockAuthenticate.mockResolvedValue({ workspaceId: "ws-1", userId: "u-1", sessionId: "s-1", authMethod: "session", scopes: [] });
   });
 
   it("302-redirects to the Instagram Business Login authorize URL with client_id, scopes, and state", async () => {

@@ -6,6 +6,9 @@ import type { Hono } from "hono";
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const KEY = "sk_live_brands_key_abcd00000000001";
 const OTHER_KEY = "sk_live_brands_other_abcd0000000002";
+const READ_KEY = "sk_live_brands_read_abcd00000000003";
+const WRITE_KEY = "sk_live_brands_write_abcd000000004";
+const UNRELATED_KEY = "sk_live_brands_unrelated_abcd000005";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -37,6 +40,9 @@ beforeEach(async () => {
   const hash = (k: string) => createHash("sha256").update(k).digest("hex");
   await db.insert(s.apiKeys).values([
     { workspace_id: WS, name: "k", key_hash: hash(KEY), key_prefix: "sk_live_br" },
+    { workspace_id: WS, name: "reader", key_hash: hash(READ_KEY), key_prefix: "sk_live_brr", scopes: ["brands:read"] },
+    { workspace_id: WS, name: "writer", key_hash: hash(WRITE_KEY), key_prefix: "sk_live_brw", scopes: ["brands:write"] },
+    { workspace_id: WS, name: "unrelated", key_hash: hash(UNRELATED_KEY), key_prefix: "sk_live_bru", scopes: ["stats:read"] },
     { workspace_id: OTHER_WS, name: "o", key_hash: hash(OTHER_KEY), key_prefix: "sk_live_bo" },
   ]);
 });
@@ -106,6 +112,29 @@ describe.skipIf(!TEST_DB)("/api/v1/brands", () => {
 
   it("401 without auth", async () => {
     expect((await call("GET", "/brands", undefined, null)).status).toBe(401);
+  });
+
+  it("applies brands:read to brand and channel-resolution reads", async () => {
+    await call("POST", "/brands", { key: "scoped-read", name: "Scoped read" });
+
+    expect((await call("GET", "/brands", undefined, READ_KEY)).status).toBe(200);
+    expect((await call("GET", "/brands/scoped-read/channels", undefined, READ_KEY)).status).toBe(200);
+    for (const key of [WRITE_KEY, UNRELATED_KEY]) {
+      expect((await call("GET", "/brands", undefined, key)).status).toBe(401);
+      expect((await call("GET", "/brands/scoped-read/channels", undefined, key)).status).toBe(401);
+    }
+  });
+
+  it("applies brands:write to create, update, and delete", async () => {
+    for (const key of [READ_KEY, UNRELATED_KEY]) {
+      expect((await call("POST", "/brands", { key: `denied-${key.slice(-3)}`, name: "Denied" }, key)).status).toBe(401);
+      expect((await call("PATCH", "/brands/missing", { name: "Denied" }, key)).status).toBe(401);
+      expect((await call("DELETE", "/brands/missing", undefined, key)).status).toBe(401);
+    }
+
+    expect((await call("POST", "/brands", { key: "scoped-write", name: "Before" }, WRITE_KEY)).status).toBe(201);
+    expect((await call("PATCH", "/brands/scoped-write", { name: "After" }, WRITE_KEY)).status).toBe(200);
+    expect((await call("DELETE", "/brands/scoped-write", undefined, WRITE_KEY)).status).toBe(204);
   });
 
   // AIDISC2: the brand is the level that matters most in practice — one piece of material goes out to

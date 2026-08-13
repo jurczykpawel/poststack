@@ -7,6 +7,7 @@ import { rateLimit } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
 import { proGate } from "@/lib/api/pro-gate";
 import { z } from "zod";
+import { API_SCOPES } from "@/lib/auth/scopes";
 
 export const runtime = "nodejs";
 
@@ -35,22 +36,14 @@ export async function GET(request: Request) {
   return ok(keys);
 }
 
-export const VALID_SCOPES = [
-  "channels:read", "channels:write",
-  "conversations:read", "conversations:write",
-  "contacts:read", "contacts:write",
-  "rules:read", "rules:write",
-  "sequences:read", "sequences:write",
-  "tags:read", "tags:write",
-  "settings:read", "settings:write",
-  "sources:read", "sources:write",
-  "webhooks:read", "webhooks:write",
-  "stats:read",
-] as const;
+export const VALID_SCOPES = API_SCOPES;
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
-  scopes: z.array(z.enum(VALID_SCOPES)).default([]),
+  scopes: z.array(z.enum(VALID_SCOPES))
+    .min(1, "Select at least one permission")
+    .max(API_SCOPES.length)
+    .refine((scopes) => new Set(scopes).size === scopes.length, "Permissions must be unique"),
   expires_at: z.string().datetime().optional(),
 });
 

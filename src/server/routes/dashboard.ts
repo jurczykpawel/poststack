@@ -66,6 +66,12 @@ import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
+import {
+  API_SCOPE_DEFINITIONS,
+  API_SCOPE_GROUPS,
+  API_SCOPE_PRESETS,
+  API_SCOPES,
+} from "@/lib/auth/scopes";
 import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
@@ -2015,13 +2021,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // JSON shape, so a dashboard key can be scoped instead of always full-access.
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const scopes = parseJsonArray(typeof form.scopes_json === "string" ? form.scopes_json : "").filter((s): s is string => typeof s === "string");
-    // An empty scopes array is the "full access" sentinel for programmatic keys (hasScope), but in
-    // THIS form every checkbox starts checked, so deselecting them all means the user wants a
-    // RESTRICTED key — minting full access would invert that intent. Require at least one.
+    // An empty scopes array is the full-access sentinel for programmatic keys, but in this form
+    // deselecting every permission means the user wants no permissions. Require at least one.
     if (scopes.length === 0) {
       const a = await auth(c);
       if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-      return c.html(renderKeys(await loadKeys(a.workspaceId), "Select at least one scope (leaving every box checked grants full access)."));
+      return c.html(renderKeys(await loadKeys(a.workspaceId), "Select at least one permission."));
     }
     const res = await apiKeys.POST(jsonReq(c, { name: form.name ?? "", scopes }));
     const a = await auth(c);
@@ -2567,14 +2572,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             : ""}
           <h3 style="margin-top:1.5rem">Endpoint activity — handshakes &amp; rejected hits</h3>
           <p class="muted" style="font-size:.85rem">Every hit on your webhook URL that never became an event: the Meta subscription handshake, plus requests refused before processing (bad signature, unparseable body, unknown object, oversized). Instance-wide — these carry no channel or message content.</p>
-          <div id="wh-endpoint" hx-get="/webhooks/endpoint-activity" hx-trigger="load" hx-swap="innerHTML">
+          <div id="wh-endpoint" hx-get="/webhooks/endpoint-activity" hx-trigger="load" hx-swap="innerHTML transition:false">
             <p class="muted" style="font-size:.82rem">Loading endpoint activity…</p>
           </div>
           </div>
           <div class="settings-panel" x-show="tab==='subscriptions'" x-cloak>
           <h2>Subscriptions — what each connected account is set to receive</h2>
           <p class="muted" style="font-size:.85rem">PostStack auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
-          <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML">
+          <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML transition:false">
             <p class="muted" style="font-size:.82rem">Checking subscriptions…</p>
           </div>
           </div>
@@ -2903,17 +2908,17 @@ function loadKeys(workspaceId: string) {
   return db.query.apiKeys.findMany({
     where: eq(apiKeysTbl.workspace_id, workspaceId),
     orderBy: desc(apiKeysTbl.created_at),
-    columns: { id: true, name: true, key_prefix: true, last_used_at: true, expires_at: true },
+    columns: { id: true, name: true, key_prefix: true, scopes: true, last_used_at: true, expires_at: true },
   });
 }
 
-function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; last_used_at: Date | null; expires_at: Date | null }>, error?: string): Html {
+function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; scopes: string[] | null; last_used_at: Date | null; expires_at: Date | null }>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (keys.length === 0) return html`${notice}<p class="muted">No API keys yet.</p>`;
   return html`${notice}<table><thead><tr><th>Name</th><th>Last used</th><th>Expiry</th><th></th></tr></thead><tbody>
     ${keys.map(
       (k) => html`<tr>
-        <td>${k.name}<div class="muted mono" style="font-size:.75rem">${k.key_prefix}...</div></td>
+        <td>${k.name}<div class="muted mono" style="font-size:.75rem">${k.key_prefix}...</div><div class="muted" style="font-size:.75rem">${k.scopes?.length ? k.scopes.join(", ") : "Full access"}</div></td>
         <td class="muted">${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "Never"}</td>
         <td class="muted">${k.expires_at ? new Date(k.expires_at).toLocaleDateString() : "No expiry"}</td>
         <td><button class="btn btn-sm btn-danger" hx-delete="/settings/api-keys/${k.id}" hx-target="#keys-area" hx-swap="innerHTML" hx-confirm="Revoke this API key?">Revoke</button></td>
@@ -2929,24 +2934,55 @@ function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awa
   // Owner directive: unlicensed instances don't see the keys UI at all — only the upsell, so it's
   // obvious that API/agent access needs PRO (mirrors the onboarding wizard's License→API step).
   if (!canApi) return apiKeysUpsell(license.upgradeUrl);
+  const pickerState = JSON.stringify({
+    allScopes: API_SCOPES,
+    presets: Object.fromEntries(API_SCOPE_PRESETS.map(({ id, scopes }) => [id, scopes])),
+    scopes: [],
+  });
   return html`
     <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer ${BRAND.idPrefix}…</code>. Keys are shown once on creation — store them securely.</p>
-    <form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem"
-      x-data="${`{ scopes: ${JSON.stringify(apiKeys.VALID_SCOPES)}, scopesJson() { return JSON.stringify(this.scopes); } }`}">
-      <div class="row">
-        <input class="input" name="name" placeholder="Key name (e.g. Production webhook)" required />
-        <button class="btn btn-primary" type="submit">Create</button>
-      </div>
-      <details class="card" style="font-size:.8rem">
-        <summary style="cursor:pointer">Scopes (all selected = full access)</summary>
-        <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem">
-          ${apiKeys.VALID_SCOPES.map(
-            (sc) => html`<label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" value="${sc}" checked
-              @change="$event.target.checked ? (scopes = [...new Set([...scopes, '${sc}'])]) : (scopes = scopes.filter(s => s !== '${sc}'))" />${sc}</label>`,
-          )}
+    <form data-api-key-form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack api-key-form"
+      x-data="${pickerState}">
+      <label class="label" for="api-key-name">Key name</label>
+      <input class="input" id="api-key-name" name="name" placeholder="e.g. Content pipeline" required />
+      <div class="api-scope-picker">
+        <div class="api-scope-toolbar">
+          <div>
+            <strong>Quick presets</strong>
+            <div class="muted">A preset replaces the current selection; refine it below if needed.</div>
+          </div>
+          <div class="api-scope-actions">
+            ${API_SCOPE_PRESETS.map(
+              (preset) => html`<button class="btn btn-sm" type="button" title="${preset.description}"
+                @click="scopes = [...presets['${preset.id}']]">${preset.label}</button>`,
+            )}
+            <button class="btn btn-sm" type="button" @click="scopes = [...allScopes]">Select all</button>
+            <button class="btn btn-sm" type="button" @click="scopes = []">Deselect all</button>
+          </div>
         </div>
-      </details>
-      <input type="hidden" name="scopes_json" :value="scopesJson()" />
+        <div class="api-scope-groups">
+          ${API_SCOPE_GROUPS.map((group) => {
+            const definitions = API_SCOPE_DEFINITIONS.filter(({ group: groupId }) => groupId === group.id);
+            return html`<fieldset class="api-scope-group">
+              <legend>${group.label}</legend>
+              <p>${group.description}</p>
+              <div class="api-scope-options">
+                ${definitions.map(
+                  (definition) => html`<label class="api-scope-option">
+                    <input data-api-scope type="checkbox" value="${definition.scope}" x-model="scopes" />
+                    <span><strong>${definition.label}</strong><code>${definition.scope}</code></span>
+                  </label>`,
+                )}
+              </div>
+            </fieldset>`;
+          })}
+        </div>
+      </div>
+      <input type="hidden" name="scopes_json" :value="JSON.stringify(scopes)" />
+      <div class="api-scope-submit">
+        <span class="muted" aria-live="polite" x-text="scopes.length + ' of ' + allScopes.length + ' permissions selected'"></span>
+        <button class="btn btn-primary" type="submit" :disabled="scopes.length === 0">Create API key</button>
+      </div>
     </form>
     <div id="keys-area">${renderKeys(keys)}</div>`;
 }

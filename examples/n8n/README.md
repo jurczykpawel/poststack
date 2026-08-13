@@ -104,6 +104,11 @@ Know the moment a scheduled post publishes, silently fails or gets held for a ch
 
 ---
 
+## Publishing workflow permissions
+
+The publishing examples below use a PostStack API key limited to `channels:read` and `posts:write`.
+The newsletter workflow is read-only and needs `posts:read` instead.
+
 ## AI social media manager (trends → GPT → publish)
 
 **Files:** `ai-social-media-manager.json` / `ai-social-media-manager-PL.json`
@@ -112,7 +117,7 @@ Every day: a trending topic from an RSS feed (Google Trends by default) → Open
 
 ### Setup
 
-1. PostStack API key (**Settings → API keys**), channel ids from **Channels**
+1. PostStack API key with the publishing workflow permissions above (**Settings → API keys**), channel ids from **Channels**
 2. `Configuration (EDIT ME)`: `postStackUrl`, `apiKey`, `channelIds` (comma-separated), `topicFeedUrl`, `brandVoice`, `imageUrl`
 3. Connect OpenAI credentials on **Write the Post**, adjust **Daily Trigger**, activate
 
@@ -127,7 +132,7 @@ A plain sheet (`Date | Text | Hashtags | ImageURL | Channels | Status | PostIDs 
 ### Setup
 
 1. Sheet tab with the header row above, rows marked `ready`
-2. PostStack API key; `Configuration (EDIT ME)`: URL, key, sheet URL, tab name
+2. PostStack API key with the publishing workflow permissions above; `Configuration (EDIT ME)`: URL, key, sheet URL, tab name
 3. Google credentials on both Sheets nodes, activate
 
 ---
@@ -140,7 +145,7 @@ Every new article in your blog's RSS/Atom feed becomes a social post: title + sn
 
 ### Setup
 
-1. PostStack API key, channel ids; `Configuration (EDIT ME)`: URL, key, `channelIds`, `imageUrl`
+1. PostStack API key with the publishing workflow permissions above, channel ids; `Configuration (EDIT ME)`: URL, key, `channelIds`, `imageUrl`
 2. Point **New Feed Item** at your feed, activate
 
 Want an AI-written teaser instead of title+link? Drop an OpenAI node between **Build Caption** and **Get Channels** - the AI social media manager workflow shows the exact pattern.
@@ -169,4 +174,4 @@ Signed webhook → HMAC verify → `channel.needs_reauth` / `source.needs_reauth
 
 **Files:** `published-post-to-newsletter.json` / `published-post-to-newsletter-PL.json`
 
-Every `post.published` event becomes a ready-to-edit **draft** campaign in Listmonk - the post text converted to HTML, subject from the first line, never auto-sent. Note: the event carries the delivery id; the workflow resolves it to the editorial post via `GET /api/v1/posts`.
+Every `post.published` event becomes a ready-to-edit **draft** campaign in Listmonk - the post text converted to HTML, subject from the first line, never auto-sent. Use a PostStack API key with `posts:read`; the event carries the delivery id and the workflow resolves it to the editorial post via `GET /api/v1/posts`.

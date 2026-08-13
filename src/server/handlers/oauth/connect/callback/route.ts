@@ -1,6 +1,6 @@
-import { authenticate } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { verifyOAuthState, clearOAuthStateCookie, clearPkceCookie } from "@/lib/oauth/state";
+import { clearOAuthStateCookie, clearPkceCookie, connectOAuthFlow } from "@/lib/oauth/state";
+import { authenticateOAuthCallback, oauthCallbackFailurePath } from "@/lib/oauth/callback";
 import { completePublishOAuth } from "@/lib/oauth/connect";
 import { ProRequiredError } from "@/lib/license/gate";
 
@@ -31,16 +31,14 @@ export async function GET(request: Request, platform: string): Promise<Response>
     return redirect("/channels?error=missing_params");
   }
 
-  // Verify CSRF state up front for a precise error (completePublishOAuth re-verifies defensively).
-  try {
-    verifyOAuthState(state, request.headers.get("cookie"));
-  } catch {
-    console.error(`[oauth-connect] ${platform} invalid_state (state present, cookie mismatch/absent)`);
-    return redirect("/channels?error=invalid_state");
+  const callbackAuth = await authenticateOAuthCallback(request, state, connectOAuthFlow(platform));
+  if (!callbackAuth.ok) {
+    if (callbackAuth.reason === "invalid_state") {
+      console.error(`[oauth-connect] ${platform} invalid_state`);
+    }
+    return redirect(oauthCallbackFailurePath(callbackAuth.reason));
   }
-
-  const auth = await authenticate(request).catch(() => null);
-  if (!auth) return redirect("/login?redirect=/channels");
+  const { auth } = callbackAuth;
 
   try {
     const redirectUri = `${env.APP_URL}/api/oauth/connect/${platform}/callback`;
@@ -50,7 +48,7 @@ export async function GET(request: Request, platform: string): Promise<Response>
       state,
       cookieHeader: request.headers.get("cookie"),
       redirectUri,
-      workspaceId: auth.workspaceId,
+      auth,
     });
     return redirect(`/channels?connected=${platform}&count=1`, r.clearCookies);
   } catch (err) {

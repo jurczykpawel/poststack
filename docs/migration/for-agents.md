@@ -15,6 +15,7 @@ mapping — that is exactly why the recommended path is "let an agent do it" rat
 
 1. **Instance base URL**, e.g. `https://poststack.example.com`.
 2. **API key** (dashboard → Settings → API keys). Format `sk_live_…`. Send it as `Authorization: Bearer <key>`.
+   Select only the permissions needed for the chosen tasks; the sections below list them.
 3. **The export file(s)** from their current tool (CSV from Buffer / Hootsuite / Later / Publer / SocialBee /
    ManyChat / Chatfuel).
 4. For posts: which **channel** each row publishes to. For contacts: which **channel** they belong to.
@@ -27,8 +28,9 @@ mapping — that is exactly why the recommended path is "let an agent do it" rat
 - All writes are workspace-scoped to the key; you cannot touch another tenant's data.
 - **Idempotency:** posts dedup on `sourceRef`; contacts dedup on `channel_id` + sender id. Use stable values
   so re-running after a fix never duplicates.
-- **Tiers:** publishing (content/posts) works on any tier. Contacts and tags are **Pro** — if those calls
-  return a 402/403 Pro-gate error, tell the user their instance needs a Pro license for the CRM.
+- **Plans:** the migration requires API access. Publishing has no additional tier gate; contacts and tags
+  additionally require the **Pro** CRM feature. If a call returns a plan-gate error, report the missing
+  capability instead of retrying it.
 - Do a **dry run first**: parse the whole file, print a summary (row count, detected columns, your mapping,
   and any rows you can't map) and ask the user to confirm before POSTing.
 - Bodies use the casing shown below: **content/posts are camelCase**, **rules are snake_case**, **contacts
@@ -46,6 +48,8 @@ Map each unique platform/profile name in the export to one of these channel `id`
 ## Task A — scheduled posts (Buffer, Hootsuite, Later, Publer, SocialBee)
 
 Three calls per row. Carry a stable `sourceRef` (e.g. `import:<file>:row-<n>`) on both content and post.
+The key needs `content:write` and `posts:write`; add `content:read` and `posts:read` only when the
+agent also reads records back for verification.
 
 1. `POST /api/v1/content` — camelCase. Required: `title`. Useful: `baseDescription`, `mediaUrls` (array),
    `baseHashtags`, `language`, `sourceRef`. Returns `data.id` (contentId).

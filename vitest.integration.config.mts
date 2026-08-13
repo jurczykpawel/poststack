@@ -1,5 +1,5 @@
 import { defineConfig, configDefaults } from "vitest/config";
-import { resolve } from "path";
+import { fileURLToPath } from "node:url";
 
 // Integration tests against a real Postgres. Requires TEST_DATABASE_URL.
 // Run: TEST_DATABASE_URL=postgres://... npm run test:integration
@@ -35,7 +35,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": resolve(__dirname, "./src"),
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
 });

@@ -41,7 +41,9 @@ src/db/
 1. Create `src/lib/platforms/{platform}.ts` extending `SocialProvider`
 2. Implement: `generateAuthUrl()`, `authenticate()`, `refreshToken()`, `sendMessage()`, `sendComment()`
 3. Register in `src/lib/platforms/registry.ts`
-4. Add OAuth callback: `src/server/handlers/oauth/{platform}/route.ts`
+4. Add OAuth start and callback handlers under `src/server/handlers/oauth/{platform}/`. Starts use
+   `authenticateSession()`; callbacks use `authenticateOAuthCallback()` with one stable flow id shared
+   by both legs. Keep interactive connection session-only.
 5. Add to the `platform` enum in `src/db/schema.ts`, then run `npm run db:generate`
 
 See `src/lib/platforms/base.ts` for the full interface and JSDoc.

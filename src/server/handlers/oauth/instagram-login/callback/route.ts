@@ -1,5 +1,5 @@
-import { authenticate } from "@/lib/auth";
-import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/oauth/state";
+import { clearOAuthStateCookie, OAUTH_FLOWS } from "@/lib/oauth/state";
+import { authenticateOAuthCallback, oauthCallbackFailurePath } from "@/lib/oauth/callback";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { subscribeInstagramMessaging } from "@/lib/channels/subscribe";
 import { ProRequiredError } from "@/lib/license/gate";
@@ -27,14 +27,11 @@ export async function GET(request: Request) {
   if (error) return redirect("/channels?error=access_denied");
   if (!code || !state) return redirect("/channels?error=missing_params");
 
-  try {
-    verifyOAuthState(state, request.headers.get("cookie"));
-  } catch {
-    return redirect("/channels?error=invalid_state");
+  const callbackAuth = await authenticateOAuthCallback(request, state, OAUTH_FLOWS.instagramLogin);
+  if (!callbackAuth.ok) {
+    return redirect(oauthCallbackFailurePath(callbackAuth.reason));
   }
-
-  const auth = await authenticate(request).catch(() => null);
-  if (!auth) return redirect("/login?redirect=/channels");
+  const { auth } = callbackAuth;
 
   try {
     const redirectUri = `${env.APP_URL}/api/oauth/instagram-login/callback`;

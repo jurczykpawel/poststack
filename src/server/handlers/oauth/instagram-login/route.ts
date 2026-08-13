@@ -1,5 +1,5 @@
-import { authenticate } from "@/lib/auth";
-import { generateOAuthState } from "@/lib/oauth/state";
+import { authenticateSession } from "@/lib/auth";
+import { generateOAuthState, OAUTH_FLOWS } from "@/lib/oauth/state";
 import { env } from "@/lib/env";
 import { ApiErrors } from "@/lib/api/response";
 import { getConfig } from "@/lib/settings/config";
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 // Facebook-Login-derived IG flow) — this one mints the IGQW messaging token used to receive/reply to
 // IG DMs at Standard Access. The callback augments the existing IG channel with that token.
 export async function GET(request: Request) {
-  const auth = await authenticate(request).catch(() => null);
+  const auth = await authenticateSession(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
   // Guard: if IG-Login isn't configured (self-hoster hasn't set the app credentials), don't proceed
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     return new Response(null, { status: 302, headers: { Location: "/channels?error=instagram_login_not_configured" } });
   }
 
-  const { state, setCookie } = generateOAuthState();
+  const { state, setCookie } = generateOAuthState(auth, OAUTH_FLOWS.instagramLogin);
   const redirectUri = `${env.APP_URL}/api/oauth/instagram-login/callback`;
   const url = await buildInstagramLoginAuthUrl(state, redirectUri);
 

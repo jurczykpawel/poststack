@@ -15,6 +15,7 @@ test("invisible login captcha auto-solves on focus and submits a token", async (
   const widget = page.locator("altcha-widget");
   await expect(widget).toBeAttached();
   await expect(widget, "captcha must be invisible (no checkbox)").toBeHidden();
+  await page.waitForFunction(() => customElements.get("altcha-widget") !== undefined);
 
   // Focus the form — this is what triggers the background proof-of-work (auto="onfocus").
   await page.locator('input[name="email"]').click();

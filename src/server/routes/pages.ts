@@ -28,7 +28,7 @@ async function captchaWidget() {
   // to click). The widget stays in the DOM (hidden) so it still contributes captchaToken to the form.
   return html`
     <altcha-widget name="captchaToken" challengeurl="/api/captcha/challenge" auto="onfocus" hidelogo hidefooter style="display:none"></altcha-widget>
-    <script async defer type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>`;
+    <script type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>`;
 }
 
 async function authPage(opts: { title: string; subtitle: string; action: string; submit: string; alt: ReturnType<typeof html>; nameField: boolean }) {

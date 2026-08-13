@@ -6,6 +6,10 @@ import type { Hono } from "hono";
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const KEY = "sk_live_content_key_abcd0000000001";
 const OTHER_KEY = "sk_live_content_other_abcd000000002";
+const READ_KEY = "sk_live_content_read_abcd0000000003";
+const WRITE_KEY = "sk_live_content_write_abcd000000004";
+const UNRELATED_KEY = "sk_live_content_unrelated_abcd000005";
+const CONTENT_AND_POSTS_READ_KEY = "sk_live_content_posts_read_abcd000006";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -37,6 +41,16 @@ beforeEach(async () => {
   const hash = (k: string) => createHash("sha256").update(k).digest("hex");
   await db.insert(s.apiKeys).values([
     { workspace_id: WS, name: "k", key_hash: hash(KEY), key_prefix: "sk_live_ct" },
+    { workspace_id: WS, name: "reader", key_hash: hash(READ_KEY), key_prefix: "sk_live_cr", scopes: ["content:read"] },
+    { workspace_id: WS, name: "writer", key_hash: hash(WRITE_KEY), key_prefix: "sk_live_cw", scopes: ["content:write"] },
+    { workspace_id: WS, name: "unrelated", key_hash: hash(UNRELATED_KEY), key_prefix: "sk_live_cu", scopes: ["stats:read"] },
+    {
+      workspace_id: WS,
+      name: "content-and-posts-reader",
+      key_hash: hash(CONTENT_AND_POSTS_READ_KEY),
+      key_prefix: "sk_live_cp",
+      scopes: ["content:read", "posts:read"],
+    },
     { workspace_id: OTHER_WS, name: "o", key_hash: hash(OTHER_KEY), key_prefix: "sk_live_co" },
   ]);
 });
@@ -61,7 +75,7 @@ async function createOne(title = "My idea", key = KEY) {
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/content", () => {
-  it("creates content (camelCase body) and returns it", async () => {
+  it("keeps an empty-scope key working for content creation", async () => {
     const { res, json } = await createOne();
     expect(res.status).toBe(201);
     expect(json.data).toMatchObject({ title: "My idea", script: "hello" });
@@ -96,6 +110,66 @@ describe.skipIf(!TEST_DB)("/api/v1/content", () => {
     const { json } = await createOne();
     expect((await call("DELETE", `/content/${json.data.id}`)).status).toBe(204);
     expect((await call("GET", `/content/${json.data.id}`)).status).toBe(404);
+  });
+
+  it("applies content:read to list and detail reads", async () => {
+    const { json } = await createOne();
+
+    expect((await call("GET", "/content", undefined, READ_KEY)).status).toBe(200);
+    expect((await call("GET", `/content/${json.data.id}`, undefined, READ_KEY)).status).toBe(200);
+
+    for (const key of [WRITE_KEY, UNRELATED_KEY]) {
+      expect((await call("GET", "/content", undefined, key)).status).toBe(401);
+      expect((await call("GET", `/content/${json.data.id}`, undefined, key)).status).toBe(401);
+    }
+  });
+
+  it("only embeds related posts when the key also has posts:read", async () => {
+    const { json: createdContent } = await createOne();
+    const createdPost = await call("POST", "/posts", {
+      contentId: createdContent.data.id,
+      platform: "linkedin",
+      description: "related post",
+    });
+    expect(createdPost.status).toBe(201);
+
+    const contentOnly = await (await call(
+      "GET",
+      `/content/${createdContent.data.id}`,
+      undefined,
+      READ_KEY,
+    )).json();
+    expect(contentOnly.data).not.toHaveProperty("posts");
+
+    const withPosts = await (await call(
+      "GET",
+      `/content/${createdContent.data.id}`,
+      undefined,
+      CONTENT_AND_POSTS_READ_KEY,
+    )).json();
+    expect(withPosts.data.posts).toHaveLength(1);
+    expect(withPosts.data.posts[0]).toMatchObject({
+      contentId: createdContent.data.id,
+      description: "related post",
+    });
+  });
+
+  it("applies content:write to create, update, and delete", async () => {
+    const { json } = await createOne();
+
+    for (const key of [READ_KEY, UNRELATED_KEY]) {
+      const statuses = [
+        (await call("POST", "/content", { title: "Scoped content" }, key)).status,
+        (await call("PATCH", `/content/${json.data.id}`, { title: "Scoped content" }, key)).status,
+        (await call("DELETE", `/content/${json.data.id}`, undefined, key)).status,
+      ];
+      expect(statuses).toEqual([401, 401, 401]);
+    }
+
+    const created = await createOne("Writer-created", WRITE_KEY);
+    expect(created.res.status).toBe(201);
+    expect((await call("PATCH", `/content/${created.json.data.id}`, { title: "Writer-updated" }, WRITE_KEY)).status).toBe(200);
+    expect((await call("DELETE", `/content/${created.json.data.id}`, undefined, WRITE_KEY)).status).toBe(204);
   });
 
   it("is tenant-isolated: another workspace cannot read, patch, or delete (404)", async () => {

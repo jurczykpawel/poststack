@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { created, ApiErrors, ApiError, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { registerByUrl, registerKnownMedia } from "@/lib/media/service";
@@ -33,7 +33,7 @@ const registerBody = z
  *  sha256+kind+mime reference is supplied, try the no-fetch fast-path (link an object ReelStack/another
  *  producer already wrote to the shared CAS bucket); on not_present fall back to fetch+store. */
 export async function POST(request: Request): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "media:write");
   if (!auth) return ApiErrors.unauthorized();
   const body = await request.json().catch(() => ({}));
   const parsed = registerBody.safeParse(body);

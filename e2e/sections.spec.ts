@@ -60,22 +60,21 @@ for (const state of STATES) {
       });
     }
 
-    // ── sidebar nav gating: feature-gated items render as 🔒 PRO locks in FREE, real links in PRO ──
+    // ── sidebar nav gating: feature-gated items render as 🔒 PRO locks in FREE ─────────────────
     test(`${state} · sidebar feature-gated items show correct lock state`, async ({ page }) => {
       await gotoOk(page, "/overview");
-      // Sources carries feature managed_connection (core-area, always visible). In FREE the sidebar
-      // renders it as .nav-locked; in PRO as a real .nav-item link.
       const locked = page.locator(".sidebar .nav-locked");
       // Brands is OPEN-CORE (free gets one brand) → ALWAYS a real link in both states, never locked;
       // otherwise the brand column on /channels points at an unreachable page.
       await expect(page.locator(".sidebar a.nav-item[href='/brands']")).toHaveCount(1);
+      // Managed connections moved to Settings → Sources. The legacy /sources path redirects there,
+      // but it must not reappear as a duplicate top-level sidebar destination in either tier.
+      await expect(page.locator(".sidebar a.nav-item[href='/sources']")).toHaveCount(0);
+      await expect(page.locator(".sidebar a.sidebar-foot[href='/settings']")).toHaveCount(1);
       if (state === "free") {
         await expect(locked.first()).toBeVisible();
-        // The Sources sidebar entry is a lock (→ upgrade URL), not a link to /sources.
-        await expect(page.locator(".sidebar a.nav-item[href='/sources']")).toHaveCount(0);
       } else {
         await expect(locked).toHaveCount(0);
-        await expect(page.locator(".sidebar a.nav-item[href='/sources']")).toHaveCount(1);
       }
     });
 

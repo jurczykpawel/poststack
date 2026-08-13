@@ -203,8 +203,8 @@ export const capabilities = [
   },
   {
     kicker: "API-first",
-    title: "Use the UI, then automate the same system through REST.",
-    body: "Every serious capability is designed around /api/v1 and documented with Scalar for builders who want to connect PostStack to their stack.",
+    title: "Operate and automate your workflows through REST.",
+    body: "Publishing, inbox, CRM, rules, and automation are available through /api/v1 and documented with Scalar; browser-based account connection stays in the logged-in dashboard.",
     metric: "/api/v1",
   },
 ];
@@ -457,7 +457,7 @@ export const testimonialModule = {
     { value: "100%", label: "Your data, your server" },
     { value: "0", label: "Per-contact fees" },
     { value: "2", label: "Meta surfaces (FB + IG)" },
-    { value: "REST", label: "API for every feature" },
+    { value: "REST", label: "Operations & automation API" },
   ],
 };
 

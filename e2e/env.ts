@@ -10,9 +10,11 @@ export const CAPTCHA_E2E_PORT = 3100;
 export const CAPTCHA_E2E_BASE_URL = `http://127.0.0.1:${CAPTCHA_E2E_PORT}`;
 // Dedicated e2e database on the shared test Postgres (:5433) — isolated from the integration gate's
 // `test` DB. global-setup creates it if missing.
-export const E2E_DATABASE_URL = "postgres://test:test@localhost:5433/unify_e2e";
+export const E2E_DATABASE_URL = process.env.E2E_DATABASE_URL
+  ?? "postgres://test:test@localhost:5433/unify_e2e";
 // Connect-to-create target: the always-present `test` DB on the same server.
-export const E2E_ADMIN_DATABASE_URL = "postgres://test:test@localhost:5433/test";
+export const E2E_ADMIN_DATABASE_URL = process.env.E2E_ADMIN_DATABASE_URL
+  ?? "postgres://test:test@localhost:5433/test";
 
 /** The environment the e2e web server boots with (Playwright webServer.env). */
 export function serverEnv(): Record<string, string> {

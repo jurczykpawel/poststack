@@ -4,7 +4,7 @@
 
 [![License: Elastic 2.0](https://img.shields.io/badge/License-Elastic_2.0-0077CC.svg)](LICENSE)
 [![CI](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml/badge.svg)](https://github.com/jurczykpawel/poststack/actions/workflows/ci.yml)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.12-brightgreen)](https://nodejs.org)
 [![Source Available](https://img.shields.io/badge/source-available-brightgreen)](LICENSE)
 
 [API Docs](/api/docs) | [Issues](https://github.com/jurczykpawel/poststack/issues) | [Contributing](CONTRIBUTING.md)
@@ -25,7 +25,7 @@
 - **Self-hosted** -- your data stays on your server, not on someone else's SaaS
 - **No per-contact fees** -- ManyChat charges $15-65/mo and scales with your audience. PostStack is a flat self-hosted cost, free to run yourself
 - **No vendor lock-in** -- export your data, switch providers, fork the code
-- **API-first** -- every feature available via REST API, build your own frontend or integrate with n8n/Zapier
+- **API-first operations** -- publishing, inbox, CRM, rules, and automation are available via REST for custom frontends and n8n/Zapier; interactive account connection stays in the logged-in dashboard
 - **Extensible** -- add new platforms (Telegram, TikTok) by implementing one TypeScript class
 
 **Alternative to:** ManyChat, Chatfuel, ZernFlow
@@ -53,7 +53,7 @@
 - **Multi-platform** -- Facebook, Instagram, YouTube, Telegram, and Gmail (two-way reply/inbox channel) live today, extensible to WhatsApp, SMS, generic email and more by implementing one TypeScript provider class
 - **One-command startup** -- `docker compose up`
 - **NocoDB integration** -- optional spreadsheet view of all your data (rules, contacts, messages)
-- **API-first** -- 15 REST endpoints with Bearer token auth and interactive Scalar docs
+- **API-first operations** -- scoped Bearer-key access with interactive Scalar docs
 
 ### Security
 - **AES-256-GCM** encryption for OAuth tokens at rest
@@ -70,7 +70,7 @@
 - **Meta `appsecret_proof`** — not sent by default. If you enable *Require app secret* in your Meta App, add it to the Graph API calls (`HMAC-SHA256(page_token, META_APP_SECRET)`).
 - **Channel uniqueness** — each connected account belongs to exactly one workspace: a partial unique index allows at most one active channel per `(platform, platform_id)` instance-wide, so incoming events route to a single owner. Connecting an account already live in another workspace is refused. The migration that adds this index automatically disables any pre-existing cross-workspace duplicate (keeping the earliest-connected), so upgrades never fail.
 - **First-run admin bootstrap** — registration is closed by default (`REGISTRATION_ENABLED` unset/`false`), but the **first** account on an empty instance can always register, to bootstrap the owner. This means whoever reaches `/register` first on a fresh deploy becomes the admin. Register immediately after deploying (or keep the instance network-restricted until you have), then leave `REGISTRATION_ENABLED` off so no further self-signups are possible.
-- **Single-owner workspaces (no role tiers yet)** — a session/API key authorizes any action in its workspace. There is intentionally only one membership role (`owner`); richer roles (`admin`/`agent`) and per-role authorization (`requireRole()`) are deferred until member invitations exist. Until then, treat any workspace member as having full access — including destructive actions (deleting channels, erasing contacts, managing API keys).
+- **Single-owner workspaces (no role tiers yet)** — a logged-in workspace member has full access; API keys are limited by their selected permissions. There is intentionally only one membership role (`owner`); richer roles (`admin`/`agent`) and per-role authorization (`requireRole()`) are deferred until member invitations exist. Until then, treat any workspace member as having full access — including destructive actions (deleting channels, erasing contacts, managing API keys).
 - **Contact identity across surfaces (Meta ASID vs PSID)** — Meta gives a public *comment* an app-scoped user id and a *direct message* a page-scoped id (PSID); they are different strings with no local mapping. So the same person commenting and then DMing currently resolves to **two separate contacts**. Consequence: send limits/cooldowns aren't shared across the two, and an `unsubscribe` or GDPR erasure applies only to the identity it was performed on. Merging them requires a Graph API lookup and is planned as a dedicated feature; until then, erase/unsubscribe both identities if a contact reached you on more than one surface.
 - **Contact search & non-ASCII case-folding** — the dashboard contact search uses `ILIKE`, whose case-insensitivity for non-ASCII letters (e.g. Polish `Ó`/`ó`) depends on the database locale. The bundled `postgres:alpine` initializes with the `C` locale, where `ILIKE` only case-folds ASCII — so searching `józek` won't match a stored `JÓZEK`. For correct Polish (or any non-ASCII) case-insensitive search, initialize Postgres with a UTF-8/ICU locale (e.g. set `POSTGRES_INITDB_ARGS` to use `--locale-provider=icu --icu-locale=und` on a **fresh** data volume) or add the `unaccent` extension. Keyword/automation matching is unaffected (it folds + NFC-normalizes in the app). The same `ILIKE '%term%'` search is also non-sargable (a sequential scan per keystroke); fine for small workspaces, but at scale add a `pg_trgm` GIN index on the searched columns.
 - **Conversation status `snoozed`** — `snoozed` is currently a manual, permanent state (like `closed`): there is **no auto-reopen timer** (no `snoozed_until` / scheduled un-snooze), and the inbox lists conversations of all statuses, so closed/snoozed threads still appear in the list. Treat snooze as "mark resolved-for-now" rather than "remind me later". A timed snooze + status filtering/tabs in the inbox are planned.
@@ -83,7 +83,7 @@ PostStack sends a small **anonymous** usage report to the maintainer once per da
 
 ## Quick Start
 
-**Prerequisites:** Docker, Docker Compose (for local development without Docker: [Bun](https://bun.sh) + Node.js for tooling)
+**Prerequisites:** Docker, Docker Compose (for local development without Docker: [Bun](https://bun.sh) + Node.js 22.12+ for tooling)
 
 > **Running it for real (self-host)?** Skip straight to **[Production](#production)** below — it
 > pulls the public prebuilt images (no build, no toolchain) and the **[full runbook](docs/DEPLOY.md)**
@@ -438,6 +438,8 @@ Go to **Sequences** and click **+ New Sequence**. Add steps:
 
 Activate the sequence, then enroll contacts via the API:
 
+The API key needs `sequences:write`.
+
 ```bash
 curl -X POST https://your-domain.com/api/v1/sequences/{id}/enroll \
   -H "Authorization: Bearer sk_live_your-key" \
@@ -448,6 +450,8 @@ curl -X POST https://your-domain.com/api/v1/sequences/{id}/enroll \
 ### 5. API access
 
 Go to **Settings** and create an API key. Use it with any HTTP client:
+
+Choose `contacts:read` for listing contacts and `conversations:write` for sending replies.
 
 ```bash
 # List contacts
@@ -502,7 +506,7 @@ Web (Hono on Bun)                Worker (graphile-worker on Bun)
 POST /api/webhooks/meta    ──>   incoming-message    ──> contact upsert
                                                      ──> rule engine ──> outgoing-message
 GET/POST /api/v1/*               incoming-comment    ──> comment log + rule eval
-GET /api/oauth/*                                     ──> outgoing-comment / outgoing-private-reply
+GET /api/oauth/* (dashboard session only)            ──> outgoing-comment / outgoing-private-reply
 GET /api/cron/token-refresh      incoming-reaction   ──> reaction rule eval
                                  outgoing-*           ──> Meta Graph API send
                                  token-refresh        ──> refresh expiring OAuth tokens
@@ -513,11 +517,20 @@ GET /api/cron/token-refresh      incoming-reaction   ──> reaction rule eval
 
 ## API
 
-PostStack is API-first. Every feature in the dashboard is available via REST API.
+PostStack exposes its operational data and automation through REST. Interactive channel connection
+and reconnection remain logged-in dashboard actions because they involve browser redirects and
+third-party consent.
 
 **Docs:** `GET /api/docs` -- interactive Scalar UI
 
 **Auth:** `Authorization: Bearer sk_live_<key>` (generate in Settings > API Keys)
+
+API-key administration and `/api/oauth/*` connection flows require a logged-in dashboard session;
+API keys authenticate operational `/api/v1/*` integrations only.
+
+Choose only the permissions an integration needs. Publishing uses separate `content:*`, `posts:*`,
+`brands:*`, and `media:write` permissions; every API-key-authenticated operation exposes its exact
+requirement as `x-required-scope` in the OpenAPI document.
 
 | Endpoint | Methods | Description |
 |----------|---------|-------------|
@@ -534,6 +547,15 @@ PostStack is API-first. Every feature in the dashboard is available via REST API
 | `/api/v1/contacts` | GET | List contacts (search, tag filter, cursor-paginated) |
 | `/api/v1/contacts/:id` | GET, PATCH | Contact detail, update name/email |
 | `/api/v1/tags` | GET, POST | List and create tags |
+| `/api/v1/content` | GET, POST | List and create editorial content |
+| `/api/v1/content/:id` | GET, PATCH, DELETE | Content detail, update, delete |
+| `/api/v1/posts` | GET, POST | List and create platform posts |
+| `/api/v1/posts/:id` | GET, PATCH, DELETE | Post detail, update, delete |
+| `/api/v1/posts/:id/publish` | POST | Publish now or schedule |
+| `/api/v1/brands` | GET, POST | List and create publishing brands |
+| `/api/v1/brands/:key` | PATCH, DELETE | Update and delete a brand |
+| `/api/v1/brands/:key/channels` | GET | Resolve a brand's publishing channels |
+| `/api/v1/media` | POST | Register media for publishing |
 | `/api/v1/api-keys` | GET, POST | List and create API keys |
 | `/api/v1/api-keys/:id` | DELETE | Revoke an API key |
 
@@ -640,7 +662,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 
 1. Create `src/lib/platforms/{platform}.ts` extending `SocialProvider`
 2. Register it in `src/lib/platforms/registry.ts`
-3. Add an OAuth callback route at `src/server/handlers/oauth/{platform}/`
+3. Add OAuth start and callback routes at `src/server/handlers/oauth/{platform}/`; both must use the shared dashboard-session boundary
 4. Add the platform to the `platform` enum in `src/db/schema.ts`
 
 ### Development workflow

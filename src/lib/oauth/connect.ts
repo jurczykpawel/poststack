@@ -7,7 +7,9 @@ import { fromTokenSet } from "@/lib/providers/token-codec";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { buildAuthorizeUrl, createPkcePair } from "./authorize";
 import { exchangeCodeForToken } from "./exchange";
+import type { SessionAuthContext } from "@/lib/auth";
 import {
+  connectOAuthFlow,
   generateOAuthState,
   verifyOAuthState,
   clearOAuthStateCookie,
@@ -31,9 +33,13 @@ function configFor(platform: string) {
 }
 
 /** Begin connect: the authorize URL to redirect to + the Set-Cookie headers (state, and PKCE for X). */
-export function startPublishOAuth(platform: string, redirectUri: string): { url: string; cookies: string[] } {
+export function startPublishOAuth(
+  platform: string,
+  redirectUri: string,
+  auth: SessionAuthContext,
+): { url: string; cookies: string[] } {
   const { config } = configFor(platform);
-  const { state, setCookie } = generateOAuthState();
+  const { state, setCookie } = generateOAuthState(auth, connectOAuthFlow(platform));
   const cookies = [setCookie];
   let codeChallenge: string | undefined;
   if (config.usePkce) {
@@ -92,10 +98,16 @@ export async function completePublishOAuth(args: {
   state: string;
   cookieHeader: string | null;
   redirectUri: string;
-  workspaceId: string;
+  auth: SessionAuthContext;
 }): Promise<{ channelId: string; accountId: string; clearCookies: string[] }> {
   const { provider, config } = configFor(args.platform);
-  verifyOAuthState(args.state, args.cookieHeader);
+  verifyOAuthState(
+    args.state,
+    args.cookieHeader,
+    args.auth,
+    connectOAuthFlow(args.platform),
+  );
+  const { workspaceId } = args.auth;
 
   let codeVerifier: string | undefined;
   if (config.usePkce) {
@@ -117,18 +129,18 @@ export async function completePublishOAuth(args: {
   // value (twitter). Map so /connect/x stores platform "twitter", not the invalid enum "x".
   const platform = platformForConnectId(args.platform) as Platform;
   // License gate: a non-Meta channel needs `non_meta_channels` (throws ProRequiredError → 402).
-  await assertChannelsAllowed(args.workspaceId, platform, [account]);
-  await upsertChannels(args.workspaceId, platform, [account], { connectionMode: "oauth" });
+  await assertChannelsAllowed(workspaceId, platform, [account]);
+  await upsertChannels(workspaceId, platform, [account], { connectionMode: "oauth" });
 
   const ch = await db.query.channels.findFirst({
     where: and(
-      eq(channels.workspace_id, args.workspaceId),
+      eq(channels.workspace_id, workspaceId),
       eq(channels.platform, platform),
       eq(channels.platform_id, info.accountId),
     ),
     columns: { id: true },
   });
   // Sweep any pre-migration handle-keyed orphan for this same account (SEEDCH1 self-cleanup).
-  await softDeleteReauthOrphans(args.workspaceId, platform, info.handle, ch!.id);
+  await softDeleteReauthOrphans(workspaceId, platform, info.handle, ch!.id);
   return { channelId: ch!.id, accountId: info.accountId, clearCookies: [clearOAuthStateCookie(), clearPkceCookie()] };
 }

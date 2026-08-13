@@ -1,19 +1,21 @@
 import { execFileSync } from "child_process";
 import { Client } from "pg";
 import { E2E_DATABASE_URL, E2E_ADMIN_DATABASE_URL, serverEnv } from "./env";
+import { databaseNameFromUrl, quoteDatabaseName } from "./database-name";
 
 // Runs ONCE before the web server boots. Creates the dedicated e2e database if missing, applies the
 // Drizzle baseline (drizzle/0000_init.sql via scripts/migrate.ts) and the graphile-worker schema,
 // then resets every table so each full run is deterministic. The admin registration + row seeding
 // happen in auth.setup.ts (after the server is up), since registration bootstraps the workspace.
 async function ensureDatabase(): Promise<void> {
+  const databaseName = databaseNameFromUrl(E2E_DATABASE_URL);
   const admin = new Client({ connectionString: E2E_ADMIN_DATABASE_URL });
   await admin.connect();
   try {
-    const { rows } = await admin.query("SELECT 1 FROM pg_database WHERE datname = 'unify_e2e'");
+    const { rows } = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [databaseName]);
     if (rows.length === 0) {
-      await admin.query("CREATE DATABASE unify_e2e");
-      console.log("[e2e] created database unify_e2e");
+      await admin.query(`CREATE DATABASE ${quoteDatabaseName(databaseName)}`);
+      console.log(`[e2e] created database ${databaseName}`);
     }
   } finally {
     await admin.end();

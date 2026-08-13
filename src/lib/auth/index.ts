@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiKeys, revokedTokens, workspaceMembers } from "@/db/schema";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
+import type { ApiScope } from "./scopes";
 
 // The bearer prefix gate: a key is "sk_live_<secret>", so the cheap pre-check is "sk_". Derived
 // from BRAND.idPrefix so the prefix and this gate can never drift.
@@ -19,11 +20,17 @@ export interface AuthContext {
   scopes: string[];
 }
 
+/** A verified dashboard session, including the identifier of the current login. */
+export interface SessionAuthContext extends AuthContext {
+  authMethod: "session";
+  sessionId: string;
+}
+
 /**
  * Check if the authenticated user has a required scope.
  * Empty scopes = full access (backward compatible).
  */
-export function hasScope(auth: AuthContext, scope: string): boolean {
+export function hasScope(auth: AuthContext, scope: ApiScope): boolean {
   return auth.scopes.length === 0 || auth.scopes.includes(scope);
 }
 
@@ -33,7 +40,7 @@ export function hasScope(auth: AuthContext, scope: string): boolean {
  */
 export async function authenticateWithScope(
   request: Request,
-  scope: string
+  scope: ApiScope
 ): Promise<AuthContext | null> {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return null;
@@ -117,10 +124,10 @@ function parseCookie(cookieHeader: string | null, name: string): string | null {
   }
 }
 
-async function authenticateSession(
+export async function authenticateSession(
   request: Request,
   requiredWorkspaceId?: string
-): Promise<AuthContext | null> {
+): Promise<SessionAuthContext | null> {
   const token = readSessionCookie(request.headers.get("cookie"));
   if (!token) return null;
 
@@ -136,16 +143,14 @@ async function authenticateSession(
     });
     const userId = payload.sub as string;
     const workspaceId = payload.wid as string;
-    const jti = payload.jti as string | undefined;
+    const jti = typeof payload.jti === "string" ? payload.jti : null;
 
-    if (!userId || !workspaceId) return null;
+    if (!userId || !workspaceId || !jti) return null;
     if (requiredWorkspaceId && workspaceId !== requiredWorkspaceId) return null;
 
     // Check JWT denylist (invalidated on logout)
-    if (jti) {
-      const revoked = await db.query.revokedTokens.findFirst({ where: eq(revokedTokens.jti, jti) });
-      if (revoked && revoked.expires_at > new Date()) return null;
-    }
+    const revoked = await db.query.revokedTokens.findFirst({ where: eq(revokedTokens.jti, jti) });
+    if (revoked && revoked.expires_at > new Date()) return null;
 
     // Verify the user is STILL an active member of the workspace named in the token — not
     // just that the user row exists. Otherwise a JWT keeps full workspace access after the
@@ -156,7 +161,7 @@ async function authenticateSession(
     });
     if (!membership) return null;
 
-    return { userId, workspaceId, authMethod: "session", scopes: [] };
+    return { userId, workspaceId, sessionId: jti, authMethod: "session", scopes: [] };
   } catch {
     return null;
   }

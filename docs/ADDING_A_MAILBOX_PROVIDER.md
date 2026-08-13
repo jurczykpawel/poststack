@@ -162,14 +162,16 @@ const EMAIL_PLATFORMS: Platform[] = ["gmail", "outlook"];
 
 This tells the poller which platforms to process in the email-channel polling loop.
 
-### 6. Add OAuth Callback Route
+### 6. Add OAuth Routes
 
-Create `src/server/handlers/oauth/outlook/route.ts` following the pattern of the Gmail callback:
+Create start and callback handlers under `src/server/handlers/oauth/outlook/`, following the Gmail
+flow. The start authenticates with `authenticateSession()` and creates state for the logged-in
+operator. The callback uses `authenticateOAuthCallback()` with the same stable flow id before it
+exchanges the provider code or writes channels. Interactive OAuth never accepts an API key.
 
 ```typescript
-import { Hono } from "hono";
 import { OutlookProvider } from "@/lib/platforms/outlook";
-// ... handle OAuth callback, validate state, call authenticate, store tokens
+// ... use the shared OAuth start/callback boundaries, then store encrypted tokens
 ```
 
 ## Key Patterns

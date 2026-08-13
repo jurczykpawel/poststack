@@ -135,7 +135,7 @@ describe("Brands section", () => {
     expect(page).toContain('<option value="phone" selected>'); // saved choice reflected
     expect(page).toContain("/brands/storybrand/story-preview"); // live preview <img>
     expect(page).toContain('x-model="tpl"'); // picker drives Alpine state
-    expect(page).toContain("story-preview?template=' + tpl"); // preview <img> re-renders live on change
+    expect(page).toContain("story-preview?template=' + encodeURIComponent(tpl)"); // preview updates safely on change
     // the preview endpoint renders a JPEG card
     const prev = await app.request("/brands/storybrand/story-preview", { headers: { cookie } });
     expect(prev.status).toBe(200);

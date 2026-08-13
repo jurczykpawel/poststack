@@ -10,6 +10,9 @@
 //   export POSTSTACK_KEY="sk_live_your_key"
 //   export POSTSTACK_CHANNEL_ID="<channelId>"   # default channel to publish to
 //   node import-scheduled-posts.mjs path/to/export.csv
+//
+// Required API-key permissions: content:write, posts:write. The script does not list channels, so it
+// does not require channels:read when POSTSTACK_CHANNEL_ID is supplied directly.
 
 import { readFile } from "node:fs/promises";
 

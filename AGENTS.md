@@ -79,14 +79,17 @@ abandoned plan — a cert issue on the subdomain — so the app currently lives 
 
 ## API-First Design
 
-PostStack is API-first. All features exposed via REST at `/api/v1/*`.
+PostStack is API-first for operational data and automation at `/api/v1/*`. Interactive channel
+connection and reconnection remain logged-in dashboard flows at `/api/oauth/*`.
 
 - **Dual auth:** session JWT cookie (dashboard) + `Authorization: Bearer sk_live_<key>` (external, prefix from `BRAND.idPrefix`)
 - **CORS:** enabled on all `/api/v1/*` routes
 - **OpenAPI spec:** `src/lib/api/openapi.ts` — update when adding new routes
 - **Scalar UI:** `/api/docs` (no npm dep, CDN-loaded)
 - **Response shape:** always `{ data, error, meta? }` — use helpers from `src/lib/api/response.ts`
-- **Auth helper:** `authenticate(request)` from `src/lib/auth/index.ts` — handles both auth methods
+- **REST auth:** use `authenticateWithScope(request, scope)` for scoped `/api/v1/*` operations
+- **Interactive OAuth auth:** starts use `authenticateSession(request)` and callbacks use the shared
+  `authenticateOAuthCallback(request, state, flow)` boundary; API keys must not start or finish these flows
 
 ## Key Directories
 

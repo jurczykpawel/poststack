@@ -43,6 +43,19 @@ describe("public pages", () => {
     expect(body).toContain('name="name"');
     expect(body).toContain("Create account");
   });
+
+  it("loads the captcha module before DOMContentLoaded when captcha is enabled", async () => {
+    process.env.ALTCHA_HMAC_KEY = "test-captcha-key";
+    try {
+      const res = await app.request("/login");
+      const body = await res.text();
+      expect(body).toContain('<altcha-widget name="captchaToken"');
+      expect(body).toContain('<script type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>');
+      expect(body).not.toContain("<script async");
+    } finally {
+      delete process.env.ALTCHA_HMAC_KEY;
+    }
+  });
 });
 
 describe("session gating", () => {

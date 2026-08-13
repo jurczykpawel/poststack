@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope, hasScope } from "@/lib/auth";
 import { ok, noContent, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { getContent, patchContent, deleteContent } from "@/lib/content/service";
@@ -9,16 +9,20 @@ export const runtime = "nodejs";
 type Ctx = { params: Promise<{ contentId: string }> };
 
 export async function GET(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "content:read");
   if (!auth) return ApiErrors.unauthorized();
   const { contentId } = await ctx.params;
   const row = await getContent(contentId, auth.workspaceId);
   if (!row) return ApiErrors.notFound("Content");
+  if (!hasScope(auth, "posts:read")) {
+    const { posts: _posts, ...contentOnly } = row;
+    return ok(camelizeKeys(contentOnly));
+  }
   return ok(camelizeKeys(row));
 }
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "content:write");
   if (!auth) return ApiErrors.unauthorized();
   const { contentId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
@@ -30,7 +34,7 @@ export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
 }
 
 export async function DELETE(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "content:write");
   if (!auth) return ApiErrors.unauthorized();
   const { contentId } = await ctx.params;
   if (!(await deleteContent(contentId, auth.workspaceId))) return ApiErrors.notFound("Content");

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
 
 // STATSCACHE1 wiring test (cache ON). The other integration tests run with STATS_CACHE_TTL_MS=0
-// (set in vitest.integration.config.ts) so they read live DB state. THIS file overrides it to a
+// (set in vitest.integration.config.mts) so they read live DB state. THIS file overrides it to a
 // positive TTL *before* importing dashboard — so the module-level memo is live — and proves that
 // loadWebhookStats memoizes per channel key: a second call within the window returns the cached
 // snapshot (does not see a row inserted after the first call), and a different key computes fresh.

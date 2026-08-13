@@ -174,10 +174,12 @@ function aiDisclosureField(brand: BrandRow): Html {
  *  see the chosen template BEFORE saving; the static `src` is the no-JS fallback (saved template). */
 function storyPreview(brand: BrandRow): Html {
   const v = brand.updated_at instanceof Date ? brand.updated_at.getTime() : Date.now();
+  const template = encodeURIComponent(brand.story_template ?? "");
   return html`<div class="brand-story-preview">
     <span class="muted" style="font-size:.72rem">Auto-Story preview <span x-show="tpl !== '${brand.story_template ?? ""}'" x-cloak class="muted">· unsaved</span></span>
-    <img src="/brands/${brand.key}/story-preview?v=${v}"
-      :src="'/brands/${brand.key}/story-preview?template=' + tpl + '&v=${v}'"
+    <img src="/brands/${brand.key}/story-preview?template=${template}&v=${v}"
+      :src="'/brands/${brand.key}/story-preview?template=' + encodeURIComponent(tpl) + '&v=${v}'"
+      loading="lazy"
       width="132" height="234" alt="Auto-Story preview"
       style="display:block;border-radius:10px;border:1px solid var(--border);margin-top:4px" />
   </div>`;

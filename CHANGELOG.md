@@ -9,6 +9,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- **Publishing API keys now use separate read/write permissions.** Editorial content requires `content:read` / `content:write`, posts and scheduling require `posts:read` / `posts:write`, brands require `brands:read` / `brands:write`, and direct media registration requires `media:write`. Full-access keys continue to work. After upgrading, reissue existing keys with an explicit permission list before their integration makes its next publishing request.
+- **New API keys now require an explicit permission set.** The dashboard groups permissions by capability and adds read-only, publishing, inbox/automation, select-all and deselect-all controls. New keys cannot be created with an omitted, empty or duplicate permission list; existing keys remain unchanged.
+- **Interactive channel connections now require a logged-in dashboard session.** API keys continue to authenticate `/api/v1` integrations but cannot start or complete browser OAuth flows. Dashboard connect/reconnect links and provider callback URLs are unchanged.
+- **Runtime and build dependencies were updated to current supported releases.** Local Node.js tooling now requires Node 22.12 or newer, matching the production image and CI environment.
+- **Release verification is stricter.** Dependency and registry-signature checks are blocking, browser tests run in CI and release verification, third-party actions and runtime base images are pinned, and worker liveness remains accurate during long-running jobs.
+
 ## [0.13.1] - 2026-08-01
 
 ### Added

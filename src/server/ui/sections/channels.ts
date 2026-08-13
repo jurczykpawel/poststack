@@ -357,8 +357,13 @@ function channelGroups(items: PublicChannel[], brands: BrandRow[]): Html {
 
 const CHANNEL_ERRORS: Record<string, string> = {
   access_denied: "Access denied — you cancelled the connection.",
+  missing_params: "The provider returned an incomplete connection response. Please try again.",
+  invalid_state: "This connection attempt expired or is no longer valid. Please start again.",
   no_pages: "No Facebook Pages found. Make sure you manage at least one Page.",
   no_ig_accounts: "No Instagram Business accounts found linked to your Pages.",
+  no_gmail_accounts: "No Gmail account was returned. Check access and try again.",
+  yt_no_refresh: "YouTube did not grant offline access. Reconnect and approve the requested access.",
+  yt_no_channel: "No YouTube channel was found for this Google account.",
   oauth_failed: "Connection failed. Please try again.",
   pro_required: "That channel needs a PRO license.",
   instagram_login_not_configured:

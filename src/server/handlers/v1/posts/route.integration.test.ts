@@ -6,6 +6,9 @@ import type { Hono } from "hono";
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const KEY = "sk_live_posts_key_abcd000000000001";
 const OTHER_KEY = "sk_live_posts_other_abcd0000000002";
+const READ_KEY = "sk_live_posts_read_abcd00000000003";
+const WRITE_KEY = "sk_live_posts_write_abcd0000000004";
+const UNRELATED_KEY = "sk_live_posts_unrelated_abcd000005";
 
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
@@ -37,6 +40,9 @@ beforeEach(async () => {
   const hash = (k: string) => createHash("sha256").update(k).digest("hex");
   await db.insert(s.apiKeys).values([
     { workspace_id: WS, name: "k", key_hash: hash(KEY), key_prefix: "sk_live_ps" },
+    { workspace_id: WS, name: "reader", key_hash: hash(READ_KEY), key_prefix: "sk_live_pr", scopes: ["posts:read"] },
+    { workspace_id: WS, name: "writer", key_hash: hash(WRITE_KEY), key_prefix: "sk_live_pw", scopes: ["posts:write"] },
+    { workspace_id: WS, name: "unrelated", key_hash: hash(UNRELATED_KEY), key_prefix: "sk_live_pu", scopes: ["stats:read"] },
     { workspace_id: OTHER_WS, name: "o", key_hash: hash(OTHER_KEY), key_prefix: "sk_live_po" },
   ]);
 });
@@ -61,7 +67,7 @@ async function createOne(over: Record<string, unknown> = {}, key = KEY) {
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
-  it("creates a post and returns it (camelCase)", async () => {
+  it("keeps an empty-scope key working for post creation", async () => {
     const { res, json } = await createOne();
     expect(res.status).toBe(201);
     expect(json.data).toMatchObject({ platform: "instagram", description: "hi" });
@@ -100,6 +106,44 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
   it("publish requires a channelId (422)", async () => {
     const { json } = await createOne();
     expect((await call("POST", `/posts/${json.data.id}/publish`, {})).status).toBe(422);
+  });
+
+  it("applies posts:read to list and detail reads", async () => {
+    const { json } = await createOne();
+
+    expect((await call("GET", "/posts", undefined, READ_KEY)).status).toBe(200);
+    expect((await call("GET", `/posts/${json.data.id}`, undefined, READ_KEY)).status).toBe(200);
+
+    for (const key of [WRITE_KEY, UNRELATED_KEY]) {
+      expect((await call("GET", "/posts", undefined, key)).status).toBe(401);
+      expect((await call("GET", `/posts/${json.data.id}`, undefined, key)).status).toBe(401);
+    }
+  });
+
+  it("applies posts:write to create, update, and delete", async () => {
+    const { json } = await createOne();
+
+    for (const key of [READ_KEY, UNRELATED_KEY]) {
+      const statuses = [
+        (await call("POST", "/posts", { platform: "instagram", description: "scoped" }, key)).status,
+        (await call("PATCH", `/posts/${json.data.id}`, { description: "scoped" }, key)).status,
+        (await call("DELETE", `/posts/${json.data.id}`, undefined, key)).status,
+      ];
+      expect(statuses).toEqual([401, 401, 401]);
+    }
+
+    const created = await createOne({ description: "writer-created" }, WRITE_KEY);
+    expect(created.res.status).toBe(201);
+    expect((await call("PATCH", `/posts/${created.json.data.id}`, { description: "writer-updated" }, WRITE_KEY)).status).toBe(200);
+    expect((await call("DELETE", `/posts/${created.json.data.id}`, undefined, WRITE_KEY)).status).toBe(204);
+  });
+
+  it("requires posts:write before validating publish input", async () => {
+    const { json } = await createOne();
+
+    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, READ_KEY)).status).toBe(401);
+    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, UNRELATED_KEY)).status).toBe(401);
+    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, WRITE_KEY)).status).toBe(422);
   });
 
   it("is tenant-isolated: another workspace cannot read, patch, or delete (404)", async () => {

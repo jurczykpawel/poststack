@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { getBrand } from "@/lib/brands/service";
@@ -19,7 +19,7 @@ type Ctx = { params: Promise<{ brandKey: string }> };
  * An unregistered brand is 404, not an empty list, so a caller stops instead of publishing blind.
  */
 export async function GET(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "brands:read");
   if (!auth) return ApiErrors.unauthorized();
   const { brandKey } = await ctx.params;
   const brand = await getBrand(auth.workspaceId, brandKey);

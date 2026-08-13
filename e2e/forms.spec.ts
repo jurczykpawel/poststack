@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { setFree, setPro, watchConsole, gotoOk } from "./helpers";
+import { API_SCOPE_PRESETS, API_SCOPES } from "../src/lib/auth/scopes";
 
 // Real FORM SUBMITS — the path GET/200 checks miss. The whole reason for this suite: a missing
 // htmx json-enc extension silently breaks every json-enc form (the JSON-only handlers reject the
@@ -17,7 +18,8 @@ for (const state of ["free", "pro"] as const) {
       const { errors } = watchConsole(page);
       await gotoOk(page, "/rules");
 
-      const before = await page.locator("#rules-list .list-row").count();
+      const ruleRows = page.locator("#rules-list tbody tr");
+      const before = await ruleRows.count();
 
       // Open the collapsible "+ New rule" form.
       await page.getByText("+ New rule", { exact: true }).click();
@@ -30,7 +32,7 @@ for (const state of ["free", "pro"] as const) {
       // The list (#rules-list) is swapped in place with the new row — proof the json-enc POST was
       // accepted (a json-enc regression would leave the row count unchanged / show an error notice).
       await expect(page.locator("#rules-list")).toContainText(ruleName);
-      await expect.poll(() => page.locator("#rules-list .list-row").count()).toBe(before + 1);
+      await expect(ruleRows).toHaveCount(before + 1);
       await expect(page.locator("#rules-list .notice-err")).toHaveCount(0);
 
       expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
@@ -77,9 +79,44 @@ for (const state of ["free", "pro"] as const) {
       test(`pro · compose form is reachable with a brand present`, async ({ page }) => {
         const { errors } = watchConsole(page);
         await gotoOk(page, "/compose");
+        const brandField = page.locator("label.fld").filter({ has: page.locator("select[aria-label='Brand']") });
+        await brandField.locator("button.ps-trigger").click();
+        await brandField.getByRole("option").nth(1).click();
         // The compose form exists (json-driven). Just assert the submit affordance rendered and no
         // console errors — a full publish needs storage/worker, out of scope for UI gating.
-        await expect(page.getByRole("button", { name: /Create.*publish/i })).toBeVisible();
+        const submit = page.locator("form.compose-form button[type='submit']");
+        await expect(submit).toBeVisible();
+        await expect(submit).toContainText("Create & open");
+        expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+      });
+
+      test(`pro · API key scope presets replace the selection predictably`, async ({ page }) => {
+        const { errors } = watchConsole(page);
+        await gotoOk(page, "/settings#apikeys");
+
+        const form = page.locator("form[data-api-key-form]");
+        const create = form.getByRole("button", { name: "Create API key" });
+        const checked = form.locator("input[data-api-scope]:checked");
+        const serialized = form.locator("input[name='scopes_json']");
+
+        await expect(create).toBeDisabled();
+        await expect(checked).toHaveCount(0);
+
+        for (const preset of API_SCOPE_PRESETS) {
+          await form.getByRole("button", { name: preset.label, exact: true }).click();
+          await expect(checked).toHaveCount(preset.scopes.length);
+          await expect(serialized).toHaveValue(JSON.stringify(preset.scopes));
+        }
+
+        await form.getByRole("button", { name: "Deselect all", exact: true }).click();
+        await expect(checked).toHaveCount(0);
+        await expect(serialized).toHaveValue("[]");
+        await expect(create).toBeDisabled();
+
+        await form.getByRole("button", { name: "Select all", exact: true }).click();
+        await expect(checked).toHaveCount(API_SCOPES.length);
+        await expect(serialized).toHaveValue(JSON.stringify(API_SCOPES));
+        await expect(create).toBeEnabled();
         expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
       });
     }

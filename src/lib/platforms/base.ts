@@ -81,7 +81,7 @@ export interface SendMessageOptions {
  * 1. Create src/lib/platforms/{platform}.ts extending SocialProvider
  * 2. Implement all abstract methods
  * 3. Register in src/lib/platforms/registry.ts
- * 4. Add OAuth callback route in src/server/handlers/oauth/{platform}/route.ts
+ * 4. Add session-only OAuth start + callback handlers under src/server/handlers/oauth/{platform}/
  * 5. Add the platform to the platform enum in src/db/schema.ts
  */
 export abstract class SocialProvider {
@@ -97,7 +97,7 @@ export abstract class SocialProvider {
 
   /**
    * Generate the OAuth authorization URL to redirect the user to.
-   * @param state - Random state string (store in session to verify on callback)
+   * @param state - Opaque state prepared by the shared interactive OAuth boundary
    * @param redirectUri - The callback URL registered in the platform's developer console
    */
   abstract generateAuthUrl(state: string, redirectUri: string): string | Promise<string>;

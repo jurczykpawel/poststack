@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { ok, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { publishPost } from "@/lib/content/publish";
@@ -16,7 +16,7 @@ const publishBody = z.object({
 
 /** Publish (or schedule) an editorial post through the delivery engine (PUBLISHCARD1). */
 export async function POST(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "posts:write");
   if (!auth) return ApiErrors.unauthorized();
   const { postId } = await ctx.params;
   const body = await request.json().catch(() => ({}));

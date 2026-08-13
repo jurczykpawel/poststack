@@ -11,13 +11,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.4",
-    "@astrojs/sitemap": "^3.2.1",
+    "@astrojs/check": "^0.9.10",
+    "@astrojs/sitemap": "^3.7.3",
     "@fontsource-variable/inter": "^5.1.1",
     "@fontsource-variable/jetbrains-mono": "^5.1.1",
     "@fontsource-variable/plus-jakarta-sans": "^5.1.1",
     "@tailwindcss/vite": "^4.0.0",
-    "astro": "^5.0.0",
+    "astro": "^7.2.1",
     "gsap": "^3.12.5",
     "lenis": "^1.1.18",
     "tailwindcss": "^4.0.0",
@@ -28,8 +28,10 @@
     "vitest": "^4.1.9"
   },
   "allowScripts": {
-    "esbuild@0.27.7": true,
-    "esbuild@0.25.12": true,
-    "sharp@0.34.5": true
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

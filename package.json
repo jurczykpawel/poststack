@@ -25,36 +25,44 @@
     "probe:meta:webhook": "bun scripts/meta-webhook-e2e.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.6",
+    "@hono/node-server": "^2.1.0",
     "altcha-lib": "^1.4.1",
     "aws4fetch": "^1.0.20",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "graphile-worker": "^0.17.2",
-    "hono": "^4.12.27",
+    "graphile-worker": "^0.17.3",
+    "hono": "^4.13.1",
     "html-to-text": "^10.0.0",
-    "jose": "6.2.3",
-    "pg": "^8.22.0",
-    "sharp": "^0.35.2",
+    "jose": "6.2.8",
+    "pg": "^8.23.0",
+    "sharp": "^0.35.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@playwright/test": "^1.61.1",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
     "@types/html-to-text": "^9.0.4",
-    "@types/node": "^25.9.4",
-    "@types/pg": "^8.20.0",
+    "@types/node": "^25.9.5",
+    "@types/pg": "^8.21.0",
     "drizzle-kit": "^0.31.10",
-    "eslint": "^9.39.4",
+    "eslint": "^9.39.5",
     "typescript": "6.0.3",
-    "typescript-eslint": "^8.62.1",
-    "vitest": "4.1.9"
+    "typescript-eslint": "^8.67.0",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "esbuild": "0.28.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.2": true,
+    "fsevents@2.3.3": true
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.12.0"
   }
 }

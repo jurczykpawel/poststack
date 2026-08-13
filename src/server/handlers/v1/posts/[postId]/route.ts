@@ -1,4 +1,4 @@
-import { authenticate } from "@/lib/auth";
+import { authenticateWithScope } from "@/lib/auth";
 import { ok, noContent, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { getPost, patchPost, deletePost } from "@/lib/content/service";
@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 type Ctx = { params: Promise<{ postId: string }> };
 
 export async function GET(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "posts:read");
   if (!auth) return ApiErrors.unauthorized();
   const { postId } = await ctx.params;
   const row = await getPost(postId, auth.workspaceId);
@@ -18,7 +18,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
 }
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "posts:write");
   if (!auth) return ApiErrors.unauthorized();
   const { postId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
@@ -30,7 +30,7 @@ export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
 }
 
 export async function DELETE(request: Request, ctx: Ctx): Promise<Response> {
-  const auth = await authenticate(request);
+  const auth = await authenticateWithScope(request, "posts:write");
   if (!auth) return ApiErrors.unauthorized();
   const { postId } = await ctx.params;
   if (!(await deletePost(postId, auth.workspaceId))) return ApiErrors.notFound("Post");

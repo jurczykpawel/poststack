@@ -8,14 +8,14 @@ jobs:
   trufflehog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
       - name: TruffleHog secret scan
-        # Pinned to a commit SHA, not a floating @main: a compromised action would otherwise run
-        # arbitrary code on every push/PR with full repo + CI-secret access. Bump the SHA +
-        # comment together when upgrading.
-        uses: trufflesecurity/trufflehog@f446421baf832d6356c42c1743d99abff52ff334 # v3.95.5
-        with:
-          extra_args: --only-verified
+        # Run the scanner image itself by digest. Pinning only the composite action is insufficient:
+        # its default scanner image tag is mutable.
+        run: >-
+          docker run --rm -v "$PWD:/repo" -w /repo
+          ghcr.io/trufflesecurity/trufflehog@sha256:aa821cf4ace8861c7d096d83818cdf7bb9719028a52d37a52eaad44086a52577
+          git file:///repo --fail --no-update --only-verified

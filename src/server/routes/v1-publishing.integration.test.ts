@@ -48,6 +48,7 @@ beforeAll(async () => {
     name: "smoke",
     key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
     key_prefix: RAW_KEY.slice(0, 16),
+    scopes: ["content:write", "posts:write"],
   });
   const [c] = await db
     .insert(schema.channels)

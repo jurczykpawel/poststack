@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import type { SessionAuthContext } from "@/lib/auth";
 
 process.env.DATABASE_URL ??= "postgres://u:p@localhost:5432/db";
 process.env.JWT_SECRET ??= "test-secret-at-least-32-characters-long";
@@ -12,6 +13,13 @@ process.env.X_CLIENT_ID ??= "x-id";
 process.env.X_CLIENT_SECRET ??= "x-secret";
 
 let startPublishOAuth: typeof import("./connect").startPublishOAuth;
+const SESSION: SessionAuthContext = {
+  userId: "user-1",
+  workspaceId: "workspace-1",
+  sessionId: "session-1",
+  authMethod: "session",
+  scopes: [],
+};
 
 beforeAll(async () => {
   ({ startPublishOAuth } = await import("./connect"));
@@ -19,7 +27,7 @@ beforeAll(async () => {
 
 describe("startPublishOAuth — generic across providers", () => {
   it("builds a TikTok authorize URL with a state cookie (no PKCE)", () => {
-    const { url, cookies } = startPublishOAuth("tiktok", "https://app/cb");
+    const { url, cookies } = startPublishOAuth("tiktok", "https://app/cb", SESSION);
     const u = new URL(url);
     expect(u.origin + u.pathname).toBe("https://www.tiktok.com/v2/auth/authorize/");
     expect(u.searchParams.get("client_key")).toBe("tt-key");
@@ -29,7 +37,7 @@ describe("startPublishOAuth — generic across providers", () => {
   });
 
   it("adds a PKCE challenge + verifier cookie for X (Twitter)", () => {
-    const { url, cookies } = startPublishOAuth("twitter", "https://app/cb");
+    const { url, cookies } = startPublishOAuth("twitter", "https://app/cb", SESSION);
     const u = new URL(url);
     expect(u.searchParams.get("code_challenge")).toBeTruthy();
     expect(u.searchParams.get("code_challenge_method")).toBe("S256");
@@ -37,6 +45,6 @@ describe("startPublishOAuth — generic across providers", () => {
   });
 
   it("throws for a platform without OAuth credentials configured", () => {
-    expect(() => startPublishOAuth("linkedin", "https://app/cb")).toThrow(/not configured for OAuth/);
+    expect(() => startPublishOAuth("linkedin", "https://app/cb", SESSION)).toThrow(/not configured for OAuth/);
   });
 });

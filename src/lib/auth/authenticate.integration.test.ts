@@ -51,6 +51,63 @@ const sessionReq = (token: string) =>
 const keyReq = (k: string) =>
   new Request("http://x/api/v1/test", { headers: { authorization: `Bearer ${k}` } });
 
+async function authenticateFromSession(request: Request) {
+  return auth.authenticateSession(request);
+}
+
+describe("authenticateSession — interactive session boundary (real Postgres)", () => {
+  it("rejects a valid API key when no session cookie is present", async () => {
+    if (!TEST_DB) return;
+    expect(await authenticateFromSession(keyReq(RAW_KEY))).toBeNull();
+  });
+
+  it("authenticates a valid signed session", async () => {
+    if (!TEST_DB) return;
+    const token = await auth.signSession(USER, WS);
+    const ctx = await authenticateFromSession(sessionReq(token));
+
+    expect(ctx).toMatchObject({
+      userId: USER,
+      workspaceId: WS,
+      authMethod: "session",
+      scopes: [],
+    });
+    expect(ctx?.sessionId).toEqual(expect.any(String));
+  });
+
+  it("authenticates from the session cookie even when a Bearer header is also present", async () => {
+    if (!TEST_DB) return;
+    const token = await auth.signSession(USER, WS);
+    const request = new Request("http://x/api/oauth/facebook", {
+      headers: {
+        authorization: `Bearer ${RAW_KEY}`,
+        cookie: `session=${token}`,
+      },
+    });
+
+    const ctx = await authenticateFromSession(request);
+    expect(ctx?.authMethod).toBe("session");
+    expect(ctx?.userId).toBe(USER);
+    expect(ctx?.workspaceId).toBe(WS);
+  });
+
+  it("stops authenticating after the workspace membership is removed", async () => {
+    if (!TEST_DB) return;
+    const token = await auth.signSession(USER, WS);
+    await db.delete(s.workspaceMembers).where(
+      and(eq(s.workspaceMembers.user_id, USER), eq(s.workspaceMembers.workspace_id, WS)),
+    );
+    expect(await authenticateFromSession(sessionReq(token))).toBeNull();
+  });
+
+  it("stops authenticating after the session is invalidated", async () => {
+    if (!TEST_DB) return;
+    const token = await auth.signSession(USER, WS);
+    await auth.invalidateSession(token);
+    expect(await authenticateFromSession(sessionReq(token))).toBeNull();
+  });
+});
+
 describe("authenticate — session (real Postgres)", () => {
   it("authenticates a valid session for an existing user", async () => {
     if (!TEST_DB) return;
@@ -61,6 +118,15 @@ describe("authenticate — session (real Postgres)", () => {
     expect(ctx!.workspaceId).toBe(WS);
     expect(ctx!.authMethod).toBe("session");
     expect(ctx!.scopes).toEqual([]);
+  });
+
+  it("treats a valid session as full access for registered API scopes", async () => {
+    if (!TEST_DB) return;
+    const token = await auth.signSession(USER, WS);
+    expect(await auth.authenticateWithScope(sessionReq(token), "posts:write")).not.toBeNull();
+    expect(await auth.authenticateWithScope(sessionReq(token), "content:write")).not.toBeNull();
+    expect(await auth.authenticateWithScope(sessionReq(token), "brands:write")).not.toBeNull();
+    expect(await auth.authenticateWithScope(sessionReq(token), "media:write")).not.toBeNull();
   });
 
   it("returns null for a deleted user", async () => {
@@ -96,6 +162,21 @@ describe("authenticate — API key (real Postgres)", () => {
     expect(ctx!.workspaceId).toBe(WS);
     expect(ctx!.authMethod).toBe("api_key");
     expect(ctx!.scopes).toEqual(["channels:read", "contacts:read"]);
+  });
+
+  it("requires an explicitly granted scope on a restricted key", async () => {
+    if (!TEST_DB) return;
+    expect(await auth.authenticateWithScope(keyReq(RAW_KEY), "channels:read")).not.toBeNull();
+    expect(await auth.authenticateWithScope(keyReq(RAW_KEY), "posts:read")).toBeNull();
+  });
+
+  it("keeps a legacy null scope list as full access", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.apiKeys).set({ scopes: null }).where(eq(s.apiKeys.key_hash, KEY_HASH));
+
+    const ctx = await auth.authenticate(keyReq(RAW_KEY));
+    expect(ctx?.scopes).toEqual([]);
+    expect(await auth.authenticateWithScope(keyReq(RAW_KEY), "posts:write")).not.toBeNull();
   });
 
   it("returns null for an unknown key", async () => {

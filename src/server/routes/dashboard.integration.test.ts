@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from
 import type { Hono } from "hono";
 import { eq, or, isNull } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
+import { API_SCOPE_PRESETS, API_SCOPES } from "@/lib/auth/scopes";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
@@ -752,6 +753,20 @@ describe("dashboard sequence builder", () => {
 });
 
 describe("dashboard API key scopes", () => {
+  it("renders every catalog permission once with grouped presets and an empty initial selection", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/settings#apikeys", { headers: { cookie } })).text();
+    const rendered = [...body.matchAll(/data-api-scope type="checkbox" value="([^"]+)"/g)].map((match) => match[1]);
+    expect(rendered).toHaveLength(API_SCOPES.length);
+    expect([...rendered].sort()).toEqual([...API_SCOPES].sort());
+    for (const preset of API_SCOPE_PRESETS) expect(body).toContain(`presets['${preset.id}']`);
+    expect(body).toContain(">Select all</button>");
+    expect(body).toContain(">Deselect all</button>");
+    expect(body).toContain('<label class="label" for="api-key-name">Key name</label>');
+    expect(body).toContain('aria-live="polite"');
+    expect(body).toContain(":disabled=\"scopes.length === 0\"");
+  });
+
   it("creates a scoped key (not full-access) from the selected scopes", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/settings/api-keys", {
@@ -760,6 +775,7 @@ describe("dashboard API key scopes", () => {
       body: JSON.stringify({ name: "Scoped-117", scopes_json: JSON.stringify(["contacts:read", "conversations:read"]) }),
     });
     expect(res.status).toBe(200);
+    expect(await res.text()).toContain("contacts:read, conversations:read");
     const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Scoped-117"), columns: { scopes: true } });
     expect(key?.scopes).toEqual(["contacts:read", "conversations:read"]);
   });
@@ -775,6 +791,18 @@ describe("dashboard API key scopes", () => {
     expect(res.status).toBe(200); // re-renders the form area with a notice, no key created
     const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Empty-130"), columns: { id: true } });
     expect(key).toBeUndefined();
+  });
+
+  it("stores the full current catalog explicitly when all permissions are selected", async () => {
+    if (!TEST_DB) return;
+    const res = await app.request("/settings/api-keys", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "All-explicit-131", scopes_json: JSON.stringify(API_SCOPES) }),
+    });
+    expect(res.status).toBe(200);
+    const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "All-explicit-131"), columns: { scopes: true } });
+    expect(key?.scopes).toEqual(API_SCOPES);
   });
 });
 
@@ -994,6 +1022,13 @@ describe("channels — managed connection section", () => {
     const body = await (await app.request("/settings", { headers: { cookie } })).text();
     expect(body).toContain('hx-post="/settings/api-keys"'); // the create form lives in Settings now
     expect(body).toContain('id="keys-area"');
+    expect(body).toContain('value="content:read"');
+    expect(body).toContain('value="content:write"');
+    expect(body).toContain('value="posts:read"');
+    expect(body).toContain('value="posts:write"');
+    expect(body).toContain('value="brands:read"');
+    expect(body).toContain('value="brands:write"');
+    expect(body).toContain('value="media:write"');
     expect(body).not.toContain('href="/api-keys"'); // no longer a link-out
   });
 

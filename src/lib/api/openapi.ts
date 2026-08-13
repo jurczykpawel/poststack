@@ -6,6 +6,12 @@
  */
 
 import { BRAND } from "@/lib/brand";
+import { API_SCOPES, type ApiScope } from "@/lib/auth/scopes";
+
+/** Machine-readable permission metadata for API docs and generated clients. */
+const requiresScope = <T extends ApiScope>(scope: T): { "x-required-scope": T } => ({
+  "x-required-scope": scope,
+});
 
 export const openApiSpec = {
   openapi: "3.1.0",
@@ -14,8 +20,8 @@ export const openApiSpec = {
     version: "1.0.0",
     description:
       "Self-hosted social media management API — publishing, inbox auto-replies, and drip sequences for Facebook & Instagram. " +
-      `Authenticate with an API key: \`Authorization: Bearer ${BRAND.idPrefix}...\`\n\n` +
-      "Generate API keys in Settings > API Keys.",
+      `Operational endpoints authenticate with an API key: \`Authorization: Bearer ${BRAND.idPrefix}...\`. ` +
+      "Create and manage API keys from a logged-in dashboard session in Settings > API Keys.",
     license: { name: "Elastic License 2.0", url: "https://www.elastic.co/licensing/elastic-license" },
     contact: { url: "https://github.com/jurczykpawel/poststack" },
   },
@@ -30,6 +36,12 @@ export const openApiSpec = {
         description:
           "API key generated in Settings > API Keys. " +
           `Format: \`Authorization: Bearer ${BRAND.idPrefix}<key>\``,
+      },
+      SessionCookie: {
+        type: "apiKey",
+        in: "cookie",
+        name: BRAND.cookieName,
+        description: "Logged-in dashboard session used for account administration.",
       },
     },
     schemas: {
@@ -215,7 +227,11 @@ export const openApiSpec = {
           id: { type: "string", format: "uuid" },
           name: { type: "string" },
           key_prefix: { type: "string", example: `${BRAND.idPrefix}abcd` },
-          scopes: { type: "array", items: { type: "string" }, description: "Empty = full access" },
+          scopes: {
+            type: "array",
+            items: { type: "string", enum: API_SCOPES },
+            description: "Empty = full access; otherwise each operation requires its documented permission.",
+          },
           last_used_at: { type: "string", format: "date-time", nullable: true },
           expires_at: { type: "string", format: "date-time", nullable: true },
           created_at: { type: "string", format: "date-time" },
@@ -243,6 +259,12 @@ export const openApiSpec = {
           "application/json": { schema: { $ref: "#/components/schemas/Error" } },
         },
       },
+      Forbidden: {
+        description: "The active authentication method cannot perform this operation",
+        content: {
+          "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+        },
+      },
       NotFound: {
         description: "Resource not found",
         content: {
@@ -260,17 +282,49 @@ export const openApiSpec = {
   paths: {
     // ── Publishing (editorial content + posts + media + brands) ──────────────────────
     "/content": {
-      get: { tags: ["Publishing"], summary: "List editorial content (keyset paginated)", responses: { "200": { description: "List of content" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      post: { tags: ["Publishing"], summary: "Create editorial content", responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } } },
+      get: {
+        ...requiresScope("content:read"),
+        tags: ["Publishing"],
+        summary: "List editorial content (keyset paginated)",
+        responses: { "200": { description: "List of content" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+      post: {
+        ...requiresScope("content:write"),
+        tags: ["Publishing"],
+        summary: "Create editorial content",
+        responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } },
+      },
     },
     "/content/{contentId}": {
-      get: { tags: ["Publishing"], summary: "Get content with its posts", responses: { "200": { description: "Content" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      patch: { tags: ["Publishing"], summary: "Update content", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      delete: { tags: ["Publishing"], summary: "Delete content", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      get: {
+        ...requiresScope("content:read"),
+        tags: ["Publishing"],
+        summary: "Get editorial content",
+        description: "The content record requires content:read. Related posts are included only when the caller also has posts:read.",
+        responses: { "200": { description: "Content" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+      patch: {
+        ...requiresScope("content:write"),
+        tags: ["Publishing"],
+        summary: "Update content",
+        responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+      delete: {
+        ...requiresScope("content:write"),
+        tags: ["Publishing"],
+        summary: "Delete content",
+        responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
     },
     "/posts": {
-      get: { tags: ["Publishing"], summary: "List editorial posts", responses: { "200": { description: "List of posts" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      get: {
+        ...requiresScope("posts:read"),
+        tags: ["Publishing"],
+        summary: "List editorial posts",
+        responses: { "200": { description: "List of posts" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
       post: {
+        ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Create an editorial post",
         description:
@@ -281,31 +335,64 @@ export const openApiSpec = {
       },
     },
     "/posts/{postId}": {
-      get: { tags: ["Publishing"], summary: "Get a post", responses: { "200": { description: "Post" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      get: {
+        ...requiresScope("posts:read"),
+        tags: ["Publishing"],
+        summary: "Get a post",
+        responses: { "200": { description: "Post" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
       patch: {
+        ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Update a post",
         description: "Same body as create (all fields optional), including the YouTube options and AI-disclosure fields.",
         responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
-      delete: { tags: ["Publishing"], summary: "Delete a post", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      delete: {
+        ...requiresScope("posts:write"),
+        tags: ["Publishing"],
+        summary: "Delete a post",
+        responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
     },
     "/posts/{postId}/publish": {
-      post: { tags: ["Publishing"], summary: "Publish or schedule a post through the delivery engine", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string" } } } } } }, responses: { "200": { description: "Delivery created + linked" }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      post: {
+        ...requiresScope("posts:write"),
+        tags: ["Publishing"],
+        summary: "Publish or schedule a post through the delivery engine",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string" } } } } } },
+        responses: { "200": { description: "Delivery created + linked" }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
     },
     "/media": {
-      post: { tags: ["Publishing"], summary: "Register a media URL into content-addressed storage", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" } } } } } }, responses: { "201": { description: "Media registered" }, "400": { description: "Ingest/SSRF error" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      post: {
+        ...requiresScope("media:write"),
+        tags: ["Publishing"],
+        summary: "Register a media URL into content-addressed storage",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" } } } } } },
+        responses: { "201": { description: "Media registered" }, "400": { description: "Media ingest error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
     },
     "/brands": {
-      get: { tags: ["Publishing"], summary: "List brands", responses: { "200": { description: "List of brands" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      post: { tags: ["Publishing"], summary: "Create a brand",
+      get: {
+        ...requiresScope("brands:read"),
+        tags: ["Publishing"],
+        summary: "List brands",
+        responses: { "200": { description: "List of brands" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+      post: {
+        ...requiresScope("brands:write"),
+        tags: ["Publishing"], summary: "Create a brand",
         description:
           "Accepts `default_ai_disclosure` (`none` | `ai_assisted` | `ai_generated`) and " +
           "`default_ai_disclosure_note` — the brand-wide AI declaration inherited by any post that sets " +
-          "none of its own (resolution order: post → channel → brand). Null on both = this brand declares nothing.", responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+          "none of its own (resolution order: post → channel → brand). Null on both = this brand declares nothing.",
+        responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
     },
     "/brands/{brandKey}/channels": {
       get: {
+        ...requiresScope("brands:read"),
         tags: ["Publishing"],
         summary: "Resolve this brand's channel per editorial platform",
         description:
@@ -320,8 +407,18 @@ export const openApiSpec = {
       },
     },
     "/brands/{brandKey}": {
-      patch: { tags: ["Publishing"], summary: "Update a brand", responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
-      delete: { tags: ["Publishing"], summary: "Delete a brand (unassigns its channels)", responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } } },
+      patch: {
+        ...requiresScope("brands:write"),
+        tags: ["Publishing"],
+        summary: "Update a brand",
+        responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+      delete: {
+        ...requiresScope("brands:write"),
+        tags: ["Publishing"],
+        summary: "Delete a brand (unassigns its channels)",
+        responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
     },
     "/health": {
       // Health lives at /api/health, outside the /api/v1 surface — override the server for this
@@ -367,6 +464,7 @@ export const openApiSpec = {
     },
     "/channels": {
       get: {
+        ...requiresScope("channels:read"),
         tags: ["Channels"],
         summary: "List connected channels",
         responses: {
@@ -390,6 +488,7 @@ export const openApiSpec = {
     },
     "/channels/telegram/connect": {
       post: {
+        ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Connect a Telegram bot by token (no OAuth)",
         description: "Validates the bot token via getMe and registers the webhook. Paste a token from @BotFather.",
@@ -415,6 +514,7 @@ export const openApiSpec = {
     },
     "/contacts": {
       get: {
+        ...requiresScope("contacts:read"),
         tags: ["Contacts"],
         summary: "List contacts",
         parameters: [
@@ -443,6 +543,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("contacts:write"),
         tags: ["Contacts"],
         summary: "Create or import contacts",
         description:
@@ -503,6 +604,7 @@ export const openApiSpec = {
     },
     "/conversations": {
       get: {
+        ...requiresScope("conversations:read"),
         tags: ["Conversations"],
         summary: "List conversations",
         parameters: [
@@ -520,6 +622,7 @@ export const openApiSpec = {
     },
     "/rules": {
       get: {
+        ...requiresScope("rules:read"),
         tags: ["Rules"],
         summary: "List auto-reply rules",
         responses: {
@@ -528,6 +631,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("rules:write"),
         tags: ["Rules"],
         summary: "Create auto-reply rule",
         requestBody: {
@@ -547,6 +651,7 @@ export const openApiSpec = {
     },
     "/approvals": {
       get: {
+        ...requiresScope("conversations:read"),
         tags: ["Approvals"],
         summary: "List replies awaiting human approval",
         parameters: [
@@ -564,6 +669,7 @@ export const openApiSpec = {
     },
     "/approvals/{approvalId}/approve": {
       post: {
+        ...requiresScope("conversations:write"),
         tags: ["Approvals"],
         summary: "Approve a parked reply and send it",
         parameters: [{ name: "approvalId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -577,6 +683,7 @@ export const openApiSpec = {
     },
     "/approvals/{approvalId}/reject": {
       post: {
+        ...requiresScope("conversations:write"),
         tags: ["Approvals"],
         summary: "Reject a parked reply (discard, no send)",
         parameters: [{ name: "approvalId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -592,6 +699,7 @@ export const openApiSpec = {
     // ─── Channels (detail + actions) ──────────────────────────────────────────
     "/channels/connect-token": {
       post: {
+        ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Mint a short-lived token to connect a channel from the dashboard",
         responses: {
@@ -602,6 +710,7 @@ export const openApiSpec = {
     },
     "/sources": {
       get: {
+        ...requiresScope("sources:read"),
         tags: ["Channels"],
         summary: "List managed connections (Meta master tokens) and their derived channels — PRO",
         responses: {
@@ -611,6 +720,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("sources:write"),
         tags: ["Channels"],
         summary: "Connect/reconnect a managed connection from a pasted User/System-User token — PRO",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["token"], properties: { token: { type: "string" } } } } } },
@@ -625,6 +735,7 @@ export const openApiSpec = {
     },
     "/sources/{sourceId}": {
       delete: {
+        ...requiresScope("sources:write"),
         tags: ["Channels"],
         summary: "Remove a managed connection (derived channels survive as standalone) — PRO",
         parameters: [{ name: "sourceId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -638,6 +749,7 @@ export const openApiSpec = {
     },
     "/sources/{sourceId}/sync": {
       post: {
+        ...requiresScope("sources:write"),
         tags: ["Channels"],
         summary: "Re-enumerate a managed connection now (new Pages/IG appear) — PRO",
         parameters: [{ name: "sourceId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -653,6 +765,7 @@ export const openApiSpec = {
     "/channels/{channelId}": {
       parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
+        ...requiresScope("channels:read"),
         tags: ["Channels"],
         summary: "Get a channel",
         responses: {
@@ -662,6 +775,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Update a channel (e.g. pause/resume automation, rename)",
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string" }, status: { type: "string", enum: ["active", "paused"] } } } } } },
@@ -673,6 +787,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Disconnect a channel",
         responses: {
@@ -685,6 +800,7 @@ export const openApiSpec = {
     },
     "/channels/{channelId}/drain": {
       post: {
+        ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Replay outbound messages parked (held) while the channel was down",
         parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -697,6 +813,7 @@ export const openApiSpec = {
     },
     "/channels/{channelId}/gmail-filter": {
       post: {
+        ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Save the Gmail ingest filter query for a Gmail channel",
         parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -722,6 +839,7 @@ export const openApiSpec = {
     },
     "/channels/{channelId}/posts": {
       get: {
+        ...requiresScope("channels:read"),
         tags: ["Channels"],
         summary: "List recent posts for a channel (for comment-rule targeting)",
         parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -737,6 +855,7 @@ export const openApiSpec = {
     "/contacts/{contactId}": {
       parameters: [{ name: "contactId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
+        ...requiresScope("contacts:read"),
         tags: ["Contacts"],
         summary: "Get a contact",
         responses: {
@@ -746,6 +865,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("contacts:write"),
         tags: ["Contacts"],
         summary: "Update a contact (name, email, subscription, tags)",
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", nullable: true }, email: { type: "string", nullable: true }, phone: { type: "string", nullable: true }, is_subscribed: { type: "boolean" }, tag_ids: { type: "array", items: { type: "string", format: "uuid" } } } } } } },
@@ -757,6 +877,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("contacts:write"),
         tags: ["Contacts"],
         summary: "Erase a contact and its personal data (GDPR)",
         responses: {
@@ -771,6 +892,7 @@ export const openApiSpec = {
     "/conversations/{conversationId}": {
       parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
+        ...requiresScope("conversations:read"),
         tags: ["Conversations"],
         summary: "Get a conversation",
         responses: {
@@ -780,6 +902,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("conversations:write"),
         tags: ["Conversations"],
         summary: "Update a conversation (status, automation pause, unread)",
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { status: { type: "string", enum: ["open", "closed", "snoozed"] }, is_automation_paused: { type: "boolean" }, assigned_to: { type: "string", format: "uuid", nullable: true }, unread_count: { type: "integer", enum: [0] } } } } } },
@@ -794,6 +917,7 @@ export const openApiSpec = {
     "/conversations/{conversationId}/messages": {
       parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
+        ...requiresScope("conversations:read"),
         tags: ["Conversations"],
         summary: "List messages in a conversation",
         parameters: [
@@ -807,6 +931,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("conversations:write"),
         tags: ["Conversations"],
         summary: "Send a manual reply",
         parameters: [
@@ -827,6 +952,7 @@ export const openApiSpec = {
     "/rules/{ruleId}": {
       parameters: [{ name: "ruleId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
+        ...requiresScope("rules:read"),
         tags: ["Rules"],
         summary: "Get an auto-reply rule",
         responses: {
@@ -836,6 +962,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("rules:write"),
         tags: ["Rules"],
         summary: "Update an auto-reply rule",
         requestBody: { content: { "application/json": { schema: { $ref: "#/components/schemas/AutoReplyRule" } } } },
@@ -847,6 +974,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("rules:write"),
         tags: ["Rules"],
         summary: "Delete an auto-reply rule",
         responses: {
@@ -860,6 +988,7 @@ export const openApiSpec = {
     // ─── Sequences (drip campaigns) ───────────────────────────────────────────
     "/sequences": {
       get: {
+        ...requiresScope("sequences:read"),
         tags: ["Sequences"],
         summary: "List sequences",
         responses: {
@@ -868,6 +997,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("sequences:write"),
         tags: ["Sequences"],
         summary: "Create a sequence",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "steps"], properties: { name: { type: "string", maxLength: 100 }, description: { type: "string", maxLength: 500 }, steps: { type: "array", minItems: 1, maxItems: 50, items: { $ref: "#/components/schemas/SequenceStep" } } } } } } },
@@ -881,6 +1011,7 @@ export const openApiSpec = {
     "/sequences/{sequenceId}": {
       parameters: [{ name: "sequenceId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
+        ...requiresScope("sequences:read"),
         tags: ["Sequences"],
         summary: "Get a sequence",
         responses: {
@@ -890,6 +1021,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("sequences:write"),
         tags: ["Sequences"],
         summary: "Update a sequence (name, status, steps)",
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, description: { type: "string", nullable: true }, status: { type: "string", enum: ["draft", "active", "archived"] }, steps: { type: "array", items: { $ref: "#/components/schemas/SequenceStep" } } } } } } },
@@ -901,6 +1033,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("sequences:write"),
         tags: ["Sequences"],
         summary: "Delete a sequence",
         responses: {
@@ -912,6 +1045,7 @@ export const openApiSpec = {
     },
     "/sequences/{sequenceId}/enroll": {
       post: {
+        ...requiresScope("sequences:write"),
         tags: ["Sequences"],
         summary: "Enroll a contact into a sequence",
         parameters: [{ name: "sequenceId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -927,6 +1061,7 @@ export const openApiSpec = {
     },
     "/sequences/{sequenceId}/enrollments/{enrollmentId}": {
       delete: {
+        ...requiresScope("sequences:write"),
         tags: ["Sequences"],
         summary: "Cancel an in-flight sequence enrollment",
         parameters: [
@@ -944,32 +1079,38 @@ export const openApiSpec = {
     // ─── API keys ─────────────────────────────────────────────────────────────
     "/api-keys": {
       get: {
+        security: [{ SessionCookie: [] }],
         tags: ["API Keys"],
         summary: "List API keys (prefixes only, never the secret)",
         responses: {
           "200": { description: "List of keys", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/ApiKey" } }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
         },
       },
       post: {
+        security: [{ SessionCookie: [] }],
         tags: ["API Keys"],
         summary: "Create an API key (full secret returned ONCE on creation)",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, scopes: { type: "array", items: { type: "string" } }, expires_at: { type: "string", format: "date-time", nullable: true } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "scopes"], properties: { name: { type: "string" }, scopes: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: API_SCOPES } }, expires_at: { type: "string", format: "date-time", nullable: true } } } } } },
         responses: {
           "201": { description: "Created — `data.key` holds the full secret, shown only here" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
           "422": { description: "Validation error" },
         },
       },
     },
     "/api-keys/{keyId}": {
       delete: {
+        security: [{ SessionCookie: [] }],
         tags: ["API Keys"],
         summary: "Revoke an API key",
         parameters: [{ name: "keyId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Revoked" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -978,6 +1119,7 @@ export const openApiSpec = {
     // ─── Audit log, retention, workspace, tags ────────────────────────────────
     "/stats/response-times": {
       get: {
+        ...requiresScope("stats:read"),
         tags: ["Stats"],
         summary: "Response-time stats: answer rate, average latency and first-response percentiles",
         description:
@@ -993,6 +1135,7 @@ export const openApiSpec = {
     },
     "/audit-log": {
       get: {
+        ...requiresScope("settings:read"),
         tags: ["Workspace"],
         summary: "List audit-log entries",
         parameters: [
@@ -1007,6 +1150,7 @@ export const openApiSpec = {
     },
     "/messages/prune": {
       post: {
+        ...requiresScope("settings:write"),
         tags: ["Workspace"],
         summary: "Manually prune terminal messages older than the workspace retention window",
         responses: {
@@ -1017,6 +1161,7 @@ export const openApiSpec = {
     },
     "/webhook-events/prune": {
       post: {
+        ...requiresScope("settings:write"),
         tags: ["Workspace"],
         summary: "Manually prune the inbound webhook-events log older than N days",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["older_than_days"], properties: { older_than_days: { type: "integer", minimum: 7, maximum: 3650 } } } } } },
@@ -1029,6 +1174,7 @@ export const openApiSpec = {
     },
     "/workspace": {
       get: {
+        ...requiresScope("settings:read"),
         tags: ["Workspace"],
         summary: "Get workspace settings",
         responses: {
@@ -1037,6 +1183,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("settings:write"),
         tags: ["Workspace"],
         summary: "Update workspace settings (e.g. message_retention_days)",
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, message_retention_days: { type: "integer", minimum: 1, nullable: true } } } } } },
@@ -1049,6 +1196,7 @@ export const openApiSpec = {
     },
     "/license": {
       get: {
+        ...requiresScope("settings:read"),
         tags: ["License"],
         summary: "Get the instance license + capability status (tier, features, ai_configured; never the token)",
         description:
@@ -1059,6 +1207,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("settings:write"),
         tags: ["License"],
         summary: "Verify and store a Sellf license token",
         requestBody: { content: { "application/json": { schema: { type: "object", required: ["token"], properties: { token: { type: "string" } } } } } },
@@ -1069,6 +1218,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("settings:write"),
         tags: ["License"],
         summary: "Remove the stored license token (revert to env/free)",
         responses: {
@@ -1079,6 +1229,7 @@ export const openApiSpec = {
     },
     "/tags": {
       get: {
+        ...requiresScope("tags:read"),
         tags: ["Contacts"],
         summary: "List tags",
         responses: {
@@ -1087,6 +1238,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("tags:write"),
         tags: ["Contacts"],
         summary: "Create a tag",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, color: { type: "string", example: "#6366f1" } } } } } },
@@ -1100,6 +1252,7 @@ export const openApiSpec = {
     },
     "/tags/{tagId}": {
       patch: {
+        ...requiresScope("tags:write"),
         tags: ["Contacts"],
         summary: "Rename or recolor a tag",
         parameters: [{ name: "tagId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -1113,6 +1266,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("tags:write"),
         tags: ["Contacts"],
         summary: "Delete a tag (removes it from all contacts)",
         parameters: [{ name: "tagId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -1125,6 +1279,7 @@ export const openApiSpec = {
     },
     "/webhooks": {
       get: {
+        ...requiresScope("webhooks:read"),
         tags: ["Webhooks"],
         summary: "List outbound webhook endpoints",
         description: "Requires a PRO license. Signing secrets are not included.",
@@ -1135,6 +1290,7 @@ export const openApiSpec = {
         },
       },
       post: {
+        ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Register a webhook endpoint",
         description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license.",
@@ -1149,6 +1305,7 @@ export const openApiSpec = {
     },
     "/webhooks/{webhookId}": {
       get: {
+        ...requiresScope("webhooks:read"),
         tags: ["Webhooks"],
         summary: "Get a webhook endpoint",
         parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -1160,6 +1317,7 @@ export const openApiSpec = {
         },
       },
       patch: {
+        ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Update a webhook endpoint",
         parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -1173,6 +1331,7 @@ export const openApiSpec = {
         },
       },
       delete: {
+        ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Delete a webhook endpoint",
         parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -1186,6 +1345,7 @@ export const openApiSpec = {
     },
     "/webhooks/{webhookId}/rotate-secret": {
       post: {
+        ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Rotate a webhook signing secret",
         description: "Mints a new signing secret (the previous one stays valid during a grace window). Returns the new secret ONCE.",

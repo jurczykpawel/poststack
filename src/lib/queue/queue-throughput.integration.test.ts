@@ -48,7 +48,13 @@ async function startRunner(taskList: Record<string, (p: unknown, h: unknown) => 
 
 /** Wait until the queue has fully drained (all jobs succeeded → removed). */
 async function waitForDrain(timeout = 30_000): Promise<void> {
-  await vi.waitFor(async () => expect(await pendingJobs()).toBe(0), { timeout, interval: 100 });
+  await vi.waitFor(async () => {
+    expect(await pendingJobs()).toBe(0);
+    // graphile-worker can acknowledge a claimed batch before the task callback (or a retry) has
+    // settled. Require an idle interval so a transient zero count is not mistaken for a drain.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(await pendingJobs()).toBe(0);
+  }, { timeout, interval: 100 });
 }
 
 beforeAll(async () => {

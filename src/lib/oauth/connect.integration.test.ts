@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import type { SessionAuthContext } from "@/lib/auth";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -13,6 +14,13 @@ let gate: typeof import("@/lib/license/gate");
 let licenseInstance: typeof import("@/lib/license/__fixtures__/license-instance").licenseInstance;
 
 const WS = "eeee0000-0000-0000-0000-00000000ee01";
+const AUTH: SessionAuthContext = {
+  userId: "eeee0000-0000-0000-0000-00000000ee02",
+  workspaceId: WS,
+  sessionId: "oauth-connect-session",
+  authMethod: "session",
+  scopes: [],
+};
 const realFetch = globalThis.fetch;
 
 beforeAll(async () => {
@@ -77,7 +85,7 @@ describe("completePublishOAuth (real Postgres)", () => {
     if (!TEST_DB) return;
     await licenseInstance("pro"); // a non-Meta channel needs non_meta_channels
     mockTikTok("tt-acc-1");
-    const { state, setCookie } = generateOAuthState();
+    const { state, setCookie } = generateOAuthState(AUTH, "connect:tiktok");
     const cookieHeader = setCookie.split(";")[0]!; // "rs_oauth_state=<value>"
 
     const r = await connect.completePublishOAuth({
@@ -86,7 +94,7 @@ describe("completePublishOAuth (real Postgres)", () => {
       state,
       cookieHeader,
       redirectUri: "https://app/cb",
-      workspaceId: WS,
+      auth: AUTH,
     });
 
     expect(r.accountId).toBe("tt-acc-1");
@@ -112,7 +120,7 @@ describe("completePublishOAuth (real Postgres)", () => {
         state: "GOOD",
         cookieHeader: "rs_oauth_state=DIFFERENT",
         redirectUri: "https://app/cb",
-        workspaceId: WS,
+        auth: AUTH,
       }),
     ).rejects.toThrow(/Invalid OAuth state/);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -120,7 +128,7 @@ describe("completePublishOAuth (real Postgres)", () => {
 
   it("requires the PKCE verifier cookie for a PKCE provider (X)", async () => {
     if (!TEST_DB) return;
-    const { state, setCookie } = generateOAuthState();
+    const { state, setCookie } = generateOAuthState(AUTH, "connect:twitter");
     const stateCookie = setCookie.split(";")[0]!;
     // state present but PKCE cookie missing → reject before exchange
     await expect(
@@ -130,7 +138,7 @@ describe("completePublishOAuth (real Postgres)", () => {
         state,
         cookieHeader: stateCookie,
         redirectUri: "https://app/cb",
-        workspaceId: WS,
+        auth: AUTH,
       }),
     ).rejects.toThrow(/PKCE/);
   });
@@ -151,7 +159,7 @@ describe("completePublishOAuth (real Postgres)", () => {
     }) as typeof fetch;
 
     await licenseInstance("pro");
-    const { state, setCookie } = generateOAuthState();
+    const { state, setCookie } = generateOAuthState(AUTH, "connect:twitter");
     const { verifier } = createPkcePair();
     const cookieHeader = `${setCookie.split(";")[0]}; ${pkceCookie(verifier).split(";")[0]}`;
 
@@ -161,7 +169,7 @@ describe("completePublishOAuth (real Postgres)", () => {
       state,
       cookieHeader,
       redirectUri: "https://app/cb",
-      workspaceId: WS,
+      auth: AUTH,
     });
     expect(r.accountId).toBe("x-acc-1");
     expect(new URLSearchParams(bodies[0]!).get("code_verifier")).toBe(verifier);
@@ -180,7 +188,7 @@ describe("completePublishOAuth (real Postgres)", () => {
     }) as typeof fetch;
 
     await licenseInstance("pro");
-    const { state, setCookie } = generateOAuthState();
+    const { state, setCookie } = generateOAuthState(AUTH, "connect:x");
     const { verifier } = createPkcePair();
     const cookieHeader = `${setCookie.split(";")[0]}; ${pkceCookie(verifier).split(";")[0]}`;
 
@@ -190,7 +198,7 @@ describe("completePublishOAuth (real Postgres)", () => {
       state,
       cookieHeader,
       redirectUri: "https://app/cb",
-      workspaceId: WS,
+      auth: AUTH,
     });
     const ch = await db.query.channels.findFirst({ where: eq(s.channels.id, r.channelId) });
     expect(ch!.platform).toBe("twitter"); // stored under the RS platform, not "x"
@@ -215,11 +223,11 @@ describe("completePublishOAuth (real Postgres)", () => {
     return row!.id;
   }
   async function connectX(handleUsername: string, numericId: string) {
-    const { state, setCookie } = generateOAuthState();
+    const { state, setCookie } = generateOAuthState(AUTH, "connect:twitter");
     const { verifier } = createPkcePair();
     const cookieHeader = `${setCookie.split(";")[0]}; ${pkceCookie(verifier).split(";")[0]}`;
     mockX(numericId, handleUsername);
-    return connect.completePublishOAuth({ platform: "twitter", code: "C", state, cookieHeader, redirectUri: "https://app/cb", workspaceId: WS });
+    return connect.completePublishOAuth({ platform: "twitter", code: "C", state, cookieHeader, redirectUri: "https://app/cb", auth: AUTH });
   }
 
   it("soft-deletes a needs_reauth handle-orphan for the same account on reconnect", async () => {
@@ -265,7 +273,7 @@ describe("completePublishOAuth (real Postgres)", () => {
   it("gates a non-Meta channel behind PRO on a free instance (ProRequiredError → 402)", async () => {
     if (!TEST_DB) return;
     mockTikTok("tt-acc-free");
-    const { state, setCookie } = generateOAuthState();
+    const { state, setCookie } = generateOAuthState(AUTH, "connect:tiktok");
     const cookieHeader = setCookie.split(";")[0]!;
     await expect(
       connect.completePublishOAuth({
@@ -274,7 +282,7 @@ describe("completePublishOAuth (real Postgres)", () => {
         state,
         cookieHeader,
         redirectUri: "https://app/cb",
-        workspaceId: WS,
+        auth: AUTH,
       }),
     ).rejects.toMatchObject({ feature: "non_meta_channels" });
     // nothing was connected

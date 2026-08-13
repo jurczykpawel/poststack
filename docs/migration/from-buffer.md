@@ -1,7 +1,11 @@
 # Migrating scheduled posts (Buffer, Hootsuite, Later, Publer, SocialBee)
 
 All of these tools let you export your content calendar as a CSV. PostStack imports it through three public
-API calls per post. This guide works on **any tier** — publishing is not a Pro-gated feature.
+API calls per post. Publishing itself has no additional plan gate, but this API-based migration requires a
+plan with API access.
+
+Create the API key with `channels:read`, `content:write`, and `posts:write`. Add `content:read` and
+`posts:read` only if your importer also reads records back to verify the migration.
 
 ## 1. Export your calendar
 

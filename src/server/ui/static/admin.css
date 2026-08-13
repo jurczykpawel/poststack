@@ -1430,6 +1430,31 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .label { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 
+/* API-key permission picker: intentional empty default, quick task presets, then the complete
+   catalog grouped from the same registry used by API validation and OpenAPI. */
+.api-key-form { margin-bottom: 1rem; }
+.api-scope-picker { border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+.api-scope-toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
+  padding: 13px 15px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: .8rem; }
+.api-scope-toolbar strong { color: var(--text-1); }
+.api-scope-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.api-scope-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0;
+  background: var(--border); }
+.api-scope-group { min-width: 0; margin: 0; padding: 13px 15px 15px; border: 0; background: var(--bg); }
+.api-scope-group legend { padding: 0; color: var(--text-1); font-size: .82rem; font-weight: 650; }
+.api-scope-group > p { min-height: 2.4em; margin: 3px 0 10px; color: var(--text-3); font-size: .72rem; line-height: 1.35; }
+.api-scope-options { display: flex; flex-direction: column; gap: 7px; }
+.api-scope-option { display: flex; align-items: flex-start; gap: 7px; cursor: pointer; font-size: .78rem; }
+.api-scope-option input { margin-top: 2px; accent-color: var(--accent); }
+.api-scope-option span { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.api-scope-option strong { color: var(--text-2); font-size: .76rem; font-weight: 550; }
+.api-scope-option code { color: var(--text-3); font-size: .67rem; overflow-wrap: anywhere; }
+.api-scope-submit { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+@media (max-width: 720px) {
+  .api-scope-toolbar, .api-scope-submit { align-items: stretch; flex-direction: column; }
+  .api-scope-actions { justify-content: flex-start; }
+}
+
 /* Branded error pages (404 / 500). */
 .errpage { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .errpage-card { text-align: center; max-width: 30rem; }

@@ -8,12 +8,18 @@ process.env.APP_URL ??= "http://localhost:3000";
 vi.mock("@/lib/env", () => ({ env: { APP_URL: "http://localhost:3000" } }));
 
 const mockAuthenticate = vi.fn();
-vi.mock("@/lib/auth", () => ({ authenticate: (...a: unknown[]) => mockAuthenticate(...a) }));
+vi.mock("@/lib/auth", () => ({
+  authenticate: (...a: unknown[]) => mockAuthenticate(...a),
+  authenticateSession: (...a: unknown[]) => mockAuthenticate(...a),
+}));
 
 const mockVerifyOAuthState = vi.fn();
+const mockVerifyOAuthStateCookie = vi.fn();
 const mockClearOAuthStateCookie = vi.fn().mockReturnValue("rs_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 vi.mock("@/lib/oauth/state", () => ({
+  OAUTH_FLOWS: { gmail: "gmail" },
   verifyOAuthState: (...a: unknown[]) => mockVerifyOAuthState(...a),
+  verifyOAuthStateCookie: (...a: unknown[]) => mockVerifyOAuthStateCookie(...a),
   clearOAuthStateCookie: () => mockClearOAuthStateCookie(),
 }));
 
@@ -48,7 +54,8 @@ describe("GET /api/oauth/gmail/callback", () => {
     vi.clearAllMocks();
     mockClearOAuthStateCookie.mockReturnValue("rs_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
     mockVerifyOAuthState.mockReturnValue(undefined); // no throw = valid state
-    mockAuthenticate.mockResolvedValue({ workspaceId: "ws-test-1", userId: "u-1", authMethod: "session", scopes: [] });
+    mockVerifyOAuthStateCookie.mockReturnValue(undefined);
+    mockAuthenticate.mockResolvedValue({ workspaceId: "ws-test-1", userId: "u-1", sessionId: "s-1", authMethod: "session", scopes: [] });
     mockProviderAuthenticate.mockResolvedValue([
       { platformId: "user@gmail.com", displayName: "user@gmail.com", username: "user@gmail.com", tokens: { access_token: "at", refresh_token: "rt" } },
     ]);

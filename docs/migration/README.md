@@ -44,11 +44,12 @@ reference scripts ([`import-scheduled-posts.mjs`](import-scheduled-posts.mjs),
 1. Open your PostStack dashboard → **Settings → API keys**.
 2. Create a key. It is shown **once** and looks like `sk_live_…`.
 3. Scope it to what you need:
-   - Posts and editorial content need **only a valid key** (no special scope).
+   - Importing scheduled posts needs **`content:write`** and **`posts:write`**. Add
+     **`content:read`** / **`posts:read`** when the importer also verifies existing records or status.
    - Tags need **`tags:write`**, contacts need **`contacts:write`**, listing channels needs
      **`channels:read`**.
-   - Tags and contacts are part of the CRM, which is a **Pro** feature — those endpoints require a Pro
-     license. Publishing works on any tier.
+   - Creating and using API keys requires a plan with API access. Publishing itself has no additional
+     plan gate; tags and contacts additionally require the **Pro** CRM feature.
 
 Authenticate every request with:
 
