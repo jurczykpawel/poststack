@@ -59,6 +59,15 @@ jobs:
             echo "New version available: $CURRENT → $LATEST"
           fi
 
+      - name: Decide whether strict validation was explicitly requested
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.confirm_live_probe }}" = "true" ]; then
+            echo "strict=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "strict=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check if a review item already exists
         if: steps.version.outputs.exists == 'true'
         id: existing
@@ -67,20 +76,14 @@ jobs:
         run: |
           NEXT="${{ steps.version.outputs.latest }}"
           PR_COUNT=$(gh pr list --search "Meta API $NEXT" --state open --json number --jq 'length')
-          ISSUE_COUNT=$(gh issue list --search "Meta API $NEXT" --state open --json number --jq 'length')
-          if [ "$PR_COUNT" -gt 0 ] || [ "$ISSUE_COUNT" -gt 0 ]; then
+          ISSUE_NUMBER=$(gh issue list --search "Meta API $NEXT" --state open --json number --jq '.[0].number // empty')
+          ISSUE_COUNT=0
+          if [ -n "$ISSUE_NUMBER" ]; then ISSUE_COUNT=1; fi
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          if [ "$PR_COUNT" -gt 0 ] || { [ "$ISSUE_COUNT" -gt 0 ] && [ "${{ steps.mode.outputs.strict }}" != "true" ]; }; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Decide whether strict validation was explicitly requested
-        id: mode
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.confirm_live_probe }}" = "true" ]; then
-            echo "strict=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "strict=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Open review issue for a detected version
@@ -97,7 +100,7 @@ jobs:
           Meta Graph API ${NEXT} is available; PostStack remains on ${CURRENT}.
 
           No version-bump PR was created. Run **Meta API Version Check** manually with
-          `confirm_live_probe=true` after configuring the dedicated test-asset secrets documented
+          confirm_live_probe=true after configuring the dedicated test-asset secrets documented
           in README. That run requires every read and write probe to pass before it can create a PR.
           EOF
           )"
@@ -150,6 +153,7 @@ jobs:
           META_PROBE_PAGE_TOKEN: ${{ secrets.META_PROBE_PAGE_TOKEN }}
           META_PROBE_PAGE_ID: ${{ secrets.META_PROBE_PAGE_ID }}
           META_PROBE_IG_ID: ${{ secrets.META_PROBE_IG_ID }}
+          META_PROBE_IG_TOKEN: ${{ secrets.META_PROBE_IG_TOKEN }}
           META_PROBE_IG_USER_ID: ${{ secrets.META_PROBE_IG_USER_ID }}
           META_PROBE_PSID: ${{ secrets.META_PROBE_PSID }}
           META_PROBE_VERSION: ${{ steps.version.outputs.latest }}
@@ -177,6 +181,9 @@ jobs:
         run: |
           CURRENT="${{ steps.version.outputs.current }}"
           NEXT="${{ steps.version.outputs.latest }}"
+          ISSUE_NUMBER="${{ steps.existing.outputs.issue_number }}"
+          LINKED_ISSUE=""
+          if [ -n "$ISSUE_NUMBER" ]; then LINKED_ISSUE="Closes #$ISSUE_NUMBER"; fi
           BRANCH="chore/meta-api-${NEXT}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -192,10 +199,12 @@ jobs:
           This candidate passed lint, typecheck, contract/unit tests, and the strict live probe
           against the dedicated Meta test assets, including the opt-in write and cleanup cycle.
 
-          Manual release review still requires checking the provider changelog and the assisted
-          inbound-webhook flow; do not merge solely because this PR exists.
-          EOF
-          )"
+           Manual release review still requires checking the provider changelog and the assisted
+           inbound-webhook flow; do not merge solely because this PR exists.
+
+           ${LINKED_ISSUE}
+           EOF
+           )"
 
       - name: Open issue when strict validation does not pass
         if: steps.outcome.outputs.result == 'review-needed'
@@ -204,15 +213,21 @@ jobs:
         run: |
           CURRENT="${{ steps.version.outputs.current }}"
           NEXT="${{ steps.version.outputs.latest }}"
-          gh issue create \
-            --title "Meta Graph API ${NEXT} available — strict validation failed" \
-            --label "dependencies" \
-            --body "$(cat <<EOF
-          Strict validation for Meta Graph API ${CURRENT} → ${NEXT} did not pass. No PR was created.
+          ISSUE_NUMBER="${{ steps.existing.outputs.issue_number }}"
+          BODY="$(cat <<EOF
+           Strict validation for Meta Graph API ${CURRENT} → ${NEXT} did not pass. No PR was created.
 
-          Outcomes: lint=${{ steps.lint.outcome }}, typecheck=${{ steps.typecheck.outcome }}, tests=${{ steps.test.outcome }}, live-probe=${{ steps.probe.outcome }}.
+           Outcomes: lint=${{ steps.lint.outcome }}, typecheck=${{ steps.typecheck.outcome }}, tests=${{ steps.test.outcome }}, live-probe=${{ steps.probe.outcome }}.
 
-          Check that all `META_PROBE_*` repository secrets refer to the dedicated test assets,
-          inspect the redacted workflow logs, then re-run the manually dispatched workflow.
-          EOF
-          )"
+           Check that all META_PROBE_* repository secrets refer to the dedicated test assets,
+           inspect the redacted workflow logs, then re-run the manually dispatched workflow.
+           EOF
+           )"
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          else
+            gh issue create \
+              --title "Meta Graph API ${NEXT} available — strict validation failed" \
+              --label "dependencies" \
+              --body "$BODY"
+          fi

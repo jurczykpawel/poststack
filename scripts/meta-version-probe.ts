@@ -12,13 +12,14 @@
  *   META_APP_ID=… META_APP_SECRET=… \
  *   META_PROBE_PAGE_TOKEN=<page access token> \
  *   META_PROBE_PAGE_ID=<fb page id> \
- *   [META_PROBE_IG_ID=<ig business id>] [META_PROBE_IG_USER_ID=<igsid>] [META_PROBE_PSID=<psid w/ open window>] \
+ *   META_PROBE_IG_ID=<ig business id> META_PROBE_IG_TOKEN=<Instagram Login token> \
+ *   [META_PROBE_IG_USER_ID=<igsid>] [META_PROBE_PSID=<psid w/ open window>] \
  *   [META_PROBE_VERSION=v26.0]            # default = META_API_VERSION from constants
  *   [META_PROBE_WRITE=1]                  # enable the publish→comment→DM→delete cycle (creates real, then deletes)
  *   bun scripts/meta-version-probe.ts
  *
  * Read-only by default (safe). The write cycle publishes a throwaway post + first comment on the page,
- * optionally sends one DM, then DELETES the post (cleanup). Exit code 0 = all probed endpoints OK,
+ * sends dedicated test DMs, then DELETES the post (cleanup). Exit code 0 = all probed endpoints OK,
  * 1 = at least one FAIL (a field our code reads is missing/changed). Skipped probes never fail the run.
  *
  * The two-account question: the inbound legs (a comment/DM FROM another account → webhook → auto-reply)
@@ -30,9 +31,11 @@ import { META_API_VERSION } from "@/lib/platforms/constants";
 
 const VERSION = process.env.META_PROBE_VERSION || META_API_VERSION;
 const BASE = `https://graph.facebook.com/${VERSION}`;
+const IG_BASE = `https://graph.instagram.com/${VERSION}`;
 const PAGE_TOKEN = process.env.META_PROBE_PAGE_TOKEN;
 const PAGE_ID = process.env.META_PROBE_PAGE_ID;
 const IG_ID = process.env.META_PROBE_IG_ID;
+const IG_TOKEN = process.env.META_PROBE_IG_TOKEN;
 const IG_USER_ID = process.env.META_PROBE_IG_USER_ID;
 const PSID = process.env.META_PROBE_PSID;
 const APP_ID = process.env.META_APP_ID;
@@ -49,17 +52,39 @@ interface Result {
 }
 const results: Result[] = [];
 
-/** Redact any access_token=… query value so the report is safe to paste/log. */
-function redact(url: string): string {
-  return url.replace(/access_token=[^&]+/g, "access_token=***").replace(/input_token=[^&]+/g, "input_token=***");
+/** Redact credentials from provider responses and URLs before they reach CI output. */
+function redact(value: string): string {
+  let safe = value
+    .replace(/access_token=[^&\s]+/g, "access_token=***")
+    .replace(/input_token=[^&\s]+/g, "input_token=***");
+  for (const secret of [PAGE_TOKEN, IG_TOKEN, APP_SECRET]) {
+    if (secret) safe = safe.split(secret).join("***");
+  }
+  return safe;
 }
 
-async function call(method: string, url: string, body?: unknown): Promise<{ status: number; json: Record<string, unknown> | null; raw: string }> {
+interface ProbeOptions {
+  body?: unknown;
+  requireFields?: string[];
+  expectArrayPath?: string;
+  okStatus?: number;
+  accessToken?: string;
+  validate?: (json: Record<string, unknown>) => string | undefined;
+}
+
+async function call(
+  method: string,
+  url: string,
+  opts: Pick<ProbeOptions, "body" | "accessToken">,
+): Promise<{ status: number; json: Record<string, unknown> | null; raw: string }> {
   const init: RequestInit = { method, redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS) };
-  if (body !== undefined) {
-    init.headers = { "content-type": "application/json" };
-    init.body = JSON.stringify(body);
+  const headers = new Headers();
+  if (opts.accessToken) headers.set("authorization", `Bearer ${opts.accessToken}`);
+  if (opts.body !== undefined) {
+    headers.set("content-type", "application/json");
+    init.body = JSON.stringify(opts.body);
   }
+  init.headers = headers;
   const res = await fetch(url, init);
   const raw = await res.text();
   let json: Record<string, unknown> | null = null;
@@ -92,13 +117,13 @@ async function probe(
   name: string,
   method: string,
   url: string,
-  opts: { body?: unknown; requireFields?: string[]; expectArrayPath?: string; okStatus?: number } = {},
+  opts: ProbeOptions = {},
 ): Promise<Record<string, unknown> | null> {
   const okStatus = opts.okStatus ?? 200;
   try {
-    const { status, json, raw } = await call(method, url, opts.body);
+    const { status, json, raw } = await call(method, url, opts);
     if (status !== okStatus) {
-      const err = (at(json, "error.message") as string) ?? raw.slice(0, 160);
+      const err = redact((at(json, "error.message") as string) ?? raw).slice(0, 160);
       results.push({ name, outcome: "FAIL", detail: `HTTP ${status} (${redact(url)}) — ${err}` });
       return null;
     }
@@ -109,6 +134,8 @@ async function probe(
     if (opts.expectArrayPath && !Array.isArray(at(json, opts.expectArrayPath))) {
       missing.push(`${opts.expectArrayPath}[] (not an array)`);
     }
+    const validationError = json && opts.validate ? opts.validate(json) : undefined;
+    if (validationError) missing.push(validationError);
     if (missing.length) {
       results.push({ name, outcome: "FAIL", detail: `missing/changed fields: ${missing.join(", ")}` });
       return json;
@@ -128,52 +155,80 @@ async function main() {
     console.log("META_PROBE_PAGE_TOKEN + META_PROBE_PAGE_ID required — nothing to probe.\n");
     process.exit(STRICT ? 1 : 0); // interactive use can skip; release validation must fail closed
   }
-  const tok = encodeURIComponent(PAGE_TOKEN);
-
   // ── Read-only: token introspection + identity (debug_token, /me, page node) ──
   if (APP_ID && APP_SECRET) {
     await probe("debug_token (getTokenExpiry)", "GET",
-      `${BASE}/debug_token?input_token=${tok}&access_token=${encodeURIComponent(`${APP_ID}|${APP_SECRET}`)}`,
-      { requireFields: ["data.is_valid", "data.expires_at"] });
+      `${BASE}/debug_token?input_token=${encodeURIComponent(PAGE_TOKEN)}`,
+      { accessToken: `${APP_ID}|${APP_SECRET}`, requireFields: ["data.is_valid", "data.expires_at"] });
   } else {
     skip("debug_token (getTokenExpiry)", "no META_APP_ID/META_APP_SECRET");
   }
-  await probe("GET /me (page identity)", "GET", `${BASE}/me?fields=id,name&access_token=${tok}`, { requireFields: ["id", "name"] });
-  await probe("GET /{page} node", "GET", `${BASE}/${PAGE_ID}?fields=id,name,access_token&access_token=${tok}`, { requireFields: ["id", "name"] });
-  await probe("GET /{page}/subscribed_apps (read)", "GET", `${BASE}/${PAGE_ID}/subscribed_apps?access_token=${tok}`, { expectArrayPath: "data" });
-  await probe("GET /{page}/feed (page posts)", "GET", `${BASE}/${PAGE_ID}/feed?fields=id,message,created_time,permalink_url&access_token=${tok}`, { expectArrayPath: "data" });
+  await probe("GET /me (page identity)", "GET", `${BASE}/me?fields=id,name`, {
+    accessToken: PAGE_TOKEN,
+    requireFields: ["id", "name"],
+    validate: (json) => String(json.id) === PAGE_ID ? undefined : "id does not match META_PROBE_PAGE_ID",
+  });
+  await probe("GET /{page} node", "GET", `${BASE}/${PAGE_ID}?fields=id,name`, { accessToken: PAGE_TOKEN, requireFields: ["id", "name"] });
+  await probe("GET /{page}/subscribed_apps (read)", "GET", `${BASE}/${PAGE_ID}/subscribed_apps`, { accessToken: PAGE_TOKEN, expectArrayPath: "data" });
+  await probe("GET /{page}/feed (page posts)", "GET", `${BASE}/${PAGE_ID}/feed?fields=id,message,created_time,permalink_url`, { accessToken: PAGE_TOKEN, expectArrayPath: "data" });
 
-  // ── Read-only: Instagram identity + follow check ──
+  // ── Read-only: linked Instagram identity via the Facebook Page token ──
   if (IG_ID) {
-    await probe("GET /{ig} (IG account)", "GET", `${BASE}/${IG_ID}?fields=id,username,profile_picture_url&access_token=${tok}`, { requireFields: ["id", "username"] });
+    await probe("GET /{ig} (linked IG account)", "GET", `${BASE}/${IG_ID}?fields=id,username,profile_picture_url`, {
+      accessToken: PAGE_TOKEN,
+      requireFields: ["id", "username"],
+      validate: (json) => String(json.id) === IG_ID ? undefined : "id does not match META_PROBE_IG_ID",
+    });
   } else {
-    skip("GET /{ig} (IG account)", "no META_PROBE_IG_ID");
-  }
-  if (IG_USER_ID) {
-    await probe("IG getUserProfile (name,username,profile_pic)", "GET", `${BASE}/${IG_USER_ID}?fields=name,username,profile_pic&access_token=${tok}`, { requireFields: ["username"] });
-    await probe("IG checkFollowsBusiness (is_user_follow_business)", "GET", `${BASE}/${IG_USER_ID}?fields=is_user_follow_business&access_token=${tok}`, { requireFields: ["is_user_follow_business"] });
-  } else {
-    skip("IG getUserProfile", "no META_PROBE_IG_USER_ID");
-    skip("IG checkFollowsBusiness", "no META_PROBE_IG_USER_ID");
+    skip("GET /{ig} (linked IG account)", "no META_PROBE_IG_ID");
   }
 
-  // ── Write cycle (opt-in): publish FB post → first comment → read → (DM) → delete ──
+  // ── Read-only: Instagram Business Login uses its own host and token ──
+  if (IG_TOKEN) {
+    await probe("GET IG /me (Instagram Login identity)", "GET", `${IG_BASE}/me?fields=user_id,username,account_type`, {
+      accessToken: IG_TOKEN,
+      requireFields: ["user_id", "username", "account_type"],
+      validate: (json) => !IG_ID || String(json.user_id) === IG_ID ? undefined : "user_id does not match META_PROBE_IG_ID",
+    });
+    await probe("GET IG /me/conversations", "GET", `${IG_BASE}/me/conversations?platform=instagram&fields=id,updated_time,participants{id,username}&limit=5`, {
+      accessToken: IG_TOKEN,
+      expectArrayPath: "data",
+    });
+  } else {
+    skip("GET IG /me (Instagram Login identity)", "no META_PROBE_IG_TOKEN");
+    skip("GET IG /me/conversations", "no META_PROBE_IG_TOKEN");
+  }
+  if (IG_TOKEN && IG_USER_ID) {
+    await probe("GET IG recipient profile + follow state", "GET", `${IG_BASE}/${IG_USER_ID}?fields=name,username,profile_pic,is_user_follow_business`, {
+      accessToken: IG_TOKEN,
+      requireFields: ["username", "is_user_follow_business"],
+    });
+  } else {
+    skip("GET IG recipient profile + follow state", !IG_TOKEN ? "no META_PROBE_IG_TOKEN" : "no META_PROBE_IG_USER_ID");
+  }
+
+  // ── Write cycle (opt-in): FB publish/comment/cleanup + dedicated FB and IG DMs ──
   if (!WRITE) {
-    skip("publish/comment/DM cycle", "META_PROBE_WRITE != 1 (read-only run)");
+    skip("publish/comment/DM cycles", "META_PROBE_WRITE != 1 (read-only run)");
   } else {
     const posted = await probe("POST /{page}/feed (publish post)", "POST",
-      `${BASE}/${PAGE_ID}/feed`, { body: { message: `VPROBE ${new Date().toISOString()} — auto-test post`, access_token: PAGE_TOKEN }, requireFields: ["id"] });
+      `${BASE}/${PAGE_ID}/feed`, { accessToken: PAGE_TOKEN, body: { message: `VPROBE ${new Date().toISOString()} — auto-test post` }, requireFields: ["id"] });
     const postId = posted?.id as string | undefined;
     if (postId) {
-      await probe("POST /{post}/comments (first comment)", "POST", `${BASE}/${postId}/comments`, { body: { message: "VPROBE first comment 👇", access_token: PAGE_TOKEN }, requireFields: ["id"] });
-      await probe("GET /{post}/comments (read back)", "GET", `${BASE}/${postId}/comments?access_token=${tok}`, { expectArrayPath: "data" });
+      await probe("POST /{post}/comments (first comment)", "POST", `${BASE}/${postId}/comments`, { accessToken: PAGE_TOKEN, body: { message: "VPROBE first comment 👇" }, requireFields: ["id"] });
+      await probe("GET /{post}/comments (read back)", "GET", `${BASE}/${postId}/comments`, { accessToken: PAGE_TOKEN, expectArrayPath: "data" });
       // Cleanup: delete the throwaway post (also removes its comment).
-      await probe("DELETE /{post} (cleanup)", "DELETE", `${BASE}/${postId}?access_token=${tok}`, { requireFields: ["success"] });
+      await probe("DELETE /{post} (cleanup)", "DELETE", `${BASE}/${postId}`, { accessToken: PAGE_TOKEN, requireFields: ["success"] });
     }
     if (PSID) {
-      await probe("POST /me/messages (send DM, in-window)", "POST", `${BASE}/me/messages`, { body: { recipient: { id: PSID }, messaging_type: "RESPONSE", message: { text: "VPROBE DM test" }, access_token: PAGE_TOKEN }, requireFields: ["message_id"] });
+      await probe("POST FB /me/messages (send DM, in-window)", "POST", `${BASE}/me/messages`, { accessToken: PAGE_TOKEN, body: { recipient: { id: PSID }, messaging_type: "RESPONSE", message: { text: "VPROBE Facebook DM test" } }, requireFields: ["message_id"] });
     } else {
-      skip("POST /me/messages (send DM)", "no META_PROBE_PSID (needs a PSID with an open 24h window)");
+      skip("POST FB /me/messages (send DM)", "no META_PROBE_PSID (needs a PSID with an open 24h window)");
+    }
+    if (IG_TOKEN && IG_USER_ID) {
+      await probe("POST IG /me/messages (send DM, in-window)", "POST", `${IG_BASE}/me/messages`, { accessToken: IG_TOKEN, body: { recipient: { id: IG_USER_ID }, messaging_type: "RESPONSE", message: { text: "VPROBE Instagram DM test" } }, requireFields: ["message_id"] });
+    } else {
+      skip("POST IG /me/messages (send DM)", !IG_TOKEN ? "no META_PROBE_IG_TOKEN" : "no META_PROBE_IG_USER_ID (needs an IGSID with an open messaging window)");
     }
   }
 
