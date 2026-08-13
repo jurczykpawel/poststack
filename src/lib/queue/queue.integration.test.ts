@@ -60,10 +60,15 @@ describe("queue integration (real Postgres) — graphile-worker swap", () => {
     expect(captured).toEqual([{ channelId: "ch-xyz" }]);
 
     // Succeeded job is removed from the queue (graphile retention).
-    const { rows } = await pool.query(
-      "select count(*)::int as n from graphile_worker.jobs where key = $1",
-      ["tr-1"],
-    );
-    expect(rows[0].n).toBe(0);
+    await expect.poll(
+      async () => {
+        const { rows } = await pool.query(
+          "select count(*)::int as n from graphile_worker.jobs where key = $1",
+          ["tr-1"],
+        );
+        return rows[0].n;
+      },
+      { timeout: 2_000, interval: 20 },
+    ).toBe(0);
   });
 });
