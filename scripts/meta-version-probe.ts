@@ -38,6 +38,7 @@ const PSID = process.env.META_PROBE_PSID;
 const APP_ID = process.env.META_APP_ID;
 const APP_SECRET = process.env.META_APP_SECRET;
 const WRITE = process.env.META_PROBE_WRITE === "1";
+const STRICT = process.env.META_PROBE_STRICT === "1";
 const TIMEOUT_MS = 15_000;
 
 type Outcome = "PASS" | "FAIL" | "SKIP";
@@ -76,7 +77,11 @@ function at(obj: unknown, path: string): unknown {
 }
 
 function skip(name: string, why: string) {
-  results.push({ name, outcome: "SKIP", detail: why });
+  results.push({
+    name,
+    outcome: STRICT ? "FAIL" : "SKIP",
+    detail: STRICT ? `strict mode requires this probe: ${why}` : why,
+  });
 }
 
 /**
@@ -117,11 +122,11 @@ async function probe(
 }
 
 async function main() {
-  console.log(`\nMeta Graph API version-probe → ${VERSION}  (write cycle: ${WRITE ? "ON" : "off"})\n`);
+  console.log(`\nMeta Graph API version-probe → ${VERSION}  (write cycle: ${WRITE ? "ON" : "off"}; strict: ${STRICT ? "ON" : "off"})\n`);
 
   if (!PAGE_TOKEN || !PAGE_ID) {
-    console.log("META_PROBE_PAGE_TOKEN + META_PROBE_PAGE_ID required — nothing to probe. Skipping.\n");
-    process.exit(0); // env-gated: no creds → clean skip (safe for CI)
+    console.log("META_PROBE_PAGE_TOKEN + META_PROBE_PAGE_ID required — nothing to probe.\n");
+    process.exit(STRICT ? 1 : 0); // interactive use can skip; release validation must fail closed
   }
   const tok = encodeURIComponent(PAGE_TOKEN);
 
@@ -145,7 +150,7 @@ async function main() {
     skip("GET /{ig} (IG account)", "no META_PROBE_IG_ID");
   }
   if (IG_USER_ID) {
-    await probe("IG getUserProfile (name,username,profile_pic)", "GET", `${BASE}/${IG_USER_ID}?fields=name,username,profile_pic&access_token=${tok}`, {});
+    await probe("IG getUserProfile (name,username,profile_pic)", "GET", `${BASE}/${IG_USER_ID}?fields=name,username,profile_pic&access_token=${tok}`, { requireFields: ["username"] });
     await probe("IG checkFollowsBusiness (is_user_follow_business)", "GET", `${BASE}/${IG_USER_ID}?fields=is_user_follow_business&access_token=${tok}`, { requireFields: ["is_user_follow_business"] });
   } else {
     skip("IG getUserProfile", "no META_PROBE_IG_USER_ID");

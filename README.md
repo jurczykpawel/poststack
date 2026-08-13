@@ -259,6 +259,28 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 > Instagram account it can reach, and keeps them in sync. Full guide:
 > **[docs/META_SYSTEM_USER_SETUP.md](docs/META_SYSTEM_USER_SETUP.md)**.
 
+### Meta API version-update verification (maintainers)
+
+The scheduled **Meta API Version Check** is deliberately detection-only: when Meta releases a
+new Graph API version, it opens an issue but never creates a version-bump PR by itself. A PR can
+only be created by manually dispatching that workflow with `confirm_live_probe=true`; the run must
+pass contract/unit tests and a strict live probe against dedicated test assets.
+
+Configure these **repository Actions secrets** for a non-production Meta App, Page, Instagram
+account, and test recipient — never reuse customer or production credentials:
+
+| Secret | Value |
+|---|---|
+| `META_PROBE_APP_ID` / `META_PROBE_APP_SECRET` | App credentials for the dedicated test app. |
+| `META_PROBE_PAGE_TOKEN` / `META_PROBE_PAGE_ID` | Page token and numeric ID for the dedicated test Page. |
+| `META_PROBE_IG_ID` / `META_PROBE_IG_USER_ID` | Connected Instagram business-account ID and a test IG user ID. |
+| `META_PROBE_PSID` | Test recipient PSID with an open 24-hour messaging window. |
+
+The strict run publishes and deletes one throwaway Page post, adds a throwaway first comment, and
+sends one test DM. Before dispatching it, open a fresh conversation from the dedicated test account
+to the Page so the DM is policy-compliant. A green run still requires a maintainer to review Meta's
+changelog and execute the assisted inbound-webhook check before merging its PR.
+
 ---
 
 ## Meta Access Levels — what needs App Review (and what doesn't)
