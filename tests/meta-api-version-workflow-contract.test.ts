@@ -50,6 +50,13 @@ describe("Meta API version-update gate", () => {
     expect(workflow).toContain('echo "Closes #${ISSUE_NUMBER}"');
   });
 
+  it("replaces a stale bot branch left by a closed bump PR instead of failing the push", () => {
+    // An open PR for the version already short-circuits the run (PR_COUNT), so the branch is only
+    // ever a leftover from a closed attempt and is safe to overwrite.
+    expect(workflow).toContain('PR_COUNT=$(gh pr list --search "Meta API $NEXT" --state open');
+    expect(workflow).toContain('git push --force origin "$BRANCH"');
+  });
+
   it("builds PR/issue bodies from files, never from indented heredocs", () => {
     expect(workflow).toContain('--body-file "$BODY_FILE"');
     expect(workflow).not.toMatch(/<<EOF/);

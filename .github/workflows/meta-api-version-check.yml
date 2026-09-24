@@ -209,7 +209,7 @@ jobs:
           git checkout -b "$BRANCH"
           git add src/lib/platforms/constants.ts
           git commit -m "chore: validate Meta Graph API ${CURRENT} to ${NEXT}"
-          git push origin "$BRANCH"
+          git push --force origin "$BRANCH"  # only a leftover from a closed attempt; open PRs stop the run earlier
           gh pr create --title "chore: validate Meta Graph API ${CURRENT} → ${NEXT}" --body-file "$BODY_FILE"
 
       - name: Open issue when strict validation does not pass
