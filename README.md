@@ -254,6 +254,45 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 **Note:** your `APP_URL` must be public **HTTPS** (see [Production → HTTPS](#production)) — Meta rejects `http://` and `localhost` for OAuth redirects and webhooks. For local testing, expose your dev server with a tunnel (`cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`) and use that HTTPS URL. Some permissions require Meta App Review for production; in development mode you can test with your own accounts without review.
 
+### Instagram Business Login (required for Instagram DMs)
+
+A Facebook-Login connection covers Instagram **publishing and comments**, but Instagram **DMs** are
+only delivered at Standard Access through **Instagram Business Login** — a second, separate login
+flow with its **own** app ID and secret, living inside the same Meta app.
+
+1. In your Meta app add the **Instagram** product and open **API setup with Instagram login**
+   (not "API setup with Facebook login"). This screen shows an **Instagram app ID** and
+   **Instagram app secret** — they are *different* from the Facebook app's ID/secret.
+2. Set them as `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (`.env` or Settings → Meta). The secret
+   is also used to verify the signature of Instagram webhook deliveries, so rotate it in both places.
+3. Under **Set up Instagram business login**, register the redirect URL
+   `https://your-domain.com/api/oauth/instagram-login/callback`.
+4. Under **Configure webhooks** in the same screen, use the same callback URL and verify token as the
+   Facebook webhooks (`https://your-domain.com/api/webhooks/meta`, value of `META_WEBHOOK_VERIFY_TOKEN`)
+   and subscribe `messages` (plus `comments` if you want IG comment automation on this path).
+5. While the app is in **Development** mode, only accounts with a role can log in: go to
+   **App roles → Roles → Instagram Testers**, invite the account, then **accept the invite from that
+   Instagram account** (Instagram → Settings → Apps and websites → Tester invites). Only then does
+   **Generate token** / the dashboard's **+ Instagram (messaging)** button work.
+6. The Instagram account must be **Business or Creator** and allow message access for connected tools.
+7. Switch the app to **Live** — Development mode delivers no real webhook events (see
+   [Meta Access Levels](#meta-access-levels--what-needs-app-review-and-what-doesnt)).
+
+PostStack requests `instagram_business_basic`, `instagram_business_manage_messages`,
+`instagram_business_manage_comments` and `instagram_business_content_publish` on this path and
+subscribes each connected account to messaging webhooks automatically. The dashboard's channel page
+has the same guide in-app (**Connecting Instagram — what works, and when**).
+
+#### Troubleshooting Meta setup
+
+| Symptom | Cause / fix |
+|---|---|
+| "The callback URL or verify token couldn't be validated" | The URL must be exactly `…/api/webhooks/meta` (not `/webhook`), publicly reachable over HTTPS, and the verify token must equal `META_WEBHOOK_VERIFY_TOKEN` of the instance behind that URL. Rejections are logged by PostStack with the reason. |
+| "Insufficient Developer Role" when generating an Instagram token | The Instagram account has no accepted **Instagram Tester** role on this app (step 5). A Facebook-side admin/developer role is not enough. |
+| Facebook Page token has `instagram_manage_messages`, but IG DMs never arrive | Expected at Standard Access — connect the account via **Instagram Business Login** (a channel with the `Facebook only` badge has no DM webhooks). |
+| Webhook "Test" works, real messages don't | The app is in **Development** mode — switch it to **Live**. |
+| Webhook deliveries rejected with a signature error | `INSTAGRAM_APP_SECRET` (IG events) or `META_APP_SECRET` (FB events) doesn't match the secret currently shown in the Meta dashboard — e.g. after a reset. |
+
 > **One-token setup (recommended for self-host):** instead of connecting Pages one by one, paste a
 > single permanent Meta **System User** token and PostStack auto-connects every Page + linked
 > Instagram account it can reach, and keeps them in sync. Full guide:
