@@ -47,7 +47,32 @@ describe("Meta API version-update gate", () => {
   it("reuses the detected-version issue instead of creating strict-run duplicates", () => {
     expect(workflow).toContain('echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"');
     expect(workflow).toContain('gh issue comment "$ISSUE_NUMBER"');
-    expect(workflow).toContain('LINKED_ISSUE="Closes #$ISSUE_NUMBER"');
+    expect(workflow).toContain('echo "Closes #${ISSUE_NUMBER}"');
+  });
+
+  it("builds PR/issue bodies from files, never from indented heredocs", () => {
+    expect(workflow).toContain('--body-file "$BODY_FILE"');
+    expect(workflow).not.toMatch(/<<EOF/);
+  });
+
+  it("keeps a mandatory manual real-IG-DM check and the changelog digest in the bump PR", () => {
+    expect(workflow).toContain("send one real Instagram DM");
+    expect(workflow).toContain('bun scripts/meta-changelog-scan.ts "${{ steps.version.outputs.latest }}"');
+    expect(workflow).toContain('cat "$RUNNER_TEMP/changelog-digest.md"');
+  });
+
+  it("probes the IG send contract with the production payload and reports it as partial coverage", () => {
+    expect(probe).toContain("buildInstagramDmBody(IG_PROBE_UNKNOWN_RECIPIENT_ID");
+    expect(probe).toContain('outcome: "PARTIAL"');
+    expect(probe).toContain("await probeIgSendContract();");
+  });
+
+  it("relaxes strict mode only for the legs that need a real IG recipient", () => {
+    const optionalCalls = probe.match(/^\s*optional\("([^"]+)"/gm) ?? [];
+    expect(optionalCalls.map((c) => c.trim())).toEqual([
+      'optional("GET IG recipient profile + follow state"',
+      'optional("POST IG /me/messages (send DM)"',
+    ]);
   });
 
   it("keeps provider tokens out of ordinary request URLs and bodies", () => {

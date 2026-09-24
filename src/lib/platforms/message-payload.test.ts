@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMessageObject } from "./message-payload";
+import { buildMessageObject, buildInstagramDmBody } from "./message-payload";
 
 const FB = { allowQuickReplyImages: true };
 const IG = { allowQuickReplyImages: false };
@@ -106,5 +106,35 @@ describe("buildMessageObject", () => {
     const msg = buildMessageObject({ buttons: [{ title: "Go", payload: "GO" }] }, FB);
     expect(msg.attachment).toBeUndefined();
     expect(msg.text).toBeUndefined();
+  });
+});
+
+describe("buildInstagramDmBody", () => {
+  it("addresses the recipient with messaging_type RESPONSE inside the 24h window", () => {
+    expect(buildInstagramDmBody("IGSID-1", { text: "hi" })).toEqual({
+      recipient: { id: "IGSID-1" },
+      messaging_type: "RESPONSE",
+      message: { text: "hi" },
+    });
+  });
+
+  it("rides MESSAGE_TAG + the requested tag past the 24h window", () => {
+    expect(buildInstagramDmBody("IGSID-1", { text: "late" }, { messagingTag: "HUMAN_AGENT" })).toEqual({
+      recipient: { id: "IGSID-1" },
+      messaging_type: "MESSAGE_TAG",
+      tag: "HUMAN_AGENT",
+      message: { text: "late" },
+    });
+  });
+
+  it("strips quick-reply images, which Instagram does not render", () => {
+    const body = buildInstagramDmBody("IGSID-1", {
+      text: "pick",
+      quick_replies: [{ title: "A", payload: "A", image_url: "https://x/a.png" }],
+    });
+    expect(body.message).toEqual(buildMessageObject({
+      text: "pick",
+      quick_replies: [{ title: "A", payload: "A", image_url: "https://x/a.png" }],
+    }, IG));
   });
 });

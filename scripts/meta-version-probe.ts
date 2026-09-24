@@ -28,6 +28,8 @@
  * webhook-shape fixtures in the contract test + the assisted webhook mode (VPROBE1-D), not here.
  */
 import { META_API_VERSION } from "@/lib/platforms/constants";
+import { buildInstagramDmBody } from "@/lib/platforms/message-payload";
+import { IG_PROBE_UNKNOWN_RECIPIENT_ID, unknownRecipientProblem } from "@/lib/platforms/meta-probe-contract";
 
 const VERSION = process.env.META_PROBE_VERSION || META_API_VERSION;
 const BASE = `https://graph.facebook.com/${VERSION}`;
@@ -44,7 +46,8 @@ const WRITE = process.env.META_PROBE_WRITE === "1";
 const STRICT = process.env.META_PROBE_STRICT === "1";
 const TIMEOUT_MS = 15_000;
 
-type Outcome = "PASS" | "FAIL" | "SKIP";
+/** PARTIAL = passed a check that covers only part of the surface; never counts as a failure. */
+type Outcome = "PASS" | "PARTIAL" | "FAIL" | "SKIP";
 interface Result {
   name: string;
   outcome: Outcome;
@@ -107,6 +110,31 @@ function skip(name: string, why: string) {
     outcome: STRICT ? "FAIL" : "SKIP",
     detail: STRICT ? `strict mode requires this probe: ${why}` : why,
   });
+}
+
+/** A probe that cannot run without a real test recipient; SKIP even in strict mode because the
+ *  version-bump PR carries a mandatory manual check for it instead. */
+function optional(name: string, why: string) {
+  results.push({ name, outcome: "SKIP", detail: `${why} — manual check required on TEST` });
+}
+
+const IG_CONTRACT_LIMITS = "endpoint, version and payload keys accepted; required fields, success response and delivery NOT verified";
+
+/** Send the production IG DM payload to a recipient that cannot exist (nothing is delivered). */
+async function probeIgSendContract() {
+  const name = "POST IG /me/messages (contract: unknown recipient)";
+  try {
+    const { status, json } = await call("POST", `${IG_BASE}/me/messages`, {
+      accessToken: IG_TOKEN,
+      body: buildInstagramDmBody(IG_PROBE_UNKNOWN_RECIPIENT_ID, { text: "VPROBE contract check" }),
+    });
+    const problem = unknownRecipientProblem(status, json);
+    results.push(problem
+      ? { name, outcome: "FAIL", detail: redact(problem) }
+      : { name, outcome: "PARTIAL", detail: IG_CONTRACT_LIMITS });
+  } catch (e) {
+    results.push({ name, outcome: "FAIL", detail: `request threw: ${e instanceof Error ? e.message : String(e)}` });
+  }
 }
 
 /**
@@ -194,17 +222,21 @@ async function main() {
       accessToken: IG_TOKEN,
       expectArrayPath: "data",
     });
+    await probeIgSendContract();
   } else {
     skip("GET IG /me (Instagram Login identity)", "no META_PROBE_IG_TOKEN");
     skip("GET IG /me/conversations", "no META_PROBE_IG_TOKEN");
+    skip("POST IG /me/messages (contract: unknown recipient)", "no META_PROBE_IG_TOKEN");
   }
   if (IG_TOKEN && IG_USER_ID) {
     await probe("GET IG recipient profile + follow state", "GET", `${IG_BASE}/${IG_USER_ID}?fields=name,username,profile_pic,is_user_follow_business`, {
       accessToken: IG_TOKEN,
       requireFields: ["username", "is_user_follow_business"],
     });
+  } else if (!IG_TOKEN) {
+    skip("GET IG recipient profile + follow state", "no META_PROBE_IG_TOKEN");
   } else {
-    skip("GET IG recipient profile + follow state", !IG_TOKEN ? "no META_PROBE_IG_TOKEN" : "no META_PROBE_IG_USER_ID");
+    optional("GET IG recipient profile + follow state", "no META_PROBE_IG_USER_ID");
   }
 
   // ── Write cycle (opt-in): FB publish/comment/cleanup + dedicated FB and IG DMs ──
@@ -226,9 +258,11 @@ async function main() {
       skip("POST FB /me/messages (send DM)", "no META_PROBE_PSID (needs a PSID with an open 24h window)");
     }
     if (IG_TOKEN && IG_USER_ID) {
-      await probe("POST IG /me/messages (send DM, in-window)", "POST", `${IG_BASE}/me/messages`, { accessToken: IG_TOKEN, body: { recipient: { id: IG_USER_ID }, messaging_type: "RESPONSE", message: { text: "VPROBE Instagram DM test" } }, requireFields: ["message_id"] });
+      await probe("POST IG /me/messages (send DM, in-window)", "POST", `${IG_BASE}/me/messages`, { accessToken: IG_TOKEN, body: buildInstagramDmBody(IG_USER_ID, { text: "VPROBE Instagram DM test" }), requireFields: ["message_id"] });
+    } else if (!IG_TOKEN) {
+      skip("POST IG /me/messages (send DM)", "no META_PROBE_IG_TOKEN");
     } else {
-      skip("POST IG /me/messages (send DM)", !IG_TOKEN ? "no META_PROBE_IG_TOKEN" : "no META_PROBE_IG_USER_ID (needs an IGSID with an open messaging window)");
+      optional("POST IG /me/messages (send DM)", "no META_PROBE_IG_USER_ID (needs an IGSID with an open messaging window)");
     }
   }
 
@@ -236,13 +270,14 @@ async function main() {
   const pad = Math.max(...results.map((r) => r.name.length));
   console.log("ENDPOINT".padEnd(pad), " RESULT  DETAIL");
   for (const r of results) {
-    const mark = r.outcome === "PASS" ? "✅ PASS" : r.outcome === "FAIL" ? "❌ FAIL" : "⏭️  SKIP";
+    const mark = { PASS: "✅ PASS", PARTIAL: "🟡 PARTIAL", FAIL: "❌ FAIL", SKIP: "⏭️  SKIP" }[r.outcome];
     console.log(r.name.padEnd(pad), mark, " ", r.detail);
   }
   const pass = results.filter((r) => r.outcome === "PASS").length;
+  const partial = results.filter((r) => r.outcome === "PARTIAL").length;
   const fail = results.filter((r) => r.outcome === "FAIL").length;
   const skipped = results.filter((r) => r.outcome === "SKIP").length;
-  console.log(`\n${pass} passed · ${fail} failed · ${skipped} skipped  (target ${VERSION})\n`);
+  console.log(`\n${pass} passed · ${partial} partial · ${fail} failed · ${skipped} skipped  (target ${VERSION})\n`);
   process.exit(fail > 0 ? 1 : 0);
 }
 

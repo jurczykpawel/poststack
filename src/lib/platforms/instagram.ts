@@ -13,7 +13,7 @@ import { GRAPH_API_BASE, IG_GRAPH_BASE, META_OAUTH_BASE } from "./constants";
 import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { fetchAllManagedPages } from "./meta-graph";
 import { assertMetaOk } from "./errors";
-import { buildMessageObject } from "./message-payload";
+import { buildMessageObject, buildInstagramDmBody } from "./message-payload";
 import { asString } from "@/lib/providers/util";
 
 const GRAPH_API = GRAPH_API_BASE;
@@ -262,16 +262,7 @@ export class InstagramProvider extends SocialProvider {
     content: MessageContent,
     opts?: SendMessageOptions
   ): Promise<SentMessage> {
-    const body: Record<string, unknown> = {
-      recipient: { id: recipientId },
-      // Outside the 24h window a human reply rides the HUMAN_AGENT tag (valid up to 7 days);
-      // otherwise the standard RESPONSE type. See ./messaging-window.
-      ...(opts?.messagingTag
-        ? { messaging_type: "MESSAGE_TAG", tag: opts.messagingTag }
-        : { messaging_type: "RESPONSE" }),
-      // Instagram does not render image_url on quick replies, so it is stripped.
-      message: buildMessageObject(content, { allowQuickReplyImages: false }),
-    };
+    const body = buildInstagramDmBody(recipientId, content, opts);
 
     // Route via IG-Login (graph.instagram.com) when the channel has an IG-Login messaging token;
     // otherwise the FB page token scoped to the IG account (graph.facebook.com).

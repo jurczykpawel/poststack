@@ -1,4 +1,4 @@
-import type { MessageContent, QuickReply } from "./base";
+import type { MessageContent, QuickReply, SendMessageOptions } from "./base";
 
 export interface BuildMessageOptions {
   /**
@@ -52,6 +52,26 @@ export function buildMessageObject(
   }
 
   return message;
+}
+
+/**
+ * Build the full Instagram Send API body (`POST /me/messages`) — the single definition shared by
+ * `InstagramProvider.sendMessage` and the Meta version probe, so the probe validates exactly the
+ * payload production sends. Outside the 24h window a human reply rides the requested message tag
+ * (valid up to 7 days); otherwise the standard RESPONSE type. See ./messaging-window.
+ */
+export function buildInstagramDmBody(
+  recipientId: string,
+  content: MessageContent,
+  opts?: SendMessageOptions,
+): Record<string, unknown> {
+  return {
+    recipient: { id: recipientId },
+    ...(opts?.messagingTag
+      ? { messaging_type: "MESSAGE_TAG", tag: opts.messagingTag }
+      : { messaging_type: "RESPONSE" }),
+    message: buildMessageObject(content, { allowQuickReplyImages: false }),
+  };
 }
 
 function buildQuickReply(qr: QuickReply, allowImages: boolean): Record<string, unknown> {

@@ -90,20 +90,21 @@ jobs:
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: ${{ steps.version.outputs.current }}
+          NEXT: ${{ steps.version.outputs.latest }}
         run: |
-          CURRENT="${{ steps.version.outputs.current }}"
-          NEXT="${{ steps.version.outputs.latest }}"
+          BODY_FILE="$RUNNER_TEMP/issue-body.md"
+          {
+            echo "Meta Graph API ${NEXT} is available; PostStack remains on ${CURRENT}."
+            echo
+            echo "No version-bump PR was created. Run **Meta API Version Check** manually with"
+            echo "confirm_live_probe=true after configuring the dedicated test-asset secrets documented"
+            echo "in README. That run must pass every required probe before it can create a PR."
+          } > "$BODY_FILE"
           gh issue create \
             --title "Meta Graph API ${NEXT} available — strict validation required" \
             --label "dependencies" \
-            --body "$(cat <<EOF
-          Meta Graph API ${NEXT} is available; PostStack remains on ${CURRENT}.
-
-          No version-bump PR was created. Run **Meta API Version Check** manually with
-          confirm_live_probe=true after configuring the dedicated test-asset secrets documented
-          in README. That run requires every read and write probe to pass before it can create a PR.
-          EOF
-          )"
+            --body-file "$BODY_FILE"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
@@ -124,6 +125,10 @@ jobs:
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
         run: |
           sed -i "s|${{ steps.version.outputs.current }}|${{ steps.version.outputs.latest }}|g" src/lib/platforms/constants.ts
+
+      - name: Scan the provider changelog (review aid, never a gate)
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
+        run: bun scripts/meta-changelog-scan.ts "${{ steps.version.outputs.latest }}" > "$RUNNER_TEMP/changelog-digest.md"
 
       - name: Run lint
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
@@ -178,56 +183,61 @@ jobs:
         if: steps.outcome.outputs.result == 'pass'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: ${{ steps.version.outputs.current }}
+          NEXT: ${{ steps.version.outputs.latest }}
+          ISSUE_NUMBER: ${{ steps.existing.outputs.issue_number }}
         run: |
-          CURRENT="${{ steps.version.outputs.current }}"
-          NEXT="${{ steps.version.outputs.latest }}"
-          ISSUE_NUMBER="${{ steps.existing.outputs.issue_number }}"
-          LINKED_ISSUE=""
-          if [ -n "$ISSUE_NUMBER" ]; then LINKED_ISSUE="Closes #$ISSUE_NUMBER"; fi
           BRANCH="chore/meta-api-${NEXT}"
+          BODY_FILE="$RUNNER_TEMP/pr-body.md"
+          {
+            echo "## Validated Meta Graph API version bump: ${CURRENT} → ${NEXT}"
+            echo
+            echo "This candidate passed lint, typecheck, contract/unit tests, and the strict live probe"
+            echo "against the dedicated Meta test assets, including the opt-in write and cleanup cycle."
+            echo "Probes marked PARTIAL or SKIP (manual) in the workflow log are not fully verified."
+            echo
+            echo "### Before merging (mandatory)"
+            echo "- [ ] Deploy to TEST and send one real Instagram DM from a connected account (the probe"
+            echo "      only checks the IG send contract against an unknown recipient)."
+            echo "- [ ] Review the changelog sections below and confirm none affects PostStack."
+            echo
+            cat "$RUNNER_TEMP/changelog-digest.md"
+            if [ -n "$ISSUE_NUMBER" ]; then echo; echo "Closes #${ISSUE_NUMBER}"; fi
+          } > "$BODY_FILE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add src/lib/platforms/constants.ts
           git commit -m "chore: validate Meta Graph API ${CURRENT} to ${NEXT}"
           git push origin "$BRANCH"
-          gh pr create \
-            --title "chore: validate Meta Graph API ${CURRENT} → ${NEXT}" \
-            --body "$(cat <<EOF
-          ## Validated Meta Graph API version bump: ${CURRENT} → ${NEXT}
-
-          This candidate passed lint, typecheck, contract/unit tests, and the strict live probe
-          against the dedicated Meta test assets, including the opt-in write and cleanup cycle.
-
-           Manual release review still requires checking the provider changelog and the assisted
-           inbound-webhook flow; do not merge solely because this PR exists.
-
-           ${LINKED_ISSUE}
-           EOF
-           )"
+          gh pr create --title "chore: validate Meta Graph API ${CURRENT} → ${NEXT}" --body-file "$BODY_FILE"
 
       - name: Open issue when strict validation does not pass
         if: steps.outcome.outputs.result == 'review-needed'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: ${{ steps.version.outputs.current }}
+          NEXT: ${{ steps.version.outputs.latest }}
+          ISSUE_NUMBER: ${{ steps.existing.outputs.issue_number }}
+          OUTCOMES: "lint=${{ steps.lint.outcome }}, typecheck=${{ steps.typecheck.outcome }}, tests=${{ steps.test.outcome }}, live-probe=${{ steps.probe.outcome }}"
         run: |
-          CURRENT="${{ steps.version.outputs.current }}"
-          NEXT="${{ steps.version.outputs.latest }}"
-          ISSUE_NUMBER="${{ steps.existing.outputs.issue_number }}"
-          BODY="$(cat <<EOF
-           Strict validation for Meta Graph API ${CURRENT} → ${NEXT} did not pass. No PR was created.
-
-           Outcomes: lint=${{ steps.lint.outcome }}, typecheck=${{ steps.typecheck.outcome }}, tests=${{ steps.test.outcome }}, live-probe=${{ steps.probe.outcome }}.
-
-           Check that all META_PROBE_* repository secrets refer to the dedicated test assets,
-           inspect the redacted workflow logs, then re-run the manually dispatched workflow.
-           EOF
-           )"
+          BODY_FILE="$RUNNER_TEMP/issue-body.md"
+          {
+            echo "Strict validation for Meta Graph API ${CURRENT} → ${NEXT} did not pass. No PR was created."
+            echo
+            echo "Outcomes: ${OUTCOMES}."
+            echo
+            echo "Check that all META_PROBE_* repository secrets refer to the dedicated test assets (and"
+            echo "that their tokens have not expired), inspect the redacted workflow logs, then re-run the"
+            echo "manually dispatched workflow."
+            echo
+            cat "$RUNNER_TEMP/changelog-digest.md" 2>/dev/null || true
+          } > "$BODY_FILE"
           if [ -n "$ISSUE_NUMBER" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+            gh issue comment "$ISSUE_NUMBER" --body-file "$BODY_FILE"
           else
             gh issue create \
               --title "Meta Graph API ${NEXT} available — strict validation failed" \
               --label "dependencies" \
-              --body "$BODY"
+              --body-file "$BODY_FILE"
           fi
