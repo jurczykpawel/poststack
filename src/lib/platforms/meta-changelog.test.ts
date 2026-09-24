@@ -10,7 +10,7 @@ const HTML = `
 <p>Requests that include <code>date_format</code> return an error. The <code>debug_token</code> endpoint is unaffected.</p>
 <h3>Page</h3>
 <h4>Deprecation of legacy Page fields</h4>
-<p>GET /{page-id}?fields=parking returns a version error.</p>
+<p>GET /&#123;page-id&#x7D;?fields=parking returns a version error.</p>
 <h3>Rights Manager</h3>
 <h4>Rights Manager owner fields migrated</h4>
 <p>Copyright owner fields moved.</p>
@@ -40,6 +40,7 @@ describe("parseChangelogSections", () => {
     ]);
     expect(sections[0].text).toContain("date_format");
     expect(sections[0].text).not.toContain("<code>");
+    expect(sections[1].text).toContain("GET /{page-id}?fields=parking");
   });
 
   it("ignores inline scripts and styles that follow the last section", () => {
