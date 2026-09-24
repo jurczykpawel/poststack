@@ -47,7 +47,7 @@
     "@playwright/test": "^1.62.1",
     "@types/html-to-text": "^9.0.4",
     "@types/node": "^25.9.5",
-    "@types/pg": "^8.21.0",
+    "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "typescript": "6.0.3",
