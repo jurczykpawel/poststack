@@ -69,6 +69,8 @@ permission** identifiers — they are part of the API contract and change far le
 | `pages_messaging` | Receive & send Facebook Messenger DMs (inbox + auto-reply + comment→DM private replies). |
 | `pages_read_engagement` | Read post comments (comment triggers). |
 | `pages_manage_metadata` | Subscribe each Page's webhooks so events flow in. |
+| `pages_manage_posts` | Publish and schedule Page posts, reels and videos. **Required for publishing.** |
+| `pages_manage_engagement` | Post comments as the Page — the automatic first comment and public comment replies. |
 | `instagram_basic` | Discover the Instagram business account linked to each Page. **Required for Instagram.** |
 | `instagram_manage_messages` | Receive & send Instagram DMs (inbox + auto-reply). |
 | `instagram_manage_comments` | Read & reply to Instagram comments (comment triggers + comment→DM). |
