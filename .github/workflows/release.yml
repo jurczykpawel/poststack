@@ -108,6 +108,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT || secrets.GITHUB_TOKEN }}
+      - name: Decide image tags (pre-releases never move :latest)
+        id: image-tags
+        run: scripts/ci/image-tags.sh "$GITHUB_REF_NAME" "$IMAGE" "$WORKER_IMAGE" >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build and push web
@@ -117,9 +120,7 @@ jobs:
           file: docker/Dockerfile
           push: true
           provenance: false
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.ref_name }}
+          tags: ${{ steps.image-tags.outputs.web }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build and push worker
@@ -129,9 +130,7 @@ jobs:
           file: docker/Dockerfile.worker
           push: true
           provenance: false
-          tags: |
-            ${{ env.WORKER_IMAGE }}:latest
-            ${{ env.WORKER_IMAGE }}:${{ github.ref_name }}
+          tags: ${{ steps.image-tags.outputs.worker }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

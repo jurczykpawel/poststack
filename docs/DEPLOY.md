@@ -87,6 +87,9 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 | `WEBHOOK_ALLOW_PRIVATE_TARGETS` | **Optional**, default `false`. Webhook delivery (channel-alert hook + outbound webhooks) is secure-by-default and blocks private/loopback/LAN targets. Set `true` to allow an **internal** receiver (n8n/ntfy on the same Docker network or LAN). Cloud-metadata + link-local are **always** blocked. |
 | `AI_DRAFT_DAILY_LIMIT` | **Optional**, default `0`. Caps AI-drafted reply generations per workspace over a rolling 24h window; `0` = unlimited (intended for BYOK / self-hosted). The `ai_draft` feature is **PRO** and reuses the existing `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` config (**BYOK**) — see §2.4 for the one-time schema delta. |
 
+`latest` always points at the newest **stable** release (`vX.Y.Z`); pre-release tags such as
+`v0.14.0-rc.1` are published only under their own tag and never move `latest`.
+
 **Recommended for production:** pin the image instead of tracking `latest`, so each release is an
 intentional bump:
 
