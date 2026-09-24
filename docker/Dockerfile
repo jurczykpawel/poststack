@@ -1,5 +1,5 @@
 # Node base for reproducible `npm ci`; Bun binary for the runtime.
-FROM node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS base
+FROM node:22.23.2-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS base
 RUN apk add --no-cache curl libc6-compat
 COPY --from=oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
@@ -10,7 +10,7 @@ RUN npm ci --omit=dev
 
 # LANDING1: build the Astro marketing site (served by the app at `/`). Isolated stage so its
 # dev-deps (astro, tailwind) never reach the runtime image — only the static dist is copied over.
-FROM node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS landing
+FROM node:22.23.2-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS landing
 WORKDIR /landing
 COPY landing/package.json landing/package-lock.json* ./
 RUN npm ci
