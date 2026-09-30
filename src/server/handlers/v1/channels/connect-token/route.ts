@@ -2,6 +2,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { getProvider } from "@/lib/platforms/registry";
 import { MetaTokenError } from "@/lib/platforms/meta-token";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
+import { subscribeChannelWebhooks } from "@/lib/channels/subscribe";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
   await upsertChannels(auth.workspaceId, parsed.data.platform, accounts, {
     connectionMode: "manual_token",
   });
+  // Auto-subscribe to inbound webhook events, same path as the OAuth callbacks + the managed-connection
+  // mint, so a pasted-token channel both publishes AND receives on one row (best-effort; flags any
+  // that fail rather than failing the connect).
+  await subscribeChannelWebhooks(auth.workspaceId, parsed.data.platform, accounts);
 
   await recordAudit({
     workspaceId: auth.workspaceId,

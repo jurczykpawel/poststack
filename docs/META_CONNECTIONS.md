@@ -117,18 +117,17 @@ endpoint serves events signed by either app. Path C (Instagram Business Login) w
 **same** callback URL and verify token, configured separately in the Instagram app's own webhook
 screen.
 
-- A, B, E subscribe a Page's webhook fields automatically on connect/sync
+- A, B, D, E subscribe a Page's webhook fields automatically on connect/sync
   (`subscribeChannelWebhooks`); E re-subscribes on every daily sync so a newly-added Page starts
-  receiving inbound immediately.
+  receiving inbound immediately. D (`connect-token`) subscribes right after connecting, same as
+  the OAuth paths — best-effort, so a subscribe failure flags the channel rather than failing the
+  connect; the channel detail page's subscription-status check and its reconcile/"Fix" action
+  (`reconcileChannelSubscription`) remain available to retry it later.
 - C subscribes per-Instagram-account messaging webhooks (`subscribeInstagramMessaging`) — needed
   because an IG-Login-only channel has no Facebook Page subscription. If that subscribe fails but
   the channel still has a Page token, the channel is **not** downgraded (publishing/comments still
   work via the Page) — only a non-silent warning is recorded, because IG DMs specifically won't
   arrive.
-- D does **not** auto-subscribe webhooks at connect time (`connect-token` never calls
-  `subscribeChannelWebhooks`) — the channel detail page's subscription-status check and its
-  reconcile/"Fix" action (`reconcileChannelSubscription`) are how a path-D channel picks up its
-  webhook subscription.
 - The app must be in **Live** mode to receive real (non-test) webhook events on any path — see
   README → Meta Access Levels.
 

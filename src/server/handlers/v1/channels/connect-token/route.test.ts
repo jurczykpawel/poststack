@@ -18,6 +18,11 @@ vi.mock("@/lib/channels/upsert", () => ({
   assertChannelsAllowed: (...a: unknown[]) => mockAssertChannels(...a),
 }));
 
+const mockSubscribe = vi.fn().mockResolvedValue({ failedPlatformIds: [] });
+vi.mock("@/lib/channels/subscribe", () => ({
+  subscribeChannelWebhooks: (...a: unknown[]) => mockSubscribe(...a),
+}));
+
 const mockAudit = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/audit", () => ({
   recordAudit: (...a: unknown[]) => mockAudit(...a),
@@ -40,6 +45,7 @@ describe("POST /api/v1/channels/connect-token — manual token", () => {
     mockAuth.mockResolvedValue({ workspaceId: "ws-1" });
     mockConnectWithToken.mockResolvedValue([{ platformId: "P1", displayName: "Page", tokens: { access_token: "t" } }]);
     mockGetProvider.mockReturnValue({ connectWithToken: mockConnectWithToken });
+    mockSubscribe.mockResolvedValue({ failedPlatformIds: [] });
   });
 
   it("returns 401 when unauthenticated", async () => {
@@ -66,6 +72,22 @@ describe("POST /api/v1/channels/connect-token — manual token", () => {
     expect(mockAudit).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: "ws-1", action: "channel.connected" }),
     );
+  });
+
+  it("subscribes webhooks for the connected accounts, same as the OAuth callbacks", async () => {
+    const accounts = [{ platformId: "P1", displayName: "Page", tokens: { access_token: "t" } }];
+    mockConnectWithToken.mockResolvedValueOnce(accounts);
+    const res = await POST(post({ platform: "facebook", token: "SYSUSER_".padEnd(40, "x") }));
+    expect(res.status).toBe(201);
+    expect(mockSubscribe).toHaveBeenCalledWith("ws-1", "facebook", accounts);
+  });
+
+  it("still connects successfully when the webhook subscribe reports failures (best-effort)", async () => {
+    mockSubscribe.mockResolvedValueOnce({ failedPlatformIds: ["P1"] });
+    const res = await POST(post({ platform: "facebook", token: "SYSUSER_".padEnd(40, "x") }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data).toEqual({ connected: 1 });
   });
 
   it("returns 400 when the token resolves no accounts", async () => {
