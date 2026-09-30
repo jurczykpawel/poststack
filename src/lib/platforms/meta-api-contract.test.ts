@@ -454,7 +454,7 @@ describe("Meta Graph API Contract Tests", () => {
     });
 
     it("requests correct OAuth scopes", async () => {
-      const { FacebookProvider } = await import("./facebook");
+      const { FacebookProvider, FACEBOOK_OAUTH_SCOPES } = await import("./facebook");
       const fb = new FacebookProvider();
       const url = await fb.generateAuthUrl("state", "https://app.test/cb");
       const params = new URL(url).searchParams;
@@ -463,6 +463,12 @@ describe("Meta Graph API Contract Tests", () => {
       expect(scopes).toContain("pages_messaging");
       expect(scopes).toContain("pages_read_engagement");
       expect(scopes).toContain("pages_manage_metadata");
+      // TOKENS1: publishing a Page post/photo/video needs pages_manage_posts (+ publish_video for
+      // video), and posting/reacting to comments as the Page needs pages_manage_engagement.
+      expect(scopes).toContain("pages_manage_posts");
+      expect(scopes).toContain("pages_manage_engagement");
+      expect(scopes).toContain("publish_video");
+      expect(scopes).toEqual([...FACEBOOK_OAUTH_SCOPES]);
     });
   });
 
@@ -515,13 +521,16 @@ describe("Meta Graph API Contract Tests", () => {
     });
 
     it("requests correct Instagram OAuth scopes", async () => {
-      const { InstagramProvider } = await import("./instagram");
+      const { InstagramProvider, INSTAGRAM_OAUTH_SCOPES } = await import("./instagram");
       const ig = new InstagramProvider();
       const url = await ig.generateAuthUrl("state", "https://app.test/cb");
       const scopes = new URL(url).searchParams.get("scope")!.split(",");
       expect(scopes).toContain("instagram_basic");
       expect(scopes).toContain("instagram_manage_messages");
       expect(scopes).toContain("instagram_manage_comments");
+      // TOKENS1: publishing to Instagram via the Facebook-Login path needs instagram_content_publish.
+      expect(scopes).toContain("instagram_content_publish");
+      expect(scopes).toEqual([...INSTAGRAM_OAUTH_SCOPES]);
     });
   });
 

@@ -40,6 +40,22 @@ interface LongLivedToken {
   expires_in: number;
 }
 
+/**
+ * Scopes for the Facebook-Login-derived Instagram OAuth flow. `instagram_content_publish` was added
+ * under TOKENS1 so this connection also covers Instagram publishing (previously it could only read,
+ * message and moderate comments). IG DMs still require the separate Instagram Business Login flow
+ * (`instagram-login.ts`) — this scope list does not change that. A channel connected before this
+ * change must be reconnected once to pick up the new scope.
+ */
+export const INSTAGRAM_OAUTH_SCOPES = [
+  "pages_show_list",
+  "pages_read_engagement",
+  "instagram_basic",
+  "instagram_manage_messages",
+  "instagram_manage_comments",
+  "instagram_content_publish",
+] as const;
+
 export class InstagramProvider extends SocialProvider {
   readonly platform = "instagram" as const;
   readonly displayName = "Instagram";
@@ -84,13 +100,7 @@ export class InstagramProvider extends SocialProvider {
       client_id: await getConfig("META_APP_ID"),
       redirect_uri: redirectUri,
       state,
-      scope: [
-        "pages_show_list",
-        "pages_read_engagement",
-        "instagram_basic",
-        "instagram_manage_messages",
-        "instagram_manage_comments",
-      ].join(","),
+      scope: INSTAGRAM_OAUTH_SCOPES.join(","),
       response_type: "code",
     });
     return `${META_OAUTH_BASE}/dialog/oauth?${params.toString()}`;

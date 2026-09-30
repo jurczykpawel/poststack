@@ -37,6 +37,23 @@ interface FbDebugToken {
   };
 }
 
+/**
+ * Scopes for the Facebook-Login OAuth flow. `pages_manage_posts` + `pages_manage_engagement` (+
+ * `publish_video` for video/reel publishing) were added under TOKENS1 so a connection also covers
+ * publishing and posting the first comment as the Page — previously the connection could only read
+ * and message, never publish. A channel connected before this change must be reconnected once to
+ * pick up the new scopes (Meta doesn't retroactively grant permissions to an existing token).
+ */
+export const FACEBOOK_OAUTH_SCOPES = [
+  "pages_show_list",
+  "pages_messaging",
+  "pages_read_engagement",
+  "pages_manage_metadata",
+  "pages_manage_posts",
+  "pages_manage_engagement",
+  "publish_video",
+] as const;
+
 export class FacebookProvider extends SocialProvider {
   readonly platform = "facebook" as const;
   readonly displayName = "Facebook";
@@ -47,12 +64,7 @@ export class FacebookProvider extends SocialProvider {
       client_id: await getConfig("META_APP_ID"),
       redirect_uri: redirectUri,
       state,
-      scope: [
-        "pages_show_list",
-        "pages_messaging",
-        "pages_read_engagement",
-        "pages_manage_metadata",
-      ].join(","),
+      scope: FACEBOOK_OAUTH_SCOPES.join(","),
       response_type: "code",
     });
     return `${META_OAUTH_BASE}/dialog/oauth?${params.toString()}`;
