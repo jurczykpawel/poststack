@@ -244,6 +244,11 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 ## Meta App Setup
 
+> New to PostStack's Meta connections, or not sure which one you (or a past-you) used?
+> **[docs/META_CONNECTIONS.md](docs/META_CONNECTIONS.md)** maps all five connection paths — OAuth,
+> Instagram Business Login, pasted token, and the managed/System-User connection — with what each
+> needs, what it can do, and how its tokens expire and refresh.
+
 1. Go to [developers.facebook.com](https://developers.facebook.com) and create a new App (Business type).
 2. Copy the **App ID** and **App Secret** into `META_APP_ID` / `META_APP_SECRET` in your `.env` (or set them in Settings → Meta App after first login).
 3. Add the **Facebook Login** product and, under its settings, add these to **Valid OAuth Redirect URIs** (replace with your real `APP_URL`) — without them the dashboard's **Connect channel** flow is rejected by Meta:
@@ -256,9 +261,13 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 ### Instagram Business Login (required for Instagram DMs)
 
-A Facebook-Login connection covers Instagram **publishing and comments**, but Instagram **DMs** are
-only delivered at Standard Access through **Instagram Business Login** — a second, separate login
-flow with its **own** app ID and secret, living inside the same Meta app.
+A Facebook-Login connection (the **+ Instagram** button) covers Instagram **publishing and
+comments** — it requests `instagram_content_publish` in addition to the messaging/comment scopes
+below. Instagram **DMs**, though, are only delivered at Standard Access through **Instagram
+Business Login** — a second, separate login flow with its **own** app ID and secret, living inside
+the same Meta app. A channel connected before publishing/comment scopes were added must be
+**reconnected once** (Channels → Reconnect) to pick them up — see
+[docs/META_CONNECTIONS.md](docs/META_CONNECTIONS.md) for the full map of connection paths.
 
 1. In your Meta app add the **Instagram** product and open **API setup with Instagram login**
    (not "API setup with Facebook login"). This screen shows an **Instagram app ID** and
@@ -373,8 +382,9 @@ own accounts **without App Review**.
 ### Per-feature map (the permissions PostStack actually requests)
 
 PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_messaging`,
-`pages_read_engagement`, `pages_manage_metadata`; Instagram additionally: `instagram_basic`,
-`instagram_manage_messages`, `instagram_manage_comments`.
+`pages_read_engagement`, `pages_manage_metadata`, `pages_manage_posts`, `pages_manage_engagement`,
+`publish_video`; Instagram additionally: `instagram_basic`, `instagram_manage_messages`,
+`instagram_manage_comments`, `instagram_content_publish`.
 
 | Feature | Permission(s) | Your own accounts (Standard Access, app in **Live** mode) | Other people's accounts |
 |---|---|---|---|
@@ -384,6 +394,9 @@ PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_mes
 | Send replies / auto-replies (FB + IG DM) | `pages_messaging` / `instagram_manage_messages` | ✅ works | needs Advanced Access |
 | Read post comments | `pages_read_engagement` (FB) / `instagram_manage_comments` (IG) | ✅ works | needs Advanced Access |
 | Comment → DM (private reply) | `pages_messaging` (FB) / `instagram_manage_messages` (IG) | ✅ works | needs Advanced Access |
+| Publish Page posts, photos & videos | `pages_manage_posts` (+ `publish_video` for video/reels) | ✅ works | needs Advanced Access |
+| Publish to Instagram | `instagram_content_publish` | ✅ works | needs Advanced Access |
+| Post the first comment / reply to comments as the Page | `pages_manage_engagement` | ✅ works | needs Advanced Access |
 | Manage Page webhook subscriptions | `pages_manage_metadata` | ✅ works | needs Advanced Access |
 | Read receipts, echoes, delivery receipts in the thread | `pages_messaging` | ✅ works | needs Advanced Access |
 | **Emoji reactions on your DMs** (the `message_reactions` webhook) | `pages_messaging` | ⚠️ **requires Advanced Access to be delivered** — this one Engagement signal does not fire under Standard Access, even on your own account | needs Advanced Access |

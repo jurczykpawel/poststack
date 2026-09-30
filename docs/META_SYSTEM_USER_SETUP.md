@@ -10,6 +10,9 @@ Page and linked Instagram account that the System User can access — and keeps 
 > not. If you get stuck, the **[For agents](#for-agents)** section at the end tells an AI assistant
 > how to walk you through your *current* Meta UI using up-to-date docs and what you see on screen.
 
+> Not sure this is the right connection path for you? **[docs/META_CONNECTIONS.md](META_CONNECTIONS.md)**
+> maps all five ways to connect a Meta channel to PostStack, their token lifetimes, and how to pick one.
+
 ---
 
 ## What you get
@@ -70,10 +73,12 @@ permission** identifiers — they are part of the API contract and change far le
 | `pages_read_engagement` | Read post comments (comment triggers). |
 | `pages_manage_metadata` | Subscribe each Page's webhooks so events flow in. |
 | `pages_manage_posts` | Publish and schedule Page posts, reels and videos. **Required for publishing.** |
+| `publish_video` | Publish Page videos and video reels specifically — Meta gates video upload behind this scope in addition to `pages_manage_posts`. **Required for video/reel publishing.** |
 | `pages_manage_engagement` | Post comments as the Page — the automatic first comment and public comment replies. |
 | `instagram_basic` | Discover the Instagram business account linked to each Page. **Required for Instagram.** |
 | `instagram_manage_messages` | Receive & send Instagram DMs (inbox + auto-reply). |
 | `instagram_manage_comments` | Read & reply to Instagram comments (comment triggers + comment→DM). |
+| `instagram_content_publish` | Publish to the Instagram business account linked to each Page. **Required for Instagram publishing.** |
 | `business_management` *(recommended)* | Lets the System User list/own Business assets reliably during enumeration. |
 
 > **Own accounts vs other people's accounts:** if every Page/IG belongs to *your* Business, these
