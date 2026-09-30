@@ -10,7 +10,7 @@
  *   - test vs prod differ purely by their compose env — no IDs set on test ⇒ zero trackers, no banner.
  *   - Changing IDs needs no rebuild.
  *
- * GTM flows through server-side GTM (t.poststack.techskills.academy → shared TrackStack):
+ * GTM flows through server-side GTM (t.techskills.academy → shared TrackStack):
  * GA4 forward + Meta CAPI. Umami is cookieless. Consent (Consent Mode V2) gates GTM; Umami is exempt.
  */
 ---

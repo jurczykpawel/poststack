@@ -19,7 +19,7 @@ const GTM_SCRIPT_ORIGIN = "https://www.googletagmanager.com";
 const GTM_COLLECT_ORIGINS = [
   "https://www.googletagmanager.com",
   "https://www.google-analytics.com",
-  "https://t.poststack.techskills.academy",
+  "https://t.techskills.academy",
 ];
 
 export interface LandingAnalyticsEnv {

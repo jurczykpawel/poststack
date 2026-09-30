@@ -81,7 +81,7 @@ image. The app (`src/server/ui/landing.ts`) reads its environment at request tim
 |-------------|---------|
 | `LANDING_UMAMI_WEBSITE_ID` | Umami site id → cookieless analytics (server at `stats.techskills.academy`) |
 | `LANDING_UMAMI_SRC` | optional; defaults to `https://stats.techskills.academy/script.js` |
-| `LANDING_GTM_ID` | `GTM-XXXXXXX` → GA4 + Meta via server-side GTM (needs sGTM at `t.poststack.techskills.academy`) |
+| `LANDING_GTM_ID` | `GTM-XXXXXXX` → GA4 + Meta via server-side GTM (needs sGTM, shared TrackStack at `t.techskills.academy`) |
 
 Why runtime (not build-time): this image is **source-available** and shared — no TechSkills (or any
 operator's) IDs should be compiled in, and every self-hoster sets their own. It also means **test and

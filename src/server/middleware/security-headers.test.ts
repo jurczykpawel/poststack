@@ -59,7 +59,7 @@ describe("buildContentSecurityPolicy — landing (relaxed)", () => {
     const connect = directive(csp, "connect-src");
     expect(connect).toContain("https://www.googletagmanager.com");
     expect(connect).toContain("https://www.google-analytics.com");
-    expect(connect).toContain("https://t.poststack.techskills.academy");
+    expect(connect).toContain("https://t.techskills.academy");
   });
 
   it("does not add analytics hosts when nothing is configured (only telemetry + data: fonts)", () => {
