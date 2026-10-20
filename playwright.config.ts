@@ -48,7 +48,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "bun src/server/index.ts",
+      command: "bun --no-env-file src/server/index.ts",
       url: `${E2E_BASE_URL}/login`,
       timeout: 60_000,
       reuseExistingServer: false,
@@ -57,7 +57,7 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: "bun src/server/index.ts",
+      command: "bun --no-env-file src/server/index.ts",
       url: `${CAPTCHA_E2E_BASE_URL}/login`,
       timeout: 60_000,
       reuseExistingServer: false,

@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replystack-dev}
       POSTGRES_DB: ${POSTGRES_DB:-replystack}
     ports:
-      - "${PG_PORT:-5432}:5432"
+      - "127.0.0.1:${PG_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

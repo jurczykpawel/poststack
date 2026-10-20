@@ -145,6 +145,12 @@ npm run dev
 npm run worker
 ```
 
+### Clean worktree: start and verify
+
+Run `npm run verify:local` from a clean checkout with Node >=22.12, npm, Bun and Docker Compose v2 available (Docker running). No `.env` or real provider keys are needed. The command installs locked dependencies and Chromium, starts an isolated PostgreSQL container on loopback **55479**, migrates and seeds the E2E workspace, starts the app on **3397** (captcha server: **3398**), and runs the Chromium section sweep in FREE and PRO, auth unit tests and section integration tests. It saves a full-page authenticated dashboard screenshot to **`/private/tmp/poststack-verify.png`**. External publishing and the worker are not started; licenses use the existing offline test fixture and telemetry is disabled.
+
+Override `E2E_PORT`, `CAPTCHA_E2E_PORT`, `E2E_PG_PORT`, or `E2E_SCREENSHOT` before the command if needed. Only one verification run at a time. Servers stop and the temporary Compose project and its database volume are removed automatically on success or failure; **Ctrl+C** stops an active run. After a forced kill, find its `poststack-verify-*` project with `docker compose ls`, then run `docker compose --env-file /dev/null -p <project> down --volumes` from this checkout.
+
 ## Environment Variables
 
 See `.env.example`. Required:

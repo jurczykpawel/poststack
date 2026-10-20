@@ -2,11 +2,11 @@
 // (webServer.env) and global-setup (DB url) read the same values.
 import { jwksFallbackJson } from "./fixtures/keys";
 
-export const E2E_PORT = 3099;
+export const E2E_PORT = Number(process.env.E2E_PORT ?? 3099);
 export const E2E_BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
 // A second server, identical but with the captcha enabled, so the login captcha (which the main
 // sweep server runs with captcha OFF) can be exercised end-to-end in a real browser.
-export const CAPTCHA_E2E_PORT = 3100;
+export const CAPTCHA_E2E_PORT = Number(process.env.CAPTCHA_E2E_PORT ?? 3100);
 export const CAPTCHA_E2E_BASE_URL = `http://127.0.0.1:${CAPTCHA_E2E_PORT}`;
 // Dedicated e2e database on the shared test Postgres (:5433) — isolated from the integration gate's
 // `test` DB. global-setup creates it if missing.
@@ -25,6 +25,7 @@ export function serverEnv(): Record<string, string> {
     APP_URL: E2E_BASE_URL,
     DATABASE_URL: E2E_DATABASE_URL,
     REGISTRATION_ENABLED: "true",
+    POSTSTACK_TELEMETRY_DISABLED: "true",
     BRAND_NAME: "PostStack",
     // 32+ char secrets (validated at boot).
     ENCRYPTION_KEY: "e2e-encryption-key-0123456789abcdef0123456789",

@@ -38,7 +38,12 @@ for (const state of STATES) {
         // The topbar carries a brand-suffixed <h1>; the page body has its own <h1> — scope to the
         // main content region to target the page heading, not the topbar title.
         const pageHeading = page.locator("main.content h1");
-        if (route.key === "overview") await expect(pageHeading).toContainText("Overview");
+        if (route.key === "overview") {
+          await expect(pageHeading).toContainText("Overview");
+          if (state === "free" && process.env.E2E_SCREENSHOT) {
+            await page.screenshot({ path: process.env.E2E_SCREENSHOT, fullPage: true });
+          }
+        }
         if (route.key === "settings") await expect(pageHeading).toContainText("Settings");
 
         // Gating: pages that lock the WHOLE page when their feature is locked.
