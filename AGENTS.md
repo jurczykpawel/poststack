@@ -10,6 +10,8 @@ One-command startup via Docker Compose.
 
 Alternative to ManyChat / Buffer / Hootsuite, without vendor lock-in.
 
+Terminy domenowe → [docs/domain-glossary.md](docs/domain-glossary.md); używaj ich w kodzie, UI i rozmowie; nowy termin dopisz tam.
+
 ## Task Tracking (private — never commit)
 
 All planned work lives as **one task per file** under `priv/tasks/*.md`. This directory is **gitignored** — it must never land in the public history.
