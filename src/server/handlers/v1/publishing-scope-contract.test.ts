@@ -21,6 +21,9 @@ vi.mock("@/lib/content/service", () => ({
   deletePost: vi.fn(),
 }));
 vi.mock("@/lib/content/publish", () => ({ publishPost: vi.fn() }));
+vi.mock("@/lib/content/post-delivery", () => ({
+  withPostDeliveries: vi.fn(async (rows: object[]) => rows.map((row) => ({ ...row, delivery: null }))),
+}));
 vi.mock("@/lib/brands/service", () => ({
   listBrands: vi.fn(),
   createBrand: vi.fn(),
