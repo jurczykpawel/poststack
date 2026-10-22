@@ -12,7 +12,7 @@ import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } f
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
 import { addJob, addJobTx } from "@/lib/queue/client";
-import { getProvider as getInboundProvider } from "@/lib/platforms/registry";
+import { firstCommentEligibility } from "./first-comment";
 import { processTokenRefresh } from "@/lib/channels/token-refresh";
 import { emitEventNow } from "@/lib/events";
 import type { PublishRequest } from "@/lib/providers/types";
@@ -191,13 +191,9 @@ async function enqueueFirstComment(
   providerPostId: string,
   deliveryId: string,
 ): Promise<void> {
-  const text = (request.firstComment ?? channel.default_first_comment ?? "").trim();
-  if (!text || !providerPostId) return;
-  // PRO feature (first_comment): a free instance never auto-comments, even if a toggle is still stored
-  // on from a lapsed license — the server is the authority, not the (stale) UI state.
-  if (!(await hasFeature("first_comment"))) return;
-  // Skip platforms whose inbound provider can't post a top-level comment (e.g. TikTok/X/LinkedIn).
-  if (!getInboundProvider(channel.platform).commentOnPost) return;
+  if (!providerPostId) return;
+  const { text, reason } = await firstCommentEligibility(channel, request);
+  if (reason) return;
   await addJob(
     "outgoing-first-comment",
     { channelId: channel.id, postId: providerPostId, text, idempotencyKey: `first-comment:${deliveryId}` },

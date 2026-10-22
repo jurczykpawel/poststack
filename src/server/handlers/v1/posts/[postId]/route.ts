@@ -2,6 +2,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { ok, noContent, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { getPost, patchPost, deletePost } from "@/lib/content/service";
+import { withPostDeliveries } from "@/lib/content/post-delivery";
 import { postPatch } from "@/lib/content/schemas";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
   const { postId } = await ctx.params;
   const row = await getPost(postId, auth.workspaceId);
   if (!row) return ApiErrors.notFound("Post");
-  return ok(camelizeKeys(row));
+  return ok(camelizeKeys((await withPostDeliveries([row], auth.workspaceId))[0]));
 }
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {

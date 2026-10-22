@@ -3,6 +3,7 @@ import { ok, created, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { clampLimit } from "@/lib/api/pagination";
 import { listPosts, createPost } from "@/lib/content/service";
+import { withPostDeliveries } from "@/lib/content/post-delivery";
 import { postCreate } from "@/lib/content/schemas";
 import { readIdempotencyKey } from "@/server/handlers/v1/_publishing";
 
@@ -22,7 +23,7 @@ export async function GET(request: Request): Promise<Response> {
     status: q.get("status") ?? undefined,
     q: q.get("q") ?? undefined,
   });
-  return ok(camelizeKeys(res));
+  return ok(camelizeKeys({ ...res, items: await withPostDeliveries(res.items, auth.workspaceId) }));
 }
 
 export async function POST(request: Request): Promise<Response> {

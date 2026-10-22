@@ -45,6 +45,39 @@ export const openApiSpec = {
       },
     },
     schemas: {
+      Post: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          scheduledDate: { type: ["string", "null"], format: "date-time", description: "Also set when publishing with a future when; immediate publish leaves it unchanged." },
+          delivery: {
+            type: ["object", "null"],
+            description: "Execution linked to this post; null before a delivery exists.",
+            required: ["id", "status", "scheduledFor", "attempts", "lastError", "platformPostId", "updatedAt", "firstComment"],
+            properties: {
+              id: { type: "string", format: "uuid" },
+              status: { type: "string", enum: ["scheduled", "sending", "sent", "held", "unknown", "failed", "canceled"] },
+              scheduledFor: { type: "string", format: "date-time", description: "Requested publish time (when)." },
+              attempts: { type: "integer" },
+              lastError: { type: ["string", "null"], description: "Redacted provider error." },
+              platformPostId: { type: ["string", "null"] },
+              updatedAt: { type: "string", format: "date-time" },
+              firstComment: {
+                type: "object",
+                description: "Existing outbound ledger status takes precedence. Without a row, eligibility is evaluated NOW, not recorded at publish time: awaiting_publish unless sent, then no_text, unlicensed, unsupported_platform in that order. A sent, eligible delivery awaiting its comment worker has not_attempted with no reason.",
+                required: ["status", "commentId", "attempts", "lastError"],
+                properties: {
+                  status: { type: "string", enum: ["pending", "sending", "sent", "failed", "held", "expired", "unknown", "not_attempted"] },
+                  reason: { type: "string", enum: ["no_text", "unlicensed", "unsupported_platform", "awaiting_publish"], description: "Only present for not_attempted when a reason applies; based on current request text, channel default, license and provider support." },
+                  commentId: { type: ["string", "null"] },
+                  attempts: { type: "integer" },
+                  lastError: { type: ["string", "null"], description: "Redacted outbound error." },
+                },
+              },
+            },
+          },
+        },
+      },
       Error: {
         type: "object",
         required: ["data", "error"],
@@ -321,7 +354,12 @@ export const openApiSpec = {
         ...requiresScope("posts:read"),
         tags: ["Publishing"],
         summary: "List editorial posts",
-        responses: { "200": { description: "List of posts" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        responses: { "200": { description: "List of posts", content: { "application/json": { schema: {
+          type: "object", properties: { data: { type: "object", properties: {
+            items: { type: "array", items: { $ref: "#/components/schemas/Post" } },
+            nextCursor: { type: ["string", "null"] },
+          } }, error: { type: "null" } },
+        } } } }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       post: {
         ...requiresScope("posts:write"),
@@ -339,7 +377,9 @@ export const openApiSpec = {
         ...requiresScope("posts:read"),
         tags: ["Publishing"],
         summary: "Get a post",
-        responses: { "200": { description: "Post" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        responses: { "200": { description: "Post", content: { "application/json": { schema: {
+          type: "object", properties: { data: { $ref: "#/components/schemas/Post" }, error: { type: "null" } },
+        } } } }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       patch: {
         ...requiresScope("posts:write"),

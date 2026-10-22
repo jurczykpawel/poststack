@@ -97,7 +97,8 @@ async function fixtures(overrides: Partial<typeof schema.posts.$inferInsert> = {
 describe("publishPost", () => {
   it("when=now creates a scheduled delivery, links it, flips status", async () => {
     if (!TEST_DB) return;
-    const { channelId, postId } = await fixtures();
+    const originalDate = new Date("2030-01-01T08:00:00.000Z");
+    const { channelId, postId } = await fixtures({ scheduled_date: originalDate });
     const { delivery, post } = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
     expect(delivery.status).toBe("scheduled");
     expect(delivery.format).toBe("reel"); // instagram + video → reel
@@ -106,6 +107,7 @@ describe("publishPost", () => {
     expect((delivery.payload as { options?: { coverUrl?: string } }).options?.coverUrl).toBe("https://cdn/cover.png");
     expect(post.delivery_id).toBe(delivery.id);
     expect(post.status).toBe("scheduled");
+    expect(post.scheduled_date).toEqual(originalDate);
     // scheduled ~ now
     expect(Math.abs(delivery.scheduled_at.getTime() - Date.now())).toBeLessThan(10_000);
   });
@@ -114,8 +116,9 @@ describe("publishPost", () => {
     if (!TEST_DB) return;
     const { channelId, postId } = await fixtures();
     const when = new Date(Date.now() + 3_600_000).toISOString();
-    const { delivery } = await publishPost({ postId, channelId, when }, WS, fakeRegister);
+    const { delivery, post } = await publishPost({ postId, channelId, when }, WS, fakeRegister);
     expect(delivery.scheduled_at.toISOString()).toBe(when);
+    expect(post.scheduled_date?.toISOString()).toBe(when);
   });
 
   it("when=<past ISO> is rejected (422), nothing enqueued [PSA47]", async () => {

@@ -251,11 +251,14 @@ export async function publishPost(
     const d = await createDelivery({ channelId: input.channelId, scheduledAt, request }, workspaceId, tx);
     await tx
       .update(posts)
-      .set({ delivery_id: d.id, status: "scheduled", updated_at: new Date() })
-      .where(eq(posts.id, input.postId));
+      .set({
+        delivery_id: d.id, status: "scheduled", updated_at: new Date(),
+        ...(input.when !== "now" && Date.parse(scheduledAt) > Date.now() ? { scheduled_date: new Date(scheduledAt) } : {}),
+      })
+      .where(and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)));
     return d;
   });
 
-  const updated = await db.query.posts.findFirst({ where: eq(posts.id, input.postId) });
+  const updated = await db.query.posts.findFirst({ where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)) });
   return { delivery, post: updated! };
 }

@@ -1,7 +1,13 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
+
+const { licensed } = vi.hoisted(() => ({ licensed: { value: false } }));
+vi.mock("@/lib/license/gate", async (original) => ({
+  ...await original<typeof import("@/lib/license/gate")>(),
+  hasFeature: vi.fn(async () => licensed.value),
+}));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const KEY = "sk_live_posts_key_abcd000000000001";
@@ -32,6 +38,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  licensed.value = false;
   for (const ws of [WS, OTHER_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, ws));
   await db.insert(s.workspaces).values([
     { id: WS, name: "W", slug: `w-${WS}` },
@@ -66,7 +73,122 @@ async function createOne(over: Record<string, unknown> = {}, key = KEY) {
   return { res, json: await res.json() };
 }
 
+async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null = "Comment", id?: string) {
+  const { json } = await createOne({ firstComment: text }, key);
+  const [channel] = await db.insert(s.channels).values({
+    workspace_id: workspaceId, platform: "instagram", platform_id: json.data.id,
+    token_encrypted: "unused", webhook_secret: "unused",
+  }).returning();
+  const [delivery] = await db.insert(s.deliveries).values({
+    id,
+    workspace_id: workspaceId, channel_id: channel!.id, format: "reel",
+    payload: { firstComment: text }, scheduled_at: new Date("2030-01-02T08:30:00.000Z"),
+    updated_at: new Date("2030-01-02T09:00:00.000Z"),
+  }).returning();
+  await db.update(s.posts).set({ delivery_id: delivery!.id }).where(eq(s.posts.id, json.data.id));
+  return { postId: json.data.id as string, delivery: delivery!, channelId: channel!.id };
+}
+
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
+  it("returns null delivery before publishing", async () => {
+    const { json } = await createOne();
+    const detail = await (await call("GET", `/posts/${json.data.id}`)).json();
+    expect(detail.data.delivery).toBeNull();
+  });
+
+  it("reads the requested schedule after publishing", async () => {
+    const f = await deliveryFixture();
+    await db.update(s.posts).set({ delivery_id: null, video_url: "https://cdn.test/video.mp4" }).where(eq(s.posts.id, f.postId));
+    const { publishPost } = await import("@/lib/content/publish");
+    const when = "2030-01-02T08:30:00.000Z";
+    await publishPost({ postId: f.postId, channelId: f.channelId, when }, WS, {
+      registerMedia: async (url, workspaceId) => {
+        const [media] = await db.insert(s.media).values({
+          workspace_id: workspaceId, checksum: f.postId, storage_key: "test", kind: "video", url,
+        }).returning();
+        return { id: media!.id };
+      },
+    });
+    const detail = await (await call("GET", `/posts/${f.postId}`, undefined, READ_KEY)).json();
+    expect(detail.data.scheduledDate).toBe(when);
+    expect(detail.data.delivery).toMatchObject({
+      status: "scheduled", scheduledFor: when,
+      firstComment: { status: "not_attempted", reason: "awaiting_publish", commentId: null, attempts: 0, lastError: null },
+    });
+  });
+
+  it("reads sent and failed first comments with delivery details", async () => {
+    const f = await deliveryFixture(WS, KEY, "Comment", "c0ffee08-0000-4000-8000-000000000d03");
+    await db.update(s.deliveries).set({
+      status: "sent", provider_handle: "platform-post-1", attempts: 1,
+      last_error: "access_token=fake_delivery_token",
+      updated_at: new Date("2030-01-02T09:00:00.000Z"),
+    }).where(eq(s.deliveries.id, f.delivery.id));
+    const [comment] = await db.insert(s.outboundDeliveries).values({
+      workspace_id: WS, channel_id: f.channelId, delivery_key: `first-comment:${f.delivery.id}`,
+      task_name: "outgoing-first-comment", payload: {}, status: "sent",
+      platform_message_id: "comment-1", attempts: 1,
+    }).returning();
+    const detail = await (await call("GET", `/posts/${f.postId}`)).json();
+    expect(detail.data.delivery).toEqual({
+      id: "c0ffee08-0000-4000-8000-000000000d03", status: "sent", scheduledFor: "2030-01-02T08:30:00.000Z",
+      attempts: 1, lastError: "access_token=[REDACTED]", platformPostId: "platform-post-1",
+      updatedAt: "2030-01-02T09:00:00.000Z",
+      firstComment: { status: "sent", commentId: "comment-1", attempts: 1, lastError: null },
+    });
+    await db.update(s.outboundDeliveries).set({
+      status: "failed", last_error: "Bearer fake_comment_token", platform_message_id: null, attempts: 2,
+    }).where(eq(s.outboundDeliveries.id, comment!.id));
+    const failed = await (await call("GET", `/posts/${f.postId}`)).json();
+    expect(failed.data.delivery.firstComment).toEqual({
+      status: "failed", commentId: null, attempts: 2, lastError: "Bearer [REDACTED]",
+    });
+  });
+
+  it("evaluates missing first-comment rows using current settings", async () => {
+    const f = await deliveryFixture();
+    await db.update(s.deliveries).set({ status: "sent" }).where(eq(s.deliveries.id, f.delivery.id));
+    const read = async () => (await (await call("GET", `/posts/${f.postId}`)).json()).data.delivery.firstComment;
+    expect(await read()).toEqual({
+      status: "not_attempted", reason: "unlicensed", commentId: null, attempts: 0, lastError: null,
+    });
+    await db.update(s.deliveries).set({ payload: { firstComment: " " } }).where(eq(s.deliveries.id, f.delivery.id));
+    expect(await read()).toMatchObject({ status: "not_attempted", reason: "no_text" });
+    licensed.value = true;
+    await db.update(s.deliveries).set({ payload: { firstComment: "comment" } }).where(eq(s.deliveries.id, f.delivery.id));
+    expect(await read()).toEqual({ status: "not_attempted", commentId: null, attempts: 0, lastError: null });
+    await db.update(s.channels).set({ platform: "linkedin" }).where(eq(s.channels.id, f.channelId));
+    expect(await read()).toMatchObject({ status: "not_attempted", reason: "unsupported_platform" });
+  });
+
+  it("lists each delivery only within its workspace", async () => {
+    const a = await deliveryFixture();
+    const b = await deliveryFixture(OTHER_WS, OTHER_KEY);
+    const draft = await createOne({}, OTHER_KEY);
+    await db.update(s.deliveries).set({ status: "sent" }).where(eq(s.deliveries.id, b.delivery.id));
+    await db.insert(s.outboundDeliveries).values({
+      workspace_id: WS, channel_id: a.channelId, delivery_key: `first-comment:${b.delivery.id}`,
+      task_name: "outgoing-first-comment", payload: {}, status: "sent", platform_message_id: "other-comment",
+    });
+    expect((await call("GET", `/posts/${a.postId}`, undefined, OTHER_KEY)).status).toBe(404);
+    const list = await (await call("GET", "/posts", undefined, OTHER_KEY)).json();
+    expect(list.data.items).toHaveLength(2);
+    expect(list.data.items.find((p: { id: string }) => p.id === draft.json.data.id).delivery).toBeNull();
+    expect(list.data.items.find((p: { id: string }) => p.id === b.postId).delivery).toMatchObject({
+      id: b.delivery.id, status: "sent", firstComment: { status: "not_attempted", reason: "unlicensed" },
+    });
+    expect(JSON.stringify(list)).not.toContain("other-comment");
+    expect(JSON.stringify(list)).not.toContain(a.delivery.id);
+    // Even an inconsistent post link must not select a different workspace's ledger.
+    await db.update(s.posts).set({ delivery_id: a.delivery.id }).where(eq(s.posts.id, b.postId));
+    const detail = await (await call("GET", `/posts/${b.postId}`, undefined, OTHER_KEY)).json();
+    expect(detail.data.delivery).toBeNull();
+    const second = await deliveryFixture();
+    const own = await (await call("GET", "/posts")).json();
+    expect(own.data.items.map((p: { delivery: { id: string } }) => p.delivery.id).sort())
+      .toEqual([a.delivery.id, second.delivery.id].sort());
+  });
+
   it("keeps an empty-scope key working for post creation", async () => {
     const { res, json } = await createOne();
     expect(res.status).toBe(201);
