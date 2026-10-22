@@ -35,7 +35,7 @@
     "altcha-lib": "^1.4.1",
     "aws4fetch": "^1.0.20",
     "dotenv": "^17.4.2",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.4",
     "graphile-worker": "^0.18.0",
     "hono": "^4.13.1",
     "html-to-text": "^10.0.0",
