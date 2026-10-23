@@ -4,7 +4,7 @@ import { deliveries, channels } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { encodeCursor, decodeCursor, type Cursor } from "@/lib/api/pagination";
 import { getProviderForPlatform } from "@/lib/providers";
-import { can } from "@/lib/channels/capabilities";
+import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { validate } from "@/lib/providers/validate";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getMedia } from "@/lib/media/service";
@@ -41,7 +41,9 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
   if (!channel) throw new ApiError("not_found", "Channel not found", 404);
   // Capability-gated (CHANNELS-ARCHITECTURE): the engine asks what the channel can do, never which
   // platform it is. A channel that cannot publish (e.g. an inbound-only Telegram bot) is rejected here.
-  if (!can({ platform: channel.platform, connection_mode: channel.connection_mode }, "publish")) {
+  if (!can(channel, "publish")) {
+    const missing = missingPublishScopes(channel);
+    if (missing.length) throw new ApiError("unsupported", `Channel '${channel.display_name ?? channel.platform}' is missing permission ${missing.join(", ")} — reconnect it to publish`, 400);
     throw new ApiError("unsupported", `Channel '${channel.platform}' cannot publish`, 400);
   }
 

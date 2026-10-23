@@ -211,3 +211,31 @@ describe("lastErrorNote (B3)", () => {
     expect(s(lastErrorNote(ch({ last_error: null }))).trim()).toBe("");
   });
 });
+
+describe("publishing permission hint", () => {
+  it.each([
+    ["facebook", "oauth", "/api/oauth/facebook"],
+    ["instagram", "oauth", "/api/oauth/instagram"],
+    ["instagram", "derived", "/sources"],
+    ["facebook", "manual_token", "/channels/11111111-1111-1111-1111-111111111111"],
+  ] as const)("links %s %s to its publishing reconnect flow", async (platform, connection_mode, href) => {
+    const { publishingHint } = await import("./channels");
+    const out = s(publishingHint(ch({ platform, connection_mode, messaging_connection: "instagram_login", metadata: { granted_scopes: ["pages_messaging"] } })));
+    expect(out).toContain('class="notice notice-warn"');
+    expect(out).toContain("Missing publishing permission");
+    expect(out).toContain(`href="${href}"`);
+    expect(out).not.toContain('/api/oauth/instagram-login');
+  });
+  it("has no warning for unknown scopes", async () => {
+    const { publishingHint } = await import("./channels");
+    expect(s(publishingHint(ch({ metadata: null })))).toBe("");
+  });
+});
+
+it("does not claim publishing is active when its permission is missing", () => {
+  for (const messaging_connection of ["facebook_only", "instagram_login"] as const) {
+    const out = s(messagingHint(ch({ messaging_connection, metadata: { granted_scopes: ["pages_messaging"] } })));
+    expect(out).not.toContain("Publishing and comments are active");
+    expect(out).not.toContain("comments and publishing are active");
+  }
+});

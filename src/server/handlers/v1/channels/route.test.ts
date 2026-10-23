@@ -71,6 +71,7 @@ describe("GET /api/v1/channels — IG-Login messaging state + capabilities", () 
     expect(c.messaging_connection).toBe("instagram_login");
     expect(c.capabilities).toEqual(expect.arrayContaining(["dm", "publish"]));
     expect(c.can_publish).toBe(true);
+    expect(c.missing_publish_scopes).toEqual([]);
   });
 
   it("reports can_publish=false for an inbox-only channel (Telegram)", async () => {
@@ -96,4 +97,14 @@ describe("GET /api/v1/channels — IG-Login messaging state + capabilities", () 
     expect(c.capabilities).not.toContain("publish");
     expect(c.can_publish).toBe(false);
   });
+});
+
+it("reports the missing publishing permission without returning channel metadata", async () => {
+  mockAuth.mockResolvedValue({ workspaceId: "ws-1" });
+  mockFindMany.mockResolvedValueOnce([{ id: "ch-1", platform: "facebook", connection_mode: "oauth", status: "active", metadata: { granted_scopes: ["pages_messaging"], internal: "private" } }]);
+  const c = (await (await GET(get())).json()).data[0];
+  expect(c.can_publish).toBe(false);
+  expect(c.missing_publish_scopes).toEqual(["pages_manage_posts"]);
+  expect(c.capabilities).toContain("dm");
+  expect(c).not.toHaveProperty("metadata");
 });

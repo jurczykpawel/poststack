@@ -4,6 +4,7 @@ import { channels } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
 import { inspectMetaToken, MetaTokenError } from "@/lib/platforms/meta-token";
 import { markChannelNeedsReauth, markChannelHealthy } from "./health";
+import { recordGrantedScopes } from "./granted-scopes";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
 /** Health-checked platforms (debug_token-backed). Non-Meta channels (e.g. Telegram) are skipped. */
@@ -23,7 +24,7 @@ const META_PLATFORMS = ["facebook", "instagram"] as const;
 export async function sweepChannelHealth(): Promise<{ checked: number; flagged: number; recovered: number }> {
   const rows = await db.query.channels.findMany({
     where: and(inArray(channels.status, ["active", "needs_reauth"]), inArray(channels.platform, [...META_PLATFORMS])),
-    columns: { id: true, status: true, token_encrypted: true },
+    columns: { id: true, workspace_id: true, status: true, token_encrypted: true },
   });
 
   let checked = 0;
@@ -32,7 +33,9 @@ export async function sweepChannelHealth(): Promise<{ checked: number; flagged: 
   for (const channel of rows) {
     try {
       const token = decryptTokens(channel.token_encrypted).access_token;
+      if (!token) continue;
       const info = await inspectMetaToken(token); // throws MetaTokenError on confirmed-bad; null = transient
+      await recordGrantedScopes(channel.id, info?.scopes, channel.workspace_id, channel.token_encrypted).catch(() => {});
       checked++;
       // Recover ONLY on a positive confirmation (info truthy = valid AND belongs to this app). A null
       // (inconclusive) result never flips a needs_reauth channel back — that would flap on a Meta hiccup.

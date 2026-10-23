@@ -12,7 +12,7 @@ const WS = "bbbbbbbb-0000-0000-0000-0000000000b1";
 const realFetch = globalThis.fetch;
 
 // debug_token verdict keyed by the token string the mock sees.
-const verdicts: Record<string, { is_valid: boolean }> = {};
+const verdicts: Record<string, { is_valid: boolean; scopes?: string[] }> = {};
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -39,7 +39,7 @@ beforeEach(async () => {
     const m = /input_token=([^&]+)/.exec(url);
     const token = m ? decodeURIComponent(m[1]) : "";
     const v = verdicts[token];
-    if (v) return Response.json({ data: { app_id: "111", is_valid: v.is_valid } });
+    if (v) return Response.json({ data: { app_id: "111", is_valid: v.is_valid, scopes: v.scopes } });
     return new Response("Not Found", { status: 404 }); // → inspectMetaToken returns null (transient)
   }) as typeof fetch;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
@@ -138,4 +138,66 @@ describe("sweepChannelHealth (real Postgres)", () => {
     expect(r.recovered).toBe(0);
     expect(await statusOf(ch)).toBe("needs_reauth");
   });
+});
+
+it("records checked scopes during the sweep and preserves other metadata", async () => {
+  verdicts["SCOPES"] = { is_valid: true, scopes: ["pages_messaging"] };
+  const id = await channel("facebook", "SCOPES");
+  await db.update(s.channels).set({ metadata: { retained: "yes" } }).where(eq(s.channels.id, id));
+  await sweep.sweepChannelHealth();
+  const row = await db.query.channels.findFirst({ where: eq(s.channels.id, id) });
+  expect(row?.metadata).toMatchObject({ retained: "yes", granted_scopes: ["pages_messaging"], granted_scopes_checked_at: expect.any(String) });
+  expect(row?.status).toBe("active");
+});
+
+it("merges scope records and leaves unknown results unchanged within the workspace", async () => {
+  const { recordGrantedScopes } = await import("./granted-scopes");
+  const id = await channel("facebook", "RECORD");
+  await db.update(s.channels).set({ metadata: { retained: "yes" } }).where(eq(s.channels.id, id));
+  await recordGrantedScopes(id, ["pages_manage_posts"], WS);
+  const read = () => db.query.channels.findFirst({ where: eq(s.channels.id, id) });
+  const recorded = (await read())?.metadata;
+  expect(recorded).toMatchObject({ retained: "yes", granted_scopes: ["pages_manage_posts"], granted_scopes_checked_at: expect.any(String) });
+  await recordGrantedScopes(id, [], WS);
+  await recordGrantedScopes(id, null, WS);
+  await recordGrantedScopes(id, ["other"], "bbbbbbbb-0000-0000-0000-0000000000b2");
+  expect((await read())?.metadata).toEqual(recorded);
+});
+
+it.each(["oauth", "manual_token", "derived"] as const)("records scopes on %s connect and reconnect through the shared upsert", async (connectionMode) => {
+  const { upsertChannels } = await import("./upsert");
+  verdicts["CONNECT"] = { is_valid: true, scopes: ["pages_messaging"] };
+  const accounts = [{ platformId: "scope-connect", displayName: "Page", tokens: { access_token: "CONNECT" } }];
+  await upsertChannels(WS, "facebook", accounts, { connectionMode });
+  const read = () => db.query.channels.findFirst({ where: eq(s.channels.platform_id, "scope-connect") });
+  expect((await read())?.metadata).toMatchObject({ granted_scopes: ["pages_messaging"] });
+  verdicts["CONNECT"].scopes = ["pages_messaging", "pages_manage_posts"];
+  await upsertChannels(WS, "facebook", accounts, { connectionMode });
+  expect((await read())?.metadata).toMatchObject({ granted_scopes: ["pages_messaging", "pages_manage_posts"] });
+  verdicts["CONNECT"] = { is_valid: false };
+  await expect(upsertChannels(WS, "facebook", accounts, { connectionMode })).resolves.toBeDefined();
+  delete verdicts["CONNECT"];
+  await expect(upsertChannels(WS, "facebook", accounts, { connectionMode })).resolves.toBeDefined();
+  expect((await read())?.metadata).toMatchObject({ granted_scopes: ["pages_messaging", "pages_manage_posts"] });
+});
+
+it("keeps scope records for the current token only", async () => {
+  const { recordGrantedScopes } = await import("./granted-scopes");
+  const id = await channel("facebook", "CURRENT");
+  await recordGrantedScopes(id, ["pages_messaging"], WS, encryptTokens({ access_token: "OLD" }));
+  expect((await db.query.channels.findFirst({ where: eq(s.channels.id, id) }))?.metadata).toEqual({});
+});
+
+it("skips inspection for an Instagram Login only channel", async () => {
+  await channel("instagram", "");
+  await sweep.sweepChannelHealth();
+  expect(globalThis.fetch).not.toHaveBeenCalled();
+});
+
+it("records scopes during a manual health check", async () => {
+  const { runHealthCheck } = await import("./service");
+  verdicts["ONDEMAND"] = { is_valid: true, scopes: ["pages_manage_posts"] };
+  const id = await channel("facebook", "ONDEMAND");
+  expect(await runHealthCheck(WS, id)).toBe("active");
+  expect((await db.query.channels.findFirst({ where: eq(s.channels.id, id) }))?.metadata).toMatchObject({ granted_scopes: ["pages_manage_posts"] });
 });

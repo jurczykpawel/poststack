@@ -2,7 +2,7 @@ import { and, eq, asc, count, inArray } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels, messages, conversations } from "@/db/schema";
-import { channelCapabilities } from "@/lib/channels/capabilities";
+import { channelCapabilities, missingPublishScopes } from "@/lib/channels/capabilities";
 import { messagingConnection } from "@/lib/channels/ig-connection";
 import { ok, ApiErrors } from "@/lib/api/response";
 
@@ -25,6 +25,7 @@ export async function GET(request: Request) {
       profile_picture: true,
       status: true,
       connection_mode: true,
+      metadata: true,
       last_error: true,
       last_health_at: true,
       created_at: true,
@@ -46,8 +47,9 @@ export async function GET(request: Request) {
         .groupBy(conversations.channel_id)
     : [];
   const heldByChannel = new Map(heldCounts.map((h) => [h.channel_id, Number(h.n)]));
-  const withHeld = rows.map((c) => {
-    const capabilities = channelCapabilities({ platform: c.platform, connection_mode: c.connection_mode });
+  const withHeld = rows.map(({ metadata, ...c }) => {
+    const ctx = { ...c, metadata };
+    const capabilities = channelCapabilities(ctx);
     return {
       ...c,
       is_active: c.status === "active",
@@ -58,6 +60,7 @@ export async function GET(request: Request) {
       // Explicit up-front publish flag so a client doesn't have to publish-and-fail to learn an
       // inbox-only channel (e.g. Telegram) can't publish.
       can_publish: capabilities.includes("publish"),
+      missing_publish_scopes: missingPublishScopes(ctx),
     };
   });
   return ok(withHeld);

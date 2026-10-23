@@ -747,3 +747,13 @@ describe("publish worker (AUD27)", () => {
     }
   });
 });
+
+it("declines an existing scheduled delivery when publishing permission is missing", async () => {
+  const { channelId, postId } = await scenario();
+  await db.update(schema.channels).set({ platform: "facebook", metadata: { granted_scopes: ["pages_messaging"] } }).where(eq(schema.channels.id, channelId));
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  await processPublish({ postId }, helpers);
+  expect(await status(postId)).toBe("failed");
+  expect(fetch).not.toHaveBeenCalled();
+});

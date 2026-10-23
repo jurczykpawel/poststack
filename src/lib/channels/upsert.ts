@@ -6,6 +6,7 @@ import { addJobTx } from "@/lib/queue/client";
 import { randomBytes } from "crypto";
 import type { ConnectedAccount } from "@/lib/platforms/base";
 import { hasFeature, ProRequiredError } from "@/lib/license/gate";
+import { checkGrantedScopes } from "./granted-scopes";
 import { emitEventNow } from "@/lib/events";
 
 const META_PLATFORMS = new Set<Platform>(["facebook", "instagram"]);
@@ -209,6 +210,10 @@ export async function upsertChannels(
     }
     return out;
   });
+
+  if (META_PLATFORMS.has(platform)) {
+    await checkGrantedScopes(workspaceId, results.map((r) => r.channelId)).catch(() => {});
+  }
 
   // Log a connect/reconnect event per channel for the activity feed (/events). Best-effort and
   // post-commit: a logging failure must never roll back a successful connect.

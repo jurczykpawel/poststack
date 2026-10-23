@@ -84,3 +84,9 @@ describe("AUD32 — concurrent same Idempotency-Key", () => {
     expect(rows.length).toBe(1);
   });
 });
+
+it("declines scheduling when the channel needs a publishing permission", async () => {
+  const [c] = await db.insert(schema.channels).values({ workspace_id: WS, platform: "facebook", platform_id: "scope-page", display_name: "My Page", webhook_secret: "wh", token_encrypted: encryptTokens({ access_token: "t" }), metadata: { granted_scopes: ["pages_messaging"] } }).returning();
+  await expect(createDelivery({ channelId: c.id, scheduledAt: new Date().toISOString(), request: { format: "text", media: [] } }, WS))
+    .rejects.toThrow("Channel 'My Page' is missing permission pages_manage_posts — reconnect it to publish");
+});

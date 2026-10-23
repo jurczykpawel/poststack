@@ -62,7 +62,8 @@ Detail per path:
   automatically and a reconnected master recovers everything at once. If the master token goes
   invalid, `markSourceNeedsReauth` cascades `needs_reauth` to every active derived channel in one
   shot — **one re-paste of the master token recovers them all**, instead of reconnecting each
-  channel individually. Full setup walkthrough (the recommended self-host path):
+  channel individually. The dashboard shows missing publishing permissions and a reconnect link
+  while messaging remains available. Full setup walkthrough (the recommended self-host path):
   **[docs/META_SYSTEM_USER_SETUP.md](META_SYSTEM_USER_SETUP.md)**.
 
 Setup steps (app products, redirect URIs, webhook subscriptions) for A, B and D live in

@@ -25,7 +25,7 @@ import {
   type ChannelStatus,
   type PublicChannel,
 } from "@/lib/channels/service";
-import { can } from "@/lib/channels/capabilities";
+import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
@@ -91,20 +91,28 @@ export function messagingConnectionBadge(ch: PublicChannel): Html {
   return html``;
 }
 
+export function publishingHint(ch: PublicChannel): Html {
+  const missing = missingPublishScopes(ch);
+  if (!missing.length) return html``;
+  const href = reconnectHref({ ...ch, messaging_connection: null });
+  return html`<div class="notice notice-warn">Missing publishing permission (${missing.join(", ")}). <a href="${href}">Reconnect to publish.</a></div>`;
+}
+
 /** B2: a per-channel capability note, rendered for BOTH messaging-connection states. A
  *  `facebook_only` IG channel publishes/comments but won't receive IG DMs at the access level
  *  self-hosters use, so nudge the operator to connect Instagram Login; an `instagram_login`
  *  channel is a full standalone connection, so reassure that DMs/comments/publishing all work and
  *  that each account is connected individually. Empty for non-IG / unset channels. */
 export function messagingHint(ch: PublicChannel): Html {
+  const publishing = !missingPublishScopes(ch).length;
   if (ch.messaging_connection === "facebook_only")
     return html`<div class="notice notice-warn">
-      Publishing and comments are active. Instagram <strong>direct messages</strong> aren't delivered on the Facebook connection —
+      ${publishing ? "Publishing and comments are active. " : ""}Instagram <strong>direct messages</strong> aren't delivered on the Facebook connection —
       <a href="/api/oauth/instagram-login">connect Instagram Login</a> to receive and reply to DMs.
     </div>`;
   if (ch.messaging_connection === "instagram_login")
     return html`<div class="notice notice-info">
-      Full Instagram connection — direct messages, comments and publishing are active for this account. Each Instagram account is connected individually.
+      ${publishing ? "Full Instagram connection — direct messages, comments and publishing are active" : "Instagram connection — direct messages are active"} for this account. Each Instagram account is connected individually.
     </div>`;
   return html``;
 }
@@ -325,6 +333,7 @@ function channelCard(ch: PublicChannel, brands: BrandRow[]): Html {
       ${statusBadge(ch.status)}
     </a>
     <div class="detail-sub"><span class="mode-tag">${ch.connection_mode}</span>${capabilityBadges(ch)}${messagingConnectionBadge(ch)}</div>
+    ${publishingHint(ch)}
     ${lastErrorNote(ch)}
     <div class="ch-foot">${brandSelect(ch, brands)}<span class="ch-foot-act">${cardAction(ch)}</span></div>
   </article>`;
@@ -509,6 +518,7 @@ function tokenPanel(ch: PublicChannel): Html {
   const lastErrorRow = ch.last_error ? metaRow("Last error", lastErrorNote(ch)) : "";
   return html`<section class="panel">
     <div class="panel-head"><h3>Token</h3></div>
+    ${publishingHint(ch)}
     ${messagingHint(ch)}
     <dl class="meta-list">
       ${metaRow("Access token", html`<code class="token-mask">••••••••••••••••</code>`)}

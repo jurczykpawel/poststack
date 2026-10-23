@@ -24,8 +24,8 @@ export type Capability = (typeof CAPABILITIES)[number];
 export interface ChannelCapabilityCtx {
   platform: string;
   connection_mode?: "oauth" | "manual_token" | "derived";
-  /** Reserved for scope-refined resolution (e.g. an OAuth channel missing a publish scope). */
-  metadata?: Record<string, unknown> | null;
+  /** Granted token scopes, when available. */
+  metadata?: unknown;
 }
 
 // Resolved lazily (not at module load) so importing this file has no side effect and partial mocks
@@ -42,7 +42,7 @@ export function channelCapabilities(ctx: ChannelCapabilityCtx): Capability[] {
   const caps = new Set<Capability>();
 
   if (isPublishablePlatform(ctx.platform)) {
-    caps.add("publish");
+    if (!missingPublishScopes(ctx).length) caps.add("publish");
     const provider = getProviderForPlatform(ctx.platform);
     if (provider.supportsSources?.() && ctx.connection_mode !== "derived") {
       caps.add("enumerate_subaccounts");
@@ -64,4 +64,10 @@ export function can(ctx: ChannelCapabilityCtx, capability: Capability): boolean 
 /** True when no platform branch is needed: the platform is unknown to both registries. */
 export function isKnownPlatform(platform: string): boolean {
   return isPublishablePlatform(platform) || inboundPlatforms().has(platform) || providerIdForPlatform(platform) !== platform;
+}
+
+export function missingPublishScopes(ctx: ChannelCapabilityCtx): string[] {
+  const required = ctx.platform === "facebook" ? "pages_manage_posts" : ctx.platform === "instagram" ? "instagram_content_publish" : null;
+  const scopes = ctx.metadata && typeof ctx.metadata === "object" && "granted_scopes" in ctx.metadata ? ctx.metadata.granted_scopes : undefined;
+  return required && Array.isArray(scopes) && scopes.length && !scopes.includes(required) ? [required] : [];
 }

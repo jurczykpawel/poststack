@@ -16,6 +16,7 @@ import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { markChannelHealthy, markChannelNeedsReauth } from "@/lib/channels/health";
 import { reconcileChannelSubscription, isSubscribablePlatform } from "@/lib/channels/subscription-status";
 import { messagingConnection, type MessagingConnection } from "@/lib/channels/ig-connection";
+import { recordGrantedScopes } from "./granted-scopes";
 import { ApiError } from "@/lib/api/response";
 
 const META_HEALTH_PLATFORMS = new Set(["facebook", "instagram"]);
@@ -395,7 +396,8 @@ export async function runHealthCheck(workspaceId: string, id: string): Promise<C
     // re-apply the per-account IG-Login subscription (reconcile now handles IG-Login per-account).
     const isIgLoginOnly = !token && typeof blob.messaging_token === "string" && blob.messaging_token.length > 0;
     if (!isIgLoginOnly) {
-      await inspectMetaToken(token ?? ""); // throws MetaTokenError on confirmed-bad; null = transient → leave alone
+      const info = token ? await inspectMetaToken(token) : null;
+      await recordGrantedScopes(id, info?.scopes, workspaceId, ch.token_encrypted).catch(() => {});
     }
     await markChannelHealthy(id);
     // WEBHOOKSUB1: keep the inbound subscription auto-configured to the complete field set on every

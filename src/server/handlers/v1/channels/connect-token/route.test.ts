@@ -115,3 +115,15 @@ describe("POST /api/v1/channels/connect-token — manual token", () => {
     expect(body.error.message).toMatch(/different Facebook app/);
   });
 });
+
+it("passes each resolved Page token to the shared connect path for scope inspection", async () => {
+  mockAuth.mockResolvedValue({ workspaceId: "ws-1" });
+  mockGetProvider.mockReturnValue({ connectWithToken: mockConnectWithToken });
+  const accounts = [
+    { platformId: "P1", displayName: "Page One", tokens: { access_token: "page-one" } },
+    { platformId: "P2", displayName: "Page Two", tokens: { access_token: "page-two" } },
+  ];
+  mockConnectWithToken.mockResolvedValueOnce(accounts);
+  expect((await POST(post({ platform: "facebook", token: "master-token".padEnd(40, "x") }))).status).toBe(201);
+  expect(mockUpsert).toHaveBeenLastCalledWith("ws-1", "facebook", accounts, { connectionMode: "manual_token" });
+});

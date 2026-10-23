@@ -90,3 +90,17 @@ describe("channel capabilities — derived from provider, not stored", () => {
     expect(s).toEqual([]);
   });
 });
+
+describe("publishing scopes", () => {
+  it.each(["facebook", "instagram"])("resolves %s publishing for every connection mode", (platform) => {
+    const required = platform === "facebook" ? "pages_manage_posts" : "instagram_content_publish";
+    for (const connection_mode of ["oauth", "manual_token", "derived"] as const) {
+      for (const granted_scopes of [undefined, [], [required], ["other", required]]) {
+        expect(can({ platform, connection_mode, metadata: { granted_scopes } }, "publish")).toBe(true);
+      }
+      const ctx = { platform, connection_mode, metadata: { granted_scopes: ["pages_messaging"] } };
+      expect(can(ctx, "publish")).toBe(false);
+      expect(can(ctx, "dm")).toBe(true);
+    }
+  });
+});

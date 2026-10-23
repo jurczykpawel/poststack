@@ -241,7 +241,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const channel = await db.query.channels.findFirst({
     where: and(eq(channels.id, post.channel_id), isNull(channels.deleted_at)),
   });
-  if (!channel || !can({ platform: channel.platform, connection_mode: channel.connection_mode }, "publish")) {
+  if (!channel || !can(channel, "publish")) {
     await setStatus(postId, "failed", { last_error: "channel or provider unavailable" });
     return;
   }
