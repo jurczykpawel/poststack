@@ -90,6 +90,46 @@ async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null 
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
+  it("requires content from the post workspace on create", async () => {
+    const content = await (await call("POST", "/content", { title: "Shared material" })).json();
+    const contentId = content.data.id;
+    const rejected = await createOne({ contentId }, OTHER_KEY);
+    expect(rejected.res.status).toBe(404);
+    expect(await db.query.posts.findMany({ where: eq(s.posts.workspace_id, OTHER_WS) })).toHaveLength(0);
+    const own = await createOne({ contentId });
+    expect(own.res.status).toBe(201);
+    const detail = await (await call("GET", `/content/${contentId}`)).json();
+    expect(detail.data.posts.map((p: { id: string }) => p.id)).toEqual([own.json.data.id]);
+  });
+
+  it("keeps the post unchanged when its requested content is unavailable", async () => {
+    const content = await (await call("POST", "/content", { title: "Material" })).json();
+    const contentId = content.data.id;
+    const other = await createOne({}, OTHER_KEY);
+    const patch = await call("PATCH", `/posts/${other.json.data.id}`, { contentId, description: "changed" }, OTHER_KEY);
+    expect(patch.status).toBe(404);
+    const unchanged = await (await call("GET", `/posts/${other.json.data.id}`, undefined, OTHER_KEY)).json();
+    expect(unchanged.data).toMatchObject({ contentId: null, description: "hi" });
+    const own = await createOne();
+    expect((await call("PATCH", `/posts/${own.json.data.id}`, { description: "updated" })).status).toBe(200);
+    expect((await call("PATCH", `/posts/${own.json.data.id}`, { contentId })).status).toBe(200);
+    const detail = await (await call("GET", `/content/${contentId}`)).json();
+    expect(detail.data.posts.map((p: { id: string }) => p.id)).toEqual([own.json.data.id]);
+  });
+
+  it("returns 404 for an unavailable content reference", async () => {
+    const { res } = await createOne({ contentId: "00000000-0000-4000-8000-000000000000" });
+    expect(res.status).toBe(404);
+  });
+
+  it("scopes related posts when reading content", async () => {
+    const content = await (await call("POST", "/content", { title: "Material" })).json();
+    const own = await createOne({ contentId: content.data.id });
+    await db.insert(s.posts).values({ workspace_id: OTHER_WS, content_id: content.data.id, platform: "instagram", description: "Other post" });
+    const detail = await (await call("GET", `/content/${content.data.id}`)).json();
+    expect(detail.data.posts.map((p: { id: string }) => p.id)).toEqual([own.json.data.id]);
+  });
+
   it("returns null delivery before publishing", async () => {
     const { json } = await createOne();
     const detail = await (await call("GET", `/posts/${json.data.id}`)).json();

@@ -3,7 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { webhookEndpoints, webhookDeliveries } from "@/db/schema";
 import { encryptString, decryptString } from "@/lib/crypto";
-import { encryptHeaderMap, decryptHeaderMap, type HeaderMap } from "@/lib/webhooks/header-map";
+import { assertValidHeaderMap, encryptHeaderMap, decryptHeaderMap, type HeaderMap } from "@/lib/webhooks/header-map";
 import { ApiError } from "@/lib/api/response";
 import { isKnownEventType } from "@/lib/events";
 import { classifyIp } from "@/lib/net/ip-classify";
@@ -74,6 +74,7 @@ export async function createEndpoint(
   input: { url: string; eventTypes?: string[]; headers?: HeaderMap; extraFields?: Record<string, unknown> },
 ): Promise<WebhookEndpoint> {
   const eventTypes = input.eventTypes ?? [];
+  assertValidHeaderMap(input.headers);
   assertValidUrl(input.url);
   assertValidEventTypes(eventTypes);
   const [row] = await db
@@ -125,6 +126,7 @@ export async function updateEndpoint(
   const existing = await getEndpoint(workspaceId, id);
   if (!existing) throw new ApiError("not_found", "Webhook endpoint not found", 404);
 
+  assertValidHeaderMap(patch.headers);
   const set: Partial<typeof webhookEndpoints.$inferInsert> = {};
   if (patch.url !== undefined) {
     assertValidUrl(patch.url);

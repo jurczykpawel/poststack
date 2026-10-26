@@ -93,6 +93,30 @@ afterAll(async () => {
 });
 
 describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
+  it("redirects direct panel navigation to the full page", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/direct" });
+    for (const hx of [undefined, "false"]) {
+      const res = await app.request("/webhooks/outbound", { headers: withCookie(hx ? { "HX-Request": hx } : {}) });
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe("/webhooks#outgoing");
+      expect(await res.text()).not.toContain(ep.secret);
+    }
+    const fragment = await app.request("/webhooks/outbound", { headers: withCookie({ "HX-Request": "true" }) });
+    expect(fragment.status).toBe(200);
+    expect(await fragment.text()).toContain('id="wh-outbound"');
+  });
+
+  it.each(["Bad Name: value", "X-Test: a\rvalue", "X-Test: a\u0000b"].flatMap((headers) => [false, true].map((edit) => ({ headers, edit }))))("validates header lines before saving ($headers, edit=$edit)", async ({ headers, edit }) => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/valid-headers", headers: { "X-Keep": "value" } });
+    const before = await endpoints.listEndpoints(workspaceId);
+    const path = edit ? `/webhooks/outbound/${ep.id}` : "/webhooks/outbound";
+    const res = await form(path, { url: "https://hooks.example.com/changed-headers", headers });
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.headers.get("HX-Trigger")!)["ps:toast"].msg).toMatch(/header/i);
+    expect(await res.text()).toMatch(/header/i);
+    expect(await endpoints.listEndpoints(workspaceId)).toEqual(before);
+  });
+
   it("creates an endpoint via the form; it appears in the list scoped to the workspace", async () => {
     const res = await form("/webhooks/outbound", { url: "https://hooks.example.com/created", event_types: ["post.published"] });
     expect(res.status).toBe(200);
@@ -177,7 +201,8 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
   it("rejects malformed extra-fields JSON with an inline notice (nothing changed)", async () => {
     const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/ebad", extraFields: { a: 1 } });
     const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, extra: "{not json" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.headers.get("HX-Trigger")!)["ps:toast"].msg).toContain("Extra payload fields must be valid JSON");
     expect((await endpoints.getEndpoint(workspaceId, ep.id))!.extra_payload_fields).toEqual({ a: 1 }); // unchanged
   });
 
@@ -201,7 +226,7 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
   it("rejects an invalid url with an inline notice (nothing created)", async () => {
     const before = (await endpoints.listEndpoints(workspaceId)).length;
     const res = await form("/webhooks/outbound", { url: "ftp://evil.example.com" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(422);
     expect(await res.text()).not.toContain("ftp://evil.example.com");
     expect((await endpoints.listEndpoints(workspaceId)).length).toBe(before);
   });
@@ -210,7 +235,7 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
     const foreign = await endpoints.createEndpoint(OTHER_WS, { url: "https://hooks.example.com/foreign" });
 
     // Not listed in this session's panel.
-    const panel = await (await app.request("/webhooks/outbound", { headers: withCookie() })).text();
+    const panel = await (await app.request("/webhooks/outbound", { headers: withCookie({ "HX-Request": "true" }) })).text();
     expect(panel).not.toContain("https://hooks.example.com/foreign");
 
     // Cross-tenant mutations are refused (404) and leave the foreign endpoint intact.
@@ -224,7 +249,7 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
   it("gates the panel + create behind PRO when the instance is unlicensed", async () => {
     await gate.clearLicense();
     try {
-      const panel = await (await app.request("/webhooks/outbound", { headers: withCookie() })).text();
+      const panel = await (await app.request("/webhooks/outbound", { headers: withCookie({ "HX-Request": "true" }) })).text();
       expect(panel).toContain("PRO");
       expect(panel).not.toContain('hx-post="/webhooks/outbound"');
 

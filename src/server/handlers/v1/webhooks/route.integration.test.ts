@@ -68,6 +68,24 @@ async function createOne(body: Record<string, unknown> = { url: "https://hook.ex
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
+  it.each([
+    { "Bad Name": "value" },
+    { "Bad:Name": "value" },
+    { "X-Test": "a\r\nb" },
+    { "X-Test": "a\nb" },
+    { "X-Test": "a\u0000b" },
+    { "X-Test": "a\u007fb" },
+    { "X-Test": "value\u0100" },
+  ].flatMap((headers) => ["POST", "PATCH"].map((method) => ({ headers, method }))))("validates custom headers before $method ($headers)", async ({ headers, method }) => {
+    const { json } = await createOne();
+    const before = await db.query.webhookEndpoints.findMany({ where: eq(s.webhookEndpoints.workspace_id, WS) });
+    const path = method === "POST" ? "/webhooks" : `/webhooks/${json.data.id}`;
+    const res = await call(method, path, { url: "https://hook.example.com/changed", headers });
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.message).toMatch(/header/i);
+    expect(await db.query.webhookEndpoints.findMany({ where: eq(s.webhookEndpoints.workspace_id, WS) })).toEqual(before);
+  });
+
   it("creates an endpoint, returns the secret once, and stores it encrypted", async () => {
     const { res, json } = await createOne({ url: "https://hook.example.com/a", event_types: ["post.published"] });
     expect(res.status).toBe(201);
