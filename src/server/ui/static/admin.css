@@ -1241,6 +1241,29 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .conv-item .badge { position: absolute; right: 12px; bottom: 8px; }
 
 .thread { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.thread-back { display: none; }
+@media (max-width: 767.98px) {
+  .inbox { grid-template-columns: minmax(0, 1fr); }
+  .inbox > .thread { display: none; }
+  .inbox:has(.thread-head) {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    height: 100dvh;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .inbox:has(.thread-head) > .conv-list { display: none; }
+  .inbox:has(.thread-head) > .thread { display: flex; min-width: 0; }
+  .inbox .thread-back { display: inline-flex; align-self: flex-start; }
+  .inbox .th-top { flex-wrap: wrap; }
+  .inbox .th-id { flex: 1; }
+  .inbox .thread-head, .inbox .reply-bar, .inbox .ai-draft-bar { flex-shrink: 0; }
+  .inbox .reply-bar { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .inbox .reply-bar .textarea { min-width: 0; }
+  .inbox .thread-drafts { overflow-y: auto; max-height: 30dvh; flex-shrink: 0; }
+}
 .thread-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-2); }
 
 /* Thread header: avatar + name/“via” line + Done/Snooze actions (top row), then a controls row
