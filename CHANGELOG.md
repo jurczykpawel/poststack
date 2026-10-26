@@ -17,6 +17,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A post can no longer be linked to content from another workspace.
 - Custom webhook headers are validated before saving through the API and dashboard.
 - Direct navigation to the outbound webhook panel opens the full Webhooks page.
+- Mobile Inbox opens conversations in a full-screen thread with a Back button and visible reply controls.
+- Both dates and channel selectors now apply Inbox filters immediately.
+- Inbox shows AI draft failures with a link to the AI log, and explains when generation does not finish.
 - Facebook and Instagram via Facebook Login now request `business_management` so Pages owned by a business portfolio appear when connecting; update and reconnect to grant the permission.
 - Connecting a Facebook Page no longer fails for app admins with "Invalid Scopes: publish_video" on apps created with use cases.
 - **Pasted-token channels now subscribe to webhooks on connect.** Connecting a channel with a pasted token (`POST /api/v1/channels/connect-token` / the Channels page paste form) previously left it without an inbound webhook subscription until someone ran the manual health check's "Fix" action — so it received no DMs or comments until that click. It now subscribes right after connecting, the same as the OAuth connection paths.

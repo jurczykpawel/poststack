@@ -177,3 +177,61 @@ test.describe.serial("AI-draft UX (ADUX1/ADUX2/ADDEL1/ADLOG1)", () => {
     await expect(logList).toContainText("Thank you so much!");
   });
 });
+
+test("mobile inbox opens a full thread from a deep link and the list", async ({ page }, testInfo) => {
+  await setPro(page.request);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const client = await db();
+  let conversationId: string;
+  try {
+    const workspaceId = await seedWorkspace(client);
+    const { channelId, contactId } = await seedChannelAndContact(client, workspaceId, "mobile");
+    ({ conversationId } = await seedDraft(client, workspaceId, channelId, contactId, "Mobile draft"));
+    await client.query("UPDATE conversations SET last_message_at = now() WHERE id = $1", [conversationId]);
+  } finally {
+    await client.end();
+  }
+  await gotoOk(page, `/inbox?open=${conversationId}`);
+  const checkThread = async () => {
+    await expect(page.locator("#conv-panel")).toBeHidden();
+    for (const control of [page.locator(".reply-bar textarea"), page.getByRole("button", { name: "Send", exact: true }), page.getByRole("button", { name: "Done", exact: true })]) {
+      await expect(control).toBeInViewport({ ratio: 1 });
+      const box = await control.boundingBox();
+      expect(box!.width).toBeGreaterThan(40);
+    }
+  };
+  await checkThread();
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
+  });
+  await page.screenshot({ path: testInfo.outputPath("mobile-inbox.png"), animations: "disabled" });
+  await page.getByRole("button", { name: "← Back", exact: true }).click();
+  await expect(page.locator("#conv-panel")).toBeVisible();
+  await expect(page.locator("#thread")).toBeHidden();
+  const filters = page.locator("#conv-filter-form");
+  const initialForm = await filters.elementHandle();
+  await filters.getByRole("button", { name: "Any time", exact: true }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/inbox/list?") && new URL(r.url()).searchParams.get("since") === "custom"),
+    filters.getByRole("option", { name: "Custom range…", exact: true }).click(),
+  ]);
+  await expect.poll(() => initialForm!.evaluate((form) => form.isConnected)).toBe(false);
+  await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
+  for (const [name, value] of [["from", "2020-01-01"], ["to", "2099-01-01"]]) {
+    const previousForm = await filters.elementHandle();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/inbox/list?") && new URL(r.url()).searchParams.get(name) === value),
+      filters.locator(`input[name='${name}']`).fill(value),
+    ]);
+    await expect.poll(() => previousForm!.evaluate((form) => form.isConnected)).toBe(false);
+    await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
+    await expect(filters.locator(`input[name='${name}']`)).toHaveValue(value);
+  }
+  await page.locator(`.conv-item[hx-get="/inbox/${conversationId}"]`).click();
+  await checkThread();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.locator("#conv-panel")).toBeVisible();
+  await expect(page.locator("#thread")).toBeVisible();
+  await expect(page.getByRole("button", { name: "← Back", exact: true })).toBeHidden();
+});

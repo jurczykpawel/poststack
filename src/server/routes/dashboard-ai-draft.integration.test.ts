@@ -252,7 +252,7 @@ describe("GET /inbox/:id/drafts — self-terminating draft poll", () => {
     if (!TEST_DB) return;
     const res = await aiDraft(CONV_DM, { target: "dm" });
     const body = await res.text();
-    expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=1&since=0"`);
+    expect(body).toMatch(new RegExp(`hx-get="/inbox/${CONV_DM}/drafts\\?attempt=1&since=0&amp;started=\\d+"`));
     expect(body).toContain('hx-trigger="load delay:3s"');
   });
 
@@ -319,7 +319,74 @@ describe("GET /inbox/:id/drafts — self-terminating draft poll", () => {
       const res = await aiDraft(CONV_DM, { target: "dm" });
       const body = await res.text();
       expect(body).toContain("First reply."); // still visible
-      expect(body).toContain(`hx-get="/inbox/${CONV_DM}/drafts?attempt=1&since=1"`);
+      expect(body).toMatch(new RegExp(`hx-get="/inbox/${CONV_DM}/drafts\\?attempt=1&since=1&amp;started=\\d+"`));
     });
+  });
+});
+
+describe("Inbox filter and thread feedback", () => {
+  it("list changes include both dates and every channel selector", async () => {
+    const res = await app.request("/inbox/list?since=custom", { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain('hx-trigger="submit, change, input changed delay:350ms');
+    expect(body).not.toContain("change from:find");
+  });
+
+  it("thread includes a mobile Back control", async () => {
+    const res = await app.request(`/inbox/${CONV_DM}`, { headers: { cookie, "hx-request": "true" } });
+    expect(await res.text()).toContain('class="btn btn-sm thread-back"');
+  });
+
+  it.each([
+    ["HTTP 429", "AI draft failed: rate limited by provider"],
+    ["HTTP 500: private provider details", "AI draft failed: provider could not generate a reply"],
+  ])("poll surfaces the final provider outcome for %s", async (error, message) => {
+    const started = Date.now() - 1000;
+    await db.insert(s.aiGenerationLogs).values({
+      workspace_id: WS, conversation_id: CONV_DM, kind: "draft", model: "test",
+      system_prompt: "test", user_message: "test", error, duration_ms: 1,
+    });
+    const res = await app.request(`/inbox/${CONV_DM}/drafts?attempt=20&since=0&started=${started}`, { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain(message);
+    expect(body).not.toContain("private provider details");
+    expect(body).toContain('href="/settings#automation"');
+    expect(body).not.toContain('hx-trigger="load delay:3s"');
+  });
+
+  it("keeps polling after a failed provider attempt while a fallback may still complete", async () => {
+    const started = Date.now() - 1000;
+    await db.insert(s.aiGenerationLogs).values({
+      workspace_id: WS, conversation_id: CONV_DM, kind: "draft", model: "test",
+      system_prompt: "test", user_message: "test", error: "HTTP 429", duration_ms: 1,
+    });
+    const res = await app.request(`/inbox/${CONV_DM}/drafts?attempt=1&since=0&started=${started}`, { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain('hx-trigger="load delay:3s"');
+    expect(body).not.toContain("AI draft failed");
+  });
+
+  it("poll ignores errors before the current generation and on other threads", async () => {
+    const started = Date.now();
+    for (const [conversationId, createdAt] of [[CONV_DM, new Date(started - 5000)], [CONV_COMMENT, new Date()]] as const) {
+      await db.insert(s.aiGenerationLogs).values({
+        workspace_id: WS, conversation_id: conversationId, created_at: createdAt, kind: "draft", model: "test",
+        system_prompt: "test", user_message: "test", error: "HTTP 429", duration_ms: 1,
+      });
+    }
+    const res = await app.request(`/inbox/${CONV_DM}/drafts?attempt=1&since=0&started=${started}`, { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain(`&amp;started=${started}`);
+    expect(body).toContain('hx-trigger="load delay:3s"');
+    expect(body).not.toContain("AI draft failed");
+    const final = await app.request(`/inbox/${CONV_DM}/drafts?attempt=20&since=0&started=${started}`, { headers: { cookie } });
+    const finalBody = await final.text();
+    expect(finalBody).toContain("AI draft did not finish");
+    expect(finalBody).not.toContain("AI draft failed");
+  });
+
+  it("poll timeout explains the missing draft", async () => {
+    const res = await app.request(`/inbox/${CONV_DM}/drafts?attempt=20&since=0`, { headers: { cookie } });
+    expect(await res.text()).toContain("AI draft did not finish");
   });
 });
