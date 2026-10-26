@@ -140,10 +140,13 @@ account on an empty instance can always register, to create the owner.
    in the dashboard for active-vs-expected status).
 3. **(Optional) Instagram Business Login.** To connect a single Instagram account directly — for
    DMs + comments + follow-gate + publishing, **without** a Facebook page — set `INSTAGRAM_APP_ID` /
-   `INSTAGRAM_APP_SECRET` (§1.2) and register `APP_URL/api/oauth/instagram-login/callback` as a **Valid
-   OAuth Redirect URI** under the Meta app's **Instagram product → "API setup with Instagram login"**.
-   The IG-Login product webhook callback is the **same** `APP_URL/api/webhooks/meta`, subscribed to the
-   `messages` + `comments` fields. Then use **"+ Instagram (messaging)"** on the Channels page.
+   `INSTAGRAM_APP_SECRET` (§1.2) and, in the Meta app's **Instagram → "API setup with Instagram login"**
+   screen, enter `APP_URL/api/oauth/instagram-login/callback` under **Set up Instagram business login**.
+   The webhook callback there is the **same** `APP_URL/api/webhooks/meta` (fields: `messages`,
+   `messaging_postbacks`, `message_reactions`, `messaging_seen`, `comments`, `live_comments`). Give the
+   Instagram account the **Instagram Tester** role and accept the invite on Instagram — required at
+   Standard Access even in Live mode. Then use **"+ Instagram (messaging)"** on the Channels page. Full
+   steps: [README → Instagram Business Login](../README.md#instagram-business-login-required-for-instagram-dms).
 
 > **Two paths for Instagram.** A **Facebook / System User** connection (see
 > [META_SYSTEM_USER_SETUP.md](META_SYSTEM_USER_SETUP.md)) bulk-connects **all** linked Instagram

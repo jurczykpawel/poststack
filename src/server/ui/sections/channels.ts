@@ -185,6 +185,9 @@ export function instagramLoginInstructions(): Html {
               Instagram product. <strong>Note:</strong> these are the <strong>Instagram</strong> app
               id/secret — different from the Facebook app's <code>META_APP_ID</code>/<code>META_APP_SECRET</code>.</li>
             <li>Register this OAuth redirect URI in the Instagram Login settings: <code>${redirectUri}</code></li>
+            <li>Give the Instagram account the <strong>Instagram Tester</strong> role (App roles → Roles)
+              and accept the invite on Instagram (Settings → Apps and websites → Tester Invites) —
+              required even when the app is Live.</li>
             <li>The Instagram account must be a <strong>Business or Creator</strong> account, with
               message access allowed for connected tools <em>(Meta moves this setting around — if you
               can't find it, search Instagram Help for "allow access to messages")</em>.</li>

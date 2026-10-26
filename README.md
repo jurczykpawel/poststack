@@ -249,13 +249,50 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 > Instagram Business Login, pasted token, and the managed/System-User connection — with what each
 > needs, what it can do, and how its tokens expire and refresh.
 
-1. Go to [developers.facebook.com](https://developers.facebook.com) and create a new App (Business type).
-2. Copy the **App ID** and **App Secret** into `META_APP_ID` / `META_APP_SECRET` in your `.env` (or set them in Settings → Meta App after first login).
-3. Add the **Facebook Login** product and, under its settings, add these to **Valid OAuth Redirect URIs** (replace with your real `APP_URL`) — without them the dashboard's **Connect channel** flow is rejected by Meta:
+> **Want an AI agent to click through this for you?** The repo ships an agent skill,
+> [`skills/meta-app-setup`](skills/meta-app-setup/SKILL.md), that drives the whole setup below in
+> your own browser and stops only for your password, 2FA and consent screens.
+
+New Meta apps are organised around **use cases** (not the older "products" list). Labels move
+around; the steps below were verified on the Meta App Dashboard in October 2026.
+
+1. **Create the app** at [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Create App**:
+   - **Use cases** (filter **All**): **Manage everything on your Page**, **Manage messaging & content on
+     Instagram**, **Engage with customers on Messenger from Meta**.
+   - **Business**: pick the business portfolio that owns your Pages (can be unverified — verification
+     is only needed for Advanced Access).
+   - Meta asks for your Facebook password again on **Create app**.
+2. **App settings → Basic**: copy **App ID** / **App secret** into `META_APP_ID` / `META_APP_SECRET`
+   (`.env`, or Settings → Meta after first login). Set **Privacy policy URL** and **User data deletion**
+   URL (your instance serves `https://your-domain.com/privacy`) and a **Category** — Meta won't let the
+   app go Live without them.
+3. **Permissions** — open each use case → **Customize** → **Permissions and features** and click **Add**
+   until the status reads **Ready for testing** (Meta may ask to confirm that a permission is shared
+   with another use case):
+   - *Manage everything on your Page*: `pages_manage_posts`, `pages_manage_engagement`,
+     `pages_read_engagement`, `pages_read_user_content`, Business Asset User Profile Access.
+   - *Messenger*: `pages_messaging` (added by default), `instagram_basic`, `instagram_manage_messages`,
+     Human Agent.
+   - *Instagram*: `instagram_business_basic`, `instagram_business_content_publish`,
+     `instagram_business_manage_comments`, `instagram_business_manage_messages`,
+     `instagram_content_publish`, `instagram_manage_comments`.
+4. **Facebook webhooks** — *Messenger* use case → **Messenger API Settings** → **Configure webhooks**:
+   callback `https://your-domain.com/api/webhooks/meta`, verify token = `META_WEBHOOK_VERIFY_TOKEN` of
+   that instance (the instance must already be running with it — Meta calls the URL on **Verify and
+   save**). Then subscribe the fields: `messages`, `messaging_postbacks`, `message_echoes`,
+   `message_reactions`, `message_reads`, `message_deliveries`, `feed`. (PostStack also subscribes each
+   connected Page itself; **Webhooks → Subscriptions** in the dashboard shows active-vs-expected.)
+5. **Facebook Login for Business → Settings → Valid OAuth Redirect URIs** — add both (replace with your
+   real `APP_URL`); without them the dashboard's **Connect channel** flow is rejected by Meta:
    - `https://your-domain.com/api/oauth/facebook/callback`
    - `https://your-domain.com/api/oauth/instagram/callback`
-4. Add the **Messenger** and **Instagram** products.
-5. In **Webhooks**, set the callback URL to `https://your-domain.com/api/webhooks/meta` and the verify token to match `META_WEBHOOK_VERIFY_TOKEN` in your `.env`, then subscribe to: `messages`, `messaging_postbacks`, `feed` (PostStack auto-subscribes each connected Page to the fields it needs; check **Webhooks → Subscriptions** in the dashboard for active-vs-expected status).
+6. For Instagram DMs, also do [Instagram Business Login](#instagram-business-login-required-for-instagram-dms) below.
+7. **Publish** (left menu) → **Publish**. This switches the app to **Live**, which is required for real
+   webhook events and is **not** App Review.
+
+> Older apps created as type **Business** still show the classic product list (**Facebook Login for
+> Business**, **Messenger**, **Instagram**, **Webhooks**). The same values go into the same-named
+> screens there.
 
 **Note:** your `APP_URL` must be public **HTTPS** (see [Production → HTTPS](#production)) — Meta rejects `http://` and `localhost` for OAuth redirects and webhooks. For local testing, expose your dev server with a tunnel (`cloudflared tunnel --url http://localhost:3000` or `npx ngrok http 3000`) and use that HTTPS URL. Some permissions require Meta App Review for production; in development mode you can test with your own accounts without review.
 
@@ -269,23 +306,29 @@ the same Meta app. A channel connected before publishing/comment scopes were add
 **reconnected once** (Channels → Reconnect) to pick them up — see
 [docs/META_CONNECTIONS.md](docs/META_CONNECTIONS.md) for the full map of connection paths.
 
-1. In your Meta app add the **Instagram** product and open **API setup with Instagram login**
-   (not "API setup with Facebook login"). This screen shows an **Instagram app ID** and
-   **Instagram app secret** — they are *different* from the Facebook app's ID/secret.
+1. In your Meta app open the *Instagram* use case (older apps: the **Instagram** product) →
+   **API setup with Instagram login** (not "API setup with Facebook login"). This screen shows an
+   **Instagram app ID** and **Instagram app secret** (behind **Show**) — they are *different* from
+   the Facebook app's ID/secret.
 2. Set them as `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (`.env` or Settings → Meta). The secret
    is also used to verify the signature of Instagram webhook deliveries, so rotate it in both places.
-3. Under **Set up Instagram business login**, register the redirect URL
-   `https://your-domain.com/api/oauth/instagram-login/callback`.
-4. Under **Configure webhooks** in the same screen, use the same callback URL and verify token as the
-   Facebook webhooks (`https://your-domain.com/api/webhooks/meta`, value of `META_WEBHOOK_VERIFY_TOKEN`)
-   and subscribe `messages` (plus `comments` if you want IG comment automation on this path).
-5. While the app is in **Development** mode, only accounts with a role can log in: go to
-   **App roles → Roles → Instagram Testers**, invite the account, then **accept the invite from that
-   Instagram account** (Instagram → Settings → Apps and websites → Tester invites). Only then does
-   **Generate token** / the dashboard's **+ Instagram (messaging)** button work.
+   The **+ Instagram (messaging)** button appears on the Channels page only once both are set.
+3. **Configure webhooks** (same screen): the same callback URL and verify token as the Facebook
+   webhooks (`https://your-domain.com/api/webhooks/meta`, value of `META_WEBHOOK_VERIFY_TOKEN`), then
+   make sure these fields are **Subscribed**: `messages`, `messaging_postbacks`, `message_reactions`,
+   `messaging_seen`, `comments`, `live_comments`.
+4. **Set up Instagram business login → Set up** (same screen): enter the redirect URL
+   `https://your-domain.com/api/oauth/instagram-login/callback` and **Save**.
+5. **Give the Instagram account a role — required even when the app is Live.** At Standard Access the
+   API only serves accounts with a role on the app: **App roles → Roles → Add People → Instagram
+   Tester** → the account's username, then **accept the invite from that Instagram account**
+   (instagram.com → Settings → **Apps and websites** → **Tester Invites** → **Accept**). Without it
+   the login screen still works, but the token exchange fails afterwards (see Troubleshooting).
 6. The Instagram account must be **Business or Creator** and allow message access for connected tools.
 7. Switch the app to **Live** — Development mode delivers no real webhook events (see
    [Meta Access Levels](#meta-access-levels--what-needs-app-review-and-what-doesnt)).
+8. On the Channels page click **+ Instagram (messaging)**, make sure Instagram shows the right account
+   on the consent screen ("…is requesting access to: *your account*") and **Allow**.
 
 PostStack requests `instagram_business_basic`, `instagram_business_manage_messages`,
 `instagram_business_manage_comments` and `instagram_business_content_publish` on this path and
@@ -298,6 +341,10 @@ has the same guide in-app (**Connecting Instagram — what works, and when**).
 |---|---|
 | "The callback URL or verify token couldn't be validated" | The URL must be exactly `…/api/webhooks/meta` (not `/webhook`), publicly reachable over HTTPS, and the verify token must equal `META_WEBHOOK_VERIFY_TOKEN` of the instance behind that URL. Rejections are logged by PostStack with the reason. |
 | "Insufficient Developer Role" when generating an Instagram token | The Instagram account has no accepted **Instagram Tester** role on this app (step 5). A Facebook-side admin/developer role is not enough. |
+| **+ Instagram (messaging)** ends with "Connection failed", and the log shows `Instagram-Login long-lived exchange failed: … "Unsupported request - method type: get"` | Same cause: the Instagram account has no accepted **Instagram Tester** role (step 5). Meta issues a token, but every API call with it is rejected — also when the app is **Live**. Add the role, accept the invite on Instagram, connect again. |
+| "Invalid Scopes: publish_video" on the Facebook login screen | Shown only to the app's admins/developers (other users silently skip the scope). Apps created with **use cases** can't add `publish_video` — Meta's permission reference lists it for **live video** only. Known issue: PostStack still requests it on the Facebook connection. |
+| "That channel needs a PRO license" after connecting | The FREE tier allows **one** channel per Meta platform; connecting a second Facebook Page or Instagram account needs PRO. Remove the old channel or add a license. |
+| `/channels?error=oauth_failed` right after the consent screen | Check the instance log for the line starting with `[oauth/` — it carries Meta's exact error. A redirect URI missing from the app gives a Meta error page *before* the consent screen instead. |
 | Facebook Page token has `instagram_manage_messages`, but IG DMs never arrive | Expected at Standard Access — connect the account via **Instagram Business Login** (a channel with the `Facebook only` badge has no DM webhooks). |
 | Webhook "Test" works, real messages don't | The app is in **Development** mode — switch it to **Live**. A *test app* (a "test version" of another app) is always in Development mode and cannot go Live; use a regular app. |
 | Webhook deliveries rejected with a signature error | `INSTAGRAM_APP_SECRET` (IG events) or `META_APP_SECRET` (FB events) doesn't match the secret currently shown in the Meta dashboard — e.g. after a reset. |
@@ -394,7 +441,7 @@ PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_mes
 | Send replies / auto-replies (FB + IG DM) | `pages_messaging` / `instagram_manage_messages` | ✅ works | needs Advanced Access |
 | Read post comments | `pages_read_engagement` (FB) / `instagram_manage_comments` (IG) | ✅ works | needs Advanced Access |
 | Comment → DM (private reply) | `pages_messaging` (FB) / `instagram_manage_messages` (IG) | ✅ works | needs Advanced Access |
-| Publish Page posts, photos & videos | `pages_manage_posts` (+ `publish_video` for video/reels) | ✅ works | needs Advanced Access |
+| Publish Page posts, photos & videos | `pages_manage_posts` (PostStack also requests `publish_video`, which Meta documents for live video only — see Troubleshooting) | ✅ works | needs Advanced Access |
 | Publish to Instagram | `instagram_content_publish` | ✅ works | needs Advanced Access |
 | Post the first comment / reply to comments as the Page | `pages_manage_engagement` | ✅ works | needs Advanced Access |
 | Manage Page webhook subscriptions | `pages_manage_metadata` | ✅ works | needs Advanced Access |
