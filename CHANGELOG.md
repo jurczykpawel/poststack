@@ -20,6 +20,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Mobile Inbox opens conversations in a full-screen thread with a Back button and visible reply controls.
 - Both dates and channel selectors now apply Inbox filters immediately.
 - Inbox shows AI draft failures with a link to the AI log, and explains when generation does not finish.
+- Compose media fields now use the full available width on phones.
+- Content cards and platform indicators now reflect the current delivery status after cancellation.
+- Login and registration renew the security verification after an unsuccessful submission.
+- The privacy page keeps the cookie table in its own horizontal scroll area on phones.
 - Facebook and Instagram via Facebook Login now request `business_management` so Pages owned by a business portfolio appear when connecting; update and reconnect to grant the permission.
 - Connecting a Facebook Page no longer fails for app admins with "Invalid Scopes: publish_video" on apps created with use cases.
 - **Pasted-token channels now subscribe to webhooks on connect.** Connecting a channel with a pasted token (`POST /api/v1/channels/connect-token` / the Channels page paste form) previously left it without an inbound webhook subscription until someone ran the manual health check's "Fix" action — so it received no DMs or comments until that click. It now subscribes right after connecting, the same as the OAuth connection paths.

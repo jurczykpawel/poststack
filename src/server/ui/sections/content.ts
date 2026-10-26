@@ -2,7 +2,7 @@ import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { inArray, and, eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { posts as postsTbl, content as contentTbl } from "@/db/schema";
+import { posts as postsTbl, content as contentTbl, deliveries } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { listContent, getContent, getPost, patchPost, type PostRow } from "@/lib/content/service";
@@ -128,9 +128,9 @@ async function listPage(c: Context): Promise<Response> {
   if (ids.length) {
     const rows = await db.query.posts.findMany({
       where: and(eq(postsTbl.workspace_id, ws), inArray(postsTbl.content_id, ids)),
-      columns: { content_id: true, platform: true, status: true },
+      columns: { content_id: true, platform: true, status: true, delivery_id: true },
     });
-    for (const r of rows) {
+    for (const r of await withDeliveryStatus(ws, rows)) {
       if (!r.content_id) continue;
       (postsByContent.get(r.content_id) ?? postsByContent.set(r.content_id, []).get(r.content_id)!).push(r);
     }
@@ -185,10 +185,19 @@ interface PostView {
   reason?: string;
 }
 
+async function withDeliveryStatus<T extends { status: string; delivery_id: string | null }>(ws: string, posts: T[]): Promise<T[]> {
+  const ids = posts.flatMap((p) => p.delivery_id ? [p.delivery_id] : []);
+  if (!ids.length) return posts;
+  const rows = await db.select({ id: deliveries.id, status: deliveries.status }).from(deliveries)
+    .where(and(eq(deliveries.workspace_id, ws), inArray(deliveries.id, ids)));
+  const statuses = new Map(rows.map((d) => [d.id, d.status]));
+  return posts.map((p) => ({ ...p, status: (p.delivery_id && statuses.get(p.delivery_id)) || p.status }));
+}
+
 async function resolvePosts(ws: string, profile: string | null, posts: PostRow[]): Promise<PostView[]> {
   const brandKey = profile?.trim();
   return Promise.all(
-    posts.map(async (post) => {
+    (await withDeliveryStatus(ws, posts)).map(async (post) => {
       if (post.status !== "planned") return { post };
       if (!brandKey) return { post, reason: "Content has no brand — set its profile" };
       const ch = await resolveChannelForBrandPlatform(ws, brandKey, post.platform);
@@ -377,10 +386,9 @@ async function renderPublishPanel(ws: string, contentId: string): Promise<Html |
 async function cardFragment(ws: string, contentId: string, postId: string, edit: boolean): Promise<Html | null> {
   const post = await getPost(postId, ws);
   if (!post) return null;
-  if (edit) return postCardEdit(contentId, post);
   const content = post.content_id ? await getContent(post.content_id, ws) : null;
   const [view] = await resolvePosts(ws, content?.profile ?? null, [post]);
-  return postCard(contentId, view!);
+  return edit ? postCardEdit(contentId, view!.post) : postCard(contentId, view!);
 }
 
 function whenFromForm(form: Record<string, unknown>): "now" | string {

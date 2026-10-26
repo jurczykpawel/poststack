@@ -39,9 +39,10 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], storageState: "./e2e/.auth/state.json" },
       dependencies: ["setup"],
     },
-    // Public login captcha against the captcha-enabled server. No session, no setup dependency.
+    // Public login captcha against the captcha-enabled server; setup provides the login account.
     {
       name: "captcha",
+      dependencies: ["setup"],
       testMatch: /captcha\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], baseURL: CAPTCHA_E2E_BASE_URL },
     },

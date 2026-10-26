@@ -23,12 +23,25 @@ function htmxRedirect(from: Response, to: string): Response {
 }
 
 async function captchaWidget() {
-  if (!(await getConfig("ALTCHA_HMAC_KEY"))) return html``;
+  if (!(await getConfig("ALTCHA_HMAC_KEY"))) return null;
   // Invisible: auto-solves its proof-of-work in the background when the form gains focus (no checkbox
   // to click). The widget stays in the DOM (hidden) so it still contributes captchaToken to the form.
   return html`
     <altcha-widget name="captchaToken" challengeurl="/api/captcha/challenge" auto="onfocus" hidelogo hidefooter style="display:none"></altcha-widget>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>`;
+    <script type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>
+    <script type="module">
+      const widget = document.querySelector("altcha-widget");
+      const form = widget.closest("form");
+      const submit = form.querySelector('button[type="submit"]');
+      widget.addEventListener("statechange", (event) => {
+        submit.disabled = event.detail.state !== "verified";
+      });
+      form.addEventListener("htmx:afterRequest", (event) => {
+        if (event.detail.elt !== form || event.detail.xhr.getResponseHeader("HX-Redirect")) return;
+        widget.reset();
+        widget.verify();
+      });
+    </script>`;
 }
 
 async function authPage(opts: { title: string; subtitle: string; action: string; submit: string; alt: ReturnType<typeof html>; nameField: boolean }) {
@@ -43,9 +56,9 @@ async function authPage(opts: { title: string; subtitle: string; action: string;
       : html``}
     <div class="fld"><span>Email</span><input type="email" name="email" autocomplete="email" required /></div>
     <div class="fld"><span>Password</span><input type="password" name="password" autocomplete="${opts.nameField ? "new-password" : "current-password"}" required /></div>
-    <div class="row" style="justify-content:center">${captcha}</div>
+    <div class="row" style="justify-content:center">${captcha ?? ""}</div>
     <div id="auth-error"></div>
-    <button class="btn btn-primary" type="submit">${opts.submit}</button>
+    <button class="btn btn-primary" type="submit"${captcha ? raw(" disabled") : ""}>${opts.submit}</button>
   </form>
   <p class="muted" style="margin-top:1rem;text-align:center">${opts.alt}</p>
 </div></div>`,

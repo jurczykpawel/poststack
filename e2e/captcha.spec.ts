@@ -17,6 +17,8 @@ test("invisible login captcha auto-solves on focus and submits a token", async (
   await expect(widget, "captcha must be invisible (no checkbox)").toBeHidden();
   await page.waitForFunction(() => customElements.get("altcha-widget") !== undefined);
 
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeDisabled();
+
   // Focus the form — this is what triggers the background proof-of-work (auto="onfocus").
   await page.locator('input[name="email"]').click();
 
@@ -35,4 +37,22 @@ test("invisible login captcha auto-solves on focus and submits a token", async (
 
   const cspWorkerErrors = errors.filter((e) => /worker|content security policy|blob:/i.test(e));
   expect(cspWorkerErrors, cspWorkerErrors.join("\n")).toEqual([]);
+});
+
+test("login accepts corrected credentials after renewing a used captcha", async ({ page }) => {
+  const { errors } = watchConsole(page);
+  await page.goto("/login");
+  await page.locator('input[name="email"]').fill("admin@e2e.test");
+  await page.locator('input[name="password"]').fill("wrong-password");
+  const token = () => page.evaluate(() => new FormData(document.querySelector("form")!).get("captchaToken"));
+  await expect.poll(token).toBeTruthy();
+  const firstToken = await token();
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.locator("#auth-error")).toContainText("Invalid email or password");
+  await expect.poll(token).toBeTruthy();
+  await expect.poll(token).not.toBe(firstToken);
+  await page.locator('input[name="password"]').fill("e2e-password-123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/inbox$/);
+  expect(errors).toEqual([]);
 });
