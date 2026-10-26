@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -78,6 +79,15 @@ afterAll(async () => {
 });
 
 describe("unified Compose section", () => {
+  it("renders a labeled media URL and stacks media fields on narrow screens", async () => {
+    if (!TEST_DB) return;
+    const out = await (await app.request("/compose", { headers: { cookie } })).text();
+    expect(out).toMatch(/<label class="fld grow"><span>Media URL<\/span><input type="url"/);
+    const css = readFileSync("src/server/ui/static/admin.css", "utf8");
+    expect(css).toMatch(/@media \(max-width: 600px\)\s*\{\s*\.media-row, \.media-fields \.fld-row\s*\{[^}]*flex-direction: column/);
+    expect(css).toMatch(/\.media-fields \.fld-row \.fld\s*\{[^}]*flex: 1 1 auto/);
+  });
+
   it("redirects to login without a session", async () => {
     if (!TEST_DB) return;
     expect((await app.request("/compose")).status).toBe(302);

@@ -36,39 +36,41 @@ const lastUpdated = "2026-06-18";
         and marketing cookies load only after you opt in, and you can withdraw consent any time
         via the <strong>“Cookies”</strong> link in the footer.
       </p>
-      <table class="cookie-table">
-        <thead>
-          <tr>
-            <th>Name</th><th>Purpose</th><th>Lifetime</th><th>Category</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>poststack_consent</code></td>
-            <td>Stores your cookie decision</td>
-            <td>365 days</td>
-            <td>Necessary</td>
-          </tr>
-          <tr>
-            <td><code>_ga</code>, <code>_ga_*</code></td>
-            <td>Google Analytics 4 client/session (server-side, first-party)</td>
-            <td>24 months</td>
-            <td>Analytics</td>
-          </tr>
-          <tr>
-            <td><code>_gid</code></td>
-            <td>GA daily session identifier</td>
-            <td>24 hours</td>
-            <td>Analytics</td>
-          </tr>
-          <tr>
-            <td><code>_fbp</code>, <code>_fbc</code></td>
-            <td>Meta Pixel / Conversions API identifiers (ad measurement)</td>
-            <td>90 days</td>
-            <td>Marketing</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="cookie-table-scroll" role="region" aria-label="Cookies" tabindex="0">
+        <table class="cookie-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Purpose</th><th>Lifetime</th><th>Category</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>poststack_consent</code></td>
+              <td>Stores your cookie decision</td>
+              <td>365 days</td>
+              <td>Necessary</td>
+            </tr>
+            <tr>
+              <td><code>_ga</code>, <code>_ga_*</code></td>
+              <td>Google Analytics 4 client/session (server-side, first-party)</td>
+              <td>24 months</td>
+              <td>Analytics</td>
+            </tr>
+            <tr>
+              <td><code>_gid</code></td>
+              <td>GA daily session identifier</td>
+              <td>24 hours</td>
+              <td>Analytics</td>
+            </tr>
+            <tr>
+              <td><code>_fbp</code>, <code>_fbc</code></td>
+              <td>Meta Pixel / Conversions API identifiers (ad measurement)</td>
+              <td>90 days</td>
+              <td>Marketing</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <h2>3. Analytics &amp; ad measurement</h2>
       <p>
@@ -183,10 +185,14 @@ const lastUpdated = "2026-06-18";
   .legal code {
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.85em;
+    overflow-wrap: anywhere;
     color: var(--color-ink, #f4f4f7);
   }
-  .cookie-table {
+  .cookie-table-scroll {
     margin-top: 1.25rem;
+    overflow-x: auto;
+  }
+  .cookie-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.85rem;

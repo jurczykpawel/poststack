@@ -100,3 +100,30 @@ for (const state of STATES) {
     });
   });
 }
+
+test("compose media URL fills the phone form", async ({ page }) => {
+  await setPro(page.request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoOk(page, "/compose");
+  const input = page.getByLabel("Media URL");
+  await expect(input).toBeVisible();
+  const geometry = await input.evaluate((el) => ({
+    input: el.getBoundingClientRect().width,
+    label: el.closest("label")!.getBoundingClientRect().width,
+    row: el.closest(".media-row")!.getBoundingClientRect().width,
+  }));
+  expect(geometry.input).toBeGreaterThanOrEqual(geometry.row - 2);
+  expect(geometry.label).toBeGreaterThanOrEqual(geometry.row - 2);
+});
+
+test("privacy cookie table scrolls within the phone page", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoOk(page, "/privacy");
+  const geometry = await page.locator(".cookie-table").evaluate((el) => ({
+    page: document.documentElement.scrollWidth,
+    viewport: window.innerWidth,
+    overflow: getComputedStyle(el.parentElement!).overflowX,
+  }));
+  expect(geometry.page).toBeLessThanOrEqual(geometry.viewport);
+  expect(geometry.overflow).toBe("auto");
+});
