@@ -46,6 +46,8 @@ interface FbDebugToken {
  */
 export const FACEBOOK_OAUTH_SCOPES = [
   "pages_show_list",
+  // /me/accounts omits business-portfolio Pages without business_management (measured 2026-10-26).
+  "business_management",
   "pages_messaging",
   "pages_read_engagement",
   "pages_manage_metadata",

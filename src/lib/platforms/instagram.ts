@@ -49,6 +49,8 @@ interface LongLivedToken {
  */
 export const INSTAGRAM_OAUTH_SCOPES = [
   "pages_show_list",
+  // /me/accounts omits business-portfolio Pages without business_management (measured 2026-10-26).
+  "business_management",
   "pages_read_engagement",
   "instagram_basic",
   "instagram_manage_messages",

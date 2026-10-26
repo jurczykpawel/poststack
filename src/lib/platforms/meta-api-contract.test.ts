@@ -460,6 +460,7 @@ describe("Meta Graph API Contract Tests", () => {
       const params = new URL(url).searchParams;
       const scopes = params.get("scope")!.split(",");
       expect(scopes).toContain("pages_show_list");
+      expect(scopes).toContain("business_management");
       expect(scopes).toContain("pages_messaging");
       expect(scopes).toContain("pages_read_engagement");
       expect(scopes).toContain("pages_manage_metadata");
@@ -525,6 +526,7 @@ describe("Meta Graph API Contract Tests", () => {
       const ig = new InstagramProvider();
       const url = await ig.generateAuthUrl("state", "https://app.test/cb");
       const scopes = new URL(url).searchParams.get("scope")!.split(",");
+      expect(scopes).toContain("business_management");
       expect(scopes).toContain("instagram_basic");
       expect(scopes).toContain("instagram_manage_messages");
       expect(scopes).toContain("instagram_manage_comments");

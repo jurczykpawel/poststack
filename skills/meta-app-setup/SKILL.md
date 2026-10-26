@@ -65,7 +65,8 @@ has to return `ping123`. If it doesn't, fix the instance before you go any furth
 Use cases → **Customize** → **Permissions and features**. Click **Add** for each item below. If a
 dialog says it "will affect other use cases", confirm with **Add**.
 - *Manage everything on your Page:* `pages_manage_posts`, `pages_manage_engagement`,
-  `pages_read_engagement`, `pages_read_user_content`, Business Asset User Profile Access.
+  `pages_read_engagement`, `pages_read_user_content`, `business_management` (already **Ready for testing**
+  by default), Business Asset User Profile Access.
 - *Messenger from Meta:* `instagram_basic`, `instagram_manage_messages`, Human Agent.
   `pages_messaging` is added by default.
 - *Instagram API:* `instagram_business_basic`, `instagram_business_content_publish`,
@@ -152,6 +153,7 @@ Meta error pages name the exact problem:
 | `/channels?error=oauth_failed` | Read the instance log line starting with `[oauth/`. It quotes Meta's error. |
 | Log: `long-lived exchange failed … "Unsupported request - method type: get"` | The Instagram account has no accepted **Instagram Tester** role (step 8). |
 | "Invalid Scopes: publish_video" on the Facebook dialog | Older versions of PostStack requested this live-video scope, which apps created with use cases cannot add. Update PostStack and retry connecting the Page. |
+| `/channels?error=no_pages` although you picked a Page | Older versions of PostStack did not request `business_management`, so `/me/accounts` could omit Pages owned by a business portfolio. Update PostStack, verify this permission in step 3, and reconnect, selecting the business portfolio and Page in the consent dialog. |
 | "That channel needs a PRO license" | FREE allows one channel per Meta platform. Remove an old channel or add a license. |
 | "The callback URL or verify token couldn't be validated" | The instance isn't reachable over HTTPS at `/api/webhooks/meta`, or its `META_WEBHOOK_VERIFY_TOKEN` differs. |
 | Webhook "Test" arrives but real DMs don't | The app isn't Live (step 9), or the IG channel was connected through Facebook only (use step 7). |

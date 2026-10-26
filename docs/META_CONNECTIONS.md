@@ -23,11 +23,11 @@ which path you're looking at and links to the page with the actual click-by-clic
 Detail per path:
 
 - **A — Facebook Login OAuth.** `src/lib/platforms/facebook.ts`. Requests
-  `FACEBOOK_OAUTH_SCOPES`: `pages_show_list`, `pages_messaging`, `pages_read_engagement`,
+  `FACEBOOK_OAUTH_SCOPES`: `pages_show_list`, `business_management`, `pages_messaging`, `pages_read_engagement`,
   `pages_manage_metadata`, `pages_manage_posts`, `pages_manage_engagement`.
   Mints one channel per Page the user manages, each with the Page's own (non-expiring) token.
 - **B — Instagram via Facebook Login.** `src/lib/platforms/instagram.ts`. Requests
-  `INSTAGRAM_OAUTH_SCOPES`: `pages_show_list`, `pages_read_engagement`, `instagram_basic`,
+  `INSTAGRAM_OAUTH_SCOPES`: `pages_show_list`, `business_management`, `pages_read_engagement`, `instagram_basic`,
   `instagram_manage_messages`, `instagram_manage_comments`, `instagram_content_publish`. Despite
   requesting `instagram_manage_messages`, Instagram DMs are **not** delivered to a Facebook-Login
   connection at Standard Access — that's what path C is for. The channel stores the Page's token
