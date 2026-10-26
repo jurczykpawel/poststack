@@ -14,7 +14,9 @@ export type ToastTone = "ok" | "warn" | "bad" | "info";
  * is never interpreted as HTML even if it echoes provider/user strings.
  */
 export function toastHeader(c: Context, tone: ToastTone, msg: string): void {
-  c.header("HX-Trigger", JSON.stringify({ "ps:toast": { tone, msg } }));
+  const payload = JSON.stringify({ "ps:toast": { tone, msg } })
+    .replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  c.header("HX-Trigger", payload);
 }
 
 /** Whether this request was issued by HTMX (vs a plain no-JS form submit / navigation). */

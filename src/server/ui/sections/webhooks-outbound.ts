@@ -9,6 +9,7 @@ import {
   type WebhookEndpoint,
 } from "@/lib/webhooks/endpoints";
 import { parseHeaderLines, type HeaderMap } from "@/lib/webhooks/header-map";
+import { isHtmx, toastHeader } from "../components/toast";
 import { icon } from "../components/icons";
 
 type Html = ReturnType<typeof html>;
@@ -178,6 +179,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
   }
 
   r.get("/webhooks/outbound", guard, async (c) => {
+    if (!isHtmx(c)) return c.redirect("/webhooks#outgoing");
     const g = await ctx(c);
     if (g instanceof Response) return g;
     return c.html(await renderPanel(g.a.workspaceId, g.canManage, g.upgradeUrl));
@@ -199,7 +201,10 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
         highlightId: ep.id,
       }));
     } catch (err) {
-      if (err instanceof ApiError) return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }));
+      if (err instanceof ApiError) {
+        toastHeader(c, "bad", err.message);
+        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }), err.status === 422 ? 422 : 200);
+      }
       throw err;
     }
   });
@@ -221,7 +226,10 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
       await updateEndpoint(g.a.workspaceId, id, { url, eventTypes, headers, extraFields });
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
-      if (err instanceof ApiError) return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }));
+      if (err instanceof ApiError) {
+        toastHeader(c, "bad", err.message);
+        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }), err.status === 422 ? 422 : 200);
+      }
       throw err;
     }
     return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: "Endpoint updated." }));

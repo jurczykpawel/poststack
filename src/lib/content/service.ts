@@ -126,7 +126,7 @@ export async function listContent(args: {
 export async function getContent(id: string, workspaceId: string): Promise<(ContentRow & { posts: PostRow[] }) | undefined> {
   return db.query.content.findFirst({
     where: and(eq(contentTable.id, id), eq(contentTable.workspace_id, workspaceId)),
-    with: { posts: true },
+    with: { posts: { where: eq(posts.workspace_id, workspaceId) } },
   });
 }
 
@@ -147,7 +147,17 @@ export async function deleteContent(id: string, workspaceId: string): Promise<bo
 
 // ── editorial posts (workspace-scoped) ────────────────────────────────────────────
 
+async function assertContentWorkspace(contentId: string | null | undefined, workspaceId: string): Promise<void> {
+  if (contentId == null) return;
+  const row = await db.query.content.findFirst({
+    where: and(eq(contentTable.id, contentId), eq(contentTable.workspace_id, workspaceId)),
+    columns: { id: true },
+  });
+  if (!row) throw new ApiError("not_found", "Content not found", 404);
+}
+
 export async function createPost(input: PostWritable, workspaceId: string, idempotencyKey?: string): Promise<PostRow> {
+  await assertContentWorkspace(input.contentId, workspaceId);
   const values = mapFields(input, POST_MAP, POST_DATES, POST_BLANK_TO_NULL) as typeof posts.$inferInsert;
   values.workspace_id = workspaceId;
   if (idempotencyKey) values.idempotency_key = idempotencyKey;
@@ -192,6 +202,7 @@ export async function getPost(id: string, workspaceId: string): Promise<PostRow 
 }
 
 export async function patchPost(id: string, workspaceId: string, patch: Partial<PostWritable>): Promise<PostRow | undefined> {
+  await assertContentWorkspace(patch.contentId, workspaceId);
   const values = mapFields(patch, POST_MAP, POST_DATES, POST_BLANK_TO_NULL);
   const [row] = await db
     .update(posts)
