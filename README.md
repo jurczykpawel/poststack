@@ -342,7 +342,7 @@ has the same guide in-app (**Connecting Instagram — what works, and when**).
 | "The callback URL or verify token couldn't be validated" | The URL must be exactly `…/api/webhooks/meta` (not `/webhook`), publicly reachable over HTTPS, and the verify token must equal `META_WEBHOOK_VERIFY_TOKEN` of the instance behind that URL. Rejections are logged by PostStack with the reason. |
 | "Insufficient Developer Role" when generating an Instagram token | The Instagram account has no accepted **Instagram Tester** role on this app (step 5). A Facebook-side admin/developer role is not enough. |
 | **+ Instagram (messaging)** ends with "Connection failed", and the log shows `Instagram-Login long-lived exchange failed: … "Unsupported request - method type: get"` | Same cause: the Instagram account has no accepted **Instagram Tester** role (step 5). Meta issues a token, but every API call with it is rejected — also when the app is **Live**. Add the role, accept the invite on Instagram, connect again. |
-| "Invalid Scopes: publish_video" on the Facebook login screen | Shown only to the app's admins/developers (other users silently skip the scope). Apps created with **use cases** can't add `publish_video` — Meta's permission reference lists it for **live video** only. Known issue: PostStack still requests it on the Facebook connection. |
+| "Invalid Scopes: publish_video" on the Facebook login screen | Older versions of PostStack requested this live-video scope, which apps created with **use cases** cannot add. Update PostStack and retry connecting the Page. |
 | "That channel needs a PRO license" after connecting | The FREE tier allows **one** channel per Meta platform; connecting a second Facebook Page or Instagram account needs PRO. Remove the old channel or add a license. |
 | `/channels?error=oauth_failed` right after the consent screen | Check the instance log for the line starting with `[oauth/` — it carries Meta's exact error. A redirect URI missing from the app gives a Meta error page *before* the consent screen instead. |
 | Facebook Page token has `instagram_manage_messages`, but IG DMs never arrive | Expected at Standard Access — connect the account via **Instagram Business Login** (a channel with the `Facebook only` badge has no DM webhooks). |
@@ -429,8 +429,8 @@ own accounts **without App Review**.
 ### Per-feature map (the permissions PostStack actually requests)
 
 PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_messaging`,
-`pages_read_engagement`, `pages_manage_metadata`, `pages_manage_posts`, `pages_manage_engagement`,
-`publish_video`; Instagram additionally: `instagram_basic`, `instagram_manage_messages`,
+`pages_read_engagement`, `pages_manage_metadata`, `pages_manage_posts`, `pages_manage_engagement`;
+Instagram additionally: `instagram_basic`, `instagram_manage_messages`,
 `instagram_manage_comments`, `instagram_content_publish`.
 
 | Feature | Permission(s) | Your own accounts (Standard Access, app in **Live** mode) | Other people's accounts |
@@ -441,7 +441,7 @@ PostStack requests only these scopes — Facebook: `pages_show_list`, `pages_mes
 | Send replies / auto-replies (FB + IG DM) | `pages_messaging` / `instagram_manage_messages` | ✅ works | needs Advanced Access |
 | Read post comments | `pages_read_engagement` (FB) / `instagram_manage_comments` (IG) | ✅ works | needs Advanced Access |
 | Comment → DM (private reply) | `pages_messaging` (FB) / `instagram_manage_messages` (IG) | ✅ works | needs Advanced Access |
-| Publish Page posts, photos & videos | `pages_manage_posts` (PostStack also requests `publish_video`, which Meta documents for live video only — see Troubleshooting) | ✅ works | needs Advanced Access |
+| Publish Page posts, photos & videos | `pages_manage_posts` | ✅ works | needs Advanced Access |
 | Publish to Instagram | `instagram_content_publish` | ✅ works | needs Advanced Access |
 | Post the first comment / reply to comments as the Page | `pages_manage_engagement` | ✅ works | needs Advanced Access |
 | Manage Page webhook subscriptions | `pages_manage_metadata` | ✅ works | needs Advanced Access |

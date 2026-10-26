@@ -463,11 +463,11 @@ describe("Meta Graph API Contract Tests", () => {
       expect(scopes).toContain("pages_messaging");
       expect(scopes).toContain("pages_read_engagement");
       expect(scopes).toContain("pages_manage_metadata");
-      // TOKENS1: publishing a Page post/photo/video needs pages_manage_posts (+ publish_video for
-      // video), and posting/reacting to comments as the Page needs pages_manage_engagement.
+      // Publishing Page posts needs pages_manage_posts; posting/reacting to comments as the Page
+      // needs pages_manage_engagement. The live-video scope must not be requested.
       expect(scopes).toContain("pages_manage_posts");
       expect(scopes).toContain("pages_manage_engagement");
-      expect(scopes).toContain("publish_video");
+      expect(scopes).not.toContain("publish_video");
       expect(scopes).toEqual([...FACEBOOK_OAUTH_SCOPES]);
     });
   });

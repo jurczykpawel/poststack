@@ -24,7 +24,7 @@ Detail per path:
 
 - **A — Facebook Login OAuth.** `src/lib/platforms/facebook.ts`. Requests
   `FACEBOOK_OAUTH_SCOPES`: `pages_show_list`, `pages_messaging`, `pages_read_engagement`,
-  `pages_manage_metadata`, `pages_manage_posts`, `pages_manage_engagement`, `publish_video`.
+  `pages_manage_metadata`, `pages_manage_posts`, `pages_manage_engagement`.
   Mints one channel per Page the user manages, each with the Page's own (non-expiring) token.
 - **B — Instagram via Facebook Login.** `src/lib/platforms/instagram.ts`. Requests
   `INSTAGRAM_OAUTH_SCOPES`: `pages_show_list`, `pages_read_engagement`, `instagram_basic`,

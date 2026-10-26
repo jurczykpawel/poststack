@@ -141,7 +141,7 @@ export async function renderSourcesManager(workspaceId: string): Promise<Html> {
               <li>Users → <strong>System Users</strong> → Add → create an <em>Admin</em> system user.</li>
               <li>Assign your Pages (and linked Instagram accounts) to it with full control.</li>
               <li>Click <strong>Generate new token</strong>, pick this app, set expiry to <strong>Never</strong>.</li>
-              <li>Grant scopes: <code>pages_show_list</code>, <code>pages_messaging</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>pages_manage_posts</code>, <code>publish_video</code>, <code>pages_manage_engagement</code>, <code>instagram_basic</code>, <code>instagram_manage_messages</code>, <code>instagram_manage_comments</code>, <code>instagram_content_publish</code>.</li>
+              <li>Grant scopes: <code>pages_show_list</code>, <code>pages_messaging</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>pages_manage_posts</code>, <code>pages_manage_engagement</code>, <code>instagram_basic</code>, <code>instagram_manage_messages</code>, <code>instagram_manage_comments</code>, <code>instagram_content_publish</code>.</li>
               <li>Copy the token and paste it above.</li>
             </ol>
           </div>

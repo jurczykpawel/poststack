@@ -131,8 +131,8 @@ Open each URL below in the user's browser. Each one must reach a consent screen 
 
 Meta error pages name the exact problem:
 - "URL blocked" or a redirect error means step 6 or 7 is incomplete.
-- "Invalid Scopes: X" means a permission is missing from step 3. `publish_video` is the exception:
-  see the table below.
+- "Invalid Scopes: X" means a permission is missing from step 3; for the live-video scope
+  requested by older PostStack versions, see the troubleshooting table below.
 
 ### 11. Connect and verify
 - Sign in to the PostStack dashboard → **Channels**:
@@ -151,7 +151,7 @@ Meta error pages name the exact problem:
 |---|---|
 | `/channels?error=oauth_failed` | Read the instance log line starting with `[oauth/`. It quotes Meta's error. |
 | Log: `long-lived exchange failed … "Unsupported request - method type: get"` | The Instagram account has no accepted **Instagram Tester** role (step 8). |
-| "Invalid Scopes: publish_video" on the Facebook dialog | Apps with use cases can't add this scope, and Meta documents it for live video only. Only admins and developers of the app see this error; other users simply skip the scope. It is a known PostStack issue. Report it to the user; don't try to work around it in the app. |
+| "Invalid Scopes: publish_video" on the Facebook dialog | Older versions of PostStack requested this live-video scope, which apps created with use cases cannot add. Update PostStack and retry connecting the Page. |
 | "That channel needs a PRO license" | FREE allows one channel per Meta platform. Remove an old channel or add a license. |
 | "The callback URL or verify token couldn't be validated" | The instance isn't reachable over HTTPS at `/api/webhooks/meta`, or its `META_WEBHOOK_VERIFY_TOKEN` differs. |
 | Webhook "Test" arrives but real DMs don't | The app isn't Live (step 9), or the IG channel was connected through Facebook only (use step 7). |

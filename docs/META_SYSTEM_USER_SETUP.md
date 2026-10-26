@@ -73,7 +73,6 @@ permission** identifiers — they are part of the API contract and change far le
 | `pages_read_engagement` | Read post comments (comment triggers). |
 | `pages_manage_metadata` | Subscribe each Page's webhooks so events flow in. |
 | `pages_manage_posts` | Publish and schedule Page posts, reels and videos. **Required for publishing.** |
-| `publish_video` | Requested by PostStack for Page videos and reels. Meta's permission reference documents it for **live video** only, and apps created with use cases cannot add it — if your app doesn't offer it, skip it. |
 | `pages_manage_engagement` | Post comments as the Page — the automatic first comment and public comment replies. |
 | `instagram_basic` | Discover the Instagram business account linked to each Page. **Required for Instagram.** |
 | `instagram_manage_messages` | Receive & send Instagram DMs (inbox + auto-reply). |

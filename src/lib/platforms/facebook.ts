@@ -38,11 +38,11 @@ interface FbDebugToken {
 }
 
 /**
- * Scopes for the Facebook-Login OAuth flow. `pages_manage_posts` + `pages_manage_engagement` (+
- * `publish_video` for video/reel publishing) were added under TOKENS1 so a connection also covers
- * publishing and posting the first comment as the Page — previously the connection could only read
- * and message, never publish. A channel connected before this change must be reconnected once to
- * pick up the new scopes (Meta doesn't retroactively grant permissions to an existing token).
+ * Scopes for the Facebook-Login OAuth flow. Publishing and commenting as the Page need
+ * `pages_manage_posts` and `pages_manage_engagement`. Existing channels must reconnect once to
+ * pick up new scopes; Meta does not retroactively grant permissions to an existing token.
+ * Meta documents `publish_video` for live video. Apps created with use cases cannot add it, so
+ * requesting it shows admins/developers "Invalid Scopes" and prevents connecting a Page.
  */
 export const FACEBOOK_OAUTH_SCOPES = [
   "pages_show_list",
@@ -51,7 +51,6 @@ export const FACEBOOK_OAUTH_SCOPES = [
   "pages_manage_metadata",
   "pages_manage_posts",
   "pages_manage_engagement",
-  "publish_video",
 ] as const;
 
 export class FacebookProvider extends SocialProvider {
