@@ -89,6 +89,9 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://replystack:replystack-ci@localhost:5432/replystack
 
+      - name: Build landing (served at / and /privacy in browser tests)
+        run: npm --prefix landing run build
+
       - name: Install browser
         run: npx playwright install --with-deps chromium
 

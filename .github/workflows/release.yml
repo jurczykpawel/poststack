@@ -87,6 +87,8 @@ jobs:
         run: npm run test:integration
         env:
           TEST_DATABASE_URL: postgresql://poststack:poststack-ci@localhost:5432/poststack
+      - name: Build landing (served at / and /privacy in browser tests)
+        run: npm --prefix landing run build
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: Browser tests
