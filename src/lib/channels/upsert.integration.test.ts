@@ -51,6 +51,80 @@ function getChannel() {
 }
 
 describe("upsertChannels (real Postgres)", () => {
+  const reconnectPaths = [
+    { name: "Facebook OAuth", platform: "facebook", opts: {} },
+    { name: "Instagram via Facebook OAuth", platform: "instagram", opts: {} },
+    { name: "Facebook pasted token", platform: "facebook", opts: { connectionMode: "manual_token" } },
+    { name: "Instagram pasted token", platform: "instagram", opts: { connectionMode: "manual_token" } },
+    { name: "Instagram Business Login", platform: "instagram", opts: {
+      augmentMessagingToken: { token: "IGQW_reconnected", expiresAt: new Date("2030-01-01") },
+    } },
+  ] satisfies Array<{
+    name: string;
+    platform: "facebook" | "instagram";
+    opts: NonNullable<Parameters<typeof upsertChannels>[3]>;
+  }>;
+
+  it.each(reconnectPaths)("$name restores a removed channel to the channel list", async ({ platform, opts }) => {
+    if (!TEST_DB) return;
+    const { deleteChannel, listChannels } = await import("./service");
+    await upsertChannels(WS, platform, [account("Before removal")], opts);
+    const before = (await getChannel())!;
+    // Use the same soft-remove service as POST /channels/:id/remove.
+    await deleteChannel(WS, before.id);
+    const removed = (await getChannel())!;
+    expect(removed.status).toBe("disabled");
+    expect(removed.deleted_at).not.toBeNull();
+    expect((await listChannels({ workspaceId: WS })).items).toHaveLength(0);
+
+    await upsertChannels(WS, platform, [account("Reconnected")], opts);
+    const after = (await getChannel())!;
+    expect(after.id).toBe(before.id);
+    expect(after.status).toBe("active");
+    expect(after.deleted_at).toBeNull();
+    const listed = await listChannels({ workspaceId: WS });
+    expect(listed.items.map((c) => c.id)).toEqual([before.id]);
+    expect(listed.countsByStatus.active).toBe(1);
+  });
+
+  it.each(reconnectPaths)("$name preserves the hidden choice through reconnect and removal", async ({ platform, opts }) => {
+    if (!TEST_DB) return;
+    const { deleteChannel, listChannels, setChannelHidden } = await import("./service");
+    await upsertChannels(WS, platform, [account("Hidden")], opts);
+    const before = (await getChannel())!;
+    await setChannelHidden(WS, before.id, true);
+    const hiddenAt = (await getChannel())!.hidden_at;
+
+    // Exercise both the live-channel augment and the removed-channel conflict paths.
+    for (const removed of [false, true]) {
+      if (removed) await deleteChannel(WS, before.id);
+      await upsertChannels(WS, platform, [account("Still hidden")], opts);
+      const after = (await getChannel())!;
+      expect(after.id).toBe(before.id);
+      expect(after.status).toBe("active");
+      expect(after.deleted_at).toBeNull();
+      expect(after.hidden_at).toEqual(hiddenAt);
+      expect((await listChannels({ workspaceId: WS })).items).toHaveLength(0);
+      const hidden = await listChannels({ workspaceId: WS, showHidden: true });
+      expect(hidden.items.map((c) => c.id)).toEqual([before.id]);
+      expect(hidden.hiddenCount).toBe(1);
+    }
+  });
+
+  it.each([false, true])("reconnecting an active row with a removal marker restores visibility (augment: %s)", async (augment) => {
+    if (!TEST_DB) return;
+    const { listChannels } = await import("./service");
+    await upsertChannels(WS, "instagram", [account("Old connection")]);
+    const before = (await getChannel())!;
+    await db.update(s.channels).set({ deleted_at: new Date() })
+      .where(and(eq(s.channels.id, before.id), eq(s.channels.workspace_id, WS)));
+    await upsertChannels(WS, "instagram", [account("Reconnected")], augment ? {
+      augmentMessagingToken: { token: "IGQW_restored", expiresAt: new Date("2030-01-01") },
+    } : {});
+    expect((await getChannel())!.deleted_at).toBeNull();
+    expect((await listChannels({ workspaceId: WS })).items.map((c) => c.id)).toEqual([before.id]);
+  });
+
   it("creates a new channel with a webhook secret and active status", async () => {
     if (!TEST_DB) return;
     await upsertChannels(WS, "facebook", [account("First Name")]);
