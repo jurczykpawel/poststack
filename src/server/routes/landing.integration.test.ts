@@ -34,6 +34,12 @@ beforeAll(async () => {
     "<!doctype html><html><head></head><body><h1>Privacy Policy</h1></body></html>",
   );
 
+  mkdirSync(join(dir, "terms"));
+  writeFileSync(
+    join(dir, "terms", "index.html"),
+    "<!doctype html><html><head></head><body><h1>Terms of Service</h1></body></html>",
+  );
+
   process.env.DATABASE_URL = TEST_DB;
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
@@ -91,12 +97,20 @@ describe("LANDING1 route wiring", () => {
     expect(await res.text()).toContain("</html>");
   });
 
-  it("serves the /privacy sub-page", async () => {
+  it.each([
+    ["/privacy", "Privacy Policy"],
+    ["/privacy/", "Privacy Policy"],
+    ["/terms", "Terms of Service"],
+    ["/terms/", "Terms of Service"],
+  ])("serves public legal page %s with and without a session", async (path, heading) => {
     if (!TEST_DB) return;
-    const res = await app.request("/privacy");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/html");
-    expect(await res.text()).toContain("Privacy Policy");
+    for (const headers of [new Headers(), new Headers({ cookie })]) {
+      const res = await app.request(path, { headers });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(res.headers.get("content-security-policy")).toContain("font-src 'self' data:");
+      expect(await res.text()).toContain(heading);
+    }
   });
 
   it("injects window.__POSTSTACK_ANALYTICS__ only when analytics env is set", async () => {

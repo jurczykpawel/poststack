@@ -113,7 +113,7 @@ const LANDING_CSP = buildContentSecurityPolicy({
 
 /** The landing's HTML documents (see src/server/routes/landing.ts). These — and only these — get the
  *  wider CSP; the dashboard, API and static assets keep the tight app CSP. */
-export const LANDING_DOCUMENT_PATHS = new Set(["/", "/privacy", "/privacy/"]);
+export const LANDING_DOCUMENT_PATHS = new Set(["/", "/privacy", "/privacy/", "/terms", "/terms/"]);
 
 export function securityHeaders(): MiddlewareHandler {
   return async (c, next) => {

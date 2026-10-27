@@ -525,6 +525,11 @@ The same Google app can also serve **YouTube** (`youtube` platform) — just add
 
 ## TikTok publishing
 
+Public [Privacy Policy](https://poststack.techskills.academy/privacy) and
+[Terms of Service](https://poststack.techskills.academy/terms) are served by the same app at
+`/privacy` and `/terms`, with visible footer links. The policy covers TikTok account data,
+publishing and deletion; self-hosted operators remain responsible for their instance data.
+
 TikTok uses the **inbox / draft** flow by default. The video lands in your TikTok inbox; open the
 TikTok app to choose its caption, cover and privacy and confirm publication. Direct Post requires
 `video.publish` and an app that meets TikTok's audit requirements. Unaudited clients remain restricted

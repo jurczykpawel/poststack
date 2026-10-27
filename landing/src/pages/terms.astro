@@ -1,0 +1,100 @@
+---
+import LegalLayout from "../layouts/LegalLayout.astro";
+import { site } from "../content/landing";
+---
+
+<LegalLayout
+  title="Terms of Service — PostStack"
+  description="Terms for using PostStack: accounts, user content, connected platforms, service availability, responsibilities and contact."
+>
+  <h1>Terms of Service</h1>
+  <p class="legal-meta">Last updated: 2026-10-27</p>
+
+  <h2>1. Acceptance and service</h2>
+  <p>
+    These terms describe use of PostStack, a social media management product for publishing and
+    scheduling content, managing conversations, automating replies and organising contacts.
+    By using the service you agree to these terms. If you do not agree, stop using it.
+    PostStack is provided by Paweł Jurczyk (TechSkills Academy), Poland. For a hosted installation
+    operated by someone else, that operator's service agreement also applies.
+  </p>
+  <p>
+    You may run the source-available software on your own infrastructure or use a hosted
+    installation where offered. Self-hosted operators manage their infrastructure, backups,
+    credentials and compliance. Use and redistribution of the software remain subject to its
+    Elastic License 2.0 and any separately agreed commercial licence; these terms do not grant
+    additional software or hosting rights.
+  </p>
+
+  <h2>2. Accounts and permitted use</h2>
+  <p>
+    Provide accurate account details, protect your login and API credentials, and connect only
+    accounts you own or are authorised to manage. You are responsible for activity you authorise
+    in your workspace. If you act for an organisation, you must have authority to do so.
+    Notify your instance operator promptly if you suspect unauthorised access.
+  </p>
+  <p>
+    Do not use PostStack for unlawful content, spam, misleading activity, infringement of others'
+    rights or access to accounts without permission. Do not interfere with the service or misuse
+    connected platforms. An operator may restrict access where needed to address these activities;
+    you may stop using the service and request data deletion as described in our Privacy Policy.
+  </p>
+
+  <h2>3. Your content</h2>
+  <p>
+    You retain ownership of your content. You grant the instance operator only the permission
+    needed to store, process and transmit your content to provide the features you request.
+    You must hold the rights and permissions needed for your videos, images, captions, music
+    and other material, including any required advertising and AI-content disclosures.
+    Review your selected account, content and publishing settings before sending or scheduling.
+  </p>
+
+  <h2>4. Platform integrations</h2>
+  <p>
+    Connecting an account authorises PostStack to perform the supported actions you request
+    within the permissions you grant. You must comply with each platform's applicable terms,
+    community guidelines and API policies, including{" "}
+    <a href="https://www.tiktok.com/legal/terms-of-service">TikTok's Terms of Service</a>,{" "}
+    <a href="https://www.facebook.com/terms.php">Meta's Terms</a> and{" "}
+    <a href="https://www.youtube.com/t/terms">YouTube's Terms of Service</a> for Google/YouTube
+    integrations. TikTok publishing also requires compliance with its music and branded-content
+    rules where applicable. PostStack is independent of these platforms and does not imply
+    their endorsement.
+  </p>
+  <p>
+    Available actions depend on your account permissions, API access and the platform's review
+    requirements. For TikTok, an upload may be delivered as a draft requiring completion in the
+    TikTok app; Direct Post availability depends on the connected application's approval and
+    configuration. API limits, processing delays and policy changes can affect delivery.
+    Scheduling does not guarantee publication at an exact time or successful publication.
+  </p>
+
+  <h2>5. Data and privacy</h2>
+  <p>
+    Our <a href="/privacy">Privacy Policy</a> describes connected-account data, website cookies,
+    telemetry and deletion. Disconnecting an integration stops future use of that connection;
+    it does not automatically remove content already published on another platform. For hosted
+    application data requests, contact your instance operator. Self-hosted operators control
+    their stored data and retention.
+  </p>
+
+  <h2>6. Availability and responsibility</h2>
+  <p>
+    To the extent permitted by applicable law and any service agreement, PostStack is provided
+    “as is” and “as available”. We do not guarantee uninterrupted operation, error-free delivery
+    or continued access to a third-party API. Keep copies of important content and check
+    publishing results. To the extent permitted by law, we are not liable for indirect or
+    consequential losses arising from service interruptions, failed publication or platform
+    account restrictions. Nothing in these terms excludes liability or consumer rights that
+    cannot lawfully be excluded.
+  </p>
+
+  <h2>7. Changes and contact</h2>
+  <p>
+    We may update these terms as the product changes. Material changes will be identified by
+    the updated date and communicated through the website or the applicable hosted service.
+    Questions, complaints and requests can be sent to{" "}
+    <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>.
+  </p>
+  <p class="legal-back"><a href="/">← Back to PostStack</a></p>
+</LegalLayout>
