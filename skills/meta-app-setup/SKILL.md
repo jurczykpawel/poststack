@@ -150,15 +150,21 @@ Connect the ones the user needs (usually all three):
   `error=no_pages` means the Page wasn't ticked, or the instance is an old version without `business_management`.
 
 **b) + Instagram: the Instagram account linked to that Page (publishing and comments).** This runs through
-the same Facebook screens. Tick the Page whose Instagram account you want.
-- ✅ An Instagram channel appears with status active. On its own it does not receive DMs at Standard Access.
+the same Facebook screens, plus a fourth one: **Choose the Instagram accounts you want <app> to access**. Tick the
+Page and its Instagram account.
+- ✅ The URL is `/channels?connected=instagram&count=<N>`. The channel shows the **Facebook only** badge.
+- ⚠️ **This connection alone does not deliver Instagram DMs.** Measured on 2026-10-27 at Standard Access: with
+  only b) connected, a DM sent to the account produced no webhook at all. For DMs you always also need c).
 
 **c) + Instagram (messaging): Instagram DMs (Instagram Business Login).**
 - On the Instagram consent screen, check that it names the right account ("…is requesting access to: <account>").
   If it doesn't, the user switches accounts on instagram.com first. The account needs the Instagram Tester role
   from step 8.
 - ✅ The URL is `/channels?connected=instagram_messaging`. If the same account was already connected through b),
-  this adds DMs to that channel and doesn't create a duplicate.
+  this adds DMs to that channel and doesn't create a duplicate. The **Facebook only** badge disappears.
+- Order doesn't matter. Measured: b) → c) → b) again leaves the DM token in place, and DMs keep arriving.
+- If the user ever removes the app on Instagram (Settings → Apps and websites → Remove), DMs stop. Repeat c), and
+  the user clicks Allow again.
 
 The final click (Continue / Save / Allow) on each consent screen belongs to **the user**, unless they have
 explicitly asked you to do it for them.
