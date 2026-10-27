@@ -10,7 +10,10 @@ const secret = new TextEncoder().encode(env.JWT_SECRET);
 // middleware: the JWT denylist is enforced by API handlers, not here.
 export const requireSession: MiddlewareHandler = async (c, next) => {
   const token = readSessionCookie(c.req.header("cookie") ?? null);
-  if (!token) return c.redirect("/login");
+  const login = () => c.req.header("HX-Request") === "true"
+    ? c.body("", 200, { "HX-Redirect": "/login" })
+    : c.redirect("/login");
+  if (!token) return login();
   try {
     // Pin the verify algorithm to HS256 (what signSession uses) — defense-in-depth against a future
     // asymmetric-key refactor re-opening alg-confusion.
@@ -18,6 +21,6 @@ export const requireSession: MiddlewareHandler = async (c, next) => {
     return next();
   } catch {
     c.header("set-cookie", sessionCookie("", 0));
-    return c.redirect("/login");
+    return login();
   }
 };

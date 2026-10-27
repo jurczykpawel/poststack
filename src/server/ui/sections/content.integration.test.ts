@@ -101,6 +101,49 @@ async function seedMapped() {
 }
 
 describe("content cockpit", () => {
+  it("keeps a deleted brand visible as the active content filter", async () => {
+    const { contentId } = await seedMapped();
+    await db.delete(channels).where(eq(channels.workspace_id, workspaceId));
+    await db.delete(brands).where(eq(brands.workspace_id, workspaceId));
+    await db.update(content).set({ profile: null }).where(eq(content.id, contentId));
+    const out = await (await app.request("/content?profile=tsa&q=Reel", { headers: { cookie } })).text();
+    expect(out).toContain('<option value="tsa" selected>tsa (deleted)</option>');
+    expect(out).toContain("No matches");
+    expect(out).toContain('href="/content">Clear');
+  });
+
+  it.each([undefined, "session=invalid"])("navigates expired HTMX sessions to login (%s)", async (staleCookie) => {
+    const { contentId, postId } = await seedMapped();
+    const normal = await app.request("/content", { headers: staleCookie ? { cookie: staleCookie } : {} });
+    expect(normal.status).toBe(302);
+    expect(normal.headers.get("location")).toBe("/login");
+    const paths = ["/content", `/content/${contentId}/posts/${postId}/edit`, "/channels"];
+    for (const path of paths) {
+      const res = await app.request(path, { headers: { "HX-Request": "true", ...(staleCookie ? { cookie: staleCookie } : {}) } });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("HX-Redirect")).toBe("/login");
+      expect(await res.text()).toBe("");
+    }
+    const res = await app.request(`/content/${contentId}/posts/${postId}/description`, {
+      method: "POST", headers: { "HX-Request": "true", "content-type": "application/x-www-form-urlencoded", ...(staleCookie ? { cookie: staleCookie } : {}) },
+      body: new URLSearchParams({ description: "must not persist" }),
+    });
+    expect(res.headers.get("HX-Redirect")).toBe("/login");
+    expect((await db.query.posts.findFirst({ where: eq(posts.id, postId) }))!.description).toBe("weak llm caption");
+  });
+
+  it.each([null, new Date("2025-01-01T12:00:00Z")])("shows messaging expiry independently of access token expiry (%s)", async (accessExpiry) => {
+    await seedMapped();
+    const messagingExpiry = new Date("2026-12-25T17:46:58.913Z");
+    const [channel] = await db.update(channels).set({ token_expires_at: accessExpiry, messaging_token_expires_at: messagingExpiry })
+      .where(eq(channels.workspace_id, workspaceId)).returning();
+    const out = await (await app.request(`/channels/${channel.id}`, { headers: { cookie } })).text();
+    expect(out).toContain("Messaging token expires");
+    const { fmtDate } = await import("../components/format");
+    expect(out).toContain(fmtDate(messagingExpiry));
+    if (accessExpiry) expect(out).toContain(fmtDate(accessExpiry));
+  });
+
   it("rejects descriptions beyond the API limit without saving", async () => {
     const { contentId, postId } = await seedMapped();
     const before = await db.query.posts.findFirst({ where: eq(posts.id, postId) });

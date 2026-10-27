@@ -65,10 +65,11 @@
   .topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px;
     padding: 13px 18px; background: color-mix(in srgb, var(--bg) 86%, transparent);
     backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
-  .title-wrap { min-width: 0; }
+  .title-wrap { min-width: 0; flex: 1; }
+  .topbar h1, .crumb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .topbar h1 { margin: 0; font-size: 16px; font-weight: 650; color: var(--text-1); letter-spacing: -0.01em; }
   .crumb { font-size: 11.5px; color: var(--text-3); margin-top: 2px; font-family: var(--font-mono); }
-  .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .topbar-actions { margin-left: auto; flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 
   .content { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 15px;
     max-width: var(--shell-max); width: 100%; }
@@ -705,11 +706,11 @@
 
   /* < 1024px: collapse sidebar → fixed bottom mobile-nav */
   @media (max-width: 1023.98px) {
-    .app { grid-template-columns: minmax(0, 1fr); }
+    .app { --mobile-nav-height: calc(61px + env(safe-area-inset-bottom)); grid-template-columns: minmax(0, 1fr); }
     .sidebar { display: none; }
-    .content { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+    .content { padding-bottom: calc(var(--mobile-nav-height) + 11px); }
 
-    .mobile-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    .mobile-nav { height: var(--mobile-nav-height); position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
       display: flex; justify-content: space-around; align-items: stretch;
       padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
       background: color-mix(in srgb, var(--bg-sidebar) 92%, transparent);
@@ -1023,7 +1024,7 @@ select.ps-native-hidden { display: none !important; }
 .lock-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: .03em; color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent-2) 30%, transparent); border-radius: 999px; padding: 1px 7px; vertical-align: middle; }
 .lock-chip svg { width: 11px; height: 11px; }
 
-.compose-pubbar { position: sticky; bottom: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-pop); }
+.compose-pubbar { position: sticky; bottom: calc(var(--mobile-nav-height, 0px) + 14px); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-pop); }
 .compose-pubbar .seg { display: inline-flex; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .compose-pubbar .seg button { border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; font-weight: 500; padding: 6px 13px; border-radius: 7px; cursor: pointer; }
 .compose-pubbar .seg button.on { background: var(--accent); color: var(--accent-contrast); }

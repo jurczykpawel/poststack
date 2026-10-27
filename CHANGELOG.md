@@ -14,6 +14,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Posts expose their delivery and first-comment outcome over the API.** `GET /posts` and `GET /posts/{id}` now return a `delivery` object (or `null` when the post was never sent): scheduled time, delivery status, attempts, the last error (secrets redacted), the platform post id, and `firstComment` with its own status, comment id and error. When no first comment was attempted, `firstComment.status` is `not_attempted` with a `reason` (`no_text`, `unlicensed`, `unsupported_platform`, `awaiting_publish`) — evaluated at read time, since the skip reason is not stored. Publishing with a future time now also fills the post's `scheduledDate`, which previously stayed `null`. Integrations no longer need to infer publish results from the absence of errors.
 
 ### Fixed
+- Compose actions stay above the bottom navigation on phones, including the safe area.
+- Content filters visibly retain the selected brand when that brand has been deleted.
+- Dashboard fragment requests navigate to the login page when the session expires.
+- Long content titles fit within the page header, with the full title available on hover.
+- Instagram Business Login channel details show the messaging token expiry separately.
 - Rule editing and duplication preserve keyword matching, priority, limits, and existing response settings.
 - REST resource paths and pagination cursors consistently reject invalid identifiers.
 - Content titles must contain text after trimming whitespace.

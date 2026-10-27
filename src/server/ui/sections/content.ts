@@ -93,6 +93,8 @@ function filterBar(
     </div>
     <select name="profile" aria-label="Filter by brand">
       <option value="">All brands</option>
+      ${active.profile && !brands.some((b) => b.key === active.profile)
+        ? html`<option value="${active.profile}" selected>${active.profile} (deleted)</option>` : ""}
       ${brandOpts}
     </select>
     <select name="status" aria-label="Filter by status">
