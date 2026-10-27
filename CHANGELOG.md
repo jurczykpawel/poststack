@@ -22,6 +22,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Dashboard fragment requests navigate to the login page when the session expires.
 - Long content titles fit within the page header, with the full title available on hover.
 - Instagram Business Login channel details show the messaging token expiry separately.
+- Startup now automatically reconciles schema changes on existing databases across all deployment environments.
 - Rule editing and duplication preserve keyword matching, priority, limits, and existing response settings.
 - REST resource paths and pagination cursors consistently reject invalid identifiers.
 - Content titles must contain text after trimming whitespace.

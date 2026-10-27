@@ -168,7 +168,7 @@ See `.env.example`. Required:
 | `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
 | `WEBHOOK_ALLOW_PRIVATE_TARGETS` | Optional. Default false. Webhook delivery (alert + outbound) is secure-by-default and blocks private/loopback/LAN targets; set true to allow an internal receiver (n8n/ntfy on the same Docker network/LAN). Cloud-metadata + link-local always blocked. |
 | `HISTORY_RETENTION_DAYS` | Optional. Compaction window in days; 0 = off; default 60; if set must be >= 30 |
-| `AI_DRAFT_DAILY_LIMIT` | Optional. Default `0` = unlimited. Caps **AI-drafted reply** generations per workspace over a rolling 24h window. The `ai_draft` feature is **PRO** and reuses the existing `AI_*` provider config (`AI_API_KEY` / `AI_MODEL` / `AI_BASE_URL`, **BYOK**). Schema ships inside migration `0004`; existing prod runs the one-time idempotent `priv/deploy/ai-draft-prod-delta.sql` at deploy (see docs/DEPLOY.md §2.4). |
+| `AI_DRAFT_DAILY_LIMIT` | Optional. Default `0` = unlimited. Caps **AI-drafted reply** generations per workspace over a rolling 24h window. The `ai_draft` feature is **PRO** and reuses the existing `AI_*` provider config (`AI_API_KEY` / `AI_MODEL` / `AI_BASE_URL`, **BYOK**). Schema ships inside migration `0004`; startup automatically applies the public idempotent deltas in `drizzle/reconcile/` for existing databases (see docs/DEPLOY.md §2.4). |
 
 ## Important Rules
 
@@ -180,6 +180,7 @@ See `.env.example`. Required:
 - **Every DB query scoped by workspace_id** — never query cross-workspace
 - **No secrets in commit messages** (public repo = public history)
 - **NEVER `npm install` on server** — always prebuild artifacts, deploy via Docker
+- **Folded migrations:** every schema change appended to the current release migration MUST also have an idempotent `drizzle/reconcile/NNNN_<slug>.sql` delta. `scripts/migrate.ts` runs these in filename order after Drizzle migrations, each in a transaction under the same advisory lock, on TEST/PROD/self-host. Repeated runs must preserve data and the final schema; use `npm run db:migrate:deploy` to run both stages.
 - **Schema: every status/state is an enum from day 1** — never a `String` with an enumerating comment, never a new boolean per state. Each `*_id` column has a Drizzle `foreignKey` with an explicit `onDelete`.
 
 ## Phases
