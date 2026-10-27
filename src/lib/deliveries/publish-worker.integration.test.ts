@@ -132,7 +132,7 @@ describe("publish worker (AUD27)", () => {
     const delivery = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
     const payload = delivery!.payload as import("@/lib/providers/types").PublishRequest;
     await db.update(schema.media).set({ duration_sec: 30 }).where(eq(schema.media.id, payload.media[0]!.mediaId));
-    await db.update(schema.deliveries).set({ payload: { ...payload, options: { publishMode: "direct", privacyLevel: "PUBLIC_TO_EVERYONE", disableComment: false, brandContentToggle: true } } }).where(eq(schema.deliveries.id, postId));
+    await db.update(schema.deliveries).set({ payload: { ...payload, options: { publishMode: "direct", privacyLevel: "PUBLIC_TO_EVERYONE", disableComment: true, brandContentToggle: true } } }).where(eq(schema.deliveries.id, postId));
     vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
     let body: Record<string, unknown> = {};
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -142,7 +142,7 @@ describe("publish worker (AUD27)", () => {
       return Response.json({ data: { publish_id: "direct_id" }, error: { code: "ok" } });
     }));
     await processPublish({ postId }, helpers);
-    expect(await status(postId)).toBe("sent");
+    expect(await status(postId)).toBe("processing");
     expect(body).toMatchObject({ source_info: { source: "PULL_FROM_URL", video_url: "https://cdn/x.mp4" }, post_info: { title: "hi", privacy_level: "PUBLIC_TO_EVERYONE", disable_comment: true, brand_content_toggle: true } });
   });
 
@@ -158,7 +158,7 @@ describe("publish worker (AUD27)", () => {
     });
     vi.stubGlobal("fetch", mock);
     await processPublish({ postId }, helpers);
-    expect(await status(postId)).toBe("failed");
+    expect(await status(postId)).toBe("held");
     const failed = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
     expect(failed!.last_error).toContain("duration exceeds 300");
     expect(mock).toHaveBeenCalledOnce();
@@ -793,4 +793,130 @@ it("declines an existing scheduled delivery when publishing permission is missin
   await processPublish({ postId }, helpers);
   expect(await status(postId)).toBe("failed");
   expect(fetch).not.toHaveBeenCalled();
+});
+
+describe("TikTok delivery lifecycle", () => {
+  const creator = { creator_nickname: "Creator", creator_avatar_url: "", privacy_level_options: ["SELF_ONLY"], comment_disabled: false, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 60 };
+  async function direct() {
+    const s = await scenario();
+    const row = (await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, s.postId) }))!;
+    const payload = { ...row.payload as object, options: { publishMode: "direct", privacyLevel: "SELF_ONLY", disableComment: false } };
+    await db.update(schema.deliveries).set({ payload }).where(eq(schema.deliveries.id, s.postId));
+    await db.update(schema.media).set({ duration_sec: 30 }).where(eq(schema.media.workspace_id, WS));
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
+    return s;
+  }
+  function http(info = creator, final = "PROCESSING_DOWNLOAD") {
+    const fn = vi.fn(async (url: unknown) => {
+      if (String(url).includes("creator_info")) return Response.json({ data: info, error: { code: "ok" } });
+      if (String(url).includes("status/fetch")) return Response.json({ data: { status: final, fail_reason: "duration_check_failed" }, error: { code: "ok" } });
+      if (String(url).includes("video/init")) return Response.json({ data: { publish_id: "tt-publish-1" }, error: { code: "ok" } });
+      throw new Error("Unexpected HTTP call");
+    });
+    vi.stubGlobal("fetch", fn);
+    return fn;
+  }
+  it("keeps accepted media processing, then records publication without another init", async () => {
+    const { postId } = await direct();
+    http();
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("processing");
+    const calls = http(creator, "PUBLISH_COMPLETE");
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("sent");
+    expect(calls).toHaveBeenCalledTimes(1);
+    expect(String(calls.mock.calls[0]![0])).toContain("status/fetch");
+  });
+  it("records a final processing failure with its reason", async () => {
+    const { postId } = await direct();
+    http();
+    await processPublish({ postId }, helpers);
+    http(creator, "FAILED");
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("failed");
+    expect((await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) }))!.last_error).toContain("duration_check_failed");
+  });
+  it("holds changed interactions and emits a notification without init", async () => {
+    const { postId } = await direct();
+    const calls = http({ ...creator, comment_disabled: true });
+    const alert = vi.spyOn(await import("@/lib/notifications/alert"), "dispatchAlert").mockResolvedValue();
+    await processPublish({ postId }, helpers);
+    expect(alert).toHaveBeenCalledWith(expect.objectContaining({ type: "delivery_held", workspaceId: WS, detail: expect.stringContaining(`/queue/${postId}/confirm`) }));
+    alert.mockRestore();
+    expect(await status(postId)).toBe("held");
+    expect(calls).toHaveBeenCalledTimes(1);
+    expect((await db.query.events.findMany({ where: eq(schema.events.type, "post.held") })).length).toBe(1);
+  });
+  it("always holds scheduled TikTok with the instance setting enabled", async () => {
+    const { postId } = await direct();
+    vi.stubEnv("TIKTOK_CONFIRM_AT_SEND", "true");
+    http();
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("held");
+  });
+  it.each(["privacy", "duration", "cannot_post"])("holds %s changes until explicit confirmation", async (kind) => {
+    const { postId, channelId } = await direct();
+    const calls = http(kind === "privacy" ? { ...creator, privacy_level_options: ["PUBLIC_TO_EVERYONE"] } : kind === "duration" ? { ...creator, max_video_post_duration_sec: 10 } : creator);
+    if (kind === "cannot_post") calls.mockImplementation(async () => Response.json({ error: { code: "spam_risk_too_many_posts" } }));
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("held");
+    expect(calls).toHaveBeenCalledTimes(1);
+    await drainChannel(channelId);
+    expect(await status(postId)).toBe("held");
+    const { rescheduleDelivery } = await import("./service");
+    await expect(rescheduleDelivery(postId, WS, new Date(Date.now() + 60_000).toISOString())).rejects.toMatchObject({ status: 409 });
+    http();
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("held");
+  });
+  it("valid confirmation queues exactly one send even with confirmation mode enabled", async () => {
+    const { postId } = await direct();
+    vi.stubEnv("TIKTOK_CONFIRM_AT_SEND", "true");
+    http();
+    await processPublish({ postId }, helpers);
+    const { confirmTikTokDelivery } = await import("./tiktok-confirmation");
+    const choices = { caption: "Confirmed caption", consent: true, disclosure: false, tiktokPublishMode: "direct", tiktokPrivacyLevel: "SELF_ONLY", tiktokDisableComment: true, tiktokDisableDuet: true, tiktokDisableStitch: true, tiktokBrandContentToggle: false, tiktokBrandOrganicToggle: false };
+    await expect(confirmTikTokDelivery(postId, WS, "user", { ...choices, consent: false })).rejects.toMatchObject({ status: 422 });
+    await expect(confirmTikTokDelivery(postId, WS, "user", { ...choices, tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE" })).rejects.toMatchObject({ status: 422 });
+    await expect(confirmTikTokDelivery(postId, "00000000-0000-0000-0000-000000000000", "user", choices)).rejects.toMatchObject({ status: 404 });
+    await confirmTikTokDelivery(postId, WS, "user", choices);
+    await expect(confirmTikTokDelivery(postId, WS, "user", choices)).rejects.toMatchObject({ status: 409 });
+    expect(await status(postId)).toBe("scheduled");
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("processing");
+    http(creator, "PUBLISH_COMPLETE");
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("sent");
+  });
+  it("retries status read failures without initializing another upload", async () => {
+    const { postId } = await direct();
+    http();
+    await processPublish({ postId }, helpers);
+    const calls = vi.fn(async (_url: unknown) => { throw new Error("offline"); });
+    vi.stubGlobal("fetch", calls);
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("processing");
+    expect(calls).toHaveBeenCalledTimes(1);
+    expect(String(calls.mock.calls[0]?.[0])).not.toContain("init");
+    http(creator, "PUBLISH_COMPLETE");
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("sent");
+  });
+
+  it("restores interrupted processing polls without another upload", async () => {
+    const { postId } = await direct();
+    http();
+    await processPublish({ postId }, helpers);
+    await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
+    await db.update(schema.deliveries).set({ updated_at: new Date(Date.now() - 10 * 60_000) }).where(eq(schema.deliveries.id, postId));
+    await stuckSendingSweep();
+    expect(await publishJobByKey(`publish:${postId}`)).not.toBeNull();
+    expect(await status(postId)).toBe("processing");
+    const calls = http(creator, "PUBLISH_COMPLETE");
+    await Promise.all([processPublish({ postId }, helpers), processPublish({ postId }, helpers)]);
+    expect(await status(postId)).toBe("sent");
+    expect(calls.mock.calls.every(([url]) => String(url).includes("status/fetch"))).toBe(true);
+    expect((await db.query.events.findMany({ where: eq(schema.events.type, "post.published") })).length).toBe(1);
+  });
+
 });

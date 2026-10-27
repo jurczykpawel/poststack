@@ -124,7 +124,7 @@ export function securityHeaders(): MiddlewareHandler {
     for (const [key, value] of Object.entries(STATIC_HEADERS)) {
       c.res.headers.set(key, value);
     }
-    const csp = LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : c.req.path === "/compose" ? COMPOSE_CSP : APP_CSP;
+    const csp = LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : (c.req.path === "/compose" || /^\/queue\/[^/]+\/confirm$/.test(c.req.path)) ? COMPOSE_CSP : APP_CSP;
     c.res.headers.set("Content-Security-Policy", csp);
     if (c.req.path.startsWith("/api/")) {
       c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");

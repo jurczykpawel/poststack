@@ -307,10 +307,10 @@ describe("TikTok Direct Post settings", () => {
     await publish({ privacyLevel: "SELF_ONLY" });
     expect(initBody(calls).post_info).toMatchObject({ disable_comment: true, disable_duet: true, disable_stitch: true, brand_content_toggle: false, brand_organic_toggle: false });
   });
-  it("forces disabled creator interactions off even when requested on", async () => {
+  it("requires confirmation when requested interactions are disabled", async () => {
     const calls = mockPublishing({ ...creatorInfo, comment_disabled: true, duet_disabled: true, stitch_disabled: true });
-    await publish({ privacyLevel: "SELF_ONLY", disableComment: false, disableDuet: false, disableStitch: false });
-    expect(initBody(calls).post_info).toMatchObject({ disable_comment: true, disable_duet: true, disable_stitch: true });
+    await expect(publish({ privacyLevel: "SELF_ONLY", disableComment: false, disableDuet: false, disableStitch: false })).rejects.toThrow(/Review and confirm/);
+    expect(calls).toHaveLength(1);
   });
   it("rejects branded content with private visibility before ingestion", async () => {
     const calls = mockPublishing();
@@ -329,7 +329,7 @@ describe("TikTok Direct Post settings", () => {
   });
   it("accepts duration equal to the creator limit", async () => {
     mockPublishing();
-    await expect(publish({ privacyLevel: "SELF_ONLY" }, 300)).resolves.toEqual({ providerHandle: "pub" });
+    await expect(publish({ privacyLevel: "SELF_ONLY" }, 300)).resolves.toEqual({ providerHandle: "pub", processing: true });
   });
   it("keeps the catalog ceiling when the creator allows longer videos", async () => {
     mockPublishing({ ...creatorInfo, max_video_post_duration_sec: 1200 });

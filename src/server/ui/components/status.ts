@@ -8,7 +8,7 @@ const CHANNEL_TONE: Record<string, [Tone, string]> = {
   paused: ["neutral", "Paused"], disabled: ["neutral", "Disabled"],
 };
 const POST_TONE: Record<string, Tone> = {
-  planned: "neutral", scheduled: "info", publishing: "info", sending: "info", sent: "ok",
+  planned: "neutral", scheduled: "info", publishing: "info", sending: "info", processing: "info", sent: "ok",
   published: "ok", published_external: "neutral", held: "warn",
   failed: "bad", canceled: "neutral", unknown: "warn", needs_attention: "warn",
 };

@@ -86,6 +86,7 @@ export interface SubAccount {
 }
 
 export interface PublishHandle {
+  processing?: boolean;
   providerHandle: string;
 }
 

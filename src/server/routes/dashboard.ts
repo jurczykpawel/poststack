@@ -2157,6 +2157,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         // Empty save = no-op (don't silently wipe a secret); use Clear to revert.
         return c.html(renderCredentials(await configStatus(), "Nothing changed — enter a value, or use Clear to revert to env."));
       }
+      if (key === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(value)) return c.html(renderCredentials(await configStatus(), "Choose On or Off for TikTok confirmation."), 422);
       await setConfig(key as Parameters<typeof setConfig>[0], value);
       msg = "Saved.";
     }
@@ -3094,8 +3095,11 @@ function renderCredentials(status: ConfigStatus[], msg?: string): Html {
       <div class="cred-form">
         <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
           <input type="hidden" name="key" value="${f.key}" />
-          <input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
-            placeholder="${f.secret ? "paste to set / change" : "value"}" />
+          ${f.key === "TIKTOK_CONFIRM_AT_SEND" ? html`<select class="input input-sm" name="value" aria-label="${f.label}">
+            <option value="false"${f.preview !== "true" ? raw(" selected") : ""}>Off — automatic after validation</option>
+            <option value="true"${f.preview === "true" ? raw(" selected") : ""}>On — always confirm at send time</option>
+          </select>` : html`<input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
+            placeholder="${f.secret ? "paste to set / change" : "value"}" />`}
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
         </form>
         ${f.source === "db"

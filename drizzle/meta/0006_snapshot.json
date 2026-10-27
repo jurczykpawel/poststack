@@ -2787,6 +2787,14 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "tiktok_confirmation": {
+          "name": "tiktok_confirmation",
+          "type": "tiktok_confirmation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'scheduled'"
         }
       },
       "indexes": {
@@ -7321,6 +7329,7 @@
       "values": [
         "scheduled",
         "sending",
+        "processing",
         "sent",
         "held",
         "unknown",
@@ -7534,6 +7543,16 @@
         "MUTUAL_FOLLOW_FRIENDS",
         "FOLLOWER_OF_CREATOR",
         "SELF_ONLY"
+      ]
+    },
+    "public.tiktok_confirmation": {
+      "name": "tiktok_confirmation",
+      "schema": "public",
+      "values": [
+        "scheduled",
+        "immediate",
+        "required",
+        "confirmed"
       ]
     }
   },

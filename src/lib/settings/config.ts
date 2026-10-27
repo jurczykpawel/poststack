@@ -89,6 +89,7 @@ export async function setConfig(key: ConfigKey, value: string): Promise<void> {
     await clearConfig(key);
     return;
   }
+  if (key === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(value)) throw new Error("TikTok confirmation must be true or false");
   const value_encrypted = encryptString(value);
   const dbc = await getDb();
   await dbc.insert(instanceSettings)

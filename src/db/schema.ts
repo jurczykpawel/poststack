@@ -1190,7 +1190,7 @@ export const instanceLicense = pgTable("instance_license", {
 // ─── Publishing engine (ported from PostStack, made workspace-scoped) ──────────────────────────
 
 export const mediaStatus = pgEnum("media_status", ['uploading', 'probing', 'ready', 'failed'])
-export const deliveryStatus = pgEnum("delivery_status", ['scheduled', 'sending', 'sent', 'held', 'unknown', 'failed', 'canceled'])
+export const deliveryStatus = pgEnum("delivery_status", ['scheduled', 'sending', 'processing', 'sent', 'held', 'unknown', 'failed', 'canceled'])
 
 // A publishing brand (e.g. techskills.academy) — the grouping unit above channels WITHIN a workspace.
 // Cross-platform: a brand groups channels from different platforms (and both publish + reply roles).
@@ -1242,6 +1242,8 @@ export const media = pgTable("media", {
 
 // The publish ledger / execution job (AUD27 crash-safe state machine). Separate from the inbound
 // `outbound_deliveries` (reply sends) — this is the publish side.
+export const tiktokConfirmation = pgEnum("tiktok_confirmation", ['scheduled', 'immediate', 'required', 'confirmed']);
+
 export const deliveries = pgTable("deliveries", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
@@ -1249,6 +1251,7 @@ export const deliveries = pgTable("deliveries", {
 	format: text("format").notNull(),
 	status: deliveryStatus().default('scheduled').notNull(),
 	payload: jsonb("payload").notNull(), // normalized PublishRequest
+	tiktok_confirmation: tiktokConfirmation().default("scheduled").notNull(),
 	payload_version: integer("payload_version").default(1).notNull(),
 	idempotency_key: text("idempotency_key"),
 	scheduled_at: timestamp("scheduled_at", { precision: 3, mode: 'date' }).notNull(),

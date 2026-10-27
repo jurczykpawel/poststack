@@ -1,4 +1,4 @@
-import { and, eq, asc, gt, inArray } from "drizzle-orm";
+import { and, eq, asc, gt, inArray, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, messages, conversations, outboundDeliveries, deliveries, posts } from "@/db/schema";
 import { addJob, addJobTx } from "@/lib/queue/client";
@@ -72,7 +72,7 @@ function anchorFor(
 export async function drainChannel(channelId: string, now: Date = new Date()): Promise<DrainResult> {
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, channelId),
-    columns: { id: true, status: true },
+    columns: { id: true, workspace_id: true, status: true },
   });
   if (!channel) return { enqueued: 0, expired: 0, skipped: "not_found" };
   if (channel.status !== "active") return { enqueued: 0, expired: 0, skipped: channel.status };
@@ -158,14 +158,18 @@ export async function drainChannel(channelId: string, now: Date = new Date()): P
   const heldPublish = await db
     .select({ id: deliveries.id })
     .from(deliveries)
-    .where(and(eq(deliveries.channel_id, channelId), eq(deliveries.status, "held")));
+    .where(and(eq(deliveries.channel_id, channelId), eq(deliveries.workspace_id, channel.workspace_id), eq(deliveries.status, "held"), ne(deliveries.tiktok_confirmation, "required")));
   for (const d of heldPublish) {
-    await db.transaction(async (tx) => {
-      await tx.update(deliveries).set({ status: "scheduled", run_at: now, updated_at: now }).where(eq(deliveries.id, d.id));
-      await tx.update(posts).set({ status: "scheduled", updated_at: now }).where(eq(posts.delivery_id, d.id));
+    const changed = await db.transaction(async (tx) => {
+      await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.delivery_id, d.id), eq(posts.workspace_id, channel.workspace_id))).orderBy(posts.id).for("update");
+      const rows = await tx.update(deliveries).set({ status: "scheduled", run_at: now, updated_at: now })
+        .where(and(eq(deliveries.id, d.id), eq(deliveries.workspace_id, channel.workspace_id), eq(deliveries.status, "held"), ne(deliveries.tiktok_confirmation, "required"))).returning({ id: deliveries.id });
+      if (!rows.length) return false;
+      await tx.update(posts).set({ status: "scheduled", updated_at: now }).where(and(eq(posts.delivery_id, d.id), eq(posts.workspace_id, channel.workspace_id)));
       await addJobTx(tx, "publish", { postId: d.id }, { runAt: now, jobKey: `publish:${d.id}` });
+      return true;
     });
-    enqueued++;
+    if (changed) enqueued++;
   }
 
   return { enqueued, expired };

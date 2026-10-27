@@ -81,7 +81,7 @@ describe("TikTok direct publish creator query", () => {
   });
   it("stops before publish initialization when the creator cannot post", async () => {
     const mock = reply({ error: { code: "spam_risk_too_many_posts" } });
-    await expect(publish()).rejects.toMatchObject({ kind: "rate_limited", phase: "pre_commit" });
+    await expect(publish()).rejects.toMatchObject({ name: "ConfirmationRequiredError" });
     expect(mock).toHaveBeenCalledTimes(1);
     expect(mock.mock.calls[0][0]).toContain("creator_info/query/");
   });

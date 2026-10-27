@@ -130,3 +130,53 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(page.locator('button[type="submit"]')).toBeDisabled();
   });
 }
+
+for (const width of [1440, 390]) {
+  test(`held TikTok confirmation and processing at ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await creatorToken("available");
+    const client = new Client({ connectionString: E2E_DATABASE_URL });
+    await client.connect();
+    let id = "";
+    try {
+      const { rows } = await client.query(`INSERT INTO deliveries (workspace_id,channel_id,format,status,tiktok_confirmation,payload,scheduled_at,last_error)
+        SELECT c.workspace_id,c.id,'video','held','required',jsonb_build_object('format','video','caption','Scheduled caption','media',jsonb_build_array(jsonb_build_object('mediaId',m.id)),'options',jsonb_build_object('publishMode','direct','privacyLevel','SELF_ONLY')),now(),'TikTok settings changed. Review and confirm again.'
+        FROM channels c JOIN media m ON m.workspace_id=c.workspace_id AND m.url='https://cdn.example.test/tt3.mp4' WHERE c.platform_id='tt_e2e_1' LIMIT 1 RETURNING id`);
+      id = rows[0].id;
+      await page.goto(`/queue/${id}`);
+      await page.getByRole("link", { name: "Review TikTok settings" }).click();
+      const panel = page.getByRole("region", { name: "TikTok publishing" });
+      await expect(panel.getByText("TT3 Creator", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("TikTok privacy")).toHaveValue("");
+      await expect(panel.getByLabel("Allow Comment", { exact: true })).not.toBeChecked();
+      await expect(panel.getByLabel("Allow Comment", { exact: true })).toBeDisabled();
+      const submit = page.getByRole("button", { name: "Publish now", exact: true });
+      await expect(submit).toBeDisabled();
+      await page.getByLabel("TikTok privacy").selectOption("SELF_ONLY");
+      await page.getByLabel("TikTok caption", { exact: true }).fill("Current confirmed caption");
+      await panel.getByLabel("I confirm this TikTok submission with these settings.").check();
+      await expect(submit).toBeEnabled();
+      await page.getByLabel("TikTok caption", { exact: true }).fill("Final confirmed caption");
+      await expect(submit).toBeDisabled();
+      await panel.getByLabel("I confirm this TikTok submission with these settings.").check();
+      await expect.poll(() => panel.getByLabel("TikTok video preview").evaluate((el) => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(1);
+      await page.screenshot({ path: testInfo.outputPath(`confirmation-${width}.png`), fullPage: true });
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await submit.click();
+      await expect(page).toHaveURL(new RegExp(`/queue/${id}$`));
+      const saved = await client.query("SELECT status,tiktok_confirmation,payload FROM deliveries WHERE id=$1", [id]);
+      expect(saved.rows[0]).toMatchObject({ status: "scheduled", tiktok_confirmation: "confirmed", payload: { caption: "Final confirmed caption", options: { privacyLevel: "SELF_ONLY", disableComment: true } } });
+      await client.query("UPDATE deliveries SET status='processing',provider_handle='tt-processing-1' WHERE id=$1", [id]);
+      await page.reload();
+      await expect(page.locator("#post-detail-head").getByText("processing", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath(`processing-${width}.png`), fullPage: true });
+      expect(errors).toEqual([]);
+    } finally {
+      if (id) await client.query("DELETE FROM deliveries WHERE id=$1", [id]);
+      await client.end();
+    }
+  });
+}

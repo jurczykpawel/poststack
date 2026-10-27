@@ -31,3 +31,12 @@ ALTER TABLE "posts" ADD COLUMN "tiktok_brand_content_toggle" boolean;
 ALTER TABLE "posts" ADD COLUMN "tiktok_brand_organic_toggle" boolean;
 --> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "tiktok_cover_timestamp_ms" integer;
+
+--> statement-breakpoint
+ALTER TYPE "delivery_status" ADD VALUE IF NOT EXISTS 'processing';
+--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "tiktok_confirmation" AS ENUM ('scheduled', 'immediate', 'required', 'confirmed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+--> statement-breakpoint
+ALTER TABLE "deliveries" ADD COLUMN IF NOT EXISTS "tiktok_confirmation" "tiktok_confirmation" DEFAULT 'scheduled' NOT NULL;
