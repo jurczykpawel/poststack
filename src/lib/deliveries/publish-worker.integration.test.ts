@@ -53,7 +53,7 @@ beforeEach(async () => {
   await db.delete(schema.channels).where(eq(schema.channels.workspace_id, WS));
   await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 const helpers = { logger: { info() {}, error() {} } } as unknown as JobHelpers;
 
@@ -127,6 +127,43 @@ async function publishJobByKey(jobKey: string): Promise<{ run_at: string } | nul
 }
 
 describe("publish worker (AUD27)", () => {
+  it("publishes Direct Post with saved settings and registered duration", async () => {
+    const { postId } = await scenario();
+    const delivery = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+    const payload = delivery!.payload as import("@/lib/providers/types").PublishRequest;
+    await db.update(schema.media).set({ duration_sec: 30 }).where(eq(schema.media.id, payload.media[0]!.mediaId));
+    await db.update(schema.deliveries).set({ payload: { ...payload, options: { publishMode: "direct", privacyLevel: "PUBLIC_TO_EVERYONE", disableComment: false, brandContentToggle: true } } }).where(eq(schema.deliveries.id, postId));
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("creator_info/query/")) return Response.json({ data: { creator_nickname: "Creator", creator_avatar_url: "https://example.com/avatar", privacy_level_options: ["PUBLIC_TO_EVERYONE"], comment_disabled: true, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 300 }, error: { code: "ok" } });
+      if (!url.includes("/post/publish/video/init/")) throw new Error("Unexpected request");
+      body = JSON.parse(String(init?.body));
+      return Response.json({ data: { publish_id: "direct_id" }, error: { code: "ok" } });
+    }));
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("sent");
+    expect(body).toMatchObject({ source_info: { source: "PULL_FROM_URL", video_url: "https://cdn/x.mp4" }, post_info: { title: "hi", privacy_level: "PUBLIC_TO_EVERYONE", disable_comment: true, brand_content_toggle: true } });
+  });
+
+  it("passes registered media duration to the real TikTok provider before initialization", async () => {
+    const { postId } = await scenario();
+    const delivery = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+    const payload = delivery!.payload as import("@/lib/providers/types").PublishRequest;
+    await db.update(schema.media).set({ duration_sec: 301 }).where(eq(schema.media.id, payload.media[0]!.mediaId));
+    await db.update(schema.deliveries).set({ payload: { ...payload, options: { publishMode: "direct", privacyLevel: "SELF_ONLY", durationSec: 1 } } }).where(eq(schema.deliveries.id, postId));
+    const mock = vi.fn(async (url: string) => {
+      if (!url.includes("creator_info/query/")) throw new Error("Unexpected publish initialization");
+      return Response.json({ data: { creator_nickname: "Creator", creator_avatar_url: "https://example.com/avatar", privacy_level_options: ["SELF_ONLY"], comment_disabled: false, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 300 }, error: { code: "ok" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("failed");
+    const failed = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+    expect(failed!.last_error).toContain("duration exceeds 300");
+    expect(mock).toHaveBeenCalledOnce();
+  });
+
   it("scheduled + healthy -> sent, stores provider_handle", async () => {
     if (!TEST_DB) return;
     const { postId } = await scenario();

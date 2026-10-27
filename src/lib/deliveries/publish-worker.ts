@@ -16,7 +16,7 @@ import { firstCommentEligibility } from "./first-comment";
 import { processTokenRefresh } from "@/lib/channels/token-refresh";
 import { emitEventNow } from "@/lib/events";
 import type { PublishRequest } from "@/lib/providers/types";
-import { resolveMedia } from "./resolve-media";
+import { resolveMediaDetails } from "./resolve-media";
 import { redactSecrets } from "@/lib/redact";
 import { disclosureForPlatform } from "@/lib/ai-disclosure/mapping";
 import type { AiDisclosureLevel } from "@/db/schema";
@@ -330,8 +330,11 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   // Pre-mutation step: resolving media happens BEFORE any external publish call (PSA2-safe).
   const request = post.payload as PublishRequest;
   let mediaUrls: string[];
+  let mediaDurationsSec: (number | null)[];
   try {
-    mediaUrls = await resolveMedia(request.media, ws);
+    const media = await resolveMediaDetails(request.media, ws);
+    mediaUrls = media.map(m => m.url);
+    mediaDurationsSec = media.map(m => m.durationSec);
   } catch (err) {
     if (err instanceof PermanentError) {
       await failDelivery(postId, ws, err.message);
@@ -347,6 +350,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       accountId: channel.platform_id,
       request,
       mediaUrls,
+      mediaDurationsSec,
       channelMetadata,
     });
     await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });

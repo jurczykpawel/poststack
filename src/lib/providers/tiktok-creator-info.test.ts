@@ -7,7 +7,7 @@ const info = {
   privacy_level_options: ["SELF_ONLY"], comment_disabled: false, duet_disabled: true,
   stitch_disabled: false, max_video_post_duration_sec: 300,
 };
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 function reply(body: unknown, status = 200) {
   const mock = vi.fn().mockResolvedValue(Response.json(body, { status }));
   vi.stubGlobal("fetch", mock);
@@ -63,11 +63,12 @@ describe("TikTok direct publish creator query", () => {
     const { tiktokProvider } = await import("./tiktok");
     return tiktokProvider.publish({
       tokens: { accessToken: "token" }, accountId: "creator",
-      request: { format: "video", media: [{ mediaId: "m" }], options: { publishMode: "direct", ingestion: "pull_url" } },
-      mediaUrls: ["https://example.com/video.mp4"],
+      request: { format: "video", media: [{ mediaId: "m" }], options: { publishMode: "direct", privacyLevel: "SELF_ONLY" } },
+      mediaUrls: ["https://example.com/video.mp4"], mediaDurationsSec: [30],
     });
   };
   it("queries creator info before every direct publication", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://example.com/");
     const mock = vi.fn(async (url: string) => Response.json({
       data: url.includes("creator_info") ? info : { publish_id: "pub" }, error: { code: "ok" },
     }));

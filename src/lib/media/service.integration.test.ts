@@ -74,6 +74,21 @@ function stubFetch() {
 }
 
 describe("media registerByUrl (real Postgres, workspace-scoped)", () => {
+  it("fills missing duration when re-registering an older video without changing its identity", async () => {
+    const storage = stubFetch();
+    const deps = { storage, probe: fakeProbe, resolve: async () => ["8.8.8.8"] };
+    try {
+      const original = await registerByUrl("https://cdn.test/source.mp4", deps, WS);
+      await db.update(schema.media).set({ duration_sec: null }).where(eq(schema.media.id, original.id));
+      const repaired = await registerByUrl("https://cdn.test/source.mp4", deps, WS);
+      expect(repaired.id).toBe(original.id);
+      expect(repaired.duration_sec).toBe(12);
+      expect(repaired.url).toBe(original.url);
+      const unchanged = await registerByUrl("https://cdn.test/source.mp4", { ...deps, probe: async () => ({ kind: "video", durationSec: 99 }) }, WS);
+      expect(unchanged.duration_sec).toBe(12);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("ingests a public URL, stores content-addressed, and probes metadata", async () => {
     if (!TEST_DB) return;
     const storage = stubFetch();
@@ -162,6 +177,19 @@ describe("media registerByUrl (real Postgres, workspace-scoped)", () => {
 });
 
 describe("media registerKnownMedia (link by reference, no re-upload, workspace-scoped)", () => {
+  it("fills missing duration on an existing media reference once", async () => {
+    const storage = new InMemoryStorage("https://cdn.test");
+    const checksum = "c".repeat(64);
+    const key = casKey(checksum, "video/mp4");
+    await storage.putBytes(key, bytes, "video/mp4");
+    const input = { checksum, mime: "video/mp4", kind: "video" as const };
+    const original = await registerKnownMedia(input, { storage }, WS);
+    const repaired = await registerKnownMedia({ ...input, durationSec: 30 }, { storage }, WS);
+    expect(repaired.id).toBe(original.id);
+    expect(repaired.duration_sec).toBe(30);
+    expect((await registerKnownMedia({ ...input, durationSec: 60 }, { storage }, WS)).duration_sec).toBe(30);
+  });
+
   const CHK = "a".repeat(64);
 
   it("links an object already in the bucket without fetching — row points at the CAS key", async () => {

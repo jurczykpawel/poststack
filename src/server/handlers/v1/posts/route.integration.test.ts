@@ -90,6 +90,21 @@ async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null 
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
+  it("persists TikTok choices through create, list, read and patch with workspace isolation", async () => {
+    const options = { tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE", tiktokDisableComment: false, tiktokDisableDuet: true, tiktokDisableStitch: false, tiktokBrandContentToggle: true, tiktokBrandOrganicToggle: false, tiktokCoverTimestampMs: 1234 };
+    const { res, json } = await createOne({ platform: "tiktok", ...options });
+    expect(res.status).toBe(201);
+    expect(json.data).toMatchObject(options);
+    expect((await (await call("GET", `/posts/${json.data.id}`)).json()).data).toMatchObject(options);
+    expect((await (await call("GET", "/posts")).json()).data.items[0]).toMatchObject(options);
+    expect((await call("PATCH", `/posts/${json.data.id}`, { tiktokPrivacyLevel: "SELF_ONLY" }, OTHER_KEY)).status).toBe(404);
+    const cleared = await (await call("PATCH", `/posts/${json.data.id}`, { tiktokPrivacyLevel: null, tiktokBrandContentToggle: false })).json();
+    expect(cleared.data).toMatchObject({ tiktokPrivacyLevel: null, tiktokPublishMode: "direct", tiktokBrandContentToggle: false });
+  });
+  it.each([{ tiktokPrivacyLevel: "invalid" }, { tiktokPublishMode: "auto" }, { tiktokDisableComment: "false" }, { tiktokCoverTimestampMs: -1 }])("rejects invalid TikTok options %j", async options => {
+    expect((await createOne({ platform: "tiktok", ...options })).res.status).toBe(422);
+  });
+
   it("requires content from the post workspace on create", async () => {
     const content = await (await call("POST", "/content", { title: "Shared material" })).json();
     const contentId = content.data.id;

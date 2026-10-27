@@ -49,6 +49,14 @@ export const openApiSpec = {
         type: "object",
         properties: {
           id: { type: "string", format: "uuid" },
+          tiktokPublishMode: { type: ["string", "null"], enum: ["inbox", "direct", null], description: "Null uses inbox/draft. Direct Post requires an explicit privacy choice and current creator permissions." },
+          tiktokPrivacyLevel: { type: ["string", "null"], enum: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY", null], description: "No default; checked against creator privacy_level_options before Direct Post." },
+          tiktokDisableComment: { type: ["boolean", "null"], description: "Null disables comments; creator restrictions take precedence." },
+          tiktokDisableDuet: { type: ["boolean", "null"], description: "Null disables Duets; creator restrictions take precedence." },
+          tiktokDisableStitch: { type: ["boolean", "null"], description: "Null disables Stitches; creator restrictions take precedence." },
+          tiktokBrandContentToggle: { type: ["boolean", "null"], description: "Paid partnership; cannot use SELF_ONLY. Null means off." },
+          tiktokBrandOrganicToggle: { type: ["boolean", "null"], description: "Promotes the creator's own business. Null means off." },
+          tiktokCoverTimestampMs: { type: ["integer", "null"], minimum: 0, maximum: 2147483647 },
           scheduledDate: { type: ["string", "null"], format: "date-time", description: "Also set when publishing with a future when; immediate publish leaves it unchanged." },
           delivery: {
             type: ["object", "null"],
@@ -367,7 +375,8 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Create an editorial post",
         description:
-          "Body also accepts youtubePrivacy/youtubeTags/youtubeCategoryId/youtubeMadeForKids (YouTube publish " +
+          "Body accepts tiktokPublishMode/tiktokPrivacyLevel/tiktokDisableComment/tiktokDisableDuet/tiktokDisableStitch/" +
+          "tiktokBrandContentToggle/tiktokBrandOrganicToggle/tiktokCoverTimestampMs (saved TikTok choices), and youtubePrivacy/youtubeTags/youtubeCategoryId/youtubeMadeForKids (YouTube publish " +
           "options) and aiDisclosure/aiDisclosureNote (declared AI-involvement level + optional in-content note; " +
           "the resulting per-platform disclosure evidence is server-written, not accepted here).",
         responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } },

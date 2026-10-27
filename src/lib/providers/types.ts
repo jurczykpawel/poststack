@@ -113,6 +113,8 @@ export interface Provider {
     accountId: string;
     request: PublishRequest;
     mediaUrls: string[];
+    /** Duration from the workspace-scoped media registry, in mediaUrls order. */
+    mediaDurationsSec?: (number | null)[];
     /** Channel-level provider data (e.g. Meta { subKind: "facebook_page" | "instagram" }) for routing. */
     channelMetadata?: Record<string, unknown>;
   }): Promise<PublishHandle>;

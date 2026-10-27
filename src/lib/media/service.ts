@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { media } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
@@ -18,6 +18,15 @@ export interface ProbeResult {
 export type Prober = (bytes: Uint8Array, mime: string | undefined) => Promise<ProbeResult>;
 
 export type MediaRow = typeof media.$inferSelect;
+
+async function fillMissingDuration(row: MediaRow, durationSec?: number): Promise<MediaRow> {
+  if (row.kind !== "video" || row.duration_sec != null || durationSec == null) return row;
+  const [updated] = await db.update(media).set({ duration_sec: durationSec })
+    .where(and(eq(media.id, row.id), eq(media.workspace_id, row.workspace_id), isNull(media.duration_sec)))
+    .returning();
+  return updated ?? (await getMedia(row.id, row.workspace_id)) ?? row;
+}
+
 
 // PSA32: realistic platform-max default (overridable), paired with the ingest semaphore + fetch timeout.
 const MAX_BYTES = Number(process.env.MEDIA_MAX_BYTES ?? 256 * 1024 * 1024);
@@ -60,7 +69,10 @@ export async function registerByUrl(
     const existing = await db.query.media.findFirst({
       where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, checksum)),
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.kind !== "video" || existing.duration_sec != null) return existing;
+      return fillMissingDuration(existing, (await deps.probe(buf, headerMime)).durationSec);
+    }
 
     const probe = await deps.probe(buf, headerMime);
     const mime = probe.mime ?? headerMime;
@@ -135,7 +147,7 @@ export async function registerKnownMedia(
   const existing = await db.query.media.findFirst({
     where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum)),
   });
-  if (existing) return existing;
+  if (existing) return fillMissingDuration(existing, m.durationSec);
 
   const key = casKey(m.checksum, m.mime);
 
