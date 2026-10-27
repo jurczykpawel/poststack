@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { inArray, eq } from "drizzle-orm";
@@ -64,6 +65,28 @@ afterAll(async () => {
 const authHeaders = { authorization: `Bearer ${RAW_KEY}` };
 
 describe("v1 delegation parity (real Postgres)", () => {
+  it("returns client errors for malformed IDs and cursors", async () => {
+    const router = readFileSync(new URL("./v1.ts", import.meta.url), "utf8");
+    const routes = [...router.matchAll(/v1\.(get|post|patch|delete)\("([^"\n]+)"/g)];
+    for (const [, method, pattern] of routes) {
+      if (!/:[a-zA-Z]+Id/.test(pattern!)) continue;
+      for (const name of pattern!.match(/:[a-zA-Z]+Id/g)!) {
+        const path = pattern!.replace(/:[a-zA-Z]+Id/g, (param) => param === name ? "ac950305-2d1a-4152-ba37-ca09242fe35z" : CH_A);
+        const res = await app.request(`/api/v1${path}`, { method: method!.toUpperCase(), headers: authHeaders });
+        expect(res.status, `${method} ${path}`).toBe(404);
+        expect((await res.json()).error.code).toBe("not_found");
+      }
+    }
+    for (const path of ["posts", "content"]) {
+      const cursor = Buffer.from(JSON.stringify(["2026-06-09T10:00:00.000Z", "not-uuid"])).toString("base64url");
+      expect((await app.request(`/api/v1/${path}?cursor=${cursor}`, { headers: authHeaders })).status).toBe(422);
+    }
+    for (const path of ["contacts", "conversations"]) {
+      const cursor = Buffer.from(JSON.stringify({ t: null, i: "not-uuid" })).toString("base64url");
+      expect((await app.request(`/api/v1/${path}?cursor=${cursor}`, { headers: authHeaders })).status).toBe(422);
+    }
+  });
+
   it("lists channels for the key's workspace with the {data} envelope", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api/v1/channels", { headers: authHeaders });

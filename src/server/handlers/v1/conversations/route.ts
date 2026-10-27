@@ -1,3 +1,4 @@
+import { isUuid } from "@/lib/api/identifiers";
 import { and, eq, lt, or, isNull, desc, sql, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -24,7 +25,7 @@ function encodeCursor(ts: Date | null, id: string): string {
 function decodeCursor(c: string): { ts: Date | null; id: string } | null {
   try {
     const o = JSON.parse(Buffer.from(c, "base64url").toString("utf8")) as { t: unknown; i: unknown };
-    if (typeof o.i !== "string") return null;
+    if (!isUuid(o.i)) return null;
     if (o.t !== null && (typeof o.t !== "string" || Number.isNaN(Date.parse(o.t)))) return null;
     return { ts: o.t === null ? null : new Date(o.t as string), id: o.i };
   } catch {

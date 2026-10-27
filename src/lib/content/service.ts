@@ -59,7 +59,7 @@ function mapFields(
 function keyset(args: { cursor?: string; sort?: string; createdAt: PgColumn; id: PgColumn }) {
   const dir = parseSort(args.sort, ["created_at"])[0]?.dir ?? "desc";
   const cur = args.cursor ? decodeCursor(args.cursor) : null;
-  if (args.cursor && !cur) throw new ApiError("invalid_request", "Invalid cursor", 400);
+  if (args.cursor && !cur) throw new ApiError("validation_error", "Invalid cursor", 422, [{ path: "cursor", message: "Invalid cursor" }]);
   const ts = sql`date_trunc('milliseconds', ${args.createdAt})`;
   const where: SQL | undefined = cur
     ? dir === "desc"

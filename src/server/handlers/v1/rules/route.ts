@@ -95,6 +95,7 @@ export const createRuleSchema = z
   .object({
     name: z.string().min(1).max(100),
     channel_id: z.string().uuid().optional().nullable(),
+    is_active: z.boolean().default(true),
     priority: z.number().int().min(0).max(999).default(0),
     trigger_type: z.enum([
       "keyword",
@@ -276,7 +277,7 @@ export async function POST(request: Request) {
     .select({ n: count() })
     .from(autoReplyRules)
     .where(and(eq(autoReplyRules.workspace_id, auth.workspaceId), eq(autoReplyRules.is_active, true)));
-  if (activeRuleCount >= MAX_ACTIVE_RULES) {
+  if (parsed.data.is_active && activeRuleCount >= MAX_ACTIVE_RULES) {
     return ApiErrors.validationError([{ path: "", message: `Workspace has reached the maximum of ${MAX_ACTIVE_RULES} active rules` }]);
   }
 
@@ -286,6 +287,7 @@ export async function POST(request: Request) {
       workspace_id: auth.workspaceId,
       name: parsed.data.name,
       channel_id: parsed.data.channel_id ?? null,
+      is_active: parsed.data.is_active,
       priority: parsed.data.priority,
       trigger_type: parsed.data.trigger_type,
       trigger_config: parsed.data.trigger_config,

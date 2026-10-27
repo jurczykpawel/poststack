@@ -101,6 +101,16 @@ async function seedMapped() {
 }
 
 describe("content cockpit", () => {
+  it("rejects descriptions beyond the API limit without saving", async () => {
+    const { contentId, postId } = await seedMapped();
+    const before = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    const res = await app.request(`/content/${contentId}/posts/${postId}/description`, {
+      method: "POST", headers: htmx, body: new URLSearchParams({ description: "x".repeat(20001) }),
+    });
+    expect(await res.text()).toContain("20000");
+    expect((await db.query.posts.findFirst({ where: eq(posts.id, postId) }))!.description).toBe(before!.description);
+  });
+
   it("redirects to login without a session", async () => {
     if (!TEST_DB) return;
     expect((await app.request("/content")).status).toBe(302);

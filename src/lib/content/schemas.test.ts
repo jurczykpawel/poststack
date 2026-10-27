@@ -87,3 +87,9 @@ describe("content schemas", () => {
     expect("aiDisclosureSent" in parsed).toBe(false);
   });
 });
+
+it("requires a nonblank content title on create and patch", () => {
+  expect(contentCreate.safeParse({ title: "   " }).success).toBe(false);
+  expect(contentPatch.safeParse({ title: " \t " }).success).toBe(false);
+  expect(contentCreate.parse({ title: "  Title  " }).title).toBe("Title");
+});
