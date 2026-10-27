@@ -2569,7 +2569,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             : html`<p class="muted" style="font-size:.82rem">Webhook delivery stats (totals by outcome) are a ${proLink(upgradeUrl, "PRO")} feature.</p>`}
           <div class="card" style="margin:.75rem 0">
             <div class="muted" style="font-size:.8rem;margin-bottom:.2rem">Your inbound webhook URL (paste into your Meta app)</div>
-            <code class="mono">${env.APP_URL}/api/webhooks/meta</code>
+            <code class="mono" style="overflow-wrap:anywhere">${env.APP_URL}/api/webhooks/meta</code>
           </div>
           <details class="card" style="font-size:.82rem;margin-bottom:.75rem">
             <summary style="cursor:pointer;font-weight:600">What do the statuses mean?</summary>
