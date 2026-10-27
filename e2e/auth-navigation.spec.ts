@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
 for (const width of [1440, 390]) {
@@ -36,7 +37,9 @@ for (const width of [1440, 390]) {
       await expect(page).toHaveURL(/\/inbox$/);
       await expect(page.locator(".topbar-actions")).toBeVisible();
     }
-    await testInfo.attach("document-navigation", { body: JSON.stringify({ documents, lifecycle, errors }, null, 2), contentType: "application/json" });
+    const evidence = testInfo.outputPath("document-navigation.json");
+    writeFileSync(evidence, JSON.stringify({ documents, lifecycle, errors }, null, 2));
+    await testInfo.attach("document-navigation", { path: evidence, contentType: "application/json" });
     expect(errors).toEqual([]);
   });
 }
@@ -54,12 +57,14 @@ test.describe("publishing guidance", () => {
     page.on("pageerror", (error) => errors.push(error.message));
     try {
       await page.goto("/compose");
-      await page.getByLabel("Brand", { exact: true }).selectOption(key);
+      await page.getByRole("button", { name: "Brand", exact: true }).click();
+      await page.getByRole("option", { name: "Empty guidance", exact: true }).click();
       const empty = page.getByRole("status").filter({ hasText: "This brand has no channels" });
       await expect(empty).toBeVisible();
       await expect(empty.getByRole("link", { name: "Brands", exact: true })).toHaveAttribute("href", "/brands");
       await page.screenshot({ path: testInfo.outputPath("empty-brand.png"), fullPage: true });
-      await page.getByLabel("Brand", { exact: true }).selectOption("e2e-brand");
+      await page.getByRole("button", { name: "Brand", exact: true }).click();
+      await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
       await expect(empty).toBeHidden();
       await page.getByRole("button", { name: "Schedule", exact: true }).click();
       await page.locator('input[type="datetime-local"]').fill("2027-03-28T02:30");
