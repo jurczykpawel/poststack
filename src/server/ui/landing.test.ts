@@ -94,3 +94,20 @@ describe("runtime instance landing", () => {
     expect(asset.headers.get('cache-control')).toContain('immutable');
   });
 });
+
+describe("runtime instance discovery documents", () => {
+  it("uses the instance name and origin in crawler documents", async () => {
+    const { DEFAULT_BRAND, withBrand } = await import("@/lib/brand");
+    const brand = { ...DEFAULT_BRAND, name: "Orchard", publicUrl: "https://orchard.example", contactEmail: "hi@orchard.example" };
+    for (const path of ["robots.txt", "llms.txt", "sitemap-index.xml", "sitemap-0.xml"]) {
+      const response = await withBrand(brand, () => app.request('/raw?p=' + path));
+      expect(response.status, path).toBe(200);
+      const body = await response.text();
+      expect(body, path).toContain("https://orchard.example");
+      expect(body, path).not.toContain("PostStack");
+      expect(body, path).not.toContain("poststack.techskills.academy");
+      expect(body, path).not.toContain("License checkout");
+      if (path === "llms.txt") expect(body).toContain("# Orchard");
+    }
+  });
+});

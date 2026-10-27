@@ -1,5 +1,5 @@
 import { isWhiteLabel } from "@/lib/brand";
-import { brandedLanding } from "./landing-branding";
+import { brandedLanding, brandedDiscovery } from "./landing-branding";
 import type { Context } from "hono";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
@@ -68,6 +68,8 @@ export async function serveLandingFile(c: Context, rel: string): Promise<Respons
     const cache = safe.startsWith("_astro/")
       ? "public, max-age=31536000, immutable"
       : "public, max-age=0, must-revalidate";
+    const discovery = isWhiteLabel() ? await brandedDiscovery(safe) : null;
+    if (discovery !== null) return c.body(discovery, 200, { "content-type": type, "cache-control": cache });
     if (ext === ".html") {
       const source = await readFile(join(ROOT(), safe), "utf8");
       const html = isWhiteLabel() ? await brandedLanding(source, safe) : injectAnalyticsConfig(source);

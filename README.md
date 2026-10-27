@@ -537,7 +537,8 @@ identity is used, including when a license expires. `BRAND_NAME` alone no longer
 Changes apply on the next request, with up to 30 seconds for other web/worker processes to refresh.
 The public homepage uses an instance page without built-in marketing images; Privacy and Terms reuse
 the built legal content in the instance shell at serving time, so no image rebuild is needed. The
-white-label public pages load no analytics. Set `APP_URL` and provider callback registrations to the
+white-label public pages load no analytics. Crawler documents (`robots.txt`, sitemaps and `llms.txt`)
+also use the configured identity and origin. Set `APP_URL` and provider callback registrations to the
 actual installation origin as usual; the branding origin supplies public links and does not change
 OAuth destinations or license-domain binding. Cookie names, API prefixes and signed webhook header
 names remain stable. Operational email webhook templates can use `{{brand}}`, `{{contact_email}}`,

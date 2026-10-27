@@ -125,6 +125,14 @@ describe("instance branding settings", () => {
       expect(body, path).not.toContain("PostStack");
       if (path !== "/api/docs" && path !== "/api/v1") expect(body, path).toContain("/instance-favicon.svg");
     }
+    for (const path of ["/robots.txt", "/llms.txt", "/sitemap-index.xml", "/sitemap-0.xml"]) {
+      const response = await app.request(path);
+      expect(response.status, path).toBe(200);
+      const body = await response.text();
+      expect(body, path).toContain("https://orchard.example");
+      expect(body, path).not.toContain("PostStack");
+      expect(body, path).not.toContain("poststack.techskills.academy");
+    }
     const icon = await app.request("/instance-favicon.svg");
     expect(await icon.text()).toContain("#12ab34");
   });
