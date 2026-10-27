@@ -14,6 +14,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Posts expose their delivery and first-comment outcome over the API.** `GET /posts` and `GET /posts/{id}` now return a `delivery` object (or `null` when the post was never sent): scheduled time, delivery status, attempts, the last error (secrets redacted), the platform post id, and `firstComment` with its own status, comment id and error. When no first comment was attempted, `firstComment.status` is `not_attempted` with a `reason` (`no_text`, `unlicensed`, `unsupported_platform`, `awaiting_publish`) — evaluated at read time, since the skip reason is not stored. Publishing with a future time now also fills the post's `scheduledDate`, which previously stayed `null`. Integrations no longer need to infer publish results from the absence of errors.
 
 ### Fixed
+- Contacts preserves search, brand, channel, and platform filters when pressing Enter or opening a filtered URL.
+- Inbox history groups messages by their actual calendar day in the user’s timezone.
+- Done and Reopen refresh the current Inbox list and counters automatically.
 - Rule editing and duplication preserve keyword matching, priority, limits, and existing response settings.
 - REST resource paths and pagination cursors consistently reject invalid identifiers.
 - Content titles must contain text after trimming whitespace.

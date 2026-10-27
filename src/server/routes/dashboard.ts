@@ -238,7 +238,7 @@ function renderConvPanel(
     </div>
     <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}', since: '${since}' }"
       hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
-      hx-trigger="submit, change, input changed delay:350ms from:find input[name='search']"
+      hx-trigger="submit, change, conversation-updated from:body, input changed delay:350ms from:find input[name='search']"
       style="display:flex;flex-direction:column;gap:.4rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
       <input type="hidden" name="filter" :value="filter" />
       <input type="hidden" name="contact" value="${contactId}" />
@@ -437,11 +437,17 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
       rows.push({ item: it, reactions: [] });
     }
   }
-  return html`<div class="daysep">Today</div>${rows.map(({ item: it, reactions }) => {
+  return html`${rows.flatMap(({ item: it, reactions }, index) => {
+    // Calendar boundaries and labels use the browser's timezone, including across DST changes.
+    const date = it.createdAt.toISOString();
+    const previous = index > 0 ? rows[index - 1].item.createdAt.toISOString() : null;
+    const separator = html`<div class="daysep" x-data="{ date: new Date('${date}'), previous: ${previous ? `new Date('${previous}')` : 'null'} }"
+      x-show="!previous || date.toDateString() !== previous.toDateString()"
+      x-text="date.toDateString() === new Date().toDateString() ? 'Today' : date.toDateString() === new Date(new Date().setDate(new Date().getDate() - 1)).toDateString() ? 'Yesterday' : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })">${date.slice(0, 10)}</div>`;
     const reactPills = html`${reactions.map((e) => html`<span class="msg-react">${e}</span>`)}`;
     if (it.kind === "reaction") {
       // Orphan reaction (no preceding message) — show the pill on its own, aligned inbound-side.
-      return html`<div class="msg msg-in">${reactPills}</div>`;
+      return [separator, html`<div class="msg msg-in">${reactPills}</div>`];
     }
     if (it.kind === "comment") {
       // The post the comment was on — prefer a clickable link to the permalink. Label with the
@@ -453,7 +459,7 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
           ? html`<a class="cmt-link" href="${it.postUrl}" target="_blank" rel="noopener">${postLabel} ↗</a>`
           : html`<span class="cmt-link">${postLabel}</span>`
         : html``;
-      return html`<div class="msg msg-in msg-comment">
+      return [separator, html`<div class="msg msg-in msg-comment">
         <div class="bubble">
           <div class="cmt-top">${icon("comment", "ico", 12)} commented on post${link}</div>
           <div>${it.text}</div>
@@ -467,13 +473,13 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
         </div>
         ${reactPills}
         <span class="msg-meta">${clockTime(it.createdAt)}</span>
-      </div>`;
+      </div>`];
     }
-    return html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}">
+    return [separator, html`<div class="msg ${it.direction === "outbound" ? "msg-out" : "msg-in"}">
       <div class="bubble">${renderMessageBody(it)}</div>
       ${reactPills}
       ${messageMeta(it)}
-    </div>`;
+    </div>`];
   })}`;
 }
 
@@ -1465,6 +1471,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const conv = await loadConversation(id, a.workspaceId);
     if (!conv) return c.notFound();
     const error = !res || res.status >= 400 ? await noticeFrom(res, "Could not update the conversation.") : undefined;
+    if (!error) c.header("HX-Trigger-After-Swap", "conversation-updated");
     return c.html(renderThread(conv, await loadMessages(id), { error, canReply: features.has("manual_reply"), canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts: await loadDrafts(id, a.workspaceId) }));
   });
 
@@ -1714,6 +1721,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         dashboardDoc(t("title.suffix", { section: "Contacts" }), "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features, products),
       );
     }
+    const q = c.req.query("q") ?? "";
+    const channelId = c.req.query("channel") || "all";
+    const platform = c.req.query("platform") || "all";
+    const brand = features.has("multi_brand") ? (c.req.query("brand") || "all") : "all";
+    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 50), 1000);
     const chans = await loadInboxChannels(a.workspaceId);
     const platforms = [...new Set(chans.map((ch) => ch.platform))];
     // Brand filter — only when the license allows multiple brands and the workspace actually has some.
@@ -1725,29 +1737,29 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         html`<div class="page" style="max-width:900px">
           <h1>Contacts</h1>
           <p class="muted">Everyone who has messaged your connected pages. Contacts are assigned to a channel automatically.</p>
-          <form class="row" style="gap:.5rem;margin:1rem 0;flex-wrap:wrap;align-items:center">
-            <input class="input" style="max-width:340px" type="search" name="q" placeholder="Search by name, email, username..."
+          <form method="get" action="/contacts" class="row" style="gap:.5rem;margin:1rem 0;flex-wrap:wrap;align-items:center">
+            <input class="input" style="max-width:340px" type="search" name="q" value="${q}" placeholder="Search by name, email, username..."
               hx-get="/contacts/list" hx-trigger="keyup changed delay:300ms, search" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form" />
             ${brandList.length > 0
               ? html`<select class="input" name="brand" style="max-width:200px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
                   <option value="all">All brands</option>
-                  ${brandList.map((b) => html`<option value="${b.key}">${b.name}</option>`)}
+                  ${brandList.map((b) => html`<option value="${b.key}" ${brand === b.key ? "selected" : ""}>${b.name}</option>`)}
                 </select>`
-              : html``}
+              : html`<input type="hidden" name="brand" value="${brand}" />`}
             ${chans.length > 1
               ? html`<select class="input" name="channel" style="max-width:220px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
                   <option value="all">All channels</option>
-                  ${chans.map((ch) => html`<option value="${ch.id}">${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`)}
+                  ${chans.map((ch) => html`<option value="${ch.id}" ${channelId === ch.id ? "selected" : ""}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`)}
                 </select>`
-              : html``}
+              : html`<input type="hidden" name="channel" value="${channelId}" />`}
             ${platforms.length > 1
               ? html`<select class="input" name="platform" style="max-width:160px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
                   <option value="all">All platforms</option>
-                  ${platforms.map((p) => html`<option value="${p}">${PLATFORM_LABELS[p] ?? p}</option>`)}
+                  ${platforms.map((p) => html`<option value="${p}" ${platform === p ? "selected" : ""}>${PLATFORM_LABELS[p] ?? p}</option>`)}
                 </select>`
-              : html``}
+              : html`<input type="hidden" name="platform" value="${platform}" />`}
           </form>
-          <div id="contacts-list">${renderContacts(await loadContacts(a.workspaceId, ""))}</div>
+          <div id="contacts-list">${renderContacts(await loadContacts(a.workspaceId, q, limit, channelId, platform, brand), q, limit, channelId, platform, brand)}</div>
         </div>`,
         features,
         products,

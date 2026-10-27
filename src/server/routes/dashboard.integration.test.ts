@@ -1184,3 +1184,56 @@ describe("channels — managed connection section", () => {
     expect(byBrand).not.toContain("PG-E_globexpost");
   });
 });
+
+
+describe("dashboard contact filters and conversation status", () => {
+  it("restores search and filter selections on full Contacts navigation", async () => {
+    await db.insert(s.brands).values({ workspace_id: WS, key: "filtered", name: "Filtered" });
+    await db.update(s.channels).set({ brand_key: "filtered" }).where(eq(s.channels.id, CH));
+    await db.insert(s.channels).values({ workspace_id: WS, platform: "instagram", platform_id: "contacts-other", token_encrypted: "x", webhook_secret: "s" });
+    await db.update(s.contacts).set({ display_name: "Needle%" }).where(eq(s.contacts.id, CONTACT));
+    await db.insert(s.contacts).values({ workspace_id: WS, display_name: "Unrelated person" });
+    const query = `q=Needle%25&brand=filtered&channel=${CH}&platform=facebook`;
+    const res = await app.request(`/contacts?${query}`, { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain('value="Needle%"');
+    expect(body).toContain(`value="${CH}" selected`);
+    expect(body).toContain('value="filtered" selected');
+    expect(body).toContain('value="facebook" selected');
+    expect(body).not.toContain("Unrelated person");
+    const fragment = await app.request(`/contacts/list?${query}`, { headers: { cookie } });
+    expect(body).toContain(await fragment.text());
+  });
+
+  it("keeps filters in the form when only one channel and platform are available", async () => {
+    const res = await app.request(`/contacts?channel=${CH}&platform=facebook`, { headers: { cookie } });
+    const body = await res.text();
+    expect(body).toContain(`type="hidden" name="channel" value="${CH}"`);
+    expect(body).toContain('type="hidden" name="platform" value="facebook"');
+  });
+
+  it("refreshes the current Inbox filter and counts after Done and Reopen", async () => {
+    const page = await app.request("/inbox", { headers: { cookie } });
+    expect(await page.text()).toContain("conversation-updated from:body");
+    for (const status of ["closed", "open"]) {
+      const res = await app.request(`/inbox/${CONV}/conversation`, {
+        method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ status }),
+      });
+      expect(res.headers.get("HX-Trigger-After-Swap")).toBe("conversation-updated");
+      const open = await app.request("/inbox/list?filter=open", { headers: { cookie } });
+      const done = await app.request("/inbox/list?filter=done", { headers: { cookie } });
+      expect((await open.text()).includes(`hx-get="/inbox/${CONV}"`)).toBe(status === "open");
+      const doneBody = await done.text();
+      expect(doneBody.includes(`hx-get="/inbox/${CONV}"`)).toBe(status === "closed");
+      expect(doneBody.includes("Done (1)")).toBe(status === "closed");
+    }
+  });
+
+  it("does not signal a list refresh when the status change fails", async () => {
+    const res = await app.request(`/inbox/${CONV}/conversation`, {
+      method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ status: "invalid" }),
+    });
+    expect(res.headers.get("HX-Trigger-After-Swap")).toBeNull();
+    expect(await res.text()).toContain("notice-err");
+  });
+});
