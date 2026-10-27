@@ -5,6 +5,7 @@
 
 export const site = {
   name: "PostStack",
+  contactEmail: "kontakt@techskills.academy",
   title: "PostStack — own your social automation",
   description:
     "Self-hosted social media management for Facebook, Instagram, YouTube, Telegram & Gmail (more coming): unified inbox, keyword auto-replies, AI-drafted replies, comment-to-DM funnels, drip sequences, CRM, publishing and a REST API — on your own server, with no per-contact fees.",

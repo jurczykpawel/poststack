@@ -525,6 +525,11 @@ The same Google app can also serve **YouTube** (`youtube` platform) — just add
 
 ## TikTok publishing
 
+Public [Privacy Policy](https://poststack.techskills.academy/privacy) and
+[Terms of Service](https://poststack.techskills.academy/terms) are served by the same app at
+`/privacy` and `/terms`, with visible footer links. The policy covers TikTok account data,
+publishing and deletion; self-hosted operators remain responsible for their instance data.
+
 TikTok is supported as a **publishing** channel, with one important limitation to be aware of today.
 
 TikTok only allows **direct, fully-automated publishing** for apps that have passed its

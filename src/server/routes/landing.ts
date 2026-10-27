@@ -16,6 +16,8 @@ landingRoutes.get("/", async (c) => {
 // Static marketing sub-pages (Astro emits <page>/index.html). Public, no auth redirect.
 landingRoutes.get("/privacy", (c) => serveLandingFile(c, "privacy/index.html"));
 landingRoutes.get("/privacy/", (c) => serveLandingFile(c, "privacy/index.html"));
+landingRoutes.get("/terms", (c) => serveLandingFile(c, "terms/index.html"));
+landingRoutes.get("/terms/", (c) => serveLandingFile(c, "terms/index.html"));
 
 landingRoutes.get("/_astro/*", (c) => serveLandingFile(c, c.req.path.replace(/^\//, "")));
 
