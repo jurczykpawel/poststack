@@ -41,6 +41,11 @@ describe("dashboard shell brand", () => {
     expect(out).not.toContain("PostStack");
   });
 
+  it("uses the first complete character for the fallback logo", async () => {
+    const out = await renderBrand("🌻 Social");
+    expect(out).toContain('<span class="brand-glyph">🌻</span>🌻 Social');
+  });
+
   it("leaves transitions to document navigation rather than every htmx swap", async () => {
     const out = await renderBrand();
     expect(out).not.toContain('"globalViewTransitions":true');

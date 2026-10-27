@@ -5,7 +5,7 @@ export function brandLogo() {
   const brand = currentBrand();
   return brand.logoUrl
     ? html`<img src="${brand.logoUrl}" alt="${brand.name}" width="32" height="32" style="object-fit:contain" />`
-    : html`<span class="brand-glyph">${brand.name.slice(0, 1).toUpperCase()}</span>`;
+    : html`<span class="brand-glyph">${(Array.from(brand.name)[0] ?? "").toUpperCase()}</span>`;
 }
 export function brandingHead() {
   const brand = currentBrand();
@@ -33,6 +33,6 @@ export function brandingForm() {
     <label class="fld"><span>Default theme</span><select name="theme"><option value="dark" ${brand.theme === "dark" ? raw("selected") : ""}>Dark</option><option value="light" ${brand.theme === "light" ? raw("selected") : ""}>Light</option></select></label>
     <button class="btn btn-primary" type="submit">Save instance branding</button><p id="branding-msg" role="status"></p>
   </form><form hx-post="/settings/branding" hx-ext="json-enc" hx-target="#branding-msg" hx-vals='{"reset":true}' style="margin-top:1rem">
-    <button class="btn btn-ghost" type="submit">Restore default branding</button>
+    <button class="btn btn-ghost" type="submit">Reset stored branding</button>
   </form>`;
 }

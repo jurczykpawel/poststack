@@ -64,7 +64,7 @@ test.describe.serial("instance branding", () => {
       } finally { await context.close(); }
       expect(errors).toEqual([]);
       await gotoOk(page, "/settings#integrations");
-      await page.getByRole("button", { name: "Restore default branding" }).click();
+      await page.getByRole("button", { name: "Reset stored branding" }).click();
       await expect(page).toHaveTitle(/PostStack/);
       await expect(page.getByLabel("Product name")).toHaveValue("PostStack");
     });

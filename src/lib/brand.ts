@@ -8,7 +8,7 @@ const httpsUrl = z.string().max(2048).url().refine((value) => {
   } catch { return false; }
 }, "Use an HTTPS URL without credentials");
 const imageUrl = z.union([z.literal(""), httpsUrl, z.string().max(2048).regex(/^\/(?!\/)[\w/.-]+$/)]);
-const line = (max: number) => z.string().trim().max(max).refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "Use a single line");
+const line = (max: number) => z.string().trim().max(max).refine((value) => !/[\u0000-\u001f\u007f]/.test(value) && value.isWellFormed(), "Use a valid single line");
 
 // Shape follows the standalone publisher configuration: identity, assets, theme and contact.
 export const brandingSchema = z.object({

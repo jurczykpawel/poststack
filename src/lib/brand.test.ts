@@ -15,7 +15,7 @@ describe("instance branding", () => {
   it.each([
     { accent: "red; color: green" }, { publicUrl: "javascript:alert(1)" },
     { logoUrl: "//example.com/logo.svg" }, { faviconUrl: "data:text/html,test" },
-    { contactEmail: "not an email" }, { name: "a\nb" }, { theme: "custom" },
+    { contactEmail: "not an email" }, { name: "a\nb" }, { name: "\ud800" }, { theme: "custom" },
     { publicUrl: "https://user:password@example.com" },
   ])("rejects invalid brand fields %j", (patch) => {
     expect(brandingSchema.safeParse({ ...custom, ...patch }).success).toBe(false);

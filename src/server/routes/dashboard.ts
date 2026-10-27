@@ -2139,7 +2139,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (input && typeof input === "object" && Object.keys(input).length === 1 && input.reset === true) {
       await clearConfig("INSTANCE_BRANDING");
       c.header("HX-Refresh", "true");
-      return c.html(html`Default instance branding restored.`);
+      return c.html(html`Stored instance branding cleared.`);
     }
     const parsed = brandingSchema.safeParse(input);
     if (!parsed.success) return c.json({ data: null, error: { code: "invalid_request", message: "Check the brand fields.", details: parsed.error.issues } }, 400);

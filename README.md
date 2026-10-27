@@ -530,6 +530,7 @@ default theme, contact email, public HTTPS origin and footer in **Settings → I
 branding**. This config belongs to the entire installation, independently of content brands. It is
 stored in `instance_settings`; the optional `INSTANCE_BRANDING` environment variable accepts the same
 JSON object (`name`, `logoUrl`, `faviconUrl`, `accent`, `theme`, `contactEmail`, `publicUrl`, `footer`).
+Resetting clears the stored override and falls back to the environment or defaults.
 An empty favicon generates an icon from the accent. Without `white_label` entitlement the default
 identity is used, including when a license expires. `BRAND_NAME` alone no longer changes the identity.
 
