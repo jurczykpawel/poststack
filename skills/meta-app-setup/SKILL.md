@@ -15,6 +15,18 @@ Steps and labels were verified on the Meta App Dashboard in October 2026. Meta r
 When a label is missing, look for the same **concept** nearby, and use the success check for each
 step as ground truth rather than the label.
 
+## Tell the user first: what each connection gives (measured 2026-10-27)
+
+| Goal | What to connect |
+|---|---|
+| Publish and comments on the Page | **+ Facebook** (step 11a) **or** a System User / User token in Sources (step 12) |
+| **Facebook DMs (Messenger)** | the same: **+ Facebook** or the token in Sources. No extra step. |
+| Publish and comments on Instagram | **+ Instagram** (11b) or the token in Sources |
+| **Instagram DMs** | **always also + Instagram (messaging)** (11c) for each account, with the **Instagram Tester** role (step 8) |
+
+No token, not even a permanent System User token, delivers Instagram DMs on its own. An IG channel with the
+"Facebook only" badge has no DMs. Full matrix: `docs/META_CONNECTIONS.md` → "At a glance".
+
 ## Ground rules
 
 - **The user does:** typing their Facebook password (Meta asks for it on *Create app*, sometimes on

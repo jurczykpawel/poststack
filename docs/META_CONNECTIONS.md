@@ -8,6 +8,43 @@ their tokens last and whether PostStack refreshes them automatically.
 This document is the map. It doesn't repeat setup steps that already live elsewhere — it tells you
 which path you're looking at and links to the page with the actual click-by-click instructions.
 
+> **Want an AI agent to set it up for you?** [`skills/meta-app-setup`](../skills/meta-app-setup/SKILL.md)
+> creates and configures the Meta app in your own browser, connects your Page and Instagram account
+> through every path below (including the System User token), and checks that DMs actually arrive.
+> It stops only for your password, 2FA and consent screens.
+
+## At a glance — what each path gives you
+
+Measured on a live test instance on 2026-10-27, Standard Access, app in Live mode, own Page + own
+Instagram business account. "Documented" = taken from the code and docs, not re-measured on that day.
+
+| Path | Publish | Comments | **Facebook DMs (Messenger)** | **Instagram DMs** | Token lifetime | Keeps itself in sync |
+|---|---|---|---|---|---|---|
+| A + Facebook (OAuth) | ✅ Page | ✅ | ✅ documented | — | Page token never expires | no |
+| B + Instagram (via Facebook Login) | ✅ IG | ✅ | — | ❌ **measured: no DM webhook** | Page token + user token refresh | no |
+| C + Instagram (messaging), Instagram Business Login | ✅ IG | ✅ | — | ✅ **measured** | 60 days, refreshed automatically | no |
+| D Pasted token (Page / User / System User) | ✅ | ✅ | ✅ like A | ❌ like B | as the pasted token | no — paste again |
+| E Sources: **User token** | ✅ all reachable Pages + IG | ✅ | ✅ like E-SU | ❌ like B | ~60 days, data access ~90 days ("User token · data access until …") | ✅ daily |
+| E Sources: **System User token** | ✅ all assigned Pages + IG (**measured**, partial access is enough) | ✅ | ✅ **measured** (sender: Page admin) | ❌ **measured: no DM webhook** | **never** ("System User (permanent)") | ✅ daily (**measured**: keeps the C token) |
+
+**What the User / System User token does NOT give you:** Instagram direct messages. It connects
+every Page and linked Instagram account at once, and covers publishing, comments and Messenger DMs.
+Instagram DMs only arrive through **Instagram Business Login (path C)**, one Instagram account at a time.
+
+### DMs on both Facebook and Instagram — the required steps
+1. One Meta app in **Live** mode, with webhooks for the Page (Messenger fields) **and** for Instagram
+   (Instagram Business Login webhook). See [README → Meta App Setup](../README.md#meta-app-setup).
+2. **Facebook DMs:** connect the Page through **A** (+ Facebook) **or** **E** (Sources, User / System
+   User token). Either is enough.
+3. **Instagram DMs:** additionally connect **each** Instagram account through **C** (+ Instagram (messaging)):
+   - `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` set on the instance;
+   - the Instagram account has the accepted **Instagram Tester** role in the app. This is required even in Live
+     mode. Measured: without it the login fails with "Unsupported request".
+   - C adds DMs to the channel created by B or E (no duplicate). The order of A/B/E and C doesn't matter:
+     reconnecting B or re-syncing E keeps the DM token.
+4. Check it: a DM from a **different** account shows up in the Inbox within seconds. A channel badge
+   **"Facebook only"** means that Instagram account still needs step 3.
+
 ---
 
 ## The five paths

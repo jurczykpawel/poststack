@@ -248,6 +248,12 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 > **[docs/META_CONNECTIONS.md](docs/META_CONNECTIONS.md)** maps all five connection paths — OAuth,
 > Instagram Business Login, pasted token, and the managed/System-User connection — with what each
 > needs, what it can do, and how its tokens expire and refresh.
+>
+> **DMs on both platforms in one sentence:** Facebook (Messenger) DMs come with **+ Facebook** or a
+> User / System User token (Sources). **Instagram DMs always additionally need + Instagram (messaging)**
+> (Instagram Business Login) for each IG account, with that account added as an **Instagram Tester**.
+> No token, not even a permanent System User token, delivers Instagram DMs on its own at Standard Access.
+> Measured, with step-by-step: [docs/META_CONNECTIONS.md → At a glance](docs/META_CONNECTIONS.md#at-a-glance--what-each-path-gives-you).
 
 > **Want an AI agent to click through this for you?** The repo ships an agent skill,
 > [`skills/meta-app-setup`](skills/meta-app-setup/SKILL.md), that drives the whole setup below in
