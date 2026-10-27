@@ -350,8 +350,8 @@ function composePage(
             </div>
           </section>
 
-          <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
           <div class="compose-pubbar" x-show="brand" x-cloak>
+            <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
             <div class="seg">
               <button type="button" :class="publishMode==='draft' ? 'on' : ''" @click="publishMode='draft'">Draft</button>
               <button type="button" :class="publishMode==='now' ? 'on' : ''" @click="publishMode='now'">Publish now</button>

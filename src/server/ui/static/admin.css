@@ -1024,6 +1024,7 @@ select.ps-native-hidden { display: none !important; }
 .lock-chip svg { width: 11px; height: 11px; }
 
 .compose-pubbar { position: sticky; bottom: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-pop); }
+.compose-pubbar > .notice { flex-basis: 100%; margin: 0; }
 .compose-pubbar .seg { display: inline-flex; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .compose-pubbar .seg button { border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; font-weight: 500; padding: 6px 13px; border-radius: 7px; cursor: pointer; }
 .compose-pubbar .seg button.on { background: var(--accent); color: var(--accent-contrast); }

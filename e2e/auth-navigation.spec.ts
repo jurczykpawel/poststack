@@ -62,14 +62,15 @@ test.describe("publishing guidance", () => {
       const empty = page.getByRole("status").filter({ hasText: "This brand has no channels" });
       await expect(empty).toBeVisible();
       await expect(empty.getByRole("link", { name: "Brands", exact: true })).toHaveAttribute("href", "/brands");
-      await page.screenshot({ path: testInfo.outputPath("empty-brand.png"), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath("empty-brand.png"), fullPage: true, animations: "disabled" });
       await page.getByRole("button", { name: "Brand", exact: true }).click();
       await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
       await expect(empty).toBeHidden();
       await page.getByRole("button", { name: "Schedule", exact: true }).click();
       await page.locator('input[type="datetime-local"]').fill("2027-03-28T02:30");
       await expect(page.getByRole("status").filter({ hasText: "does not exist" })).toContainText("03:30 (UTC+02:00)");
-      await page.screenshot({ path: testInfo.outputPath("compose-dst.png"), fullPage: true });
+      await expect(page.getByRole("status").filter({ hasText: "does not exist" })).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath("compose-dst.png"), fullPage: true, animations: "disabled" });
       const content = await (await page.request.get("/api/v1/content")).json();
       const item = content.data.items.find((row: { title: string }) => row.title === "E2E sample reel");
       expect(item).toBeTruthy();
@@ -77,7 +78,7 @@ test.describe("publishing guidance", () => {
       await page.getByRole("button", { name: "Schedule", exact: true }).click();
       await page.getByLabel("Schedule time", { exact: true }).fill("2027-10-31T02:30");
       await expect(page.getByRole("status").filter({ hasText: "occurs twice" })).toContainText("earlier occurrence (UTC+02:00)");
-      await page.screenshot({ path: testInfo.outputPath("content-dst.png"), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath("content-dst.png"), fullPage: true, animations: "disabled" });
       expect(errors).toEqual([]);
     } finally {
       expect((await page.request.delete(`/api/v1/brands/${key}`)).status()).toBe(204);

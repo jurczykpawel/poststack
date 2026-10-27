@@ -79,6 +79,13 @@ afterAll(async () => {
 });
 
 describe("unified Compose section", () => {
+  it("keeps the schedule warning with the sticky publish controls", async () => {
+    if (!TEST_DB) return;
+    const out = await (await app.request("/compose", { headers: { cookie } })).text();
+    const controls = out.slice(out.indexOf('<div class="compose-pubbar"'), out.indexOf('</form>', out.indexOf('<div class="compose-pubbar"')));
+    expect(controls).toContain('x-text="scheduleNotice"');
+  });
+
   it("explains how to assign channels for an empty brand", async () => {
     if (!TEST_DB) return;
     await db.insert(brands).values({ workspace_id: workspaceId, key: "empty", name: "Empty brand" });
