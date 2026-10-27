@@ -1,11 +1,12 @@
 import type { MiddlewareHandler } from "hono";
 
-// Two Content-Security-Policies:
+// Document Content-Security-Policies:
 //   • the APP policy (tight) governs the dashboard, the API and everything else — connect-src 'self',
 //     no third-party scripts beyond the altcha CDN, no data: fonts;
 //   • the LANDING policy (slightly wider) governs ONLY the marketing landing's HTML documents, which
 //     load a few cross-origin extras: the public telemetry stats endpoint (Live fleet section),
 //     Umami + Google Tag Manager analytics (when configured), and inlined @fontsource data: webfonts.
+//   • Compose also permits the user-selected HTTPS video preview.
 // The landing is served by this app (built Astro in landing/dist), but only its documents need the
 // extra allowances — so we scope the relaxation to those paths instead of loosening the whole app.
 
@@ -29,6 +30,8 @@ export interface LandingAnalyticsEnv {
 }
 
 export interface CspOptions {
+  /** Enable playback of the user-selected HTTPS video on authoring screens. */
+  mediaPreview?: boolean;
   /** When true, widen script/connect/font for the marketing landing's analytics, telemetry + webfonts. */
   landing?: boolean;
   /** Analytics config (read from env) — only consulted when `landing` is true. */
@@ -77,6 +80,7 @@ export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
     `script-src ${dedupe(scriptSrc).join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
+    ...(opts.mediaPreview ? ["media-src 'self' https:"] : []),
     `connect-src ${dedupe(connectSrc).join(" ")}`,
     `font-src ${dedupe(fontSrc).join(" ")}`,
     // The captcha widget runs its proof-of-work in a blob: worker on both the app and landing forms.
@@ -98,10 +102,10 @@ const STATIC_HEADERS: Record<string, string> = {
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
 };
 
-// Precompute both policies once. Only the landing's HTML documents get the relaxed one; assets
-// (_astro/*, og.png, …) don't need it — a document's own CSP governs what it may load, not the CSP
-// on the sub-resource responses.
+// Precompute document policies. Landing uses its configured analytics;
+// Compose can preview user-selected HTTPS video. Assets use the app policy.
 const APP_CSP = buildContentSecurityPolicy({ landing: false });
+const COMPOSE_CSP = buildContentSecurityPolicy({ mediaPreview: true });
 const LANDING_CSP = buildContentSecurityPolicy({
   landing: true,
   analytics: {
@@ -111,8 +115,7 @@ const LANDING_CSP = buildContentSecurityPolicy({
   },
 });
 
-/** The landing's HTML documents (see src/server/routes/landing.ts). These — and only these — get the
- *  wider CSP; the dashboard, API and static assets keep the tight app CSP. */
+/** The landing's HTML documents (see src/server/routes/landing.ts) that allow configured analytics. */
 export const LANDING_DOCUMENT_PATHS = new Set(["/", "/privacy", "/privacy/", "/terms", "/terms/"]);
 
 export function securityHeaders(): MiddlewareHandler {
@@ -121,7 +124,7 @@ export function securityHeaders(): MiddlewareHandler {
     for (const [key, value] of Object.entries(STATIC_HEADERS)) {
       c.res.headers.set(key, value);
     }
-    const csp = LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : APP_CSP;
+    const csp = LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : c.req.path === "/compose" ? COMPOSE_CSP : APP_CSP;
     c.res.headers.set("Content-Security-Policy", csp);
     if (c.req.path.startsWith("/api/")) {
       c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");

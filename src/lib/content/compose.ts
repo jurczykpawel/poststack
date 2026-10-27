@@ -1,10 +1,10 @@
 import { createContent, createPost } from "./service";
-import type { AutoReplyInput } from "./schemas";
+import { tiktokPostSettings, type TikTokPostSettings, type AutoReplyInput } from "./schemas";
 
 const VIDEO_RE = /\.(mp4|mov|webm|m4v)(\?|$)/i;
 const VIDEO_TYPES = new Set(["reel", "short", "video", "story"]);
 
-export interface ComposePostInput {
+export interface ComposePostInput extends TikTokPostSettings {
   platform: string;
   description?: string;
   hashtags?: string;
@@ -61,6 +61,7 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
   for (const p of input.posts) {
     const post = await createPost(
       {
+        ...tiktokPostSettings.parse(p),
         contentId: content.id,
         platform: p.platform,
         description: p.description?.trim() || input.baseDescription,

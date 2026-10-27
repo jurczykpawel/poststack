@@ -91,6 +91,7 @@ async function respond(path: string) {
   app.use("*", securityHeaders());
   app.get("/", (c) => c.text("ok"));
   app.get("/privacy", (c) => c.text("ok"));
+  app.get("/compose", (c) => c.text("ok"));
   app.get("/overview", (c) => c.text("ok"));
   app.get("/api/health", (c) => c.json({ status: "ok" }));
   app.get("/_astro/app.js", (c) => c.text("js"));
@@ -125,4 +126,12 @@ describe("securityHeaders middleware — per-path CSP", () => {
     expect((await respond("/api/health")).headers.get("Cache-Control")).toContain("no-store");
     expect((await respond("/")).headers.get("Cache-Control")).toBeNull();
   });
+});
+
+it("serves HTTPS video previews on Compose", async () => {
+  const csp = (await respond("/compose")).headers.get("Content-Security-Policy")!;
+  expect(directive(csp, "media-src")).toEqual(["'self'", "https:"]);
+  for (const path of ["/", "/overview", "/api/health"]) {
+    expect(directive((await respond(path)).headers.get("Content-Security-Policy")!, "media-src")).not.toContain("https:");
+  }
 });

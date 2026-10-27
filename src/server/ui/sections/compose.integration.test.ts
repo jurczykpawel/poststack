@@ -1,9 +1,21 @@
+import { runInNewContext } from "node:vm";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
-import { users, workspaces, channels, brands, content, posts, rateLimitCounters, sequences } from "@/db/schema";
+import { users, workspaces, channels, brands, content, posts, rateLimitCounters, sequences, auditLogs, media, deliveries } from "@/db/schema";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
+
+const creatorInfo = {
+  creator_nickname: "Creator TT3", creator_avatar_url: "", privacy_level_options: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
+  comment_disabled: true, duet_disabled: false, stitch_disabled: true, max_video_post_duration_sec: 60,
+};
+const mediaBytes = "tt3-video-fixture";
+vi.mock("@/lib/media/ssrf", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/media/ssrf")>(),
+  safeFetch: vi.fn(async () => new Response("tt3-video-fixture", { headers: { "content-type": "video/mp4" } })),
+}));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const EMAIL = "compose-ui@example.test";
@@ -24,6 +36,15 @@ function cookieFrom(res: Response): string {
 
 beforeAll(async () => {
   if (!TEST_DB) return;
+  vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url) === "https://open.tiktokapis.com/v2/post/publish/creator_info/query/") {
+      const token = new Headers(init?.headers).get("Authorization");
+      return Response.json(token?.includes("cannot-post")
+        ? { error: { code: "spam_risk_too_many_posts" } }
+        : { data: creatorInfo, error: { code: "ok" } });
+    }
+    throw new Error("HTTP unavailable in this test");
+  }));
   process.env.DATABASE_URL = TEST_DB;
   process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
@@ -67,7 +88,9 @@ beforeAll(async () => {
   await db.insert(channels).values([
     { workspace_id: workspaceId, platform: "instagram", platform_id: "ig1", display_name: "@tsa", brand_key: "techskills.academy", token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "w1", status: "active" },
     { workspace_id: workspaceId, platform: "youtube", platform_id: "UC1", display_name: "TSA YT", brand_key: "techskills.academy", token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "w2", status: "active" },
+    { workspace_id: workspaceId, platform: "tiktok", platform_id: "tt3", display_name: "TT3", brand_key: "techskills.academy", token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "w3", status: "active" },
   ]);
+  await db.insert(media).values({ workspace_id: workspaceId, checksum: createHash("sha256").update(mediaBytes).digest("hex"), storage_key: "tt3.mp4", url: "https://cdn.example.test/tt3.mp4", kind: "video", mime: "video/mp4", size: mediaBytes.length, duration_sec: 30, width: 1080, height: 1920, status: "ready" });
 });
 
 afterAll(async () => {
@@ -76,6 +99,7 @@ afterAll(async () => {
   await db.delete(users).where(eq(users.email, EMAIL));
   if (closeQueue) await closeQueue();
   await db.$client.end();
+  vi.unstubAllGlobals();
 });
 
 describe("unified Compose section", () => {
@@ -267,4 +291,149 @@ describe("unified Compose section", () => {
     });
     expect(res.status).toBe(400);
   });
+});
+
+const pageHtml = async () => (await app.request("/compose", { headers: { cookie } })).text();
+describe("TikTok Compose controls", () => {
+  it.each([
+    ["creator nickname at render", "Creator TT3"],
+    ["privacy from creator info", 'x-for="opt in tt.privacyOptionsView"'],
+    ["privacy placeholder", "Select who can view"],
+    ["comment control", 'x-model="tt.allowComment"'],
+    ["duet control", 'x-model="tt.allowDuet"'],
+    ["stitch control", 'x-model="tt.allowStitch"'],
+    ["interaction explanation", "TikTok account settings"],
+    ["commercial disclosure", 'x-model="tt.disclosure"'],
+    ["your brand", "Your brand"],
+    ["branded content", "Branded content"],
+    ["private visibility explanation", "Branded content visibility cannot be set to private"],
+    ["music consent", "Music Usage Confirmation"],
+    ["branded policy", "Branded Content Policy"],
+    ["explicit consent", "I confirm this TikTok submission"],
+    ["processing notice", "Processing may take a few minutes"],
+    ["playable preview", 'aria-label="TikTok video preview"'],
+    ["editable caption", 'aria-label="TikTok caption"'],
+    ["automatic schedule disclosure", "Opublikujemy automatycznie"],
+  ])("renders %s", async (_rule, expected) => {
+    expect(await pageHtml()).toContain(expected);
+  });
+
+  it("persists TikTok choices from the composer", async () => {
+    const payload = { brand: "techskills.academy", title: "TikTok choices", contentType: "video", mediaUrl: "https://cdn/reel.mp4",
+      posts: [{ platform: "tiktok", tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE",
+        tiktokDisableComment: true, tiktokDisableDuet: false, tiktokDisableStitch: true,
+        tiktokBrandContentToggle: true, tiktokBrandOrganicToggle: false }] };
+    const res = await app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }) });
+    expect(res.status).toBe(303);
+    const id = res.headers.get("location")!.split("/").pop()!;
+    const [post] = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    expect(post).toMatchObject({ tiktok_publish_mode: "direct", tiktok_privacy_level: "PUBLIC_TO_EVERYONE",
+      tiktok_disable_comment: true, tiktok_disable_duet: false, tiktok_disable_stitch: true,
+      tiktok_brand_content_toggle: true, tiktok_brand_organic_toggle: false });
+  });
+
+  it.each(["now", "schedule"])("requires explicit consent for %s", async (mode) => {
+    const payload = { brand: "techskills.academy", title: "No consent", mediaUrl: "https://cdn/reel.mp4",
+      posts: [{ platform: "tiktok", tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE" }],
+      publish: { mode, at: new Date(Date.now() + 3600000).toISOString() } };
+    const res = await app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }) });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("TikTok Compose submission", () => {
+  async function payload() {
+    const channel = await db.query.channels.findFirst({ where: eq(channels.platform_id, "tt3") });
+    return { brand: "techskills.academy", title: "Confirmed TikTok", contentType: "video", mediaUrl: "https://cdn.example.test/tt3.mp4",
+      baseDescription: "Caption", posts: [{ platform: "tiktok", tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE",
+        tiktokDisableComment: true, tiktokDisableDuet: false, tiktokDisableStitch: true, tiktokBrandContentToggle: false,
+        tiktokBrandOrganicToggle: true, tiktokConsent: true, tiktokChannelId: channel!.id, tiktokDisclosure: true }],
+      publish: { mode: "schedule", at: new Date(Date.now() + 86400000).toISOString() } };
+  }
+  async function submit(p: unknown) {
+    return app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(p) }) });
+  }
+  it.each(["now", "schedule"])("captures settings and explicit consent for %s", async (mode) => {
+    const p = await payload(); p.publish.mode = mode;
+    const res = await submit(p); expect(res.status).toBe(303);
+    const id = res.headers.get("location")!.split("/").pop()!;
+    const [post] = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    expect(post.tiktok_brand_organic_toggle).toBe(true);
+    expect(post.status).toBe("scheduled");
+    if (mode === "schedule") expect(post.scheduled_date!.toISOString()).toBe(p.publish.at);
+    const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.id, post.delivery_id!) });
+    expect(delivery!.payload).toMatchObject({ caption: "Caption", options: { publishMode: "direct", privacyLevel: "PUBLIC_TO_EVERYONE", disableComment: true, disableDuet: false, disableStitch: true, brandOrganicToggle: true } });
+    const audit = await db.query.auditLogs.findFirst({ where: eq(auditLogs.target_id, id) });
+    expect(audit).toMatchObject({ action: "tiktok.submission_confirmed", actor_id: expect.any(String), metadata: { mode, channelId: p.posts[0].tiktokChannelId } });
+  });
+  it.each(["privacy", "branded-private", "interactions", "disclosure", "channel", "past"])("rejects invalid %s before creating content", async (rule) => {
+    const p = await payload();
+    if (rule === "privacy") p.posts[0].tiktokPrivacyLevel = "FOLLOWER_OF_CREATOR";
+    if (rule === "branded-private") { p.posts[0].tiktokPrivacyLevel = "SELF_ONLY"; p.posts[0].tiktokBrandContentToggle = true; }
+    if (rule === "interactions") p.posts[0].tiktokDisableComment = false;
+    if (rule === "disclosure") p.posts[0].tiktokBrandOrganicToggle = false;
+    if (rule === "channel") p.posts[0].tiktokChannelId = "00000000-0000-4000-8000-000000000000";
+    if (rule === "past") p.publish.at = "2000-01-01T00:00:00Z";
+    expect((await submit(p)).status).toBe(400);
+  });
+  it.each(["direct", "inbox"])("shows cannot-post guidance and rejects %s when the creator cannot post", async (mode) => {
+    const p = await payload();
+    p.posts[0].tiktokPublishMode = mode;
+    await db.update(channels).set({ token_encrypted: encryptTokens({ access_token: "cannot-post" }) }).where(eq(channels.id, p.posts[0].tiktokChannelId));
+    try {
+      expect(await pageHtml()).toContain('"status":"cannot_post_now"');
+      const res = await submit(p); expect(res.status).toBe(400); expect(await res.text()).toContain("Try again later");
+    } finally {
+      await db.update(channels).set({ token_encrypted: encryptTokens({ access_token: "available-again" }) }).where(eq(channels.id, p.posts[0].tiktokChannelId));
+    }
+  });
+});
+
+it("visually distinguishes unavailable TikTok interactions", () => {
+  const css = readFileSync("src/server/ui/static/admin.css", "utf8");
+  expect(css).toContain(".tiktok-panel .compose-toggle:has(input:disabled)");
+});
+
+interface ComposeState {
+  brand: string; title: string; type: string; mediaUrl: string; baseDescription: string; baseHashtags: string;
+  publishMode: string; scheduleAt: string;
+  sel: Record<string, { on: boolean; override: string }>;
+  tt: { mode: string; privacy: string; disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean;
+    consent: boolean; consentKey: string; allowDuet: boolean; videoDurationSec: number };
+  onBrandChange(): void; tiktokConsentKey(): string; canSubmit(): boolean;
+  captionFor(platform: string): string; buildPayload(): { posts: Array<Record<string, unknown>>; publish: { at?: string } };
+}
+async function composeState(): Promise<ComposeState> {
+  const out = await pageHtml();
+  const inline = out.match(/<script>\s*function psCompose\(\)[\s\S]*?<\/script>/)![0].replace(/^<script>|<\/script>$/g, "");
+  const embedded = (id: string) => ({ textContent: out.match(new RegExp(`<script id="${id}"[^>]*>([\\s\\S]*?)</script>`))![1] });
+  return runInNewContext(readFileSync("src/server/ui/static/tiktok-panel.js", "utf8") +
+    readFileSync("src/server/ui/static/schedule-time.js", "utf8") + inline + "; psCompose()", {
+      window: {}, document: { getElementById: embedded },
+    }) as ComposeState;
+}
+
+it("builds the confirmed TikTok payload and requires confirmation again after a change", async () => {
+  const c = await composeState();
+  c.brand = "techskills.academy"; c.onBrandChange();
+  c.sel.instagram.on = c.sel.youtube.on = false;
+  c.title = "Reviewed"; c.mediaUrl = "https://cdn.example.test/tt3.mp4";
+  c.baseDescription = "Base caption"; c.baseHashtags = " #video "; c.sel.tiktok.override = " Final caption ";
+  c.tt.mode = "direct"; c.publishMode = "schedule"; c.scheduleAt = "2030-01-15T14:30";
+  expect(c.canSubmit()).toBe(false);
+  c.tt.privacy = "PUBLIC_TO_EVERYONE";
+  c.tt.disclosure = c.tt.brandYourBrand = c.tt.allowDuet = true;
+  expect(c.canSubmit()).toBe(false);
+  c.tt.consent = true; c.tt.consentKey = c.tiktokConsentKey();
+  expect(c.canSubmit()).toBe(true);
+  expect(c.captionFor("tiktok")).toBe("Final caption\n\n#video");
+  const body = c.buildPayload();
+  expect(body.posts).toHaveLength(1);
+  expect(body.posts[0]).toMatchObject({ platform: "tiktok", description: "Final caption", tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE", tiktokDisableComment: true, tiktokDisableDuet: false, tiktokDisableStitch: true, tiktokBrandOrganicToggle: true, tiktokBrandContentToggle: false, tiktokConsent: true, tiktokChannelId: expect.any(String) });
+  expect(body.publish.at).toBe(new Date(c.scheduleAt).toISOString());
+  c.scheduleAt = "2030-01-15T15:30"; expect(c.canSubmit()).toBe(false);
+  c.tt.consentKey = c.tiktokConsentKey(); expect(c.canSubmit()).toBe(true);
+  c.sel.tiktok.override = "Changed caption"; expect(c.canSubmit()).toBe(false);
+  c.tt.consentKey = c.tiktokConsentKey(); expect(c.canSubmit()).toBe(true);
+  c.tt.videoDurationSec = 61; expect(c.canSubmit()).toBe(false);
 });
