@@ -21,7 +21,8 @@ async function creatorToken(value: string) {
 }
 async function openComposer(page: Page) {
   await page.goto("/compose");
-  await page.getByLabel("Brand", { exact: true }).selectOption("e2e-brand", { force: true });
+  await page.getByRole("button", { name: "Brand", exact: true }).click();
+  await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
   await expect(page.getByRole("region", { name: "TikTok publishing" })).toBeVisible();
   // Choose only TikTok, preserving the account resolved from the brand.
   await page.locator(".target").filter({ hasText: "Facebook" }).click();
@@ -42,7 +43,7 @@ test.beforeAll(async ({ request }) => {
   await client.connect();
   try {
     await client.query(`INSERT INTO media (workspace_id, checksum, storage_key, url, kind, mime, size, duration_sec, width, height, status)
-      SELECT id, $1, 'tt3.mp4', 'https://cdn.example.test/tt3.mp4', 'video', 'video/mp4', $2, 1, 160, 284, 'ready' FROM workspaces LIMIT 1`,
+      SELECT id, $1, 'tt3.mp4', 'https://cdn.example.test/tt3.mp4', 'video', 'video/mp4', $2, 1, 160, 284, 'ready' FROM workspaces LIMIT 1 ON CONFLICT (workspace_id, checksum) DO NOTHING`,
       [createHash("sha256").update(video).digest("hex"), video.length]);
   } finally { await client.end(); }
 });
