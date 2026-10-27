@@ -49,7 +49,7 @@ test.beforeAll(async ({ request }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-  test(`TikTok choices, preview and scheduled consent at ${viewport.width}`, async ({ page }) => {
+  test(`TikTok choices, preview and scheduled consent at ${viewport.width}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -101,7 +101,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await page.getByLabel("TikTok caption", { exact: true }).fill("Final reviewed caption");
     await expect(consent).not.toBeChecked();
     await consent.check();
-    await page.screenshot({ path: `/private/tmp/tt3-compose-${viewport.width}.png`, fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath(`compose-${viewport.width}.png`), fullPage: true });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await submit.click();
     await expect(page).toHaveURL(/\/content\/[\w-]+$/);
