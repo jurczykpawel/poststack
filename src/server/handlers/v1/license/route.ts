@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
+import { isInstanceOperator } from "@/lib/auth/instance-operator";
 import { ok, err, ApiErrors } from "@/lib/api/response";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
 import { isAiConfigured } from "@/lib/ai/client";
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
   const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
 
+  if (!await isInstanceOperator(auth)) return ApiErrors.forbidden("Managed by the instance operator");
+
   const body = await request.json().catch(() => ({}));
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) return ApiErrors.validationError(parsed.error);
@@ -52,5 +55,6 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  if (!await isInstanceOperator(auth)) return ApiErrors.forbidden("Managed by the instance operator");
   return ok(publicState(await clearLicense(), await isAiConfigured()));
 }
