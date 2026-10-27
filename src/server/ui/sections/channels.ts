@@ -505,18 +505,16 @@ function metaRow(label: string, value: Html | string): Html {
   return html`<div class="meta-row"><dt>${label}</dt><dd>${value}</dd></div>`;
 }
 
+function tokenExpiry(expires: Date | null): Html {
+  if (!expires) return html`<span class="meta-mono">— <small>no expiry</small></span>`;
+  const days = (expires.getTime() - Date.now()) / 86400000;
+  const expired = days <= 0;
+  const near = !expired && days <= TOKEN_WARN_DAYS;
+  const tag = expired ? pill("expired", "bad") : near ? pill(relTime(expires), "warn") : pill(relTime(expires), "ok");
+  return html`<span class="meta-mono">${fmtDate(expires)}</span> ${tag}`;
+}
+
 function tokenPanel(ch: PublicChannel): Html {
-  const expires = ch.token_expires_at;
-  let expiryCell: Html;
-  if (!expires) {
-    expiryCell = html`<span class="meta-mono">— <small>no expiry</small></span>`;
-  } else {
-    const days = (expires.getTime() - Date.now()) / 86400000;
-    const expired = days <= 0;
-    const near = !expired && days <= TOKEN_WARN_DAYS;
-    const tag = expired ? pill("expired", "bad") : near ? pill(relTime(expires), "warn") : pill(relTime(expires), "ok");
-    expiryCell = html`<span class="meta-mono">${fmtDate(expires)}</span> ${tag}`;
-  }
   const reasonRow = ch.needs_reauth_reason ? metaRow("Reauth reason", html`<span class="reason">${ch.needs_reauth_reason}</span>`) : "";
   const lastErrorRow = ch.last_error ? metaRow("Last error", lastErrorNote(ch)) : "";
   return html`<section class="panel">
@@ -525,7 +523,9 @@ function tokenPanel(ch: PublicChannel): Html {
     ${messagingHint(ch)}
     <dl class="meta-list">
       ${metaRow("Access token", html`<code class="token-mask">••••••••••••••••</code>`)}
-      ${metaRow("Expires", expiryCell)}
+      ${metaRow("Access token expires", tokenExpiry(ch.token_expires_at))}
+      ${ch.messaging_connection === "instagram_login"
+        ? metaRow("Messaging token expires", tokenExpiry(ch.messaging_token_expires_at)) : ""}
       ${reasonRow}
       ${lastErrorRow}
     </dl>
