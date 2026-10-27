@@ -126,6 +126,19 @@ account on an empty instance can always register, to create the owner.
 1. Open `APP_URL/register` and create your account **immediately** after deploy (or keep the
    instance network-restricted until you have).
 2. Leave `REGISTRATION_ENABLED` off so no further self-signups are possible.
+3. Set `INSTANCE_ADMIN_EMAILS=owner@example.com,admin@example.com` to identify the accounts
+   that administer this instance, then restart the app. Matching trims spaces and ignores case.
+   A nonempty list replaces the default operator selection; the listed accounts must exist.
+   With the variable empty/unset, the earliest existing user (`created_at`, then `id`) is the
+   operator. Use an explicit list to keep operator selection independent of account deletion.
+
+Only operator **sessions** can save/clear shared integration credentials and activate/remove
+licenses, including `POST`/`DELETE /api/v1/license`. Workspace API keys cannot perform these
+operations; `GET /api/v1/license` remains available with `settings:read`. Other users see
+“Managed by the instance operator” in Settings. Message retention remains a workspace setting;
+`HISTORY_RETENTION_DAYS` and telemetry configuration remain operator environment settings.
+This also applies when `REGISTRATION_ENABLED=true`: owning a workspace does not make a user
+an instance operator. Review the operator email list before opening registration.
 
 ### 1.6 Connect Meta + verify the webhook
 

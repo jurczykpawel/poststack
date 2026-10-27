@@ -8,6 +8,8 @@ import type { JwksKey } from "@/lib/license/format";
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const RAW_KEY = "sk_live_licensetest_0123456789abcdef0123456789abcdef";
 const WS = "1ce50000-0000-0000-0000-000000000001";
+const USER = "1ce50000-0000-0000-0000-000000000002";
+let operatorHeaders: { cookie: string };
 const authHeaders = { authorization: `Bearer ${RAW_KEY}` };
 
 let app: Hono;
@@ -42,11 +44,17 @@ beforeAll(async () => {
   gate = await import("@/lib/license/gate");
   jwks = await import("@/lib/license/jwks");
   ({ env: { LICENSE_JWKS_URL: jwksUrl } } = await import("@/lib/env"));
+  Object.assign((await import("@/lib/env")).env, { INSTANCE_ADMIN_EMAILS: "license-operator@test.local" });
+  const { signSession } = await import("@/lib/auth");
+  operatorHeaders = { cookie: `session=${await signSession(USER, WS)}` };
   const { buildApp } = await import("../../../app");
   app = buildApp();
 
   await db.delete(schema.workspaces).where(inArray(schema.workspaces.id, [WS]));
+  await db.delete(schema.users).where(inArray(schema.users.id, [USER]));
+  await db.insert(schema.users).values({ id: USER, email: "license-operator@test.local" });
   await db.insert(schema.workspaces).values({ id: WS, name: "Lic", slug: `lic-${WS}` });
+  await db.insert(schema.workspaceMembers).values({ workspace_id: WS, user_id: USER, role: "owner" });
   await db.insert(schema.apiKeys).values({
     workspace_id: WS,
     name: "lic key",
@@ -66,6 +74,7 @@ afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(schema.instanceLicense);
   await db.delete(schema.workspaces).where(inArray(schema.workspaces.id, [WS]));
+  await db.delete(schema.users).where(inArray(schema.users.id, [USER]));
   await db.$client.end();
 });
 
@@ -99,12 +108,21 @@ describe("/api/v1/license (real Postgres)", () => {
     }
   });
 
+  it.each(["POST", "DELETE"])("requires an operator session for %s", async (method) => {
+    const response = await app.request("/api/v1/license", {
+      method, headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ token: "garbage" }),
+    });
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe("forbidden");
+  });
+
   it("POST rejects a malformed token with 422 + reason", async () => {
     if (!TEST_DB) return;
     await warmJwks();
     const res = await app.request("/api/v1/license", {
       method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json" },
+      headers: { ...operatorHeaders, "content-type": "application/json" },
       body: JSON.stringify({ token: "garbage" }),
     });
     expect(res.status).toBe(422);
@@ -119,7 +137,7 @@ describe("/api/v1/license (real Postgres)", () => {
     const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro" }));
     const res = await app.request("/api/v1/license", {
       method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json" },
+      headers: { ...operatorHeaders, "content-type": "application/json" },
       body: JSON.stringify({ token }),
     });
     expect(res.status).toBe(200);
@@ -141,10 +159,10 @@ describe("/api/v1/license (real Postgres)", () => {
     const token = await key.sign(makeClaims({ kid: "kid-1", tier: "pro" }));
     await app.request("/api/v1/license", {
       method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json" },
+      headers: { ...operatorHeaders, "content-type": "application/json" },
       body: JSON.stringify({ token }),
     });
-    const del = await app.request("/api/v1/license", { method: "DELETE", headers: authHeaders });
+    const del = await app.request("/api/v1/license", { method: "DELETE", headers: operatorHeaders });
     expect(del.status).toBe(200);
     expect((await del.json()).data.status).toBe("none");
   });

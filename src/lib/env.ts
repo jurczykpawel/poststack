@@ -20,6 +20,7 @@ const envSchema = z.object({
   // Open self-registration. Default closed: the first user (empty instance) can
   // always register to bootstrap; after that, set "true" to allow more.
   REGISTRATION_ENABLED: z.string().default("false"),
+  INSTANCE_ADMIN_EMAILS: z.string().default(""),
 
   // At-rest encryption secret. Any passphrase >= 32 chars; sha256-derived to a 32-byte AES key
   // (see crypto.ts requireEncryptionKey — the single runtime guard). Validated here too so a

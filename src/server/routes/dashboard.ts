@@ -52,6 +52,8 @@ import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { dashboardDoc } from "../ui/layout";
+import { isInstanceOperator } from "@/lib/auth/instance-operator";
+import { requireInstanceOperator } from "../middleware/instance-operator";
 import { requireSameOrigin } from "../middleware/same-origin";
 import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
@@ -1891,6 +1893,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/settings", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
+    const canManageInstance = await isInstanceOperator(a);
     const [workspace, license, alertWebhook, keys] = await Promise.all([
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt_dm: true, ai_draft_prompt_public: true, ai_rephrase_prompt: true } }),
       getInstanceLicense(),
@@ -1963,16 +1966,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           <div class="settings-panel" x-show="tab==='license'" x-cloak>
           <section class="section">
             <h2>License</h2>
-            <p class="muted" style="margin-bottom:1rem">Unlock PRO features with a license token from Sellf. A free instance keeps all free features.</p>
+            ${canManageInstance ? html`<p class="muted" style="margin-bottom:1rem">Unlock PRO features with a license token from Sellf. A free instance keeps all free features.</p>
             <form hx-post="/settings/license" hx-ext="json-enc" hx-target="#license-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem">
               <textarea class="input mono" name="token" rows="3" placeholder="Paste your license token" style="font-size:.8rem"></textarea>
               <div class="row"><button class="btn btn-primary" type="submit">Verify &amp; save</button></div>
             </form>
-            <div id="license-area">${renderLicense(license)}</div>
+            <div id="license-area">${renderLicense(license)}</div>` : html`<p class="muted">Managed by the instance operator</p>`}
           </section>
           </div>
           <div class="settings-panel" x-show="tab==='integrations'" x-cloak>
-          <section class="section">
+          ${canManageInstance ? html`<section class="section">
             <h2>Meta App configuration</h2>
             <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
             ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
@@ -1994,7 +1997,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted" style="margin-bottom:.75rem">Paste your integration credentials here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>. Grouped by integration below.</p>
             ${renderCredentials(await configStatus())}
           </section>
-          ${license.products.has("publishing") ? renderProvidersStatus() : ""}
+          ${license.products.has("publishing") ? renderProvidersStatus() : ""}` : html`<section class="section"><h2>Integrations</h2><p class="muted">Managed by the instance operator</p></section>`}
           </div>
           <div class="settings-panel" x-show="tab==='sources'" x-cloak>
           <section class="section">
@@ -2107,7 +2110,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(html`${res ? "Saved." : "Could not save retention policy."}`);
   });
 
-  app.post("/settings/license", guard, async (c) => {
+  app.post("/settings/license", guard, requireInstanceOperator, async (c) => {
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const token = typeof form.token === "string" ? form.token.trim() : "";
     if (!token) {
@@ -2120,12 +2123,12 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderLicense(result.state, "License activated.", true));
   });
 
-  app.post("/settings/license/clear", guard, async (c) => {
+  app.post("/settings/license/clear", guard, requireInstanceOperator, async (c) => {
     return c.html(renderLicense(await clearLicense(), "License removed.", true));
   });
 
   // CONFIG1: set / clear an instance integration credential (stored encrypted; overrides the env var).
-  app.post("/settings/credentials", guard, async (c) => {
+  app.post("/settings/credentials", guard, requireInstanceOperator, async (c) => {
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const key = typeof form.key === "string" ? form.key : "";
     if (!CONFIG_KEYS.has(key)) {
