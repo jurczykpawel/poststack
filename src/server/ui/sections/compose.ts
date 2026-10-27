@@ -9,13 +9,19 @@ import { resolveBrandSlots } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
 import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
-import { autoReplyInput } from "@/lib/content/schemas";
+import { autoReplyInput, tiktokPostSettings } from "@/lib/content/schemas";
 import { db } from "@/lib/db";
-import { sequences as sequencesTbl } from "@/db/schema";
+import { sequences as sequencesTbl, auditLogs } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { renderPage } from "../layout";
 import { platformLabel, platformColor, platformGlyphString } from "../components/platform";
 import { icon } from "../components/icons";
+import { tiktokPanel, tiktokPanelScript } from "../components/tiktok-panel";
+import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
+import type { CreatorInfoResult } from "@/lib/providers/tiktok-creator-info";
+import { resolveChannelForBrandPlatform } from "@/lib/brands/resolve";
+import { createHash } from "node:crypto";
+import { AuditAction } from "@/lib/audit";
 
 type Html = ReturnType<typeof html>;
 
@@ -30,6 +36,10 @@ const composeSchema = z.object({
   posts: z
     .array(
       z.object({
+        ...tiktokPostSettings.shape,
+        tiktokConsent: z.boolean().optional(),
+        tiktokDisclosure: z.boolean().optional(),
+        tiktokChannelId: z.string().uuid().optional(),
         platform: z.string().min(1).max(LIMITS.line),
         description: z.string().max(LIMITS.text).optional(),
         firstComment: z.string().max(LIMITS.text).optional(),
@@ -37,7 +47,8 @@ const composeSchema = z.object({
         autoReply: autoReplyInput.optional(),
       }),
     )
-    .min(1),
+    .min(1)
+    .refine((posts) => new Set(posts.map((p) => p.platform)).size === posts.length, "Choose each platform once"),
   publish: z
     .object({ mode: z.enum(["draft", "now", "schedule"]).default("draft"), at: z.string().max(40).optional() })
     .optional(),
@@ -60,7 +71,7 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
   });
 }
 
-type PlatformOpt = { platform: string; name: string; label: string; color: string; glyph: string };
+type PlatformOpt = { channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
 async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
   const brands = await listBrands(workspaceId);
   const locked = await lockedBrandKeys(workspaceId);
@@ -73,6 +84,7 @@ async function brandsData(workspaceId: string): Promise<Record<string, { name: s
       platforms: slots
         .filter((s) => s.channel)
         .map((s) => ({
+          channelId: s.channel!.id,
           platform: s.platform,
           name: platformLabel(s.platform),
           label: s.channel!.label,
@@ -81,6 +93,9 @@ async function brandsData(workspaceId: string): Promise<Record<string, { name: s
         })),
     };
   }
+  await Promise.all(Object.values(out).flatMap((b) => b.platforms).filter((p) => p.platform === "tiktok").map(async (p) => {
+    p.tiktokCreator = await getTikTokCreatorInfo(workspaceId, p.channelId).catch(() => null);
+  }));
   return out;
 }
 
@@ -93,6 +108,16 @@ function composeScript(): Html {
       try { seqCfg = JSON.parse(document.getElementById("ps-compose-seq").textContent); } catch (e) {}
       return {
         brands: data,
+        tt: window.psTikTokPanel(),
+        tiktokScheduleText() {
+          if (!this.scheduleAt) return "Choose a date and time for automatic publication.";
+          var when = window.psScheduleTime(this.scheduleAt).iso;
+          if (!when) return "Choose a valid date and time.";
+          return "Opublikujemy automatycznie " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") z tymi ustawieniami";
+        },
+        tiktokConsentKey() {
+          return JSON.stringify([this.brand, this.tt.channelId, this.type, this.mediaUrl, this.coverUrl, this.captionFor("tiktok"), this.publishMode, this.scheduleAt, this.tt.options()]);
+        },
         brandList: Object.keys(data).map(function (k) { return { key: k, name: data[k].name }; }),
         canSequence: seqCfg.canSequence,
         sequences: seqCfg.sequences,
@@ -121,19 +146,22 @@ function composeScript(): Html {
             s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, arEnabled: false, arKeyword: "", arDmText: "", arResponse: "dm", arSequenceId: "" };
           });
           this.sel = s; this.capTab = "base";
+          var tik = this.availPlatforms.find((p) => p.platform === "tiktok");
+          this.tt = window.psTikTokPanel(tik ? tik.tiktokCreator : null, tik ? tik.channelId : "");
           var first = this.selectedPlatforms()[0];
           this.pvTab = first ? first.platform : "";
         },
         toggleTarget(p) {
           if (!this.sel[p]) return;
           this.sel[p].on = !this.sel[p].on;
+          if (p === "tiktok") this.tt.consent = false;
           if (this.capTab === p && !this.sel[p].on) this.capTab = "base";
           var sp = this.selectedPlatforms();
           if (!sp.find((x) => x.platform === this.pvTab)) this.pvTab = sp[0] ? sp[0].platform : "";
         },
         isOn(p) { return !!(this.sel[p] && this.sel[p].on); },
         baseFull() { return [this.baseDescription, this.baseHashtags].filter(Boolean).join("\\n\\n"); },
-        captionFor(p) { var o = this.sel[p] && this.sel[p].override; return o ? o : this.baseFull(); },
+        captionFor(p) { var o = ((this.sel[p] && this.sel[p].override) || "").trim(); return [o || this.baseDescription.trim(), this.baseHashtags.trim()].filter(Boolean).join("\\n\\n"); },
         limit(p) { return this.LIMITS[p] || 2200; },
         count(p) { return this.captionFor(p).length; },
         over(p) { return this.count(p) > this.limit(p); },
@@ -166,7 +194,12 @@ function composeScript(): Html {
           if (this.canAutoReply(p)) l.push("comment\\u2192DM");
           return l.join(" \\u00b7 ");
         },
-        canSubmit() { return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
+        canSubmit() {
+          if (this.isOn("tiktok")) {
+            if (this.type !== "video" || this.over("tiktok")) return false;
+            if (this.publishMode !== "draft" && (!this.tt.valid || !this.tt.consent || this.tt.consentKey !== this.tiktokConsentKey())) return false;
+          }
+          return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
         buildPayload() {
           return {
             brand: this.brand, title: this.title.trim(), contentType: this.type,
@@ -175,6 +208,7 @@ function composeScript(): Html {
             posts: this.selectedPlatforms().map((p) => {
               var s = this.sel[p.platform];
               var post = { platform: p.platform, description: (s.override || "").trim() || undefined };
+              if (p.platform === "tiktok") Object.assign(post, this.tt.options(), { tiktokDisclosure: this.tt.disclosure, tiktokConsent: this.tt.consent, tiktokChannelId: this.tt.channelId });
               var fc = (s.firstComment || "").trim();
               if (this.canComment(p.platform) && this.licFirstComment && fc) post.firstComment = fc;
               if (this.canStory(p.platform) && this.licAutoStory && s.autoStory) post.autoStory = true;
@@ -350,6 +384,8 @@ function composePage(
             </div>
           </section>
 
+          <template x-if="sel.tiktok">${tiktokPanel()}</template>
+
           <div class="compose-pubbar" x-show="brand" x-cloak>
             <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
             <div class="seg">
@@ -397,6 +433,7 @@ function composePage(
       </div>
       <script id="ps-compose-data" type="application/json">${raw(json)}</script>
       <script id="ps-compose-seq" type="application/json">${raw(seqJson)}</script>
+      ${tiktokPanelScript()}
       ${composeScript()}`,
   });
 }
@@ -420,8 +457,41 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     } catch {
       return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Could not read the form — please try again."), 400);
     }
-    const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
     const mode = parsed.publish?.mode ?? "draft";
+    const tik = parsed.posts.find((p) => p.platform === "tiktok");
+    let consentChannelId: string | undefined;
+    if (tik && mode !== "draft") {
+      let error = "";
+      if (!tik.tiktokConsent) error = "Confirm this TikTok submission before sending.";
+      else if (parsed.contentType && !["video", "reel", "short", "story"].includes(parsed.contentType)) error = "TikTok requires a video.";
+      else if (mode === "schedule" && (!parsed.publish?.at || !Number.isFinite(Date.parse(parsed.publish.at)) || Date.parse(parsed.publish.at) <= Date.now())) error = "Choose a future date and time.";
+      else {
+        const channel = await resolveChannelForBrandPlatform(a.workspaceId, parsed.brand, "tiktok");
+        if (!channel || channel.id !== tik.tiktokChannelId) error = "The TikTok channel changed. Review and confirm the current creator.";
+        else {
+          consentChannelId = channel.id;
+          const result = await getTikTokCreatorInfo(a.workspaceId, channel.id).catch(() => null);
+          if (!result || result.status !== "available") error = "TikTok cannot accept posts right now. Try again later.";
+          else if (tik.tiktokPublishMode === "direct") {
+            const info = result.creator_info;
+            if (!tik.tiktokPrivacyLevel || !info.privacy_level_options.includes(tik.tiktokPrivacyLevel)) error = "Choose an available TikTok privacy level.";
+            else if (tik.tiktokDisclosure && !tik.tiktokBrandContentToggle && !tik.tiktokBrandOrganicToggle) error = "Select at least one disclosure option.";
+            else if (tik.tiktokBrandContentToggle && tik.tiktokPrivacyLevel === "SELF_ONLY") error = "Branded content visibility cannot be set to private";
+            else if ((info.comment_disabled && tik.tiktokDisableComment === false) || (info.duet_disabled && tik.tiktokDisableDuet === false) || (info.stitch_disabled && tik.tiktokDisableStitch === false)) error = "TikTok interaction settings changed. Review and confirm again.";
+          }
+        }
+      }
+      if (error) return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), error), 400);
+    }
+    const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
+    if (consentChannelId && tik) {
+      await db.insert(auditLogs).values({
+        workspace_id: a.workspaceId, actor_type: "user", actor_id: a.userId,
+        action: AuditAction.TikTokSubmissionConfirmed, target_type: "content", target_id: contentId,
+        metadata: { channelId: consentChannelId, postIds, mode, at: mode === "schedule" ? parsed.publish?.at : null,
+          settings: tiktokPostSettings.parse(tik), submissionHash: createHash("sha256").update(JSON.stringify(parsed)).digest("hex") },
+      });
+    }
     if (mode === "now" || mode === "schedule") {
       const when = mode === "schedule" ? (parsed.publish?.at ?? "now") : "now";
       await publishPosts(postIds, when, a.workspaceId);

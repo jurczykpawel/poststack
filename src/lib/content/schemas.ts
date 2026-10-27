@@ -109,6 +109,12 @@ export const postCreate = z.object({
   aiDisclosure: z.enum(["none", "ai_assisted", "ai_generated"]).nullish(),
   aiDisclosureNote: z.string().max(LIMITS.line).nullish(),
 });
+export const tiktokPostSettings = postCreate.pick({
+  tiktokPublishMode: true, tiktokPrivacyLevel: true,
+  tiktokDisableComment: true, tiktokDisableDuet: true, tiktokDisableStitch: true,
+  tiktokBrandContentToggle: true, tiktokBrandOrganicToggle: true, tiktokCoverTimestampMs: true,
+});
+export type TikTokPostSettings = z.infer<typeof tiktokPostSettings>;
 export const postPatch = postCreate.partial();
 
 export type ContentCreate = z.infer<typeof contentCreate>;

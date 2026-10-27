@@ -534,8 +534,20 @@ TikTok uses the **inbox / draft** flow by default. The video lands in your TikTo
 TikTok app to choose its caption, cover and privacy and confirm publication. Direct Post requires
 `video.publish` and an app that meets TikTok's audit requirements. Unaudited clients remain restricted
 to private (`SELF_ONLY`) visibility; PostStack never substitutes private visibility for your choice.
-The dashboard's dedicated Direct Post controls are not available yet; the post API supports the
-settings below for integrations that provide the required creator-facing posting and consent flow.
+Compose loads the selected brand's creator info and shows the TikTok nickname, a playable preview
+and an editable caption. Choose **Direct Post** to select privacy (no default), allowed interactions
+and commercial-content disclosure. Creator-disabled interactions stay disabled; branded content
+cannot be private. Inbox remains the default delivery mode.
+
+Publishing and scheduling require explicit confirmation of this submission, with links to TikTok's
+Music Usage Confirmation and, for branded content, Branded Content Policy. Scheduling shows the
+exact local date, time and timezone for automatic publication. Changes to the account, media,
+caption, settings or schedule clear confirmation. The app records the confirmed channel, settings
+and submission time in the workspace audit log. Processing may take a few minutes; delivery status
+is available in the content cockpit. No watermark or logo is added to the video.
+
+The post API supports the settings below for integrations providing their own creator-facing
+posting and consent flow.
 
 Create or patch an editorial post with these nullable fields:
 
@@ -799,6 +811,7 @@ npm run lint              # ESLint
 npm run typecheck         # TypeScript (tsc --noEmit; Bun runs the TS entrypoint directly, no build artifact)
 npm test                  # Vitest unit
 npm run test:integration  # Vitest integration (needs a Postgres; set TEST_DATABASE_URL)
+npx playwright test --config=playwright.tiktok.config.ts --project=chromium # Offline TikTok Compose (dedicated E2E_DATABASE_URL)
 ```
 
 ---

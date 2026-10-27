@@ -12,6 +12,7 @@ export interface AuditActor {
 /** Known audit actions. Kept as a catalog (enum-first) so action strings don't
  * drift over time. Add entries as new write points are wired. */
 export const AuditAction = {
+  TikTokSubmissionConfirmed: "tiktok.submission_confirmed",
   ChannelConnected: "channel.connected",
   ChannelDisconnected: "channel.disconnected",
   ChannelDrained: "channel.drained",

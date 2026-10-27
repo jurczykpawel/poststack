@@ -35,7 +35,8 @@ export default defineConfig({
     // The sweeps reuse the logged-in session saved by setup. Captcha runs against its own server.
     {
       name: "chromium",
-      testIgnore: /captcha\.spec\.ts/,
+      // Offline TikTok boundaries use playwright.tiktok.config.ts.
+      testIgnore: [/captcha\.spec\.ts/, /tiktok-compose\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], storageState: "./e2e/.auth/state.json" },
       dependencies: ["setup"],
     },
