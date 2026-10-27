@@ -22,6 +22,10 @@ import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
 
 afterEach(() => vi.unstubAllGlobals());
+const creatorInfo = {
+  creator_nickname: "Creator", creator_avatar_url: "https://example.com/avatar", privacy_level_options: ["SELF_ONLY"],
+  comment_disabled: false, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 300,
+};
 const tokens = { accessToken: "AT", refreshToken: "RT" };
 
 describe("tiktok provider", () => {
@@ -128,6 +132,7 @@ describe("tiktok provider", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("creator_info/query/")) return Response.json({ data: creatorInfo, error: { code: "ok" } });
         url = String(input);
         body = JSON.parse(String(init?.body ?? "{}"));
         return new Response(JSON.stringify({ data: { publish_id: "pub_2" }, error: { code: "ok" } }), {
@@ -158,7 +163,8 @@ describe("tiktok provider", () => {
     let body: Record<string, unknown> = {};
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("creator_info/query/")) return Response.json({ data: creatorInfo, error: { code: "ok" } });
         body = JSON.parse(String(init?.body ?? "{}"));
         return new Response(JSON.stringify({ data: { publish_id: "pub_ai" }, error: { code: "ok" } }), {
           status: 200,
@@ -183,7 +189,8 @@ describe("tiktok provider", () => {
     let body: Record<string, unknown> = {};
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("creator_info/query/")) return Response.json({ data: creatorInfo, error: { code: "ok" } });
         body = JSON.parse(String(init?.body ?? "{}"));
         return new Response(JSON.stringify({ data: { publish_id: "pub_noai" }, error: { code: "ok" } }), {
           status: 200,

@@ -55,6 +55,7 @@ import { dashboardDoc } from "../ui/layout";
 import { isInstanceOperator } from "@/lib/auth/instance-operator";
 import { requireInstanceOperator } from "../middleware/instance-operator";
 import { requireSameOrigin } from "../middleware/same-origin";
+import * as tiktokCreatorInfo from "@/server/handlers/v1/channels/[channelId]/tiktok/creator-info/route";
 import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
@@ -2832,6 +2833,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   });
 
   // Unified publishing sections (UNIFY1 Phase 3) — mounted on the same origin+session guard.
+  app.get("/channels/:channelId/tiktok/creator-info", guard, (c) =>
+    tiktokCreatorInfo.GET_DASHBOARD(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+  );
   registerChannels(app, guard);
   registerCompose(app, guard);
   registerContent(app, guard);

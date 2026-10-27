@@ -5,6 +5,7 @@ import { ApiErrors } from "@/lib/api/response";
 import * as channels from "@/server/handlers/v1/channels/route";
 import * as channel from "@/server/handlers/v1/channels/[channelId]/route";
 import * as channelDrain from "@/server/handlers/v1/channels/[channelId]/drain/route";
+import * as tiktokCreatorInfo from "@/server/handlers/v1/channels/[channelId]/tiktok/creator-info/route";
 import * as channelPosts from "@/server/handlers/v1/channels/[channelId]/posts/route";
 import * as channelConnectToken from "@/server/handlers/v1/channels/connect-token/route";
 import * as channelTelegram from "@/server/handlers/v1/channels/telegram/route";
@@ -82,6 +83,10 @@ v1.post("/channels/:channelId/drain", validateIds, (c) =>
 );
 v1.get("/channels/:channelId/posts", validateIds, (c) =>
   channelPosts.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
+);
+
+v1.get("/channels/:channelId/tiktok/creator-info", validateIds, (c) =>
+  tiktokCreatorInfo.GET(c.req.raw, { params: Promise.resolve({ channelId: c.req.param("channelId") }) }),
 );
 
 // Managed connections (Meta managed connection — one master token → all Pages + IG)
