@@ -919,4 +919,30 @@ describe("TikTok delivery lifecycle", () => {
     expect((await db.query.events.findMany({ where: eq(schema.events.type, "post.published") })).length).toBe(1);
   });
 
+  it("observes an instance confirmation change made after the worker cached settings", async () => {
+    const { postId } = await direct();
+    const config = await import("@/lib/settings/config");
+    const { encryptString } = await import("@/lib/crypto");
+    await config.setConfig("TIKTOK_CONFIRM_AT_SEND", "false");
+    await config.getConfig("TIKTOK_CONFIRM_AT_SEND");
+    await db.update(schema.instanceSettings).set({ value_encrypted: encryptString("true") }).where(eq(schema.instanceSettings.key, "TIKTOK_CONFIRM_AT_SEND"));
+    try {
+      http();
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("held");
+    } finally { await config.clearConfig("TIKTOK_CONFIRM_AT_SEND"); }
+  });
+  it("defers a scheduled send when confirmation settings cannot be read", async () => {
+    const { postId } = await direct();
+    const config = await import("@/lib/settings/config");
+    const read = vi.spyOn(config, "getConfig").mockRejectedValueOnce(new Error("unavailable"));
+    const calls = http();
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("scheduled");
+      expect(calls).not.toHaveBeenCalled();
+      expect((await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) }))!.last_error).toContain("settings unavailable");
+    } finally { read.mockRestore(); }
+  });
+
 });

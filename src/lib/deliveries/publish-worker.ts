@@ -397,9 +397,14 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   }
 
   try {
-    if (channel.platform === "tiktok" && post.tiktok_confirmation === "scheduled" && (await getConfig("TIKTOK_CONFIRM_AT_SEND")) === "true") {
-      await getTikTokCreatorInfo(ws, channel.id, { refresh: true });
-      throw new ConfirmationRequiredError("TikTok requires confirmation at send time. Review current settings and publish now.");
+    if (channel.platform === "tiktok" && post.tiktok_confirmation === "scheduled") {
+      let confirmAtSend: boolean;
+      try { confirmAtSend = (await getConfig("TIKTOK_CONFIRM_AT_SEND", { fresh: true })) === "true"; }
+      catch { throw new TransientError("TikTok confirmation settings unavailable. Try again later.", "pre_commit"); }
+      if (confirmAtSend) {
+        await getTikTokCreatorInfo(ws, channel.id, { refresh: true });
+        throw new ConfirmationRequiredError("TikTok requires confirmation at send time. Review current settings and publish now.");
+      }
     }
     const handle = await provider.publish({
       tokens: toTokenSet(decryptTokens(channel.token_encrypted)),
