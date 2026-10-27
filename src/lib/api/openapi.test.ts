@@ -217,3 +217,25 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     expect(paths["/content/{contentId}"].get.description).toContain("posts:read");
   });
 });
+
+
+describe("list pagination contracts", () => {
+  it.each([
+    ["/contacts", 30, "meta"],
+    ["/conversations", 30, "meta"],
+    ["/conversations/{conversationId}/messages", 50, "meta"],
+    ["/content", 20, "data"],
+    ["/posts", 20, "data"],
+  ])("documents %s cursor, limits and response location", (path, defaultLimit, location) => {
+    const operation = (openApiSpec.paths as unknown as Record<string, { get: {
+      parameters: Array<{ name: string; schema: Record<string, unknown> }>;
+      responses: Record<string, { content: Record<string, { schema: { properties: Record<string, unknown> } }> }>;
+    } }>)[path].get;
+    expect(operation.parameters?.map((p) => p.name)).toContain("cursor");
+    expect(operation.parameters.map((p) => p.name)).not.toContain("page");
+    expect(operation.parameters.find((p) => p.name === "limit")?.schema).toMatchObject({ default: defaultLimit, minimum: 1, maximum: 100 });
+    const container = operation.responses["200"].content["application/json"].schema.properties[location];
+    if (location === "meta") expect(container).toEqual({ $ref: "#/components/schemas/Pagination" });
+    else expect(container).toMatchObject({ properties: { nextCursor: { type: ["string", "null"] } } });
+  });
+});

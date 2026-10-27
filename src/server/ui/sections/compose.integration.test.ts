@@ -79,6 +79,15 @@ afterAll(async () => {
 });
 
 describe("unified Compose section", () => {
+  it("explains how to assign channels for an empty brand", async () => {
+    if (!TEST_DB) return;
+    await db.insert(brands).values({ workspace_id: workspaceId, key: "empty", name: "Empty brand" });
+    const out = await (await app.request("/compose", { headers: { cookie } })).text();
+    expect(out).toContain('x-show="brand &amp;&amp; availPlatforms.length === 0"');
+    expect(out).toContain('This brand has no channels');
+    expect(out).toContain('href="/brands"');
+  });
+
   it("renders a labeled media URL and stacks media fields on narrow screens", async () => {
     if (!TEST_DB) return;
     const out = await (await app.request("/compose", { headers: { cookie } })).text();

@@ -102,7 +102,8 @@ function composeScript(): Html {
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
         brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
         sel: {}, publishMode: "draft", scheduleAt: "", capTab: "base", pvTab: "",
-        minAt() { return new Date(Date.now() + 60000).toISOString().slice(0, 16); },
+        minAt() { var d = new Date(Date.now() + 60000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); },
+        get scheduleNotice() { return this.publishMode === "schedule" ? window.psScheduleTime(this.scheduleAt).notice : ""; },
         submitLabel() { return this.publishMode === "now" ? ("Publish to " + this.selectedPlatforms().length + " →") : this.publishMode === "schedule" ? "Schedule →" : "Create & open →"; },
         get availPlatforms() { return this.brand && this.brands[this.brand] ? this.brands[this.brand].platforms : []; },
         get hasBrands() { return this.brandList.length > 0; },
@@ -187,7 +188,7 @@ function composeScript(): Html {
               }
               return post;
             }),
-            publish: { mode: this.publishMode, at: this.publishMode === "schedule" ? new Date(this.scheduleAt).toISOString() : undefined },
+            publish: { mode: this.publishMode, at: this.publishMode === "schedule" ? window.psScheduleTime(this.scheduleAt).iso : undefined },
           };
         },
         onSubmit(e) {
@@ -248,6 +249,7 @@ function composePage(
               <template x-if="!hasBrands">
                 <p class="card-hint"><small>No brands yet — create one and map its channels in <a href="/brands">Brands</a> first.</small></p>
               </template>
+              <p class="notice notice-info" role="status" x-show="brand &amp;&amp; availPlatforms.length === 0" x-cloak>This brand has no channels — assign a channel in <a href="/brands">Brands</a>.</p>
               <div class="targets" x-show="brand" x-cloak>
                 <template x-for="p in availPlatforms" :key="p.platform">
                   <div class="target" :class="isOn(p.platform) ? 'on' : ''" @click="toggleTarget(p.platform)" role="button" tabindex="0" @keydown.enter.prevent="toggleTarget(p.platform)" @keydown.space.prevent="toggleTarget(p.platform)">
@@ -348,6 +350,7 @@ function composePage(
             </div>
           </section>
 
+          <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
           <div class="compose-pubbar" x-show="brand" x-cloak>
             <div class="seg">
               <button type="button" :class="publishMode==='draft' ? 'on' : ''" @click="publishMode='draft'">Draft</button>
