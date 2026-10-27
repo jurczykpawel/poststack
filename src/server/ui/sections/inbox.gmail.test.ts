@@ -101,3 +101,16 @@ describe("renderMessages — email empty state", () => {
     expect(out).not.toContain("No emails yet");
   });
 });
+
+
+describe("renderMessages — dated timeline", () => {
+  it("provides browser-local day boundaries for messages on different dates", async () => {
+    const dates = ["2026-10-25T23:30:00Z", "2026-10-26T00:30:00Z", "2026-10-27T00:30:00Z"];
+    const body = s(await renderMessages(dates.map((date, index) => ({
+      kind: "message", id: String(index), direction: "inbound", text: "hello", createdAt: new Date(date),
+    }))));
+    for (const date of dates) expect(body).toContain(new Date(date).toISOString());
+    expect(body).toContain("toDateString()");
+    expect(body).not.toContain('<div class="daysep">Today</div>');
+  });
+});
