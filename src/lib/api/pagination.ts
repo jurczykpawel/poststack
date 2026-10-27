@@ -1,3 +1,5 @@
+import { isUuid } from "./identifiers";
+
 export interface Cursor {
   createdAt: string; // ISO timestamp
   id: string;
@@ -17,7 +19,7 @@ export function decodeCursor(token: string): Cursor | null {
       Array.isArray(parsed) &&
       parsed.length === 2 &&
       typeof parsed[0] === "string" &&
-      typeof parsed[1] === "string" &&
+      isUuid(parsed[1]) &&
       !Number.isNaN(Date.parse(parsed[0]))
     ) {
       return { createdAt: parsed[0], id: parsed[1] };

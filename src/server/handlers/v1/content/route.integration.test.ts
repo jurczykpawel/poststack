@@ -75,6 +75,14 @@ async function createOne(title = "My idea", key = KEY) {
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/content", () => {
+  it("trims titles and rejects blank titles on create and update", async () => {
+    expect((await call("POST", "/content", { title: "   " })).status).toBe(422);
+    const created = await (await call("POST", "/content", { title: "  Title  " })).json();
+    expect(created.data.title).toBe("Title");
+    expect((await call("PATCH", `/content/${created.data.id}`, { title: "  " })).status).toBe(422);
+    expect((await (await call("GET", `/content/${created.data.id}`)).json()).data.title).toBe("Title");
+  });
+
   it("keeps an empty-scope key working for content creation", async () => {
     const { res, json } = await createOne();
     expect(res.status).toBe(201);

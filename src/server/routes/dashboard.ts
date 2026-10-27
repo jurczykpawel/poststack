@@ -2189,12 +2189,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   app.post("/rules", guard, async (c) => {
     const form = (await c.req.json().catch(() => ({}))) as Record<string, string>;
-    const keywords = (form.keywords ?? "")
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean)
-      .map((value) => ({ value, match_type: "contains" }));
-    const triggerType = ["comment_keyword", "postback", "reaction"].includes(form.trigger_type) ? form.trigger_type : "keyword";
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const source = form.source_rule_id ? await loadRuleForEdit(a.workspaceId, form.source_rule_id) : null;
+    if (form.source_rule_id && !source) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
+    const triggerType = form.trigger_type ?? source?.trigger_type ?? "keyword";
+    const sourceTrigger = source?.trigger_type === triggerType ? (source.trigger_config as Record<string, unknown>) : {};
+    const keywords = ruleKeywords(form.keywords ?? "", sourceTrigger.keywords);
     const postId = (form.post_id ?? "").trim();
     // The postback payload input is hidden (x-show) for other triggers but json-enc still serializes
     // it, so a value typed under "postback" then switched away would leak in as a stale payload (and
@@ -2204,31 +2205,38 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const followGate = form.response_mode === "follow_gate";
     const isSequence = form.response_mode === "sequence";
 
-    const triggerConfig: Record<string, unknown> = {};
+    const triggerConfig: Record<string, unknown> = { ...sourceTrigger };
     if (triggerType === "postback") {
       if (payloadValue) triggerConfig.payload = payloadValue;
     } else if (triggerType === "reaction") {
       // Empty config = fire on any reaction. Keywords/post_id don't apply here.
     } else {
       if (keywords.length) triggerConfig.keywords = keywords;
+      else delete triggerConfig.keywords;
       if (triggerType === "comment_keyword" && postId) triggerConfig.post_id = postId;
     }
 
-    let responseType = "text";
-    const responseConfig: Record<string, unknown> = {};
+    let responseType = form.response_mode ?? source?.response_type ?? "text";
+    const responseConfig: Record<string, unknown> = !source || (form.response_mode && form.response_mode !== source.response_type) ? {} : { ...(source.response_config as Record<string, unknown>) };
     if (isSequence) {
       responseType = "sequence";
       if (form.sequence_id) responseConfig.sequence_id = form.sequence_id;
     } else if (followGate) {
       responseType = "follow_gate";
       const claimLabel = (form.claim_label ?? "").trim() || "Chcę odebrać";
-      const claimPayload = payloadValue || "CLAIM";
-      responseConfig.followed = { text: form.followed_text ?? "" };
-      responseConfig.not_followed = { text: form.not_followed_text ?? "", buttons: [{ title: claimLabel, payload: claimPayload }] };
-    } else {
+      const storedButtons = (responseConfig.not_followed as { buttons?: Array<{ title: string; payload?: string; url?: string }> } | undefined)?.buttons ?? [];
+      const claimButton = storedButtons[0] ? { ...storedButtons[0], title: claimLabel } : { title: claimLabel, payload: payloadValue || "CLAIM" };
+      responseConfig.followed = { ...(responseConfig.followed as object), text: form.followed_text ?? "" };
+      responseConfig.not_followed = { ...(responseConfig.not_followed as object), text: form.not_followed_text ?? "", buttons: [claimButton, ...storedButtons.slice(1)] };
+    } else if (responseType === "text" || responseType === "ai_rephrase") {
       responseConfig.text = form.text ?? "";
       // AI rephrase is a flag on a text reply (not a distinct response_type). The API gates it to the
       // ai_rephrase PRO feature and 402s if unlicensed; the UI also hides the toggle on free.
+      if (form.ai_rephrase === "false") {
+        delete responseConfig.ai_rephrase;
+        delete responseConfig.tone;
+        delete responseConfig.custom_prompt;
+      }
       if (form.ai_rephrase === "true") {
         responseConfig.ai_rephrase = true;
         // AIPROMPT1: optional per-rule overrides (caps mirror the API: tone 100, custom_prompt 2000).
@@ -2242,12 +2250,22 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         if (commentReply) responseConfig.comment_reply_text = commentReply;
       }
       const quickReplies = parseJsonArray(form.quick_replies_json);
-      if (quickReplies.length) responseConfig.quick_replies = quickReplies;
+      if (form.quick_replies_json !== undefined) {
+        if (quickReplies.length) responseConfig.quick_replies = quickReplies;
+        else delete responseConfig.quick_replies;
+      }
       const buttons = parseJsonArray(form.buttons_json);
-      if (buttons.length) responseConfig.buttons = buttons;
+      if (form.buttons_json !== undefined) {
+        if (buttons.length) responseConfig.buttons = buttons;
+        else delete responseConfig.buttons;
+      }
     }
 
     const payload = {
+      priority: source?.priority ?? 0,
+      cooldown_seconds: source?.cooldown_seconds ?? 0,
+      max_sends_per_contact: source?.max_sends_per_contact ?? null,
+      is_active: source?.is_active ?? true,
       name: form.name ?? "",
       channel_id: form.channel_id ? form.channel_id : null,
       trigger_type: triggerType,
@@ -2257,8 +2275,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       requires_approval: form.requires_approval === "true",
     };
     const res = await rules.POST(jsonReq(c, payload));
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const list = renderRules(await loadRules(a.workspaceId));
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
@@ -2342,7 +2358,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // configs — advanced response config (buttons / quick replies / follow-gate) survives untouched.
     const triggerConfig = { ...((existing.trigger_config ?? {}) as Record<string, unknown>) };
     if (existing.trigger_type === "keyword" || existing.trigger_type === "comment_keyword") {
-      const keywords = (form.keywords ?? "").split(",").map((k) => k.trim()).filter(Boolean).map((value) => ({ value, match_type: "contains" }));
+      const keywords = ruleKeywords(form.keywords ?? "", triggerConfig.keywords);
       if (keywords.length) triggerConfig.keywords = keywords;
       else delete triggerConfig.keywords;
     }
@@ -3595,7 +3611,7 @@ const RULE_EDITOR_METHODS = `qrJson() {
   return JSON.stringify(this.quickReplies
     .filter(q => q.content_type !== 'text' || (q.title && q.title.trim()))
     .map(q => q.content_type === 'text'
-      ? { content_type: 'text', title: q.title.trim(), payload: (q.payload && q.payload.trim()) ? q.payload.trim() : q.title.trim() }
+      ? { ...q, content_type: 'text', title: q.title.trim(), payload: (q.payload && q.payload.trim()) ? q.payload.trim() : q.title.trim() }
       : { content_type: q.content_type }));
 },
 btnJson() {
@@ -3610,6 +3626,7 @@ function ruleChannelSelect(chans: InboxChannel[], selected: string | null): Html
   return html`<div><label class="label">Channel</label>
     <select class="input" name="channel_id">
       <option value=""${selected ? raw("") : raw(" selected")}>All channels</option>
+      ${selected && !chans.some((ch) => ch.id === selected) ? html`<option value="${selected}" selected>Current channel</option>` : ""}
       ${chans.map((ch) => html`<option value="${ch.id}"${selected === ch.id ? raw(" selected") : raw("")}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`)}
     </select>
     <p class="muted" style="font-size:.7rem;margin-top:.2rem">Limit this rule to one channel (e.g. only YouTube), or leave "All channels" to apply everywhere.</p>
@@ -3680,7 +3697,7 @@ function interactiveRuleFields(canInteractive: boolean, upgradeUrl: string): Htm
 function buttonsToEditor(rc: Record<string, unknown>): { quickReplies: unknown[]; buttons: unknown[] } {
   const quickReplies = (Array.isArray(rc.quick_replies) ? rc.quick_replies : []).map((q) => {
     const o = (q ?? {}) as { content_type?: string; title?: string; payload?: string };
-    return { content_type: o.content_type ?? "text", title: o.title ?? "", payload: o.payload ?? "" };
+    return { ...o, content_type: o.content_type ?? "text", title: o.title ?? "", payload: o.payload ?? "" };
   });
   const buttons = (Array.isArray(rc.buttons) ? rc.buttons : []).map((b) => {
     const o = (b ?? {}) as { title?: string; url?: string; payload?: string };
@@ -3691,10 +3708,18 @@ function buttonsToEditor(rc: Record<string, unknown>): { quickReplies: unknown[]
   return { quickReplies, buttons };
 }
 
+function ruleKeywords(input: string, previous: unknown): Array<Record<string, unknown>> {
+  const original = Array.isArray(previous) ? previous as Array<{ value: string; match_type: string }> : [];
+  if (input === original.map((k) => k.value).join(", ")) return original.map((k) => ({ ...k }));
+  return input.split(",").map((k) => k.trim()).filter(Boolean).map((value, index) => ({
+    value, match_type: original.find((k) => k.value === value)?.match_type ?? original[index]?.match_type ?? "contains",
+  }));
+}
+
 function loadRuleForEdit(workspaceId: string, id: string) {
   return db.query.autoReplyRules.findFirst({
     where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, workspaceId)),
-    columns: { id: true, name: true, channel_id: true, trigger_type: true, trigger_config: true, response_type: true, response_config: true, requires_approval: true },
+    columns: { id: true, name: true, channel_id: true, trigger_type: true, trigger_config: true, response_type: true, response_config: true, requires_approval: true, priority: true, cooldown_seconds: true, max_sends_per_contact: true, is_active: true },
   });
 }
 
@@ -3836,10 +3861,12 @@ function ruleCreateForm(
         responseMode: '${responseMode}',
         ${raw(RULE_EDITOR_METHODS)}
       }">
+      ${p ? html`<input type="hidden" name="source_rule_id" value="${p.id}" />` : ""}
       <div><label class="label">Name</label><input class="input" name="name" value="${name}" required /></div>
       ${ruleChannelSelect(channels, channelId)}
       <div><label class="label">Trigger</label>
         <select class="input" name="trigger_type" x-model="triggerType">
+          ${!["keyword", "comment_keyword", "postback", "reaction"].includes(triggerType) ? html`<option value="${triggerType}" selected>${triggerType}</option>` : ""}
           <option value="keyword"${tSel("keyword")}>DM keyword</option>
           <option value="comment_keyword"${tSel("comment_keyword")}>Comment keyword</option>
           <option value="postback"${tSel("postback")}>Button tap (postback)</option>
@@ -3862,6 +3889,7 @@ function ruleCreateForm(
 
       <div><label class="label">Response</label>
         <select class="input" name="response_mode" x-model="responseMode">
+          ${!["text", "follow_gate", "sequence"].includes(responseMode) ? html`<option value="${responseMode}" selected>${responseMode}</option>` : ""}
           <option value="text"${rSel("text")}>Text reply (with optional buttons / quick replies)</option>
           ${caps.canFollowGate
             ? html`<option value="follow_gate"${rSel("follow_gate")}>Follow-gate (unlock only after they follow)</option>`

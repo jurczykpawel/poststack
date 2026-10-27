@@ -17,7 +17,7 @@ const optionalUrl = z.string().max(LIMITS.url).nullish();
 // assetStatus — is set by the engine/importer (service + direct insert), NOT mass-assignable here,
 // so the approval/publish audit trail can't be forged. zod strips any such keys a client sends.
 export const contentCreate = z.object({
-  title: z.string().min(1).max(LIMITS.name),
+  title: z.string().trim().min(1).max(LIMITS.name),
   contentType: z.string().max(LIMITS.line).optional(),
   script: z.string().max(LIMITS.text).optional(),
   mediaUrls: urls,

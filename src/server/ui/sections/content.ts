@@ -1,3 +1,5 @@
+import { postPatch } from "@/lib/content/schemas";
+import { LIMITS } from "@/lib/api/limits";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { inArray, and, eq, asc } from "drizzle-orm";
@@ -269,7 +271,7 @@ function postCardEdit(contentId: string, post: PostRow): Html {
   return html`<article class="post-card post-card-editing" id="${cardId(post.id)}">
     <header class="post-card-head">${platformCell(post.platform)} ${statusBadge(post.status)}</header>
     <form method="post" action="${save}" hx-post="${save}" ${hxCard(post.id)}>
-      <textarea name="description" class="card-edit-area" rows="5" aria-label="Description">${post.description ?? ""}</textarea>
+      <textarea maxlength="${LIMITS.text}" name="description" class="card-edit-area" rows="5" aria-label="Description">${post.description ?? ""}</textarea>
       <div class="card-edit-actions">
         ${btn({ label: "Save", variant: "primary", size: "sm", attrs: 'type="submit"' })}
         <button class="btn btn-ghost btn-sm" type="button" hx-get="${cancel}" ${hxCard(post.id)}>Cancel</button>
@@ -419,7 +421,14 @@ export function registerContent(r: Hono, guard: MiddlewareHandler): void {
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const { id, postId } = c.req.param();
     const form = await c.req.parseBody();
-    await patchPost(postId, a.workspaceId, { description: String(form.description ?? "") });
+    const parsed = postPatch.safeParse({ description: String(form.description ?? "") });
+    if (!parsed.success) {
+      const frag = await cardFragment(a.workspaceId, id, postId, true);
+      if (!frag) return c.text("not found", 404);
+      toastHeader(c, "warn", `Description must be at most ${LIMITS.text} characters`);
+      return c.html(html`<div class="notice notice-err" role="alert">Description must be at most ${LIMITS.text} characters.</div>${frag}`);
+    }
+    await patchPost(postId, a.workspaceId, parsed.data);
     const frag = await cardFragment(a.workspaceId, id, postId, false);
     if (!frag) return c.text("not found", 404);
     if (isHtmx(c)) {

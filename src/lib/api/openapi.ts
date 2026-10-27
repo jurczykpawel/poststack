@@ -210,7 +210,7 @@ export const openApiSpec = {
         properties: {
           id: { type: "string", format: "uuid" },
           name: { type: "string" },
-          is_active: { type: "boolean" },
+          is_active: { type: "boolean", default: true, description: "Whether the rule is active; can be set when creating or updating a rule" },
           priority: { type: "integer" },
           trigger_type: {
             type: "string",
