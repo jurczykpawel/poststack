@@ -104,6 +104,12 @@ describe("register validation errors are human-readable (real Postgres)", () => 
 });
 
 describe("authenticated dashboard (real Postgres)", () => {
+  it("renders an incoming callback URL that can wrap on narrow screens", async () => {
+    const res = await app.request("/webhooks", { headers: withCookie() });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toMatch(/<code[^>]*style="[^"]*overflow-wrap:anywhere[^"]*"[^>]*>http:\/\/localhost:3000\/api\/webhooks\/meta<\/code>/);
+  });
+
   it("register issues a working session that renders the inbox", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/inbox", { headers: withCookie() });

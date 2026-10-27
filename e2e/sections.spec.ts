@@ -127,3 +127,64 @@ test("privacy cookie table scrolls within the phone page", async ({ page }) => {
   expect(geometry.page).toBeLessThanOrEqual(geometry.viewport);
   expect(geometry.overflow).toBe("auto");
 });
+
+test("incoming webhook callback wraps within the phone page", async ({ page }, testInfo) => {
+  await setPro(page.request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoOk(page, "/webhooks");
+  const callback = page.locator("code.mono").filter({ hasText: "/api/webhooks/meta" });
+  await expect(callback).toBeVisible();
+  // Include a longer deployment hostname than the loopback test server uses.
+  await callback.evaluate((el) => { el.textContent = `https://${"poststack".repeat(7)}.example.com/api/webhooks/meta`; });
+  const geometry = await callback.evaluate((el) => ({
+    page: document.documentElement.scrollWidth,
+    viewport: window.innerWidth,
+    wrap: getComputedStyle(el).overflowWrap,
+  }));
+  expect(geometry.page, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.viewport);
+  expect(geometry.wrap).toBe("anywhere");
+  await page.screenshot({ path: testInfo.outputPath("webhooks-phone.png"), fullPage: true });
+});
+
+for (const width of [1440, 390]) {
+  test(`menu navigation and sign out/in have no page errors at ${width}px`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await setPro(page.request);
+    await page.setViewportSize({ width, height: 844 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const signIn = async () => {
+      await page.locator('input[name="email"]').fill("admin@e2e.test");
+      await page.locator('input[name="password"]').fill("e2e-password-123");
+      await page.locator('button[type="submit"]').click();
+      await expect(page).toHaveURL(/\/inbox$/);
+      await expect(page.locator(".topbar h1")).toContainText("Inbox");
+    };
+    // Use a fresh session so sign-out never revokes the shared setup fixture.
+    await gotoOk(page, "/login");
+    await signIn();
+    for (const route of navRoutes()) {
+      if (width === 390) {
+        await page.getByRole("button", { name: "Open command palette" }).click();
+        await page.locator(".cmdk-search input").fill(route.href.slice(1));
+        await page.locator(".cmdk-item").filter({ has: page.locator(".cmdk-label", { hasText: new RegExp(`^${route.key}$`, "i") }) }).click();
+      } else {
+        await page.locator(`.sidebar a[href='${route.href}']`).click();
+      }
+      await expect(page).toHaveURL(new RegExp(`${route.href}$`));
+      await expect(page.locator(".topbar h1")).toContainText(new RegExp(route.key, "i"));
+      // Let both navigation and load-triggered fragments finish before leaving.
+      await page.evaluate(async () => {
+        const doc = document as Document & { activeViewTransition?: { finished: Promise<void> } };
+        await doc.activeViewTransition?.finished;
+      });
+      if (route.key === "webhooks") {
+        await expect(page.locator('#wh-outbound[hx-trigger="load"]')).toHaveCount(0);
+      }
+    }
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await signIn();
+    expect(errors).toEqual([]);
+  });
+}

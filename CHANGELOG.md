@@ -14,6 +14,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Posts expose their delivery and first-comment outcome over the API.** `GET /posts` and `GET /posts/{id}` now return a `delivery` object (or `null` when the post was never sent): scheduled time, delivery status, attempts, the last error (secrets redacted), the platform post id, and `firstComment` with its own status, comment id and error. When no first comment was attempted, `firstComment.status` is `not_attempted` with a `reason` (`no_text`, `unlicensed`, `unsupported_platform`, `awaiting_publish`) — evaluated at read time, since the skip reason is not stored. Publishing with a future time now also fills the post's `scheduledDate`, which previously stayed `null`. Integrations no longer need to infer publish results from the absence of errors.
 
 ### Fixed
+- Incoming webhook callback URLs now wrap within the page on phones.
+- Dashboard navigation and sign-out no longer start overlapping view transitions from background panel updates.
 - A post can no longer be linked to content from another workspace.
 - Custom webhook headers are validated before saving through the API and dashboard.
 - Direct navigation to the outbound webhook panel opens the full Webhooks page.

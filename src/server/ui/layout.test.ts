@@ -39,4 +39,9 @@ describe("dashboard shell brand", () => {
     expect(out).toContain(`<span class="brand-glyph">A</span>Acme Social`);
     expect(out).not.toContain("PostStack");
   });
+
+  it("leaves transitions to document navigation rather than every htmx swap", async () => {
+    const out = await renderBrand();
+    expect(out).not.toContain('"globalViewTransitions":true');
+  });
 });
