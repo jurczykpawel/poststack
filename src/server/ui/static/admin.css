@@ -1499,3 +1499,27 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .theme-toggle .ico-moon { display: none; }
 [data-theme="light"] .theme-toggle .ico-sun { display: none; }
 [data-theme="light"] .theme-toggle .ico-moon { display: block; }
+
+.reschedule { display: inline-block; max-width: 100%; text-align: left; }
+.reschedule[open] { display: block; min-width: 0; }
+.reschedule > summary { list-style: none; cursor: pointer; }
+.reschedule > form, .action-bar .reschedule > form {
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 12px; margin-top: 8px; width: 100%; max-width: 320px;
+  white-space: normal; background: var(--surface); border: 1px solid var(--border);
+}
+.reschedule input { width: 100%; min-width: 0; box-sizing: border-box; }
+.reschedule p { overflow-wrap: anywhere; margin: 0; }
+.reschedule-all { margin: 12px 0; }
+@media (max-width: 600px) {
+  .reschedule, .reschedule > form, .action-bar .reschedule > form { max-width: 100%; width: 100%; }
+}
+
+.queue-list { width: 100%; overflow-x: auto; }
+@media (max-width: 767.98px) {
+  .queue-list { overflow-x: visible; }
+  .queue-list td.th-act { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .queue-list td.th-act::before { grid-column: 1 / -1; }
+  .queue-list .reschedule { width: 100%; min-width: 0; }
+  .queue-list .reschedule > form { max-width: 100%; }
+}

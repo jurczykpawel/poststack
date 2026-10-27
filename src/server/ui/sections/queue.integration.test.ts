@@ -129,6 +129,22 @@ describe("queue section", () => {
     expect(row!.status).toBe("canceled");
   });
 
+  it("reschedule returns fresh grouped rows and updates the job and detail timeline", async () => {
+    if (!TEST_DB) return;
+    const { id } = await seedDelivery("held");
+    const scheduledAt = new Date(Date.now() + 3600_000).toISOString();
+    const res = await app.request(`/queue/${id}/reschedule`, { method: "POST", headers: htmx(), body: new URLSearchParams({ scheduledAt }).toString() });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('id="queue-rows"');
+    const row = await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) });
+    expect(row!.status).toBe("scheduled");
+    expect(row!.scheduled_at.toISOString()).toBe(scheduledAt);
+    const page = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
+    expect(page).toContain("Zmień termin");
+    expect(page).toContain("TikTok Direct Post");
+    expect((await app.request(`/queue/${id}/reschedule`, { method: "POST", headers: htmx(), body: "scheduledAt=bad" })).status).toBe(422);
+  });
+
   it("a delivery id from another workspace 404s", async () => {
     if (!TEST_DB) return;
     const otherWs = (await db.insert(workspaces).values({ name: "Other", slug: `other-q-${Math.random().toString(36).slice(2)}` }).returning())[0].id;

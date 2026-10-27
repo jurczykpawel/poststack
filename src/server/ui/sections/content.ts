@@ -1,3 +1,6 @@
+import { ApiError } from "@/lib/api/response";
+import { rescheduleForm } from "../components/reschedule";
+import { rescheduleContent } from "@/lib/content/service";
 import { postPatch } from "@/lib/content/schemas";
 import { LIMITS } from "@/lib/api/limits";
 import type { Context, Hono, MiddlewareHandler } from "hono";
@@ -226,6 +229,7 @@ function publishControl(contentId: string, v: PostView): Html {
       ${statusBadge(post.status)}
       ${post.delivery_id ? html`<a class="meta-mono" href="/queue/${post.delivery_id}">view delivery →</a>` : ""}
       ${urlLink(post.published_url, "open ↗")}
+      ${post.delivery_id && ["scheduled", "held"].includes(post.status) ? rescheduleForm(`/content/${contentId}/posts/${post.id}/reschedule`, "#publish-panel") : ""}
     </div>`;
   }
   if (v.reason) {
@@ -307,6 +311,7 @@ function publishPanel(contentId: string, views: PostView[]): Html {
     <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
     <input type="hidden" name="mode" :value="mode" />
     <input type="hidden" name="at" :value="atIso" />
+    ${views.some((v) => v.post.delivery_id && ["scheduled", "held"].includes(v.post.status)) ? html`<div class="reschedule-all"><p>Zmień termin wszystkich kanałów tego Content:</p>${rescheduleForm(`/content/${contentId}/reschedule`, "#publish-panel")}</div>` : ""}
     <div class="card-grid">${cards}</div>
   </section>`;
 }
@@ -419,6 +424,37 @@ export function registerContent(r: Hono, guard: MiddlewareHandler): void {
     const frag = await cardFragment(a.workspaceId, c.req.param("id"), c.req.param("postId"), true);
     return frag ? c.html(frag) : c.text("not found", 404);
   });
+
+  const reschedule = (all: boolean) => async (c: Context) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id")!;
+    const postId = c.req.param("postId");
+    if (!UUID_RE.test(id) || (!all && (!postId || !UUID_RE.test(postId)))) return c.text("not found", 404);
+    const form = await c.req.parseBody();
+    const at = String(form.scheduledAt ?? "");
+    try {
+      if (all) await rescheduleContent(id, a.workspaceId, at);
+      else {
+        const post = postId ? await getPost(postId, a.workspaceId) : undefined;
+        if (!post || post.content_id !== id || !post.delivery_id) return c.text("not found", 404);
+        await patchPost(post.id, a.workspaceId, { scheduledDate: at });
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toastHeader(c, "warn", err.message);
+        return c.text(err.message, err.status as 400);
+      }
+      throw err;
+    }
+    const panel = await renderPublishPanel(a.workspaceId, id);
+    if (!panel) return c.text("not found", 404);
+    if (!isHtmx(c)) return c.redirect(`/content/${id}`, 303);
+    toastHeader(c, "ok", `Termin zmieniony: ${at}`);
+    return c.html(panel);
+  };
+  r.post("/content/:id/reschedule", guard, reschedule(true));
+  r.post("/content/:id/posts/:postId/reschedule", guard, reschedule(false));
 
   r.post("/content/:id/posts/:postId/description", guard, async (c) => {
     const a = await auth(c);
