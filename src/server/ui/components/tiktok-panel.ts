@@ -57,7 +57,7 @@ export function tiktokPanel() {
         <p>By submitting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener">Music Usage Confirmation</a>.
           <span x-show="tt.mode === 'direct' &amp;&amp; tt.disclosure &amp;&amp; tt.brandedContent">You also agree to the <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noopener">Branded Content Policy</a>.</span>
         </p>
-        <label class="compose-toggle"><input type="checkbox" x-model="tt.consent" @change="tt.consentKey = tiktokConsentKey()" /><span>I confirm this TikTok submission with these settings.</span></label>
+        <label class="compose-toggle"><input type="checkbox" :checked="tt.consent" @change="tt.confirm(tiktokConsentKey(), $el.checked)" /><span>I confirm this TikTok submission with these settings.</span></label>
       </div>
     </div>
   </section>`;

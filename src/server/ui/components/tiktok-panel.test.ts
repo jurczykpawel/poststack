@@ -5,10 +5,11 @@ import type { CreatorInfoResult } from "@/lib/providers/tiktok-creator-info";
 
 interface Panel {
   mode: string; privacy: string; allowComment: boolean; allowDuet: boolean; allowStitch: boolean;
-  disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean; consent: boolean; videoDurationSec: number;
+  disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean; consent: boolean; consentKey: string; videoDurationSec: number;
   readonly valid: boolean; readonly unavailable: boolean; readonly durationExceeded: boolean;
   readonly disclosureLabel: string; readonly brandedContentDisabled: boolean;
   readonly privacyOptionsView: Array<{ value: string; label: string; disabled: boolean; note: string }>;
+  confirm(key: string, checked: boolean): void;
   options(): Record<string, unknown>; onBrandedContentChange(): void;
   interactionDisabled(kind: string): boolean; interactionNote(kind: string): string;
 }
@@ -70,4 +71,17 @@ describe("TikTok creator-facing choices", () => {
   it("keeps creator options in the creator-provided order", () => {
     expect(ready().privacyOptionsView.map((o) => o.value)).toEqual(result.creator_info.privacy_level_options);
   });
+});
+
+it("confirms the current submission before marking consent checked", () => {
+  const c = ready();
+  let checked = false;
+  Object.defineProperty(c, "consent", {
+    get: () => checked,
+    set: (value: boolean) => { checked = value && c.consentKey === "reviewed-submission"; },
+  });
+  c.confirm("reviewed-submission", true);
+  expect(c.consent).toBe(true);
+  c.confirm("reviewed-submission", false);
+  expect(c.consent).toBe(false);
 });

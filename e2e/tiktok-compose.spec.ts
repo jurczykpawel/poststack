@@ -80,7 +80,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await panel.getByLabel("Branded content", { exact: true }).check();
     await expect(panel.getByText("Paid partnership", { exact: true })).toBeVisible();
     const onlyMe = privacy.locator('option[value="SELF_ONLY"]');
-    await expect(onlyMe).toBeDisabled();
+    await expect(onlyMe).toHaveJSProperty("disabled", true);
     await expect(onlyMe).toHaveAttribute("title", "Branded content visibility cannot be set to private");
     await expect(panel.getByRole("link", { name: "Music Usage Confirmation" })).toBeVisible();
     await expect(panel.getByRole("link", { name: "Branded Content Policy" })).toBeVisible();
