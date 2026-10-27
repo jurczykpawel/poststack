@@ -1,3 +1,5 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
@@ -30,11 +32,25 @@ try {
   await lockClient.query("SET statement_timeout = '60s'");
   await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
   await migrate(db, { migrationsFolder: "./drizzle" });
+  const reconcileFolder = "./drizzle/reconcile";
+  const files = (await readdir(reconcileFolder)).filter((file) => file.endsWith(".sql")).sort();
+  for (const file of files) {
+    const sql = await readFile(join(reconcileFolder, file), "utf8");
+    await lockClient.query("BEGIN");
+    try {
+      await lockClient.query(sql);
+      await lockClient.query("COMMIT");
+    } catch (error) {
+      await lockClient.query("ROLLBACK");
+      throw error;
+    }
+    console.log(`[migrate] reconcile ${file} ok`);
+  }
 } finally {
   // Best-effort: if the lock was never acquired (timed out) this is a harmless no-op.
   await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]).catch(() => {});
   lockClient.release();
+  await pool.end();
 }
 
-await pool.end();
 console.log("[migrate] database up to date");
