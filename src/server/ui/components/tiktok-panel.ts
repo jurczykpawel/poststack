@@ -7,7 +7,8 @@ export function tiktokPanelScript() {
 
 /** Host provides tt (psTikTokPanel), mediaUrl, coverUrl, captionFor('tiktok'), sel.tiktok.override,
  *  isOn('tiktok'), publishMode, tiktokScheduleText() and tiktokConsentKey().
- *  Recreate tt with the current creator result and channel id for every confirmation screen. */
+ *  Recreate tt with the current creator result and channel id for every confirmation screen.
+ *  The host route enables HTTPS video playback in its document policy, as Compose does. */
 export function tiktokPanel() {
   return html`<section class="panel tiktok-panel" aria-label="TikTok publishing" x-show="isOn('tiktok')" x-cloak
     x-effect="if (tt.consent &amp;&amp; tt.consentKey !== tiktokConsentKey()) tt.consent = false">
