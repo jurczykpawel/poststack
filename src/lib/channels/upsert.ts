@@ -185,6 +185,7 @@ export async function upsertChannels(
             profile_picture: account.profilePicture ?? null,
             token_encrypted: encryptedTokens,
             status: "active",
+            deleted_at: null,
             last_error: null,
             connection_mode: connectionMode,
             source_id: sourceId,
@@ -281,6 +282,7 @@ async function augmentMessagingTokens(
             token_encrypted: encryptTokens(blob),
             messaging_token_expires_at: augment.expiresAt,
             status: "active",
+            deleted_at: null,
             last_error: null,
           })
           .where(eq(channels.id, live.id));
@@ -325,6 +327,7 @@ async function augmentMessagingTokens(
             token_encrypted: encryptedTokens,
             messaging_token_expires_at: augment.expiresAt,
             status: "active",
+            deleted_at: null,
             last_error: null,
             connection_mode: connectionMode,
           },
