@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { makeTestKey, makeClaims, type TestKey } from "@/lib/license/__fixtures__/keys";
 import type { JwksKey } from "@/lib/license/format";
 
@@ -9,6 +12,8 @@ const WS = "11ce5e88-0000-0000-0000-0000000000a1";
 const USER = "11ce5e88-0000-0000-0000-0000000000a2";
 
 let app: Hono;
+let landingDir = "";
+const originalLandingDir = process.env.LANDING_DIST_DIR;
 let db: typeof import("@/lib/db").db;
 let s: typeof import("@/db/schema");
 let gate: typeof import("@/lib/license/gate");
@@ -37,6 +42,13 @@ function postLicense(token: string) {
 
 beforeAll(async () => {
   if (!TEST_DB) return;
+  landingDir = mkdtempSync(join(tmpdir(), "branding-it-"));
+  process.env.LANDING_DIST_DIR = landingDir;
+  for (const [path, title] of [["index.html", "Home"], ["privacy/index.html", "Privacy Policy"], ["terms/index.html", "Terms of Service"]]) {
+    const file = join(landingDir, path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `<!doctype html><html><head><title>PostStack</title></head><body><main><h1>${title}</h1><p>PostStack; kontakt@techskills.academy; https://poststack.techskills.academy</p></main></body></html>`);
+  }
   key = await makeTestKey("kid-1");
   process.env.DATABASE_URL = TEST_DB;
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
@@ -81,6 +93,9 @@ afterAll(async () => {
   await db.delete(s.instanceLicense);
   await db.delete(s.instanceSettings).where(eq(s.instanceSettings.key, "INSTANCE_BRANDING"));
   (await import("@/lib/settings/config")).invalidateConfigCache();
+  if (originalLandingDir === undefined) delete process.env.LANDING_DIST_DIR;
+  else process.env.LANDING_DIST_DIR = originalLandingDir;
+  if (landingDir) rmSync(landingDir, { recursive: true, force: true });
   await db.$client.end();
 });
 
@@ -120,6 +135,7 @@ describe("instance branding settings", () => {
     expect(row?.value_encrypted).not.toContain("Orchard");
     for (const path of ["/", "/privacy", "/terms", "/login", "/register", "/overview", "/settings", "/channels", "/api/docs", "/api/v1", "/not-a-page"]) {
       const response = await app.request(path, { headers: ["/", "/privacy", "/terms"].includes(path) ? {} : { cookie } });
+      expect(response.status, path).toBe(path === "/not-a-page" ? 404 : 200);
       const body = await response.text();
       expect(body, path).toContain("Orchard");
       expect(body, path).not.toContain("PostStack");
