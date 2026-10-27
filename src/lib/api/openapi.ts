@@ -878,6 +878,50 @@ export const openApiSpec = {
         },
       },
     },
+    "/channels/{channelId}/tiktok/creator-info": {
+      get: {
+        ...requiresScope("channels:read"),
+        tags: ["Channels"],
+        summary: "Query TikTok creator profile and current Direct Post permissions",
+        description: "Uses a process-local 60-second cache per workspace/channel/credentials. Set refresh=true to query TikTok again. Posting limits return cannot_post_now with a reason and try-again-later message. Requires video.publish permission on the connected TikTok account.",
+        parameters: [
+          { name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "refresh", in: "query", schema: { type: "boolean", default: false } },
+        ],
+        responses: {
+          "200": {
+            description: "Creator permissions or temporary posting restriction",
+            content: { "application/json": { schema: {
+              type: "object", required: ["data", "error"], properties: {
+                error: { type: "null" },
+                data: { oneOf: [
+                  { type: "object", required: ["status", "creator_info"], properties: {
+                    status: { type: "string", enum: ["available"] },
+                    creator_info: { type: "object", required: ["creator_nickname", "creator_avatar_url", "privacy_level_options", "comment_disabled", "duet_disabled", "stitch_disabled"], properties: {
+                      creator_nickname: { type: "string" }, creator_username: { type: "string" },
+                      creator_avatar_url: { type: "string" },
+                      privacy_level_options: { type: "array", items: { type: "string" } },
+                      comment_disabled: { type: "boolean" }, duet_disabled: { type: "boolean" }, stitch_disabled: { type: "boolean" },
+                      max_video_post_duration_sec: { type: "integer", minimum: 1 },
+                    } },
+                  } },
+                  { type: "object", required: ["status", "reason", "message"], properties: {
+                    status: { type: "string", enum: ["cannot_post_now"] },
+                    reason: { type: "string", enum: ["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap"] },
+                    message: { type: "string" },
+                  } },
+                ] },
+              },
+            } } },
+          },
+          "400": { description: "Invalid refresh value, non-TikTok channel, or channel reconnection required" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "429": { description: "TikTok request rate limit exceeded" },
+          "503": { description: "TikTok creator info unavailable; try again later" },
+        },
+      },
+    },
     "/channels/{channelId}/posts": {
       get: {
         ...requiresScope("channels:read"),

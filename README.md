@@ -539,6 +539,17 @@ companion project, **[ShareStack](https://sharestack.techskills.academy/)** — 
 self-hostable publisher that keeps your OAuth token in your own browser. Until that lands, treat
 TikTok publishing as **draft-only**.
 
+Creator profile and Direct Post permissions are available at
+`GET /api/v1/channels/{channelId}/tiktok/creator-info` (`channels:read` scope) and the
+session-only dashboard equivalent `/channels/{channelId}/tiktok/creator-info`. The response contains
+`data.status: "available"` with `creator_info` (nickname, privacy options, interaction settings and,
+when supplied by TikTok, the video duration limit), or `data.status: "cannot_post_now"` with a reason
+and a try-again-later message. TikTok must grant `video.publish` for this query. Responses are cached
+in process for 60 seconds per channel and credentials; `?refresh=true` forces a new TikTok query.
+Server callers use `getTikTokCreatorInfo(workspaceId, channelId, { refresh: true })` for fresh
+publish-time permissions. Direct publishing also queries TikTok afresh before initializing each post
+and stops when the creator cannot post now. The inbox/draft flow is unchanged.
+
 The other publishing channels — **X, LinkedIn, Threads, YouTube, Facebook & Instagram** — publish
 directly, subject to each platform's own developer-app setup and API access tier.
 

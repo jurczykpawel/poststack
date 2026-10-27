@@ -1,6 +1,7 @@
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
-import { PermanentError } from "./errors";
+import { queryCreatorInfo } from "./tiktok-creator-info";
+import { PermanentError, RateLimitedError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { readProviderBody } from "./download";
 import { asString } from "./util";
@@ -71,6 +72,12 @@ export const tiktokProvider: Provider = {
     }
     const videoUrl = mediaUrls[0] ?? "";
     const direct = request.options?.publishMode === "direct";
+    if (direct) {
+      const creator = await queryCreatorInfo(tokens.accessToken);
+      if (creator.status === "cannot_post_now") {
+        throw new RateLimitedError(`${creator.message} (${creator.reason})`, 3600, "pre_commit");
+      }
+    }
     // Ingestion: FILE_UPLOAD (default) uploads the bytes — storage-agnostic, no TikTok URL-domain
     // verification needed. PULL_FROM_URL is opt-in and requires a verified URL prefix in the app.
     const usePull = request.options?.ingestion === "pull_url";
