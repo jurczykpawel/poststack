@@ -136,12 +136,33 @@ Meta error pages name the exact problem:
   requested by older PostStack versions, see the troubleshooting table below.
 
 ### 11. Connect and verify
-- Sign in to the PostStack dashboard → **Channels**:
-  - **+ Facebook** for the Page,
-  - **+ Instagram (messaging)** for Instagram DMs.
-- On the Instagram consent screen, check that the account named is the right one. If it isn't, the
-  user must switch accounts on instagram.com first. **The user** clicks Allow.
-- ✅ The channel appears with status **active**, and `/channels?connected=…` shows in the URL.
+Sign in to the PostStack dashboard → **Channels**. There are three buttons, one per connection type.
+Connect the ones the user needs (usually all three):
+
+**a) + Facebook: the Page (publishing, comments, Messenger).** On Facebook's screens:
+- **Continue as <user>**.
+- **Choose the Pages:** pick **Opt in to current Pages only** and tick only the Pages the user wants in
+  PostStack. Check the count shown, e.g. "1 Asset Selected".
+- **Choose the Businesses:** keep the business that owns those Pages. PostStack needs `business_management`,
+  because Pages owned by a business portfolio are invisible without it.
+- **Review → Save → Got it.**
+- ✅ The URL is `/channels?connected=facebook&count=<N>`, where N equals the Pages you ticked.
+  `error=no_pages` means the Page wasn't ticked, or the instance is an old version without `business_management`.
+
+**b) + Instagram: the Instagram account linked to that Page (publishing and comments).** This runs through
+the same Facebook screens. Tick the Page whose Instagram account you want.
+- ✅ An Instagram channel appears with status active. On its own it does not receive DMs at Standard Access.
+
+**c) + Instagram (messaging): Instagram DMs (Instagram Business Login).**
+- On the Instagram consent screen, check that it names the right account ("…is requesting access to: <account>").
+  If it doesn't, the user switches accounts on instagram.com first. The account needs the Instagram Tester role
+  from step 8.
+- ✅ The URL is `/channels?connected=instagram_messaging`. If the same account was already connected through b),
+  this adds DMs to that channel and doesn't create a duplicate.
+
+The final click (Continue / Save / Allow) on each consent screen belongs to **the user**, unless they have
+explicitly asked you to do it for them.
+- ✅ Every connected channel shows status **active**.
 - ✅ A DM from a *different* account to the connected one appears in the PostStack Inbox within
   seconds. If it doesn't, check Live mode (step 9), the webhook fields (steps 5 and 7), and the
   Instagram Tester role (step 8).
