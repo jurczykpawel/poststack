@@ -1,6 +1,6 @@
 import { desc, eq, and, inArray, sql } from "drizzle-orm";
 import { db, isUniqueViolation } from "@/lib/db";
-import { deliveries, channels } from "@/db/schema";
+import { deliveries, channels, posts } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { encodeCursor, decodeCursor, type Cursor } from "@/lib/api/pagination";
 import { getProviderForPlatform } from "@/lib/providers";
@@ -9,6 +9,8 @@ import { validate } from "@/lib/providers/validate";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getMedia } from "@/lib/media/service";
 import { addJobTx } from "@/lib/queue/client";
+
+import { parseScheduledAt } from "./schedule";
 
 export type DeliveryRow = typeof deliveries.$inferSelect;
 
@@ -57,15 +59,7 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
     }
   }
 
-  const runAt = new Date(input.scheduledAt);
-  if (Number.isNaN(runAt.getTime())) {
-    throw new ApiError("invalid_request", "Invalid scheduledAt", 422);
-  }
-  // PSA47: reject a clearly-past schedule (a generous skew window still allows when:"now").
-  const PAST_SKEW_MS = 5 * 60_000;
-  if (runAt.getTime() < Date.now() - PAST_SKEW_MS) {
-    throw new ApiError("invalid_request", "scheduledAt is in the past", 422);
-  }
+  const runAt = parseScheduledAt(input.scheduledAt);
 
   const insert = async (t: DbTx): Promise<DeliveryRow> => {
     const [row] = await t
@@ -115,6 +109,29 @@ export async function cancelDelivery(id: string, workspaceId: string): Promise<v
     .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"])))
     .returning({ id: deliveries.id });
   if (res.length === 0) throw new ApiError("conflict", "Post is not cancelable", 409);
+}
+
+/** Move a pending delivery and its linked editorial date on the same transaction as its job. */
+export async function rescheduleDelivery(id: string, workspaceId: string, scheduledAt: string, tx?: DbTx): Promise<DeliveryRow> {
+  const runAt = parseScheduledAt(scheduledAt);
+  const run = async (t: DbTx) => {
+    // Match publishPost's lock order: editorial rows before the delivery.
+    await t.select({ id: posts.id }).from(posts)
+      .where(and(eq(posts.workspace_id, workspaceId), eq(posts.delivery_id, id))).orderBy(posts.id).for("update");
+    const existing = await t.select({ id: deliveries.id }).from(deliveries)
+      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId)));
+    if (!existing.length) throw new ApiError("not_found", "Delivery not found", 404);
+    const [row] = await t.update(deliveries).set({
+      status: "scheduled", scheduled_at: runAt, run_at: runAt, last_error: null,
+      attempt_started_at: null, updated_at: new Date(),
+    }).where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"]))).returning();
+    if (!row) throw new ApiError("conflict", "Delivery is already publishing or no longer pending; its schedule cannot change", 409);
+    await addJobTx(t, "publish", { postId: id }, { runAt, jobKey: `publish:${id}` });
+    await t.update(posts).set({ scheduled_date: runAt, status: "scheduled", updated_at: new Date() })
+      .where(and(eq(posts.workspace_id, workspaceId), eq(posts.delivery_id, id)));
+    return row;
+  };
+  return tx ? run(tx) : db.transaction(run);
 }
 
 /**

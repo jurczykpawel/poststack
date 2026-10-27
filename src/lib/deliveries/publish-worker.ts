@@ -1,5 +1,5 @@
 import type { JobHelpers } from "graphile-worker";
-import { and, count, eq, gte, inArray, isNull, lt } from "drizzle-orm";
+import { and, count, eq, gte, lte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { deliveries, channels, posts, type Platform } from "@/db/schema";
 import { decryptTokens } from "@/lib/crypto";
@@ -314,7 +314,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const claimed = await db
     .update(deliveries)
     .set({ status: "sending", attempt_started_at: new Date(), attempts: post.attempts + 1, updated_at: new Date() })
-    .where(and(eq(deliveries.id, postId), eq(deliveries.status, "scheduled")))
+    .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "scheduled"), lte(deliveries.scheduled_at, sql`now()`)))
     .returning({ id: deliveries.id });
   if (claimed.length === 0) return; // lost the race / not schedulable (PSA14: consumed no token)
   await reflectEditorial(postId, "publishing"); // mirror in-flight onto editorial

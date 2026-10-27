@@ -1,3 +1,4 @@
+import * as deliveryReschedule from "@/server/handlers/v1/deliveries/[deliveryId]/reschedule/route";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAuthenticate = vi.fn();
@@ -20,6 +21,7 @@ vi.mock("@/lib/content/service", () => ({
   patchPost: vi.fn(),
   deletePost: vi.fn(),
 }));
+vi.mock("@/lib/deliveries/service", () => ({ rescheduleDelivery: vi.fn() }));
 vi.mock("@/lib/content/publish", () => ({ publishPost: vi.fn() }));
 vi.mock("@/lib/content/post-delivery", () => ({
   withPostDeliveries: vi.fn(async (rows: object[]) => rows.map((row) => ({ ...row, delivery: null }))),
@@ -61,6 +63,7 @@ const postContext = { params: Promise.resolve({ postId: "post-1" }) };
 const brandContext = { params: Promise.resolve({ brandKey: "brand-1" }) };
 
 const cases: ScopeCase[] = [
+  { method: "POST", path: "/deliveries/delivery-1/reschedule", scope: "posts:write", invoke: (request) => deliveryReschedule.POST(request, { params: Promise.resolve({ deliveryId: "delivery-1" }) }) },
   { method: "GET", path: "/content", scope: "content:read", invoke: contentList.GET },
   { method: "POST", path: "/content", scope: "content:write", invoke: contentList.POST },
   { method: "GET", path: "/content/content-1", scope: "content:read", invoke: (request) => contentItem.GET(request, contentContext) },

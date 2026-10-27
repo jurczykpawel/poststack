@@ -404,14 +404,25 @@ export const openApiSpec = {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Update a post",
-        description: "Same body as create (all fields optional), including the YouTube options and AI-disclosure fields.",
-        responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        description: "Same body as create (all fields optional), including YouTube options and AI-disclosure fields. scheduledDate reschedules the linked pending delivery and publish job atomically. Returns 409 if the delivery is already publishing or no longer pending. Saved publishing options remain unchanged.",
+
+        responses: { "200": { description: "Updated" }, "409": { description: "Delivery no longer pending" }, "422": { description: "Invalid schedule" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       delete: {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Delete a post",
         responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+    },
+    "/deliveries/{deliveryId}/reschedule": {
+      post: {
+        ...requiresScope("posts:write"), tags: ["Publishing"],
+        summary: "Change a pending delivery's schedule",
+        description: "Only scheduled and held deliveries can change; held becomes scheduled. Updates the linked editorial date and replaces the publish job atomically. Saved publish settings and consent remain unchanged.",
+        parameters: [{ name: "deliveryId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["scheduledAt"], properties: { scheduledAt: { type: "string", format: "date-time" } } } } } },
+        responses: { "200": { description: "Rescheduled delivery in data" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { description: "Delivery not found" }, "409": { description: "Already publishing or no longer pending" }, "422": { description: "Invalid or past date (same five-minute skew as creation)" } },
       },
     },
     "/posts/{postId}/publish": {

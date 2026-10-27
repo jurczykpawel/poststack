@@ -2,6 +2,8 @@ import { and, asc, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { content as contentTable, posts } from "@/db/schema";
+import { rescheduleDelivery, type DbTx } from "@/lib/deliveries/service";
+import { parseScheduledAt } from "@/lib/deliveries/schedule";
 import { ApiError } from "@/lib/api/response";
 import { encodeCursor, decodeCursor } from "@/lib/api/pagination";
 import { parseSort } from "@/lib/api/sort";
@@ -209,15 +211,38 @@ export async function getPost(id: string, workspaceId: string): Promise<PostRow 
   return db.query.posts.findFirst({ where: and(eq(posts.id, id), eq(posts.workspace_id, workspaceId)) });
 }
 
+async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostWritable>, tx: DbTx): Promise<PostRow | undefined> {
+  const [existing] = await tx.select().from(posts)
+    .where(and(eq(posts.id, id), eq(posts.workspace_id, workspaceId))).for("update");
+  if (!existing) return undefined;
+  if (patch.scheduledDate !== undefined && existing.delivery_id) {
+    if (!patch.scheduledDate) throw new ApiError("conflict", "A pending delivery requires a schedule; cancel it to remove the schedule", 409);
+    await rescheduleDelivery(existing.delivery_id, workspaceId, patch.scheduledDate, tx);
+  }
+  const values = mapFields(patch, POST_MAP, POST_DATES, POST_BLANK_TO_NULL);
+  const [row] = await tx.update(posts).set({ ...values, updated_at: new Date() })
+    .where(and(eq(posts.id, id), eq(posts.workspace_id, workspaceId))).returning();
+  return row;
+}
+
 export async function patchPost(id: string, workspaceId: string, patch: Partial<PostWritable>): Promise<PostRow | undefined> {
   await assertContentWorkspace(patch.contentId, workspaceId);
-  const values = mapFields(patch, POST_MAP, POST_DATES, POST_BLANK_TO_NULL);
-  const [row] = await db
-    .update(posts)
-    .set({ ...values, updated_at: new Date() })
-    .where(and(eq(posts.id, id), eq(posts.workspace_id, workspaceId)))
-    .returning();
-  return row;
+  return db.transaction((tx) => patchPostTx(id, workspaceId, patch, tx));
+}
+
+/** Reschedule the pending cross-platform plan as one operation. */
+export async function rescheduleContent(contentId: string, workspaceId: string, scheduledAt: string): Promise<void> {
+  parseScheduledAt(scheduledAt);
+  await db.transaction(async (tx) => {
+    const [parent] = await tx.select({ id: contentTable.id }).from(contentTable)
+      .where(and(eq(contentTable.id, contentId), eq(contentTable.workspace_id, workspaceId))).for("update");
+    if (!parent) throw new ApiError("not_found", "Content not found", 404);
+    const rows = await tx.select().from(posts)
+      .where(and(eq(posts.content_id, contentId), eq(posts.workspace_id, workspaceId))).orderBy(posts.id).for("update");
+    const linked = rows.filter((p) => p.delivery_id);
+    if (!linked.length) throw new ApiError("conflict", "Content has no scheduled deliveries", 409);
+    for (const post of linked) await patchPostTx(post.id, workspaceId, { scheduledDate: scheduledAt }, tx);
+  });
 }
 
 export async function deletePost(id: string, workspaceId: string): Promise<boolean> {

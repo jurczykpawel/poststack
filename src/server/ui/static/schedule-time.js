@@ -30,3 +30,20 @@ window.psScheduleTime = function (local) {
   }
   return { iso: date.toISOString(), notice: notice };
 };
+
+window.psReschedule = function () {
+  return {
+    local: "",
+    get minLocal() {
+      var d = new Date(Date.now() + 60000);
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    },
+    get iso() { return window.psScheduleTime(this.local).iso; },
+    get notice() { return window.psScheduleTime(this.local).notice; },
+    get valid() { return !!this.iso && new Date(this.iso).getTime() > Date.now(); },
+    get preview() {
+      return this.iso ? new Date(this.iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) + " · " + Intl.DateTimeFormat().resolvedOptions().timeZone : "";
+    },
+    get confirmation() { return "Zmienić termin na " + this.preview + "? Post wyjdzie automatycznie z zapisanymi ustawieniami."; },
+  };
+};

@@ -277,3 +277,11 @@ describe("content cockpit", () => {
     expect(out).toContain("<code");
   });
 });
+
+it("reschedule forms return 404 for invalid resource identifiers", async () => {
+  if (!TEST_DB) return;
+  for (const path of ["/content/bad/reschedule", "/content/00000000-0000-4000-8000-000000000000/posts/bad/reschedule"]) {
+    const res = await app.request(path, { method: "POST", headers: htmx, body: new URLSearchParams({ scheduledAt: new Date(Date.now() + 3600_000).toISOString() }).toString() });
+    expect(res.status).toBe(404);
+  }
+});

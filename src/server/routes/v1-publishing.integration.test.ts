@@ -27,6 +27,7 @@ let schema: typeof import("@/db/schema");
 let app: Hono;
 let WS = "";
 let CH = "";
+const READ_KEY = "sk_live_publishing_reader_0123456789ab";
 const RAW_KEY = "sk_live_publishing_smoke_key_0123456789ab";
 
 beforeAll(async () => {
@@ -49,6 +50,10 @@ beforeAll(async () => {
     key_hash: createHash("sha256").update(RAW_KEY).digest("hex"),
     key_prefix: RAW_KEY.slice(0, 16),
     scopes: ["content:write", "posts:write"],
+  });
+  await db.insert(schema.apiKeys).values({
+    workspace_id: WS, name: "reader", key_hash: createHash("sha256").update(READ_KEY).digest("hex"),
+    key_prefix: READ_KEY.slice(0, 16), scopes: ["posts:read"],
   });
   const [c] = await db
     .insert(schema.channels)
@@ -85,6 +90,29 @@ const post = (path: string, body: unknown, headers: Record<string, string> = aut
   app.request(`/api/v1${path}`, { method: "POST", headers, body: JSON.stringify(body) });
 
 describe("publishing /api/v1 (e2e smoke)", () => {
+  it("REST reschedule and PATCH keep the actual delivery schedule in sync", async () => {
+    if (!TEST_DB) return;
+    const [d] = await db.insert(schema.deliveries).values({ workspace_id: WS, channel_id: CH, format: "text", payload: { options: { consent: true } }, scheduled_at: new Date(), run_at: new Date() }).returning();
+    const [p] = await db.insert(schema.posts).values({ workspace_id: WS, platform: "tiktok", delivery_id: d!.id }).returning();
+    const scheduledAt = new Date(Date.now() + 3600_000).toISOString();
+    const path = `/deliveries/${d!.id}/reschedule`;
+    expect((await post(path, { scheduledAt }, {})).status).toBe(401);
+    expect((await post(path, { scheduledAt: "bad" })).status).toBe(422);
+    expect((await post(path, { scheduledAt }, { ...auth, authorization: `Bearer ${READ_KEY}` })).status).toBe(401);
+    const res = await post(path, { scheduledAt });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.scheduledAt).toBe(scheduledAt);
+    const next = new Date(Date.now() + 7200_000).toISOString();
+    const changed = await app.request(`/api/v1/posts/${p!.id}`, { method: "PATCH", headers: auth, body: JSON.stringify({ scheduledDate: next }) });
+    expect(changed.status).toBe(200);
+    expect((await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, d!.id) }))!.scheduled_at.toISOString()).toBe(next);
+    await db.update(schema.deliveries).set({ status: "sending" }).where(eq(schema.deliveries.id, d!.id));
+    const conflict = await post(path, { scheduledAt });
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error.code).toBe("conflict");
+    expect((await post(`/deliveries/00000000-0000-4000-8000-000000000000/reschedule`, { scheduledAt })).status).toBe(404);
+  });
+
   it("rejects an unauthenticated request", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/api/v1/content", { method: "GET" });

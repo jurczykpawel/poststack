@@ -144,6 +144,7 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     ["PATCH", "/posts/{postId}", "posts:write"],
     ["DELETE", "/posts/{postId}", "posts:write"],
     ["POST", "/posts/{postId}/publish", "posts:write"],
+    ["POST", "/deliveries/{deliveryId}/reschedule", "posts:write"],
     ["GET", "/brands", "brands:read"],
     ["POST", "/brands", "brands:write"],
     ["GET", "/brands/{brandKey}/channels", "brands:read"],

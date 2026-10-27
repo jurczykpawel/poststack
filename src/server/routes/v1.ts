@@ -1,3 +1,4 @@
+import * as deliveryReschedule from "@/server/handlers/v1/deliveries/[deliveryId]/reschedule/route";
 import { Hono, type MiddlewareHandler } from "hono";
 import { authenticate } from "@/lib/auth";
 import { isUuid } from "@/lib/api/identifiers";
@@ -251,4 +252,8 @@ v1.delete("/webhooks/:webhookId", validateIds, (c) =>
 );
 v1.post("/webhooks/:webhookId/rotate-secret", validateIds, (c) =>
   webhookRotate.POST(c.req.raw, { params: Promise.resolve({ webhookId: c.req.param("webhookId") }) }),
+);
+
+v1.post("/deliveries/:deliveryId/reschedule", validateIds, (c) =>
+  deliveryReschedule.POST(c.req.raw, { params: Promise.resolve({ deliveryId: c.req.param("deliveryId") }) }),
 );

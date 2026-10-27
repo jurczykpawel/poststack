@@ -1,6 +1,7 @@
+import { rescheduleForm } from "../components/reschedule";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { retryPost, cancelDelivery, type DeliveryRow } from "@/lib/deliveries/service";
+import { retryPost, cancelDelivery, rescheduleDelivery, type DeliveryRow } from "@/lib/deliveries/service";
 import { getMedia, type MediaRow } from "@/lib/media/service";
 import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -88,7 +89,7 @@ function rowAction(r: QueueRow): Html {
     </form>`;
   }
   if (r.status === "scheduled" || r.status === "held") {
-    return html`<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
+    return html`${rescheduleForm(`${act}/reschedule`, "#queue-rows")}<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
       hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">
       <button class="btn btn-ic" type="submit" title="Cancel" aria-label="Cancel post">${icon("close", "ico", 15)}</button>
     </form>`;
@@ -172,7 +173,7 @@ async function queuePage(c: Context): Promise<Response> {
               <p class="empty-body">Scheduled and failed posts land here. Publish or schedule content from the composer.</p>
               ${btn({ label: "Open composer", href: "/compose", variant: "secondary", size: "sm", icon: "compose" })}
             </div>`
-          : html`<div class="table-wrap">
+          : html`<div class="queue-list">
               <table class="data-table" aria-label="Queued posts">
                 <thead>
                   <tr>
@@ -231,7 +232,7 @@ function detailActions(post: DeliveryRow): Html {
     ? html`<form method="post" action="${back}/cancel" hx-post="${back}/cancel" ${raw(HX_HEAD)} hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">${btn({ label: "Cancel", variant: "danger", icon: "close" })}</form>`
     : "";
   if (!retry && !cancel) return html``;
-  return html`<div class="action-bar">${retry}${cancel}</div>`;
+  return html`<div class="action-bar">${retry}${cancel}${cancel ? rescheduleForm(`${back}/reschedule`, "#post-detail-head") : ""}</div>`;
 }
 
 function postDetailHead(item: QueueItem): Html {
@@ -327,16 +328,19 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
   r.get("/queue", guard, queuePage);
   r.get("/queue/:id", guard, postDetailPage);
 
-  function action(run: (ws: string, id: string) => Promise<unknown>, toast: (post: DeliveryRow) => string) {
+  function action(run: (ws: string, id: string, c: Context) => Promise<unknown>, toast: (post: DeliveryRow) => string) {
     return async (c: Context) => {
       const a = await auth(c);
       if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
       const id = c.req.param("id");
       if (!id || !UUID_RE.test(id)) return c.text("not found", 404);
       try {
-        await run(a.workspaceId, id);
+        await run(a.workspaceId, id, c);
       } catch (err) {
-        if (err instanceof ApiError) return c.text(err.message, err.status as 400);
+        if (err instanceof ApiError) {
+        toastHeader(c, "warn", err.message);
+        return c.text(err.message, err.status as 400);
+      }
         throw err;
       }
       if (!isHtmx(c)) return c.redirect(`/queue/${id}`, 303);
@@ -344,7 +348,10 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
       if (!item) return c.text("not found", 404);
       const tone: ToastTone = STATUS_TONE[item.post.status] === "bad" ? "warn" : "ok";
       toastHeader(c, tone, toast(item.post));
-      if (c.req.header("HX-Target") === "post-detail-head") return c.html(postDetailHead(item));
+      if (c.req.header("HX-Target") === "post-detail-head") {
+        if (c.req.path.endsWith("/reschedule")) c.header("HX-Refresh", "true");
+        return c.html(postDetailHead(item));
+      }
       // List page: re-render the grouped tbody for the page's current filters (from HX-Current-URL) so
       // the status-cluster headers regroup after this post changed status.
       const sp = new URL(c.req.header("HX-Current-URL") || "http://x/queue").searchParams;
@@ -355,6 +362,10 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
     };
   }
 
+  r.post("/queue/:id/reschedule", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    return rescheduleDelivery(id, ws, String(form.scheduledAt ?? ""));
+  }, (post) => `Termin zmieniony: ${post.scheduled_at.toISOString()}`));
   r.post("/queue/:id/retry", guard, action((ws, id) => retryPost(id, ws), () => "Post re-queued"));
   r.post("/queue/:id/cancel", guard, action((ws, id) => cancelDelivery(id, ws), () => "Post canceled"));
 }
