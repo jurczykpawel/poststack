@@ -328,7 +328,7 @@ describe("Inbox filter and thread feedback", () => {
   it("list changes include both dates and every channel selector", async () => {
     const res = await app.request("/inbox/list?since=custom", { headers: { cookie } });
     const body = await res.text();
-    expect(body).toContain('hx-trigger="submit, change, input changed delay:350ms');
+    expect(body).toContain('hx-trigger="submit, change, conversation-updated from:body, input changed delay:350ms');
     expect(body).not.toContain("change from:find");
   });
 

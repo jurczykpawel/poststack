@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { getTableConfig } from "drizzle-orm/pg-core";
-import { channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs } from "./schema";
+import { channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs, posts } from "./schema";
 
 const exec = promisify(execFile);
 const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
@@ -49,13 +49,14 @@ afterAll(async () => { await admin.end(); });
 describe("startup schema reconciliation", () => {
   it("matches Drizzle columns on a fresh database and logs each reconciliation", async () => {
     const actual = await columns();
-    for (const table of [channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs]) {
+    for (const table of [channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs, posts]) {
       const config = getTableConfig(table);
       expect(actual.filter((c) => c.table_name === config.name).map((c) => c.column_name).sort())
         .toEqual(config.columns.map((c) => c.name).sort());
     }
     const result = await runMigration();
-    expect(result.stdout.match(/\[migrate\] reconcile .* ok/g)).toHaveLength(7);
+    const deltas = (await readdir(resolve("drizzle/reconcile"))).filter((f) => f.endsWith(".sql"));
+    expect(result.stdout.match(/\[migrate\] reconcile .* ok/g)).toHaveLength(deltas.length);
   });
 
   it("restores a column missing from an already migrated database", async () => {
