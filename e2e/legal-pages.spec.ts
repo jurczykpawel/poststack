@@ -5,7 +5,7 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 for (const width of [1440, 390]) {
   for (const path of ["/", "/privacy", "/terms"]) {
-    test(`public legal navigation at ${path} (${width}px)`, async ({ page, baseURL }) => {
+    test(`public legal navigation at ${path} (${width}px)`, async ({ page, baseURL }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.route("**/*", (route) => {
@@ -46,7 +46,7 @@ for (const width of [1440, 390]) {
         );
         await expect(page.locator("main")).toContainText("TikTok");
         await expect(page.locator("main")).toContainText("kontakt@techskills.academy");
-        await page.screenshot({ path: `/private/tmp/tt5-${path.slice(1)}-${width}.png`, fullPage: true });
+        await page.screenshot({ path: testInfo.outputPath(`${path.slice(1)}-${width}.png`), fullPage: true });
       }
       await footer.getByRole("link", { name: path === "/terms" ? "Privacy" : "Terms", exact: true }).click();
       await expect(page).toHaveURL(path === "/terms" ? /\/privacy$/ : /\/terms$/);
