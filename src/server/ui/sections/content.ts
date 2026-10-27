@@ -304,6 +304,7 @@ function publishPanel(contentId: string, views: PostView[]): Html {
               :disabled="selected.length===0 || !validFuture" x-text="bulkLabel()">Publish now</button>`
         : html`<span class="publish-none"><small>Nothing to publish — every platform is already sent or unmapped.</small></span>`}
     </div>
+    <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
     <input type="hidden" name="mode" :value="mode" />
     <input type="hidden" name="at" :value="atIso" />
     <div class="card-grid">${cards}</div>
@@ -325,7 +326,8 @@ function publishPanelScript(): Html {
         },
         get allSelected() { return this.all.length > 0 && this.selected.length === this.all.length; },
         get validFuture() { return this.mode === "now" || (!!this.atLocal && new Date(this.atLocal).getTime() > Date.now()); },
-        get atIso() { return this.mode === "schedule" && this.atLocal ? new Date(this.atLocal).toISOString() : ""; },
+        get scheduleNotice() { return this.mode === "schedule" ? window.psScheduleTime(this.atLocal).notice : ""; },
+        get atIso() { return this.mode === "schedule" && this.atLocal ? window.psScheduleTime(this.atLocal).iso : ""; },
         toggleAll(v) { this.selected = v ? [...this.all] : []; },
         fmtAt() { try { return new Date(this.atLocal).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return ""; } },
         bulkLabel() {

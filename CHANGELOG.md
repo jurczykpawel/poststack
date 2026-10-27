@@ -30,6 +30,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Instagram Business Login channel details show the messaging token expiry separately.
 - Startup now automatically reconciles schema changes on existing databases across all deployment environments.
 - Reconnecting a removed channel restores it to Channels while preserving its hidden setting.
+- OpenAPI list endpoints document cursor pagination, actual limits, and the response location of the next cursor.
+- Sign-out and sign-in handle skipped native document transitions without an unhandled page error.
+- Settings identifies the credential source for each publishing connection path, including Meta and YouTube.
+- Compose explains when a brand has no channels and links to Brands to assign one.
+- Compose and Content warn beside the publish controls before saving a schedule whose local time shifts or repeats during a daylight saving change.
 - Rule editing and duplication preserve keyword matching, priority, limits, and existing response settings.
 - REST resource paths and pagination cursors consistently reject invalid identifiers.
 - Content titles must contain text after trimming whitespace.

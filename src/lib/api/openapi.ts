@@ -13,6 +13,18 @@ const requiresScope = <T extends ApiScope>(scope: T): { "x-required-scope": T } 
   "x-required-scope": scope,
 });
 
+const cursorParameters = (defaultLimit: number, description = "Opaque cursor from the previous response") => [
+  { name: "cursor", in: "query", schema: { type: "string" }, description },
+  { name: "limit", in: "query", schema: { type: "integer", default: defaultLimit, minimum: 1, maximum: 100 } },
+];
+const cursorResponse = (items: Record<string, unknown>, location: "data" | "meta") => ({
+  "application/json": { schema: { type: "object", properties: location === "meta" ? {
+    data: { type: "array", items }, error: { type: "null" }, meta: { $ref: "#/components/schemas/Pagination" },
+  } : {
+    data: { type: "object", properties: { items: { type: "array", items }, nextCursor: { type: ["string", "null"] } } }, error: { type: "null" },
+  } } },
+});
+
 export const openApiSpec = {
   openapi: "3.1.0",
   info: {
@@ -117,7 +129,7 @@ export const openApiSpec = {
         description: "Cursor pagination meta. Pass next_cursor back as ?cursor= for the next page.",
         properties: {
           has_more: { type: "boolean", example: true },
-          next_cursor: { type: "string", nullable: true, example: "eyJ0IjoiMjAyNi0wNi0yNVQxMjowMDowMC4wMDBaIiwiaSI6Ii4uLiJ9" },
+          next_cursor: { type: ["string", "null"], example: "eyJ0IjoiMjAyNi0wNi0yNVQxMjowMDowMC4wMDBaIiwiaSI6Ii4uLiJ9" },
         },
       },
       Channel: {
@@ -328,7 +340,8 @@ export const openApiSpec = {
         ...requiresScope("content:read"),
         tags: ["Publishing"],
         summary: "List editorial content (keyset paginated)",
-        responses: { "200": { description: "List of content" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        parameters: cursorParameters(20),
+        responses: { "200": { description: "List of content", content: cursorResponse({ type: "object" }, "data") }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       post: {
         ...requiresScope("content:write"),
@@ -363,12 +376,8 @@ export const openApiSpec = {
         ...requiresScope("posts:read"),
         tags: ["Publishing"],
         summary: "List editorial posts",
-        responses: { "200": { description: "List of posts", content: { "application/json": { schema: {
-          type: "object", properties: { data: { type: "object", properties: {
-            items: { type: "array", items: { $ref: "#/components/schemas/Post" } },
-            nextCursor: { type: ["string", "null"] },
-          } }, error: { type: "null" } },
-        } } } }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        parameters: cursorParameters(20),
+        responses: { "200": { description: "List of posts", content: cursorResponse({ $ref: "#/components/schemas/Post" }, "data") }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       post: {
         ...requiresScope("posts:write"),
@@ -568,26 +577,14 @@ export const openApiSpec = {
         tags: ["Contacts"],
         summary: "List contacts",
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20, maximum: 100 } },
+          ...cursorParameters(30),
           { name: "tag", in: "query", schema: { type: "string" }, description: "Filter by tag name" },
           { name: "q", in: "query", schema: { type: "string" }, description: "Search by name or email" },
         ],
         responses: {
           "200": {
             description: "Paginated contact list",
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    data: { type: "array", items: { $ref: "#/components/schemas/Contact" } },
-                    error: { type: "null" },
-                    meta: { $ref: "#/components/schemas/Pagination" },
-                  },
-                },
-              },
-            },
+            content: cursorResponse({ $ref: "#/components/schemas/Contact" }, "meta"),
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
         },
@@ -659,12 +656,13 @@ export const openApiSpec = {
         summary: "List conversations",
         parameters: [
           { name: "status", in: "query", schema: { type: "string", enum: ["open", "closed", "snoozed"] } },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          ...cursorParameters(30),
+          { name: "channel_id", in: "query", schema: { type: "string", format: "uuid" } },
         ],
         responses: {
           "200": {
             description: "Paginated conversation list",
+            content: cursorResponse({ type: "object" }, "meta"),
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
         },
@@ -1015,11 +1013,10 @@ export const openApiSpec = {
         tags: ["Conversations"],
         summary: "List messages in a conversation",
         parameters: [
-          { name: "limit", in: "query", schema: { type: "integer", default: 50, maximum: 100 } },
-          { name: "cursor", in: "query", schema: { type: "string" }, description: "ISO timestamp cursor for keyset pagination" },
+          ...cursorParameters(50, "ISO timestamp from meta.next_cursor"),
         ],
         responses: {
-          "200": { description: "Messages (chronological)", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Message" } }, error: { type: "null" }, meta: { type: "object", properties: { has_more: { type: "boolean" }, next_cursor: { type: "string", nullable: true } } } } } } } },
+          "200": { description: "Messages (chronological)", content: cursorResponse({ $ref: "#/components/schemas/Message" }, "meta") },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { $ref: "#/components/responses/NotFound" },
         },

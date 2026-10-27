@@ -2010,7 +2010,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             <p class="muted" style="margin-bottom:.75rem">Paste your integration credentials here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>. Grouped by integration below.</p>
             ${renderCredentials(await configStatus())}
           </section>
-          ${license.products.has("publishing") ? renderProvidersStatus() : ""}` : html`<section class="section"><h2>Integrations</h2><p class="muted">Managed by the instance operator</p></section>`}
+          ${license.products.has("publishing") ? await renderProvidersStatus() : ""}` : html`<section class="section"><h2>Integrations</h2><p class="muted">Managed by the instance operator</p></section>`}
           </div>
           <div class="settings-panel" x-show="tab==='sources'" x-cloak>
           <section class="section">
@@ -3495,18 +3495,29 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
   </div>`;
 }
 
-/** Read-only publishing-provider status (merged from PostStack settings): which publish providers
- *  are registered and whether their OAuth client env is configured. Self-hoster diagnostic. */
-function renderProvidersStatus(): Html {
-  const providers = listProviders();
+/** Show credentials for each actual connection path; existing channels need no new OAuth login. */
+async function renderProvidersStatus(): Promise<Html> {
+  const status = await configStatus();
+  const configLabel = (keys: string[]) => {
+    const sources = keys.map((key) => status.find((s) => s.key === key)?.source ?? "unset");
+    if (sources.every((source) => source === "unset")) return "not configured";
+    const settings = sources.includes("db"), environment = sources.includes("env");
+    return (sources.includes("unset") ? "incomplete via " : "configured via ") + (settings && environment ? "Settings + environment" : settings ? "Settings" : "environment");
+  };
+  const rows = [
+    { label: "Meta (Facebook Login)", state: configLabel(["META_APP_ID", "META_APP_SECRET"]) },
+    { label: "Meta (Instagram Business Login)", state: configLabel(["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"]) },
+    { label: "YouTube (Google connection)", state: configLabel(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]) },
+    ...listProviders().filter((p) => p.id !== "meta").map((p) => ({
+      label: p.id === "youtube" ? "YouTube (direct publishing OAuth)" : p.label,
+      state: p.oauthConfig?.() ? "configured via environment" : "not configured (direct OAuth environment credentials)",
+    })),
+  ];
   return html`<section class="section">
     <h2>Publishing providers</h2>
-    <p class="section-intro">Which publishing providers are available and whether their OAuth client credentials are configured.</p>
-    <div class="table-wrap"><table><thead><tr><th>Provider</th><th>OAuth</th></tr></thead><tbody>
-      ${providers.map((p) => {
-        const configured = !!p.oauthConfig?.();
-        return html`<tr><td><span style="color:var(--text-1);font-weight:500">${p.id}</span></td><td>${configured ? pillBadge("configured", "ok") : pillBadge("not configured", "neutral")}</td></tr>`;
-      })}
+    <p class="section-intro">Credentials for connecting or reconnecting channels, by connection path. Existing connected channels are shown in Channels.</p>
+    <div class="table-wrap"><table><thead><tr><th>Connection</th><th>OAuth credentials</th></tr></thead><tbody>
+      ${rows.map((r) => html`<tr><td>${r.label}</td><td>${pillBadge(r.state, r.state.startsWith("configured") ? "ok" : "neutral")}</td></tr>`)}
     </tbody></table></div>
   </section>`;
 }

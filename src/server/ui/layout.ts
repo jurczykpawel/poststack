@@ -103,9 +103,11 @@ export function renderPage(o: PageOpts): Html {
     <!-- CSS handles document navigation; fragment swaps must not overlap its transition. -->
     <meta name="htmx-config" content='{"globalViewTransitions":false}' />
     <title>${o.title}</title>
+    <script src="${assetUrl("view-transitions.js")}"></script>
     ${themeBootScript()}
     <link rel="stylesheet" href="${assetUrl("tokens.css")}" />
     <link rel="stylesheet" href="${assetUrl("admin.css")}" />
+    <script src="${assetUrl("schedule-time.js")}"></script>
     ${uiBehaviorScript()}
     ${paletteScript()}
     <script defer src="${ALPINE}"></script>
@@ -152,6 +154,7 @@ export function doc(title: string, body: Html): Html {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
+<script src="${assetUrl("view-transitions.js")}"></script>
 ${themeBootScript()}
 <link rel="stylesheet" href="${assetUrl("tokens.css")}" />
 <link rel="stylesheet" href="${assetUrl("admin.css")}" />

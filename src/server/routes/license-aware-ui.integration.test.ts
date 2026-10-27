@@ -52,6 +52,39 @@ afterAll(async () => {
 });
 
 describe("license-aware dashboard UI", () => {
+  it("shows the effective Meta credential source and distinguishes YouTube connection paths", async () => {
+    if (!TEST_DB) return;
+    const { setConfig, clearConfig } = await import("@/lib/settings/config");
+    await licenseInstance();
+    const oldId = process.env.META_APP_ID;
+    const oldSecret = process.env.META_APP_SECRET;
+    process.env.META_APP_ID = "env-app";
+    process.env.META_APP_SECRET = "env-secret";
+    try {
+      let body = await (await get("/settings")).text();
+      expect(body).toContain("configured via environment");
+      expect(body).toContain("YouTube (Google connection)");
+      expect(body).toContain("YouTube (direct publishing OAuth)");
+      await setConfig("GOOGLE_CLIENT_ID", "panel-google");
+      await setConfig("GOOGLE_CLIENT_SECRET", "panel-google-secret");
+      await setConfig("META_APP_SECRET", "panel-secret");
+      body = await (await get("/settings")).text();
+      expect(body).toContain("configured via Settings + environment");
+      expect(body).toMatch(/YouTube \(Google connection\)<\/td><td>[^<]*<[^>]+>configured via Settings<\//);
+      expect(body).not.toContain("panel-secret");
+      await clearConfig("META_APP_SECRET");
+      delete process.env.META_APP_SECRET;
+      body = await (await get("/settings")).text();
+      expect(body).toMatch(/Meta \(Facebook Login\)<\/td><td>[^<]*<[^>]+>incomplete via environment/);
+    } finally {
+      await clearConfig("GOOGLE_CLIENT_ID");
+      await clearConfig("GOOGLE_CLIENT_SECRET");
+      await clearConfig("META_APP_SECRET");
+      if (oldId === undefined) delete process.env.META_APP_ID; else process.env.META_APP_ID = oldId;
+      if (oldSecret === undefined) delete process.env.META_APP_SECRET; else process.env.META_APP_SECRET = oldSecret;
+    }
+  });
+
   it("free /rules locks follow-gate, interactive, and personalization", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/rules")).text();
