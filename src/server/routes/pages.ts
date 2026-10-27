@@ -6,6 +6,7 @@ import * as logout from "@/server/handlers/auth/logout/route";
 import { doc } from "../ui/layout";
 import { requireSession } from "../middleware/page-auth";
 import { registerDashboard } from "./dashboard";
+import { brandLogo } from "../ui/branding";
 import { BRAND } from "@/lib/brand";
 import { t } from "@/lib/i18n";
 import { getConfig } from "@/lib/settings/config";
@@ -49,7 +50,7 @@ async function authPage(opts: { title: string; subtitle: string; action: string;
   return doc(
     opts.title,
     html`<div class="auth-wrap"><div class="auth-card">
-  <h1>${BRAND.name}</h1><p class="muted">${opts.subtitle}</p>
+  <h1 style="display:flex;align-items:center;gap:.75rem">${brandLogo()}${BRAND.name}</h1><p class="muted">${opts.subtitle}</p>
   <form hx-post="${opts.action}" hx-ext="json-enc" hx-target="#auth-error" hx-swap="innerHTML">
     ${opts.nameField
       ? html`<div class="fld"><span>Name</span><input type="text" name="name" autocomplete="name" /></div>`

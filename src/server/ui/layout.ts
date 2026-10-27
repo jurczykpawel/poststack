@@ -1,7 +1,8 @@
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { env } from "@/lib/env";
-import { BRAND } from "@/lib/brand";
+import { brandLogo, brandingHead, brandingFooter } from "./branding";
+import { BRAND, currentBrand } from "@/lib/brand";
 import type { Feature } from "@/lib/license/features";
 import type { Area } from "@/lib/license/areas";
 import { AREAS } from "@/lib/license/areas";
@@ -20,11 +21,6 @@ const HTMX_SSE = assetUrl("vendor/htmx-ext-sse-2.2.2.js");
 // json-enc: forms across the app (auth, channels, sources, dashboard) use hx-ext="json-enc" to POST
 // JSON; without this extension htmx falls back to form-encoding and the JSON-only handlers reject it.
 const HTMX_JSON_ENC = assetUrl("vendor/htmx-ext-json-enc-2.0.3.js");
-
-// The first glyph of the brand name powers the sidebar brand mark (single source: BRAND.name).
-function brandGlyph(): string {
-  return (BRAND.name.trim()[0] ?? "P").toUpperCase();
-}
 
 export interface PageOpts {
   title: string;
@@ -67,7 +63,7 @@ function sidebar(activeKey: string, features: Set<Feature>, products: Set<Area>)
   const footCls = footActive ? "sidebar-foot is-active" : "sidebar-foot";
   const footAria = footActive ? raw(' aria-current="page"') : raw("");
   return html`<aside class="sidebar">
-    <div class="brand"><span class="brand-glyph">${brandGlyph()}</span>${BRAND.name}</div>
+    <div class="brand">${brandLogo()}${BRAND.name}</div>
     <nav aria-label="Primary">${sections}</nav>
     <a class="${footCls}" href="${SETTINGS_ITEM.href}"${footAria}>${icon("settings", "ico", 16)}<span>Settings</span></a>
   </aside>`;
@@ -107,6 +103,7 @@ export function renderPage(o: PageOpts): Html {
     ${themeBootScript()}
     <link rel="stylesheet" href="${assetUrl("tokens.css")}" />
     <link rel="stylesheet" href="${assetUrl("admin.css")}" />
+    ${brandingHead()}
     <script src="${assetUrl("schedule-time.js")}"></script>
     ${uiBehaviorScript()}
     ${paletteScript()}
@@ -132,6 +129,7 @@ export function renderPage(o: PageOpts): Html {
         <main class="content" id="main" tabindex="-1">${o.body}</main>
       </div>
     </div>
+    ${brandingFooter()}
     ${mobileNav(activeKey, products)}
     ${commandPalette(products)}
     ${toastRegion()}
@@ -149,7 +147,7 @@ const HEAD = html`
 
 export function doc(title: string, body: Html): Html {
   return html`<!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="${currentBrand().theme}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -158,9 +156,10 @@ export function doc(title: string, body: Html): Html {
 ${themeBootScript()}
 <link rel="stylesheet" href="${assetUrl("tokens.css")}" />
 <link rel="stylesheet" href="${assetUrl("admin.css")}" />
+${brandingHead()}
 ${HEAD}
 </head>
-<body>${body}</body>
+<body>${body}${brandingFooter()}</body>
 </html>`;
 }
 

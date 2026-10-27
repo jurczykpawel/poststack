@@ -34,6 +34,8 @@ export const FEATURES = [
   { key: "manual_reply", area: "replies", minTier: "pro", status: "live", label: "Replying to conversations by hand (rules still auto-reply for free)", description: "A human typing a reply in the inbox / via the API. Free = rules auto-reply only." },
   { key: "reaction_trigger", area: "replies", minTier: "pro", status: "live", label: "Auto-replies triggered by a message reaction", description: "Rules that fire on a message reaction (free triggers are keyword/comment only)." },
 
+  { key: "white_label", area: "core", minTier: "business", status: "live", label: "Instance branding", description: "Use your own product identity across the instance." },
+
   // ── core (connection / access infra shared by both wings) ───────────────────────────────────
   { key: "managed_connection", area: "core", minTier: "pro", status: "live", label: "Meta managed connection (one token connects all Pages + Instagram)", description: "Connect one master FB/IG token that auto-enumerates Pages and linked Instagram accounts, mints and refreshes their tokens automatically." },
   { key: "api_access", area: "core", minTier: "pro", status: "live", label: "API access (REST API keys)", description: "Programmatic REST access via API keys (the dashboard uses session auth, unaffected)." },

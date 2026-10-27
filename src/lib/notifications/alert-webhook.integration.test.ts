@@ -35,6 +35,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  await db.delete(s.rateLimitCounters).where(eq(s.rateLimitCounters.key, "alert:token_expiring:src-1"));
   safeFetchWebhookMock.mockReset();
   safeFetchWebhookMock.mockImplementation(async () => new Response("ok", { status: 200 }));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));

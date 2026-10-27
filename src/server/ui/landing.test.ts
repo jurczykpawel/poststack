@@ -66,3 +66,31 @@ describe("serveLandingFile", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("runtime instance landing", () => {
+  it("renders the homepage and both legal documents without rebuilding", async () => {
+    const { DEFAULT_BRAND, withBrand } = await import("@/lib/brand");
+    const { brandedLanding } = await import("./landing-branding");
+    const brand = { ...DEFAULT_BRAND, name: 'Orchard & Studio', accent: "#123456", faviconUrl: "", contactEmail: "hi@orchard.example", publicUrl: "https://orchard.example", footer: 'Orchard team' };
+    const source = '<html><head><title>PostStack</title></head><body><header>PostStack</header><main><h1>Legal</h1><p>PostStack; kontakt@techskills.academy; https://poststack.techskills.academy</p></main></body></html>';
+    for (const path of ["index.html", "privacy/index.html", "terms/index.html"]) {
+      const body = await withBrand(brand, () => brandedLanding(source, path));
+      expect(body).toContain('Orchard &amp; Studio');
+      expect(body).toContain('hi@orchard.example');
+      expect(body).toContain('https://orchard.example');
+      expect(body).toContain('/instance-favicon.svg');
+      expect(body).not.toContain('PostStack');
+      expect(body).not.toContain('kontakt@techskills.academy');
+      expect(body).toContain('href="/privacy"');
+      expect(body).toContain('href="/terms"');
+    }
+  });
+  it("uses the runtime brand for served HTML and retains static asset caching", async () => {
+    const { DEFAULT_BRAND, withBrand } = await import("@/lib/brand");
+    const brand = { ...DEFAULT_BRAND, name: 'Orchard', contactEmail: 'hi@orchard.example', publicUrl: 'https://orchard.example' };
+    const response = await withBrand(brand, () => app.request('/'));
+    expect(await response.text()).toContain('Orchard');
+    const asset = await withBrand(brand, () => app.request('/_astro/app.123abc.css'));
+    expect(asset.headers.get('cache-control')).toContain('immutable');
+  });
+});

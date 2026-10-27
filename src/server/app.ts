@@ -1,3 +1,4 @@
+import { getInstanceBrand, withBrand } from "@/lib/brand";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { securityHeaders } from "./middleware/security-headers";
@@ -24,6 +25,14 @@ export function buildApp(): Hono {
   const app = new Hono();
 
   app.use("*", securityHeaders());
+  app.use("*", async (c, next) => {
+    const path = c.req.path;
+    const asset = path.startsWith("/static/") || path.startsWith("/_astro/");
+    const operationalApi = path.startsWith("/api/") && !["/api/docs", "/api/v1"].includes(path);
+    const instanceWrite = c.req.method !== "GET" && ["/settings/branding", "/settings/license", "/settings/license/clear", "/settings/credentials"].includes(path);
+    if (asset || operationalApi || instanceWrite) return next();
+    return withBrand(await getInstanceBrand(), next);
+  });
   app.use("/api/v1", corsMiddleware);
   app.use("/api/v1/*", corsMiddleware);
 

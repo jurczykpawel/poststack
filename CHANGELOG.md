@@ -13,6 +13,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Instance credentials and license management now require an instance operator session, configurable through `INSTANCE_ADMIN_EMAILS`.
 
 ### Added
+- Business instance branding for the dashboard, public pages, contact details and outbound notifications, with runtime landing rendering and operator settings.
 - TikTok Compose controls with creator info, explicit privacy and consent, interaction restrictions, commercial disclosure, video preview and confirmed automatic scheduling.
 - Saved TikTok Direct Post privacy, interaction, commercial-content and cover settings; creator-specific duration checks and automatic URL ingestion from a configured verified prefix.
 - Public Terms of Service at `/terms`, shared legal-page branding and footer links, and Privacy Policy coverage of connected-account data and TikTok deletion.

@@ -1,3 +1,5 @@
+import { isWhiteLabel } from "@/lib/brand";
+import { brandedLanding } from "./landing-branding";
 import type { Context } from "hono";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
@@ -67,7 +69,8 @@ export async function serveLandingFile(c: Context, rel: string): Promise<Respons
       ? "public, max-age=31536000, immutable"
       : "public, max-age=0, must-revalidate";
     if (ext === ".html") {
-      const html = injectAnalyticsConfig(await readFile(join(ROOT(), safe), "utf8"));
+      const source = await readFile(join(ROOT(), safe), "utf8");
+      const html = isWhiteLabel() ? await brandedLanding(source, safe) : injectAnalyticsConfig(source);
       return c.body(html, 200, { "content-type": type, "cache-control": cache });
     }
     const body = await readFile(join(ROOT(), safe));
