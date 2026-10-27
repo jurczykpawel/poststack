@@ -81,6 +81,15 @@ export const postCreate = z.object({
   mediaUrls: urls,
   assetNotes: z.string().max(LIMITS.text).optional(),
   sourceRef: z.string().max(LIMITS.ref).optional(),
+  // TikTok-specific choices. Null clears a choice; Direct Post validates against current creator info.
+  tiktokPublishMode: z.enum(["inbox", "direct"]).nullish(),
+  tiktokPrivacyLevel: z.enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]).nullish(),
+  tiktokDisableComment: z.boolean().nullish(),
+  tiktokDisableDuet: z.boolean().nullish(),
+  tiktokDisableStitch: z.boolean().nullish(),
+  tiktokBrandContentToggle: z.boolean().nullish(),
+  tiktokBrandOrganicToggle: z.boolean().nullish(),
+  tiktokCoverTimestampMs: z.number().int().min(0).max(2147483647).nullish(),
   // YTOPTS1: YouTube-specific publish options. All nullish so a PATCH can clear them back to "inherit
   // the provider's own safe defaults" (private, no tags, no category, madeForKids=false).
   youtubePrivacy: z.enum(["private", "unlisted", "public"]).nullish(),

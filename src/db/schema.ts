@@ -48,6 +48,8 @@ export type Platform = (typeof platform.enumValues)[number]
 //   ai_generated — realistic AI-generated or AI-altered depiction (the Art. 50(4) "deep fake" category)
 export const aiDisclosureLevel = pgEnum("ai_disclosure_level", ['none', 'ai_assisted', 'ai_generated'])
 export type AiDisclosureLevel = (typeof aiDisclosureLevel.enumValues)[number]
+export const tiktokPublishMode = pgEnum("tiktok_publish_mode", ['inbox', 'direct'])
+export const tiktokPrivacyLevel = pgEnum("tiktok_privacy_level", ['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY'])
 // YTOPTS1: YouTube visibility. NULL on a post = the provider's safe default (`private`), i.e. exactly the
 // behaviour that existed before this column, so no historical post silently changes visibility.
 export const youtubePrivacy = pgEnum("youtube_privacy", ['private', 'unlisted', 'public'])
@@ -1344,6 +1346,15 @@ export const posts = pgTable("posts", {
 	// post only (an empty first_comment string = explicitly "no first comment").
 	first_comment: text("first_comment"),
 	auto_story: boolean("auto_story"),
+	// Saved TikTok choices; NULL leaves privacy unselected and uses inbox mode.
+	tiktok_publish_mode: tiktokPublishMode("tiktok_publish_mode"),
+	tiktok_privacy_level: tiktokPrivacyLevel("tiktok_privacy_level"),
+	tiktok_disable_comment: boolean("tiktok_disable_comment"),
+	tiktok_disable_duet: boolean("tiktok_disable_duet"),
+	tiktok_disable_stitch: boolean("tiktok_disable_stitch"),
+	tiktok_brand_content_toggle: boolean("tiktok_brand_content_toggle"),
+	tiktok_brand_organic_toggle: boolean("tiktok_brand_organic_toggle"),
+	tiktok_cover_timestamp_ms: integer("tiktok_cover_timestamp_ms"),
 	// YTOPTS1: YouTube-specific publish options. All NULL = pre-YTOPTS1 behaviour (private, no tags, no
 	// category, madeForKids=false) — the provider keeps its own safe defaults, these only override them.
 	youtube_privacy: youtubePrivacy("youtube_privacy"),

@@ -13,11 +13,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Instance credentials and license management now require an instance operator session, configurable through `INSTANCE_ADMIN_EMAILS`.
 
 ### Added
+- Saved TikTok Direct Post privacy, interaction, commercial-content and cover settings; creator-specific duration checks and automatic URL ingestion from a configured verified prefix.
 - TikTok creator-info API and dashboard endpoints with channel caching, forced refresh, current posting permissions and posting-limit guidance.
 - Agent skill `skills/meta-app-setup` that sets up the Meta app for an instance in the user's own browser — permissions, webhooks, redirect URIs, Instagram Business Login, Live mode — and verifies the connection.
 - **Posts expose their delivery and first-comment outcome over the API.** `GET /posts` and `GET /posts/{id}` now return a `delivery` object (or `null` when the post was never sent): scheduled time, delivery status, attempts, the last error (secrets redacted), the platform post id, and `firstComment` with its own status, comment id and error. When no first comment was attempted, `firstComment.status` is `not_attempted` with a `reason` (`no_text`, `unlicensed`, `unsupported_platform`, `awaiting_publish`) — evaluated at read time, since the skip reason is not stored. Publishing with a future time now also fills the post's `scheduledDate`, which previously stayed `null`. Integrations no longer need to infer publish results from the absence of errors.
 
 ### Fixed
+- TikTok Direct Post requires an explicit privacy choice and respects current creator permissions; video uploads record duration with ffprobe.
 - Contacts preserves search, brand, channel, and platform filters when pressing Enter or opening a filtered URL.
 - Inbox history groups messages by their actual calendar day in the user’s timezone.
 - Done and Reopen refresh the current Inbox list and counters automatically.

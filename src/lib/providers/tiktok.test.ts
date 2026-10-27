@@ -21,7 +21,7 @@ import { tiktokProvider } from "./tiktok";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 const creatorInfo = {
   creator_nickname: "Creator", creator_avatar_url: "https://example.com/avatar", privacy_level_options: ["SELF_ONLY"],
   comment_disabled: false, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 300,
@@ -85,6 +85,7 @@ describe("tiktok provider", () => {
       accountId: "ttuser",
       request: { format: "video", media: [{ mediaId: "m" }], caption: "hi" },
       mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
     });
     expect(h.providerHandle).toBe("pub_1");
     const init = calls.find((c) => c.url.includes("/inbox/video/init/"))!;
@@ -98,7 +99,8 @@ describe("tiktok provider", () => {
     expect(put.method).toBe("PUT");
   });
 
-  it("publish with ingestion=pull_url uses PULL_FROM_URL (no download/PUT)", async () => {
+  it("publish with a verified prefix uses PULL_FROM_URL (no download/PUT)", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
     let initBody: Record<string, unknown> = {};
     let putCalled = false;
     vi.stubGlobal(
@@ -120,6 +122,7 @@ describe("tiktok provider", () => {
       accountId: "ttuser",
       request: { format: "video", media: [{ mediaId: "m" }], options: { ingestion: "pull_url" } },
       mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
     });
     expect(h.providerHandle).toBe("pub_p");
     expect(initBody.source_info).toMatchObject({ source: "PULL_FROM_URL", video_url: "https://cdn/x.mp4" });
@@ -127,6 +130,7 @@ describe("tiktok provider", () => {
   });
 
   it("publish direct mode sets post_info (title + SELF_ONLY + frame cover)", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
     let url = "";
     let body: Record<string, unknown> = {};
     vi.stubGlobal(
@@ -147,9 +151,10 @@ describe("tiktok provider", () => {
         format: "video",
         media: [{ mediaId: "m" }],
         caption: "my title",
-        options: { publishMode: "direct", ingestion: "pull_url", coverTimestampMs: 1500 },
+        options: { publishMode: "direct", privacyLevel: "SELF_ONLY", ingestion: "pull_url", coverTimestampMs: 1500 },
       },
       mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
     });
     expect(url).toContain("/post/publish/video/init/");
     expect(body.post_info).toMatchObject({
@@ -160,6 +165,7 @@ describe("tiktok provider", () => {
   });
 
   it("direct mode sets post_info.is_aigc when options.aiDisclosed is a boolean [AIDISC1]", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
     let body: Record<string, unknown> = {};
     vi.stubGlobal(
       "fetch",
@@ -178,14 +184,16 @@ describe("tiktok provider", () => {
         format: "video",
         media: [{ mediaId: "m" }],
         caption: "c",
-        options: { publishMode: "direct", ingestion: "pull_url", aiDisclosed: true },
+        options: { publishMode: "direct", privacyLevel: "SELF_ONLY", ingestion: "pull_url", aiDisclosed: true },
       },
       mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
     });
     expect((body.post_info as { is_aigc?: boolean }).is_aigc).toBe(true);
   });
 
   it("direct mode omits is_aigc when options.aiDisclosed is not a boolean", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
     let body: Record<string, unknown> = {};
     vi.stubGlobal(
       "fetch",
@@ -203,9 +211,10 @@ describe("tiktok provider", () => {
       request: {
         format: "video",
         media: [{ mediaId: "m" }],
-        options: { publishMode: "direct", ingestion: "pull_url" },
+        options: { publishMode: "direct", privacyLevel: "SELF_ONLY", ingestion: "pull_url" },
       },
       mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
     });
     expect("is_aigc" in (body.post_info as object)).toBe(false);
   });
@@ -233,11 +242,13 @@ describe("tiktok provider", () => {
       accountId: "ttuser",
       request: { format: "video", media: [{ mediaId: "m" }], options: { aiDisclosed: true } },
       mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
     });
     expect(body.post_info).toBeUndefined();
   });
 
   it("surfaces a TikTok 200-with-error (e.g. url_ownership_unverified)", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -252,7 +263,101 @@ describe("tiktok provider", () => {
         accountId: "ttuser",
         request: { format: "video", media: [{ mediaId: "m" }], options: { ingestion: "pull_url" } },
         mediaUrls: ["https://cdn/x.mp4"],
+      mediaDurationsSec: [30],
       }),
     ).rejects.toThrow();
+  });
+});
+
+
+describe("TikTok Direct Post settings", () => {
+  const url = "https://cdn.example.com/media/video.mp4?signature=original";
+  const bytes = new Uint8Array([0, 1, 2, 3, 255, 17]);
+  function mockPublishing(creator = creatorInfo) {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const target = String(input);
+      calls.push({ url: target, init });
+      if (target.includes("creator_info/query/")) return Response.json({ data: creator, error: { code: "ok" } });
+      if (target.includes("/video/init/")) return Response.json({ data: { publish_id: "pub", upload_url: "https://upload.example.com/chunk" }, error: { code: "ok" } });
+      if (target === url) return new Response(bytes);
+      if (target === "https://upload.example.com/chunk") return new Response(null, { status: 201 });
+      throw new Error(`Unexpected request: ${target}`);
+    }));
+    return calls;
+  }
+  const publish = (options: Record<string, unknown> = {}, durationSec: number | null = 30) => tiktokProvider.publish({
+    tokens, accountId: "creator", mediaUrls: [url], mediaDurationsSec: [durationSec],
+    request: { format: "video", media: [{ mediaId: "m" }], caption: "Original caption", options: { publishMode: "direct", ...options } },
+  });
+  const initBody = (calls: ReturnType<typeof mockPublishing>) => JSON.parse(String(calls.find(c => c.url.includes("/video/init/"))?.init?.body));
+
+  it.each([undefined, "", "PUBLIC_TO_EVERYONE", "invalid"])("requires an explicit privacy allowed by the creator: %s", async privacyLevel => {
+    const calls = mockPublishing();
+    await expect(publish({ privacyLevel })).rejects.toThrow(/privacy/i);
+    expect(calls.every(c => c.url.includes("creator_info/query/"))).toBe(true);
+  });
+  it("preserves the caption and commercial flags and applies interaction choices", async () => {
+    const calls = mockPublishing({ ...creatorInfo, privacy_level_options: ["PUBLIC_TO_EVERYONE"] });
+    await publish({ privacyLevel: "PUBLIC_TO_EVERYONE", disableComment: false, disableDuet: true, disableStitch: false, brandContentToggle: true, brandOrganicToggle: true, aiDisclosed: false });
+    expect(initBody(calls).post_info).toEqual({ title: "Original caption", privacy_level: "PUBLIC_TO_EVERYONE", disable_comment: false, disable_duet: true, disable_stitch: false, brand_content_toggle: true, brand_organic_toggle: true, is_aigc: false });
+  });
+  it("defaults interactions to disabled and commercial flags to off", async () => {
+    const calls = mockPublishing();
+    await publish({ privacyLevel: "SELF_ONLY" });
+    expect(initBody(calls).post_info).toMatchObject({ disable_comment: true, disable_duet: true, disable_stitch: true, brand_content_toggle: false, brand_organic_toggle: false });
+  });
+  it("forces disabled creator interactions off even when requested on", async () => {
+    const calls = mockPublishing({ ...creatorInfo, comment_disabled: true, duet_disabled: true, stitch_disabled: true });
+    await publish({ privacyLevel: "SELF_ONLY", disableComment: false, disableDuet: false, disableStitch: false });
+    expect(initBody(calls).post_info).toMatchObject({ disable_comment: true, disable_duet: true, disable_stitch: true });
+  });
+  it("rejects branded content with private visibility before ingestion", async () => {
+    const calls = mockPublishing();
+    await expect(publish({ privacyLevel: "SELF_ONLY", brandContentToggle: true })).rejects.toThrow(/private/i);
+    expect(calls).toHaveLength(1);
+  });
+  it("allows own-brand content with private visibility", async () => {
+    const calls = mockPublishing();
+    await publish({ privacyLevel: "SELF_ONLY", brandOrganicToggle: true });
+    expect(initBody(calls).post_info.brand_organic_toggle).toBe(true);
+  });
+  it.each([301, null, 0, -1, NaN, Infinity])("rejects unavailable or excessive video duration: %s", async duration => {
+    const calls = mockPublishing();
+    await expect(publish({ privacyLevel: "SELF_ONLY" }, duration)).rejects.toThrow(/duration/i);
+    expect(calls).toHaveLength(1);
+  });
+  it("accepts duration equal to the creator limit", async () => {
+    mockPublishing();
+    await expect(publish({ privacyLevel: "SELF_ONLY" }, 300)).resolves.toEqual({ providerHandle: "pub" });
+  });
+  it("keeps the catalog ceiling when the creator allows longer videos", async () => {
+    mockPublishing({ ...creatorInfo, max_video_post_duration_sec: 1200 });
+    await expect(publish({ privacyLevel: "SELF_ONLY" }, 601)).rejects.toThrow(/600/);
+  });
+  it("requires creator duration permissions when absent from creator info", async () => {
+    const { max_video_post_duration_sec: _limit, ...withoutLimit } = creatorInfo;
+    mockPublishing(withoutLimit as typeof creatorInfo);
+    await expect(publish({ privacyLevel: "SELF_ONLY" })).rejects.toThrow(/duration/i);
+  });
+  it("sends the original video bytes unchanged in FILE_UPLOAD", async () => {
+    const calls = mockPublishing();
+    await publish({ privacyLevel: "SELF_ONLY" });
+    expect(calls.find(c => c.init?.method === "PUT")?.init?.body).toEqual(bytes);
+    expect(initBody(calls).source_info.video_size).toBe(bytes.length);
+  });
+  it("automatically pulls the original URL from the configured verified prefix", async () => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn.example.com/media/");
+    const calls = mockPublishing();
+    await publish({ privacyLevel: "SELF_ONLY" });
+    expect(initBody(calls).source_info).toEqual({ source: "PULL_FROM_URL", video_url: url });
+    expect(calls).toHaveLength(2);
+  });
+  it.each(["", "https://other.example.com/media/", "https://cdn.example.com/media/other/", "https://cdn.example.com.evil/media/", "http://cdn.example.com/media/", "invalid", "https://cdn.example.com/media/?x=1"])("uses FILE_UPLOAD outside a verified prefix: %s", async prefix => {
+    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", prefix);
+    const calls = mockPublishing();
+    await publish({ privacyLevel: "SELF_ONLY", ingestion: "pull_url" });
+    expect(initBody(calls).source_info.source).toBe("FILE_UPLOAD");
+    expect(calls.find(c => c.init?.method === "PUT")?.init?.body).toEqual(bytes);
   });
 });

@@ -95,6 +95,13 @@ async function fixtures(overrides: Partial<typeof schema.posts.$inferInsert> = {
 }
 
 describe("publishPost", () => {
+  it("captures saved TikTok choices in a scheduled delivery", async () => {
+    const { channelId, postId } = await fixtures({ platform: "tiktok", tiktok_publish_mode: "direct", tiktok_privacy_level: "PUBLIC_TO_EVERYONE", tiktok_disable_comment: false, tiktok_disable_duet: true, tiktok_disable_stitch: false, tiktok_brand_content_toggle: true, tiktok_brand_organic_toggle: false, tiktok_cover_timestamp_ms: 1234 });
+    await db.update(schema.channels).set({ platform: "tiktok" }).where(eq(schema.channels.id, channelId));
+    const { delivery } = await publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, fakeRegister);
+    expect(delivery.payload).toMatchObject({ options: { publishMode: "direct", privacyLevel: "PUBLIC_TO_EVERYONE", disableComment: false, disableDuet: true, disableStitch: false, brandContentToggle: true, brandOrganicToggle: false, coverTimestampMs: 1234 } });
+  });
+
   it("when=now creates a scheduled delivery, links it, flips status", async () => {
     if (!TEST_DB) return;
     const originalDate = new Date("2030-01-01T08:00:00.000Z");

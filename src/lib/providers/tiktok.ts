@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
 import { queryCreatorInfo } from "./tiktok-creator-info";
@@ -8,6 +9,32 @@ import { asString } from "./util";
 import { safeFetch } from "@/lib/media/ssrf";
 
 const API = "https://open.tiktokapis.com/v2";
+
+const directOptions = z.object({
+  privacyLevel: z.string().min(1),
+  disableComment: z.boolean().default(true),
+  disableDuet: z.boolean().default(true),
+  disableStitch: z.boolean().default(true),
+  brandContentToggle: z.boolean().default(false),
+  brandOrganicToggle: z.boolean().default(false),
+  coverTimestampMs: z.number().int().min(0).max(2147483647).optional(),
+  aiDisclosed: z.boolean().optional(),
+});
+
+function isVerifiedPullUrl(videoUrl: string): boolean {
+  const prefix = process.env.TIKTOK_PULL_URL_PREFIX;
+  if (!prefix) return false;
+  try {
+    const configured = new URL(prefix);
+    const video = new URL(videoUrl);
+    if (configured.protocol !== "https:" || configured.username || configured.password || configured.search || configured.hash) return false;
+    if (video.username || video.password || video.hash || video.origin !== configured.origin) return false;
+    const path = configured.pathname;
+    return video.pathname === path || video.pathname.startsWith(path.endsWith("/") ? path : `${path}/`);
+  } catch {
+    return false;
+  }
+}
 
 const CAPS: FormatCapability[] = [
   {
@@ -66,26 +93,49 @@ export const tiktokProvider: Provider = {
     return { accountId: id };
   },
 
-  async publish({ tokens, request, mediaUrls }): Promise<PublishHandle> {
+  async publish({ tokens, request, mediaUrls, mediaDurationsSec }): Promise<PublishHandle> {
     if (request.format !== "video") {
       throw new PermanentError(`tiktok: unsupported format '${request.format}'`);
     }
     const videoUrl = mediaUrls[0] ?? "";
     const direct = request.options?.publishMode === "direct";
+    let postInfo: Record<string, unknown> | undefined;
     if (direct) {
       const creator = await queryCreatorInfo(tokens.accessToken);
       if (creator.status === "cannot_post_now") {
         throw new RateLimitedError(`${creator.message} (${creator.reason})`, 3600, "pre_commit");
       }
+      const parsed = directOptions.safeParse(request.options);
+      if (!parsed.success) throw new PermanentError(`tiktok: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+      const options = parsed.data;
+      const info = creator.creator_info;
+      if (!info.privacy_level_options.includes(options.privacyLevel)) {
+        throw new PermanentError("tiktok: privacyLevel is not allowed by the creator");
+      }
+      if (options.brandContentToggle && options.privacyLevel === "SELF_ONLY") {
+        throw new PermanentError("tiktok: Branded content visibility cannot be set to private");
+      }
+      const duration = mediaDurationsSec?.[0];
+      const creatorLimit = info.max_video_post_duration_sec;
+      if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0 || !creatorLimit) {
+        throw new PermanentError("tiktok: video duration or creator duration limit unavailable; register media with duration and try again");
+      }
+      const maxDuration = Math.min(CAPS[0]!.video!.maxDurationSec!, creatorLimit);
+      if (duration > maxDuration) throw new PermanentError(`tiktok: video duration exceeds ${maxDuration} seconds`);
+      postInfo = {
+        title: request.caption ?? "",
+        privacy_level: options.privacyLevel,
+        disable_comment: info.comment_disabled || options.disableComment,
+        disable_duet: info.duet_disabled || options.disableDuet,
+        disable_stitch: info.stitch_disabled || options.disableStitch,
+        brand_content_toggle: options.brandContentToggle,
+        brand_organic_toggle: options.brandOrganicToggle,
+        ...(options.coverTimestampMs !== undefined ? { video_cover_timestamp_ms: options.coverTimestampMs } : {}),
+        ...(options.aiDisclosed !== undefined ? { is_aigc: options.aiDisclosed } : {}),
+      };
     }
-    // Ingestion: FILE_UPLOAD (default) uploads the bytes — storage-agnostic, no TikTok URL-domain
-    // verification needed. PULL_FROM_URL is opt-in and requires a verified URL prefix in the app.
-    const usePull = request.options?.ingestion === "pull_url";
-
-    // Endpoint: Inbox (default, `video.upload`, no audit) → DRAFT in the app; the creator sets
-    // caption/cover/privacy there (inbox takes NO post_info). Direct (`video.publish`) carries
-    // post_info but UNAUDITED clients are forced to SELF_ONLY (private). TikTok has no
-    // custom-cover-IMAGE API — only a video-frame timestamp, and only on direct.
+    const usePull = isVerifiedPullUrl(videoUrl);
+    // Inbox takes no post_info; Direct Post requires creator-selected settings.
     const endpoint = direct ? "/post/publish/video/init/" : "/post/publish/inbox/video/init/";
 
     const headers = {
@@ -113,29 +163,7 @@ export const tiktokProvider: Provider = {
     }
 
     const initBody: Record<string, unknown> = { source_info: sourceInfo };
-    if (direct) {
-      const coverTs =
-        typeof request.options?.coverTimestampMs === "number"
-          ? request.options.coverTimestampMs
-          : undefined;
-      const privacy =
-        typeof request.options?.privacyLevel === "string"
-          ? request.options.privacyLevel
-          : "SELF_ONLY"; // unaudited clients are restricted to private regardless
-      // AIDISC1: publish-worker-normalized boolean (see lib/ai-disclosure/mapping.ts). Only the
-      // direct/video init endpoint takes post_info at all — the Inbox path above never builds this
-      // object, so an inbox-only publish carries no disclosure field regardless of aiDisclosed. The
-      // PHOTO post endpoint (/v2/post/publish/content/init/) has no such field either, but this
-      // provider has no photo path yet, so there's nothing to gate there today.
-      const aiDisclosed =
-        typeof request.options?.aiDisclosed === "boolean" ? request.options.aiDisclosed : undefined;
-      initBody.post_info = {
-        title: request.caption ?? "",
-        privacy_level: privacy,
-        ...(coverTs !== undefined ? { video_cover_timestamp_ms: coverTs } : {}),
-        ...(aiDisclosed !== undefined ? { is_aigc: aiDisclosed } : {}),
-      };
-    }
+    if (postInfo) initBody.post_info = postInfo;
 
     const init = await fetch(`${API}${endpoint}`, {
       method: "POST",

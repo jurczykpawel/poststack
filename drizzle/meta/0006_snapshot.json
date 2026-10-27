@@ -4996,6 +4996,56 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "tiktok_publish_mode": {
+          "name": "tiktok_publish_mode",
+          "type": "tiktok_publish_mode",
+          "primaryKey": false,
+          "notNull": false,
+          "typeSchema": "public"
+        },
+        "tiktok_privacy_level": {
+          "name": "tiktok_privacy_level",
+          "type": "tiktok_privacy_level",
+          "primaryKey": false,
+          "notNull": false,
+          "typeSchema": "public"
+        },
+        "tiktok_disable_comment": {
+          "name": "tiktok_disable_comment",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_disable_duet": {
+          "name": "tiktok_disable_duet",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_disable_stitch": {
+          "name": "tiktok_disable_stitch",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_brand_content_toggle": {
+          "name": "tiktok_brand_content_toggle",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_brand_organic_toggle": {
+          "name": "tiktok_brand_organic_toggle",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_cover_timestamp_ms": {
+          "name": "tiktok_cover_timestamp_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -7466,6 +7516,24 @@
         "private",
         "unlisted",
         "public"
+      ]
+    },
+    "public.tiktok_publish_mode": {
+      "name": "tiktok_publish_mode",
+      "schema": "public",
+      "values": [
+        "inbox",
+        "direct"
+      ]
+    },
+    "public.tiktok_privacy_level": {
+      "name": "tiktok_privacy_level",
+      "schema": "public",
+      "values": [
+        "PUBLIC_TO_EVERYONE",
+        "MUTUAL_FOLLOW_FRIENDS",
+        "FOLLOWER_OF_CREATOR",
+        "SELF_ONLY"
       ]
     }
   },

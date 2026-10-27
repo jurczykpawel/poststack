@@ -525,20 +525,36 @@ The same Google app can also serve **YouTube** (`youtube` platform) — just add
 
 ## TikTok publishing
 
-TikTok is supported as a **publishing** channel, with one important limitation to be aware of today.
+TikTok uses the **inbox / draft** flow by default. The video lands in your TikTok inbox; open the
+TikTok app to choose its caption, cover and privacy and confirm publication. Direct Post requires
+`video.publish` and an app that meets TikTok's audit requirements. Unaudited clients remain restricted
+to private (`SELF_ONLY`) visibility; PostStack never substitutes private visibility for your choice.
+The dashboard's dedicated Direct Post controls are not available yet; the post API supports the
+settings below for integrations that provide the required creator-facing posting and consent flow.
 
-TikTok only allows **direct, fully-automated publishing** for apps that have passed its
-**content-posting audit**. Until an app is audited, TikTok's Content Posting API is restricted to the
-**inbox / draft** flow: PostStack uploads your video to your TikTok **inbox as a draft**, and you open
-the TikTok app to set the caption, cover and privacy and tap publish. Unaudited apps are also capped
-to **private (`SELF_ONLY`)** visibility. So scheduling a TikTok post lands a ready-to-confirm draft in
-your inbox — it is **not** a hands-off auto-publish, and **full automation isn't possible yet**.
+Create or patch an editorial post with these nullable fields:
 
-We're working hard to remove this friction — either by offering our own **audited app** you can
-publish through, or by making the approval process dramatically easier. That's the goal of a dedicated
-companion project, **[ShareStack](https://sharestack.techskills.academy/)** — a free, browser-first,
-self-hostable publisher that keeps your OAuth token in your own browser. Until that lands, treat
-TikTok publishing as **draft-only**.
+| Field | Meaning |
+|-------|---------|
+| `tiktokPublishMode` | `inbox` (default when absent) or `direct` |
+| `tiktokPrivacyLevel` | Explicit creator choice from `privacy_level_options`; required for Direct Post, with no default |
+| `tiktokDisableComment`, `tiktokDisableDuet`, `tiktokDisableStitch` | `false` allows the interaction; absent/null disables it. Creator restrictions always force disable. |
+| `tiktokBrandContentToggle` | Paid partnership; defaults off and cannot use `SELF_ONLY` |
+| `tiktokBrandOrganicToggle` | Promotion of the creator's own business; defaults off |
+| `tiktokCoverTimestampMs` | Optional video frame for the cover, in milliseconds |
+
+These choices are captured in the delivery when publishing or scheduling the post. The caption
+becomes TikTok's `post_info.title`; the existing `aiDisclosure` setting supplies `is_aigc`.
+Direct Post checks the registered video duration against the smaller of the current creator limit
+and the 600-second catalog ceiling. An unavailable duration or creator limit stops publication.
+New URL uploads are probed with `ffprobe` (included in Docker; install FFmpeg for local development).
+For older media with no duration, register it again with duration metadata through the media API.
+
+Set `TIKTOK_PULL_URL_PREFIX=https://media.example.com/videos/` **only after verifying that domain or
+URL prefix in the TikTok developer portal**. Matching HTTPS media URLs use `PULL_FROM_URL` unchanged;
+other URLs use `FILE_UPLOAD`, with the original bytes unchanged (single chunk, up to 64 MiB).
+No prefix means `FILE_UPLOAD`. A per-request `ingestion` option cannot override this configuration.
+Neither path adds a watermark or logo.
 
 Creator profile and Direct Post permissions are available at
 `GET /api/v1/channels/{channelId}/tiktok/creator-info` (`channels:read` scope) and the

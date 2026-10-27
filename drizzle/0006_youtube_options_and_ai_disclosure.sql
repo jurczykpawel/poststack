@@ -11,3 +11,23 @@ ALTER TABLE "posts" ADD COLUMN "youtube_made_for_kids" boolean;--> statement-bre
 ALTER TABLE "posts" ADD COLUMN "ai_disclosure" "ai_disclosure_level";--> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "ai_disclosure_note" text;--> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "ai_disclosure_sent" jsonb;
+--> statement-breakpoint
+CREATE TYPE "public"."tiktok_publish_mode" AS ENUM('inbox', 'direct');
+--> statement-breakpoint
+CREATE TYPE "public"."tiktok_privacy_level" AS ENUM('PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY');
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_publish_mode" "tiktok_publish_mode";
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_privacy_level" "tiktok_privacy_level";
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_disable_comment" boolean;
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_disable_duet" boolean;
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_disable_stitch" boolean;
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_brand_content_toggle" boolean;
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_brand_organic_toggle" boolean;
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "tiktok_cover_timestamp_ms" integer;

@@ -83,18 +83,34 @@ export function resolveFormat(
 }
 
 /**
- * YTOPTS1: the extra `options` a post's YouTube columns contribute to a publish request. Every field is
+ * Saved YouTube and TikTok choices contributed to a publish request. Every field is
  * omitted when its source column is null (or, for `youtube_tags`, not an array), so a post with them all
- * null contributes an empty object and the pre-YTOPTS1 request shape stays byte-identical. Option names
+ * null contributes an empty object. Option names
  * are a FIXED CONTRACT the publish providers read.
  */
 export function postPublishOptions(post: {
+  tiktok_publish_mode?: string | null;
+  tiktok_privacy_level?: string | null;
+  tiktok_disable_comment?: boolean | null;
+  tiktok_disable_duet?: boolean | null;
+  tiktok_disable_stitch?: boolean | null;
+  tiktok_brand_content_toggle?: boolean | null;
+  tiktok_brand_organic_toggle?: boolean | null;
+  tiktok_cover_timestamp_ms?: number | null;
   youtube_privacy: string | null;
   youtube_tags: unknown;
   youtube_category_id: string | null;
   youtube_made_for_kids: boolean | null;
 }): Record<string, unknown> {
   return {
+    ...(post.tiktok_publish_mode != null ? { publishMode: post.tiktok_publish_mode } : {}),
+    ...(post.tiktok_privacy_level != null ? { privacyLevel: post.tiktok_privacy_level } : {}),
+    ...(post.tiktok_disable_comment != null ? { disableComment: post.tiktok_disable_comment } : {}),
+    ...(post.tiktok_disable_duet != null ? { disableDuet: post.tiktok_disable_duet } : {}),
+    ...(post.tiktok_disable_stitch != null ? { disableStitch: post.tiktok_disable_stitch } : {}),
+    ...(post.tiktok_brand_content_toggle != null ? { brandContentToggle: post.tiktok_brand_content_toggle } : {}),
+    ...(post.tiktok_brand_organic_toggle != null ? { brandOrganicToggle: post.tiktok_brand_organic_toggle } : {}),
+    ...(post.tiktok_cover_timestamp_ms != null ? { coverTimestampMs: post.tiktok_cover_timestamp_ms } : {}),
     ...(post.youtube_privacy ? { privacyStatus: post.youtube_privacy } : {}),
     ...(Array.isArray(post.youtube_tags) ? { tags: post.youtube_tags } : {}),
     ...(post.youtube_category_id ? { categoryId: post.youtube_category_id } : {}),

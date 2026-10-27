@@ -21,6 +21,7 @@ RUN npm run build
 
 # Production runner — Bun runs the TypeScript entrypoint directly (no build step).
 FROM base AS runner
+RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 # Pin the process clock to UTC so app-clock writes/reads share the DB session's UTC domain — a
 # non-UTC host skews the retention cutoff and silently over-deletes in-window messages.
