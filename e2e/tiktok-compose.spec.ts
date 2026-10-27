@@ -149,6 +149,7 @@ for (const width of [1440, 390]) {
       await page.getByRole("link", { name: "Review TikTok settings" }).click();
       const panel = page.getByRole("region", { name: "TikTok publishing" });
       await expect(panel.getByText("TT3 Creator", { exact: true })).toBeVisible();
+      await expect(page.locator(".nav-locked")).toHaveCount(0);
       await expect(page.getByLabel("TikTok privacy")).toHaveValue("");
       await expect(panel.getByLabel("Allow Comment", { exact: true })).not.toBeChecked();
       await expect(panel.getByLabel("Allow Comment", { exact: true })).toBeDisabled();
@@ -161,8 +162,15 @@ for (const width of [1440, 390]) {
       await page.getByLabel("TikTok caption", { exact: true }).fill("Final confirmed caption");
       await expect(submit).toBeDisabled();
       await panel.getByLabel("I confirm this TikTok submission with these settings.").check();
-      await expect.poll(() => panel.getByLabel("TikTok video preview").evaluate((el) => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(1);
-      await page.screenshot({ path: testInfo.outputPath(`confirmation-${width}.png`), fullPage: true });
+      const preview = panel.getByLabel("TikTok video preview");
+      await preview.evaluate((el) => (el as HTMLVideoElement).play());
+      await expect.poll(() => preview.evaluate((el) => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
+      await preview.evaluate((el) => (el as HTMLVideoElement).pause());
+      await expect(submit).toBeEnabled();
+      await expect(panel.getByLabel("I confirm this TikTok submission with these settings.")).toBeChecked();
+      await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+      await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+      await page.screenshot({ path: testInfo.outputPath(`confirmation-${width}.png`), fullPage: true, animations: "disabled" });
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await submit.click();
       await expect(page).toHaveURL(new RegExp(`/queue/${id}$`));
@@ -172,7 +180,7 @@ for (const width of [1440, 390]) {
       await page.reload();
       await expect(page.locator("#post-detail-head").getByText("processing", { exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
-      await page.screenshot({ path: testInfo.outputPath(`processing-${width}.png`), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath(`processing-${width}.png`), fullPage: true, animations: "disabled" });
       expect(errors).toEqual([]);
     } finally {
       if (id) await client.query("DELETE FROM deliveries WHERE id=$1", [id]);

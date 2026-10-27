@@ -177,6 +177,7 @@ describe("TikTok Queue confirmation", () => {
     expect(out).toContain("Select who can view");
     expect(out).toContain("Music Usage Confirmation");
     expect(out).toContain("Publish now");
+    expect(out).not.toContain('class="nav-item nav-locked"');
     const data = JSON.parse(out.match(/id="ps-tiktok-confirm-data">([\s\S]*?)<\/script>/)![1]!);
     expect(data.caption).toBe("Caption <review>");
     expect(data.creator.creator_info.creator_nickname).toBe("Current Creator");
