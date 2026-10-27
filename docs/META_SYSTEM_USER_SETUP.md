@@ -112,17 +112,22 @@ menu names may differ in your version of the UI.
    `.env`). It must belong to / be claimed by the same Business.
 
 3. **Create a System User** in the Business's settings (look for "System users" under business
-   users/accounts). Give it an **Admin** role so it can act on the Pages.
+   users/accounts). The **Employee** role is enough when you assign the assets explicitly in step 4
+   (verified 2026-10-27). **Admin** gives it every asset in the Business, so use it only if you want that.
 
-4. **Assign assets to the System User:** assign your **Pages** (and, where the UI lists them
-   separately, the **Instagram accounts**) and assign your **app** to this System User. Grant full
-   control over the Pages.
+4. **Assign assets to the System User:** assign your **Pages**, then the **Instagram accounts**
+   separately. The Page assignment lists the linked IG account as "Nothing assigned yet" until you do.
+   Then assign your **app**. Partial access is enough, verified 2026-10-27 with publishing, comments
+   and DMs on TEST:
+   - Page and Instagram account: **Content, Community activity, Messages, Insights**.
+   - App: **Develop app**.
 
 5. **Generate a token for the System User:**
    - choose **your PostStack app** as the app the token is for,
    - set expiration to **Never** (this is what makes it permanent),
    - select the **permissions** from the table above,
-   - generate and copy the token. **Copy it immediately** — Meta shows it once.
+   - generate and copy the token. **Copy it immediately** — Meta shows it once. Meta may first ask
+     you to **verify your account** (password / 2FA).
 
 6. **Paste it into PostStack:** open your instance → the **Sources / Connections** area (Settings) →
    "connect a managed source" → paste the token. (Or via the API: `POST /api/v1/sources` with the

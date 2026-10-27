@@ -173,6 +173,32 @@ explicitly asked you to do it for them.
   seconds. If it doesn't, check Live mode (step 9), the webhook fields (steps 5 and 7), and the
   Instagram Tester role (step 8).
 
+### 12. Optional: One Token Setup (System User — connects every Page and IG account at once)
+Use it when the user has several Pages / IG accounts in one Meta business, or wants a token that never expires.
+Verified end to end on TEST on 2026-10-27. Concepts and the scope table: `docs/META_SYSTEM_USER_SETUP.md`.
+1. `business.facebook.com/latest/settings/system_users?business_id=<id>` → **Add** → name (e.g. "PostStack"),
+   role **Employee**. The role dropdown ignored scripted clicks; ArrowDown on the combobox opened it. Meta may
+   ask the user to accept the Non-discrimination policy for system users.
+2. **Assign assets:**
+   - the Page, with Content, Community activity, Messages and calls, Insights;
+   - the Instagram account, which needs its **own** assignment (Manage next to "Instagram accounts"), with
+     Content, Messages, Community activity, Insights;
+   - the app, with **Develop app**.
+   - ✅ After a reload, "can access 3 business assets" (or N) shows partial access on each.
+3. **Generate token** → app = this instance's app → **Never** → permissions: `business_management, instagram_basic,
+   instagram_content_publish, instagram_manage_comments, instagram_manage_messages, pages_manage_engagement,
+   pages_manage_metadata, pages_manage_posts, pages_messaging, pages_read_engagement, pages_show_list` (11) →
+   Generate. **The user** passes "verify your account". The token is shown once: read it from the page straight
+   into the password manager or the instance. Never print it.
+   - ✅ `debug_token` returns `type=SYSTEM_USER`, `expires_at=0`, `data_access_expires_at=0`.
+4. Paste it in the instance: Settings → **Sources**, or `POST /api/v1/sources {"token": …}` with a `sources:write` key.
+   - ✅ Badge **"System User (permanent) · … · data access never expires"**. Every assigned Page and IG account
+     appears. Channels connected earlier by OAuth switch to `derived` and keep their Instagram DM token.
+   - ✅ **↻ Sync** (daily automatically) keeps the DM token.
+5. ⚠️ **Instagram DMs still need step 11 c)** (+ Instagram (messaging) + Instagram Tester role). Measured: an IG
+   account connected only through the System User received no DM webhook. After c) on the same `derived`
+   channel, DMs arrived.
+
 ## Errors and what they mean
 
 | What you see | Cause and fix |
