@@ -12,6 +12,7 @@ import { recordResponseMetric } from "@/lib/metrics/capture";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { updateConversation } from "@/lib/conversations/update";
 
 /**
  * Best-effort public permalink of the post a comment is on, so the inbox can link to it.
@@ -151,9 +152,7 @@ export async function processIncomingComment(
       .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
       .returning({ id: commentLogs.id });
     if (!logged) return null;
-    await tx.update(conversations)
-      .set({ last_message_at: new Date(), status: "open" })
-      .where(eq(conversations.id, conversationId));
+    await updateConversation(tx, channel.workspace_id, conversationId, { last_message_at: new Date(), status: "open" });
     await tx.update(contacts)
       .set({ last_interaction_at: new Date() })
       .where(eq(contacts.id, contactId));

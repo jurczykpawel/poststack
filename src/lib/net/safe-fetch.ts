@@ -150,6 +150,11 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
           settleReject(new SsrfError(`refused redirect response (status ${status})`));
           return;
         }
+        if (req.method === "HEAD" || status === 204 || status === 205) {
+          res.resume();
+          settleResolve(new Response(null, { status, statusText: res.statusMessage, headers: buildResponseHeaders(res.headers) }));
+          return;
+        }
         // STREAMING mode: hand the live response stream straight to the caller (no buffer, no
         // `maxResponseBytes` cap). The redirect guard above already ran, so we never stream a 3xx
         // body. `readBodyCapped` (caller) governs size; the inactivity timeout still bounds a hang.

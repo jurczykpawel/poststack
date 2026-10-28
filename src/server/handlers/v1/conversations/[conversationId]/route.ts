@@ -5,6 +5,7 @@ import { conversations, workspaceMembers } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { proGate } from "@/lib/api/pro-gate";
 import { resumeDueEnrollments } from "@/lib/sequences/resume";
+import { updateConversation } from "@/lib/conversations/update";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -65,7 +66,7 @@ export async function PATCH(
   const { conversationId } = await params;
   const existing = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
-    columns: { id: true, is_automation_paused: true, contact_id: true, channel_id: true },
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -95,25 +96,22 @@ export async function PATCH(
   }
 
   const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(conversations)
-      .set(parsed.data)
-      // Scope the write by workspace too (consistent with DELETE), not just the prior findFirst.
-      .where(and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)))
-      .returning({
-        id: conversations.id,
-        status: conversations.status,
-        unread_count: conversations.unread_count,
-        is_automation_paused: conversations.is_automation_paused,
-        assigned_to: conversations.assigned_to,
-      });
-    // Un-pausing automation resumes any drip step that was deferred while this conversation was
-    // paused, in the same transaction, instead of waiting for the 30-min poll.
-    if (parsed.data.is_automation_paused === false && existing.is_automation_paused === true) {
-      await resumeDueEnrollments(tx, { channelId: existing.channel_id, contactId: existing.contact_id });
+    const change = await updateConversation(tx, auth.workspaceId, conversationId, parsed.data);
+    if (!change) return undefined;
+    const { before, after } = change;
+    // Resume any drip step deferred while this conversation was paused.
+    if (parsed.data.is_automation_paused === false && before.is_automation_paused === true) {
+      await resumeDueEnrollments(tx, { channelId: before.channel_id, contactId: before.contact_id });
     }
-    return row;
+    return {
+      id: after.id,
+      status: after.status,
+      unread_count: after.unread_count,
+      is_automation_paused: after.is_automation_paused,
+      assigned_to: after.assigned_to,
+    };
   });
 
+  if (!updated) return ApiErrors.notFound();
   return ok(updated);
 }

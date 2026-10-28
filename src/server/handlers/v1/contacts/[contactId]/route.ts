@@ -164,19 +164,24 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { contactId } = await params;
-  const contact = await db.query.contacts.findFirst({
-    where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
-    columns: { id: true },
-    with: { contact_channels: { columns: { channel_id: true, platform_sender_id: true } } },
-  });
-  if (!contact) return ApiErrors.notFound("Contact");
-
   // Erase atomically: the comment-log delete and the cascading contact delete commit
   // together. CommentLog isn't FK-linked to Contact (author_id is a platform id), so the
   // cascade doesn't reach it — erase it explicitly, matching the SAME (channel, sender)
   // pairs as this contact. A platform sender id is NOT globally unique across channels, so
   // matching on the id alone would wipe another contact's logs on a different channel.
-  await db.transaction(async (tx) => {
+  const erased = await db.transaction(async (tx) => {
+    const [locked] = await tx.select({ id: contacts.id }).from(contacts)
+      .where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId))).for("update");
+    if (!locked) return false;
+    const contact = await tx.query.contacts.findFirst({
+      where: and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)),
+      columns: { id: true },
+      with: { contact_channels: {
+        columns: { channel_id: true, platform_sender_id: true },
+        with: { channel: { columns: { platform: true } } },
+      } },
+    });
+    if (!contact) return false;
     const pairs = contact.contact_channels.map((cc) =>
       and(eq(commentLogs.channel_id, cc.channel_id), eq(commentLogs.author_id, cc.platform_sender_id)),
     );
@@ -213,7 +218,17 @@ export async function DELETE(
     // approvals, broadcast recipients and outbound_deliveries (via foreign keys).
     // workspace_id alongside the PK keeps the erase tenant-scoped.
     await tx.delete(contacts).where(and(eq(contacts.id, contactId), eq(contacts.workspace_id, auth.workspaceId)));
+    await emitEvent(tx, auth.workspaceId, "contact.erased", { type: "contact", id: contactId }, {
+      workspaceId: auth.workspaceId,
+      channels: contact.contact_channels.map((cc) => ({
+        channelId: cc.channel_id,
+        platform: cc.channel.platform,
+        platformSenderId: cc.platform_sender_id,
+      })),
+    });
+    return true;
   });
+  if (!erased) return ApiErrors.notFound("Contact");
 
   await recordAudit({
     workspaceId: auth.workspaceId,

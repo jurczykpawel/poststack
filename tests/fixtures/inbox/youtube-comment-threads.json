@@ -1,0 +1,30 @@
+{
+  "source": "YouTube documented resource representations with test values: https://developers.google.com/youtube/v3/docs/commentThreads#resource and https://developers.google.com/youtube/v3/docs/comments#resource . authorDisplayName and author-only textOriginal are absent.",
+  "response": {
+    "kind": "youtube#commentThreadListResponse",
+    "etag": "example-list",
+    "items": [{
+      "kind": "youtube#commentThread",
+      "etag": "example-thread",
+      "id": "example-thread",
+      "snippet": {
+        "channelId": "UCmychannel",
+        "videoId": "example-video",
+        "topLevelComment": {
+          "kind": "youtube#comment",
+          "etag": "example-comment",
+          "id": "example-comment",
+          "snippet": {
+            "authorChannelId": { "value": "UCexampleauthor" },
+            "textDisplay": "Example comment",
+            "publishedAt": "2026-10-28T18:43:55.211Z",
+            "updatedAt": "2026-10-28T18:43:55.211Z"
+          }
+        },
+        "canReply": true,
+        "totalReplyCount": 0,
+        "isPublic": true
+      }
+    }]
+  }
+}

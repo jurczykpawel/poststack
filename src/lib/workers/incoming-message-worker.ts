@@ -12,6 +12,7 @@ import { ensureConversation, resolveContactId } from "./resolve-contact";
 import { resolveContactProfile } from "@/lib/contacts/profile";
 import { applyCapture } from "@/lib/contacts/capture-apply";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { updateConversation } from "@/lib/conversations/update";
 
 /**
  * Process an incoming DM from Facebook/Instagram.
@@ -124,9 +125,9 @@ export async function processIncomingMessage(
       .where(eq(conversations.id, conversation.id));
     // Timestamps, preview and reopen only when this message is the newest activity, so an
     // out-of-order older message can't move the inbox/preview backwards or reopen it.
-    await tx.update(conversations)
-      .set({ last_message_at: messageDate, last_inbound_at: messageDate, last_message_preview: preview, status: "open" })
-      .where(and(eq(conversations.id, conversation.id), or(lte(conversations.last_message_at, messageDate), isNull(conversations.last_message_at))));
+    await updateConversation(tx, channel.workspace_id, conversation.id,
+      { last_message_at: messageDate, last_inbound_at: messageDate, last_message_preview: preview, status: "open" },
+      or(lte(conversations.last_message_at, messageDate), isNull(conversations.last_message_at)));
     await tx.update(contacts)
       .set({ last_interaction_at: messageDate })
       .where(and(eq(contacts.id, contactId), or(lt(contacts.last_interaction_at, messageDate), isNull(contacts.last_interaction_at))));

@@ -139,3 +139,7 @@ from the REST API:
 ```
 
 So on `contact.created` you'd call `GET /api/v1/contacts/{data.id}` for the full contact.
+
+To remove erased contacts from your copy or synchronize Inbox state, subscribe to
+`contact.erased` and `conversation.updated`. Their [self-contained payload contracts](../webhook-inbox-events.md)
+carry the identities and state needed without fetching a deleted or newer resource.

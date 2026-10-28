@@ -35,6 +35,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Failed, held and unknown publication webhooks now include workspace, channel, platform, status and reason while retaining existing fields.
 - Contact creation and update webhooks now carry the workspace and linked channel/platform sender identities.
 - API documentation now describes every webhook event, its envelope, payload fields, signature verification and delivery retries.
+- Contact erasure emits an atomic `contact.erased` event with the contact's retained channel identities for connected systems.
+- Conversation status, automation and assignment changes emit `conversation.updated` with the previous and current state.
+- Incoming messages and comments, including YouTube polling, emit `conversation.updated` when they reopen a closed or snoozed conversation.
+- Outgoing webhook subscriptions in the API and dashboard accept `contact.erased` and `conversation.updated`.
+- HTTP delivery accepts empty 204/205 responses and preserves bodyless HEAD responses.
 - Overview “Sent today” counts only sent deliveries created within the current UTC day and labels that time basis.
 - API documentation loads Scalar fonts without browser errors, with its font source limited to the documentation page.
 - Dashboard navigation and sign-out close the realtime stream before leaving the page and reconnect live updates when returning from the browser cache.
