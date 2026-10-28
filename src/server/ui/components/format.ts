@@ -1,3 +1,5 @@
+import { html } from "hono/html";
+
 /** Compact signed relative time: "in 5d" / "in 3h" / "12d ago" / "2m ago". */
 export function relTime(at: Date): string {
   const ms = at.getTime() - Date.now();
@@ -10,14 +12,20 @@ export function relTime(at: Date): string {
   return ms >= 0 ? `in ${v}` : `${v} ago`;
 }
 
-/** Absolute timestamp, 24h, locale-stable (e.g. "10 Jun 2026, 14:05"). */
+/** Explicit UTC fallback, independent of the server's timezone. */
 export function fmtDate(at: Date): string {
   return at.toLocaleString("en-GB", {
+    timeZone: "UTC",
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  });
+  }) + " UTC";
+}
+
+/** The shell localizes this instant in the browser, including after fragment swaps. */
+export function localTime(at: Date) {
+  return html`<time datetime="${at.toISOString()}" data-local-time>${fmtDate(at)}</time>`;
 }

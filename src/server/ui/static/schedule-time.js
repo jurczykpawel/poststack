@@ -47,3 +47,19 @@ window.psReschedule = function () {
     get confirmation() { return "Zmienić termin na " + this.preview + "? Post wyjdzie automatycznie z zapisanymi ustawieniami."; },
   };
 };
+
+(function () {
+  function localize(root) {
+    var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    root.querySelectorAll("time[data-local-time]").forEach(function (el) {
+      var date = new Date(el.getAttribute("datetime"));
+      if (!Number.isFinite(date.getTime())) return;
+      el.textContent = date.toLocaleString("en-GB", {
+        year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+      }) + " · " + zone;
+    });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { localize(document); });
+  else localize(document);
+  document.addEventListener("htmx:load", function (event) { localize(event.target); });
+})();

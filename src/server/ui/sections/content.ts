@@ -20,7 +20,7 @@ import { platformCell, platformLabel } from "../components/platform";
 import { btn } from "../components/button";
 import { copyBtn } from "../components/copy";
 import { urlLink } from "../components/url";
-import { relTime } from "../components/format";
+import { relTime, localTime } from "../components/format";
 import { emptyState } from "../components/empty-state";
 import { isHtmx, toastHeader } from "../components/toast";
 import { icon, type IconName } from "../components/icons";
@@ -227,6 +227,7 @@ function publishControl(contentId: string, v: PostView): Html {
   if (post.status !== "planned") {
     return html`<div class="card-published">
       ${statusBadge(post.status)}
+      ${post.scheduled_date ? html`<small class="meta-mono">${localTime(post.scheduled_date)}</small>` : ""}
       ${post.delivery_id ? html`<a class="meta-mono" href="/queue/${post.delivery_id}">view delivery →</a>` : ""}
       ${urlLink(post.published_url, "open ↗")}
       ${post.delivery_id && ["scheduled", "held"].includes(post.status) ? rescheduleForm(`/content/${contentId}/posts/${post.id}/reschedule`, "#publish-panel") : ""}
@@ -450,7 +451,7 @@ export function registerContent(r: Hono, guard: MiddlewareHandler): void {
     const panel = await renderPublishPanel(a.workspaceId, id);
     if (!panel) return c.text("not found", 404);
     if (!isHtmx(c)) return c.redirect(`/content/${id}`, 303);
-    toastHeader(c, "ok", `Termin zmieniony: ${at}`);
+    toastHeader(c, "ok", "Termin zmieniony.");
     return c.html(panel);
   };
   r.post("/content/:id/reschedule", guard, reschedule(true));

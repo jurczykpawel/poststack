@@ -3,7 +3,7 @@ import { Client } from "pg";
 import { E2E_DATABASE_URL } from "./env";
 import { watchConsole } from "./helpers";
 
-test.use({ timezoneId: "Europe/Warsaw" });
+test.use({ timezoneId: "Europe/Warsaw", channel: process.env.E2E_BROWSER_CHANNEL });
 
 for (const width of [1440, 390]) {
   test(`reschedule Queue and Content at ${width}px`, async ({ page }, testInfo) => {
@@ -77,5 +77,99 @@ for (const width of [1440, 390]) {
       }
       await client.end();
     }
+  });
+}
+
+const scheduleYear = new Date().getUTCFullYear() + 1;
+for (const scenario of [
+  { zone: "America/New_York", local: `${scheduleYear}-12-22T10:30`, iso: `${scheduleYear}-12-22T15:30:00.000Z`, text: `22 Dec ${scheduleYear}, 10:30` },
+  { zone: "Asia/Kolkata", local: `${scheduleYear}-01-23T00:15`, iso: `${scheduleYear}-01-22T18:45:00.000Z`, text: `23 Jan ${scheduleYear}, 00:15` },
+]) {
+  test.describe(`schedule display in ${scenario.zone}`, () => {
+    test.use({ timezoneId: scenario.zone, viewport: { width: scenario.zone === "Asia/Kolkata" ? 390 : 1440, height: 900 } });
+    test("keyboard reschedule preserves local date and timezone across Queue and Content", async ({ page, browser }, testInfo) => {
+      const client = new Client({ connectionString: E2E_DATABASE_URL });
+      await client.connect();
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+      let contentId = "";
+      let deliveryId = "";
+      let workspaceId = "";
+      try {
+        const { rows: [ws] } = await client.query("select id from workspaces order by created_at limit 1");
+        workspaceId = ws.id;
+        const { rows: [ch] } = await client.query("select id from channels where workspace_id=$1 and platform='facebook' limit 1", [ws.id]);
+        const { rows: [content] } = await client.query("insert into content(workspace_id,title) values($1,$2) returning id", [ws.id, `Timezone ${scenario.zone}`]);
+        contentId = content.id;
+        const { rows: [d] } = await client.query("insert into deliveries(workspace_id,channel_id,format,status,payload,scheduled_at,run_at) values($1,$2,'text','scheduled',$3,now()+interval '1 hour',now()+interval '1 hour') returning id", [ws.id, ch.id, { format: "text", media: [], caption: "Local schedule" }]);
+        deliveryId = d.id;
+        const { rows: [post] } = await client.query("insert into posts(workspace_id,content_id,delivery_id,platform,status,scheduled_date) values($1,$2,$3,'facebook','scheduled',now()+interval '1 hour') returning id", [ws.id, contentId, deliveryId]);
+        await page.goto(`/content/${contentId}`);
+        const card = page.locator(`#post-card-${post.id}`);
+        await card.getByText("Zmień termin", { exact: true }).click();
+        await card.getByLabel("Nowy termin", { exact: true }).fill(scenario.local);
+        const save = card.getByRole("button", { name: "Zapisz termin" });
+        await save.focus();
+        await page.keyboard.press("Enter");
+        const dialog = page.getByRole("alertdialog");
+        await expect(dialog).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await save.focus();
+        await page.keyboard.press("Enter");
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole("button", { name: "Cancel", exact: true }).focus();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Tab");
+        await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => (await client.query("select scheduled_at at time zone 'UTC' as scheduled_at from deliveries where workspace_id=$1 and id=$2", [workspaceId, deliveryId])).rows[0].scheduled_at.toISOString()).toBe(scenario.iso);
+        await expect(card.locator("details")).not.toHaveAttribute("open");
+        await expect(page.locator(".toasts")).toHaveText("Termin zmieniony.");
+        // Navigate immediately after the fragment save, as in the keyboard workflow.
+        await card.getByRole("link", { name: "view delivery →" }).click();
+        await expect(page).toHaveURL(new RegExp(`/queue/${deliveryId}$`));
+        const zone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+        const times = page.locator(`time[datetime="${scenario.iso}"]`);
+        await expect(times.first()).toHaveText(`${scenario.text} · ${zone}`);
+        await expect(times).toHaveCount(2);
+        await page.screenshot({ path: testInfo.outputPath("delivery-local.png"), fullPage: true, animations: "disabled" });
+        await page.goto("/queue?status=scheduled");
+        const row = page.locator(`#post-row-${deliveryId}`);
+        await expect(row.locator("time")).toHaveText(`${scenario.text} · ${zone}`);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await row.getByText("Zmień termin", { exact: true }).click();
+        await row.getByLabel("Nowy termin", { exact: true }).fill(scenario.local);
+        await row.getByRole("button", { name: "Zapisz termin" }).click();
+        await dialog.getByRole("button", { name: "Zapisz termin" }).click();
+        await expect(row.locator("details")).not.toHaveAttribute("open");
+        await expect(page.locator(".toasts")).toHaveText("Termin zmieniony.");
+        await expect(row.locator("time")).toHaveText(`${scenario.text} · ${zone}`);
+        await page.screenshot({ path: testInfo.outputPath("queue-local.png"), fullPage: true, animations: "disabled" });
+        await page.goto(`/content/${contentId}`);
+        await expect(card.locator("time")).toHaveText(`${scenario.text} · ${zone}`);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath("content-local.png"), fullPage: true, animations: "disabled" });
+        const noJs = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+        try {
+          const fallback = await noJs.newPage();
+          await fallback.goto(page.url());
+          await expect(fallback.locator(`time[datetime="${scenario.iso}"]`)).toContainText("UTC");
+        } finally { await noJs.close(); }
+        expect(errors).toEqual([]);
+      } finally {
+        if (contentId) {
+          await client.query("delete from posts where workspace_id=$1 and content_id=$2", [workspaceId, contentId]);
+          await client.query("delete from content where workspace_id=$1 and id=$2", [workspaceId, contentId]);
+        }
+        if (deliveryId) {
+          await client.query("select graphile_worker.remove_job($1)", [`publish:${deliveryId}`]);
+          await client.query("delete from deliveries where workspace_id=$1 and id=$2", [workspaceId, deliveryId]);
+        }
+        await client.end();
+      }
+    });
   });
 }

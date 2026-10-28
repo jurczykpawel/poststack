@@ -13,7 +13,7 @@ import { platformCell } from "../components/platform";
 import { btn } from "../components/button";
 import { icon } from "../components/icons";
 import { urlLink, safeHttpUrl } from "../components/url";
-import { relTime, fmtDate } from "../components/format";
+import { relTime, localTime } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 import { listQueue, channelOptions, getQueueItem, type QueueRow, type QueueItem } from "./queue-data";
 
@@ -66,7 +66,7 @@ function filterBar(
 }
 
 function timeCell(r: QueueRow): Html {
-  return html`<span class="q-time"><span class="q-rel">${relTime(r.scheduledAt)}</span><small class="q-abs">${fmtDate(r.scheduledAt)}</small></span>`;
+  return html`<span class="q-time"><span class="q-rel">${relTime(r.scheduledAt)}</span><small class="q-abs">${localTime(r.scheduledAt)}</small></span>`;
 }
 function attemptsCell(n: number): Html {
   return html`<span class="${n > 0 ? "q-att" : "q-att q-att-zero"}">${n}/${ATTEMPT_BUDGET}</span>`;
@@ -216,9 +216,9 @@ function mediaPreview(media: MediaRow): Html {
 function attemptTimeline(post: DeliveryRow): Html {
   return html`<dl class="meta-list">
     ${metaRow("Attempts", html`<span class="q-att">${post.attempts}/${ATTEMPT_BUDGET}</span>`)}
-    ${metaRow("Scheduled", html`<span class="meta-mono">${fmtDate(post.scheduled_at)}</span> <small>${relTime(post.scheduled_at)}</small>`)}
-    ${metaRow("Run at", post.run_at ? html`<span class="meta-mono">${fmtDate(post.run_at)}</span> <small>${relTime(post.run_at)}</small>` : html`<small>—</small>`)}
-    ${metaRow("Last attempt", post.attempt_started_at ? html`<span class="meta-mono">${fmtDate(post.attempt_started_at)}</span> <small>${relTime(post.attempt_started_at)}</small>` : html`<small>never run</small>`)}
+    ${metaRow("Scheduled", html`<span class="meta-mono">${localTime(post.scheduled_at)}</span> <small>${relTime(post.scheduled_at)}</small>`)}
+    ${metaRow("Run at", post.run_at ? html`<span class="meta-mono">${localTime(post.run_at)}</span> <small>${relTime(post.run_at)}</small>` : html`<small>—</small>`)}
+    ${metaRow("Last attempt", post.attempt_started_at ? html`<span class="meta-mono">${localTime(post.attempt_started_at)}</span> <small>${relTime(post.attempt_started_at)}</small>` : html`<small>never run</small>`)}
   </dl>`;
 }
 
@@ -369,7 +369,7 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
   r.post("/queue/:id/reschedule", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     return rescheduleDelivery(id, ws, String(form.scheduledAt ?? ""));
-  }, (post) => `Termin zmieniony: ${post.scheduled_at.toISOString()}`));
+  }, () => "Termin zmieniony."));
   r.post("/queue/:id/retry", guard, action((ws, id) => retryPost(id, ws), () => "Post re-queued"));
   r.post("/queue/:id/cancel", guard, action((ws, id) => cancelDelivery(id, ws), () => "Post canceled"));
 }
