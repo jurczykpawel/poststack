@@ -5,6 +5,7 @@ import { conversations, workspaceMembers } from "@/db/schema";
 import { ok, ApiErrors } from "@/lib/api/response";
 import { proGate } from "@/lib/api/pro-gate";
 import { resumeDueEnrollments } from "@/lib/sequences/resume";
+import { emitEvent } from "@/lib/events";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -65,7 +66,7 @@ export async function PATCH(
   const { conversationId } = await params;
   const existing = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
-    columns: { id: true, is_automation_paused: true, contact_id: true, channel_id: true },
+    columns: { id: true },
   });
   if (!existing) return ApiErrors.notFound();
 
@@ -95,9 +96,20 @@ export async function PATCH(
   }
 
   const updated = await db.transaction(async (tx) => {
+    const [before] = await tx.select({
+      status: conversations.status,
+      is_automation_paused: conversations.is_automation_paused,
+      assigned_to: conversations.assigned_to,
+      contact_id: conversations.contact_id,
+      channel_id: conversations.channel_id,
+    }).from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)))
+      .for("update");
+    if (!before) return undefined;
+    const updatedAt = new Date();
     const [row] = await tx
       .update(conversations)
-      .set(parsed.data)
+      .set({ ...parsed.data, updated_at: updatedAt })
       // Scope the write by workspace too (consistent with DELETE), not just the prior findFirst.
       .where(and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)))
       .returning({
@@ -109,11 +121,23 @@ export async function PATCH(
       });
     // Un-pausing automation resumes any drip step that was deferred while this conversation was
     // paused, in the same transaction, instead of waiting for the 30-min poll.
-    if (parsed.data.is_automation_paused === false && existing.is_automation_paused === true) {
-      await resumeDueEnrollments(tx, { channelId: existing.channel_id, contactId: existing.contact_id });
+    if (parsed.data.is_automation_paused === false && before.is_automation_paused === true) {
+      await resumeDueEnrollments(tx, { channelId: before.channel_id, contactId: before.contact_id });
+    }
+    if (row && (before.status !== row.status || before.is_automation_paused !== row.is_automation_paused || before.assigned_to !== row.assigned_to)) {
+      await emitEvent(tx, auth.workspaceId, "conversation.updated", { type: "conversation", id: conversationId }, {
+        workspaceId: auth.workspaceId,
+        conversationId,
+        contactId: before.contact_id,
+        channelId: before.channel_id,
+        previous: { status: before.status, is_automation_paused: before.is_automation_paused, assigned_to: before.assigned_to },
+        current: { status: row.status, is_automation_paused: row.is_automation_paused, assigned_to: row.assigned_to },
+        updatedAt: updatedAt.toISOString(),
+      });
     }
     return row;
   });
 
+  if (!updated) return ApiErrors.notFound();
   return ok(updated);
 }

@@ -1,0 +1,45 @@
+{
+  "source": "Recorded local integrator API responses, 2026-10-28. Display names anonymized; conversation platform identity omitted.",
+  "contact": {
+    "id": "327cf35b-e756-43cb-97a5-4476f4c1e897",
+    "display_name": "Synthetic contact",
+    "email": null,
+    "phone": null,
+    "avatar_url": null,
+    "is_subscribed": false,
+    "last_interaction_at": null,
+    "metadata": {},
+    "created_at": "2026-10-28T18:26:40.959Z",
+    "contact_channels": [
+      {
+        "id": "3659ffad-4ced-4aba-bb7c-26ed879e56be",
+        "platform_sender_id": "mqa9_integrator_inert_20261028",
+        "platform_username": "mqa9_integrator_inert_20261028",
+        "channel": {
+          "id": "c3c44d59-ecb1-494c-b0c0-2f783f397b54",
+          "platform": "instagram",
+          "display_name": "Test channel"
+        }
+      }
+    ],
+    "tags": [],
+    "_count": {
+      "conversations": 0,
+      "sequence_enrollments": 0
+    }
+  },
+  "conversation": {
+    "id": "2b31441e-7185-48e6-8506-4d1154faf4be",
+    "status": "open",
+    "is_automation_paused": false,
+    "channelId": "c3c44d59-ecb1-494c-b0c0-2f783f397b54",
+    "contactId": "6494d1ac-ea4b-416b-b89e-365bd0b650dd"
+  },
+  "closed": {
+    "id": "2b31441e-7185-48e6-8506-4d1154faf4be",
+    "status": "closed",
+    "unread_count": 0,
+    "is_automation_paused": false,
+    "assigned_to": null
+  }
+}

@@ -26,6 +26,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The `BRAND_NAME` environment variable alone no longer renames the instance; rebranding is now the Business-tier instance branding setting (Settings → Integrations → Instance branding).
 
 ### Fixed
+- Contact erasure emits an atomic `contact.erased` event with the contact's retained channel identities for connected systems.
+- Conversation status, automation and assignment changes emit `conversation.updated` with the previous and current state.
+- Outgoing webhook subscriptions in the API and dashboard accept `contact.erased` and `conversation.updated`.
+- HTTP delivery accepts empty 204/205 responses and preserves bodyless HEAD responses.
 - Overview “Sent today” counts only sent deliveries created within the current UTC day and labels that time basis.
 - API documentation loads Scalar fonts without browser errors, with its font source limited to the documentation page.
 - Dashboard navigation and sign-out close the realtime stream before leaving the page and reconnect live updates when returning from the browser cache.

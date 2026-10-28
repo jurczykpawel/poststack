@@ -1401,7 +1401,7 @@ export const openApiSpec = {
         ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Register a webhook endpoint",
-        description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license.",
+        description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license. contact.erased provides data.id, workspaceId and channels [{channelId, platform, platformSenderId}] captured before deletion; GET contact then returns 404. conversation.updated provides data.conversationId, contactId, channelId, workspaceId, updatedAt (UTC), previous and current states ({status: open|closed|snoozed, is_automation_paused, assigned_to}). These state events exclude read receipts, unchanged values and new messages. Both types are selectable explicitly and included in wildcard subscriptions ([]).",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
         responses: {
           "201": { description: "Created (includes the signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
