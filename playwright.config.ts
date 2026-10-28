@@ -8,7 +8,7 @@ import {
   captchaServerEnv,
 } from "./e2e/env";
 
-// Browser e2e for the unified app. Boots `bun src/server/index.ts` against a DEDICATED e2e Postgres
+// Browser e2e for the unified app. Boots the offline HTTP fixture against a DEDICATED e2e Postgres
 // (unify_e2e on :5433) so it never collides with the unit/integration gate's shared `test` DB.
 // global-setup creates+migrates the DB, registers the admin, seeds rows, and saves storageState.
 // Specs exercise every nav section in BOTH license states (FREE / PRO), toggling the license via the
@@ -50,7 +50,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "bun --no-env-file src/server/index.ts",
+      command: "bun --no-env-file e2e/fixtures/tiktok-server.ts",
       url: `${E2E_BASE_URL}/login`,
       timeout: 60_000,
       reuseExistingServer: false,
