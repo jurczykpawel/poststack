@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-29
+
 ### Security
 - Instance credentials and license management now require an instance operator session, configurable through `INSTANCE_ADMIN_EMAILS`.
 
