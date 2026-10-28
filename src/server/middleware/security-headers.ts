@@ -32,6 +32,8 @@ export interface LandingAnalyticsEnv {
 export interface CspOptions {
   /** Enable playback of the user-selected HTTPS video on authoring screens. */
   mediaPreview?: boolean;
+  /** Allow the API reference document to load its Scalar webfonts. */
+  apiDocs?: boolean;
   /** When true, widen script/connect/font for the marketing landing's analytics, telemetry + webfonts. */
   landing?: boolean;
   /** Analytics config (read from env) — only consulted when `landing` is true. */
@@ -58,6 +60,8 @@ export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
   const scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"];
   const connectSrc = ["'self'"];
   const fontSrc = ["'self'"];
+
+  if (opts.apiDocs) fontSrc.push("https://fonts.scalar.com");
 
   if (opts.landing) {
     connectSrc.push(TELEMETRY_ORIGIN); // Live fleet section reads the public stats endpoint
@@ -105,6 +109,7 @@ const STATIC_HEADERS: Record<string, string> = {
 // Precompute document policies. Landing uses its configured analytics;
 // Compose can preview user-selected HTTPS video. Assets use the app policy.
 const APP_CSP = buildContentSecurityPolicy({ landing: false });
+const API_DOCS_CSP = buildContentSecurityPolicy({ apiDocs: true });
 const COMPOSE_CSP = buildContentSecurityPolicy({ mediaPreview: true });
 const LANDING_CSP = buildContentSecurityPolicy({
   landing: true,
@@ -124,7 +129,7 @@ export function securityHeaders(): MiddlewareHandler {
     for (const [key, value] of Object.entries(STATIC_HEADERS)) {
       c.res.headers.set(key, value);
     }
-    const csp = LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : (c.req.path === "/compose" || /^\/queue\/[^/]+\/confirm$/.test(c.req.path)) ? COMPOSE_CSP : APP_CSP;
+    const csp = c.req.path === "/api/docs" ? API_DOCS_CSP : LANDING_DOCUMENT_PATHS.has(c.req.path) ? LANDING_CSP : (c.req.path === "/compose" || /^\/queue\/[^/]+\/confirm$/.test(c.req.path)) ? COMPOSE_CSP : APP_CSP;
     c.res.headers.set("Content-Security-Policy", csp);
     if (c.req.path.startsWith("/api/")) {
       c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");

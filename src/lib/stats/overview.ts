@@ -56,6 +56,7 @@ export async function loadOverview(
   const now = opts.now ?? new Date();
   const logLimit = opts.logLimit ?? 20;
   const dayStart = startOfUtcDay(now);
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
   const isStatus = (s: string) => sql<number>`count(*) filter (where ${outboundDeliveries.status} = ${s})`;
 
@@ -65,7 +66,7 @@ export async function loadOverview(
       sent: isStatus("sent"),
       failed: isStatus("failed"),
       held: isStatus("held"),
-      today: sql<number>`count(*) filter (where ${outboundDeliveries.created_at} >= ${dayStart})`,
+      today: sql<number>`count(*) filter (where ${outboundDeliveries.status} = 'sent' and ${outboundDeliveries.created_at} >= ${dayStart} and ${outboundDeliveries.created_at} < ${dayEnd})`,
     })
     .from(outboundDeliveries)
     .where(eq(outboundDeliveries.workspace_id, workspaceId));

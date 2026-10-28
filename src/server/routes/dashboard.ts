@@ -3501,7 +3501,7 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
     <h1>Overview</h1>
     <p class="section-intro">Your automation at a glance.${locked ? html` Replying to conversations by hand is ${proLink(upgradeUrl, "PRO")} — your rules auto-reply for free.` : html``}</p>
     <div class="kpis" style="margin:14px 0">
-      ${kpi({ label: "Sent today", value: ov.today, tone: "neutral" })}
+      ${kpi({ label: "Sent today (UTC)", value: ov.today, tone: "neutral", sub: "Created today" })}
       ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok" })}
       ${kpi({ label: "Failed", value: ov.failed, tone: ov.failed > 0 ? "bad" : "neutral" })}
       ${kpi({ label: "Held", value: ov.held, tone: ov.held > 0 ? "warn" : "neutral" })}

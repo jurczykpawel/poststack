@@ -93,6 +93,7 @@ async function respond(path: string) {
   app.get("/privacy", (c) => c.text("ok"));
   app.get("/compose", (c) => c.text("ok"));
   app.get("/overview", (c) => c.text("ok"));
+  app.get("/api/docs", (c) => c.html("<h1>API</h1>"));
   app.get("/api/health", (c) => c.json({ status: "ok" }));
   app.get("/_astro/app.js", (c) => c.text("js"));
   return app.request(path);
@@ -133,5 +134,15 @@ it("serves HTTPS video previews on Compose", async () => {
   expect(directive(csp, "media-src")).toEqual(["'self'", "https:"]);
   for (const path of ["/", "/overview", "/api/health"]) {
     expect(directive((await respond(path)).headers.get("Content-Security-Policy")!, "media-src")).not.toContain("https:");
+  }
+});
+
+it("allows Scalar fonts only on the API documentation document", async () => {
+  const csp = (await respond("/api/docs")).headers.get("Content-Security-Policy")!;
+  expect(directive(csp, "font-src")).toEqual(["'self'", "https://fonts.scalar.com"]);
+  expect(directive(csp, "connect-src")).toEqual(["'self'"]);
+  for (const path of ["/overview", "/api/v1", "/api/docs/other", "/compose", "/static/app.js", "/privacy"]) {
+    const policy = (await respond(path)).headers.get("Content-Security-Policy")!;
+    expect(directive(policy, "font-src")).not.toContain("https://fonts.scalar.com");
   }
 });

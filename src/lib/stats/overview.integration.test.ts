@@ -22,7 +22,7 @@ beforeAll(async () => {
 async function seedDelivery(
   key: string,
   taskName: string,
-  status: "sent" | "failed" | "held" | "pending",
+  status: "sent" | "failed" | "held" | "pending" | "expired",
   createdAt: Date,
   contactId: string | null = CONTACT,
 ) {
@@ -70,7 +70,23 @@ describe("loadOverview", () => {
     expect(ov.sent).toBe(2);
     expect(ov.failed).toBe(1);
     expect(ov.held).toBe(1);
-    expect(ov.today).toBe(3); // d2 is yesterday
+    expect(ov.today).toBe(1); // Only d1 was sent and created today.
+  });
+
+  it("counts only sent deliveries within the UTC creation day", async () => {
+    if (!TEST_DB) return;
+    const now = new Date("2026-06-12T23:30:00-04:00");
+    await seedDelivery("before", "outgoing-message", "sent", new Date("2026-06-12T23:59:59.999Z"));
+    await seedDelivery("start", "outgoing-message", "sent", new Date("2026-06-13T00:00:00Z"));
+    await seedDelivery("end", "outgoing-message", "sent", new Date("2026-06-13T23:59:59.999Z"));
+    await seedDelivery("after", "outgoing-message", "sent", new Date("2026-06-14T00:00:00Z"));
+    for (const status of ["held", "expired", "pending", "failed"] as const) {
+      await seedDelivery(status, "outgoing-message", status, now);
+    }
+    const ov = await loadOverview(WS, { now });
+    expect(ov.sent).toBe(4);
+    expect(ov.today).toBe(2);
+    expect((await loadOverview("0ad0aaaa-0000-0000-0000-0000000000ff", { now })).today).toBe(0);
   });
 
   it("counts contacts as a bare number", async () => {
