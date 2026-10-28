@@ -193,6 +193,10 @@ export async function processIncomingComment(
       recipientPlatformId: senderId,
       text,
       eventType: "comment",
+      inboundCommentId: loggedId ?? (await db.query.commentLogs.findFirst({
+        where: and(eq(commentLogs.channel_id, channel.id), eq(commentLogs.platform_comment_id, commentId)),
+        columns: { id: true },
+      }))?.id,
       postId: postId ?? undefined,
       commentId,
       eventKey,

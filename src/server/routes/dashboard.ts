@@ -1527,14 +1527,17 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // rows). Source from the right table, and forward the comment id so the worker can address the
     // public reply / first-touch DM.
     let incomingText: string | undefined;
+    let inboundMessageId: string | undefined;
+    let inboundCommentId: string | undefined;
     let commentId: string | undefined;
     let postId: string | undefined;
     if (isComment) {
       const lastComment = await db.query.commentLogs.findFirst({
         where: eq(commentLogs.conversation_id, id),
         orderBy: desc(commentLogs.created_at),
-        columns: { comment_text: true, platform_comment_id: true, post_id: true },
+        columns: { id: true, comment_text: true, platform_comment_id: true, post_id: true },
       });
+      inboundCommentId = lastComment?.id;
       incomingText = lastComment?.comment_text?.trim();
       commentId = lastComment?.platform_comment_id ?? undefined;
       postId = lastComment?.post_id ?? undefined;
@@ -1542,8 +1545,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       const lastInbound = await db.query.messages.findFirst({
         where: and(eq(messages.conversation_id, id), eq(messages.direction, "inbound")),
         orderBy: desc(messages.created_at),
-        columns: { text: true },
+        columns: { id: true, text: true },
       });
+      inboundMessageId = lastInbound?.id;
       incomingText = lastInbound?.text?.trim();
     }
     if (!incomingText) {
@@ -1578,6 +1582,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       contactId: conv.contact.id,
       recipientPlatformId: recipientChannel?.platform_sender_id ?? "",
       incomingText,
+      inboundMessageId,
+      inboundCommentId,
       isComment,
       target,
       ...(commentId ? { commentId } : {}),
@@ -4025,13 +4031,15 @@ function loadApprovals(workspaceId: string) {
       channelName: channels.display_name,
       platform: channels.platform,
       threadType: conversations.thread_type,
-      trigger: conversations.last_message_preview,
+      trigger: sql<string | null>`coalesce(${messages.text}, ${commentLogs.comment_text})`,
     })
     .from(pendingApprovals)
     .leftJoin(autoReplyRules, eq(autoReplyRules.id, pendingApprovals.rule_id))
     .leftJoin(contacts, eq(contacts.id, pendingApprovals.contact_id))
     .leftJoin(channels, eq(channels.id, pendingApprovals.channel_id))
     .leftJoin(conversations, eq(conversations.id, pendingApprovals.conversation_id))
+    .leftJoin(messages, and(eq(messages.id, pendingApprovals.inbound_message_id), eq(messages.conversation_id, pendingApprovals.conversation_id), eq(messages.direction, "inbound")))
+    .leftJoin(commentLogs, and(eq(commentLogs.id, pendingApprovals.inbound_comment_id), eq(commentLogs.conversation_id, pendingApprovals.conversation_id), eq(commentLogs.channel_id, pendingApprovals.channel_id)))
     .where(and(eq(pendingApprovals.workspace_id, workspaceId), eq(pendingApprovals.status, "pending")))
     .orderBy(desc(pendingApprovals.created_at))
     .limit(100);

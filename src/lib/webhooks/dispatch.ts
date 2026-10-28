@@ -95,6 +95,7 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
     .set({ status: "delivering", attempts: delivery.attempts + 1, updated_at: new Date() })
     .where(eq(webhookDeliveries.id, delivery.id));
 
+  let httpStatus: number | null = null;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
@@ -119,13 +120,14 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
         body,
         signal: controller.signal,
       });
+      httpStatus = res.status;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } finally {
       clearTimeout(timer);
     }
     await db
       .update(webhookDeliveries)
-      .set({ status: "delivered", last_error: null, updated_at: new Date() })
+      .set({ status: "delivered", http_status: httpStatus, last_error: null, updated_at: new Date() })
       .where(eq(webhookDeliveries.id, delivery.id));
   } catch (err) {
     const msg = redactSecrets(err instanceof Error ? err.message : String(err));
@@ -134,6 +136,7 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
       .update(webhookDeliveries)
       .set({
         status: lastAttempt ? "failed" : "delivering",
+        http_status: httpStatus,
         last_error: msg,
         updated_at: new Date(),
       })

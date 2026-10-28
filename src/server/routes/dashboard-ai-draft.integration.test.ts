@@ -99,6 +99,8 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     expect(j.contactId).toBe(CONTACT);
     expect(j.recipientPlatformId).toBe("PSID-E");
     expect(j.incomingText).toBe("Where is my order?");
+    const inbound = await db.query.messages.findFirst({ where: eq(s.messages.conversation_id, CONV_DM) });
+    expect(j.inboundMessageId).toBe(inbound!.id);
     expect(j.commentId).toBeUndefined();
   });
 
@@ -112,6 +114,8 @@ describe("POST /inbox/:id/ai-draft — on-demand Generate reply", () => {
     expect(jobs[0]!.commentId).toBe("CMT-99");
     expect(jobs[0]!.incomingText).toBe("Nice post!");
     expect(jobs[0]!.source).toBe("ai_manual");
+    const inbound = await db.query.commentLogs.findFirst({ where: eq(s.commentLogs.conversation_id, CONV_COMMENT) });
+    expect(jobs[0]!.inboundCommentId).toBe(inbound!.id);
   });
 
   // ADCTX1: a comment reply enqueued with no local post record for it (the DM thread's message has

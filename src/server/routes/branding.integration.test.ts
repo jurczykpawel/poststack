@@ -157,7 +157,7 @@ describe("instance branding settings", () => {
       const body = await response.text();
       expect(body, path).toContain("Orchard");
       expect(body, path).not.toContain("PostStack");
-      if (path !== "/api/docs" && path !== "/api/v1") expect(body, path).toContain("/instance-favicon.svg");
+      if (path !== "/api/v1") expect(body, path).toContain("/instance-favicon.svg");
     }
     for (const path of ["/robots.txt", "/llms.txt", "/sitemap-index.xml", "/sitemap-0.xml"]) {
       const response = await app.request(path);

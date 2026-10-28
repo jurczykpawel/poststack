@@ -30,6 +30,8 @@ export async function GET(request: Request) {
     limit: parsed.data.limit,
     columns: {
       id: true,
+      inbound_message_id: true,
+      inbound_comment_id: true,
       rule_id: true,
       conversation_id: true,
       contact_id: true,
@@ -42,5 +44,5 @@ export async function GET(request: Request) {
     },
   });
 
-  return ok(rows);
+  return ok(rows.map(({ inbound_message_id, inbound_comment_id, ...row }) => ({ ...row, inboundMessageId: inbound_message_id, inboundCommentId: inbound_comment_id })));
 }

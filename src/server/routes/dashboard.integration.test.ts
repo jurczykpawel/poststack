@@ -130,7 +130,8 @@ describe("dashboard action error surfacing", () => {
   it("approvals list shows who, the triggering message and the exact reply that will be sent", async () => {
     if (!TEST_DB) return;
     await db.update(s.contacts).set({ display_name: "Ola Klient" }).where(eq(s.contacts.id, CONTACT));
-    await db.update(s.conversations).set({ last_message_preview: "Czy kurs jest dostępny?" }).where(eq(s.conversations.id, CONV));
+    const [inbound] = await db.insert(s.messages).values({ conversation_id: CONV, direction: "inbound", text: "Czy kurs jest dostępny?" }).returning();
+    await db.update(s.conversations).set({ last_message_preview: "Later activity" }).where(eq(s.conversations.id, CONV));
     const [rule] = await db.insert(s.autoReplyRules).values({
       workspace_id: WS, name: "Approve-me rule", trigger_type: "keyword",
       trigger_config: { keywords: [{ value: "kurs", match_type: "contains" }] },
@@ -138,7 +139,7 @@ describe("dashboard action error surfacing", () => {
     }).returning({ id: s.autoReplyRules.id });
     await db.insert(s.pendingApprovals).values({
       workspace_id: WS, rule_id: rule!.id, conversation_id: CONV, contact_id: CONTACT, channel_id: CH,
-      recipient_platform_id: "PSID-D",
+      recipient_platform_id: "PSID-D", inbound_message_id: inbound.id,
       proposed_content: {
         content: { text: "Cześć Ola! Oto link 📩", buttons: [{ title: "Pobierz", url: "https://example.com/x" }] },
         comment: { text: "Sprawdź DM 🙌", commentId: "cmt-1" },

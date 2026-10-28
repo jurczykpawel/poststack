@@ -1,3 +1,4 @@
+import recorded from "../tests/fixtures/mqa-delivery-approval.json";
 import { test, expect } from "@playwright/test";
 import { Client } from "pg";
 import { setPro, watchConsole, gotoOk } from "./helpers";
@@ -54,6 +55,42 @@ async function seedDraft(client: Client, workspaceId: string, channelId: string,
 test.describe.serial("AI-draft UX (ADUX1/ADUX2/ADDEL1/ADLOG1)", () => {
   test.beforeEach(async ({ page }) => {
     await setPro(page.request);
+  });
+
+  test("approvals keep distinct source quotes after later activity", async ({ page }, testInfo) => {
+    const client = await db();
+    let conversationId = "";
+    try {
+      const workspaceId = await seedWorkspace(client);
+      const { channelId, contactId } = await seedChannelAndContact(client, workspaceId, "source-quotes");
+      ({ conversationId } = await seedDraft(client, workspaceId, channelId, contactId, "First proposal"));
+      for (const [index, message] of recorded.messages.entries()) {
+        const { rows } = await client.query<{ id: string }>("INSERT INTO messages (conversation_id, direction, text) VALUES ($1, 'inbound', $2) RETURNING id", [conversationId, message.text]);
+        if (index === 0) {
+          await client.query("UPDATE pending_approvals SET inbound_message_id = $1 WHERE conversation_id = $2", [rows[0].id, conversationId]);
+        } else {
+          await client.query(`INSERT INTO pending_approvals (workspace_id, source, conversation_id, contact_id, channel_id, recipient_platform_id, proposed_content, inbound_message_id)
+            VALUES ($1, 'ai_auto', $2, $3, $4, 'PSID-E2E', $5, $6)`, [workspaceId, conversationId, contactId, channelId, JSON.stringify({ content: { text: "Second proposal" } }), rows[0].id]);
+        }
+      }
+      await client.query("UPDATE conversations SET last_message_preview = $1 WHERE id = $2", [recorded.messages[1].text, conversationId]);
+      const { errors } = watchConsole(page);
+      await gotoOk(page, "/approvals");
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const message of recorded.messages) await expect(page.locator(".appr-trigger").filter({ hasText: message.text })).toHaveCount(1);
+        await page.screenshot({ path: testInfo.outputPath(`approval-source-${width}.png`), fullPage: true });
+      }
+      const response = await page.request.get("/api/v1/approvals");
+      const { data } = await response.json();
+      const approvals = data.filter((a: { conversation_id: string }) => a.conversation_id === conversationId);
+      expect(approvals).toHaveLength(2);
+      expect(approvals.every((a: { inboundMessageId: string }) => !!a.inboundMessageId)).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      if (conversationId) await client.query("DELETE FROM conversations WHERE id = $1", [conversationId]);
+      await client.end();
+    }
   });
 
   test("inbox: Edit reveals the textarea + Save/Cancel; Cancel discards, Save persists (ADUX1)", async ({ page }) => {

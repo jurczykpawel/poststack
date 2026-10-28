@@ -4417,6 +4417,18 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "inbound_message_id": {
+          "name": "inbound_message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inbound_comment_id": {
+          "name": "inbound_comment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -4431,6 +4443,36 @@
             },
             {
               "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pending_approvals_inbound_message_id_idx": {
+          "name": "pending_approvals_inbound_message_id_idx",
+          "columns": [
+            {
+              "expression": "inbound_message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pending_approvals_inbound_comment_id_idx": {
+          "name": "pending_approvals_inbound_comment_id_idx",
+          "columns": [
+            {
+              "expression": "inbound_comment_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4507,6 +4549,32 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
+        },
+        "pending_approvals_inbound_message_id_fkey": {
+          "name": "pending_approvals_inbound_message_id_fkey",
+          "tableFrom": "pending_approvals",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "inbound_message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "pending_approvals_inbound_comment_id_fkey": {
+          "name": "pending_approvals_inbound_comment_id_fkey",
+          "tableFrom": "pending_approvals",
+          "tableTo": "comment_logs",
+          "columnsFrom": [
+            "inbound_comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -6411,6 +6479,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6440,6 +6514,39 @@
           "columns": [
             {
               "expression": "endpoint_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "webhook_deliveries_workspace_endpoint_created_idx": {
+          "name": "webhook_deliveries_workspace_endpoint_created_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "endpoint_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -49,6 +49,7 @@ import * as brandChannels from "@/server/handlers/v1/brands/[brandKey]/channels/
 import * as statsResponseTimes from "@/server/handlers/v1/stats/response-times/route";
 import * as webhooksList from "@/server/handlers/v1/webhooks/route";
 import * as webhookItem from "@/server/handlers/v1/webhooks/[webhookId]/route";
+import * as webhookDeliveries from "@/server/handlers/v1/webhooks/[webhookId]/deliveries/route";
 import * as webhookRotate from "@/server/handlers/v1/webhooks/[webhookId]/rotate-secret/route";
 
 export const v1 = new Hono();
@@ -239,6 +240,9 @@ v1.delete("/brands/:brandKey", validateIds, (c) =>
 );
 
 // Outbound webhooks (WHOUT1)
+v1.get("/webhooks/:webhookId/deliveries", validateIds, (c) =>
+  webhookDeliveries.GET(c.req.raw, { params: Promise.resolve({ webhookId: c.req.param("webhookId") }) }),
+);
 v1.get("/webhooks", (c) => webhooksList.GET(c.req.raw));
 v1.post("/webhooks", (c) => webhooksList.POST(c.req.raw));
 v1.get("/webhooks/:webhookId", validateIds, (c) =>

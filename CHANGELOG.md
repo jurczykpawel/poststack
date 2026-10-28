@@ -26,6 +26,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The `BRAND_NAME` environment variable alone no longer renames the instance; rebranding is now the Business-tier instance branding setting (Settings → Integrations → Instance branding).
 
 ### Fixed
+
+- Show recent outgoing webhook delivery outcomes, HTTP codes, attempts and retry schedules in the dashboard and cursor-paginated API.
+- Keep approval quotes and API source identifiers tied to the inbound message or comment that created each draft.
+- Use the instance favicon on the API documentation page.
 - Overview “Sent today” counts only sent deliveries created within the current UTC day and labels that time basis.
 - API documentation loads Scalar fonts without browser errors, with its font source limited to the documentation page.
 - Dashboard navigation and sign-out close the realtime stream before leaving the page and reconnect live updates when returning from the browser cache.

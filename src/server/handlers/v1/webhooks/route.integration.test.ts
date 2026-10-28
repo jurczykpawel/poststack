@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
-import { eq } from "drizzle-orm";
+import recorded from "../../../../../tests/fixtures/mqa-delivery-approval.json";
+import { eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
@@ -168,6 +169,62 @@ describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
     const { data } = await res.json();
     expect(data.header_names).toEqual(["X-New"]);
     expect(data.extra_payload_fields).toEqual({ note: "hi" });
+  });
+
+  it("lets a read-only consumer page delivery outcomes and correlate the original event", async () => {
+    const { json } = await createOne();
+    const ep = json.data.id;
+    const event = recorded.event;
+    await db.insert(s.events).values({ id: event.id, workspace_id: WS, type: event.type,
+      subject_type: event.data.type, subject_id: event.data.id, payload: event.data });
+    await db.insert(s.webhookDeliveries).values([
+      { workspace_id: WS, endpoint_id: ep, event_id: event.id, status: "delivering", attempts: 2, last_error: "HTTP 500" },
+    ]);
+    const response = await call("GET", `/webhooks/${ep}/deliveries?limit=1`, undefined, READONLY_KEY);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data[0]).toMatchObject({ event_id: event.id, event_type: "post.published", status: "delivering", attempts: 2, last_error: "HTTP 500", http_status: null, next_attempt_at: null });
+    expect(body.data[0].created_at).toEqual(expect.any(String));
+    expect(body.data[0].updated_at).toEqual(expect.any(String));
+    expect(body.meta).toEqual({ has_more: false, next_cursor: null });
+    expect(JSON.stringify(body)).not.toContain("whsec_");
+    expect((await call("GET", `/webhooks/${ep}/deliveries`, undefined, OTHER_KEY)).status).toBe(404);
+    expect((await call("GET", `/webhooks/${ep}/deliveries`, undefined, null)).status).toBe(401);
+    expect((await call("GET", `/webhooks/${ep}/deliveries?cursor=bad`)).status).toBe(422);
+    const writeKey = "sk_live_webhooks_write_only";
+    await db.insert(s.apiKeys).values({ workspace_id: WS, name: "write only", key_hash: createHash("sha256").update(writeKey).digest("hex"), key_prefix: "sk_live_ww", scopes: ["webhooks:write"] });
+    expect((await call("GET", `/webhooks/${ep}/deliveries`, undefined, writeKey)).status).toBe(401);
+  });
+
+  it("pages equal timestamps without omissions and reports the queue schedule", async () => {
+    const { json } = await createOne();
+    const ep = json.data.id;
+    const at = new Date("2026-10-28T18:23:47.851Z");
+    const deliveries: string[] = [];
+    for (let n = 0; n < 3; n++) {
+      const [event] = await db.insert(s.events).values({ workspace_id: WS, type: recorded.event.type, payload: recorded.event.data }).returning();
+      const [delivery] = await db.insert(s.webhookDeliveries).values({ workspace_id: WS, endpoint_id: ep, event_id: event.id, created_at: at, status: "delivering", attempts: 1 }).returning();
+      deliveries.push(delivery.id);
+    }
+    const next = "2026-10-29T12:00:00.000Z";
+    await db.execute(sql`select graphile_worker.add_job('webhook-delivery', ${JSON.stringify({ deliveryId: deliveries[0] })}::json, run_at := ${next}::timestamptz)`);
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const response = await call("GET", `/webhooks/${ep}/deliveries?limit=1${cursor ? `&cursor=${cursor}` : ""}`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      seen.push(body.data[0].id);
+      expect(body.data[0].next_attempt_at).toBe(body.data[0].id === deliveries[0] ? next : null);
+      cursor = body.meta.next_cursor;
+      expect(body.meta.has_more).toBe(cursor !== null);
+    } while (cursor);
+    expect(seen).toEqual([...deliveries].sort().reverse());
+    await db.update(s.webhookDeliveries).set({ status: "failed" }).where(eq(s.webhookDeliveries.id, deliveries[0]));
+    const terminal = await (await call("GET", `/webhooks/${ep}/deliveries`)).json();
+    expect(terminal.data.find((d: { id: string }) => d.id === deliveries[0]).next_attempt_at).toBeNull();
+    await gate.clearLicense();
+    expect((await call("GET", `/webhooks/${ep}/deliveries`)).status).toBe(402);
   });
 
   it("returns 402 when the instance is not licensed for outbound webhooks", async () => {

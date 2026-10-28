@@ -1,3 +1,4 @@
+import recorded from "../../../tests/fixtures/mqa-delivery-approval.json";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import type { JobHelpers } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
@@ -155,6 +156,13 @@ async function setSubscribed(value: boolean) {
 }
 
 describe("ai-draft worker (AIDRAFT1)", () => {
+  it("retains the source message when an AI reply is parked", async () => {
+    const message = recorded.messages[0];
+    const [source] = await db.insert(s.messages).values({ conversation_id: CONV, direction: "inbound", text: message.text }).returning();
+    await processAiDraft({ ...baseJob(), incomingText: message.text, inboundMessageId: source.id }, helpersFor());
+    expect(await pendingRows()).toEqual([expect.objectContaining({ inbound_message_id: source.id })]);
+  });
+
   it("auto + autosend off, target dm: parks ONE pending_approval(source=ai_auto) with the DM body", async () => {
     if (!TEST_DB) return;
     generateDraftMock.mockResolvedValue("Drafted DM");

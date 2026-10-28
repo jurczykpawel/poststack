@@ -191,6 +191,10 @@ export async function processIncomingMessage(
       recipientPlatformId: senderId,
       text,
       eventType: "message",
+      inboundMessageId: messageId ?? (await db.query.messages.findFirst({
+        where: and(eq(messages.conversation_id, conversation.id), eq(messages.platform_message_id, mid)),
+        columns: { id: true },
+      }))?.id,
       quickReplyPayload,
       postbackPayload,
       isStoryReply,

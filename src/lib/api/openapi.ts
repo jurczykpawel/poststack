@@ -291,6 +291,22 @@ export const openApiSpec = {
           created_at: { type: "string", format: "date-time" },
         },
       },
+      WebhookDelivery: {
+        type: "object",
+        required: ["id", "event_id", "event_type", "status", "attempts", "http_status", "last_error", "created_at", "updated_at", "next_attempt_at"],
+        properties: {
+          id: { type: "string", format: "uuid" },
+          event_id: { type: "string", format: "uuid", description: "Original webhook envelope id; correlate retries and receiver logs with this value." },
+          event_type: { type: "string" },
+          status: { type: "string", enum: ["pending", "delivering", "delivered", "failed"] },
+          attempts: { type: "integer", minimum: 0 },
+          http_status: { type: "integer", nullable: true, description: "Last completed attempt's HTTP code; null before an attempt, on a transport error, or for older records." },
+          last_error: { type: "string", nullable: true },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+          next_attempt_at: { type: "string", format: "date-time", nullable: true, description: "Actual queue schedule in UTC; null while running, when no job is queued, or after completion." },
+        },
+      },
       WebhookEndpoint: {
         type: "object",
         properties: {
@@ -721,7 +737,12 @@ export const openApiSpec = {
           },
         ],
         responses: {
-          "200": { description: "List of approvals" },
+          "200": { description: "List of approvals. Existing fields are retained; inboundMessageId and inboundCommentId identify the originating inbox message or comment log, respectively (null for older records or after source removal).", content: { "application/json": { schema: {
+            type: "object", properties: { data: { type: "array", items: { type: "object", properties: {
+              inboundMessageId: { type: "string", format: "uuid", nullable: true },
+              inboundCommentId: { type: "string", format: "uuid", nullable: true },
+            }, additionalProperties: true } }, error: { type: "null" } },
+          } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
         },
       },
@@ -1448,6 +1469,32 @@ export const openApiSpec = {
           "401": { $ref: "#/components/responses/Unauthorized" },
           "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/webhooks/{webhookId}/deliveries": {
+      get: {
+        ...requiresScope("webhooks:read"),
+        tags: ["Webhooks"],
+        summary: "List webhook delivery outcomes",
+        description: "Requires PRO. Workspace-scoped delivery lifecycles, newest first by (created_at, id). Each row summarizes all attempts for one event and endpoint; no signing secrets, request headers or payloads are returned.",
+        parameters: [
+          { name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "cursor", in: "query", description: "Opaque next_cursor from the previous page.", schema: { type: "string" } },
+        ],
+        responses: {
+          "200": { description: "Delivery outcomes and cursor pagination", content: { "application/json": { schema: {
+            type: "object", properties: {
+              data: { type: "array", items: { $ref: "#/components/schemas/WebhookDelivery" } },
+              error: { type: "null" },
+              meta: { type: "object", properties: { has_more: { type: "boolean" }, next_cursor: { type: "string", nullable: true } } },
+            },
+          } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "422": { description: "Invalid cursor or limit" },
         },
       },
     },

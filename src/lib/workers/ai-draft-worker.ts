@@ -171,6 +171,8 @@ export async function processAiDraft(job: AiDraftJob, helpers: JobHelpers): Prom
         contact_id: job.contactId,
         channel_id: job.channelId,
         recipient_platform_id: job.recipientPlatformId,
+        inbound_message_id: job.inboundMessageId,
+        inbound_comment_id: job.inboundCommentId,
         proposed_content: JSON.parse(JSON.stringify(held)),
       });
     }

@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { openApiSpec } from "@/lib/api/openapi";
 import { getConfig } from "@/lib/settings/config";
 import { t } from "@/lib/i18n";
+import { brandingHead } from "../ui/branding";
 import { serveAsset } from "../ui/assets";
 
 const docsHtml = () => html`<!doctype html>
@@ -14,6 +15,7 @@ const docsHtml = () => html`<!doctype html>
   <head>
     <title>${t("apiDocs.title")}</title>
     <meta charset="utf-8" />
+    ${brandingHead()}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
   <body>

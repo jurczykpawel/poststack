@@ -1,3 +1,4 @@
+import recorded from "../../../tests/fixtures/mqa-delivery-approval.json";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import type { Hono } from "hono";
 import { eq, sql } from "drizzle-orm";
@@ -87,6 +88,49 @@ function statusOf(id: string) {
 }
 
 describe("inbox thread — pending approval drafts", () => {
+  it("keeps each approval quote tied to the inbound that created it", async () => {
+    const { processIncomingMessage } = await import("@/lib/workers/incoming-message-worker");
+    const [rule] = await db.insert(s.autoReplyRules).values({ workspace_id: WS, name: "Review", trigger_type: "keyword",
+      trigger_config: { keywords: [{ value: "Mqa9", match_type: "contains" }] }, response_type: "text",
+      response_config: { text: "Review reply" }, requires_approval: true, cooldown_seconds: 0 }).returning();
+    const inboundIds: string[] = [];
+    for (const message of recorded.messages) {
+      await db.update(s.conversations).set({ last_message_preview: message.text }).where(eq(s.conversations.id, CONV_DM));
+      await processIncomingMessage({ platform: "facebook", channelId: CH, pageId: "PG-F", recipientId: "PG-F", senderId: "PSID-F",
+        mid: message.platform_message_id, text: message.text, timestamp: Date.parse(message.created_at) / 1000 },
+        { logger: { info() {}, error() {} } } as unknown as import("graphile-worker").JobHelpers);
+      const inbound = await db.query.messages.findFirst({ where: eq(s.messages.platform_message_id, message.platform_message_id) });
+      inboundIds.push(inbound!.id);
+    }
+    const response = await get("/approvals");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    for (const message of recorded.messages) expect(body).toContain(`<blockquote class="appr-trigger">${message.text}</blockquote>`);
+    const api = await app.request("/api/v1/approvals", { headers: { cookie } });
+    const { data } = await api.json();
+    expect(data.filter((a: { rule_id: string }) => a.rule_id === rule.id).map((a: { inboundMessageId: string }) => a.inboundMessageId).sort())
+      .toEqual(inboundIds.sort());
+  });
+
+  it("omits the quote for an older approval with no source instead of showing newer activity", async () => {
+    await seedApproval();
+    await db.update(s.conversations).set({ last_message_preview: "Later unrelated message" }).where(eq(s.conversations.id, CONV_DM));
+    expect(await (await get("/approvals")).text()).not.toContain('class="appr-trigger"');
+  });
+
+  it("quotes the originating comment and retains the approval after the source is removed", async () => {
+    const [comment] = await db.insert(s.commentLogs).values({ workspace_id: WS, channel_id: CH, conversation_id: CONV_COMMENT,
+      platform_comment_id: "origin-comment", comment_text: "Original comment" }).returning();
+    await seedApproval({ conversation_id: CONV_COMMENT, inbound_comment_id: comment.id });
+    const body = await (await get("/approvals")).text();
+    expect(body).toContain('<blockquote class="appr-trigger">Original comment</blockquote>');
+    await db.delete(s.commentLogs).where(eq(s.commentLogs.id, comment.id));
+    const api = await app.request("/api/v1/approvals", { headers: { cookie } });
+    const { data } = await api.json();
+    expect(data).toHaveLength(1);
+    expect(data[0]).toMatchObject({ inboundMessageId: null, inboundCommentId: null });
+  });
+
   it("renders a pending approval as a draft bubble in the thread", async () => {
     if (!TEST_DB) return;
     const id = await seedApproval();

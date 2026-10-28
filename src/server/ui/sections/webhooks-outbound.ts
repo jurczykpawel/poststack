@@ -3,6 +3,7 @@ import { html } from "hono/html";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { ApiError } from "@/lib/api/response";
+import { listWebhookDeliveries } from "@/lib/webhooks/deliveries";
 import { EVENT_TYPES } from "@/lib/events";
 import {
   createEndpoint, listEndpoints, updateEndpoint, rotateSecret, deleteEndpoint,
@@ -105,6 +106,10 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/rotate" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Rotate the signing secret? The previous secret keeps verifying briefly, then stops." data-confirm-label="Rotate">${icon("reconnect", "ico", 13)} Rotate secret</button>
       <button class="btn btn-sm btn-danger" hx-delete="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Delete this endpoint? Future events will no longer be delivered to it." data-confirm-label="Delete">Delete</button>
     </div>
+    <details style="margin-top:.5rem" data-webhook-deliveries="${ep.id}">
+      <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Recent deliveries</summary>
+      <div id="wh-deliveries-${ep.id}" hx-get="/webhooks/outbound/${ep.id}/deliveries" hx-trigger="revealed" hx-swap="innerHTML transition:false"></div>
+    </details>
     <details style="margin-top:.5rem">
       <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Edit URL, events &amp; headers</summary>
       <form hx-post="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" style="margin-top:.5rem">
@@ -183,6 +188,31 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     const g = await ctx(c);
     if (g instanceof Response) return g;
     return c.html(await renderPanel(g.a.workspaceId, g.canManage, g.upgradeUrl));
+  });
+
+  r.get("/webhooks/outbound/:id/deliveries", guard, async (c) => {
+    const g = await ctx(c);
+    if (g instanceof Response) return g;
+    if (!g.canManage) return c.text("PRO feature", 402);
+    const id = c.req.param("id");
+    if (!UUID_RE.test(id)) return c.text("not found", 404);
+    const { items, meta } = await listWebhookDeliveries(g.a.workspaceId, id, 20, c.req.query("cursor"));
+    return c.html(html`
+      <button class="btn btn-sm" hx-get="/webhooks/outbound/${id}/deliveries" hx-target="#wh-deliveries-${id}" hx-swap="innerHTML transition:false">Refresh deliveries</button>
+      ${items.length ? items.map((d) => html`<article class="card" style="margin:.5rem 0;overflow-wrap:anywhere" data-delivery-id="${d.id}">
+        <strong>${d.event_type}</strong> · <span class="badge tone-${d.status === "delivered" ? "ok" : d.status === "failed" ? "bad" : "neutral"}">${d.status}</span>
+        <dl>
+          <dt>Event ID</dt><dd class="mono">${d.event_id}</dd>
+          <dt>Created</dt><dd>${d.created_at.toISOString()}</dd>
+          <dt>Last update</dt><dd>${d.updated_at.toISOString()}</dd>
+          <dt>HTTP status</dt><dd>${d.http_status ?? "—"}</dd>
+          <dt>Attempts</dt><dd>${d.attempts}</dd>
+          <dt>Last error</dt><dd>${d.last_error ?? "—"}</dd>
+          <dt>Next attempt</dt><dd>${d.next_attempt_at ?? "—"}</dd>
+        </dl>
+      </article>`) : html`<p class="muted">No deliveries yet.</p>`}
+      ${meta.next_cursor ? html`<button class="btn btn-sm" hx-get="/webhooks/outbound/${id}/deliveries?cursor=${meta.next_cursor}" hx-target="#wh-deliveries-${id}" hx-swap="innerHTML transition:false">Older deliveries</button>` : ""}
+    `);
   });
 
   // Create — empty event_types ⇒ subscribe to ALL events. Surfaces the freshly-minted secret once

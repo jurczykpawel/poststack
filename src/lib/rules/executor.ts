@@ -136,6 +136,8 @@ interface EvaluateRulesInput {
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
+  inboundMessageId?: string;
+  inboundCommentId?: string;
   text: string | null;
   eventType: EventType;
   /** Post/media ID for comment_keyword post scoping */
@@ -165,7 +167,7 @@ interface EvaluateRulesInput {
 export async function evaluateRules(
   input: EvaluateRulesInput
 ): Promise<EvaluateOutcome> {
-  const { workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
+  const { workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, inboundMessageId, inboundCommentId, text, eventType, postId, commentId, quickReplyPayload, postbackPayload, isStoryReply, isStoryMention, isReaction, reactionType, eventKey } = input;
 
   // TIMING3: a comment lives in a comment thread; a DM / reaction in a dm thread (mirrors how the
   // workers resolve the conversation thread_type), so the metric's thread_type is derivable here
@@ -298,7 +300,7 @@ export async function evaluateRules(
       if (!planned) continue;
       commit = planned;
     } else if (rule.requires_approval) {
-      commit = await planApproval({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, personalize });
+      commit = await planApproval({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, inboundMessageId, inboundCommentId, personalize });
     } else {
       commit = await planResponse({ rule: candidate, workspaceId, channelId, platform, conversationId, contactId, recipientPlatformId, commentId, keyBase, personalize });
     }
@@ -363,7 +365,7 @@ export async function evaluateRules(
       // (`claimed === false`) means a concurrent delivery owns the outcome, so we never enqueue a
       // second draft. The consent-gated no-match above (unsubscribed contact) returns earlier and
       // never reaches here, so an opted-out contact gets no AI draft.
-      await enqueueAiDraftOnNoMatch({ workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, postId, eventKey });
+      await enqueueAiDraftOnNoMatch({ workspaceId, channelId, conversationId, contactId, recipientPlatformId, text, eventType, commentId, postId, eventKey, inboundMessageId, inboundCommentId });
     }
     return { outcome: claimed ? "no_match" : "already", ruleId: null };
   }
@@ -400,6 +402,8 @@ async function enqueueAiDraftOnNoMatch(input: {
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
+  inboundMessageId?: string;
+  inboundCommentId?: string;
   text: string | null;
   eventType: EventType;
   commentId?: string;
@@ -440,6 +444,8 @@ async function enqueueAiDraftOnNoMatch(input: {
       contactId,
       recipientPlatformId,
       incomingText,
+      inboundMessageId: input.inboundMessageId,
+      inboundCommentId: input.inboundCommentId,
       isComment: eventType === "comment",
       target,
       ...(eventType === "comment" && commentId ? { commentId } : {}),
@@ -454,8 +460,7 @@ async function enqueueAiDraftOnNoMatch(input: {
  * Manual approval: park a ready-to-send message for human review instead of
  * auto-sending. The content (incl. LLM rephrase) is resolved up front so the
  * approver acts on the exact text/buttons that will go out; the returned fn
- * inserts the parked row inside the fire transaction. (DM path; comment/follow-gate
- * approval is out of scope for now.)
+ * inserts the parked row and its inbound source inside the fire transaction.
  */
 async function planApproval(input: {
   rule: { id: string; response_type: string; response_config: Record<string, unknown> };
@@ -465,6 +470,8 @@ async function planApproval(input: {
   conversationId: string;
   contactId: string;
   recipientPlatformId: string;
+  inboundMessageId?: string;
+  inboundCommentId?: string;
   commentId?: string;
   personalize: PersonalizeContext;
 }): Promise<CommitFn> {
@@ -502,6 +509,8 @@ async function planApproval(input: {
       contact_id: contactId,
       channel_id: channelId,
       recipient_platform_id: recipientPlatformId,
+      inbound_message_id: input.inboundMessageId,
+      inbound_comment_id: input.inboundCommentId,
       proposed_content: JSON.parse(JSON.stringify(proposed)),
     });
   };

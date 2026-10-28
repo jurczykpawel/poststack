@@ -1,0 +1,29 @@
+{
+  "source": "Recorded QA messages and received webhook, 2026-10-28; native message identifiers anonymized.",
+  "messages": [
+    {
+      "id": "748783ed-72c1-4064-91e0-7c87a31aac63",
+      "text": "Mqa9app",
+      "created_at": "2026-10-28T18:43:55.211Z",
+      "platform_message_id": "recorded-message-1"
+    },
+    {
+      "id": "6d964bc7-334e-44ed-ab66-d6da96dd9d15",
+      "text": "Mqa9rej",
+      "created_at": "2026-10-28T18:44:03.971Z",
+      "platform_message_id": "recorded-message-2"
+    }
+  ],
+  "event": {
+    "id": "03c92f6c-b259-44b4-a9ba-82f36e80a1a0",
+    "type": "post.published",
+    "created_at": "2026-10-28T18:23:47.851Z",
+    "data": {
+      "id": "4211bfad-93e1-4e14-a027-876161465ae4",
+      "type": "post",
+      "platform": "instagram",
+      "deliveryId": "84ae4b86-45d3-480d-bcc2-7131901ae9f8",
+      "providerHandle": "18116699119838094"
+    }
+  }
+}

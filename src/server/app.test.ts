@@ -19,7 +19,9 @@ describe("Hono app skeleton — public routes + global middleware", () => {
     const res = await app.request("/api/docs");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
-    expect(await res.text()).toContain("api-reference");
+    const body = await res.text();
+    expect(body).toContain("api-reference");
+    expect(body).toContain('<link rel="icon" href="/favicon.svg"');
   });
 
   it("serves the OpenAPI spec at /api/v1 with CORS", async () => {

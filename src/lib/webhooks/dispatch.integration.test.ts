@@ -169,6 +169,7 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
     const after = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d!.id) });
     expect(after!.status).toBe("delivered");
     expect(after!.attempts).toBe(1);
+    expect(after!.http_status).toBe(200);
     expect(verifyWebhook(ep.secret, seen!.sig, seen!.body)).toBe(true);
     // The body is the event envelope; data carries the subject (so a receiver can GET the resource).
     const parsed = JSON.parse(seen!.body) as { type: string; data: { id: string; type: string; platform: string } };
@@ -224,6 +225,19 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
     expect(parsed.type).toBe("post.published"); // standard fields still present (extra fields only add/override)
   });
 
+  it("clears the previous HTTP code when a later attempt has no response", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.test/x" });
+    const eventId = await emitNow(WS, "post.failed");
+    const [d] = await db.insert(s.webhookDeliveries).values({ workspace_id: WS, endpoint_id: ep.id, event_id: eventId }).returning();
+    connectStub.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    await expect(processWebhookDelivery({ deliveryId: d.id }, helpers())).rejects.toThrow("HTTP 503");
+    expect((await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d.id) }))!.http_status).toBe(503);
+    connectStub.mockRejectedValueOnce(new Error("Connection timed out"));
+    await expect(processWebhookDelivery({ deliveryId: d.id }, helpers(2))).rejects.toThrow("Connection timed out");
+    const result = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d.id) });
+    expect(result).toMatchObject({ attempts: 2, http_status: null, last_error: "Connection timed out" });
+  });
+
   it("non-2xx -> throws (retry); marks failed on the final attempt", async () => {
     const ep = await svc.createEndpoint(WS, { url: "https://hook.test/x", eventTypes: [] });
     const eventId = await emitNow(WS, "post.failed");
@@ -235,6 +249,7 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
     await expect(processWebhookDelivery({ deliveryId: d!.id }, helpers(8, 8))).rejects.toThrow();
     const after = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d!.id) });
     expect(after!.status).toBe("failed");
+    expect(after!.http_status).toBe(500);
   });
 
   it("refuses a private-resolving endpoint (secure-by-default: WEBHOOK_ALLOW_PRIVATE_TARGETS off) -> failed, never connects", async () => {

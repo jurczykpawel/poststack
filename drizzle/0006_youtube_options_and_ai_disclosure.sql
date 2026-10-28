@@ -40,3 +40,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 --> statement-breakpoint
 ALTER TABLE "deliveries" ADD COLUMN IF NOT EXISTS "tiktok_confirmation" "tiktok_confirmation" DEFAULT 'scheduled' NOT NULL;
+
+--> statement-breakpoint
+ALTER TABLE "pending_approvals" ADD COLUMN IF NOT EXISTS "inbound_message_id" uuid REFERENCES "messages"("id") ON DELETE SET NULL;
+--> statement-breakpoint
+ALTER TABLE "pending_approvals" ADD COLUMN IF NOT EXISTS "inbound_comment_id" uuid REFERENCES "comment_logs"("id") ON DELETE SET NULL;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "pending_approvals_inbound_message_id_idx" ON "pending_approvals" ("inbound_message_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "pending_approvals_inbound_comment_id_idx" ON "pending_approvals" ("inbound_comment_id");
+--> statement-breakpoint
+ALTER TABLE "webhook_deliveries" ADD COLUMN IF NOT EXISTS "http_status" integer;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "webhook_deliveries_workspace_endpoint_created_idx" ON "webhook_deliveries" ("workspace_id", "endpoint_id", "created_at", "id");

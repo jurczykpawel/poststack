@@ -13,6 +13,9 @@ for (const width of [1440, 390]) {
     expect((await page.goto("/api/docs"))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "PostStack API", exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
+    const favicon = page.locator('link[rel="icon"]');
+    await expect(favicon).toHaveAttribute("href", "/favicon.svg");
+    expect((await page.request.get((await favicon.getAttribute("href"))!)).status()).toBe(200);
     await page.screenshot({ path: testInfo.outputPath(`api-docs-${width}.png`) });
     expect(errors).toEqual([]);
     expect(failed).toEqual([]);
