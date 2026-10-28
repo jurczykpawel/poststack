@@ -12,6 +12,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [0.14.0] - 2026-10-29
 
 ### Security
+- Updated `@hono/node-server` to 2.1.5 (GHSA-rmxm-3fg6-px4f). PostStack does not use the affected `serveStatic`.
 - Instance credentials and license management now require an instance operator session, configurable through `INSTANCE_ADMIN_EMAILS`.
 
 ### Added

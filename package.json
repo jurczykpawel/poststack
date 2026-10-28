@@ -31,7 +31,7 @@
     "verify:run": "sh -c 'set -eu; export COMPOSE_PROJECT_NAME=poststack-verify-$$ POSTGRES_USER=test POSTGRES_PASSWORD=test POSTGRES_DB=test; export E2E_ADMIN_DATABASE_URL=\"postgres://test:test@127.0.0.1:$PG_PORT/test\" E2E_DATABASE_URL=\"postgres://test:test@127.0.0.1:$PG_PORT/poststack_e2e\"; trap \"docker compose --env-file /dev/null down --volumes\" EXIT; trap \"exit 130\" INT; trap \"exit 143\" TERM; docker compose --env-file /dev/null up -d --wait postgres; npm run test:e2e -- sections.spec.ts --project=chromium; npm test -- src/lib/auth; TEST_DATABASE_URL=\"$E2E_DATABASE_URL\" npm run test:integration -- src/server/ui/sections'"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.1",
+    "@hono/node-server": "^2.1.5",
     "altcha-lib": "^1.4.1",
     "aws4fetch": "^1.0.20",
     "dotenv": "^17.4.2",
