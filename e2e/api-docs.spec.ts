@@ -13,6 +13,10 @@ for (const width of [1440, 390]) {
     expect((await page.goto("/api/docs"))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "PostStack API", exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
+    await page.goto("/api/docs#tag/webhooks");
+    const signature = page.getByText("X-PostStack-Signature: t=<unix>,v1=<hmac>", { exact: true });
+    await signature.scrollIntoViewIfNeeded();
+    await expect(signature).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`api-docs-${width}.png`) });
     expect(errors).toEqual([]);
     expect(failed).toEqual([]);

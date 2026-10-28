@@ -248,7 +248,8 @@ describe("outbound webhook consumer documentation", () => {
       openApiSpec.tags.find((tag) => tag.name === "Webhooks")!.description,
       openApiSpec.paths["/webhooks"].post.description,
     ].join("\n");
-    for (const type of [...EVENT_TYPES, "post.first_comment"]) expect(description).toContain(`\`${type}\``);
+    for (const type of [...EVENT_TYPES, "post.first_comment"]) expect(description).toContain(type);
+    expect(description).toContain("`X-PostStack-Signature: t=<unix>,v1=<hmac>`");
     for (const field of ["workspaceId", "channelId", "publishedAt", "firstComment", "platformSenderId", "X-PostStack-Signature", "timestamp.raw-body", "8 attempts"]) expect(description).toContain(field);
   });
 });
