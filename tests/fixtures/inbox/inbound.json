@@ -1,0 +1,25 @@
+{
+  "source": "Recorded local inbox API responses, 2026-10-28; message identifiers anonymized.",
+  "rows": [
+    {
+      "id": "c0ffee17-0000-4000-8000-000000000100",
+      "direction": "inbound",
+      "text": "Mqa9app",
+      "status": "sent",
+      "platform_message_id": "recorded-9be2cd3e57b80b36ca53728948f57f95136ee370904155c0ef3cbb14eb48c30f",
+      "sent_by_rule_id": null,
+      "sent_by_user_id": null,
+      "created_at": "2026-10-28T18:43:55.211Z"
+    },
+    {
+      "id": "c0ffee17-0000-4000-8000-000000000101",
+      "direction": "inbound",
+      "text": "Mqa9rej",
+      "status": "sent",
+      "platform_message_id": "recorded-0781783dd2c8db6f2a08ee4900741ff7b0a02f7b9f8661ca3209f658b8f5aed0",
+      "sent_by_rule_id": null,
+      "sent_by_user_id": null,
+      "created_at": "2026-10-28T18:44:03.971Z"
+    }
+  ]
+}

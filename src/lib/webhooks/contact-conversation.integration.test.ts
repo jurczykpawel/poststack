@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { and, eq, sql } from "drizzle-orm";
 import type { JobHelpers } from "graphile-worker";
 import recording from "../../../tests/fixtures/inbox/lifecycle.json";
+import inbound from "../../../tests/fixtures/inbox/inbound.json";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -25,6 +26,9 @@ let webhook: typeof import("@/server/handlers/v1/webhooks/[webhookId]/route");
 let dispatch: typeof import("./dispatch");
 let queue: typeof import("@/lib/queue/client");
 let verify: typeof import("./signature").verifyWebhook;
+let processIncomingMessage: typeof import("@/lib/workers/incoming-message-worker").processIncomingMessage;
+let processIncomingComment: typeof import("@/lib/workers/incoming-comment-worker").processIncomingComment;
+let resolveContactConversation: typeof import("@/lib/workers/resolve-contact").resolveContactConversation;
 let server: Server;
 let url: string;
 const received: { body: string; signature: string; type: string }[] = [];
@@ -55,6 +59,9 @@ beforeAll(async () => {
   dispatch = await import("./dispatch");
   queue = await import("@/lib/queue/client");
   ({ verifyWebhook: verify } = await import("./signature"));
+  ({ processIncomingMessage } = await import("@/lib/workers/incoming-message-worker"));
+  ({ processIncomingComment } = await import("@/lib/workers/incoming-comment-worker"));
+  ({ resolveContactConversation } = await import("@/lib/workers/resolve-contact"));
   await licenseInstance();
   server = createServer(async (req, res) => {
     let body = "";
@@ -120,6 +127,73 @@ async function deliver(type: string) {
 }
 
 describe.skipIf(!TEST_DB)("contact and conversation receiver contracts", () => {
+  const workerHelpers = { logger: { info() {} }, job: { attempts: 1, max_attempts: 3 } } as unknown as JobHelpers;
+  const messageJob = (index = 0) => ({
+    platform: "instagram", pageId: "lifecycle", senderId: recording.contact.contact_channels[0].platform_sender_id,
+    recipientId: "lifecycle", mid: inbound.rows[index].platform_message_id,
+    text: inbound.rows[index].text, timestamp: Date.parse(inbound.rows[index].created_at) / 1000,
+  });
+
+  it.each(["closed", "snoozed"] as const)("delivers one %s-to-open transition for a fresh inbound, and none for duplicates or open-to-open", async (status) => {
+    await subscribe(["conversation.updated"]);
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await db.update(s.conversations).set({ status }).where(eq(s.conversations.id, CV));
+    await processIncomingMessage(messageJob(), workerHelpers);
+    const [body] = await deliver("conversation.updated");
+    expect(body.data).toMatchObject({
+      conversationId: CV, workspaceId: WS, contactId: CT, channelId: CH,
+      previous: { status, is_automation_paused: false, assigned_to: null },
+      current: { status: "open", is_automation_paused: false, assigned_to: null },
+    });
+    await processIncomingMessage(messageJob(), workerHelpers);
+    await processIncomingMessage(messageJob(1), workerHelpers);
+    expect(await events("conversation.updated")).toHaveLength(1);
+  });
+
+  it("does not reopen or emit for an older inbound or a repeated inbound after closure", async () => {
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await processIncomingMessage(messageJob(), workerHelpers);
+    await db.update(s.conversations).set({ status: "closed", last_message_at: new Date() }).where(eq(s.conversations.id, CV));
+    await processIncomingMessage(messageJob(), workerHelpers);
+    await processIncomingMessage(messageJob(1), workerHelpers);
+    expect(await events("conversation.updated")).toHaveLength(0);
+    expect((await db.query.conversations.findFirst({ where: eq(s.conversations.id, CV) }))?.status).toBe("closed");
+  });
+
+  it("rolls back the inbound message, counters and reopen when its event cannot be queued", async () => {
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    await db.update(s.conversations).set({ status: "closed" }).where(eq(s.conversations.id, CV));
+    vi.spyOn(queue, "addJobTx").mockRejectedValueOnce(new Error("Queue unavailable"));
+    await expect(processIncomingMessage(messageJob(), workerHelpers)).rejects.toThrow("Queue unavailable");
+    expect((await db.query.conversations.findFirst({ where: eq(s.conversations.id, CV) }))).toMatchObject({ status: "closed", unread_count: 0, last_message_at: null });
+    expect(await db.select().from(s.messages).where(eq(s.messages.conversation_id, CV))).toHaveLength(0);
+    expect(await events("conversation.updated")).toHaveLength(0);
+  });
+
+  it("emits for the resolver's reopen but not its activity-only reaction path", async () => {
+    const channel = { id: CH, workspace_id: WS, platform: "instagram" as const };
+    const sender = recording.contact.contact_channels[0].platform_sender_id;
+    await db.update(s.conversations).set({ status: "snoozed" }).where(eq(s.conversations.id, CV));
+    await resolveContactConversation(channel, sender, null, null, { reopenClosed: false });
+    expect(await events("conversation.updated")).toHaveLength(0);
+    await resolveContactConversation(channel, sender, null, null);
+    expect((await events("conversation.updated"))[0]?.payload).toMatchObject({ previous: { status: "snoozed" }, current: { status: "open" } });
+    await resolveContactConversation(channel, sender, null, null);
+    expect(await events("conversation.updated")).toHaveLength(1);
+  });
+
+  it("emits once for a comment reopening its thread, but not a repeated comment or an already open thread", async () => {
+    await db.update(s.channels).set({ platform: "facebook", status: "paused" }).where(eq(s.channels.id, CH));
+    await db.update(s.conversations).set({ platform: "facebook", thread_type: "comment", status: "closed" }).where(eq(s.conversations.id, CV));
+    const job = { platform: "facebook", pageId: "lifecycle", postId: undefined, senderName: undefined, commentId: inbound.rows[0].platform_message_id,
+      senderId: recording.contact.contact_channels[0].platform_sender_id, text: inbound.rows[0].text, timestamp: Date.parse(inbound.rows[0].created_at) / 1000 };
+    await processIncomingComment(job, workerHelpers);
+    expect((await events("conversation.updated"))[0]?.payload).toMatchObject({ conversationId: CV, previous: { status: "closed" }, current: { status: "open" } });
+    await processIncomingComment(job, workerHelpers);
+    await processIncomingComment({ ...job, commentId: inbound.rows[1].platform_message_id }, workerHelpers);
+    expect(await events("conversation.updated")).toHaveLength(1);
+  });
+
   it("accepts both explicit subscriptions on creation and update", async () => {
     const ep = await subscribe(["contact.erased", "conversation.updated"]);
     const response = await webhook.PATCH(request("PATCH", { event_types: ["conversation.updated", "contact.erased"] }), { params: Promise.resolve({ webhookId: ep.id }) });

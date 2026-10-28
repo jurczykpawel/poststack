@@ -1,7 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { Client } from "pg";
-import { E2E_DATABASE_URL } from "./env";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { E2E_DATABASE_URL, serverEnv } from "./env";
 import { gotoOk, setPro, watchConsole } from "./helpers";
+import inbound from "../tests/fixtures/inbox/inbound.json";
 
 test("outgoing subscriptions offer contact erasure and conversation updates", async ({ page }) => {
   await setPro(page.request);
@@ -60,6 +63,29 @@ test("Inbox controls emit transitions with the same state displayed to the opera
       ["open", "closed", false, false], ["closed", "open", false, false], ["open", "open", false, true], ["open", "open", true, false],
     ]);
     for (const row of rows.rows) expect(row.payload).toMatchObject({ conversationId, contactId, channelId, workspaceId });
+    await expect(page.locator("#thread")).not.toHaveClass(/htmx-settling/);
+    await page.locator(".th-actions").getByRole("button", { name: "Done", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    await client.query("UPDATE channels SET status = 'paused' WHERE id = $1", [channelId]);
+    await client.query("INSERT INTO contact_channels (contact_id, channel_id, platform_sender_id) VALUES ($1, $2, 'inbox-event-sender')", [contactId, channelId]);
+    const job = { platform: "instagram", pageId: "inbox-events", senderId: "inbox-event-sender", recipientId: "inbox-events",
+      mid: inbound.rows[0].platform_message_id, text: inbound.rows[0].text, timestamp: Date.parse(inbound.rows[0].created_at) / 1000 };
+    await promisify(execFile)("bun", ["--no-env-file", "-e", `
+      const { processIncomingMessage } = await import('./src/lib/workers/incoming-message-worker.ts');
+      const helpers = { logger: { info() {} }, job: { attempts: 1, max_attempts: 3 } };
+      await processIncomingMessage(${JSON.stringify(job)}, helpers);
+      await processIncomingMessage(${JSON.stringify(job)}, helpers);
+      const { closeQueue } = await import('./src/lib/queue/client.ts');
+      const { db } = await import('./src/lib/db.ts');
+      await closeQueue();
+      await db.$client.end();
+    `], { env: serverEnv(), timeout: 15_000 });
+    await gotoOk(page, `/inbox?open=${conversationId}`);
+    await expect(page.locator(".th-actions").getByRole("button", { name: "Done", exact: true })).toBeVisible();
+    await expect(page.locator("#thread")).toContainText(inbound.rows[0].text);
+    const afterInbound = await client.query("SELECT payload FROM events WHERE workspace_id = $1 AND subject_id = $2 AND type = 'conversation.updated' ORDER BY created_at", [workspaceId, conversationId]);
+    expect(afterInbound.rows).toHaveLength(6);
+    expect(afterInbound.rows[5].payload).toMatchObject({ conversationId, contactId, channelId, workspaceId, previous: { status: "closed" }, current: { status: "open" } });
     await page.screenshot({ path: testInfo.outputPath("inbox-events.png") });
     expect(errors).toEqual([]);
   } finally {

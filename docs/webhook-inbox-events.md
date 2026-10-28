@@ -41,9 +41,11 @@ the conversation. `data` contains:
 `status` is `open`, `closed` (shown as **Done** in Inbox), or `snoozed`.
 `is_automation_paused` is a boolean. `assigned_to` is a workspace member's user ID
 or `null`. A PATCH changing several fields produces one event. Unchanged values,
-read receipts and rejected updates produce none. New-message activity is outside
-this event's scope. Status and automation changes made through Inbox use the same
-transactional API operation.
+read receipts and rejected updates produce none. Incoming messages and comments that
+reopen a closed or snoozed conversation produce a state event, including YouTube polling.
+New-message activity on an already open conversation produces no state event. Old or
+duplicate messages that do not change the state produce none either. Status and
+automation changes made through Inbox use the same transactional state writer.
 
 State changes on the same conversation are serialized when recorded. Webhook delivery
 is asynchronous; receivers must tolerate duplicates and requests arriving out of order.

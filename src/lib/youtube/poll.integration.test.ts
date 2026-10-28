@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import commentThreads from "../../../tests/fixtures/inbox/youtube-comment-threads.json";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -79,6 +80,29 @@ function mockFetch() {
 }
 
 describe("pollYouTubeChannel (real Postgres)", () => {
+  it.each(["closed", "snoozed"] as const)("emits a %s-to-open transition only for a newly ingested comment", async (status) => {
+    if (!TEST_DB) return;
+    const [contact] = await db.insert(s.contacts).values({ workspace_id: WS }).returning();
+    await db.insert(s.contactChannels).values({ contact_id: contact.id, channel_id: CH, platform_sender_id: "UCexampleauthor" });
+    const [conversation] = await db.insert(s.conversations).values({ workspace_id: WS, channel_id: CH, contact_id: contact.id, platform: "youtube", thread_type: "comment", thread_ref: "example-video", status }).returning();
+    await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+    const fetchImpl = vi.fn(async () => Response.json(commentThreads.response)) as typeof fetch;
+    expect((await poll.pollYouTubeChannel(CH, { fetchImpl })).ingested).toBe(1);
+    const events = () => db.select().from(s.events).where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "conversation.updated")));
+    const emitted = await events();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].payload).toMatchObject({ workspaceId: WS, conversationId: conversation.id, contactId: contact.id, channelId: CH,
+      previous: { status, is_automation_paused: false, assigned_to: null }, current: { status: "open", is_automation_paused: false, assigned_to: null } });
+    await poll.pollYouTubeChannel(CH, { fetchImpl });
+    expect(await events()).toHaveLength(1);
+    // A different comment in the same already open thread is activity, with no state transition.
+    const next = structuredClone(commentThreads.response);
+    next.items[0].snippet.topLevelComment.id = "example-comment-next";
+    next.items[0].snippet.topLevelComment.snippet.publishedAt = "2026-10-28T18:44:03.971Z";
+    await poll.pollYouTubeChannel(CH, { fetchImpl: vi.fn(async () => Response.json(next)) as typeof fetch });
+    expect(await events()).toHaveLength(1);
+  });
+
   it("ingests new comments into per-video comment threads + logs + persists the cursor", async () => {
     if (!TEST_DB) return;
     mockFetch();

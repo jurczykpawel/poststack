@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { contacts, contactChannels, conversations } from "@/db/schema";
 import type { Platform } from "@/db/schema";
 import { emitEvent } from "@/lib/events";
+import { updateConversation } from "@/lib/conversations/update";
 
 /**
  * Which thread an inbound event belongs to. `dm` = one ongoing thread per contact (ref ''); `comment`
@@ -153,7 +154,6 @@ export async function resolveContactConversation(
   const mutateActivity = opts.mutateActivity ?? true;
   const reopenClosed = opts.reopenClosed ?? true;
   const thread = opts.thread ?? DM_THREAD;
-  const threadRef = refOf(thread);
 
   // Find-or-create the contact via the shared, race-hardened helper.
   const { contactId, created } = await resolveContactId(channel, senderId, {
@@ -166,30 +166,14 @@ export async function resolveContactConversation(
     await db.update(contacts).set({ last_interaction_at: new Date() }).where(eq(contacts.id, contactId));
   }
 
-  if (mutateActivity) {
-    const [conversation] = await db
-      .insert(conversations)
-      .values({
-        workspace_id: channel.workspace_id,
-        channel_id: channel.id,
-        contact_id: contactId,
-        platform: channel.platform,
-        thread_type: thread.type,
-        thread_ref: threadRef,
-        last_message_at: new Date(),
-        last_message_preview: preview,
-      })
-      .onConflictDoUpdate({
-        target: [conversations.channel_id, conversations.contact_id, conversations.thread_type, conversations.thread_ref],
-        // A low-signal event (reaction) bumps activity but leaves a deliberately closed/snoozed
-        // conversation as-is — only higher-signal events reopen it.
-        set: reopenClosed ? { status: "open", last_message_at: new Date() } : { last_message_at: new Date() },
-      })
-      .returning({ id: conversations.id, is_automation_paused: conversations.is_automation_paused });
-    return { contactId, conversationId: conversation.id, isAutomationPaused: conversation.is_automation_paused };
-  }
-
   // Ensure the conversation exists WITHOUT touching activity/status.
   const conversation = await ensureConversation(channel, contactId, { last_message_at: new Date(), last_message_preview: preview }, thread);
+  if (mutateActivity) {
+    const change = await db.transaction((tx) => updateConversation(tx, channel.workspace_id, conversation.id, {
+      last_message_at: new Date(),
+      ...(reopenClosed ? { status: "open" as const } : {}),
+    }));
+    if (change) return { contactId, conversationId: change.after.id, isAutomationPaused: change.after.is_automation_paused };
+  }
   return { contactId, conversationId: conversation.id, isAutomationPaused: conversation.is_automation_paused };
 }
