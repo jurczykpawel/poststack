@@ -103,6 +103,25 @@ describe("safeFetch", () => {
 });
 
 describe("pinnedConnect hardening (default connector, local server)", () => {
+  it.each([204, 205])("accepts an empty HTTP %i response in buffered and streaming modes", async (status) => {
+    await withServer((_req, res) => res.writeHead(status).end(), async (url) => {
+      for (const stream of [false, true]) {
+        const res = await safeFetch(url, { method: "POST", body: "{}" }, { allow: LOOPBACK, stream, deadlineMs: 100 });
+        expect(res.status).toBe(status);
+        expect(res.body).toBeNull();
+        expect(await res.text()).toBe("");
+      }
+    });
+  });
+
+  it("returns a null body for a HEAD response", async () => {
+    await withServer((_req, res) => res.writeHead(200).end(), async (url) => {
+      const res = await safeFetch(url, { method: "HEAD" }, { allow: LOOPBACK });
+      expect(res.status).toBe(200);
+      expect(res.body).toBeNull();
+    });
+  });
+
   it("rejects an oversized response body (> MAX_RESPONSE_BYTES)", async () => {
     await withServer(
       (_req, res) => {
