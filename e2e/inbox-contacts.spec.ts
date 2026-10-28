@@ -62,6 +62,7 @@ for (const width of [1280, 390]) {
       await page.locator("#conv-filter-form").getByRole("button", { name: "All channels", exact: true }).click();
       await page.getByRole("option", { name: `Facebook · filter-${width}`, exact: true }).click();
       await expect(page.locator(`#conv-filter-form option[value="${channelId}"]`)).toHaveAttribute("selected", "");
+      await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
       await page.locator('#conv-filter-form input[name="search"]').fill(name);
       await expect(page.locator('#conv-filter-form input[name="search"]')).toHaveAttribute("value", name);
       const row = page.locator(`.conv-item[hx-get="/inbox/${conversationId}"]`);
