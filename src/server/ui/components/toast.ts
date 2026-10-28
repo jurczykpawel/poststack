@@ -161,6 +161,24 @@ export function uiBehaviorScript(): Html {
 
   // Body-scoped HTMX listeners — attached only once the body exists.
   function wireBody() {
+    var shell = document.querySelector('.app[sse-connect]');
+    var realtimePaused = false;
+    function pauseRealtime() {
+      if (!shell || realtimePaused) return;
+      realtimePaused = true;
+      // Reuse the SSE extension's cleanup before the browser tears down its connection.
+      htmx.trigger(shell, 'htmx:beforeCleanupElement');
+    }
+    window.addEventListener('pageswap', pauseRealtime);
+    window.addEventListener('pagehide', pauseRealtime);
+    window.addEventListener('pageshow', function (e) {
+      if (!shell || !realtimePaused || !e.persisted) return;
+      realtimePaused = false;
+      htmx.trigger(shell, 'htmx:afterProcessNode');
+      shell.querySelectorAll('[hx-trigger], [sse-swap]').forEach(function (el) {
+        htmx.trigger(el, 'htmx:afterProcessNode');
+      });
+    });
     // HTMX → toast: fire from a server HX-Trigger {"ps:toast":{tone,msg}}.
     document.body.addEventListener('ps:toast', function (e) {
       var d = (e && e.detail) || {};

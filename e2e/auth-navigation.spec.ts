@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Route } from "@playwright/test";
 import { Client } from "pg";
 import { mintProToken } from "./fixtures/keys";
 import { E2E_DATABASE_URL } from "./env";
@@ -142,6 +142,144 @@ for (const width of [1440, 390]) {
     expect(errors).toEqual([]);
   });
 }
+
+test("sidebar navigation, Inbox updates and resizing before repeated sign out", async ({ page, context, browser }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  const consoleErrors: string[] = [];
+  const lifecycle: string[] = [];
+  const consoleCalls: unknown[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+    if (message.text().startsWith("session-lifecycle:")) lifecycle.push(message.text());
+  });
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Runtime.enable");
+  cdp.on("Runtime.consoleAPICalled", (event) => {
+    if (event.type === "error") consoleCalls.push(event);
+  });
+  await page.addInitScript(() => {
+    const NativeEventSource = window.EventSource;
+    window.EventSource = class extends NativeEventSource {
+      constructor(url: string | URL, options?: EventSourceInit) {
+        super(url, options);
+        this.addEventListener("open", () => console.log("session-lifecycle:sseOpen:" + location.pathname));
+      }
+      close() {
+        console.log("session-lifecycle:sseClose:" + location.pathname);
+        super.close();
+      }
+    };
+    for (const name of ["pageswap", "pagereveal"]) window.addEventListener(name, (event) => {
+      const transition = (event as Event & { viewTransition?: { ready: Promise<void> } }).viewTransition;
+      console.log("session-lifecycle:" + JSON.stringify({ name, path: location.pathname, transition: !!transition }));
+    });
+    document.addEventListener("htmx:sseError", () => console.log("session-lifecycle:sseError:" + location.pathname));
+  });
+  async function login() {
+    await page.goto("/login");
+    await page.locator('input[name="email"]').fill("admin@e2e.test");
+    await page.locator('input[name="password"]').fill("e2e-password-123");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL(/\/inbox$/);
+  }
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  let contactId: string | undefined;
+  try {
+    const { rows: [channel] } = await client.query<{ id: string; workspace_id: string }>(
+      "SELECT id, workspace_id FROM channels WHERE platform_id = 'fb_e2e_1'",
+    );
+    const { rows: [contact] } = await client.query<{ id: string }>(
+      "INSERT INTO contacts (workspace_id, display_name) VALUES ($1, 'Session navigation') RETURNING id", [channel.workspace_id],
+    );
+    contactId = contact.id;
+    const { rows: [conversation] } = await client.query<{ id: string }>(
+      "INSERT INTO conversations (workspace_id, channel_id, contact_id, platform, last_message_at) VALUES ($1, $2, $3, 'facebook', now()) RETURNING id",
+      [channel.workspace_id, channel.id, contactId],
+    );
+    await client.query("INSERT INTO messages (conversation_id, direction, text) VALUES ($1, 'inbound', 'Session navigation message')", [conversation.id]);
+    await login();
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      for (const path of ["/overview", "/channels", "/inbox"]) {
+        await page.locator(`.sidebar a[href="${path}"]`).click();
+        await expect(page).toHaveURL(new RegExp(path + "$"));
+      }
+      const thread = page.locator(`.conv-item[hx-get="/inbox/${conversation.id}"]`);
+      await thread.click();
+      await expect(page.locator("#thread-msgs")).toContainText("Session navigation message");
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.setViewportSize({ width: 1440, height: 900 });
+      if (cycle === 1) {
+        await page.locator('.sidebar a[href="/settings"]').click();
+        await page.getByRole("button", { name: "Data", exact: true }).click();
+        await expect(page).toHaveURL(/\/settings#data$/);
+      }
+      await page.getByRole("button", { name: "Sign out", exact: true }).click();
+      await expect(page).toHaveURL(/\/login$/);
+      await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+      await login();
+    }
+    await page.screenshot({ path: testInfo.outputPath("session-navigation.png"), animations: "disabled" });
+    expect(errors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+    expect(lifecycle.some((entry) => entry.startsWith("session-lifecycle:sseClose:"))).toBe(true);
+  } finally {
+    writeFileSync(testInfo.outputPath("session-navigation.json"), JSON.stringify({ browser: browser.version(), errors, consoleErrors, lifecycle, consoleCalls }, null, 2));
+    if (contactId) await client.query("DELETE FROM contacts WHERE id = $1", [contactId]);
+    await client.end();
+  }
+});
+
+test("document teardown closes a connecting SSE stream before a disconnect", async ({ page, context, browser }, testInfo) => {
+  const consoleErrors: string[] = [];
+  const errors: string[] = [];
+  const consoleCalls: unknown[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Runtime.enable");
+  cdp.on("Runtime.consoleAPICalled", (event) => {
+    if (event.type === "error") consoleCalls.push(event);
+  });
+  async function streamState() {
+    return page.locator(".app").evaluate((el) => {
+      const data = (el as HTMLElement & { "htmx-internal-data"?: { sseEventSource?: EventSource } })["htmx-internal-data"];
+      return data?.sseEventSource?.readyState ?? -1;
+    });
+  }
+  let closedBeforeDisconnect = false;
+  let pending: Route | undefined;
+  await page.route("**/events/stream", (route) => { pending = route; });
+  try {
+    await page.goto("/inbox");
+    await expect.poll(() => !!pending).toBe(true);
+    await expect.poll(streamState).toBe(0);
+    // Hold the document in place and reset its pending stream after the teardown event.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+    closedBeforeDisconnect = await streamState() === 2;
+    const disconnect = closedBeforeDisconnect ? null : page.waitForEvent("console", {
+      predicate: (message) => message.type() === "error" && message.text() === "Event",
+    });
+    await pending!.abort("connectionreset");
+    if (disconnect) await disconnect;
+    await page.unroute("**/events/stream");
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await expect.poll(streamState).toBe(1);
+    await page.locator('.sidebar a[href="/settings"]').click();
+    await expect(page).toHaveURL(/\/settings$/);
+    expect(errors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+    expect(closedBeforeDisconnect).toBe(true);
+  } finally {
+    await page.unroute("**/events/stream");
+    writeFileSync(testInfo.outputPath("sse-disconnect.json"), JSON.stringify({ browser: browser.version(), closedBeforeDisconnect, errors, consoleErrors, consoleCalls }, null, 2));
+  }
+});
 
 test.describe("publishing guidance", () => {
   test.use({ timezoneId: "Europe/Warsaw" });

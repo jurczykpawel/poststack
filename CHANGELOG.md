@@ -26,6 +26,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The `BRAND_NAME` environment variable alone no longer renames the instance; rebranding is now the Business-tier instance branding setting (Settings → Integrations → Instance branding).
 
 ### Fixed
+- Dashboard navigation and sign-out close the realtime stream before leaving the page and reconnect live updates when returning from the browser cache.
 - Instance branding displays field validation errors while preserving entered values.
 - Integration setting help wraps long provider examples on narrow screens.
 - White-label Privacy Policy section numbers remain consecutive when website analytics sections are omitted.

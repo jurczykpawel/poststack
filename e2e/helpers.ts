@@ -42,7 +42,7 @@ export async function assertTier(request: APIRequestContext, tier: string | null
 //    navigation (e.g. a plain-POST form 303-redirect) tears down the page mid-stream. That's a
 //    browser navigation artifact, not a broken SSE — verified by the 40+ htmx-only route loads that
 //    open the SAME stream and record ZERO errors (so SSE genuinely connects on a normal load).
-const IGNORED_TEXT = [/favicon/i, /^Event$/];
+const IGNORED_TEXT = [/favicon/i];
 const IGNORED_URL = [/favicon/i, /\/events\/stream/];
 
 export function watchConsole(page: Page): { errors: string[] } {
