@@ -2142,7 +2142,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       return c.html(html`Stored instance branding cleared.`);
     }
     const parsed = brandingSchema.safeParse(input);
-    if (!parsed.success) return c.json({ data: null, error: { code: "invalid_request", message: "Check the brand fields.", details: parsed.error.issues } }, 400);
+    if (!parsed.success) {
+      if (c.req.header("hx-request") === "true") {
+        return c.html(html`<span class="error" role="alert">Check the brand fields.
+          ${parsed.error.issues.map((issue) => html`<span style="display:block">${issue.path.join(".") || "Branding"}: ${issue.message}</span>`)}</span>`, 400);
+      }
+      return c.json({ data: null, error: { code: "invalid_request", message: "Check the brand fields.", details: parsed.error.issues } }, 400);
+    }
     await setConfig("INSTANCE_BRANDING", JSON.stringify(parsed.data));
     c.header("HX-Refresh", "true");
     return c.html(html`Instance branding saved.`);

@@ -1216,7 +1216,7 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .cred-label { font-weight: 600; color: var(--text-1); font-size: 13px; }
 .cred-meta { color: var(--text-3); font-size: 11px; margin-top: 3px; }
 .cred-meta code { font-size: 11px; }
-.cred-help { color: var(--text-2); font-size: 12px; margin-top: 6px; line-height: 1.45; }
+.cred-help { color: var(--text-2); font-size: 12px; margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
 .cred-form { display: flex; gap: 8px; margin-top: 11px; align-items: center; }
 .cred-form form { display: contents; } /* let the Save + Clear forms' controls share one flex row */
 .cred-form .input { flex: 1; min-width: 0; }

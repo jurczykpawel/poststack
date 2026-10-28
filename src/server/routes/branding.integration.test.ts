@@ -127,6 +127,24 @@ describe("instance branding settings", () => {
     const response = await app.request("/settings/credentials", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ key: "INSTANCE_BRANDING", value: JSON.stringify(branding) }) });
     expect(response.status).toBe(400);
   });
+  it.each([
+    [{ name: "X".repeat(81) }, "name", "80"],
+    [{ publicUrl: "https://orchard.example/path" }, "publicUrl", "origin without a path"],
+  ])("renders field validation for htmx: %j", async (patch, field, reason) => {
+    await activate();
+    const response = await app.request("/settings/branding", {
+      method: "POST", headers: { cookie, "content-type": "application/json", "HX-Request": "true" },
+      body: JSON.stringify({ ...branding, ...patch }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    const body = await response.text();
+    expect(body).toContain('role="alert"');
+    expect(body).toContain(field);
+    expect(body).toContain(reason);
+    expect(response.headers.get("HX-Refresh")).toBeNull();
+    expect(await db.query.instanceSettings.findFirst({ where: eq(s.instanceSettings.key, "INSTANCE_BRANDING") })).toBeUndefined();
+  });
   it("stores one configuration and rebrands public and dashboard pages", async () => {
     await activate();
     expect((await save()).status).toBe(200);

@@ -18,6 +18,46 @@ test.describe.serial("instance branding", () => {
     expect((await response.json()).error.code).toBe("pro_required");
   });
 
+  test("branding validation stays visible and settings fit a phone", async ({ page }, testInfo) => {
+    await setPro(page.request);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoOk(page, "/settings#integrations");
+    const name = page.getByLabel("Product name");
+    const origin = page.getByLabel("Public origin (HTTPS)");
+    await name.fill("X".repeat(81));
+    let response = page.waitForResponse((r) => r.url().endsWith("/settings/branding") && r.request().method() === "POST");
+    await page.getByRole("button", { name: "Save instance branding", exact: true }).click();
+    expect((await response).status()).toBe(400);
+    await expect(page.locator("#branding-msg")).toContainText("name");
+    await expect(page.locator("#branding-msg")).toContainText("80");
+    await expect(name).toHaveValue("X".repeat(81));
+    await name.fill("Orchard");
+    await origin.fill("https://orchard.example/path");
+    response = page.waitForResponse((r) => r.url().endsWith("/settings/branding") && r.request().method() === "POST");
+    await page.getByRole("button", { name: "Save instance branding", exact: true }).click();
+    expect((await response).status()).toBe(400);
+    await expect(page.locator("#branding-msg")).toContainText("publicUrl");
+    await expect(page.locator("#branding-msg")).toContainText("origin without a path");
+    await expect(origin).toHaveValue("https://orchard.example/path");
+    await expect(name).toHaveValue("Orchard");
+    await page.locator("#branding-msg").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("branding-validation.png") });
+    const help = page.locator(".cred-row").filter({ hasText: "AI_FALLBACKS" }).locator(".cred-help");
+    await help.scrollIntoViewIfNeeded();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(await help.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("fallback-help-phone.png") });
+  });
+
+  test("integration help fits a phone", async ({ page }) => {
+    await gotoOk(page, "/settings#integrations");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const help = page.locator(".cred-row").filter({ hasText: "AI_FALLBACKS" }).locator(".cred-help");
+    await expect(help).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(await help.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  });
+
   for (const width of [1440, 390]) {
     test(`operator saves and renders the instance at ${width}px`, async ({ page, browser }, testInfo) => {
       await setPro(page.request);
@@ -54,6 +94,10 @@ test.describe.serial("instance branding", () => {
           expect(response?.status()).toBe(200);
           expect(new URL(publicPage.url()).pathname).toBe(path);
           if (path === "/") await expect(publicPage.locator("main h1")).toHaveText("Orchard Social");
+          if (path === "/privacy") {
+            const sections = await publicPage.locator("main h2").allTextContents();
+            expect(sections.filter((text) => /^\d+\./.test(text)).map((text) => Number(text.split(".")[0]))).toEqual([1, 2, 3, 4, 5, 6, 7]);
+          }
           await expect(publicPage).toHaveTitle(/Orchard Social/);
           expect(await publicPage.content()).not.toContain("PostStack");
           await expect(publicPage.locator('link[rel="icon"]')).toHaveAttribute("href", "/instance-favicon.svg");

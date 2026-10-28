@@ -28,7 +28,7 @@ export function brandingForm() {
     ["contactEmail", "Contact email", "email"], ["publicUrl", "Public origin (HTTPS)", "url"],
     ["footer", "Footer text", "text"],
   ] as const;
-  return html`<form hx-post="/settings/branding" hx-ext="json-enc" hx-target="#branding-msg" class="stack" style="max-width:36rem">
+  return html`<form hx-post="/settings/branding" hx-ext="json-enc" hx-target="#branding-msg" hx-on::before-swap="if(event.detail.xhr.status === 400) { event.detail.shouldSwap = true; event.detail.isError = false; }" class="stack" style="max-width:36rem">
     ${fields.map(([key, label, type]) => html`<label class="fld"><span>${label}</span><input name="${key}" type="${type}" value="${key === "faviconUrl" && !isWhiteLabel() ? "" : brand[key]}" ${key === "name" || key === "contactEmail" || key === "publicUrl" ? raw("required") : ""} /></label>`)}
     <label class="fld"><span>Default theme</span><select name="theme"><option value="dark" ${brand.theme === "dark" ? raw("selected") : ""}>Dark</option><option value="light" ${brand.theme === "light" ? raw("selected") : ""}>Light</option></select></label>
     <button class="btn btn-primary" type="submit">Save instance branding</button><p id="branding-msg" role="status"></p>

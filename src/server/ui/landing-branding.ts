@@ -20,7 +20,9 @@ export async function brandedLanding(source: string, rel: string): Promise<strin
     const email = await escapeText(brand.contactEmail);
     const publicUrl = await escapeText(brand.publicUrl);
     const privacy = rel.startsWith("privacy") ? main.replace(/<h2>2\. Cookies[\s\S]*?(?=<h2>4\.)/, '<h2>2. Website cookies</h2><p>The application uses the session cookie to keep you signed in and ps_theme to remember your theme. This public website does not load analytics or marketing trackers.</p>') : main;
+    let section = 0;
     const body = privacy
+      .replace(/(<h2\b[^>]*>)\d+\./g, (_match, tag: string) => `${tag}${++section}.`)
       .replaceAll("Paweł Jurczyk (TechSkills Academy), Poland", () => name + " instance operator")
       .replaceAll("TechSkills Academy", () => name + " instance operator")
       .replaceAll("https://poststack.techskills.academy", () => publicUrl)
