@@ -1,9 +1,21 @@
 import { writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
+import { Client } from "pg";
 import { mintProToken } from "./fixtures/keys";
+import { E2E_DATABASE_URL } from "./env";
 
 // Opt into installed Chrome for native-navigation repros; keep the default Chromium CI setup.
 test.use({ channel: process.env.E2E_BROWSER_CHANNEL });
+
+// These specs sign in repeatedly from one IP; clear the login throttle around them so later specs
+// (captcha, auth) keep their own budget of 10 attempts per 15 minutes.
+async function clearLoginThrottle() {
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  try { await client.query("DELETE FROM rate_limit_counters WHERE key LIKE 'rl:login:%'"); } finally { await client.end(); }
+}
+test.beforeEach(clearLoginThrottle);
+test.afterEach(clearLoginThrottle);
 
 test.describe("full document auth redirects", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
