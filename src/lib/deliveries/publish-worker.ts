@@ -8,7 +8,7 @@ import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
 import { can } from "@/lib/channels/capabilities";
 import { provisionAutoReply } from "@/lib/autoreply/provision";
 import { hasFeature } from "@/lib/license/gate";
-import { TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
+import { ConfirmationRequiredError, TokenInvalidError, PermanentError, TransientError, RateLimitedError } from "@/lib/providers/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { tryConsume } from "@/lib/channels/rate-limit";
 import { addJob, addJobTx } from "@/lib/queue/client";
@@ -19,27 +19,32 @@ import type { PublishRequest } from "@/lib/providers/types";
 import { resolveMediaDetails } from "./resolve-media";
 import { redactSecrets } from "@/lib/redact";
 import { disclosureForPlatform } from "@/lib/ai-disclosure/mapping";
+import { dispatchAlert } from "@/lib/notifications/alert";
+import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
+import { getConfig } from "@/lib/settings/config";
 import type { AiDisclosureLevel } from "@/db/schema";
 
 type DeliveryRow = typeof deliveries.$inferSelect;
 
 async function setStatus(
   id: string,
+  workspaceId: string,
   status: DeliveryRow["status"],
   extra: Partial<DeliveryRow> = {},
 ): Promise<void> {
   // PSA13: never persist a token/secret echoed back in a provider error string.
   if (typeof extra.last_error === "string") extra = { ...extra, last_error: redactSecrets(extra.last_error) };
-  await db.update(deliveries).set({ status, updated_at: new Date(), ...extra }).where(eq(deliveries.id, id));
+  await db.update(deliveries).set({ status, updated_at: new Date(), ...extra }).where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId)));
 }
 
 /** Reflect a delivery's terminal outcome onto the editorial post linked to it (if any). */
 async function reflectEditorial(
   deliveryId: string,
+  workspaceId: string,
   status: string,
   extra: Partial<typeof posts.$inferInsert> = {},
 ): Promise<void> {
-  await db.update(posts).set({ status, updated_at: new Date(), ...extra }).where(eq(posts.delivery_id, deliveryId));
+  await db.update(posts).set({ status, updated_at: new Date(), ...extra }).where(and(eq(posts.delivery_id, deliveryId), eq(posts.workspace_id, workspaceId)));
 }
 
 /**
@@ -58,11 +63,12 @@ async function reflectEditorial(
  */
 async function buildAiDisclosureSent(
   deliveryId: string,
+  workspaceId: string,
   request: PublishRequest,
 ): Promise<Record<string, unknown> | undefined> {
   try {
     const editorial = await db.query.posts.findFirst({
-      where: eq(posts.delivery_id, deliveryId),
+      where: and(eq(posts.delivery_id, deliveryId), eq(posts.workspace_id, workspaceId)),
       columns: { platform: true },
     });
     if (!editorial) return undefined; // no linked editorial post — nothing to record
@@ -120,16 +126,16 @@ async function emitPostEvent(
 /** Terminal failure: mark failed + reflect editorial + emit the event. */
 async function failDelivery(deliveryId: string, workspaceId: string, message: string): Promise<void> {
   message = redactSecrets(message); // PSA13
-  await setStatus(deliveryId, "failed", { last_error: message });
-  await reflectEditorial(deliveryId, "failed");
+  await setStatus(deliveryId, workspaceId, "failed", { last_error: message });
+  await reflectEditorial(deliveryId, workspaceId, "failed");
   await emitPostEvent(workspaceId, "post.failed", deliveryId, { error: message });
 }
 
 /** Land a delivery in `unknown` (indeterminate), but OBSERVABLE (PSA3): event + editorial needs_attention. */
 async function markUnknown(deliveryId: string, workspaceId: string, reason: string): Promise<void> {
   reason = redactSecrets(reason); // PSA13
-  await setStatus(deliveryId, "unknown");
-  await reflectEditorial(deliveryId, "needs_attention");
+  await setStatus(deliveryId, workspaceId, "unknown");
+  await reflectEditorial(deliveryId, workspaceId, "needs_attention");
   await emitPostEvent(workspaceId, "post.unknown", deliveryId, { reason });
 }
 
@@ -145,6 +151,12 @@ export async function stuckSendingSweep(): Promise<number> {
   });
   for (const d of stuck) {
     await markUnknown(d.id, d.workspace_id, "stuck in sending past the recovery window");
+  }
+  const processing = await db.query.deliveries.findMany({
+    where: and(eq(deliveries.status, "processing"), lt(deliveries.updated_at, new Date(Date.now() - 5 * 60_000))),
+  });
+  for (const d of processing) {
+    await addJobTx(db, "publish", { postId: d.id }, { jobKey: `publish:${d.id}` });
   }
   return stuck.length;
 }
@@ -171,7 +183,7 @@ async function withinDailyCap(channelId: string, perDay: number): Promise<boolea
     .where(
       and(
         eq(deliveries.channel_id, channelId),
-        inArray(deliveries.status, ["sent", "sending"]),
+        inArray(deliveries.status, ["sent", "sending", "processing"]),
         gte(deliveries.attempt_started_at, startOfDay),
       ),
     );
@@ -227,29 +239,69 @@ async function enqueueAutoStory(
   );
 }
 
-/**
- * Crash-safe publish (AUD27). Marks `sending` in its own commit before the external call; a
- * definitive failure is classified, a crash leaves `sending` for the retry to reconcile.
- */
+async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string) {
+  const request = post.payload as PublishRequest;
+  const aiDisclosureSent = await buildAiDisclosureSent(post.id, post.workspace_id, request);
+  const changed = await db.transaction(async (tx) => {
+    await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id))).orderBy(posts.id).for("update");
+    const rows = await tx.update(deliveries).set({ status: "sent", provider_handle: providerHandle, last_error: null, updated_at: new Date() })
+      .where(and(eq(deliveries.id, post.id), eq(deliveries.workspace_id, post.workspace_id), inArray(deliveries.status, ["sending", "processing"]))).returning({ id: deliveries.id });
+    if (!rows.length) return false;
+    await tx.update(posts).set({ status: "published", published_at: new Date(), platform_post_id: providerHandle, updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
+      .where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id)));
+    return true;
+  });
+  if (!changed) return;
+  await emitPostEvent(post.workspace_id, "post.published", post.id, { providerHandle, platform: channel.platform });
+  await provisionAutoReply(post.id, post.workspace_id).catch(() => {});
+  await enqueueFirstComment(channel, request, providerHandle, post.id).catch(() => {});
+  await enqueueAutoStory(channel, request, post.id).catch(() => {});
+}
+
 export async function processPublish(payload: { postId: string }, helpers: JobHelpers): Promise<void> {
   const { postId } = payload;
   const post = await db.query.deliveries.findFirst({ where: eq(deliveries.id, postId) });
   if (!post) return; // gone
+  if (post.tiktok_confirmation === "required") return;
   if (["sent", "failed", "canceled"].includes(post.status)) return; // terminal
   const ws = post.workspace_id;
 
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.id, post.channel_id), isNull(channels.deleted_at)),
+    where: and(eq(channels.id, post.channel_id), eq(channels.workspace_id, ws), isNull(channels.deleted_at)),
   });
   if (!channel || !can(channel, "publish")) {
-    await setStatus(postId, "failed", { last_error: "channel or provider unavailable" });
+    await setStatus(postId, ws, "failed", { last_error: "channel or provider unavailable" });
+    return;
+  }
+
+  // A persisted publish handle is polled only; never initialize another upload.
+  if (post.status === "processing") {
+    const provider = getProviderForPlatform(channel.platform);
+    try {
+      if (channel.token_expires_at && channel.token_expires_at.getTime() < Date.now() + 300_000) {
+        await processTokenRefresh({ channelId: channel.id }, helpers);
+        const fresh = await db.query.channels.findFirst({ where: and(eq(channels.id, channel.id), eq(channels.workspace_id, ws)) });
+        if (fresh) channel.token_encrypted = fresh.token_encrypted;
+      }
+      if (!post.provider_handle || !provider.publishStatus) throw new Error("Publish status unavailable");
+      const outcome = await provider.publishStatus(toTokenSet(decryptTokens(channel.token_encrypted)), { providerHandle: post.provider_handle });
+      if (outcome.state === "published") { await completePublish(post, channel, post.provider_handle); return; }
+      if (outcome.state === "failed") { await failDelivery(postId, ws, outcome.error || "TikTok processing failed"); return; }
+      await db.update(deliveries).set({ last_error: null, updated_at: new Date() })
+        .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "processing")));
+    } catch (err) {
+      await db.update(deliveries).set({ last_error: redactSecrets(err instanceof Error ? err.message : String(err)), updated_at: new Date() })
+        .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "processing")));
+      if (err instanceof TokenInvalidError) await markChannelNeedsReauth(channel.id, err.message).catch(() => {});
+    }
+    await addJobTx(db, "publish", { postId }, { runAt: new Date(Date.now() + 30_000), jobKey: `publish:${postId}` });
     return;
   }
 
   // Channel down (needs_reauth / paused / disabled) -> park as held (AUD28).
   if (channel.status !== "active") {
-    await setStatus(postId, "held");
-    await reflectEditorial(postId, "held"); // PSA3
+    await setStatus(postId, ws, "held");
+    await reflectEditorial(postId, ws, "held"); // PSA3
     return;
   }
 
@@ -270,11 +322,11 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   ) {
     await processTokenRefresh({ channelId: channel.id }, helpers);
     const fresh = await db.query.channels.findFirst({
-      where: and(eq(channels.id, channel.id), isNull(channels.deleted_at)),
+      where: and(eq(channels.id, channel.id), eq(channels.workspace_id, ws), isNull(channels.deleted_at)),
     });
     if (!fresh || fresh.status !== "active") {
-      await setStatus(postId, "held");
-      await reflectEditorial(postId, "held"); // PSA3
+      await setStatus(postId, ws, "held");
+      await reflectEditorial(postId, ws, "held"); // PSA3
       return;
     }
     channel.token_encrypted = fresh.token_encrypted; // use the refreshed token below
@@ -287,11 +339,11 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
         providerHandle: post.provider_handle ?? "",
       });
       if (outcome === "sent") {
-        await setStatus(postId, "sent");
+        await setStatus(postId, ws, "sent");
         return;
       }
       if (outcome === "not_sent") {
-        await setStatus(postId, "scheduled"); // safe to re-send below
+        await setStatus(postId, ws, "scheduled"); // safe to re-send below
       } else {
         await markUnknown(postId, ws, "reconcile returned unknown"); // PSA3
         return;
@@ -317,12 +369,12 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "scheduled"), lte(deliveries.scheduled_at, sql`now()`)))
     .returning({ id: deliveries.id });
   if (claimed.length === 0) return; // lost the race / not schedulable (PSA14: consumed no token)
-  await reflectEditorial(postId, "publishing"); // mirror in-flight onto editorial
+  await reflectEditorial(postId, ws, "publishing"); // mirror in-flight onto editorial
 
   // Proactive per-minute rate limit — consumed only now THIS worker owns the send (PSA14).
   const cap = rl.perMinute ?? 30;
   if (!(await tryConsume(channel.id, { capacity: cap, refillPerMinute: cap }))) {
-    await setStatus(postId, "scheduled");
+    await setStatus(postId, ws, "scheduled");
     await deferPublish(postId, post.attempts);
     return;
   }
@@ -340,11 +392,20 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       await failDelivery(postId, ws, err.message);
       return;
     }
-    await setStatus(postId, "scheduled", { last_error: err instanceof Error ? err.message : String(err) });
+    await setStatus(postId, ws, "scheduled", { last_error: err instanceof Error ? err.message : String(err) });
     throw err;
   }
 
   try {
+    if (channel.platform === "tiktok" && post.tiktok_confirmation === "scheduled") {
+      let confirmAtSend: boolean;
+      try { confirmAtSend = (await getConfig("TIKTOK_CONFIRM_AT_SEND", { fresh: true })) === "true"; }
+      catch { throw new TransientError("TikTok confirmation settings unavailable. Try again later.", "pre_commit"); }
+      if (confirmAtSend) {
+        await getTikTokCreatorInfo(ws, channel.id, { refresh: true });
+        throw new ConfirmationRequiredError("TikTok requires confirmation at send time. Review current settings and publish now.");
+      }
+    }
     const handle = await provider.publish({
       tokens: toTokenSet(decryptTokens(channel.token_encrypted)),
       accountId: channel.platform_id,
@@ -353,30 +414,28 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       mediaDurationsSec,
       channelMetadata,
     });
-    await setStatus(postId, "sent", { provider_handle: handle.providerHandle, last_error: null });
-    // Capture the platform-assigned post id (the same provider handle used for first-comment / story)
-    // onto the editorial post, so a later comment on it can resolve back to this content's title.
-    const aiDisclosureSent = await buildAiDisclosureSent(postId, request); // AIDISC1 audit trail (best-effort)
-    await reflectEditorial(postId, "published", {
-      published_at: new Date(),
-      platform_post_id: handle.providerHandle,
-      ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}),
-    });
-    await emitPostEvent(ws, "post.published", postId, { providerHandle: handle.providerHandle, platform: channel.platform });
-    // REPLYSTACK1 native (UNIFY P2.2): if the editorial post carries an auto-reply, provision the
-    // comment→DM rule scoped to the just-published media id — in-process, idempotent, best-effort.
-    await provisionAutoReply(postId, ws).catch(() => {});
-    // FIRSTCOMMENT1: auto-post the configured first comment under the new post — separate best-effort
-    // delivery so a comment failure never touches the published post.
-    await enqueueFirstComment(channel, request, handle.providerHandle, postId).catch(() => {});
-    // STORY1: optionally auto-publish a generated Story about the new post — separate best-effort
-    // delivery so a Story failure never touches the published post.
-    await enqueueAutoStory(channel, request, postId).catch(() => {});
+    if (handle.processing) {
+      await db.transaction(async (tx) => {
+        await tx.update(deliveries).set({ status: "processing", provider_handle: handle.providerHandle, last_error: null, updated_at: new Date() })
+          .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws)));
+        await addJobTx(tx, "publish", { postId }, { runAt: new Date(Date.now() + 30_000), jobKey: `publish:${postId}` });
+      });
+      return;
+    }
+    await completePublish(post, channel, handle.providerHandle);
   } catch (err) {
+    if (err instanceof ConfirmationRequiredError) {
+      const reason = redactSecrets(err.message);
+      await setStatus(postId, ws, "held", { tiktok_confirmation: "required", last_error: reason });
+      await reflectEditorial(postId, ws, "held");
+      await emitPostEvent(ws, "post.held", postId, { reason, platform: channel.platform, confirmationUrl: `/queue/${postId}/confirm` });
+      await dispatchAlert({ type: "delivery_held", workspaceId: ws, channelId: channel.id, platform: "tiktok", detail: `${reason} Review /queue/${postId}/confirm` });
+      return;
+    }
     if (err instanceof TokenInvalidError) {
       // AUD48: leave the post reattemptable FIRST; the channel flag + event are best-effort.
-      await setStatus(postId, "held", { last_error: err.message });
-      await reflectEditorial(postId, "held").catch(() => {}); // PSA3
+      await setStatus(postId, ws, "held", { last_error: err.message });
+      await reflectEditorial(postId, ws, "held").catch(() => {}); // PSA3
       await markChannelNeedsReauth(channel.id, err.message).catch(() => {});
       await emitPostEvent(ws, "post.held", postId, { reason: redactSecrets(err.message), platform: channel.platform });
       return; // reconnect + drain will retry
@@ -388,14 +447,14 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     // PSA36: a pre_commit transient/rate-limited failure provably happened before any irreversible
     // platform mutation — safe to reset to `scheduled` and fully re-run (honoring retry-after).
     if ((err instanceof TransientError || err instanceof RateLimitedError) && err.phase === "pre_commit") {
-      await setStatus(postId, "scheduled", { last_error: err.message });
+      await setStatus(postId, ws, "scheduled", { last_error: err.message });
       await deferPublish(postId, post.attempts, err instanceof RateLimitedError ? err.retryAfterSeconds : undefined);
       return;
     }
     // PSA2: anything else may have partially/fully landed on a multi-step provider. Leave `sending`
     // and rethrow — the retry is forced through the reconcile/unknown path, which never re-sends
     // without proof.
-    await setStatus(postId, "sending", { last_error: err instanceof Error ? err.message : String(err) });
+    await setStatus(postId, ws, "sending", { last_error: err instanceof Error ? err.message : String(err) });
     helpers.logger.error(redactSecrets(`publish error for post ${postId} (left sending for reconcile): ${String(err)}`));
     throw err;
   }

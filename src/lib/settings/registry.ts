@@ -31,6 +31,8 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "INSTAGRAM_APP_ID", group: "Meta (Facebook & Instagram)", label: "Instagram App ID", secret: false, help: "Meta app → Instagram API setup with Instagram login → Instagram app ID. Wymagane do odbioru/wysyłki IG DM." },
   { key: "INSTAGRAM_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "Instagram App Secret", secret: true, help: "Ten sam ekran → Instagram app secret. Webhooki wiadomości IG są nim podpisane." },
 
+  { key: "TIKTOK_CONFIRM_AT_SEND", group: "TikTok", label: "TikTok: zawsze potwierdzaj przy wysyłce", secret: false, help: "true = każdy zaplanowany post wymaga ponownego potwierdzenia w Queue. false (domyślnie) = automatyczna wysyłka po rewalidacji." },
+
   // Google / YouTube OAuth client (Google Cloud Console → Credentials → OAuth client).
   { key: "GOOGLE_CLIENT_ID", group: "Google / YouTube", label: "OAuth Client ID", secret: false, help: "Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID." },
   { key: "GOOGLE_CLIENT_SECRET", group: "Google / YouTube", label: "OAuth Client Secret", secret: true, help: "The client secret for the same Google OAuth client." },

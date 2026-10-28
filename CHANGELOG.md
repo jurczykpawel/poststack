@@ -13,6 +13,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Instance credentials and license management now require an instance operator session, configurable through `INSTANCE_ADMIN_EMAILS`.
 
 ### Added
+- TikTok send-time confirmation in Queue and an optional instance setting requiring confirmation for every scheduled TikTok delivery.
 - TikTok Compose controls with creator info, explicit privacy and consent, interaction restrictions, commercial disclosure, video preview and confirmed automatic scheduling.
 - Saved TikTok Direct Post privacy, interaction, commercial-content and cover settings; creator-specific duration checks and automatic URL ingestion from a configured verified prefix.
 - Public Terms of Service at `/terms`, shared legal-page branding and footer links, and Privacy Policy coverage of connected-account data and TikTok deletion.
@@ -21,6 +22,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Posts expose their delivery and first-comment outcome over the API.** `GET /posts` and `GET /posts/{id}` now return a `delivery` object (or `null` when the post was never sent): scheduled time, delivery status, attempts, the last error (secrets redacted), the platform post id, and `firstComment` with its own status, comment id and error. When no first comment was attempted, `firstComment.status` is `not_attempted` with a `reason` (`no_text`, `unlicensed`, `unsupported_platform`, `awaiting_publish`) — evaluated at read time, since the skip reason is not stored. Publishing with a future time now also fills the post's `scheduledDate`, which previously stayed `null`. Integrations no longer need to infer publish results from the absence of errors.
 
 ### Fixed
+- TikTok deliveries revalidate creator choices before sending, hold changed settings with a notification, and remain processing until TikTok reports the final outcome.
 - Changing a scheduled post's time now updates its delivery and publish job together. Queue and Content offer a local-time reschedule form with DST guidance; Content can move all channels together. Saved publishing settings remain unchanged.
 - TikTok Direct Post requires an explicit privacy choice and respects current creator permissions; video uploads record duration with ffprobe.
 - Contacts preserves search, brand, channel, and platform filters when pressing Enter or opening a filtered URL.

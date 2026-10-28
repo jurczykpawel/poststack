@@ -395,6 +395,7 @@ it("visually distinguishes unavailable TikTok interactions", () => {
 });
 
 interface ComposeState {
+  tiktokScheduleText(): string;
   brand: string; title: string; type: string; mediaUrl: string; baseDescription: string; baseHashtags: string;
   publishMode: string; scheduleAt: string;
   sel: Record<string, { on: boolean; override: string }>;
@@ -436,4 +437,15 @@ it("builds the confirmed TikTok payload and requires confirmation again after a 
   c.sel.tiktok.override = "Changed caption"; expect(c.canSubmit()).toBe(false);
   c.tt.consentKey = c.tiktokConsentKey(); expect(c.canSubmit()).toBe(true);
   c.tt.videoDurationSec = 61; expect(c.canSubmit()).toBe(false);
+});
+
+it("shows that scheduled TikTok will require send-time confirmation when enabled", async () => {
+  const { setConfig, clearConfig } = await import("@/lib/settings/config");
+  await setConfig("TIKTOK_CONFIRM_AT_SEND", "true");
+  try {
+    const c = await composeState();
+    c.scheduleAt = "2030-01-15T14:30";
+    expect(c.tiktokScheduleText()).toContain("wymaga potwierdzenia");
+    expect(c.tiktokScheduleText()).not.toContain("Opublikujemy automatycznie");
+  } finally { await clearConfig("TIKTOK_CONFIRM_AT_SEND"); }
 });

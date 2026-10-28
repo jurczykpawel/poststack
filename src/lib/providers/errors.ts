@@ -47,3 +47,8 @@ export class RateLimitedError extends ProviderError {
     super(message);
   }
 }
+
+/** Current creator settings require a new explicit submission. */
+export class ConfirmationRequiredError extends PermanentError {
+  constructor(message: string) { super(message); this.name = "ConfirmationRequiredError"; }
+}

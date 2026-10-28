@@ -183,3 +183,10 @@ describe("instance settings config resolver (real Postgres)", () => {
     });
   });
 });
+
+it("reads send-time confirmation changes without the settings cache", async () => {
+  await cfg.setConfig("TIKTOK_CONFIRM_AT_SEND", "false");
+  expect(await cfg.getConfig("TIKTOK_CONFIRM_AT_SEND")).toBe("false");
+  await db.execute(sql`update instance_settings set value_encrypted=${encryptString("true")} where key='TIKTOK_CONFIRM_AT_SEND'`);
+  expect(await cfg.getConfig("TIKTOK_CONFIRM_AT_SEND", { fresh: true })).toBe("true");
+});

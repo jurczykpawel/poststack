@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
-import { queryCreatorInfo } from "./tiktok-creator-info";
-import { PermanentError, RateLimitedError } from "./errors";
+import { queryCreatorInfo, type CreatorInfoResult } from "./tiktok-creator-info";
+import { PermanentError, ConfirmationRequiredError, TransientError, TokenInvalidError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { readProviderBody } from "./download";
 import { asString } from "./util";
@@ -45,6 +45,33 @@ const CAPS: FormatCapability[] = [
     mediaIngestion: "pull_url",
   },
 ];
+
+export function validateTikTokSubmission(creator: CreatorInfoResult, optionsInput: unknown, durationSec?: number | null) {
+  if (creator.status === "cannot_post_now") {
+    throw new ConfirmationRequiredError(`${creator.message} (${creator.reason})`);
+  }
+  const parsed = directOptions.safeParse(optionsInput);
+  if (!parsed.success) throw new ConfirmationRequiredError(`tiktok: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+  const options = parsed.data;
+  const info = creator.creator_info;
+  if (!info.privacy_level_options.includes(options.privacyLevel)) {
+    throw new ConfirmationRequiredError("tiktok: privacyLevel is not allowed by the creator");
+  }
+  if (options.brandContentToggle && options.privacyLevel === "SELF_ONLY") {
+    throw new ConfirmationRequiredError("tiktok: Branded content visibility cannot be set to private");
+  }
+  const duration = durationSec;
+  const creatorLimit = info.max_video_post_duration_sec;
+  if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0 || !creatorLimit) {
+    throw new ConfirmationRequiredError("tiktok: video duration or creator duration limit unavailable; register media with duration and try again");
+  }
+  const maxDuration = Math.min(CAPS[0]!.video!.maxDurationSec!, creatorLimit);
+  if (duration > maxDuration) throw new ConfirmationRequiredError(`tiktok: video duration exceeds ${maxDuration} seconds`);
+  for (const [disabled, selected] of [[info.comment_disabled, options.disableComment], [info.duet_disabled, options.disableDuet], [info.stitch_disabled, options.disableStitch]]) {
+    if (disabled && !selected) throw new ConfirmationRequiredError("TikTok interaction settings changed. Review and confirm again.");
+  }
+  return options;
+}
 
 export const tiktokProvider: Provider = {
   id: "tiktok",
@@ -93,6 +120,26 @@ export const tiktokProvider: Provider = {
     return { accountId: id };
   },
 
+  async publishStatus(tokens, handle) {
+    let res: Response;
+    let json: unknown;
+    try {
+      res = await fetch(`${API}/post/publish/status/fetch/`, {
+        method: "POST", headers: { Authorization: `Bearer ${tokens.accessToken}`, "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({ publish_id: handle.providerHandle }), redirect: "error", signal: AbortSignal.timeout(10_000),
+      });
+      json = await res.json();
+    } catch { throw new TransientError("TikTok status unavailable. Try again later."); }
+    const parsed = z.object({ data: z.object({ status: z.string(), fail_reason: z.string().optional() }).optional(), error: z.object({ code: z.string() }) }).safeParse(json);
+    if (parsed.success && parsed.data.error.code === "access_token_invalid") throw new TokenInvalidError("Reconnect the TikTok channel");
+    if (!res.ok) throw classifyHttp(res.status, "TikTok status unavailable");
+    if (!parsed.success || parsed.data.error.code !== "ok" || !parsed.data.data) throw new TransientError("TikTok status unavailable. Try again later.");
+    const data = parsed.data.data;
+    if (data.status === "FAILED") return { state: "failed", error: data.fail_reason || "TikTok processing failed" };
+    if (data.status === "PUBLISH_COMPLETE") return { state: "published" };
+    return { state: "accepted" };
+  },
+
   async publish({ tokens, request, mediaUrls, mediaDurationsSec }): Promise<PublishHandle> {
     if (request.format !== "video") {
       throw new PermanentError(`tiktok: unsupported format '${request.format}'`);
@@ -102,32 +149,13 @@ export const tiktokProvider: Provider = {
     let postInfo: Record<string, unknown> | undefined;
     if (direct) {
       const creator = await queryCreatorInfo(tokens.accessToken);
-      if (creator.status === "cannot_post_now") {
-        throw new RateLimitedError(`${creator.message} (${creator.reason})`, 3600, "pre_commit");
-      }
-      const parsed = directOptions.safeParse(request.options);
-      if (!parsed.success) throw new PermanentError(`tiktok: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
-      const options = parsed.data;
-      const info = creator.creator_info;
-      if (!info.privacy_level_options.includes(options.privacyLevel)) {
-        throw new PermanentError("tiktok: privacyLevel is not allowed by the creator");
-      }
-      if (options.brandContentToggle && options.privacyLevel === "SELF_ONLY") {
-        throw new PermanentError("tiktok: Branded content visibility cannot be set to private");
-      }
-      const duration = mediaDurationsSec?.[0];
-      const creatorLimit = info.max_video_post_duration_sec;
-      if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0 || !creatorLimit) {
-        throw new PermanentError("tiktok: video duration or creator duration limit unavailable; register media with duration and try again");
-      }
-      const maxDuration = Math.min(CAPS[0]!.video!.maxDurationSec!, creatorLimit);
-      if (duration > maxDuration) throw new PermanentError(`tiktok: video duration exceeds ${maxDuration} seconds`);
+      const options = validateTikTokSubmission(creator, request.options, mediaDurationsSec?.[0]);
       postInfo = {
         title: request.caption ?? "",
         privacy_level: options.privacyLevel,
-        disable_comment: info.comment_disabled || options.disableComment,
-        disable_duet: info.duet_disabled || options.disableDuet,
-        disable_stitch: info.stitch_disabled || options.disableStitch,
+        disable_comment: options.disableComment,
+        disable_duet: options.disableDuet,
+        disable_stitch: options.disableStitch,
         brand_content_toggle: options.brandContentToggle,
         brand_organic_toggle: options.brandOrganicToggle,
         ...(options.coverTimestampMs !== undefined ? { video_cover_timestamp_ms: options.coverTimestampMs } : {}),
@@ -177,6 +205,9 @@ export const tiktokProvider: Provider = {
     const publishId = asString(initJson.data?.publish_id); // PSA51
     if (!init.ok || !publishId) {
       // TikTok often returns HTTP 200 with a non-"ok" error code (e.g. url_ownership_unverified).
+      if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap"].includes(initJson.error?.code ?? "")) {
+        throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
+      }
       const msg = initJson.error?.message || initJson.error?.code || `tiktok init failed (${init.status})`;
       throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit"); // PSA36: init creates no post yet
     }
@@ -206,6 +237,6 @@ export const tiktokProvider: Provider = {
       if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
     }
 
-    return { providerHandle: publishId };
+    return { providerHandle: publishId, processing: true };
   },
 };

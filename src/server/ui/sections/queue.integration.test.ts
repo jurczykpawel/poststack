@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { users, workspaces, channels, deliveries, rateLimitCounters } from "@/db/schema";
@@ -152,5 +152,57 @@ describe("queue section", () => {
     const [d] = await db.insert(deliveries).values({ workspace_id: otherWs, channel_id: ch!.id, format: "reel", status: "failed", payload: {}, scheduled_at: new Date(), run_at: new Date() }).returning({ id: deliveries.id });
     expect((await app.request(`/queue/${d!.id}`, { headers: { cookie } })).status).toBe(404);
     await db.delete(workspaces).where(eq(workspaces.id, otherWs));
+  });
+});
+
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("TikTok Queue confirmation", () => {
+  async function held() {
+    const d = await seedDelivery("held", "Review current TikTok settings");
+    await db.update(channels).set({ platform: "tiktok" }).where(eq(channels.id, d.chId));
+    await db.update(deliveries).set({ format: "video", tiktok_confirmation: "required", payload: { format: "video", media: [], caption: "Caption <review>", options: { publishMode: "direct", privacyLevel: "SELF_ONLY" } } }).where(eq(deliveries.id, d.id));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: { creator_nickname: "Current Creator", creator_avatar_url: "", privacy_level_options: ["SELF_ONLY"], comment_disabled: true, duet_disabled: false, stitch_disabled: true, max_video_post_duration_sec: 60 }, error: { code: "ok" } })));
+    return d;
+  }
+  it("offers current creator choices with fresh consent and a playable preview", async () => {
+    const { id } = await held();
+    const detail = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
+    expect(detail).toContain(`/queue/${id}/confirm`);
+    const response = await app.request(`/queue/${id}/confirm`, { headers: { cookie } });
+    const out = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Security-Policy")).toContain("media-src 'self' https:");
+    expect(out).toContain("Select who can view");
+    expect(out).toContain("Music Usage Confirmation");
+    expect(out).toContain("Publish now");
+    expect(out).not.toContain('class="nav-item nav-locked"');
+    const data = JSON.parse(out.match(/id="ps-tiktok-confirm-data">([\s\S]*?)<\/script>/)![1]!);
+    expect(data.caption).toBe("Caption <review>");
+    expect(data.creator.creator_info.creator_nickname).toBe("Current Creator");
+    expect(out).not.toContain("Caption <review>");
+  });
+  it("requires a session and scopes confirmation to the workspace", async () => {
+    const { id } = await held();
+    expect((await app.request(`/queue/${id}/confirm`, { method: "POST" })).status).toBe(302);
+    expect((await app.request("/queue/00000000-0000-0000-0000-000000000000/confirm", { headers: { cookie } })).status).toBe(404);
+    expect((await app.request("/queue/------------------------------------/confirm", { headers: { cookie } })).status).toBe(404);
+    const missingConsent = await app.request(`/queue/${id}/confirm`, { method: "POST", headers: htmx(), body: new URLSearchParams({ payload: JSON.stringify({ caption: "hi", tiktokPublishMode: "inbox", disclosure: false, consent: false }) }) });
+    expect(missingConsent.status).toBe(422);
+    expect((await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) }))!.status).toBe("held");
+  });
+  it("shows processing through Queue and post delivery API", async () => {
+    const { id } = await held();
+    await db.update(deliveries).set({ status: "processing", tiktok_confirmation: "confirmed" }).where(eq(deliveries.id, id));
+    const out = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
+    expect(out).toContain("processing");
+    expect(out).not.toContain("Review TikTok settings");
+    const posts = await import("@/db/schema");
+    const [post] = await db.insert(posts.posts).values({ workspace_id: workspaceId, platform: "tiktok", status: "publishing", delivery_id: id }).returning();
+    const result = await app.request(`/api/v1/posts/${post!.id}`, { headers: { cookie } });
+    const body = await result.json();
+    expect(body.data.delivery.status).toBe("processing");
+    await db.delete(posts.posts).where(eq(posts.posts.id, post!.id));
   });
 });

@@ -70,6 +70,7 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
         format: input.request.format,
         status: "scheduled",
         payload: input.request,
+        tiktok_confirmation: runAt.getTime() > Date.now() ? "scheduled" : "immediate",
         idempotency_key: input.idempotencyKey ?? null,
         scheduled_at: runAt,
         run_at: runAt,
@@ -123,8 +124,9 @@ export async function rescheduleDelivery(id: string, workspaceId: string, schedu
     if (!existing.length) throw new ApiError("not_found", "Delivery not found", 404);
     const [row] = await t.update(deliveries).set({
       status: "scheduled", scheduled_at: runAt, run_at: runAt, last_error: null,
+      tiktok_confirmation: "scheduled",
       attempt_started_at: null, updated_at: new Date(),
-    }).where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"]))).returning();
+    }).where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"]), sql`${deliveries.tiktok_confirmation} <> 'required'`)).returning();
     if (!row) throw new ApiError("conflict", "Delivery is already publishing or no longer pending; its schedule cannot change", 409);
     await addJobTx(t, "publish", { postId: id }, { runAt, jobKey: `publish:${id}` });
     await t.update(posts).set({ scheduled_date: runAt, status: "scheduled", updated_at: new Date() })
@@ -152,6 +154,7 @@ export async function retryPost(id: string, workspaceId: string): Promise<Delive
       .update(deliveries)
       .set({
         status: "scheduled",
+        tiktok_confirmation: "scheduled",
         last_error: null,
         attempt_started_at: null,
         run_at: now,

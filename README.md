@@ -544,7 +544,21 @@ Music Usage Confirmation and, for branded content, Branded Content Policy. Sched
 exact local date, time and timezone for automatic publication. Changes to the account, media,
 caption, settings or schedule clear confirmation. The app records the confirmed channel, settings
 and submission time in the workspace audit log. Processing may take a few minutes; delivery status
-is available in the content cockpit. No watermark or logo is added to the video.
+is available in the content cockpit and Queue. After TikTok accepts the upload, the delivery stays
+`processing` while PostStack polls until TikTok reports publication or a final failure (including
+inbox submissions awaiting completion in TikTok). A failed status read retries without uploading again.
+No watermark or logo is added to the video.
+
+At send time, Direct Post queries fresh creator info. If privacy, interactions, video duration or
+posting eligibility changed, the delivery is **held** with a reason and a `post.held` event plus the
+configured delivery alert. Open the delivery in Queue → **Review TikTok settings**, select current
+choices (privacy has no default), confirm consent and choose **Publish now**. Reconnecting a channel
+or changing a date does not release a delivery awaiting confirmation.
+
+Operators can enable **TikTok: zawsze potwierdzaj przy wysyłce** in Settings → integration credentials,
+or set `TIKTOK_CONFIRM_AT_SEND=true`. The default is off: valid scheduled submissions publish
+automatically. When on, every scheduled TikTok delivery waits for that confirmation. The setting
+also applies to saved schedules; confirmation authorizes one immediate delivery only.
 
 The post API supports the settings below for integrations providing their own creator-facing
 posting and consent flow.

@@ -1,3 +1,4 @@
+import { registerTikTokConfirmation } from "./tiktok-confirmation";
 import { rescheduleForm } from "../components/reschedule";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
@@ -21,11 +22,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ATTEMPT_BUDGET = 5;
 
 const POST_STATUSES = [
-  "failed", "held", "unknown", "scheduled", "sending", "sent", "canceled",
+  "failed", "held", "unknown", "scheduled", "sending", "processing", "sent", "canceled",
 ] as const satisfies readonly DeliveryRow["status"][];
 
 const STATUS_TONE: Record<DeliveryRow["status"], Tone> = {
-  scheduled: "info", sending: "info", sent: "ok", held: "warn",
+  scheduled: "info", sending: "info", processing: "info", sent: "ok", held: "warn",
   failed: "bad", unknown: "warn", canceled: "neutral",
 };
 
@@ -89,7 +90,7 @@ function rowAction(r: QueueRow): Html {
     </form>`;
   }
   if (r.status === "scheduled" || r.status === "held") {
-    return html`${rescheduleForm(`${act}/reschedule`, "#queue-rows")}<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
+    return html`${r.tiktokConfirmation === "required" ? html`<a class="btn btn-secondary btn-sm" href="${act}/confirm">Review TikTok settings</a>` : rescheduleForm(`${act}/reschedule`, "#queue-rows")}<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
       hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">
       <button class="btn btn-ic" type="submit" title="Cancel" aria-label="Cancel post">${icon("close", "ico", 15)}</button>
     </form>`;
@@ -228,11 +229,13 @@ function detailActions(post: DeliveryRow): Html {
   const retry = post.status === "failed"
     ? html`<form method="post" action="${back}/retry" hx-post="${back}/retry" ${raw(HX_HEAD)}>${btn({ label: "Retry", variant: "primary", icon: "reconnect" })}</form>`
     : "";
+  const confirm = post.status === "held" && post.tiktok_confirmation === "required"
+    ? html`<a class="btn btn-primary" href="${back}/confirm">Review TikTok settings</a>` : "";
   const cancel = post.status === "scheduled" || post.status === "held"
     ? html`<form method="post" action="${back}/cancel" hx-post="${back}/cancel" ${raw(HX_HEAD)} hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">${btn({ label: "Cancel", variant: "danger", icon: "close" })}</form>`
     : "";
-  if (!retry && !cancel) return html``;
-  return html`<div class="action-bar">${retry}${cancel}${cancel ? rescheduleForm(`${back}/reschedule`, "#post-detail-head") : ""}</div>`;
+  if (!retry && !cancel && !confirm) return html``;
+  return html`<div class="action-bar">${confirm}${retry}${cancel}${cancel && !confirm ? rescheduleForm(`${back}/reschedule`, "#post-detail-head") : ""}</div>`;
 }
 
 function postDetailHead(item: QueueItem): Html {
@@ -325,6 +328,7 @@ async function postDetailPage(c: Context): Promise<Response> {
 }
 
 export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
+  registerTikTokConfirmation(r, guard);
   r.get("/queue", guard, queuePage);
   r.get("/queue/:id", guard, postDetailPage);
 

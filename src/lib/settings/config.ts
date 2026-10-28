@@ -33,8 +33,8 @@ export function invalidateConfigCache(): void {
 
 /** Load + decrypt all stored settings (cached). A row that fails to decrypt is skipped (treated as
  *  unset) rather than throwing — a single bad/rotated value must not break every config read. */
-async function loadAll(): Promise<Map<string, string>> {
-  if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.values;
+async function loadAll(fresh = false): Promise<Map<string, string>> {
+  if (!fresh && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.values;
   const values = new Map<string, string>();
   try {
     const rows = await (await getDb()).select().from(instanceSettings);
@@ -45,7 +45,8 @@ async function loadAll(): Promise<Map<string, string>> {
         /* undecryptable (wrong/rotated key) → treat as unset */
       }
     }
-  } catch {
+  } catch (error) {
+    if (fresh) throw error;
     // DB unreachable / table missing (e.g. pre-migration, or a unit test with no DB) → every key
     // simply falls back to its env var. Don't cache a failed read, so it retries next time.
     return values;
@@ -65,9 +66,10 @@ function envValue(key: string): string {
 /**
  * Resolve a configurable key: a non-empty DB value wins; otherwise fall back to the env var. So
  * existing env-based deployments keep working unchanged, and a dashboard-set value overrides.
+ * fresh reads skip the cache and require a successful database read.
  */
-export async function getConfig(key: ConfigKey): Promise<string> {
-  const stored = await loadAll();
+export async function getConfig(key: ConfigKey, { fresh = false }: { fresh?: boolean } = {}): Promise<string> {
+  const stored = await loadAll(fresh);
   const keys = keyWithAliases(key);
   // DB value (canonical, then any legacy alias) wins…
   for (const k of keys) {
@@ -89,6 +91,7 @@ export async function setConfig(key: ConfigKey, value: string): Promise<void> {
     await clearConfig(key);
     return;
   }
+  if (key === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(value)) throw new Error("TikTok confirmation must be true or false");
   const value_encrypted = encryptString(value);
   const dbc = await getDb();
   await dbc.insert(instanceSettings)

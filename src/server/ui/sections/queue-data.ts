@@ -8,6 +8,7 @@ type ChannelRow = typeof channels.$inferSelect;
 
 export interface QueueRow {
   id: string;
+  tiktokConfirmation: DeliveryRow["tiktok_confirmation"];
   status: DeliveryRow["status"];
   format: string;
   scheduledAt: Date;
@@ -30,7 +31,7 @@ export interface QueueFilters {
 // With no explicit status filter, failures + upcoming work belong at the top; terminal states sink.
 const FOREGROUND_RANK = sql`case ${deliveries.status}
   when 'failed' then 0 when 'held' then 1 when 'unknown' then 2
-  when 'scheduled' then 3 when 'sending' then 4 else 5 end`;
+  when 'scheduled' then 3 when 'sending' then 4 when 'processing' then 4 else 5 end`;
 
 /** Deliveries joined with their channel for the operational queue view — workspace-scoped. */
 export async function listQueue(f: QueueFilters): Promise<QueueRow[]> {
@@ -44,6 +45,7 @@ export async function listQueue(f: QueueFilters): Promise<QueueRow[]> {
   const rows = await db
     .select({
       id: deliveries.id,
+      tiktokConfirmation: deliveries.tiktok_confirmation,
       status: deliveries.status,
       format: deliveries.format,
       scheduledAt: deliveries.scheduled_at,
@@ -67,6 +69,7 @@ export async function listQueue(f: QueueFilters): Promise<QueueRow[]> {
 
   return rows.map((r) => ({
     id: r.id,
+    tiktokConfirmation: r.tiktokConfirmation,
     status: r.status,
     format: r.format,
     scheduledAt: r.scheduledAt,

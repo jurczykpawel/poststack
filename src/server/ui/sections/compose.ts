@@ -3,6 +3,7 @@ import { html, raw } from "hono/html";
 import { z } from "zod";
 import { LIMITS } from "@/lib/api/limits";
 import { authenticate, type AuthContext } from "@/lib/auth";
+import { getConfig } from "@/lib/settings/config";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { listBrands } from "@/lib/brands/service";
 import { resolveBrandSlots } from "@/lib/brands/resolve";
@@ -113,6 +114,7 @@ function composeScript(): Html {
           if (!this.scheduleAt) return "Choose a date and time for automatic publication.";
           var when = window.psScheduleTime(this.scheduleAt).iso;
           if (!when) return "Choose a valid date and time.";
+          if (seqCfg.tiktokConfirmAtSend) return "Wysyłka " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") wymaga potwierdzenia w Queue. Powiadomimy Cię w chwili wysyłki.";
           return "Opublikujemy automatycznie " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") z tymi ustawieniami";
         },
         tiktokConsentKey() {
@@ -234,15 +236,16 @@ function composeScript(): Html {
   </script>`;
 }
 
-function composePage(
+async function composePage(
   data: Awaited<ReturnType<typeof brandsData>>,
   features: Awaited<ReturnType<typeof getInstanceLicense>>["features"],
   products: Awaited<ReturnType<typeof getInstanceLicense>>["products"],
   sequences: Array<{ id: string; name: string }> = [],
   error?: string,
-): Html {
+): Promise<Html> {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   const seqJson = JSON.stringify({
+    tiktokConfirmAtSend: (await getConfig("TIKTOK_CONFIRM_AT_SEND")) === "true",
     canSequence: features.has("sequences"),
     sequences,
     canFirstComment: features.has("first_comment"),
@@ -443,7 +446,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const lic = await getInstanceLicense();
-    return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId)));
+    return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId)));
   });
 
   r.post("/compose", guard, async (c) => {
@@ -455,7 +458,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     try {
       parsed = composeSchema.parse(JSON.parse(String(form.payload ?? "{}")));
     } catch {
-      return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Could not read the form — please try again."), 400);
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Could not read the form — please try again."), 400);
     }
     const mode = parsed.publish?.mode ?? "draft";
     const tik = parsed.posts.find((p) => p.platform === "tiktok");
@@ -481,7 +484,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
           }
         }
       }
-      if (error) return c.html(composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), error), 400);
+      if (error) return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), error), 400);
     }
     const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
     if (consentChannelId && tik) {
