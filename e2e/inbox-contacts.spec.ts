@@ -81,6 +81,7 @@ for (const width of [1280, 390]) {
       await expect(page.locator("#thread")).not.toHaveClass(/htmx-settling/);
       if (width < 600) await page.getByRole("button", { name: "← Back", exact: true }).click();
       await expect(page.locator("#conv-filter-form").getByRole("button", { name: "Done (1)", exact: true })).toBeVisible();
+      await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
       await expect(page.locator('#conv-filter-form select[name="channel"]')).toHaveValue(channelId);
       await expect(page.locator('#conv-filter-form input[name="search"]')).toHaveValue(name);
       await page.locator("#conv-filter-form").getByRole("button", { name: "Done (1)", exact: true }).click();

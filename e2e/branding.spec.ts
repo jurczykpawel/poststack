@@ -46,12 +46,14 @@ test.describe.serial("instance branding", () => {
       expect(await page.content()).not.toContain("PostStack");
       await page.screenshot({ path: testInfo.outputPath(`dashboard-${width}.png`), fullPage: true });
 
-      const context = await browser.newContext({ viewport: { width, height: 950 } });
+      const context = await browser.newContext({ viewport: { width, height: 950 }, storageState: { cookies: [], origins: [] } });
       try {
         const publicPage = await context.newPage();
         for (const path of ["/", "/privacy", "/terms", "/login"]) {
           const response = await publicPage.goto(new URL(path, page.url()).href);
           expect(response?.status()).toBe(200);
+          expect(new URL(publicPage.url()).pathname).toBe(path);
+          if (path === "/") await expect(publicPage.locator("main h1")).toHaveText("Orchard Social");
           await expect(publicPage).toHaveTitle(/Orchard Social/);
           expect(await publicPage.content()).not.toContain("PostStack");
           await expect(publicPage.locator('link[rel="icon"]')).toHaveAttribute("href", "/instance-favicon.svg");
