@@ -29,6 +29,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Instance branding displays field validation errors while preserving entered values.
 - Integration setting help wraps long provider examples on narrow screens.
 - White-label Privacy Policy section numbers remain consecutive when website analytics sections are omitted.
+- Queue, delivery details and Content post cards show publishing times in the browser's timezone with an explicit label, and UTC when JavaScript is unavailable.
 - TikTok deliveries revalidate creator choices before sending, hold changed settings with a notification, and remain processing until TikTok reports the final outcome.
 - Changing a scheduled post's time now updates its delivery and publish job together. Queue and Content offer a local-time reschedule form with DST guidance; Content can move all channels together. Saved publishing settings remain unchanged.
 - TikTok Direct Post requires an explicit privacy choice and respects current creator permissions; video uploads record duration with ffprobe.

@@ -135,6 +135,7 @@ describe("queue section", () => {
     const scheduledAt = new Date(Date.now() + 3600_000).toISOString();
     const res = await app.request(`/queue/${id}/reschedule`, { method: "POST", headers: htmx(), body: new URLSearchParams({ scheduledAt }).toString() });
     expect(res.status).toBe(200);
+    expect(JSON.parse(res.headers.get("HX-Trigger")!)["ps:toast"].msg).toBe("Termin zmieniony.");
     expect(await res.text()).toContain('id="queue-rows"');
     const row = await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) });
     expect(row!.status).toBe("scheduled");

@@ -6,7 +6,10 @@ function convert(local: string, zone = "Europe/Warsaw") {
   const previous = process.env.TZ;
   process.env.TZ = zone;
   try {
-    const context = { window: {} as { psScheduleTime?: (s: string) => { iso: string; notice: string } }, Date, Intl };
+    const context = {
+      window: {} as { psScheduleTime?: (s: string) => { iso: string; notice: string } }, Date, Intl,
+      document: { readyState: "loading", addEventListener() {} },
+    };
     runInNewContext(readFileSync("src/server/ui/static/schedule-time.js", "utf8"), context);
     return context.window.psScheduleTime!(local);
   } finally {
@@ -32,5 +35,31 @@ describe("local schedule conversion", () => {
   it("handles empty and invalid input without throwing", () => {
     expect(convert("")).toEqual({ iso: "", notice: "" });
     expect(convert("invalid")).toEqual({ iso: "", notice: "" });
+  });
+});
+
+describe("local timestamp display", () => {
+  it.each([
+    ["America/New_York", "2027-12-22T15:30:00Z", "22 Dec 2027, 10:30"],
+    ["Asia/Kolkata", "2027-01-22T18:45:00Z", "23 Jan 2027, 00:15"],
+  ])("localizes initial and swapped timestamps in %s", (zone, iso, text) => {
+    const previous = process.env.TZ;
+    process.env.TZ = zone;
+    try {
+      const listeners = new Map<string, (e: { target: unknown }) => void>();
+      const element = { textContent: "UTC fallback", getAttribute: () => iso };
+      const root = { querySelectorAll: () => [element] };
+      runInNewContext(readFileSync("src/server/ui/static/schedule-time.js", "utf8"), {
+        window: {}, Date, Intl, Number,
+        document: { readyState: "loading", ...root, addEventListener: (name: string, fn: (e: { target: unknown }) => void) => listeners.set(name, fn) },
+      });
+      listeners.get("DOMContentLoaded")?.({ target: root });
+      expect(element.textContent).toBe(`${text} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+      element.textContent = "UTC fallback";
+      listeners.get("htmx:load")?.({ target: root });
+      expect(element.textContent).toBe(`${text} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    } finally {
+      if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous;
+    }
   });
 });

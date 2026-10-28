@@ -1,5 +1,92 @@
 import { writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
+import { mintProToken } from "./fixtures/keys";
+
+// Opt into installed Chrome for native-navigation repros; keep the default Chromium CI setup.
+test.use({ channel: process.env.E2E_BROWSER_CHANNEL });
+
+test.describe("full document auth redirects", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  for (const branded of [false, true]) {
+    test(`stale Settings save redirects without page errors (branding=${branded})`, async ({ page, context, browser }, testInfo) => {
+      const errors: string[] = [];
+      const lifecycle: string[] = [];
+      const navigation: Array<{ path: string; status: number; redirect?: string }> = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("response", (response) => {
+        const redirect = response.headers()["hx-redirect"];
+        if (redirect || response.request().resourceType() === "document") navigation.push({ path: new URL(response.url()).pathname, status: response.status(), redirect });
+      });
+      page.on("console", (message) => {
+        if (message.text().startsWith("document-lifecycle:")) lifecycle.push(message.text());
+      });
+      await page.addInitScript(() => {
+        for (const name of ["pageswap", "pagereveal"]) window.addEventListener(name, (event) => {
+          console.log("document-lifecycle:" + JSON.stringify({ event: name, url: location.pathname, transition: !!(event as Event & { viewTransition?: unknown }).viewTransition }));
+        });
+      });
+      async function login() {
+        await page.goto("/login");
+        await page.locator('input[name="email"]').fill("admin@e2e.test");
+        await page.locator('input[name="password"]').fill("e2e-password-123");
+        await page.getByRole("button", { name: "Sign in", exact: true }).click();
+        await expect(page).toHaveURL(/\/inbox$/);
+      }
+      async function post(path: string, data: unknown) {
+        return page.evaluate(async ({ path, data }) => (await fetch(path, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data),
+        })).status, { path, data });
+      }
+      await login();
+      expect(await post("/api/v1/license", { token: mintProToken() })).toBe(200);
+      expect(await post("/settings/branding", { reset: true })).toBe(200);
+      let authenticated = true;
+      try {
+        if (branded) {
+          await page.goto("/settings#integrations");
+          await page.getByLabel("Product name").fill("MQA5 Orchard");
+          await page.getByRole("button", { name: "Save instance branding", exact: true }).click();
+          await expect(page).toHaveTitle(/MQA5 Orchard/);
+        }
+        await page.goto("/settings#automation");
+        await page.getByRole("button", { name: "Automation", exact: true }).click();
+        const save = page.locator('form[hx-post="/settings/ai-draft-prompt"]').getByRole("button");
+        await expect(save).toBeVisible();
+        const cookies = await context.cookies();
+        const other = await context.newPage();
+        other.on("pageerror", (error) => errors.push(error.message));
+        await other.goto("/overview");
+        await other.getByRole("button", { name: "Sign out", exact: true }).click();
+        await expect(other).toHaveURL(/\/login$/);
+        await other.close();
+        authenticated = false;
+        // Exercise both a cleared cookie and a still-present, revoked session cookie.
+        if (branded) await context.addCookies(cookies);
+        const response = page.waitForResponse((r) => r.request().method() === "POST" && r.headers()["hx-redirect"] === "/login");
+        await save.click();
+        expect((await response).status()).toBe(branded ? 401 : 200);
+        await expect(page).toHaveURL(/\/login$/);
+        await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+        await expect(page).toHaveTitle(branded ? /MQA5 Orchard/ : /PostStack/);
+        await page.screenshot({ path: testInfo.outputPath("stale-login.png"), animations: "disabled" });
+        // Also navigate to the branded login directly from a live dashboard document.
+        await login();
+        authenticated = true;
+        await page.evaluate(() => { location.href = "/login"; });
+        await expect(page).toHaveURL(/\/login$/);
+        await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath("dashboard-login.png"), animations: "disabled" });
+        writeFileSync(testInfo.outputPath("auth-redirects.json"), JSON.stringify({ browser: browser.version(), branded, navigation, lifecycle, errors }, null, 2));
+        expect(lifecycle.some((entry) => entry.includes('"event":"pagereveal","url":"/login","transition":true'))).toBe(true);
+        expect(errors).toEqual([]);
+      } finally {
+        if (!authenticated) await login();
+        expect(await post("/settings/branding", { reset: true })).toBe(200);
+      }
+    });
+  }
+});
 
 for (const width of [1440, 390]) {
   test(`logout and login have no page errors at ${width}px`, async ({ page }, testInfo) => {
