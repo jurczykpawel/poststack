@@ -78,7 +78,10 @@ test.describe.serial("AI-draft UX (ADUX1/ADUX2/ADDEL1/ADLOG1)", () => {
       await gotoOk(page, "/approvals");
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });
-        for (const message of recorded.messages) await expect(page.locator(".appr-trigger").filter({ hasText: message.text })).toHaveCount(1);
+        for (const [index, message] of recorded.messages.entries()) {
+          const card = page.locator(".appr").filter({ hasText: index === 0 ? "First proposal" : "Second proposal" });
+          await expect(card.locator(".appr-trigger")).toHaveText(message.text);
+        }
         await page.screenshot({ path: testInfo.outputPath(`approval-source-${width}.png`), fullPage: true });
       }
       const response = await page.request.get("/api/v1/approvals");
