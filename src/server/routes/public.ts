@@ -1,3 +1,5 @@
+import { BRAND, currentBrand } from "@/lib/brand";
+import { html } from "hono/html";
 import { Hono } from "hono";
 import { sql } from "drizzle-orm";
 import { createChallenge } from "altcha-lib";
@@ -7,7 +9,7 @@ import { getConfig } from "@/lib/settings/config";
 import { t } from "@/lib/i18n";
 import { serveAsset } from "../ui/assets";
 
-const DOCS_HTML = `<!doctype html>
+const docsHtml = () => html`<!doctype html>
 <html>
   <head>
     <title>${t("apiDocs.title")}</title>
@@ -29,6 +31,13 @@ export const publicRoutes = new Hono();
 // Vendored, buildless static assets (Tokyo Night admin shell: tokens.css, admin.css, htmx, Alpine,
 // ps-select). Public + pre-auth so the login/register pages style correctly too. Path traversal is
 // guarded in serveAsset; vendor/* is cached immutable, the rest must-revalidate.
+publicRoutes.get("/instance-favicon.svg", (c) => {
+  const brand = currentBrand();
+  c.header("Cache-Control", "no-store");
+  c.header("Content-Type", "image/svg+xml");
+  return c.body(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${brand.accent}"/><circle cx="32" cy="32" r="15" fill="white"/></svg>`);
+});
+
 publicRoutes.get("/static/*", (c) => serveAsset(c, c.req.path.replace(/^\/static\//, "")));
 
 publicRoutes.get("/api/health", async (c) => {
@@ -41,10 +50,10 @@ publicRoutes.get("/api/health", async (c) => {
 });
 
 publicRoutes.get("/api/docs", (c) =>
-  c.html(DOCS_HTML),
+  c.html(docsHtml()),
 );
 
-publicRoutes.get("/api/v1", (c) => c.json(openApiSpec));
+publicRoutes.get("/api/v1", (c) => c.json({ ...openApiSpec, info: { ...openApiSpec.info, title: `${BRAND.name} API` } }));
 
 publicRoutes.get("/api/captcha/challenge", async (c) => {
   const hmacKey = await getConfig("ALTCHA_HMAC_KEY");

@@ -1,3 +1,4 @@
+import { getInstanceBrand, brandUserAgent } from "@/lib/brand";
 import type { JobHelpers } from "graphile-worker";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -101,6 +102,7 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
       // safeFetchWebhook runs the secure-by-default webhook SSRF policy (public only; private/
       // loopback/cgnat only with WEBHOOK_ALLOW_PRIVATE_TARGETS; metadata/link-local always blocked)
       // on the user-supplied URL via the rebinding-safe pinned connector (rejects 3xx).
+      const brand = await getInstanceBrand();
       const res = await safeFetchWebhook(endpoint.url, {
         method: "POST",
         // The operator's custom headers are spread FIRST (e.g. an Authorization token for their
@@ -109,6 +111,7 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
         headers: {
           ...endpoint.headers,
           "content-type": "application/json",
+          "User-Agent": brandUserAgent(brand),
           "X-PostStack-Event": event.type,
           "X-PostStack-Timestamp": String(ts),
           "X-PostStack-Signature": signature,

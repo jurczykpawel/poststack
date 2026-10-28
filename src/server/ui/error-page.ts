@@ -1,3 +1,4 @@
+import { BRAND } from "@/lib/brand";
 import { html } from "hono/html";
 import { doc } from "./layout";
 import { icon } from "./components/icons";
@@ -13,7 +14,7 @@ export function errorPage(code: 404 | 500): Html {
     ? "The page you're looking for doesn't exist or may have moved."
     : "An unexpected error happened on our end. Please try again in a moment.";
   return doc(
-    `${code} · PostStack`,
+    `${code} · ${BRAND.name}`,
     html`<main class="errpage">
       <div class="errpage-card">
         <div class="errpage-code">${code}</div>

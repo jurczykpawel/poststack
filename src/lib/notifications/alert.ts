@@ -1,3 +1,4 @@
+import { getInstanceBrand, brandUserAgent } from "@/lib/brand";
 import { rateLimit } from "@/lib/api/rate-limit";
 import { getConfig } from "@/lib/settings/config";
 import { getAlertWebhook } from "./alert-webhook";
@@ -95,6 +96,8 @@ function placeholderContext(body: Record<string, unknown>): PlaceholderContext {
  */
 export async function dispatchAlert(alert: Alert): Promise<void> {
   const body = standardBody(alert);
+  const brand = await getInstanceBrand();
+  const brandContext = { brand: brand.name, contact_email: brand.contactEmail, footer: brand.footer, public_url: brand.publicUrl };
 
   // Per-workspace customized webhook takes precedence over the env fallback.
   let target: { url: string; headers: Record<string, string>; payload: Record<string, unknown> } | null = null;
@@ -105,7 +108,7 @@ export async function dispatchAlert(alert: Alert): Promise<void> {
         target = {
           url: cfg.url,
           headers: { "Content-Type": "application/json", ...cfg.headers },
-          payload: buildCustomizedBody(body, { field_selection: cfg.fieldSelection, extra_payload_fields: cfg.extraFields }, placeholderContext(body)),
+          payload: buildCustomizedBody(body, { field_selection: cfg.fieldSelection, extra_payload_fields: cfg.extraFields }, { ...placeholderContext(body), ...brandContext }),
         };
       }
     } catch {
@@ -127,7 +130,7 @@ export async function dispatchAlert(alert: Alert): Promise<void> {
     // It asserts the target before connecting, so a disallowed URL throws SsrfError here — we skip.
     await safeFetchWebhook(target.url, {
       method: "POST",
-      headers: target.headers,
+      headers: { ...target.headers, "User-Agent": brandUserAgent(brand) },
       body: JSON.stringify(target.payload),
       signal: AbortSignal.timeout(10_000),
     });

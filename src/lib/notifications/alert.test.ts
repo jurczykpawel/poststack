@@ -53,6 +53,7 @@ vi.mock("@/lib/webhooks/safe-target", async (importOriginal) => {
   };
 });
 
+import * as instanceBrand from "@/lib/brand";
 import { dispatchAlert } from "./alert";
 import { getAlertWebhook } from "./alert-webhook";
 
@@ -71,6 +72,25 @@ afterEach(() => {
 });
 
 describe("dispatchAlert", () => {
+  it("uses the instance identity in email templates and delivery identification", async () => {
+    const brand = { ...instanceBrand.DEFAULT_BRAND, name: "Orchard", publicUrl: "https://orchard.example", contactEmail: "help@orchard.example", footer: "Orchard team" };
+    const spy = vi.spyOn(instanceBrand, "getInstanceBrand").mockResolvedValue(brand);
+    try {
+      vi.mocked(getAlertWebhook).mockResolvedValueOnce({
+        enabled: true, url: "https://hooks.example/email", headers: {}, fieldSelection: ["type"],
+        extraFields: { subject: "{{brand}}: {{type}}", reply_to: "{{contact_email}}", text: "{{footer}} — {{public_url}}" },
+      });
+      await dispatchAlert({ type: "token_expiring", workspaceId: "ws" });
+      const init = connector.mock.calls[0][0].init;
+      expect(new Headers(init.headers).get("User-Agent")).toBe("Orchard/1.0 (+https://orchard.example)");
+      const payload = JSON.parse(String(init.body));
+      expect(payload.subject).toBe("Orchard: token_expiring");
+      expect(payload.reply_to).toBe("help@orchard.example");
+      expect(payload.text).toBe("Orchard team — https://orchard.example");
+      expect(String(init.body)).not.toContain("PostStack");
+    } finally { spy.mockRestore(); }
+  });
+
   it("POSTs the alert with its type discriminator to a public webhook", async () => {
     process.env.CHANNEL_ALERT_WEBHOOK_URL = "https://hooks.example/alert";
 

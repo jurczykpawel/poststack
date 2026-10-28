@@ -14,12 +14,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 - TikTok send-time confirmation in Queue and an optional instance setting requiring confirmation for every scheduled TikTok delivery.
+- Business instance branding for the dashboard, public pages, contact details and outbound notifications, with runtime landing rendering and operator settings.
 - TikTok Compose controls with creator info, explicit privacy and consent, interaction restrictions, commercial disclosure, video preview and confirmed automatic scheduling.
 - Saved TikTok Direct Post privacy, interaction, commercial-content and cover settings; creator-specific duration checks and automatic URL ingestion from a configured verified prefix.
 - Public Terms of Service at `/terms`, shared legal-page branding and footer links, and Privacy Policy coverage of connected-account data and TikTok deletion.
 - TikTok creator-info API and dashboard endpoints with channel caching, forced refresh, current posting permissions and posting-limit guidance.
 - Agent skill `skills/meta-app-setup` that sets up the Meta app for an instance in the user's own browser — permissions, webhooks, redirect URIs, Instagram Business Login, Live mode — and verifies the connection.
 - **Posts expose their delivery and first-comment outcome over the API.** `GET /posts` and `GET /posts/{id}` now return a `delivery` object (or `null` when the post was never sent): scheduled time, delivery status, attempts, the last error (secrets redacted), the platform post id, and `firstComment` with its own status, comment id and error. When no first comment was attempted, `firstComment.status` is `not_attempted` with a `reason` (`no_text`, `unlicensed`, `unsupported_platform`, `awaiting_publish`) — evaluated at read time, since the skip reason is not stored. Publishing with a future time now also fills the post's `scheduledDate`, which previously stayed `null`. Integrations no longer need to infer publish results from the absence of errors.
+
+### Changed
+- The `BRAND_NAME` environment variable alone no longer renames the instance; rebranding is now the Business-tier instance branding setting (Settings → Integrations → Instance branding).
 
 ### Fixed
 - TikTok deliveries revalidate creator choices before sending, hold changed settings with a notification, and remain processing until TikTok reports the final outcome.

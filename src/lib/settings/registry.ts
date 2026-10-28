@@ -24,6 +24,7 @@ export interface ConfigField {
 }
 
 export const CONFIG_FIELDS: readonly ConfigField[] = [
+  { key: "INSTANCE_BRANDING", group: "Instance branding", label: "Brand configuration", secret: false },
   // Meta (Facebook + Instagram) app — the primary self-host credential set.
   { key: "META_APP_ID", group: "Meta (Facebook & Instagram)", label: "App ID", secret: false, help: "From your Meta app → Settings → Basic." },
   { key: "META_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "App Secret", secret: true, help: "Meta app → Settings → Basic → App Secret." },

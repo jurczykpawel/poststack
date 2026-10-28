@@ -525,6 +525,25 @@ The same Google app can also serve **YouTube** (`youtube` platform) — just add
 
 ## TikTok publishing
 
+An instance operator with a **Business** license can set the product name, logo, favicon, accent,
+default theme, contact email, public HTTPS origin and footer in **Settings → Integrations → Instance
+branding**. This config belongs to the entire installation, independently of content brands. It is
+stored in `instance_settings`; the optional `INSTANCE_BRANDING` environment variable accepts the same
+JSON object (`name`, `logoUrl`, `faviconUrl`, `accent`, `theme`, `contactEmail`, `publicUrl`, `footer`).
+Resetting clears the stored override and falls back to the environment or defaults.
+An empty favicon generates an icon from the accent. Without `white_label` entitlement the default
+identity is used, including when a license expires. `BRAND_NAME` alone no longer changes the identity.
+
+Changes apply on the next request, with up to 30 seconds for other web/worker processes to refresh.
+The public homepage uses an instance page without built-in marketing images; Privacy and Terms reuse
+the built legal content in the instance shell at serving time, so no image rebuild is needed. The
+white-label public pages load no analytics. Crawler documents (`robots.txt`, sitemaps and `llms.txt`)
+also use the configured identity and origin. Set `APP_URL` and provider callback registrations to the
+actual installation origin as usual; the branding origin supplies public links and does not change
+OAuth destinations or license-domain binding. Cookie names, API prefixes and signed webhook header
+names remain stable. Operational email webhook templates can use `{{brand}}`, `{{contact_email}}`,
+`{{public_url}}` and `{{footer}}`; outbound webhook User-Agent uses the instance identity.
+
 Public [Privacy Policy](https://poststack.techskills.academy/privacy) and
 [Terms of Service](https://poststack.techskills.academy/terms) are served by the same app at
 `/privacy` and `/terms`, with visible footer links. The policy covers TikTok account data,

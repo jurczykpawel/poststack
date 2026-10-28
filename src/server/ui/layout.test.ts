@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 
-// The sidebar brand is rendered from BRAND.name (single source). A brand rename via BRAND_NAME
-// must flow all the way into the rendered shell with no other change.
+// The sidebar follows the resolved instance identity.
 describe("dashboard shell brand", () => {
   // layout.ts → env.ts validates required vars at import; give it a minimal valid set.
   beforeAll(() => {
@@ -19,11 +18,13 @@ describe("dashboard shell brand", () => {
     vi.resetModules();
   });
 
-  async function renderBrand(): Promise<string> {
+  async function renderBrand(name?: string): Promise<string> {
     vi.resetModules();
     const { dashboardDoc } = await import("./layout");
     const { html } = await import("hono/html");
-    const out = await dashboardDoc("T", "/overview", html`<p>x</p>`);
+    const { withBrand, DEFAULT_BRAND } = await import("@/lib/brand");
+    const render = () => dashboardDoc("T", "/overview", html`<p>x</p>`);
+    const out = await (name ? withBrand({ ...DEFAULT_BRAND, name }, render) : render());
     return out.toString();
   }
 
@@ -33,11 +34,16 @@ describe("dashboard shell brand", () => {
     expect(out).toContain(`<span class="brand-glyph">P</span>PostStack`);
   });
 
-  it("flips the rendered brand when BRAND_NAME is overridden", async () => {
+  it("flips the rendered brand in the resolved instance context", async () => {
     process.env.BRAND_NAME = "Acme Social";
-    const out = await renderBrand();
+    const out = await renderBrand("Acme Social");
     expect(out).toContain(`<span class="brand-glyph">A</span>Acme Social`);
     expect(out).not.toContain("PostStack");
+  });
+
+  it("uses the first complete character for the fallback logo", async () => {
+    const out = await renderBrand("🌻 Social");
+    expect(out).toContain('<span class="brand-glyph">🌻</span>🌻 Social');
   });
 
   it("leaves transitions to document navigation rather than every htmx swap", async () => {

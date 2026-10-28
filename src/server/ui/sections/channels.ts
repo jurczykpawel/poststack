@@ -1,3 +1,4 @@
+import { BRAND } from "@/lib/brand";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { desc, eq, and, count } from "drizzle-orm";
@@ -753,7 +754,7 @@ export function aiDraftPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: s
   const body = licensed
     ? html`${aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts")}
       <p class="set-lead">
-        When enabled, PostStack drafts an AI reply for new activity on this channel and parks it here
+        When enabled, ${BRAND.name} drafts an AI reply for new activity on this channel and parks it here
         for your approval. Leave a prompt blank to inherit the workspace default.
       </p>
       <form class="panel-form" method="post" action="/channels/${ch.id}/ai-draft"
@@ -785,7 +786,7 @@ function gmailFilterPanel(ch: PublicChannel, oob = false): Html {
     <div class="panel-head"><h3>Ingest filter</h3></div>
     <div class="set-body">
       <p class="set-lead">
-        Gmail search query that controls which messages PostStack pulls in.
+        Gmail search query that controls which messages ${BRAND.name} pulls in.
         Leave empty to use the default (<code>in:inbox</code>).
       </p>
       <form class="panel-form" method="post" action="/channels/${ch.id}/gmail-filter"

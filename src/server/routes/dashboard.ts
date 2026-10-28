@@ -20,7 +20,8 @@ import { truncateCodePoints } from "@/lib/text";
 import type { StoredAttachments } from "@/lib/messages/attachments";
 import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
-import { BRAND } from "@/lib/brand";
+import { BRAND, brandingSchema } from "@/lib/brand";
+import { brandingForm } from "../ui/branding";
 import { icon } from "../ui/components/icons";
 import { toastHeader } from "../ui/components/toast";
 import { timeAgo } from "../ui/components/time";
@@ -28,7 +29,7 @@ import { proLink } from "../ui/components/pro-link";
 import { addJobTx } from "@/lib/queue/client";
 import { platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
-import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, type LicenseState } from "@/lib/license/gate";
+import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, requireFeature, ProRequiredError, type LicenseState } from "@/lib/license/gate";
 import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
 import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
@@ -1989,6 +1990,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </div>
           <div class="settings-panel" x-show="tab==='integrations'" x-cloak>
           ${canManageInstance ? html`<section class="section">
+            <h2>Instance branding</h2>
+            <p class="muted">Applies to the whole instance. Requires a Business license.</p>
+            ${license.features.has("white_label") ? brandingForm() : html`<p class="muted">A Business license enables custom branding.</p>`}
+          </section><section class="section">
             <h2>Meta App configuration</h2>
             <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
             ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
@@ -2123,6 +2128,26 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(html`${res ? "Saved." : "Could not save retention policy."}`);
   });
 
+  app.post("/settings/branding", guard, requireInstanceOperator, async (c) => {
+    try {
+      await requireFeature("white_label");
+    } catch (error) {
+      if (!(error instanceof ProRequiredError)) throw error;
+      return c.json({ data: null, error: { code: "pro_required", message: error.message } }, 403);
+    }
+    const input = await c.req.json().catch(() => null);
+    if (input && typeof input === "object" && Object.keys(input).length === 1 && input.reset === true) {
+      await clearConfig("INSTANCE_BRANDING");
+      c.header("HX-Refresh", "true");
+      return c.html(html`Stored instance branding cleared.`);
+    }
+    const parsed = brandingSchema.safeParse(input);
+    if (!parsed.success) return c.json({ data: null, error: { code: "invalid_request", message: "Check the brand fields.", details: parsed.error.issues } }, 400);
+    await setConfig("INSTANCE_BRANDING", JSON.stringify(parsed.data));
+    c.header("HX-Refresh", "true");
+    return c.html(html`Instance branding saved.`);
+  });
+
   app.post("/settings/license", guard, requireInstanceOperator, async (c) => {
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const token = typeof form.token === "string" ? form.token.trim() : "";
@@ -2144,6 +2169,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.post("/settings/credentials", guard, requireInstanceOperator, async (c) => {
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const key = typeof form.key === "string" ? form.key : "";
+    if (key === "INSTANCE_BRANDING") return c.text("Use instance branding settings.", 400);
     if (!CONFIG_KEYS.has(key)) {
       return c.html(renderCredentials(await configStatus(), "Unknown setting."));
     }
@@ -2638,7 +2664,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </div>
           <div class="settings-panel" x-show="tab==='subscriptions'" x-cloak>
           <h2>Subscriptions — what each connected account is set to receive</h2>
-          <p class="muted" style="font-size:.85rem">PostStack auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
+          <p class="muted" style="font-size:.85rem">${BRAND.name} auto-configures these on connect &amp; on every health check. This shows, per account, which webhook fields are <strong>active</strong> vs <strong>missing</strong> — and lets you re-apply the full set in one click.</p>
           <div id="wh-subs" hx-get="/webhooks/subscriptions" hx-trigger="load" hx-swap="innerHTML transition:false">
             <p class="muted" style="font-size:.82rem">Checking subscriptions…</p>
           </div>
@@ -3080,6 +3106,7 @@ function apiKeysUpsell(upgradeUrl: string): Html {
  *  env var. Secrets are never echoed — only a masked "set" preview. Each row has a Save (set/change)
  *  and, when DB-set, a Clear (revert to env) form, both swapping this block in place via htmx. */
 function renderCredentials(status: ConfigStatus[], msg?: string): Html {
+  status = status.filter((field) => field.key !== "INSTANCE_BRANDING");
   const badge = (s: ConfigStatus["source"]) =>
     s === "db" ? html`<span class="badge tone-ok">set here</span>`
     : s === "env" ? html`<span class="badge tone-info">from env</span>`

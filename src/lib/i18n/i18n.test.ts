@@ -39,11 +39,13 @@ describe("BRAND config", () => {
     expect(BRAND.name).toBe("PostStack");
   });
 
-  it("lets BRAND_NAME override the display name (working-brand-friendly)", async () => {
+  it("keeps the default identity for an unlicensed env name", async () => {
     process.env.BRAND_NAME = "Acme Social";
     vi.resetModules();
     const { BRAND } = await import("@/lib/brand");
-    expect(BRAND.name).toBe("Acme Social");
+    expect(BRAND.name).toBe("PostStack");
+    const { withBrand, DEFAULT_BRAND } = await import("@/lib/brand");
+    expect(withBrand({ ...DEFAULT_BRAND, name: "Acme Social" }, () => BRAND.name)).toBe("Acme Social");
   });
 
   it("keeps machine identifiers brand-neutral (rename must not touch them)", async () => {
