@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, outboundDeliveries } from "@/db/schema";
+import { outboundDeliveries } from "@/db/schema";
 import { emitPostEvent } from "@/lib/deliveries/post-events";
 import { redactSecrets } from "@/lib/redact";
 import type { JobHelpers } from "graphile-worker";
@@ -26,14 +26,13 @@ export async function processOutgoingFirstComment(
 
   const deliveryKey = idempotencyKey ?? `job:${helpers.job.id}`;
   const publishDeliveryId = deliveryKey.startsWith("first-comment:") ? deliveryKey.slice("first-comment:".length) : null;
+  let workspaceId: string | undefined;
   const notifyFailure = async () => {
-    if (!publishDeliveryId) return;
-    const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
-    if (!channel) return;
+    if (!publishDeliveryId || !workspaceId) return;
     const ledger = await db.query.outboundDeliveries.findFirst({ where: and(
-      eq(outboundDeliveries.delivery_key, deliveryKey), eq(outboundDeliveries.workspace_id, channel.workspace_id),
+      eq(outboundDeliveries.delivery_key, deliveryKey), eq(outboundDeliveries.workspace_id, workspaceId),
     ) });
-    if (ledger && ["failed", "expired"].includes(ledger.status)) await emitPostEvent(channel.workspace_id, "post.first_comment", publishDeliveryId, {
+    if (ledger && ["failed", "expired"].includes(ledger.status)) await emitPostEvent(workspaceId, "post.first_comment", publishDeliveryId, {
       providerHandle: postId, firstComment: { status: "failed", commentId: null, reason: redactSecrets(ledger.last_error ?? "Comment failed") },
     });
   };
@@ -45,6 +44,7 @@ export async function processOutgoingFirstComment(
       payload: payload as unknown as Record<string, unknown>,
       helpers,
       send: async (channel: DeliveryChannel) => {
+        workspaceId = channel.workspace_id;
         const tokens = decryptChannelToken(channel.token_encrypted);
         const provider = getProvider(channel.platform);
         if (!provider.commentOnPost) {
@@ -54,9 +54,8 @@ export async function processOutgoingFirstComment(
         return { platformMessageId: sent.platformMessageId };
       },
       onSent: async (tx, commentId) => {
-        if (!publishDeliveryId) return;
-        const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
-        if (channel) await emitPostEvent(channel.workspace_id, "post.first_comment", publishDeliveryId, {
+        if (!publishDeliveryId || !workspaceId) return;
+        await emitPostEvent(workspaceId, "post.first_comment", publishDeliveryId, {
           providerHandle: postId, firstComment: { status: "sent", commentId, reason: null },
         }, tx);
       },
