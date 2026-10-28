@@ -410,7 +410,7 @@ async function composeState(): Promise<ComposeState> {
   const embedded = (id: string) => ({ textContent: out.match(new RegExp(`<script id="${id}"[^>]*>([\\s\\S]*?)</script>`))![1] });
   return runInNewContext(readFileSync("src/server/ui/static/tiktok-panel.js", "utf8") +
     readFileSync("src/server/ui/static/schedule-time.js", "utf8") + inline + "; psCompose()", {
-      window: {}, document: { getElementById: embedded },
+      window: {}, document: { getElementById: embedded, querySelectorAll: () => [], addEventListener: () => {} },
     }) as ComposeState;
 }
 
