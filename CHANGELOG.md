@@ -28,6 +28,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 - Overview “Sent today” counts only sent deliveries created within the current UTC day and labels that time basis.
 - API documentation loads Scalar fonts without browser errors, with its font source limited to the documentation page.
+- Dashboard navigation and sign-out close the realtime stream before leaving the page and reconnect live updates when returning from the browser cache.
 - Instance branding displays field validation errors while preserving entered values.
 - Integration setting help wraps long provider examples on narrow screens.
 - White-label Privacy Policy section numbers remain consecutive when website analytics sections are omitted.
