@@ -28,7 +28,9 @@ test.describe.serial("instance branding", () => {
       await page.getByLabel("Logo URL (HTTPS or local path)").fill("/instance-favicon.svg");
       await page.getByLabel("Favicon URL (blank generates an icon)").fill("");
       await page.getByLabel("Accent colour").fill("#4263d5");
-      await page.getByLabel("Default theme").selectOption("light");
+      const themeField = page.locator("label.fld").filter({ has: page.locator("select[name='theme']") });
+      await themeField.locator("button.ps-trigger").click();
+      await themeField.getByRole("option", { name: "Light", exact: true }).click();
       await page.getByLabel("Contact email").fill("help@orchard.example");
       await page.getByLabel("Public origin (HTTPS)").fill("https://orchard.example");
       await page.getByLabel("Footer text").fill("Orchard team");
