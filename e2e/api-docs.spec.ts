@@ -16,6 +16,10 @@ for (const width of [1440, 390]) {
     const favicon = page.locator('link[rel="icon"]');
     await expect(favicon).toHaveAttribute("href", "/favicon.svg");
     expect((await page.request.get((await favicon.getAttribute("href"))!)).status()).toBe(200);
+    await page.goto("/api/docs#tag/webhooks");
+    const signature = page.getByText("X-PostStack-Signature: t=<unix>,v1=<hmac>", { exact: true });
+    await signature.scrollIntoViewIfNeeded();
+    await expect(signature).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`api-docs-${width}.png`) });
     expect(errors).toEqual([]);
     expect(failed).toEqual([]);

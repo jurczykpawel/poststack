@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { events } from "@/db/schema";
+import { channels, contacts, contactChannels, events } from "@/db/schema";
 import { addJobTx } from "@/lib/queue/client";
 
 /**
@@ -28,6 +28,7 @@ export async function notifyRealtime(
  */
 export const EVENT_TYPES = [
   "post.published",
+  "post.first_comment",
   "post.held",
   "post.failed",
   "post.unknown",
@@ -51,7 +52,7 @@ export function isKnownEventType(type: string): type is EventType {
   return EVENT_TYPE_SET.has(type);
 }
 
-type TxLike = { insert: typeof db.insert; execute: typeof db.execute };
+type TxLike = { select: typeof db.select; insert: typeof db.insert; execute: typeof db.execute };
 
 /** Emit an event inside the caller's transaction (outbox semantics with the surrounding write):
  *  writes the `events` row, enqueues the outbound-webhook fan-out job (WHOUT1) — both committing
@@ -64,6 +65,17 @@ export async function emitEvent(
   subject: { type: string; id: string },
   payload: Record<string, unknown> = {},
 ): Promise<void> {
+  if (type === "contact.created" || type === "contact.updated") {
+    const identities = await tx.select({
+      channelId: channels.id,
+      platform: channels.platform,
+      platformSenderId: contactChannels.platform_sender_id,
+    }).from(contactChannels)
+      .innerJoin(contacts, and(eq(contacts.id, contactChannels.contact_id), eq(contacts.workspace_id, workspaceId)))
+      .innerJoin(channels, and(eq(channels.id, contactChannels.channel_id), eq(channels.workspace_id, workspaceId)))
+      .where(eq(contactChannels.contact_id, subject.id)).orderBy(channels.id);
+    payload = { ...payload, workspaceId, channels: identities };
+  }
   const [e] = await tx
     .insert(events)
     .values({ workspace_id: workspaceId, type, subject_type: subject.type, subject_id: subject.id, payload })

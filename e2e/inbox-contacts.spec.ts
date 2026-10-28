@@ -67,8 +67,17 @@ for (const width of [1280, 390]) {
       await expect(page.locator('#conv-filter-form input[name="search"]')).toHaveAttribute("value", name);
       const row = page.locator(`.conv-item[hx-get="/inbox/${conversationId}"]`);
       await expect(row).toBeVisible();
+      const openThread = async () => {
+        const loaded = page.waitForResponse((response) =>
+          new URL(response.url()).pathname === `/inbox/${conversationId}` && response.request().method() === "GET",
+        );
+        await row.click();
+        expect((await loaded).ok()).toBe(true);
+        await expect(row).not.toHaveClass(/htmx-request/);
+        await expect(page.locator("#thread")).not.toHaveClass(/htmx-(settling|swapping)/);
+      };
       await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
-      await row.click();
+      await openThread();
       const separators = page.locator("#thread .daysep:visible");
       await expect(separators).toHaveCount(3);
       await expect(separators.nth(0)).toContainText("24");
@@ -88,7 +97,7 @@ for (const width of [1280, 390]) {
       await page.locator("#conv-filter-form").getByRole("button", { name: "Done (1)", exact: true }).click();
       await expect(row).toBeVisible();
       await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
-      await row.click();
+      await openThread();
       await expect(page.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
       await expect(page.locator("#thread")).not.toHaveClass(/htmx-settling/);
       await page.getByRole("button", { name: "Reopen", exact: true }).click();

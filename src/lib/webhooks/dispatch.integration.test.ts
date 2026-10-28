@@ -1,3 +1,4 @@
+import recordedWebhook from "../../../tests/fixtures/webhook-consumer.json";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 
@@ -290,5 +291,51 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
       await emitEvent(tx, WS, "channel.reconnected", { type: "channel", id: "c9" }, { ok: true });
     });
     expect(await jobs("event-dispatch")).toBe(before + 1);
+  });
+});
+
+describe.skipIf(!TEST_DB)("webhook consumer routing contract", () => {
+  it.each(recordedWebhook.events)("preserves recorded $type fields and supplies routing context", async (recorded) => {
+    const { emitPostEvent } = await import("@/lib/deliveries/post-events");
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.test/consumer", eventTypes: [recorded.type] });
+    const [channel] = await db.insert(s.channels).values({
+      workspace_id: WS, platform: recorded.data.platform === "facebook" ? "facebook" : "instagram", platform_id: "consumer-account", token_encrypted: "unused", webhook_secret: "unused",
+    }).returning();
+    const { id, type, ...legacy } = recorded.data;
+    if (recorded.type.startsWith("post.")) {
+      const [delivery] = await db.insert(s.deliveries).values({
+        id: legacy.deliveryId, workspace_id: WS, channel_id: channel.id, format: "image",
+        status: recorded.type === "post.published" ? "sent" : "failed",
+        payload: { firstComment: "" }, scheduled_at: new Date(), run_at: new Date(),
+      }).returning();
+      await db.insert(s.posts).values({ id, workspace_id: WS, platform: "instagram", delivery_id: delivery.id, published_at: new Date(recorded.created_at) });
+      await emitPostEvent(WS, recorded.type, delivery.id, legacy);
+    } else {
+      await db.insert(s.contacts).values({ id, workspace_id: WS });
+      await db.insert(s.contactChannels).values({ contact_id: id, channel_id: channel.id, platform_sender_id: recordedWebhook.contactIdentity.platform_sender_id });
+      // Emission snapshots only identities visible within the contact's workspace.
+      const [other] = await db.insert(s.channels).values({ workspace_id: OTHER_WS, platform: "facebook", platform_id: "other-account", token_encrypted: "unused", webhook_secret: "unused" }).returning();
+      await db.insert(s.contactChannels).values({ contact_id: id, channel_id: other.id, platform_sender_id: "other-sender" });
+      await db.transaction((tx) => emitEvent(tx, WS, recorded.type, { type, id }, legacy));
+    }
+    const event = (await db.select().from(s.events).where(eq(s.events.subject_id, id)))[0];
+    await processEventDispatch({ eventId: event.id }, helpers());
+    const [delivery] = await db.select().from(s.webhookDeliveries).where(eq(s.webhookDeliveries.event_id, event.id));
+    await processWebhookDelivery({ deliveryId: delivery.id }, helpers());
+    const init = connectStub.mock.calls[0][1];
+    const raw = String(init.body);
+    const body = JSON.parse(raw);
+    expect(verifyWebhook(ep.secret, (init.headers as Record<string, string>)["X-PostStack-Signature"], raw)).toBe(true);
+    expect(body).toMatchObject({ id: event.id, type: recorded.type, created_at: expect.any(String), data: recorded.data });
+    expect(body.data.workspaceId).toBe(WS);
+    if (recorded.type.startsWith("post.")) {
+      expect(body.data).toMatchObject({ channelId: channel.id, platform: channel.platform, status: recorded.type === "post.published" ? "published" : "failed" });
+      if (recorded.type === "post.published") expect(body.data).toMatchObject({ publishedAt: recorded.created_at, firstComment: { status: "not_attempted", reason: "no_text", commentId: null } });
+      else expect(body.data.reason).toBe(legacy.error);
+    } else {
+      expect(body.data.channels).toEqual([{ channelId: channel.id, platform: "instagram", platformSenderId: recordedWebhook.contactIdentity.platform_sender_id }]);
+      expect(body.data).not.toHaveProperty("email");
+      expect(body.data).not.toHaveProperty("phone");
+    }
   });
 });
