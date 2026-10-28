@@ -73,9 +73,10 @@ export const openApiSpec = {
           delivery: {
             type: ["object", "null"],
             description: "Execution linked to this post; null before a delivery exists. TikTok remains processing until publication or a final failure; held deliveries explain required confirmation in lastError.",
-            required: ["id", "status", "scheduledFor", "attempts", "lastError", "platformPostId", "updatedAt", "firstComment"],
+            required: ["id", "channelId", "status", "scheduledFor", "attempts", "lastError", "platformPostId", "updatedAt", "firstComment"],
             properties: {
               id: { type: "string", format: "uuid" },
+              channelId: { type: "string", format: "uuid", description: "Connected account used for this delivery." },
               status: { type: "string", enum: ["scheduled", "sending", "processing", "sent", "held", "unknown", "failed", "canceled"] },
               scheduledFor: { type: "string", format: "date-time", description: "Requested publish time (when)." },
               attempts: { type: "integer" },
@@ -1478,6 +1479,34 @@ export const openApiSpec = {
     { name: "API Keys", description: "Programmatic access tokens" },
     { name: "Workspace", description: "Settings, retention, audit log" },
     { name: "Stats", description: "Aggregate metrics (response times, answer rate)" },
-    { name: "Webhooks", description: "Outbound event webhooks (HMAC-signed, with retry)" },
+    { name: "Webhooks", description: `Outbound event webhooks require PRO. Register a URL and retain the signing secret returned once on creation. An empty event_types array subscribes to every catalog event, including future additions.
+
+### Envelope and delivery
+The default JSON envelope is { id, type, created_at, data }. id is the event UUID for deduplication, type is the event name, created_at is the event timestamp in UTC, and data.id / data.type identify the subject. Post subjects use the editorial post ID from GET /posts/{id} (legacy deliveries without an editorial post use the delivery ID). Event-specific fields are inside data. Payload changes are additive; accept unknown fields. Custom extra_payload_fields can override envelope fields, so the following contract describes the default body.
+
+POSTs use Content-Type: application/json, X-PostStack-Event and X-PostStack-Timestamp. Verify X-PostStack-Signature: t=<unix>,v1=<hmac> by computing HMAC-SHA256 in hexadecimal over timestamp.raw-body (the decimal timestamp, a literal dot, then the exact raw request bytes), using the endpoint secret. Compare in constant time before parsing JSON, check timestamp freshness (e.g. 300 seconds), and accept any matching v1 value during secret rotation. Do not reserialize JSON before verification.
+
+A 2xx response acknowledges delivery. Non-2xx responses, network failures and the 10-second timeout retry with exponential backoff for up to 8 attempts total. The final failed attempt is retained as failed. Delivery is at least once: deduplicate by envelope id, acknowledge quickly, and process asynchronously. Ordering between events is not guaranteed; a retry signs with a new delivery timestamp but keeps the event id and created_at.
+
+### Event data catalog
+Every event includes data.id and data.type. Fields below are additional data fields; nullable results remain null until known.
+
+| Event | Subject and data fields |
+| --- | --- |
+| \`post.published\` | post: workspaceId, channelId, platform, status=published, deliveryId, providerHandle (platform post ID), publishedAt (UTC), firstComment {status, commentId, attempts, lastError, reason?}. firstComment is a snapshot at emission; not_attempted without a reason means the comment is eligible and awaiting its worker. Skip reasons: no_text, unlicensed, unsupported_platform. |
+| \`post.first_comment\` | post: workspaceId, channelId, platform, status (publication status), deliveryId, providerHandle, firstComment {status=sent or failed, commentId, reason}. Emitted after comment success or terminal failure; intermediate retries do not emit failed. Published events and this result may arrive out of order. |
+| \`post.failed\` | post: workspaceId, channelId, platform, status=failed, deliveryId, error (existing provider error), reason (same error). |
+| \`post.held\` | post: workspaceId, channelId, platform, status=held, deliveryId, reason; confirmationUrl when renewed confirmation is required. |
+| \`post.unknown\` | post: workspaceId, channelId, platform, status=unknown, deliveryId, reason. Provider outcome needs reconciliation. |
+| \`contact.created\` | contact: workspaceId, channels [{channelId, platform, platformSenderId}]. Snapshot of every linked platform identity, as available in GET /contacts/{id}. |
+| \`contact.updated\` | contact: workspaceId, channels [{channelId, platform, platformSenderId}]. Identity snapshot at the update, not a changed-fields diff; fetch the contact for its current details. |
+| \`channel.created\` | channel: platform, displayName. |
+| \`channel.reconnected\` | channel: platform, displayName. |
+| \`channel.needs_reauth\` | channel: platform, displayName. |
+| \`source.connected\` | account source: id and type; reserved catalog event, no additional data fields guaranteed. |
+| \`source.synced\` | account source: id and type; reserved catalog event, no additional data fields guaranteed. |
+| \`source.needs_reauth\` | account source: id and type; reserved catalog event, no additional data fields guaranteed. |
+| \`source.data_access_expiring\` | account source: id and type; reserved catalog event, no additional data fields guaranteed. |
+` },
   ],
 };

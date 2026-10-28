@@ -1,3 +1,4 @@
+import recordedWebhook from "../../../tests/fixtures/webhook-consumer.json";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 
@@ -1436,6 +1437,33 @@ describe("outgoing-comment worker", () => {
 });
 
 describe("outgoing-first-comment worker (FIRSTCOMMENT1)", () => {
+  it.each(["sent", "failed", "expired", "retry"] as const)("notifies the integrator of the first-comment %s result", async (outcome) => {
+    const recorded = recordedWebhook.events.find((event) => event.type === "post.published")!;
+    const [delivery] = await db.insert(s.deliveries).values({
+      workspace_id: WS, channel_id: CH, format: "image", status: "sent",
+      payload: {}, provider_handle: recorded.data.providerHandle,
+      scheduled_at: new Date(), run_at: new Date(),
+    }).returning();
+    const [post] = await db.insert(s.posts).values({ workspace_id: WS, platform: "facebook", delivery_id: delivery.id, status: "published" }).returning();
+    const job = { channelId: CH, postId: recorded.data.providerHandle!, text: "First comment", idempotencyKey: `first-comment:${delivery.id}` };
+    if (outcome === "sent") provider.commentOnPost.mockResolvedValueOnce({ platformMessageId: recordedWebhook.firstComment.commentId });
+    else provider.commentOnPost.mockRejectedValueOnce(outcome === "expired" ? new MessagingPolicyError("Comment unavailable") : new Error("Comment unavailable"));
+    const finalHelpers = { logger: { info() {} }, job: { attempts: outcome === "retry" ? 1 : 8, max_attempts: 8 } } as never;
+    if (outcome === "sent" || outcome === "expired") await w.processOutgoingFirstComment(job, finalHelpers);
+    else await expect(w.processOutgoingFirstComment(job, finalHelpers)).rejects.toThrow("Comment unavailable");
+    const events = await db.select().from(s.events).where(and(eq(s.events.workspace_id, WS), eq(s.events.subject_id, post.id), eq(s.events.type, "post.first_comment")));
+    if (outcome === "retry") { expect(events).toHaveLength(0); return; }
+    expect(events).toHaveLength(1);
+    expect(events[0].payload).toMatchObject({
+      workspaceId: WS, channelId: CH, platform: "facebook", deliveryId: delivery.id,
+      firstComment: outcome === "sent" ? { status: "sent", commentId: recordedWebhook.firstComment.commentId } : { status: "failed", reason: "Comment unavailable" },
+    });
+    if (outcome === "sent") {
+      await w.processOutgoingFirstComment(job, finalHelpers);
+      expect(await db.select().from(s.events).where(and(eq(s.events.subject_id, post.id), eq(s.events.type, "post.first_comment")))).toHaveLength(1);
+    }
+  });
+
   it("posts a top-level comment on the published post via commentOnPost and records the delivery", async () => {
     if (!TEST_DB) return;
     await w.processOutgoingFirstComment(

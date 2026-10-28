@@ -14,7 +14,7 @@ import { tryConsume } from "@/lib/channels/rate-limit";
 import { addJob, addJobTx } from "@/lib/queue/client";
 import { firstCommentEligibility } from "./first-comment";
 import { processTokenRefresh } from "@/lib/channels/token-refresh";
-import { emitEventNow } from "@/lib/events";
+import { emitPostEvent } from "./post-events";
 import type { PublishRequest } from "@/lib/providers/types";
 import { resolveMediaDetails } from "./resolve-media";
 import { redactSecrets } from "@/lib/redact";
@@ -104,31 +104,12 @@ async function buildAiDisclosureSent(
   }
 }
 
-/**
- * APIFIX1: emit a post.* lifecycle event keyed to the EDITORIAL post (`posts.delivery_id`), so a
- * webhook consumer can resolve it with `GET /api/v1/posts/{id}`. A delivery reaches the public API
- * only through an editorial post, so the link is normally present; falls back to the delivery id.
- * The delivery id is carried in the payload for correlation. Best-effort.
- */
-async function emitPostEvent(
-  workspaceId: string,
-  type: string,
-  deliveryId: string,
-  payload: Record<string, unknown>,
-): Promise<void> {
-  const editorial = await db.query.posts.findFirst({
-    where: and(eq(posts.delivery_id, deliveryId), eq(posts.workspace_id, workspaceId)),
-    columns: { id: true },
-  });
-  await emitEventNow(workspaceId, type, { type: "post", id: editorial?.id ?? deliveryId }, { ...payload, deliveryId }).catch(() => {});
-}
-
 /** Terminal failure: mark failed + reflect editorial + emit the event. */
 async function failDelivery(deliveryId: string, workspaceId: string, message: string): Promise<void> {
   message = redactSecrets(message); // PSA13
   await setStatus(deliveryId, workspaceId, "failed", { last_error: message });
   await reflectEditorial(deliveryId, workspaceId, "failed");
-  await emitPostEvent(workspaceId, "post.failed", deliveryId, { error: message });
+  await emitPostEvent(workspaceId, "post.failed", deliveryId, { error: message }).catch(() => {});
 }
 
 /** Land a delivery in `unknown` (indeterminate), but OBSERVABLE (PSA3): event + editorial needs_attention. */
@@ -136,7 +117,7 @@ async function markUnknown(deliveryId: string, workspaceId: string, reason: stri
   reason = redactSecrets(reason); // PSA13
   await setStatus(deliveryId, workspaceId, "unknown");
   await reflectEditorial(deliveryId, workspaceId, "needs_attention");
-  await emitPostEvent(workspaceId, "post.unknown", deliveryId, { reason });
+  await emitPostEvent(workspaceId, "post.unknown", deliveryId, { reason }).catch(() => {});
 }
 
 /** Deliveries left in `sending` longer than this are surfaced by the recovery sweep (PSA3). */
@@ -252,7 +233,7 @@ async function completePublish(post: DeliveryRow, channel: typeof channels.$infe
     return true;
   });
   if (!changed) return;
-  await emitPostEvent(post.workspace_id, "post.published", post.id, { providerHandle, platform: channel.platform });
+  await emitPostEvent(post.workspace_id, "post.published", post.id, { providerHandle, platform: channel.platform }).catch(() => {});
   await provisionAutoReply(post.id, post.workspace_id).catch(() => {});
   await enqueueFirstComment(channel, request, providerHandle, post.id).catch(() => {});
   await enqueueAutoStory(channel, request, post.id).catch(() => {});
@@ -428,7 +409,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       const reason = redactSecrets(err.message);
       await setStatus(postId, ws, "held", { tiktok_confirmation: "required", last_error: reason });
       await reflectEditorial(postId, ws, "held");
-      await emitPostEvent(ws, "post.held", postId, { reason, platform: channel.platform, confirmationUrl: `/queue/${postId}/confirm` });
+      await emitPostEvent(ws, "post.held", postId, { reason, platform: channel.platform, confirmationUrl: `/queue/${postId}/confirm` }).catch(() => {});
       await dispatchAlert({ type: "delivery_held", workspaceId: ws, channelId: channel.id, platform: "tiktok", detail: `${reason} Review /queue/${postId}/confirm` });
       return;
     }
@@ -437,7 +418,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       await setStatus(postId, ws, "held", { last_error: err.message });
       await reflectEditorial(postId, ws, "held").catch(() => {}); // PSA3
       await markChannelNeedsReauth(channel.id, err.message).catch(() => {});
-      await emitPostEvent(ws, "post.held", postId, { reason: redactSecrets(err.message), platform: channel.platform });
+      await emitPostEvent(ws, "post.held", postId, { reason: redactSecrets(err.message), platform: channel.platform }).catch(() => {});
       return; // reconnect + drain will retry
     }
     if (err instanceof PermanentError) {

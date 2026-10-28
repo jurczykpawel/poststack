@@ -252,6 +252,8 @@ describe("publish worker (AUD27)", () => {
       expect(await status(postId)).toBe("held");
       const ch = await db.query.channels.findFirst({ where: eq(schema.channels.id, channelId) });
       expect(ch!.status).toBe("needs_reauth");
+      const held = (await db.query.events.findMany({ where: eq(schema.events.type, "post.held") }))[0];
+      expect(held.payload).toMatchObject({ workspaceId: WS, channelId, platform: "tiktok", status: "held", reason: "token dead" });
     } finally {
       spy.mockRestore();
     }
@@ -293,12 +295,12 @@ describe("publish worker (AUD27)", () => {
     // APIFIX1: the event is keyed to the editorial post, with the delivery id in the payload.
     expect(await events(editorialId)).toContain("post.unknown");
     const ev = (await db.query.events.findMany({ where: eq(schema.events.subject_id, editorialId) })).find((e) => e.type === "post.unknown");
-    expect((ev!.payload as { deliveryId?: string }).deliveryId).toBe(postId);
+    expect(ev!.payload).toMatchObject({ workspaceId: WS, deliveryId: postId, platform: "tiktok", status: "unknown", reason: expect.any(String) });
   });
 
   it("post.published is keyed to the editorial post id, with the delivery id in the payload [APIFIX1]", async () => {
     if (!TEST_DB) return;
-    const { postId } = await scenario();
+    const { postId, channelId } = await scenario();
     const editorialId = await linkEditorial(postId);
     const spy = vi.spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish").mockResolvedValue({ providerHandle: "post_abc" });
     try {
@@ -307,6 +309,7 @@ describe("publish worker (AUD27)", () => {
       const published = (await db.query.events.findMany({ where: eq(schema.events.subject_id, editorialId) })).find((e) => e.type === "post.published");
       expect(published).toBeTruthy(); // subject id resolves via GET /posts/{id}
       expect(published!.subject_type).toBe("post");
+      expect(published!.payload).toMatchObject({ workspaceId: WS, channelId, platform: "tiktok", status: "published", publishedAt: expect.any(String), firstComment: { status: "not_attempted" } });
       expect((published!.payload as { deliveryId?: string }).deliveryId).toBe(postId);
       // and nothing was emitted under the delivery id
       const underDelivery = (await db.query.events.findMany({ where: eq(schema.events.subject_id, postId) })).filter((e) => e.type.startsWith("post."));
@@ -779,6 +782,7 @@ describe("publish worker (AUD27)", () => {
       expect(row!.last_error).toContain("[REDACTED]");
       const ev = (await db.query.events.findMany({ where: eq(schema.events.subject_id, editorialId) })).find((e) => e.type === "post.failed");
       expect(JSON.stringify(ev!.payload)).not.toContain("EAABLEAKEDTOKEN999");
+      expect(ev!.payload).toMatchObject({ workspaceId: WS, platform: "tiktok", status: "failed", reason: row!.last_error, error: row!.last_error });
     } finally {
       spy.mockRestore();
     }

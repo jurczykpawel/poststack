@@ -167,7 +167,7 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
     const detail = await (await call("GET", `/posts/${f.postId}`, undefined, READ_KEY)).json();
     expect(detail.data.scheduledDate).toBe(when);
     expect(detail.data.delivery).toMatchObject({
-      status: "scheduled", scheduledFor: when,
+      channelId: f.channelId, status: "scheduled", scheduledFor: when,
       firstComment: { status: "not_attempted", reason: "awaiting_publish", commentId: null, attempts: 0, lastError: null },
     });
   });
@@ -186,7 +186,7 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
     }).returning();
     const detail = await (await call("GET", `/posts/${f.postId}`)).json();
     expect(detail.data.delivery).toEqual({
-      id: "c0ffee08-0000-4000-8000-000000000d03", status: "sent", scheduledFor: "2030-01-02T08:30:00.000Z",
+      id: "c0ffee08-0000-4000-8000-000000000d03", channelId: f.channelId, status: "sent", scheduledFor: "2030-01-02T08:30:00.000Z",
       attempts: 1, lastError: "access_token=[REDACTED]", platformPostId: "platform-post-1",
       updatedAt: "2030-01-02T09:00:00.000Z",
       firstComment: { status: "sent", commentId: "comment-1", attempts: 1, lastError: null },

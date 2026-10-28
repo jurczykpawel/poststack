@@ -26,6 +26,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The `BRAND_NAME` environment variable alone no longer renames the instance; rebranding is now the Business-tier instance branding setting (Settings → Integrations → Instance branding).
 
 ### Fixed
+- Published-post webhooks now identify the workspace, channel, status and publication time; post delivery reads include the channel ID.
+- First-comment results are included in publication snapshots and announced separately through `post.first_comment` after completion.
+- Failed, held and unknown publication webhooks now include workspace, channel, platform, status and reason while retaining existing fields.
+- Contact creation and update webhooks now carry the workspace and linked channel/platform sender identities.
+- API documentation now describes every webhook event, its envelope, payload fields, signature verification and delivery retries.
 - Overview “Sent today” counts only sent deliveries created within the current UTC day and labels that time basis.
 - API documentation loads Scalar fonts without browser errors, with its font source limited to the documentation page.
 - Dashboard navigation and sign-out close the realtime stream before leaving the page and reconnect live updates when returning from the browser cache.

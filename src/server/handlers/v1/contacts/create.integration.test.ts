@@ -1,3 +1,4 @@
+import recordedWebhook from "../../../../../tests/fixtures/webhook-consumer.json";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
 import { and, eq } from "drizzle-orm";
@@ -110,14 +111,16 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
   });
 
   it("emits contact.created on a create and contact.updated on a re-import (update)", async () => {
-    await post({ channel_id: CH, platform_username: "carol" });
+    const identity = recordedWebhook.contactIdentity;
+    await post({ channel_id: CH, platform_sender_id: identity.platform_sender_id });
     const afterCreate = await db
       .select()
       .from(s.events)
       .where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "contact.created")));
     expect(afterCreate).toHaveLength(1);
+    expect(afterCreate[0].payload).toMatchObject({ workspaceId: WS, channels: [{ channelId: CH, platform: expect.any(String), platformSenderId: identity.platform_sender_id }] });
 
-    await post({ channel_id: CH, platform_username: "carol", email: "carol@example.com" }); // update
+    await post({ channel_id: CH, platform_sender_id: identity.platform_sender_id, email: "carol@example.com" }); // update
     const created = await db
       .select()
       .from(s.events)
@@ -127,6 +130,7 @@ describe.skipIf(!TEST_DB)("POST /api/v1/contacts", () => {
       .select()
       .from(s.events)
       .where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "contact.updated")));
+    expect(updated[0].payload).toEqual(afterCreate[0].payload);
     expect(updated).toHaveLength(1); // the re-import fired contact.updated [APIFIX2]
     expect(updated[0].subject_id).toBe(afterCreate[0].subject_id);
   });

@@ -240,3 +240,15 @@ describe("list pagination contracts", () => {
     else expect(container).toMatchObject({ properties: { nextCursor: { type: ["string", "null"] } } });
   });
 });
+
+describe("outbound webhook consumer documentation", () => {
+  it("describes every subscribable event and its data fields", async () => {
+    const { EVENT_TYPES } = await import("@/lib/events");
+    const description = [
+      openApiSpec.tags.find((tag) => tag.name === "Webhooks")!.description,
+      openApiSpec.paths["/webhooks"].post.description,
+    ].join("\n");
+    for (const type of [...EVENT_TYPES, "post.first_comment"]) expect(description).toContain(`\`${type}\``);
+    for (const field of ["workspaceId", "channelId", "publishedAt", "firstComment", "platformSenderId", "X-PostStack-Signature", "timestamp.raw-body", "8 attempts"]) expect(description).toContain(field);
+  });
+});

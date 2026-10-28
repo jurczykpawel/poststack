@@ -9,7 +9,7 @@ import type { PostRow } from "./service";
 const errorText = (error: string | null) => error === null ? null : redactSecrets(error);
 
 /** Load both ledgers once per page, including workspace scope on every table. */
-export async function withPostDeliveries(rows: PostRow[], workspaceId: string) {
+export async function withPostDeliveries<T extends Pick<PostRow, "delivery_id">>(rows: T[], workspaceId: string) {
   const ids = rows.flatMap((row) => row.delivery_id ? [row.delivery_id] : []);
   const linked = ids.length ? await db.select({
     delivery: deliveries,
@@ -36,6 +36,7 @@ export async function withPostDeliveries(rows: PostRow[], workspaceId: string) {
       : (await firstCommentEligibility(channel, d.payload as PublishRequest)).reason;
     return [d.id, {
       id: d.id,
+      channelId: d.channel_id,
       status: d.status,
       scheduledFor: d.scheduled_at.toISOString(),
       attempts: d.attempts,

@@ -1,0 +1,82 @@
+{
+  "events": [
+    {
+      "id": "03c92f6c-b259-44b4-a9ba-82f36e80a1a0",
+      "type": "post.published",
+      "created_at": "2026-10-28T18:23:47.851Z",
+      "data": {
+        "id": "4211bfad-93e1-4e14-a027-876161465ae4",
+        "type": "post",
+        "platform": "instagram",
+        "deliveryId": "84ae4b86-45d3-480d-bcc2-7131901ae9f8",
+        "providerHandle": "18116699119838094"
+      }
+    },
+    {
+      "id": "5cf694fa-90f8-4f33-97a4-d4506fb20ec5",
+      "type": "post.published",
+      "created_at": "2026-10-28T18:24:00.072Z",
+      "data": {
+        "id": "e97bd025-d5dd-4b45-ab59-e3944daedebb",
+        "type": "post",
+        "platform": "facebook",
+        "deliveryId": "71da41f1-5723-4451-ad0f-1f82724b0a78",
+        "providerHandle": "155546734963312_122342645192008673"
+      }
+    },
+    {
+      "id": "fc05d196-fc7b-42d5-b5d4-cf8fd74a1480",
+      "type": "contact.created",
+      "created_at": "2026-10-28T18:26:40.959Z",
+      "data": {
+        "id": "327cf35b-e756-43cb-97a5-4476f4c1e897",
+        "type": "contact"
+      }
+    },
+    {
+      "id": "5a0a1975-33d5-4531-9d0b-c49afd692d6b",
+      "type": "contact.updated",
+      "created_at": "2026-10-28T18:27:02.991Z",
+      "data": {
+        "id": "327cf35b-e756-43cb-97a5-4476f4c1e897",
+        "type": "contact"
+      }
+    },
+    {
+      "id": "a474a1b3-16ed-4d88-8aea-70b75a12be73",
+      "type": "post.failed",
+      "created_at": "2026-10-28T18:32:07.630Z",
+      "data": {
+        "id": "f8211fe6-ffc2-4367-b6d4-982b3cf02e85",
+        "type": "post",
+        "error": "Meta publish failed (400): The aspect ratio is not supported.",
+        "deliveryId": "9dfc153f-2b77-41cd-9d37-c8e00f0e6d44"
+      }
+    },
+    {
+      "id": "b12b1ac4-abf9-4032-9f25-22fec9e7ffed",
+      "type": "post.failed",
+      "created_at": "2026-10-28T18:38:44.438Z",
+      "data": {
+        "id": "2e3e44f2-404b-4def-96e2-bd9f4a679e2a",
+        "type": "post",
+        "error": "Meta publish failed (400): The aspect ratio is not supported.",
+        "deliveryId": "553c80c9-b096-4df0-a867-303d6b31e437"
+      }
+    }
+  ],
+  "contactIdentity": {
+    "platform_sender_id": "mqa9_integrator_inert_20261028",
+    "platform_username": "mqa9_integrator_inert_20261028",
+    "channel": {
+      "id": "c3c44d59-ecb1-494c-b0c0-2f783f397b54",
+      "platform": "instagram"
+    }
+  },
+  "firstComment": {
+    "status": "sent",
+    "commentId": "18111819050350949",
+    "attempts": 1,
+    "lastError": null
+  }
+}
