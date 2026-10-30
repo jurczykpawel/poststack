@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- API documentation handles skipped document transitions when returning with Back or Forward.
+- Realtime reconnects no longer log a raw browser Event as an application error; SSE responses disable proxy transformations and buffering.
+
 ## [0.14.0] - 2026-10-29
 
 ### Security

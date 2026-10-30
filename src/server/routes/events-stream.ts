@@ -17,7 +17,7 @@ export async function GET(c: Context): Promise<Response> {
   // Ensure this web process is LISTENing (idempotent; lazy on the first SSE connection).
   await startRealtimeListener();
 
-  return streamSSE(c, async (stream) => {
+  const response = streamSSE(c, async (stream) => {
     // Queue signals from the hub; the writer loop drains them. (streamSSE wants awaited writes.)
     const pending: { event: string; data: string }[] = [];
     let notify: (() => void) | null = null;
@@ -58,4 +58,7 @@ export async function GET(c: Context): Promise<Response> {
     }
     unsubscribe();
   });
+  response.headers.set("Cache-Control", "no-cache, no-transform");
+  response.headers.set("X-Accel-Buffering", "no");
+  return response;
 }

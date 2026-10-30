@@ -1,5 +1,6 @@
 /*
 Server Sent Events Extension
+PostStack patch: reconnect notifications omit the htmx error-logger field.
 ============================
 This extension adds support for Server Sent Events to htmx.  See /www/extensions/sse.md for usage instructions.
 
@@ -197,8 +198,12 @@ This extension adds support for Server Sent Events to htmx.  See /www/extensions
     var source = htmx.createEventSource(url)
 
     source.onerror = function(err) {
-      // Log an error event
-      api.triggerErrorEvent(elt, 'htmx:sseError', { error: err, source })
+      // Native reconnects are lifecycle notifications; keep other failures in the error logger.
+      if (source.readyState === EventSource.CONNECTING && err instanceof Event && err.type === 'error') {
+        api.triggerEvent(elt, 'htmx:sseError', { event: err, source })
+      } else {
+        api.triggerErrorEvent(elt, 'htmx:sseError', { error: err, source })
+      }
 
       // If parent no longer exists in the document, then clean up this EventSource
       if (maybeCloseSSESource(elt)) {
