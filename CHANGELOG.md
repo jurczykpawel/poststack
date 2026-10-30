@@ -9,6 +9,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Cancel and publish-now delivery API actions and a Publish now button in Queue; content detail API includes delivery state for each post.
+
+### Fixed
+- Concurrent incoming messages update conversation activity reliably.
+- Canceling a queued delivery restores its post to planned for republishing. Editing pending post text, first comment or media updates the publish payload atomically; publishing deliveries return a conflict.
+
 ## [0.14.0] - 2026-10-29
 
 ### Security

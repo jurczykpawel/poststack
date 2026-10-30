@@ -126,6 +126,43 @@ async function publishJobByKey(jobKey: string): Promise<{ run_at: string } | nul
   return (r.rows[0] as { run_at: string } | undefined) ?? null;
 }
 
+it("publishes the payload saved before the worker claims the delivery", async () => {
+  const { postId } = await scenario();
+  const { tiktokProvider } = await import("@/lib/providers/tiktok");
+  const publish = vi.spyOn(tiktokProvider, "publish").mockResolvedValue({ providerHandle: "updated_post" });
+  const original = db.query.channels.findFirst.bind(db.query.channels);
+  let ready!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>(r => { ready = r; });
+  const gate = new Promise<void>(r => { release = r; });
+  const lookup = vi.spyOn(db.query.channels, "findFirst").mockImplementationOnce((...args) => {
+    const query = original(...args);
+    const execute = query.execute.bind(query);
+    query.execute = async () => {
+      const channel = await execute();
+      ready();
+      await gate;
+      return channel;
+    };
+    return query;
+  });
+  const running = processPublish({ postId }, helpers);
+  try {
+    await entered;
+    const row = (await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) }))!;
+    await db.update(schema.deliveries).set({ payload: { ...row.payload as object, caption: "Price 99" } }).where(eq(schema.deliveries.id, postId));
+    release();
+    await running;
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish.mock.calls[0][0].request).toMatchObject({ caption: "Price 99" });
+  } finally {
+    release();
+    await running;
+    lookup.mockRestore();
+    publish.mockRestore();
+  }
+});
+
 describe("publish worker (AUD27)", () => {
   it("publishes Direct Post with saved settings and registered duration", async () => {
     const { postId } = await scenario();

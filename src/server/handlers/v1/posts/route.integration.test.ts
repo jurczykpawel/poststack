@@ -9,6 +9,11 @@ vi.mock("@/lib/license/gate", async (original) => ({
   hasFeature: vi.fn(async () => licensed.value),
 }));
 
+vi.mock("@/lib/media/service", async (original) => ({
+  ...await original<typeof import("@/lib/media/service")>(),
+  registerByUrl: vi.fn(),
+}));
+
 const TEST_DB = process.env.TEST_DATABASE_URL;
 const KEY = "sk_live_posts_key_abcd000000000001";
 const OTHER_KEY = "sk_live_posts_other_abcd0000000002";
@@ -90,6 +95,99 @@ async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null 
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
+  it.each(["scheduled", "held"] as const)("PATCH updates the %s publish payload consumed by the worker", async (status) => {
+    const { postId, delivery } = await deliveryFixture();
+    const [asset] = await db.insert(s.media).values({ workspace_id: WS, checksum: "original", storage_key: "old", url: "https://example.com/old.mp4", kind: "video" }).returning();
+    const [replacement] = await db.insert(s.media).values({ workspace_id: WS, checksum: "replacement", storage_key: "new", url: "https://example.com/new.mp4", kind: "video" }).returning();
+    await db.update(s.posts).set({ status: "scheduled", video_url: asset!.url, cover_url: "https://example.com/old.jpg", hashtags: "#sale" }).where(eq(s.posts.id, postId));
+    await db.update(s.deliveries).set({ status, payload: { format: "reel", media: [{ mediaId: asset!.id }], caption: "old", options: { keepOption: true, coverUrl: "https://example.com/old.jpg" } } }).where(eq(s.deliveries.id, delivery.id));
+    const { registerByUrl } = await import("@/lib/media/service");
+    vi.mocked(registerByUrl).mockClear().mockResolvedValue(replacement!);
+    expect((await call("PATCH", `/posts/${postId}`, { description: "Price 99", firstComment: "Details" })).status).toBe(200);
+    expect(registerByUrl).not.toHaveBeenCalled();
+    expect((await call("PATCH", `/posts/${postId}`, { description: "x".repeat(3000), scheduledDate: "2031-01-01T00:00:00.000Z" })).status).toBe(422);
+    expect((await db.query.posts.findFirst({ where: eq(s.posts.id, postId) }))!.description).toBe("Price 99");
+    expect((await db.query.deliveries.findFirst({ where: eq(s.deliveries.id, delivery.id) }))!.scheduled_at).toEqual(delivery.scheduled_at);
+    let changed = await db.query.deliveries.findFirst({ where: eq(s.deliveries.id, delivery.id) });
+    expect(changed!.payload).toMatchObject({ caption: "Price 99\n\n#sale", firstComment: "Details", media: [{ mediaId: asset!.id }], options: { keepOption: true } });
+    expect((await call("PATCH", `/posts/${postId}`, { videoUrl: replacement!.url, firstComment: null, coverUrl: null })).status).toBe(200);
+    expect(registerByUrl).toHaveBeenCalledOnce();
+    changed = await db.query.deliveries.findFirst({ where: eq(s.deliveries.id, delivery.id) });
+    expect(changed!.payload).toMatchObject({ caption: "Price 99\n\n#sale", media: [{ mediaId: replacement!.id }] });
+    expect(changed!.payload).not.toHaveProperty("firstComment");
+    expect(changed!.payload).not.toHaveProperty("options.coverUrl");
+    await db.update(s.deliveries).set({ status: "sending" }).where(eq(s.deliveries.id, delivery.id));
+    const late = await call("PATCH", `/posts/${postId}`, { description: "late" });
+    expect(late.status).toBe(409);
+    expect((await late.json()).error.message).toContain("already publishing");
+    expect((await db.query.posts.findFirst({ where: eq(s.posts.id, postId) }))!.description).toBe("Price 99");
+  });
+  it("waits for a delivery claim and rejects the edit after it becomes sending", async () => {
+    const { postId, delivery } = await deliveryFixture();
+    let ready!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { ready = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const claiming = db.transaction(async (tx) => {
+      await tx.update(s.deliveries).set({ status: "sending" }).where(eq(s.deliveries.id, delivery.id));
+      ready();
+      await gate;
+    });
+    await entered;
+    const editing = call("PATCH", `/posts/${postId}`, { description: "Changed after claim" });
+    try {
+      const { sql } = await import("drizzle-orm");
+      await vi.waitFor(async () => {
+        const locks = await db.execute(sql`select count(*)::int as n from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like '%deliveries%'`);
+        expect(locks.rows[0].n).toBeGreaterThan(0);
+      });
+      release();
+      await claiming;
+      expect((await editing).status).toBe(409);
+      expect((await db.query.posts.findFirst({ where: eq(s.posts.id, postId) }))!.description).toBe("hi");
+    } finally { release(); await claiming; await editing; }
+  });
+  it.each(["cancel", "publish-now"])("%s requires a write scope and keeps TikTok confirmation", async (action) => {
+    const { delivery } = await deliveryFixture();
+    expect((await call("POST", `/deliveries/${delivery.id}/${action}`, undefined, null)).status).toBe(401);
+    expect((await call("POST", `/deliveries/${delivery.id}/${action}`, undefined, READ_KEY)).status).toBe(401);
+    await db.update(s.deliveries).set({ tiktok_confirmation: "required", status: "held" }).where(eq(s.deliveries.id, delivery.id));
+    expect((await call("POST", `/deliveries/${delivery.id}/${action}`)).status).toBe(action === "cancel" ? 204 : 409);
+  });
+  it("cancel resets the editorial post and exposes delivery on nested content posts", async () => {
+    const content = (await (await call("POST", "/content", { title: "Scheduled campaign" })).json()).data;
+    const { postId, delivery, channelId } = await deliveryFixture();
+    await db.update(s.posts).set({ content_id: content.id, status: "scheduled" }).where(eq(s.posts.id, postId));
+    const before = (await (await call("GET", `/content/${content.id}`)).json()).data.posts[0];
+    expect(before.delivery).toMatchObject({ id: delivery.id, status: "scheduled", scheduledFor: "2030-01-02T08:30:00.000Z" });
+    expect((await call("POST", `/deliveries/${delivery.id}/cancel`, undefined, OTHER_KEY)).status).toBe(404);
+    expect((await call("POST", `/deliveries/${delivery.id}/cancel`)).status).toBe(204);
+    for (const row of [
+      (await (await call("GET", `/posts/${postId}`)).json()).data,
+      (await (await call("GET", `/content/${content.id}`)).json()).data.posts[0],
+    ]) expect(row).toMatchObject({ status: "planned", deliveryId: null, delivery: null });
+    expect((await call("POST", `/deliveries/${delivery.id}/cancel`)).status).toBe(409);
+    const [asset] = await db.insert(s.media).values({ workspace_id: WS, checksum: "republish", storage_key: "republish", url: "https://example.com/reel.mp4", kind: "video" }).returning();
+    await db.update(s.posts).set({ video_url: asset!.url }).where(eq(s.posts.id, postId));
+    const { registerByUrl } = await import("@/lib/media/service");
+    vi.mocked(registerByUrl).mockResolvedValue(asset!);
+    expect((await call("POST", `/posts/${postId}/publish`, { channelId, when: "2030-01-03T08:30:00.000Z" })).status).toBe(200);
+  });
+  it.each(["scheduled", "held"] as const)("publish-now reuses one job for %s and rejects deliveries that are sending", async (status) => {
+    const { delivery } = await deliveryFixture();
+    expect((await call("POST", `/deliveries/${delivery.id}/publish-now`, undefined, OTHER_KEY)).status).toBe(404);
+    await db.update(s.deliveries).set({ status }).where(eq(s.deliveries.id, delivery.id));
+    const results = await Promise.all([1, 2].map(() => call("POST", `/deliveries/${delivery.id}/publish-now`)));
+    expect(results.map(r => r.status)).toEqual([200, 200]);
+    const { sql } = await import("drizzle-orm");
+    const jobs = await db.execute(sql`select * from graphile_worker.jobs where key = ${`publish:${delivery.id}`}`);
+    expect(jobs.rows).toHaveLength(1);
+    expect(new Date(jobs.rows[0].run_at as string).getTime()).toBeLessThanOrEqual(Date.now());
+    await db.update(s.deliveries).set({ status: "sending" }).where(eq(s.deliveries.id, delivery.id));
+    expect((await call("POST", `/deliveries/${delivery.id}/publish-now`)).status).toBe(409);
+    const res = await call("PATCH", `/posts/${(await db.query.posts.findFirst({ where: eq(s.posts.delivery_id, delivery.id) }))!.id}`, { description: "too late" });
+    expect(res.status).toBe(409);
+  });
   it("persists TikTok choices through create, list, read and patch with workspace isolation", async () => {
     const options = { tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE", tiktokDisableComment: false, tiktokDisableDuet: true, tiktokDisableStitch: false, tiktokBrandContentToggle: true, tiktokBrandOrganicToggle: false, tiktokCoverTimestampMs: 1234 };
     const { res, json } = await createOne({ platform: "tiktok", ...options });

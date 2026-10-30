@@ -117,7 +117,7 @@ describe("tenancy isolation — A never reads/mutates B", () => {
       payload: { format: "video", media: [] }, scheduled_at: new Date(), run_at: new Date(),
     }).returning({ id: schema.deliveries.id });
     expect(await deliveriesSvc.getDelivery(d!.id, A)).toBeUndefined();
-    await expect(deliveriesSvc.cancelDelivery(d!.id, A)).rejects.toMatchObject({ status: 409 });
+    await expect(deliveriesSvc.cancelDelivery(d!.id, A)).rejects.toMatchObject({ status: 404 });
     expect(await deliveriesSvc.getDelivery(d!.id, B)).toBeDefined();
   });
 

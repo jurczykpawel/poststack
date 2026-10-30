@@ -2,6 +2,7 @@ import { authenticateWithScope, hasScope } from "@/lib/auth";
 import { ok, noContent, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { getContent, patchContent, deleteContent } from "@/lib/content/service";
+import { withPostDeliveries } from "@/lib/content/post-delivery";
 import { contentPatch } from "@/lib/content/schemas";
 
 export const runtime = "nodejs";
@@ -18,7 +19,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     const { posts: _posts, ...contentOnly } = row;
     return ok(camelizeKeys(contentOnly));
   }
-  return ok(camelizeKeys(row));
+  return ok(camelizeKeys({ ...row, posts: await withPostDeliveries(row.posts, auth.workspaceId) }));
 }
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {

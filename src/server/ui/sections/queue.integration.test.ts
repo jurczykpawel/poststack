@@ -123,10 +123,25 @@ describe("queue section", () => {
   it("cancel cancels a scheduled delivery", async () => {
     if (!TEST_DB) return;
     const { id } = await seedDelivery("scheduled");
+    const { posts, content } = await import("@/db/schema");
+    const [parent] = await db.insert(content).values({ workspace_id: workspaceId, title: "Cancel reproduction" }).returning();
+    const [post] = await db.insert(posts).values({ workspace_id: workspaceId, content_id: parent!.id, platform: "facebook", status: "scheduled", delivery_id: id }).returning();
+    const get = async (path: string) => (await (await app.request(`/api/v1${path}`, { headers: { cookie } })).json()).data;
+    expect((await get(`/posts/${post!.id}`)).delivery).toMatchObject({ id, status: "scheduled" });
+    const beforeContent = await get(`/content/${parent!.id}`);
     const res = await app.request(`/queue/${id}/cancel`, { method: "POST", headers: htmx() });
     expect(res.status).toBe(200);
     const row = await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) });
     expect(row!.status).toBe("canceled");
+    const afterPost = await get(`/posts/${post!.id}`);
+    const afterContent = await get(`/content/${parent!.id}`);
+    expect({ post: afterPost, contentPost: afterContent.posts[0] }).toMatchObject({
+      post: { status: "planned", deliveryId: null, delivery: null },
+      contentPost: { status: "planned", deliveryId: null, delivery: null },
+    });
+    expect(beforeContent.posts[0].delivery).toMatchObject({ id, status: "scheduled" });
+    await db.delete(posts).where(eq(posts.id, post!.id));
+    await db.delete(content).where(eq(content.id, parent!.id));
   });
 
   it("reschedule returns fresh grouped rows and updates the job and detail timeline", async () => {

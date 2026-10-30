@@ -180,9 +180,41 @@ export async function publishPost(
     throw new ApiError("conflict", "Post already published", 409);
   }
 
+  const request = await preparePublishRequest(post, input.channelId, workspaceId, deps, input.format);
+  const scheduledAt = (input.when === "now" ? new Date() : new Date(input.when)).toISOString();
+  if (Number.isNaN(Date.parse(scheduledAt))) throw new ApiError("invalid_request", "Invalid when", 422);
+
+  const delivery = await db.transaction(async (tx) => {
+    const locked = await tx.execute(
+      sql`SELECT delivery_id, status FROM posts WHERE id = ${input.postId} AND workspace_id = ${workspaceId} FOR UPDATE`,
+    );
+    const row = locked.rows[0] as { delivery_id: string | null; status: string } | undefined;
+    if (!row) throw new ApiError("not_found", "Post not found", 404);
+    if (row.delivery_id || row.status === "published") {
+      throw new ApiError("conflict", "Post already published", 409);
+    }
+    const d = await createDelivery({ channelId: input.channelId, scheduledAt, request }, workspaceId, tx);
+    await tx
+      .update(posts)
+      .set({
+        delivery_id: d.id, status: "scheduled", updated_at: new Date(),
+        ...(input.when !== "now" && Date.parse(scheduledAt) > Date.now() ? { scheduled_date: new Date(scheduledAt) } : {}),
+      })
+      .where(and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)));
+    return d;
+  });
+
+  const updated = await db.query.posts.findFirst({ where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)) });
+  return { delivery, post: updated! };
+}
+
+export async function preparePublishRequest(
+  post: typeof posts.$inferSelect, channelId: string, workspaceId: string,
+  deps: PublishPostDeps = defaultDeps, format?: string,
+): Promise<PublishRequest> {
   // PSA44: enforce the post↔channel platform match in the service (the raw API can pass any channelId).
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.id, input.channelId), eq(channels.workspace_id, workspaceId), isNull(channels.deleted_at)),
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, workspaceId), isNull(channels.deleted_at)),
   });
   if (!channel) throw new ApiError("not_found", "Channel not found", 404);
   if (!channelMatchesPlatform(post.platform, channel)) {
@@ -228,7 +260,7 @@ export async function publishPost(
     const media = await deps.registerMedia(mediaUrl, workspaceId);
     const resolved = resolveFormat(post.platform, content?.content_type, mediaUrl);
     request = {
-      format: input.format ?? resolved.format,
+      format: format ?? resolved.format,
       media: [{ mediaId: media.id }],
       ...(title ? { title } : {}),
       ...(caption ? { caption } : {}),
@@ -244,7 +276,7 @@ export async function publishPost(
       .some((c) => c.format === "text" && c.media.min === 0);
     if (!supportsText) throw new ApiError("invalid_request", "Post has no media to publish", 422);
     request = {
-      format: input.format ?? "text",
+      format: format ?? "text",
       media: [],
       ...(title ? { title } : {}),
       ...(caption ? { caption } : {}),
@@ -252,29 +284,5 @@ export async function publishPost(
       ...overrides,
     };
   }
-  const scheduledAt = (input.when === "now" ? new Date() : new Date(input.when)).toISOString();
-  if (Number.isNaN(Date.parse(scheduledAt))) throw new ApiError("invalid_request", "Invalid when", 422);
-
-  const delivery = await db.transaction(async (tx) => {
-    const locked = await tx.execute(
-      sql`SELECT delivery_id, status FROM posts WHERE id = ${input.postId} AND workspace_id = ${workspaceId} FOR UPDATE`,
-    );
-    const row = locked.rows[0] as { delivery_id: string | null; status: string } | undefined;
-    if (!row) throw new ApiError("not_found", "Post not found", 404);
-    if (row.delivery_id || row.status === "published") {
-      throw new ApiError("conflict", "Post already published", 409);
-    }
-    const d = await createDelivery({ channelId: input.channelId, scheduledAt, request }, workspaceId, tx);
-    await tx
-      .update(posts)
-      .set({
-        delivery_id: d.id, status: "scheduled", updated_at: new Date(),
-        ...(input.when !== "now" && Date.parse(scheduledAt) > Date.now() ? { scheduled_date: new Date(scheduledAt) } : {}),
-      })
-      .where(and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)));
-    return d;
-  });
-
-  const updated = await db.query.posts.findFirst({ where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)) });
-  return { delivery, post: updated! };
+  return request;
 }

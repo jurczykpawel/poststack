@@ -2,7 +2,7 @@ import { registerTikTokConfirmation } from "./tiktok-confirmation";
 import { rescheduleForm } from "../components/reschedule";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { retryPost, cancelDelivery, rescheduleDelivery, type DeliveryRow } from "@/lib/deliveries/service";
+import { retryPost, cancelDelivery, publishDeliveryNow, rescheduleDelivery, type DeliveryRow } from "@/lib/deliveries/service";
 import { getMedia, type MediaRow } from "@/lib/media/service";
 import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -90,7 +90,9 @@ function rowAction(r: QueueRow): Html {
     </form>`;
   }
   if (r.status === "scheduled" || r.status === "held") {
-    return html`${r.tiktokConfirmation === "required" ? html`<a class="btn btn-secondary btn-sm" href="${act}/confirm">Review TikTok settings</a>` : rescheduleForm(`${act}/reschedule`, "#queue-rows")}<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
+    return html`${r.tiktokConfirmation !== "required" ? html`<form method="post" action="${act}/publish-now" hx-post="${act}/publish-now" ${rowHx()} hx-disabled-elt="find button" class="q-inline" hx-confirm="Publish this post now?" data-confirm-label="Publish now">
+      <button class="btn btn-secondary btn-sm" type="submit">Publish now</button>
+    </form>` : ""}${r.tiktokConfirmation === "required" ? html`<a class="btn btn-secondary btn-sm" href="${act}/confirm">Review TikTok settings</a>` : rescheduleForm(`${act}/reschedule`, "#queue-rows")}<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
       hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">
       <button class="btn btn-ic" type="submit" title="Cancel" aria-label="Cancel post">${icon("close", "ico", 15)}</button>
     </form>`;
@@ -370,6 +372,7 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.parseBody();
     return rescheduleDelivery(id, ws, String(form.scheduledAt ?? ""));
   }, () => "Termin zmieniony."));
+  r.post("/queue/:id/publish-now", guard, action((ws, id) => publishDeliveryNow(id, ws), () => "Post re-queued for publishing now"));
   r.post("/queue/:id/retry", guard, action((ws, id) => retryPost(id, ws), () => "Post re-queued"));
   r.post("/queue/:id/cancel", guard, action((ws, id) => cancelDelivery(id, ws), () => "Post canceled"));
 }

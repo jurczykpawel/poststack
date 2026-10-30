@@ -348,8 +348,9 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     .update(deliveries)
     .set({ status: "sending", attempt_started_at: new Date(), attempts: post.attempts + 1, updated_at: new Date() })
     .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "scheduled"), lte(deliveries.scheduled_at, sql`now()`)))
-    .returning({ id: deliveries.id });
+    .returning({ id: deliveries.id, payload: deliveries.payload, tiktok_confirmation: deliveries.tiktok_confirmation });
   if (claimed.length === 0) return; // lost the race / not schedulable (PSA14: consumed no token)
+  Object.assign(post, claimed[0]);
   await reflectEditorial(postId, ws, "publishing"); // mirror in-flight onto editorial
 
   // Proactive per-minute rate limit — consumed only now THIS worker owns the send (PSA14).

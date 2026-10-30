@@ -101,15 +101,19 @@ export async function getDelivery(id: string, workspaceId: string): Promise<Deli
 }
 
 export async function cancelDelivery(id: string, workspaceId: string): Promise<void> {
-  const res = await db
-    .update(deliveries)
-    .set({ status: "canceled", updated_at: new Date() })
-    // A post is cancelable while it's still pending: 'scheduled' (not yet attempted) or 'held'
-    // (attempted, stuck on a retryable error — e.g. an invalid token). The queue UI offers Cancel
-    // for both; this predicate is the compare-and-swap guard (0 rows updated → 409 below).
-    .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"])))
-    .returning({ id: deliveries.id });
-  if (res.length === 0) throw new ApiError("conflict", "Post is not cancelable", 409);
+  await db.transaction(async (tx) => {
+    await tx.select({ id: posts.id }).from(posts)
+      .where(and(eq(posts.workspace_id, workspaceId), eq(posts.delivery_id, id))).orderBy(posts.id).for("update");
+    const [existing] = await tx.select({ id: deliveries.id }).from(deliveries)
+      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId)));
+    if (!existing) throw new ApiError("not_found", "Delivery not found", 404);
+    const [row] = await tx.update(deliveries).set({ status: "canceled", updated_at: new Date() })
+      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"])))
+      .returning({ id: deliveries.id });
+    if (!row) throw new ApiError("conflict", "Post is not cancelable", 409);
+    await tx.update(posts).set({ status: "planned", delivery_id: null, updated_at: new Date() })
+      .where(and(eq(posts.workspace_id, workspaceId), eq(posts.delivery_id, id)));
+  });
 }
 
 /** Move a pending delivery and its linked editorial date on the same transaction as its job. */
@@ -134,6 +138,11 @@ export async function rescheduleDelivery(id: string, workspaceId: string, schedu
     return row;
   };
   return tx ? run(tx) : db.transaction(run);
+}
+
+/** Uses the same job replacement and pending-state guards as changing the schedule. */
+export async function publishDeliveryNow(id: string, workspaceId: string): Promise<DeliveryRow> {
+  return rescheduleDelivery(id, workspaceId, new Date().toISOString());
 }
 
 /**

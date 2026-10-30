@@ -1,8 +1,12 @@
 import { and, asc, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
-import { content as contentTable, posts } from "@/db/schema";
+import { content as contentTable, posts, deliveries } from "@/db/schema";
 import { rescheduleDelivery, type DbTx } from "@/lib/deliveries/service";
+import { preparePublishRequest } from "./publish";
+import { validate } from "@/lib/providers/validate";
+import { getProviderForPlatform } from "@/lib/providers";
+import type { PublishRequest } from "@/lib/providers/types";
 import { parseScheduledAt } from "@/lib/deliveries/schedule";
 import { ApiError } from "@/lib/api/response";
 import { encodeCursor, decodeCursor } from "@/lib/api/pagination";
@@ -220,6 +224,27 @@ async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostW
     await rescheduleDelivery(existing.delivery_id, workspaceId, patch.scheduledDate, tx);
   }
   const values = mapFields(patch, POST_MAP, POST_DATES, POST_BLANK_TO_NULL);
+  const editorialOnly = new Set(["scheduledDate", "status", "notes", "assetStatus", "assetNotes", "sourceRef", "publishedUrl", "publishedAt", "postizId"]);
+  if (existing.delivery_id && Object.keys(patch).some((key) => !editorialOnly.has(key))) {
+    const [delivery] = await tx.select().from(deliveries).where(and(
+      eq(deliveries.id, existing.delivery_id), eq(deliveries.workspace_id, workspaceId),
+    )).for("update");
+    if (!delivery || !["scheduled", "held"].includes(delivery.status)) {
+      throw new ApiError("conflict", "Delivery is already publishing or no longer pending; only scheduled or held deliveries can be edited", 409);
+    }
+    const updated = { ...existing, ...values } as PostRow;
+    const mediaChanged = ["mediaUrl", "videoUrl", "mediaUrls"].some((key) => key in patch);
+    const previous = delivery.payload as PublishRequest;
+    const deps = !mediaChanged && previous.media?.[0]
+      ? { registerMedia: async () => ({ id: previous.media[0].mediaId }) } : undefined;
+    const request = await preparePublishRequest(updated, delivery.channel_id, workspaceId, deps, mediaChanged ? undefined : delivery.format);
+    const payload = { ...request, options: { ...(delivery.payload as PublishRequest).options, ...request.options } };
+    if (patch.coverUrl !== undefined && !updated.cover_url) delete payload.options.coverUrl;
+    const checked = validate(getProviderForPlatform(updated.platform), payload);
+    if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
+    await tx.update(deliveries).set({ payload, format: payload.format, updated_at: new Date() })
+      .where(and(eq(deliveries.id, delivery.id), eq(deliveries.workspace_id, workspaceId)));
+  }
   const [row] = await tx.update(posts).set({ ...values, updated_at: new Date() })
     .where(and(eq(posts.id, id), eq(posts.workspace_id, workspaceId))).returning();
   return row;
