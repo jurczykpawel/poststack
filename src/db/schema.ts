@@ -1235,7 +1235,7 @@ export const media = pgTable("media", {
 	url: text("url").notNull(),
 	kind: text("kind").notNull(), // 'video' | 'image'
 	mime: text("mime"),
-	size: integer("size"),
+	size: bigint("size", { mode: "number" }),
 	width: integer("width"),
 	height: integer("height"),
 	duration_sec: integer("duration_sec"),

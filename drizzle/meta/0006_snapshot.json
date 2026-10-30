@@ -3672,7 +3672,7 @@
         },
         "size": {
           "name": "size",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },

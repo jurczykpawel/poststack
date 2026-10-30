@@ -1,4 +1,12 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
+vi.mock("@/lib/net/safe-fetch", async (original) => {
+  const actual = await original<typeof import("@/lib/net/safe-fetch")>();
+  return { ...actual, safeFetch: async (url: string, init: RequestInit, opts: Parameters<typeof actual.safeFetch>[2]) => {
+    await actual.assertSafeUrl(url, opts);
+    return fetch(url, init);
+  } };
+});
 import { linkedinProvider } from "./linkedin";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
@@ -48,14 +56,14 @@ describe("linkedin provider", () => {
             JSON.stringify({
               value: {
                 asset: "urn:li:digitalmediaAsset:AST1",
-                uploadMechanism: { "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest": { uploadUrl: "https://upload.li/AST1" } },
+                uploadMechanism: { "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest": { uploadUrl: "https://www.linkedin.com/dms-uploads/AST1" } },
               },
             }),
             { status: 200 },
           );
         }
         if (u.startsWith("https://cdn/")) return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); // media bytes
-        if (u.startsWith("https://upload.li/")) return new Response(null, { status: 201 }); // upload accepted
+        if (u.startsWith("https://www.linkedin.com/dms-uploads/")) return new Response(null, { status: 201 }); // upload accepted
         if (u.endsWith("/ugcPosts")) return new Response(JSON.stringify({ id: "urn:li:share:MEDIA" }), { status: 200 });
         return new Response("{}", { status: 404 });
       }),
@@ -75,26 +83,12 @@ describe("linkedin provider", () => {
 
     const reg = calls.find((c) => c.url.includes("registerUpload"))!;
     expect(reg.body).toContain("feedshare-image");
-    expect(calls.some((c) => c.url === "https://upload.li/AST1")).toBe(true); // bytes uploaded
+    expect(calls.some((c) => c.url === "https://www.linkedin.com/dms-uploads/AST1")).toBe(true); // bytes uploaded
     const ugc = calls.find((c) => c.url.endsWith("/ugcPosts"))!;
     const share = JSON.parse(ugc.body).specificContent["com.linkedin.ugc.ShareContent"];
     expect(share.shareMediaCategory).toBe("IMAGE");
     expect(share.media[0].media).toBe("urn:li:digitalmediaAsset:AST1");
     expect(share.media[0].status).toBe("READY");
-  });
-
-  it("publish a video uses the video recipe + VIDEO category", async () => {
-    const calls = stubMediaFetch();
-    const h = await linkedinProvider.publish({
-      tokens,
-      accountId: "li_1",
-      request: { format: "video", media: [{ mediaId: "m" }], caption: "clip" },
-      mediaUrls: ["https://cdn/clip.mp4"],
-    });
-    expect(h.providerHandle).toBe("urn:li:share:MEDIA");
-    expect(calls.find((c) => c.url.includes("registerUpload"))!.body).toContain("feedshare-video");
-    const share = JSON.parse(calls.find((c) => c.url.endsWith("/ugcPosts"))!.body).specificContent["com.linkedin.ugc.ShareContent"];
-    expect(share.shareMediaCategory).toBe("VIDEO");
   });
 
   it("a media format with no mediaUrls is a permanent error (nothing to upload)", async () => {

@@ -1,9 +1,11 @@
+import { sourceSize } from "./range-source";
+import { uploadYouTube } from "./youtube-upload";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
 import { PermanentError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { assertAllowedHost } from "./follow";
-import { readProviderBody, readProviderCover } from "./download";
+import { readProviderCover } from "./download";
 import { asString } from "./util";
 import { safeFetch } from "@/lib/media/ssrf";
 
@@ -101,21 +103,13 @@ export const youtubeProvider: Provider = {
     };
   },
 
-  async publish({ tokens, request, mediaUrls }): Promise<PublishHandle> {
+  async publish({ tokens, request, mediaUrls, uploadSession, saveUploadSession }): Promise<PublishHandle> {
     if (request.format !== "short" && request.format !== "video") {
       throw new PermanentError(`youtube: unsupported format '${request.format}'`);
     }
     const videoUrl = mediaUrls[0] ?? "";
 
-    // YouTube has no PULL — it needs the bytes. Fetch them (SSRF-guarded), then resumable-upload.
-    const dl = await safeFetch(videoUrl);
-    // PSA36: download + resumable-init are pre-commit (no video exists until the PUT upload completes).
-    if (!dl.ok) {
-      await dl.body?.cancel().catch(() => {}); // release the streamed socket — body is never read here
-      throw classifyHttp(dl.status, `youtube: cannot fetch video for upload (${dl.status})`, "pre_commit");
-    }
-    const bytes = await readProviderBody(dl); // PSA52: streamed size cap (no full-buffer OOM)
-    const size = bytes.byteLength;
+    const size = await sourceSize(videoUrl);
 
     const opts = request.options ?? {};
     const privacyStatus =
@@ -138,38 +132,31 @@ export const youtubeProvider: Provider = {
       },
     };
 
-    // 1) initialize the resumable session — returns the upload URI in the Location header.
-    const init = await fetch(
-      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${tokens.accessToken}`,
-          "content-type": "application/json; charset=UTF-8",
-          "x-upload-content-type": "video/mp4",
-          "x-upload-content-length": String(size),
+    let location = uploadSession;
+    if (!location) {
+      const init = await fetch(
+        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${tokens.accessToken}`,
+            "content-type": "application/json; charset=UTF-8",
+            "x-upload-content-type": "video/mp4",
+            "x-upload-content-length": String(size),
+          },
+          body: JSON.stringify(metadata),
         },
-        body: JSON.stringify(metadata),
-      },
-    );
-    if (!init.ok) {
-      const e = (await init.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw classifyHttp(init.status, e.error?.message, "pre_commit"); // PSA36: init creates no video yet
+      );
+      if (!init.ok) {
+        const e = (await init.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw classifyHttp(init.status, e.error?.message, "pre_commit"); // PSA36: init creates no video yet
+      }
+      location = init.headers.get("location") ?? undefined;
+      if (!location) throw new PermanentError("youtube: resumable init returned no upload URL");
     }
-    const location = init.headers.get("location");
-    if (!location) throw new PermanentError("youtube: resumable init returned no upload URL");
-    // PSA50: the resumable session URL comes from the response — only follow it to a Google host.
     assertAllowedHost(location, ["googleapis.com", "googleusercontent.com"]);
-
-    // 2) upload the bytes in a single request (videos up to YouTube's per-request limit).
-    const up = await fetch(location, {
-      method: "PUT",
-      headers: { "content-type": "video/mp4", "content-length": String(size) },
-      body: bytes,
-    });
-    const upJson = (await up.json().catch(() => ({}))) as { id?: unknown; error?: { message?: string } };
-    const handle = asString(upJson.id); // PSA51
-    if (!up.ok || !handle) throw classifyHttp(up.status, upJson.error?.message);
+    await saveUploadSession?.(location);
+    const handle = await uploadYouTube(location, videoUrl, size, tokens.accessToken, !!uploadSession, () => saveUploadSession?.(location!));
 
     // Custom thumbnail (best-effort — the video is already uploaded; don't fail the publish on this).
     const coverUrl = typeof opts.coverUrl === "string" ? opts.coverUrl : undefined;

@@ -180,6 +180,29 @@ describe("pinnedConnect hardening (default connector, local server)", () => {
 });
 
 describe("pinnedConnect STREAMING mode (stream:true, local server)", () => {
+  it("keeps the upstream paused when the consumer stops reading a large response", async () => {
+    const total = 32 * 1024 * 1024;
+    let sent = 0;
+    await withServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      const bytes = Buffer.alloc(64 * 1024);
+      const pump = () => {
+        while (sent < total) {
+          sent += bytes.length;
+          if (!res.write(bytes)) { res.once("drain", pump); return; }
+        }
+        res.end();
+      };
+      pump();
+    }, async url => {
+      const response = await safeFetch(url, {}, { allow: LOOPBACK, stream: true });
+      await new Promise(resolve => setTimeout(resolve, 200));
+      const prefetched = sent;
+      await response.body!.cancel();
+      expect(prefetched).toBeLessThan(total);
+    });
+  });
+
   it("delivers a body LARGER than the 1MB webhook cap in full (no buffering cap in stream mode)", async () => {
     const TOTAL = 3_000_000; // > MAX_RESPONSE_BYTES (1MB): would be rejected in buffered mode
     await withServer(

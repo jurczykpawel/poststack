@@ -4,7 +4,7 @@ import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./t
 import { queryCreatorInfo, type CreatorInfoResult } from "./tiktok-creator-info";
 import { PermanentError, ConfirmationRequiredError, TransientError, TokenInvalidError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
-import { readProviderBody } from "./download";
+import { sourceSize, sourceRange, UPLOAD_CHUNK } from "./range-source";
 import { asString } from "./util";
 import { safeFetch } from "@/lib/media/ssrf";
 
@@ -171,23 +171,14 @@ export const tiktokProvider: Provider = {
       "content-type": "application/json",
     };
 
-    // Build source_info. FILE_UPLOAD downloads the bytes here (single chunk for <= 64MB).
     let sourceInfo: Record<string, unknown>;
-    let videoBytes: Uint8Array<ArrayBuffer> | undefined;
+    let size = 0, chunk = 0, count = 0;
     if (usePull) {
       sourceInfo = { source: "PULL_FROM_URL", video_url: videoUrl };
     } else {
-      const dl = await safeFetch(videoUrl); // SSRF guard on the stored media URL (defense-in-depth)
-      // PSA36: download + init are pre-commit (the draft/post isn't created until the chunk upload).
-      if (!dl.ok) {
-        await dl.body?.cancel().catch(() => {}); // release the streamed socket — body is never read here
-        throw classifyHttp(dl.status, `tiktok: cannot fetch video for upload (${dl.status})`, "pre_commit");
-      }
-      // PSA52: cap DURING the read (single-chunk upload tops out at 64 MB) — the old check buffered the
-      // whole body first, so the limit didn't prevent the OOM it was meant to bound.
-      videoBytes = await readProviderBody(dl, 64 * 1024 * 1024);
-      const size = videoBytes.byteLength;
-      sourceInfo = { source: "FILE_UPLOAD", video_size: size, chunk_size: size, total_chunk_count: 1 };
+      size = await sourceSize(videoUrl);
+      chunk = Math.min(size, UPLOAD_CHUNK); count = Math.max(1, Math.floor(size / chunk));
+      sourceInfo = { source: "FILE_UPLOAD", video_size: size, chunk_size: chunk, total_chunk_count: count };
     }
 
     const initBody: Record<string, unknown> = { source_info: sourceInfo };
@@ -212,29 +203,30 @@ export const tiktokProvider: Provider = {
       throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit"); // PSA36: init creates no post yet
     }
 
-    // FILE_UPLOAD: PUT the bytes to the returned upload_url (single chunk).
+    // Upload sequentially; the final part includes the trailing bytes.
     if (!usePull) {
       const uploadUrl = initJson.data?.upload_url;
-      if (!uploadUrl || !videoBytes) {
+      if (!uploadUrl) {
         throw new PermanentError("tiktok: init returned no upload_url for FILE_UPLOAD");
       }
-      const size = videoBytes.byteLength;
-      // PSA50: the upload URL comes from the init response — run it through the SSRF chokepoint so it
-      // can't be pointed at an internal target (the PUT carries no token, so an SSRF guard suffices).
-      const put = await safeFetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "content-type": "video/mp4",
-          "content-length": String(size),
-          "content-range": `bytes 0-${size - 1}/${size}`,
-        },
-        body: videoBytes,
-      });
-      // The PUT response body is never read (we only check status) — cancel it so the streamed
-      // socket isn't held open until the inactivity timeout.
-      const putFailed = !put.ok;
-      await put.body?.cancel().catch(() => {});
-      if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
+      for (let i = 0; i < count; i++) {
+        const first = i * chunk, last = i === count - 1 ? size - 1 : first + chunk - 1;
+        const videoBytes = await sourceRange(videoUrl, first, last, size);
+        const put = await safeFetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "content-type": "video/mp4",
+            "content-length": String(videoBytes.length),
+            "content-range": `bytes ${first}-${last}/${size}`,
+          },
+          body: videoBytes,
+        });
+        // The PUT response body is never read (we only check status) — cancel it so the streamed
+        // socket isn't held open until the inactivity timeout.
+        const putFailed = !put.ok;
+        await put.body?.cancel().catch(() => {});
+        if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
+      }
     }
 
     return { providerHandle: publishId, processing: true };

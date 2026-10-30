@@ -114,6 +114,8 @@ export interface Provider {
     accountId: string;
     request: PublishRequest;
     mediaUrls: string[];
+    uploadSession?: string;
+    saveUploadSession?: (url: string) => Promise<void>;
     /** Duration from the workspace-scoped media registry, in mediaUrls order. */
     mediaDurationsSec?: (number | null)[];
     /** Channel-level provider data (e.g. Meta { subKind: "facebook_page" | "instagram" }) for routing. */

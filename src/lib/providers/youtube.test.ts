@@ -12,7 +12,14 @@ vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
     ...actual,
     safeFetch: async (url: string, init: RequestInit, opts: Parameters<typeof actual.safeFetch>[2]) => {
       await actual.assertSafeUrl(url, opts); // real policy: refuse non-public BEFORE any transport
-      return fetch(url, { ...init, redirect: "error" }); // transport via the test's global fetch stub
+      const response = await fetch(url, { ...init, redirect: "error" });
+      if (url.includes("cdn") && !url.includes("cover") && response.ok) {
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (init?.method === "HEAD") return new Response(null, { headers: { "content-length": String(bytes.length) } });
+        const range = new Headers(init?.headers).get("range");
+        if (range) return new Response(bytes, { status: 206, headers: { "content-range": `bytes ${range.slice(6)}/${bytes.length}`, "content-length": String(bytes.length) } });
+      }
+      return response;
     },
   };
 });

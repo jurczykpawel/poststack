@@ -150,7 +150,7 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
   it.each(["cancel", "publish-now"])("%s requires a write scope and keeps TikTok confirmation", async (action) => {
     const { delivery } = await deliveryFixture();
     expect((await call("POST", `/deliveries/${delivery.id}/${action}`, undefined, null)).status).toBe(401);
-    expect((await call("POST", `/deliveries/${delivery.id}/${action}`, undefined, READ_KEY)).status).toBe(401);
+    expect((await call("POST", `/deliveries/${delivery.id}/${action}`, undefined, READ_KEY)).status).toBe(403);
     await db.update(s.deliveries).set({ tiktok_confirmation: "required", status: "held" }).where(eq(s.deliveries.id, delivery.id));
     expect((await call("POST", `/deliveries/${delivery.id}/${action}`)).status).toBe(action === "cancel" ? 204 : 409);
   });

@@ -134,8 +134,12 @@ describe("PSA1 class guard — caller-influenced URL fetches route through safeF
 
     expect(meta).toContain("safeFetch(coverUrl)");
     expect(youtube).toContain("safeFetch(coverUrl)");
-    expect(youtube).toContain("safeFetch(videoUrl)");
-    expect(tiktok).toContain("safeFetch(videoUrl)");
+    const ranges = read("../providers/range-source.ts");
+    const linkedin = read("../providers/linkedin.ts");
+    expect(ranges).toContain("safeFetch(url");
+    expect(linkedin).toContain("safeFetch(mediaUrl)");
+    expect(tiktok).toContain("sourceRange(videoUrl");
+    expect(youtube).toContain("uploadYouTube(location, videoUrl");
     expect(service).toContain("safeFetch(url");
   });
 });

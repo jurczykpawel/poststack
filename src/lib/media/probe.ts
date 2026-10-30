@@ -13,7 +13,7 @@ const topLevel = (m: string): string => m.split("/")[0]!;
  *
  * Video duration is rounded up to whole seconds for the media registry. Dimensions remain optional.
  */
-export const defaultProbe: Prober = async (bytes, mime): Promise<ProbeResult> => {
+export const defaultProbe: Prober = async (bytes, mime, file): Promise<ProbeResult> => {
   const sniffed = sniffMime(bytes);
   if (!sniffed) {
     throw new ApiError("unsupported_media", "Unrecognized media format (failed magic-byte sniff)", 400);
@@ -22,5 +22,5 @@ export const defaultProbe: Prober = async (bytes, mime): Promise<ProbeResult> =>
     throw new ApiError("media_type_mismatch", `Declared ${mime} but the content is ${sniffed}`, 400);
   }
   const kind = sniffed.startsWith("image/") ? "image" : "video";
-  return { kind, mime: sniffed, ...(kind === "video" ? { durationSec: await videoDuration(bytes) } : {}) };
+  return { kind, mime: sniffed, ...(kind === "video" ? { durationSec: await videoDuration(file ?? bytes) } : {}) };
 };

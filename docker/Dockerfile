@@ -1,7 +1,7 @@
 # Node base for reproducible `npm ci`; Bun binary for the runtime.
 FROM node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
 RUN apk add --no-cache curl libc6-compat
-COPY --from=oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
 FROM base AS deps

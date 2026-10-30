@@ -2,7 +2,7 @@ import type { JobHelpers } from "graphile-worker";
 import { and, count, eq, gte, lte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { deliveries, channels, posts, type Platform } from "@/db/schema";
-import { decryptTokens } from "@/lib/crypto";
+import { decryptString, encryptString, decryptTokens } from "@/lib/crypto";
 import { toTokenSet } from "@/lib/providers/token-codec";
 import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
 import { can } from "@/lib/channels/capabilities";
@@ -131,7 +131,10 @@ export async function stuckSendingSweep(): Promise<number> {
     where: and(eq(deliveries.status, "sending"), lt(deliveries.attempt_started_at, cutoff)),
   });
   for (const d of stuck) {
-    await markUnknown(d.id, d.workspace_id, "stuck in sending past the recovery window");
+    if (typeof (d.payload as Record<string, unknown>)._youtubeUploadSession === "string") {
+      await setStatus(d.id, d.workspace_id, "processing");
+      await addJobTx(db, "publish", { postId: d.id }, { jobKey: `publish:${d.id}` });
+    } else await markUnknown(d.id, d.workspace_id, "stuck in sending past the recovery window");
   }
   const processing = await db.query.deliveries.findMany({
     where: and(eq(deliveries.status, "processing"), lt(deliveries.updated_at, new Date(Date.now() - 5 * 60_000))),
@@ -225,7 +228,7 @@ async function completePublish(post: DeliveryRow, channel: typeof channels.$infe
   const aiDisclosureSent = await buildAiDisclosureSent(post.id, post.workspace_id, request);
   const changed = await db.transaction(async (tx) => {
     await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id))).orderBy(posts.id).for("update");
-    const rows = await tx.update(deliveries).set({ status: "sent", provider_handle: providerHandle, last_error: null, updated_at: new Date() })
+    const rows = await tx.update(deliveries).set({ status: "sent", provider_handle: providerHandle, payload: sql`${deliveries.payload} - '_youtubeUploadSession'`, last_error: null, updated_at: new Date() })
       .where(and(eq(deliveries.id, post.id), eq(deliveries.workspace_id, post.workspace_id), inArray(deliveries.status, ["sending", "processing"]))).returning({ id: deliveries.id });
     if (!rows.length) return false;
     await tx.update(posts).set({ status: "published", published_at: new Date(), platform_post_id: providerHandle, updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
@@ -255,8 +258,11 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     return;
   }
 
+  const encryptedSession = (post.payload as Record<string, unknown>)._youtubeUploadSession;
+  const uploadSession = channel.platform === "youtube" && typeof encryptedSession === "string" ? decryptString(encryptedSession) : undefined;
+
   // A persisted publish handle is polled only; never initialize another upload.
-  if (post.status === "processing") {
+  if (post.status === "processing" && !uploadSession) {
     const provider = getProviderForPlatform(channel.platform);
     try {
       if (channel.token_expires_at && channel.token_expires_at.getTime() < Date.now() + 300_000) {
@@ -314,7 +320,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   }
 
   // Crash recovery (AUD27): a retry that finds 'sending' may have sent without recording.
-  if (post.status === "sending") {
+  if (post.status === "sending" && !uploadSession) {
     if (provider.reconcile) {
       const outcome = await provider.reconcile(toTokenSet(decryptTokens(channel.token_encrypted)), {
         providerHandle: post.provider_handle ?? "",
@@ -347,7 +353,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const claimed = await db
     .update(deliveries)
     .set({ status: "sending", attempt_started_at: new Date(), attempts: post.attempts + 1, updated_at: new Date() })
-    .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "scheduled"), lte(deliveries.scheduled_at, sql`now()`)))
+    .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, uploadSession && ["sending", "processing"].includes(post.status) ? post.status : "scheduled"), lte(deliveries.scheduled_at, sql`now()`)))
     .returning({ id: deliveries.id, payload: deliveries.payload, tiktok_confirmation: deliveries.tiktok_confirmation });
   if (claimed.length === 0) return; // lost the race / not schedulable (PSA14: consumed no token)
   Object.assign(post, claimed[0]);
@@ -395,6 +401,12 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       mediaUrls,
       mediaDurationsSec,
       channelMetadata,
+      uploadSession,
+      saveUploadSession: channel.platform === "youtube" ? async (url) => {
+        const saved = { ...(post.payload as Record<string, unknown>), _youtubeUploadSession: encryptString(url) };
+        await setStatus(postId, ws, "processing", { payload: saved }).catch(() => { throw new TransientError("YouTube upload session could not be saved", "pre_commit"); });
+        post.payload = saved;
+      } : undefined,
     });
     if (handle.processing) {
       await db.transaction(async (tx) => {
@@ -431,6 +443,11 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     if ((err instanceof TransientError || err instanceof RateLimitedError) && err.phase === "pre_commit") {
       await setStatus(postId, ws, "scheduled", { last_error: err.message });
       await deferPublish(postId, post.attempts, err instanceof RateLimitedError ? err.retryAfterSeconds : undefined);
+      return;
+    }
+    if (channel.platform === "youtube" && typeof (post.payload as Record<string, unknown>)._youtubeUploadSession === "string") {
+      await setStatus(postId, ws, "processing", { last_error: "YouTube upload interrupted; waiting to resume" });
+      await deferPublish(postId, post.attempts);
       return;
     }
     // PSA2: anything else may have partially/fully landed on a multi-step provider. Leave `sending`

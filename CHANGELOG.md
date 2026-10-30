@@ -23,6 +23,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 - Concurrent incoming messages update conversation activity reliably.
 - Canceling a queued delivery restores its post to planned for republishing. Editing pending post text, first comment or media updates the publish payload atomically; publishing deliveries return a conflict.
+- Stream URL media ingestion to S3 with a configurable 4 GiB default limit, bounded upload parts for YouTube, TikTok and LinkedIn, and saved YouTube sessions for interrupted deliveries.
+- Update the pinned Bun runtime to 1.4.4 for large streamed transfers.
 
 ## [0.14.0] - 2026-10-29
 
