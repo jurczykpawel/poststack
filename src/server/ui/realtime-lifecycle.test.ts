@@ -15,6 +15,7 @@ async function realtimePage() {
   Object.assign(document, { querySelector: () => shell });
   const sources: TestSource[] = [];
   class TestSource extends EventTarget {
+    static CONNECTING = 0;
     static CLOSED = 2;
     readyState = 1;
     onerror?: (event: Event) => void;
@@ -42,13 +43,13 @@ async function realtimePage() {
     },
     trigger: vi.fn((elt: unknown, name: string) => extension.onEvent(name, { target: elt })),
   };
-  const context = { window, document, htmx, EventSource: TestSource };
+  const context = { window, document, htmx, Event, EventSource: TestSource };
   // Keep the shipped extension in the test: its error and cleanup paths are the behavior at issue.
   runInNewContext(readFileSync("src/server/ui/static/vendor/htmx-ext-sse-2.2.2.js", "utf8"), context);
   runInNewContext(String(await uiBehaviorScript()).replace(/^<script>\s*|\s*<\/script>$/g, ""), context);
   htmx.trigger(shell, "htmx:afterProcessNode");
   htmx.trigger(liveRegion, "htmx:afterProcessNode");
-  return { window, htmx, liveRegion, sources, errors };
+  return { window, htmx, liveRegion, sources, errors, events: api.triggerEvent };
 }
 
 describe("dashboard realtime lifecycle", () => {
@@ -59,6 +60,18 @@ describe("dashboard realtime lifecycle", () => {
     if (sources[0].readyState !== 2) sources[0].onerror?.(new Event("error"));
     expect(sources[0].close).toHaveBeenCalledOnce();
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("reports a reconnect through sseError without sending a raw Event to the error logger", async () => {
+    const { sources, errors, events } = await realtimePage();
+    sources[0].readyState = 0;
+    const event = new Event("error");
+    sources[0].onerror?.(event);
+    expect(errors).not.toHaveBeenCalled();
+    expect(events).toHaveBeenCalledWith(expect.anything(), "htmx:sseError", { event, source: sources[0] });
+    expect(sources[0].close).not.toHaveBeenCalled();
+    sources[0].onerror?.(new Error("unexpected stream failure") as unknown as Event);
+    expect(errors).toHaveBeenCalledWith(expect.anything(), "htmx:sseError", expect.objectContaining({ error: expect.any(Error) }));
   });
 
   it("keeps the live stream and its error reporting during fragment updates", async () => {

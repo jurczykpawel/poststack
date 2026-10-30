@@ -82,8 +82,8 @@ async function scenario(channelStatus: "active" | "needs_reauth" = "active") {
       format: "video",
       status: "scheduled",
       payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" },
-      scheduled_at: new Date(),
-      run_at: new Date(),
+      scheduled_at: sql`now()`,
+      run_at: sql`now()`,
     })
     .returning();
   return { channelId: c!.id, postId: p!.id };
@@ -190,7 +190,7 @@ describe("publish worker (AUD27)", () => {
       .returning();
     const [d] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" }, scheduled_at: new Date(), run_at: new Date() })
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" }, scheduled_at: sql`now()`, run_at: sql`now()` })
       .returning();
     // editorial post linked to the delivery, carrying the auto-reply config
     await db.insert(schema.posts).values({
@@ -230,7 +230,7 @@ describe("publish worker (AUD27)", () => {
       .returning();
     const [p] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: crypto.randomUUID() }] }, scheduled_at: new Date(), run_at: new Date() })
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: crypto.randomUUID() }] }, scheduled_at: sql`now()`, run_at: sql`now()` })
       .returning();
     const spy = vi.spyOn(tt, "publish");
     try {
@@ -502,7 +502,7 @@ describe("publish worker (AUD27)", () => {
       .where(eq(schema.deliveries.id, stuck));
     const [freshRow] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: channelId, format: "video", status: "sending", payload: { format: "video", media: [] }, scheduled_at: new Date(), run_at: new Date(), attempt_started_at: new Date() })
+      .values({ workspace_id: WS, channel_id: channelId, format: "video", status: "sending", payload: { format: "video", media: [] }, scheduled_at: sql`now()`, run_at: sql`now()`, attempt_started_at: new Date() })
       .returning();
     const fresh = freshRow!.id;
 
@@ -631,7 +631,7 @@ describe("publish worker (AUD27)", () => {
     if (opts.autoStoryOverride !== undefined) payload.autoStory = opts.autoStoryOverride;
     const [p] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload, scheduled_at: new Date(), run_at: new Date() })
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload, scheduled_at: sql`now()`, run_at: sql`now()` })
       .returning();
     return { channelId: c!.id, postId: p!.id };
   }

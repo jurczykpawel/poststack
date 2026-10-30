@@ -322,3 +322,63 @@ test.describe("publishing guidance", () => {
     }
   });
 });
+
+test("idle stream reconnects without a raw Event in the console", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  const states: number[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.addInitScript(() => {
+    document.addEventListener("htmx:sseError", (event) => {
+      const source = (event as CustomEvent).detail.source as EventSource;
+      console.log("reconnect-state:" + source.readyState);
+    });
+  });
+  page.on("console", (message) => {
+    if (message.text().startsWith("reconnect-state:")) states.push(Number(message.text().split(":")[1]));
+  });
+  let disconnected = false;
+  await page.route("**/events/stream", async (route) => {
+    if (!disconnected) { disconnected = true; await route.abort("connectionreset"); }
+    else await route.continue();
+  });
+  await page.goto("/events");
+  await expect.poll(() => states.includes(0)).toBe(true);
+  await expect.poll(() => page.locator(".app").evaluate((el) =>
+    (el as HTMLElement & { "htmx-internal-data": { sseEventSource: EventSource } })["htmx-internal-data"].sseEventSource.readyState,
+  )).toBe(1);
+  await page.evaluate(() => {
+    const htmx = (window as unknown as { htmx: { trigger: (el: Element, name: string, detail: unknown) => void } }).htmx;
+    htmx.trigger(document.body, "htmx:testError", { error: "expected-error-visibility" });
+  });
+  await expect.poll(() => errors.includes("expected-error-visibility")).toBe(true);
+  writeFileSync(testInfo.outputPath("idle-reconnect.json"), JSON.stringify({ states, errors }, null, 2));
+  expect(errors).not.toContain("Event");
+});
+
+test("API docs history traversal has no skipped-transition page errors", async ({ page, browser }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  const transitions: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.text().startsWith("docs-transition:")) transitions.push(message.text()); });
+  await page.addInitScript(() => window.addEventListener("pagereveal", (event) => {
+    if (location.pathname === "/api/docs") console.log("docs-transition:" + !!(event as Event & { viewTransition?: unknown }).viewTransition);
+  }));
+  await page.goto("/api/docs#tag/webhooks");
+  await expect(page.getByRole("heading", { name: "PostStack API", exact: true })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  for (let cycle = 0; cycle < 5; cycle++) {
+    await page.goto("/events");
+    await expect(page.locator(".app")).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/api\/docs#tag\/webhooks$/);
+    await page.goForward();
+    await expect(page.locator(".app")).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/api\/docs#tag\/webhooks$/);
+  }
+  await page.screenshot({ path: testInfo.outputPath("docs-history.png"), animations: "disabled" });
+  writeFileSync(testInfo.outputPath("docs-history.json"), JSON.stringify({ browser: browser.version(), transitions, errors }, null, 2));
+  expect(errors).toEqual([]);
+  expect(transitions).toContain("docs-transition:true");
+});

@@ -99,6 +99,8 @@ describe("GET /events/stream (SSE)", () => {
     const res = await app.request("/events/stream", { headers: { cookie } });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
+    expect(res.headers.get("cache-control")).toContain("no-transform");
+    expect(res.headers.get("x-accel-buffering")).toBe("no");
 
     const reader = res.body!.getReader();
     const state = { buf: "" };

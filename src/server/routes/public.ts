@@ -8,7 +8,7 @@ import { openApiSpec } from "@/lib/api/openapi";
 import { getConfig } from "@/lib/settings/config";
 import { t } from "@/lib/i18n";
 import { brandingHead } from "../ui/branding";
-import { serveAsset } from "../ui/assets";
+import { assetUrl, serveAsset } from "../ui/assets";
 
 const docsHtml = () => html`<!doctype html>
 <html>
@@ -16,6 +16,8 @@ const docsHtml = () => html`<!doctype html>
     <title>${t("apiDocs.title")}</title>
     <meta charset="utf-8" />
     ${brandingHead()}
+    <style>@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }</style>
+    <script src="${assetUrl("view-transitions.js")}"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
   <body>

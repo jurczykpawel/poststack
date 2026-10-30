@@ -22,6 +22,8 @@ describe("Hono app skeleton — public routes + global middleware", () => {
     const body = await res.text();
     expect(body).toContain("api-reference");
     expect(body).toContain('<link rel="icon" href="/favicon.svg"');
+    expect(body).toContain("@view-transition { navigation: auto; }");
+    expect(body).toMatch(/<script src="\/static\/view-transitions\.js\?v=[a-f0-9]+"><\/script>/);
   });
 
   it("serves the OpenAPI spec at /api/v1 with CORS", async () => {

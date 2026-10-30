@@ -86,8 +86,8 @@ describe("AUD48 — token-invalid held window", () => {
         format: "reel",
         status: "scheduled",
         payload: { format: "reel", media: [{ mediaId: m!.id }] },
-        scheduled_at: new Date(),
-        run_at: new Date(),
+        scheduled_at: sql`now()`,
+        run_at: sql`now()`,
       })
       .returning();
 
