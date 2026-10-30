@@ -79,8 +79,8 @@ describe("pre-publish freshness guard", () => {
         format: "video",
         status: "scheduled",
         payload: { format: "video", media: [{ mediaId: m!.id }] },
-        scheduled_at: new Date(),
-        run_at: new Date(),
+        scheduled_at: sql`now()`,
+        run_at: sql`now()`,
       })
       .returning();
 

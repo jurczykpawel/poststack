@@ -75,8 +75,8 @@ async function linked() {
       format: "reel",
       status: "scheduled",
       payload: { format: "reel", media: [{ mediaId: m!.id }], caption: "hi" },
-      scheduled_at: new Date(),
-      run_at: new Date(),
+      scheduled_at: sql`now()`,
+      run_at: sql`now()`,
     })
     .returning();
   const [p] = await db
