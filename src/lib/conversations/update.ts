@@ -19,7 +19,7 @@ export async function updateConversation(
   condition?: SQL,
 ): Promise<{ before: Conversation; after: Conversation } | undefined> {
   const where = and(eq(conversations.id, conversationId), eq(conversations.workspace_id, workspaceId), condition);
-  const [before] = await tx.select().from(conversations).where(where).for("update");
+  const [before] = await tx.select().from(conversations).where(where).for("no key update");
   if (!before) return undefined;
   const [after] = await tx.update(conversations).set({ ...patch, updated_at: new Date() }).where(where).returning();
   if (!after) return undefined;
