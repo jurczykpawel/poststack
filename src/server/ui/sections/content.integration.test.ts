@@ -224,7 +224,7 @@ describe("content cockpit", () => {
     expect(await res.text()).toContain("view delivery");
   });
 
-  it("shows the canceled delivery status across content views and card edits", async () => {
+  it("restores planned status across content views and card edits after cancellation", async () => {
     if (!TEST_DB) return;
     const { contentId, postId } = await seedMapped();
     await app.request(`/content/${contentId}/posts/${postId}/publish`, {
@@ -235,14 +235,14 @@ describe("content cockpit", () => {
       method: "POST", headers: { cookie },
     });
     expect(canceled.status).toBe(303);
-    expect((await db.query.posts.findFirst({ where: eq(posts.id, postId) }))!.status).toBe("scheduled");
+    expect(await db.query.posts.findFirst({ where: eq(posts.id, postId) })).toMatchObject({ status: "planned", delivery_id: null });
     for (const path of ["/content", `/content/${contentId}`,
       `/content/${contentId}/posts/${postId}/card`, `/content/${contentId}/posts/${postId}/edit`]) {
       const res = await app.request(path, { headers: { cookie } });
       expect(res.status).toBe(200);
       const out = await res.text();
-      expect(out).toContain("canceled");
-      expect(out).not.toMatch(/>scheduled<|instagram: scheduled/);
+      expect(out).toMatch(/planned/i);
+      expect(out).not.toMatch(/>scheduled<|instagram: scheduled|>canceled</);
     }
   });
 

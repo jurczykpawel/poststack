@@ -379,7 +379,7 @@ export const openApiSpec = {
         ...requiresScope("content:read"),
         tags: ["Publishing"],
         summary: "Get editorial content",
-        description: "The content record requires content:read. Related posts are included only when the caller also has posts:read.",
+        description: "The content record requires content:read. Related posts, including their delivery status and scheduledFor, are included only when the caller also has posts:read.",
         responses: { "200": { description: "Content" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       patch: {
@@ -428,7 +428,7 @@ export const openApiSpec = {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Update a post",
-        description: "Same body as create (all fields optional), including YouTube options and AI-disclosure fields. scheduledDate reschedules the linked pending delivery and publish job atomically. Returns 409 if the delivery is already publishing or no longer pending. Saved publishing options remain unchanged.",
+        description: "Same body as create (all fields optional), including YouTube options and AI-disclosure fields. scheduledDate reschedules the linked pending delivery and publish job atomically. Returns 409 if the delivery is already publishing or no longer pending. Text, firstComment and media edits also update the pending payload atomically; sending deliveries return 409.",
 
         responses: { "200": { description: "Updated" }, "409": { description: "Delivery no longer pending" }, "422": { description: "Invalid schedule" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
@@ -437,6 +437,22 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Delete a post",
         responses: { "204": { description: "Deleted" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+    },
+    "/deliveries/{deliveryId}/cancel": {
+      post: {
+        ...requiresScope("posts:write"), tags: ["Publishing"], summary: "Cancel a pending delivery",
+        description: "Cancels scheduled or held deliveries and returns linked posts to planned with deliveryId cleared, so they can be published again.",
+        parameters: [{ name: "deliveryId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { "204": { description: "Canceled" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { description: "Delivery not found" }, "409": { description: "No longer pending" } },
+      },
+    },
+    "/deliveries/{deliveryId}/publish-now": {
+      post: {
+        ...requiresScope("posts:write"), tags: ["Publishing"], summary: "Publish a pending delivery now",
+        description: "Reschedules scheduled or held deliveries to now through the existing publish job. Repeated requests retain one job. TikTok send-time confirmation still applies; awaiting confirmation returns 409 and requires the Queue confirmation screen.",
+        parameters: [{ name: "deliveryId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { "200": { description: "Rescheduled delivery in data" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { description: "Delivery not found" }, "409": { description: "Already publishing, no longer pending, or confirmation required" } },
       },
     },
     "/deliveries/{deliveryId}/reschedule": {

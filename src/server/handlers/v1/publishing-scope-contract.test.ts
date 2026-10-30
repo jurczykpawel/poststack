@@ -1,3 +1,4 @@
+import * as deliveryActions from "@/server/handlers/v1/deliveries/[deliveryId]/actions";
 import * as deliveryReschedule from "@/server/handlers/v1/deliveries/[deliveryId]/reschedule/route";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -63,6 +64,7 @@ const postContext = { params: Promise.resolve({ postId: "post-1" }) };
 const brandContext = { params: Promise.resolve({ brandKey: "brand-1" }) };
 
 const cases: ScopeCase[] = [
+  ...["cancel", "publish-now"].map((action) => ({ method: "POST", path: `/deliveries/delivery-1/${action}`, scope: "posts:write", invoke: (request: Request) => deliveryActions.POST(request, { params: Promise.resolve({ deliveryId: "delivery-1" }) }, action as "cancel" | "publish-now") })),
   { method: "POST", path: "/deliveries/delivery-1/reschedule", scope: "posts:write", invoke: (request) => deliveryReschedule.POST(request, { params: Promise.resolve({ deliveryId: "delivery-1" }) }) },
   { method: "GET", path: "/content", scope: "content:read", invoke: contentList.GET },
   { method: "POST", path: "/content", scope: "content:write", invoke: contentList.POST },

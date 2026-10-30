@@ -212,6 +212,24 @@ describe("incoming-message worker (real Postgres)", () => {
     expect(msgs2.length).toBe(1);
   });
 
+  it("updates conversation activity for two messages recorded together", async () => {
+    await w.processIncomingMessage({ platform: "facebook", pageId: PAGE, senderId: "ACTIVITY-SENDER", recipientId: PAGE, mid: "activity-seed", text: "hi", timestamp: ts() }, helpers);
+    const seeded = (await db.query.messages.findFirst({ where: eq(s.messages.platform_message_id, "activity-seed") }))!;
+    const conversation = { id: seeded.conversation_id };
+    const { updateConversation } = await import("@/lib/conversations/update");
+    let arrived = 0;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const results = await Promise.allSettled(["one", "two"].map(mid => db.transaction(async tx => {
+      await tx.insert(s.messages).values({ conversation_id: conversation.id, direction: "inbound", platform_message_id: mid, text: mid });
+      if (++arrived === 2) release();
+      await gate;
+      return updateConversation(tx, WS, conversation.id, { last_message_preview: mid });
+    })));
+    expect(results.map(result => result.status)).toEqual(["fulfilled", "fulfilled"]);
+    expect(await db.query.messages.findMany({ where: eq(s.messages.conversation_id, conversation.id) })).toHaveLength(3);
+  });
+
   it("retries a DM rule whose first reply enqueue failed — not lost to the message dedup", async () => {
     if (!TEST_DB) return;
     await db.insert(s.autoReplyRules).values({
