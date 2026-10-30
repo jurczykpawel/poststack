@@ -15,7 +15,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ sourceId: string }> },
 ) {
-  const auth = await authenticateWithScope(request, "sources:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "sources:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("managed_connection");
   if (gate) return gate;

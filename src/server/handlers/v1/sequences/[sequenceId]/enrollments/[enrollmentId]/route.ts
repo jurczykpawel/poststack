@@ -18,7 +18,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ sequenceId: string; enrollmentId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "sequences:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "sequences:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const { sequenceId, enrollmentId } = await params;

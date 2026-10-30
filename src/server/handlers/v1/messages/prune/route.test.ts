@@ -29,7 +29,7 @@ describe("POST /api/v1/messages/prune — manual retention", () => {
   });
 
   it("returns 401 when unauthenticated", async () => {
-    mockAuth.mockRejectedValueOnce(new Error("no auth"));
+    mockAuth.mockResolvedValueOnce(null);
     const res = await POST(post({ older_than_days: 30 }));
     expect(res.status).toBe(401);
     expect(mockPrune).not.toHaveBeenCalled();

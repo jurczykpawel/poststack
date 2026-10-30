@@ -15,7 +15,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -58,7 +58,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;

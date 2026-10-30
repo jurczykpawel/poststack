@@ -23,7 +23,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -78,7 +78,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:write");
   if (!auth) return ApiErrors.unauthorized();
   // Manual (human) replying is PRO — free relies on rule auto-replies, and handles a needs-reply
   // case in the native app. Rule-driven sends go through the worker, not here, so they stay free.

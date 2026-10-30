@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 
 // GET /api/v1/tags
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "tags:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -47,7 +47,7 @@ const createSchema = z.object({
 
 // POST /api/v1/tags
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;

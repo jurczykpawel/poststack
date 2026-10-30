@@ -25,7 +25,7 @@ function publicState(s: LicenseState, aiConfigured: boolean) {
 
 // GET /api/v1/license — current license status (no token) + whether an AI provider is configured.
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:read");
   if (!auth) return ApiErrors.unauthorized();
   const [state, aiConfigured] = await Promise.all([getInstanceLicense(), isAiConfigured()]);
   return ok(publicState(state, aiConfigured));
@@ -35,7 +35,7 @@ const postSchema = z.object({ token: z.string().min(1) });
 
 // POST /api/v1/license — verify + store a license token.
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:write");
   if (!auth) return ApiErrors.unauthorized();
 
   if (!await isInstanceOperator(auth)) return ApiErrors.forbidden("Managed by the instance operator");
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
 // DELETE /api/v1/license — drop the stored token, revert to env/free.
 export async function DELETE(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:write");
   if (!auth) return ApiErrors.unauthorized();
   if (!await isInstanceOperator(auth)) return ApiErrors.forbidden("Managed by the instance operator");
   return ok(publicState(await clearLicense(), await isAiConfigured()));

@@ -20,7 +20,7 @@ const schema = z.object({
 
 // POST /api/v1/channels/telegram/connect — connect a Telegram bot by token
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "channels:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "channels:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const body = await request.json().catch(() => ({}));

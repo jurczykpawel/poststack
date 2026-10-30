@@ -102,7 +102,7 @@ const post = (body: unknown, key = RAW_KEY) =>
 describe("POST /api/v1/media — sha256 reference fast-path", () => {
   it("requires media:write before validating the request", async () => {
     if (!TEST_DB) return;
-    expect((await post({}, UNRELATED_KEY)).status).toBe(401);
+    expect((await post({}, UNRELATED_KEY)).status).toBe(403);
     expect((await post({}, WRITE_KEY)).status).toBe(422);
   });
 

@@ -7,7 +7,7 @@ import { PermanentError, RateLimitedError, TokenInvalidError } from "@/lib/provi
 type Params = { params: Promise<{ channelId: string }> };
 
 async function respond(request: Request, { params }: Params, sessionOnly: boolean): Promise<Response> {
-  const auth = await (sessionOnly ? authenticateSession(request) : authenticateWithScope(request, "channels:read")).catch(() => null);
+  const auth = await (sessionOnly ? authenticateSession(request) : authenticateWithScope(request, "channels:read"));
   if (!auth) return ApiErrors.unauthorized();
   const { channelId } = await params;
   if (!isUuid(channelId)) return ApiErrors.notFound("Channel");

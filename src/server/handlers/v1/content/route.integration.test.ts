@@ -127,8 +127,8 @@ describe.skipIf(!TEST_DB)("/api/v1/content", () => {
     expect((await call("GET", `/content/${json.data.id}`, undefined, READ_KEY)).status).toBe(200);
 
     for (const key of [WRITE_KEY, UNRELATED_KEY]) {
-      expect((await call("GET", "/content", undefined, key)).status).toBe(401);
-      expect((await call("GET", `/content/${json.data.id}`, undefined, key)).status).toBe(401);
+      expect((await call("GET", "/content", undefined, key)).status).toBe(403);
+      expect((await call("GET", `/content/${json.data.id}`, undefined, key)).status).toBe(403);
     }
   });
 
@@ -171,7 +171,7 @@ describe.skipIf(!TEST_DB)("/api/v1/content", () => {
         (await call("PATCH", `/content/${json.data.id}`, { title: "Scoped content" }, key)).status,
         (await call("DELETE", `/content/${json.data.id}`, undefined, key)).status,
       ];
-      expect(statuses).toEqual([401, 401, 401]);
+      expect(statuses).toEqual([403, 403, 403]);
     }
 
     const created = await createOne("Writer-created", WRITE_KEY);

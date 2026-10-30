@@ -15,7 +15,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ contactId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "contacts:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "contacts:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -68,7 +68,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ contactId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "contacts:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -160,7 +160,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ contactId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "contacts:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const { contactId } = await params;

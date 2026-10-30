@@ -34,7 +34,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ ruleId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "rules:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "rules:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
@@ -85,7 +85,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ ruleId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "rules:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "rules:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;
@@ -264,7 +264,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ ruleId: string }> }
 ) {
-  const auth = await authenticateWithScope(request, "rules:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "rules:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const { ruleId } = await params;

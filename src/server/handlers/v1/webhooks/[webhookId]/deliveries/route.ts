@@ -10,7 +10,7 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request, context: { params: Promise<{ webhookId: string }> }) {
-  const auth = await authenticateWithScope(request, "webhooks:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "webhooks:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("outbound_webhooks");
   if (gate) return gate;

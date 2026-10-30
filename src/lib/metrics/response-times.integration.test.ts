@@ -196,7 +196,7 @@ describe("GET /api/v1/stats/response-times", () => {
     const res = await app.request("/api/v1/stats/response-times?window=30", {
       headers: { authorization: `Bearer ${SCOPED_KEY}` },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.data).toBeNull();
   });

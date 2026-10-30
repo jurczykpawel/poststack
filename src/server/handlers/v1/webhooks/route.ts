@@ -22,7 +22,7 @@ const createSchema = z.object({
 
 // GET /api/v1/webhooks — list this workspace's webhook endpoints (without signing secrets).
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "webhooks:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "webhooks:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("outbound_webhooks");
   if (gate) return gate;
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 
 // POST /api/v1/webhooks — register an endpoint. Returns the signing secret ONCE.
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "webhooks:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "webhooks:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("outbound_webhooks");
   if (gate) return gate;
