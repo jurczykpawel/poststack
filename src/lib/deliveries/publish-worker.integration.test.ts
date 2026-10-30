@@ -82,7 +82,7 @@ async function scenario(channelStatus: "active" | "needs_reauth" = "active") {
       format: "video",
       status: "scheduled",
       payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" },
-      scheduled_at: new Date(),
+      scheduled_at: sql`now()`,
       run_at: new Date(),
     })
     .returning();
@@ -164,6 +164,68 @@ describe("publish worker (AUD27)", () => {
     expect(mock).toHaveBeenCalledOnce();
   });
 
+  it("recovers the same completed YouTube upload after losing its final response and restarting the job", async () => {
+    const { postId, channelId } = await scenario();
+    await db.update(schema.channels).set({ platform: "youtube" }).where(eq(schema.channels.id, channelId));
+    const session = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=example";
+    const mediaFetch = vi.spyOn(await import("@/lib/media/ssrf"), "safeFetch").mockResolvedValue(new Response(null, { headers: { "content-length": "4" } }));
+    let restarted = false, initialized = 0, uploads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") { initialized++; return new Response(null, { headers: { location: session } }); }
+      expect(String(input)).toBe(session);
+      const range = new Headers(init?.headers).get("content-range");
+      if (range === "bytes 0-3/4") uploads++;
+      if (!restarted) throw new Error("connection closed after upload");
+      expect(range).toBe("bytes */4");
+      return Response.json({ kind: "youtube#video", id: "one-completed-video" }, { status: 201 });
+    }));
+    mediaFetch.mockImplementation(async (_url, init) => init?.method === "HEAD"
+      ? new Response(null, { headers: { "content-length": "4" } })
+      : new Response(new Uint8Array([1, 2, 3, 4]), { status: 206, headers: { "content-range": "bytes 0-3/4" } }));
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("processing");
+      await db.update(schema.deliveries).set({ status: "sending", attempt_started_at: new Date(Date.now() - 20 * 60_000) }).where(eq(schema.deliveries.id, postId));
+      await stuckSendingSweep();
+      expect(await status(postId)).toBe("processing");
+      restarted = true;
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      expect(initialized).toBe(1);
+      expect(uploads).toBe(1);
+      const stored = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+      expect(stored!.provider_handle).toBe("one-completed-video");
+    } finally { mediaFetch.mockRestore(); }
+  });
+
+  it("persists an encrypted YouTube session and reuses it after a fresh job without creating another video", async () => {
+    const { postId, channelId } = await scenario();
+    await db.update(schema.channels).set({ platform: "youtube" }).where(eq(schema.channels.id, channelId));
+    const provider = (await import("@/lib/providers/youtube")).youtubeProvider;
+    const url = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=example";
+    const spy = vi.spyOn(provider, "publish").mockImplementationOnce(async ({ saveUploadSession }) => {
+      await saveUploadSession!(url);
+      const stored = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+      expect(stored!.provider_handle).toBeNull();
+      expect(typeof (stored!.payload as Record<string, unknown>)._youtubeUploadSession).toBe("string");
+      expect(JSON.stringify(stored)).not.toContain(url);
+      throw new Error("worker stopped before receiving the final response");
+    }).mockImplementationOnce(async ({ uploadSession }) => {
+      expect(uploadSession).toBe(url);
+      return { providerHandle: "one-video" };
+    });
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("processing");
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("sent");
+      const stored = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+      expect(stored!.provider_handle).toBe("one-video");
+      expect((stored!.payload as Record<string, unknown>)._youtubeUploadSession).toBeUndefined();
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally { spy.mockRestore(); }
+  });
+
   it("scheduled + healthy -> sent, stores provider_handle", async () => {
     if (!TEST_DB) return;
     const { postId } = await scenario();
@@ -190,7 +252,7 @@ describe("publish worker (AUD27)", () => {
       .returning();
     const [d] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" }, scheduled_at: new Date(), run_at: new Date() })
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: m!.id }], caption: "hi" }, scheduled_at: sql`now()`, run_at: new Date() })
       .returning();
     // editorial post linked to the delivery, carrying the auto-reply config
     await db.insert(schema.posts).values({
@@ -230,7 +292,7 @@ describe("publish worker (AUD27)", () => {
       .returning();
     const [p] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: crypto.randomUUID() }] }, scheduled_at: new Date(), run_at: new Date() })
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload: { format: "video", media: [{ mediaId: crypto.randomUUID() }] }, scheduled_at: sql`now()`, run_at: new Date() })
       .returning();
     const spy = vi.spyOn(tt, "publish");
     try {
@@ -502,7 +564,7 @@ describe("publish worker (AUD27)", () => {
       .where(eq(schema.deliveries.id, stuck));
     const [freshRow] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: channelId, format: "video", status: "sending", payload: { format: "video", media: [] }, scheduled_at: new Date(), run_at: new Date(), attempt_started_at: new Date() })
+      .values({ workspace_id: WS, channel_id: channelId, format: "video", status: "sending", payload: { format: "video", media: [] }, scheduled_at: sql`now()`, run_at: new Date(), attempt_started_at: new Date() })
       .returning();
     const fresh = freshRow!.id;
 
@@ -631,7 +693,7 @@ describe("publish worker (AUD27)", () => {
     if (opts.autoStoryOverride !== undefined) payload.autoStory = opts.autoStoryOverride;
     const [p] = await db
       .insert(schema.deliveries)
-      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload, scheduled_at: new Date(), run_at: new Date() })
+      .values({ workspace_id: WS, channel_id: c!.id, format: "video", status: "scheduled", payload, scheduled_at: sql`now()`, run_at: new Date() })
       .returning();
     return { channelId: c!.id, postId: p!.id };
   }

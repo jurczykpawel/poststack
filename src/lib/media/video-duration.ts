@@ -7,11 +7,11 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 
 /** Probe local bytes only; an unreadable video keeps its duration unknown. */
-export async function videoDuration(bytes: Uint8Array): Promise<number | undefined> {
+export async function videoDuration(bytes: Uint8Array | string): Promise<number | undefined> {
   const directory = await mkdtemp(join(tmpdir(), "poststack-probe-"));
   try {
-    const file = join(directory, "video");
-    await writeFile(file, bytes);
+    const file = typeof bytes === "string" ? bytes : join(directory, "video");
+    if (typeof bytes !== "string") await writeFile(file, bytes);
     const { stdout } = await run("ffprobe", [
       "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration",
       "-of", "default=noprint_wrappers=1:nokey=1", file,

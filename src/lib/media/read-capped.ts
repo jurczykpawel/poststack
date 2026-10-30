@@ -1,5 +1,7 @@
 import { ApiError } from "@/lib/api/response";
 
+export const mediaMaxBytes = (): number => Number(process.env.MEDIA_MAX_BYTES ?? 4 * 1024 ** 3);
+
 /**
  * Read a fetch Response body into memory with a HARD byte cap, independent of the
  * Content-Length header (AUD44/AUD63): a fast precheck on Content-Length, then a streamed
@@ -8,7 +10,10 @@ import { ApiError } from "@/lib/api/response";
  */
 export async function readBodyCapped(res: Response, max: number): Promise<Uint8Array<ArrayBuffer>> {
   const cl = Number(res.headers.get("content-length") ?? 0);
-  if (cl > max) throw new ApiError("too_large", "Media exceeds ingest cap", 413);
+  if (cl > max) {
+    await res.body?.cancel();
+    throw new ApiError("too_large", "Media exceeds ingest cap", 413);
+  }
 
   const reader = res.body?.getReader();
   if (!reader) {

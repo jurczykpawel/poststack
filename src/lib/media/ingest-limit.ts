@@ -1,8 +1,6 @@
 import { ApiError } from "@/lib/api/response";
 
-// PSA32 — bound concurrent in-memory media ingests so a few cap-sized bodies can't OOM-kill the
-// process (which would take down the API + admin console in the same process). At most N run at once;
-// a small queue absorbs bursts, and beyond that callers get 429 instead of piling up memory.
+// Bound concurrent transfers and temporary disk usage; queue small bursts and return 429 beyond the cap.
 const maxConcurrent = (): number => Number(process.env.MEDIA_INGEST_CONCURRENCY ?? 2);
 const maxQueued = (): number => Number(process.env.MEDIA_INGEST_QUEUE ?? 8);
 

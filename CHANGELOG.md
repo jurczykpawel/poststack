@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- Stream URL media ingestion to S3 with a configurable 4 GiB default limit, bounded upload parts for YouTube, TikTok and LinkedIn, and saved YouTube sessions for interrupted deliveries.
+- Update the pinned Bun runtime to 1.4.4 for large streamed transfers.
+
 ## [0.14.0] - 2026-10-29
 
 ### Security

@@ -53,3 +53,12 @@ CREATE INDEX IF NOT EXISTS "pending_approvals_inbound_comment_id_idx" ON "pendin
 ALTER TABLE "webhook_deliveries" ADD COLUMN IF NOT EXISTS "http_status" integer;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "webhook_deliveries_workspace_endpoint_created_idx" ON "webhook_deliveries" ("workspace_id", "endpoint_id", "created_at", "id");
+
+--> statement-breakpoint
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'media'
+      AND column_name = 'size' AND data_type = 'integer') THEN
+    ALTER TABLE "media" ALTER COLUMN "size" TYPE bigint;
+  END IF;
+END $$;

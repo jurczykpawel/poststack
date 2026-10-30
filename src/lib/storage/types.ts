@@ -11,6 +11,8 @@ export interface Storage {
     contentType: string,
     metadata?: Record<string, string>,
   ): Promise<void>;
+  putStream(key: string, chunks: AsyncIterable<Uint8Array>, contentType: string): Promise<void>;
+  copy(from: string, to: string, contentType: string, metadata: Record<string, string>): Promise<void>;
   head(key: string): Promise<HeadResult>;
   publicUrl(key: string): string;
   delete(key: string): Promise<void>;
