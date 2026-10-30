@@ -19,7 +19,7 @@ const schema = z.object({
 // older than N days. The log has no auto-TTL (it is the durable inbound-event record); retention is
 // owner-driven. Mirrors messages/prune: bounded older_than_days, settings:write scope.
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const body = await request.json().catch(() => ({}));

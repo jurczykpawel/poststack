@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 
 // GET /api/v1/workspace — current workspace settings.
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const workspace = await db.query.workspaces.findFirst({
@@ -30,7 +30,7 @@ const patchSchema = z.object({
 
 // PATCH /api/v1/workspace — update workspace settings (DATA1: retention policy).
 export async function PATCH(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const body = await request.json().catch(() => ({}));

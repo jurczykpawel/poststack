@@ -6,6 +6,7 @@ import { apiKeys, revokedTokens, workspaceMembers } from "@/db/schema";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import type { ApiScope } from "./scopes";
+import { ApiError } from "@/lib/api/response";
 
 // The bearer prefix gate: a key is "sk_live_<secret>", so the cheap pre-check is "sk_". Derived
 // from BRAND.idPrefix so the prefix and this gate can never drift.
@@ -35,7 +36,7 @@ export function hasScope(auth: AuthContext, scope: ApiScope): boolean {
 }
 
 /**
- * Authenticate + check scope in one call. Returns AuthContext or null.
+ * Authenticate + check scope. Returns null for invalid credentials; throws 403 for missing scope.
  * Usage: const auth = await authenticateWithScope(request, "channels:read");
  */
 export async function authenticateWithScope(
@@ -44,7 +45,7 @@ export async function authenticateWithScope(
 ): Promise<AuthContext | null> {
   const auth = await authenticate(request).catch(() => null);
   if (!auth) return null;
-  if (!hasScope(auth, scope)) return null;
+  if (!hasScope(auth, scope)) throw new ApiError("insufficient_scope", `This operation requires ${scope}`, 403);
   return auth;
 }
 

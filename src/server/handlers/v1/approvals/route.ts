@@ -14,7 +14,7 @@ const querySchema = z.object({
 
 // GET /api/v1/approvals?status=pending — list parked replies awaiting human review
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const { searchParams } = new URL(request.url);

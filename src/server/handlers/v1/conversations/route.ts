@@ -35,7 +35,7 @@ function decodeCursor(c: string): { ts: Date | null; id: string } | null {
 
 // GET /api/v1/conversations
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "conversations:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;

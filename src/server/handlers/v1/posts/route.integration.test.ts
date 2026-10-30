@@ -292,8 +292,8 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
     expect((await call("GET", `/posts/${json.data.id}`, undefined, READ_KEY)).status).toBe(200);
 
     for (const key of [WRITE_KEY, UNRELATED_KEY]) {
-      expect((await call("GET", "/posts", undefined, key)).status).toBe(401);
-      expect((await call("GET", `/posts/${json.data.id}`, undefined, key)).status).toBe(401);
+      expect((await call("GET", "/posts", undefined, key)).status).toBe(403);
+      expect((await call("GET", `/posts/${json.data.id}`, undefined, key)).status).toBe(403);
     }
   });
 
@@ -306,7 +306,7 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
         (await call("PATCH", `/posts/${json.data.id}`, { description: "scoped" }, key)).status,
         (await call("DELETE", `/posts/${json.data.id}`, undefined, key)).status,
       ];
-      expect(statuses).toEqual([401, 401, 401]);
+      expect(statuses).toEqual([403, 403, 403]);
     }
 
     const created = await createOne({ description: "writer-created" }, WRITE_KEY);
@@ -318,8 +318,8 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
   it("requires posts:write before validating publish input", async () => {
     const { json } = await createOne();
 
-    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, READ_KEY)).status).toBe(401);
-    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, UNRELATED_KEY)).status).toBe(401);
+    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, READ_KEY)).status).toBe(403);
+    expect((await call("POST", `/posts/${json.data.id}/publish`, {}, UNRELATED_KEY)).status).toBe(403);
     expect((await call("POST", `/posts/${json.data.id}/publish`, {}, WRITE_KEY)).status).toBe(422);
   });
 

@@ -330,6 +330,13 @@ export const openApiSpec = {
           "application/json": { schema: { $ref: "#/components/schemas/Error" } },
         },
       },
+      InsufficientScope: {
+        description: "Valid API key missing the required scope. error.code is insufficient_scope; error.message names the scope. Instance-operator operations can also return forbidden when an operator session is required.",
+        content: { "application/json": {
+          schema: { $ref: "#/components/schemas/Error" },
+          example: { data: null, error: { code: "insufficient_scope", message: "This operation requires brands:read" } },
+        } },
+      },
       Forbidden: {
         description: "The active authentication method cannot perform this operation",
         content: {
@@ -1557,3 +1564,12 @@ Every event includes data.id and data.type. Fields below are additional data fie
 ` },
   ],
 };
+
+for (const methods of Object.values(openApiSpec.paths)) {
+  for (const operation of Object.values(methods)) {
+    const op = operation as { "x-required-scope"?: ApiScope; responses?: Record<string, unknown> };
+    if (op["x-required-scope"] && op.responses) {
+      op.responses["403"] = { $ref: "#/components/responses/InsufficientScope" };
+    }
+  }
+}

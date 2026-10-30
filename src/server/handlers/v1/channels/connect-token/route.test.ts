@@ -49,7 +49,7 @@ describe("POST /api/v1/channels/connect-token — manual token", () => {
   });
 
   it("returns 401 when unauthenticated", async () => {
-    mockAuth.mockRejectedValueOnce(new Error("no auth"));
+    mockAuth.mockResolvedValueOnce(null);
     const res = await POST(post({ platform: "facebook", token: "x".repeat(40) }));
     expect(res.status).toBe(401);
   });

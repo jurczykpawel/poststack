@@ -36,7 +36,7 @@ function decodeCursor(c: string): { ts: Date | null; id: string } | null {
 
 // GET /api/v1/contacts
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "contacts:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "contacts:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -160,7 +160,7 @@ const createBody = z.union([importRow, z.array(importRow).min(1).max(1000)]);
 // POST /api/v1/contacts — create or update one or many contacts (bulk import). Idempotent: re-running
 // the same payload updates rather than duplicates (dedup by channel + sender id).
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "contacts:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "contacts:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;

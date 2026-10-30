@@ -17,7 +17,7 @@ const patchSchema = z.object({
 
 // PATCH /api/v1/tags/:tagId — rename / recolor a tag.
 export async function PATCH(request: Request, { params }: Ctx) {
-  const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;
@@ -67,7 +67,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
 // DELETE /api/v1/tags/:tagId — remove a tag; its contact links cascade (contact_tags FK ON DELETE cascade).
 export async function DELETE(request: Request, { params }: Ctx) {
-  const auth = await authenticateWithScope(request, "tags:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "tags:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("contacts_crm");
   if (gate) return gate;

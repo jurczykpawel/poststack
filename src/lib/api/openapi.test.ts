@@ -219,7 +219,6 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
   });
 });
 
-
 describe("list pagination contracts", () => {
   it.each([
     ["/contacts", 30, "meta"],
@@ -252,4 +251,14 @@ describe("outbound webhook consumer documentation", () => {
     expect(description).toContain("`X-PostStack-Signature: t=<unix>,v1=<hmac>`");
     for (const field of ["workspaceId", "channelId", "publishedAt", "firstComment", "platformSenderId", "X-PostStack-Signature", "timestamp.raw-body", "8 attempts"]) expect(description).toContain(field);
   });
+});
+
+it("documents insufficient_scope for every scoped operation", () => {
+  for (const methods of Object.values(openApiSpec.paths)) {
+    for (const operation of Object.values(methods)) {
+      const op = operation as { "x-required-scope"?: string; responses?: Record<string, unknown> };
+      if (op["x-required-scope"]) expect(op.responses?.["403"]).toEqual({ $ref: "#/components/responses/InsufficientScope" });
+    }
+  }
+  expect(openApiSpec.components.responses).toHaveProperty("InsufficientScope");
 });

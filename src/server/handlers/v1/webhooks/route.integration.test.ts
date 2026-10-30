@@ -193,7 +193,7 @@ describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
     expect((await call("GET", `/webhooks/${ep}/deliveries?cursor=bad`)).status).toBe(422);
     const writeKey = "sk_live_webhooks_write_only";
     await db.insert(s.apiKeys).values({ workspace_id: WS, name: "write only", key_hash: createHash("sha256").update(writeKey).digest("hex"), key_prefix: "sk_live_ww", scopes: ["webhooks:write"] });
-    expect((await call("GET", `/webhooks/${ep}/deliveries`, undefined, writeKey)).status).toBe(401);
+    expect((await call("GET", `/webhooks/${ep}/deliveries`, undefined, writeKey)).status).toBe(403);
   });
 
   it("pages equal timestamps without omissions and reports the queue schedule", async () => {
@@ -235,7 +235,7 @@ describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
 
   it("rejects a write with a read-only key (scope) and a bad URL (422)", async () => {
     const ro = await call("POST", "/webhooks", { url: "https://hook.example.com/ro" }, READONLY_KEY);
-    expect(ro.status).toBe(401); // webhooks:read key has no webhooks:write
+    expect(ro.status).toBe(403); // webhooks:read key has no webhooks:write
     const bad = await call("POST", "/webhooks", { url: "ftp://evil.example.com" });
     expect(bad.status).toBe(422);
   });

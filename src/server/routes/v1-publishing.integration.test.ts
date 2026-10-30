@@ -98,7 +98,7 @@ describe("publishing /api/v1 (e2e smoke)", () => {
     const path = `/deliveries/${d!.id}/reschedule`;
     expect((await post(path, { scheduledAt }, {})).status).toBe(401);
     expect((await post(path, { scheduledAt: "bad" })).status).toBe(422);
-    expect((await post(path, { scheduledAt }, { ...auth, authorization: `Bearer ${READ_KEY}` })).status).toBe(401);
+    expect((await post(path, { scheduledAt }, { ...auth, authorization: `Bearer ${READ_KEY}` })).status).toBe(403);
     const res = await post(path, { scheduledAt });
     expect(res.status).toBe(200);
     expect((await res.json()).data.scheduledAt).toBe(scheduledAt);

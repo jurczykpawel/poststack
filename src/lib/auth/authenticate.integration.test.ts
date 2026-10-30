@@ -167,7 +167,7 @@ describe("authenticate — API key (real Postgres)", () => {
   it("requires an explicitly granted scope on a restricted key", async () => {
     if (!TEST_DB) return;
     expect(await auth.authenticateWithScope(keyReq(RAW_KEY), "channels:read")).not.toBeNull();
-    expect(await auth.authenticateWithScope(keyReq(RAW_KEY), "posts:read")).toBeNull();
+    await expect(auth.authenticateWithScope(keyReq(RAW_KEY), "posts:read")).rejects.toMatchObject({ status: 403, code: "insufficient_scope", message: expect.stringContaining("requires posts:read") });
   });
 
   it("keeps a legacy null scope list as full access", async () => {
@@ -226,5 +226,52 @@ describe("invalidateSession (real Postgres)", () => {
     await auth.invalidateSession(foreign);
     const row = await db.query.revokedTokens.findFirst({ where: eq(s.revokedTokens.jti, "foreign-jti-aud98") });
     expect(row).toBeUndefined();
+  });
+});
+
+describe("scoped HTTP responses", () => {
+  it("returns the missing scope for every documented scoped operation", async () => {
+    const { buildApp } = await import("@/server/app");
+    const { openApiSpec } = await import("@/lib/api/openapi");
+    const app = buildApp();
+    for (const [path, methods] of Object.entries(openApiSpec.paths)) {
+      for (const [method, operation] of Object.entries(methods)) {
+        const scope = (operation as { "x-required-scope"?: string })["x-required-scope"];
+        if (!scope) continue;
+        await db.update(s.apiKeys).set({ scopes: [scope === "stats:read" ? "channels:read" : "stats:read"] }).where(eq(s.apiKeys.key_hash, KEY_HASH));
+        const url = path.replace(/\{[^}]+\}/g, WS);
+        const response = await app.request(`/api/v1${url}`, {
+          method: method.toUpperCase(), headers: { authorization: `Bearer ${RAW_KEY}` },
+        });
+        expect(response.status, `${method} ${path}`).toBe(403);
+        expect(await response.json()).toEqual({ data: null, error: {
+          code: "insufficient_scope", message: expect.stringContaining(`requires ${scope}`),
+        } });
+      }
+    }
+  });
+
+  it("keeps missing, invalid and expired credentials at 401", async () => {
+    const app = (await import("@/server/app")).buildApp();
+    await db.update(s.apiKeys).set({ expires_at: new Date("2020-01-01") }).where(eq(s.apiKeys.key_hash, KEY_HASH));
+    const credentials: Record<string, string>[] = [
+      {}, { authorization: "Bearer sk_live_unknown" },
+      { authorization: `Bearer ${RAW_KEY}` }, { cookie: "session=invalid" },
+    ];
+    for (const headers of credentials) {
+      const response = await app.request("/api/v1/brands", { headers });
+      expect(response.status).toBe(401);
+      expect((await response.json()).error.code).toBe("unauthorized");
+    }
+  });
+
+  it("allows matching, empty and null scopes and dashboard sessions", async () => {
+    const app = (await import("@/server/app")).buildApp();
+    for (const scopes of [["brands:read"], [], null]) {
+      await db.update(s.apiKeys).set({ scopes }).where(eq(s.apiKeys.key_hash, KEY_HASH));
+      expect((await app.request("/api/v1/brands", { headers: { authorization: `Bearer ${RAW_KEY}` } })).status).toBe(200);
+    }
+    const token = await auth.signSession(USER, WS);
+    expect((await app.request("/api/v1/brands", { headers: { cookie: `session=${token}` } })).status).toBe(200);
   });
 });

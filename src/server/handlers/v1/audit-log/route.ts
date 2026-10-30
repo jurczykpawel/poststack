@@ -12,7 +12,7 @@ const MAX_OFFSET = 10_000;
 
 // GET /api/v1/audit-log — workspace-scoped audit trail, newest first (AUDIT1).
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "settings:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "settings:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const url = new URL(request.url);

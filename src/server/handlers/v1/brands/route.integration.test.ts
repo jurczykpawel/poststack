@@ -120,16 +120,16 @@ describe.skipIf(!TEST_DB)("/api/v1/brands", () => {
     expect((await call("GET", "/brands", undefined, READ_KEY)).status).toBe(200);
     expect((await call("GET", "/brands/scoped-read/channels", undefined, READ_KEY)).status).toBe(200);
     for (const key of [WRITE_KEY, UNRELATED_KEY]) {
-      expect((await call("GET", "/brands", undefined, key)).status).toBe(401);
-      expect((await call("GET", "/brands/scoped-read/channels", undefined, key)).status).toBe(401);
+      expect((await call("GET", "/brands", undefined, key)).status).toBe(403);
+      expect((await call("GET", "/brands/scoped-read/channels", undefined, key)).status).toBe(403);
     }
   });
 
   it("applies brands:write to create, update, and delete", async () => {
     for (const key of [READ_KEY, UNRELATED_KEY]) {
-      expect((await call("POST", "/brands", { key: `denied-${key.slice(-3)}`, name: "Denied" }, key)).status).toBe(401);
-      expect((await call("PATCH", "/brands/missing", { name: "Denied" }, key)).status).toBe(401);
-      expect((await call("DELETE", "/brands/missing", undefined, key)).status).toBe(401);
+      expect((await call("POST", "/brands", { key: `denied-${key.slice(-3)}`, name: "Denied" }, key)).status).toBe(403);
+      expect((await call("PATCH", "/brands/missing", { name: "Denied" }, key)).status).toBe(403);
+      expect((await call("DELETE", "/brands/missing", undefined, key)).status).toBe(403);
     }
 
     expect((await call("POST", "/brands", { key: "scoped-write", name: "Before" }, WRITE_KEY)).status).toBe(201);

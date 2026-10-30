@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 // the authed workspace over a trailing `window` (days; default 30). The numbers union the live
 // metrics with the rolled-up daily stats, so compaction never changes them. (TIMING6)
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "stats:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "stats:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const url = new URL(request.url);

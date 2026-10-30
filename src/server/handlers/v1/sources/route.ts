@@ -15,7 +15,7 @@ const connectSchema = z.object({ token: z.string().min(20) });
 
 // GET /api/v1/sources — list managed connections + their derived channels.
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "sources:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "sources:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("managed_connection");
   if (gate) return gate;
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
 
 // POST /api/v1/sources — connect (or reconnect) a managed connection from a pasted master token.
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "sources:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "sources:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("managed_connection");
   if (gate) return gate;

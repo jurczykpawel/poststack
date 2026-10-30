@@ -11,7 +11,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ approvalId: string }> },
 ) {
-  const auth = await authenticateWithScope(request, "conversations:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "conversations:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const { approvalId } = await params;

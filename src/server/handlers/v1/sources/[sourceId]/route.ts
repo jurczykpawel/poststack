@@ -14,7 +14,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ sourceId: string }> },
 ) {
-  const auth = await authenticateWithScope(request, "sources:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "sources:write");
   if (!auth) return ApiErrors.unauthorized();
   // Match GET/POST/sync: managed connections are a PRO feature end-to-end (consistency, not a
   // data-exposure fix — the query below is already workspace-scoped).

@@ -209,7 +209,7 @@ export async function invalidSequenceResponse(
 
 // GET /api/v1/rules
 export async function GET(request: Request) {
-  const auth = await authenticateWithScope(request, "rules:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "rules:read");
   if (!auth) return ApiErrors.unauthorized();
 
   const rules = await db.query.autoReplyRules.findMany({
@@ -238,7 +238,7 @@ export async function GET(request: Request) {
 
 // POST /api/v1/rules
 export async function POST(request: Request) {
-  const auth = await authenticateWithScope(request, "rules:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "rules:write");
   if (!auth) return ApiErrors.unauthorized();
 
   const body = await request.json().catch(() => ({}));

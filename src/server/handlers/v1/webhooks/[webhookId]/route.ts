@@ -21,7 +21,7 @@ const patchSchema = z.object({
 
 // GET /api/v1/webhooks/:webhookId
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await authenticateWithScope(request, "webhooks:read").catch(() => null);
+  const auth = await authenticateWithScope(request, "webhooks:read");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("outbound_webhooks");
   if (gate) return gate;
@@ -34,7 +34,7 @@ export async function GET(request: Request, ctx: Ctx) {
 
 // PATCH /api/v1/webhooks/:webhookId — update url / event types / active.
 export async function PATCH(request: Request, ctx: Ctx) {
-  const auth = await authenticateWithScope(request, "webhooks:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "webhooks:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("outbound_webhooks");
   if (gate) return gate;
@@ -57,7 +57,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
 // DELETE /api/v1/webhooks/:webhookId — remove the endpoint and its deliveries.
 export async function DELETE(request: Request, ctx: Ctx) {
-  const auth = await authenticateWithScope(request, "webhooks:write").catch(() => null);
+  const auth = await authenticateWithScope(request, "webhooks:write");
   if (!auth) return ApiErrors.unauthorized();
   const gate = await proGate("outbound_webhooks");
   if (gate) return gate;

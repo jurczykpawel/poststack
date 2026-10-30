@@ -82,7 +82,7 @@ describe("TikTok creator-info routes", () => {
   });
   it("rejects absent auth and incorrect scopes", async () => {
     expect((await app.request(path())).status).toBe(401);
-    expect((await read("", WRONG_KEY)).status).toBe(401);
+    expect((await read("", WRONG_KEY)).status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it("returns 404 for another workspace and unknown channels", async () => {
