@@ -68,7 +68,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Audit dependencies
         run: |
-          npm audit --audit-level=moderate
+          # Shipped (runtime) dependencies: moderate+ blocks. Dev tooling (eslint & co.) never reaches the image
+          # (Dockerfile uses npm ci --omit=dev), so it blocks only from high — a fresh moderate advisory with no
+          # upstream fix in the linter chain must not stop a release.
+          npm audit --omit=dev --audit-level=moderate
+          npm audit --audit-level=high
           npm audit signatures
       - name: Install and audit landing dependencies
         run: |

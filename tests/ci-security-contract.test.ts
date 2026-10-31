@@ -57,7 +57,8 @@ describe("CI release gates", () => {
 
   it.each(["ci.yml", "release.yml"])("makes dependency and browser checks blocking in %s", (name) => {
     const source = workflows[name];
-    expect(source).toContain("npm audit --audit-level=moderate");
+    expect(source).toContain("npm audit --omit=dev --audit-level=moderate");
+    expect(source).toContain("npm audit --audit-level=high");
     expect(source).toContain("npm audit signatures");
     expect(source).toContain("npm --prefix landing ci");
     expect(source).toContain("npm --prefix landing audit --audit-level=moderate");
