@@ -238,4 +238,21 @@ describe("remote media polling contract", () => {
     expect((await get("00000000-0000-0000-0000-000000000000")).status).toBe(404);
     expect((await get("bad-id")).status).toBe(422);
   });
+
+  it.each(["download", "upload", "probe"])("exposes the %s stage when an accepted job fails", async stage => {
+    const storage = getStorage();
+    const bytes = stage === "probe" ? new Uint8Array([1, 2, 3]) : mp4;
+    vi.stubGlobal("fetch", async () => new Response(stage === "download"
+      ? new ReadableStream({ pull(controller) { controller.error(new Error("aborted")); } }) : bytes,
+    { headers: { "content-type": "video/mp4" } }));
+    const upload = stage === "upload" ? vi.spyOn(storage, "putStream").mockRejectedValue(new Error("S3 multipart part failed")) : undefined;
+    try {
+      const { data } = await (await post({ url: `https://example.com/${stage}.mp4` })).json();
+      await drain();
+      const failed = (await (await get(data.id)).json()).data;
+      expect(failed.status).toBe("failed");
+      expect(failed.error).toMatch(new RegExp(`^${stage}: `));
+      expect(failed.error).toContain(stage === "download" ? "aborted" : stage === "upload" ? "S3 multipart part failed" : "Unrecognized media format");
+    } finally { upload?.mockRestore(); }
+  });
 });
