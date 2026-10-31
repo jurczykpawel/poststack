@@ -10,9 +10,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Changed
+- URL media registration now returns 202 with a durable ingestion handle; poll `GET /api/v1/media/:id` before publishing. `?wait=true` waits up to 60 seconds, and stored checksum references still return 201. Compose and editorial publishing retain their existing behavior.
 - Since 0.14.0, brands/content/posts/media API routes require their corresponding scopes. This is a breaking change for keys with explicit scope lists: add the required permissions. Empty scope lists retain full access. Valid keys missing a required scope now receive HTTP 403 `insufficient_scope`, with the scope named in the message; missing or invalid credentials still receive 401.
 
 ### Fixed
+- Brand card channel counts refresh immediately after assigning or clearing a channel slot.
 - Startup automatically adds the seven publishing scopes to API keys containing all 19 pre-0.14.0 scopes. Narrower, empty and null scope lists are unchanged.
 ### Fixed
 - API documentation handles skipped document transitions when returning with Back or Forward.

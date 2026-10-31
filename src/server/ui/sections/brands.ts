@@ -212,7 +212,7 @@ function brandCard(brand: BrandRow, slots: { rows: Html; connected: number }, lo
         <span class="brand-title"><h3>${brand.name}</h3>${lockBadge}</span>
         <code class="brand-key">${brand.key}</code>
       </span>
-      <span class="panel-count" style="margin-left:auto" title="${count} connected">${count}</span>
+      <span id="brand-count-${domSafe(brand.key)}" class="panel-count" style="margin-left:auto" title="${count} connected">${count}</span>
       <form method="post" action="/brands/${brand.key}/delete" hx-post="/brands/${brand.key}/delete"
         hx-target="#${cardId}" hx-swap="outerHTML"
         hx-confirm="Delete brand '${brand.name}'? Its channels become unassigned (not deleted).">
@@ -468,6 +468,8 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
     const slot = slots.find((s) => s.platform === platform)!;
     const candidates = await channelsForPlatform(ws, platform);
     if (isHtmx(c)) toastHeader(c, "ok", `${platformLabel(platform)} channel updated`);
-    return c.html(slotRow(key, platform, candidates, slot.channel?.id ?? null, slot.ambiguous));
+    const connected = slots.filter(s => s.channel).length;
+    const count = `${connected} channel${connected === 1 ? "" : "s"}`;
+    return c.html(html`${slotRow(key, platform, candidates, slot.channel?.id ?? null, slot.ambiguous)}<span id="brand-count-${domSafe(key)}" hx-swap-oob="outerHTML" class="panel-count" style="margin-left:auto" title="${count} connected">${count}</span>`);
   });
 }

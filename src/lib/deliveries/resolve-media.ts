@@ -13,6 +13,7 @@ export async function resolveMediaDetails(media: MediaRef[], workspaceId: string
   for (const m of media) {
     const row = await getMedia(m.mediaId, workspaceId).catch(() => undefined);
     if (!row) throw new PermanentError(`referenced media not found: ${m.mediaId}`);
+    if (row.status !== "ready") throw new PermanentError(`referenced media is ${row.status}: ${m.mediaId}`);
     rows.push({ url: row.url, durationSec: row.duration_sec });
   }
   return rows;

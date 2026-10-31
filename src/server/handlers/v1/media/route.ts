@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
-import { created, ApiErrors, ApiError, zodDetails } from "@/lib/api/response";
+import { created, ok, ApiErrors, ApiError, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
-import { registerByUrl, registerKnownMedia } from "@/lib/media/service";
+import { getMedia, registerKnownMedia } from "@/lib/media/service";
 import { getStorage } from "@/lib/storage";
-import { defaultProbe } from "@/lib/media/probe";
+import { enqueueIngest } from "@/lib/media/async-ingest";
+import { setTimeout as delay } from "node:timers/promises";
 import { LIMITS } from "@/lib/api/limits";
 
 export const runtime = "nodejs";
@@ -29,9 +30,7 @@ const registerBody = z
     }
   });
 
-/** Register a media URL into content-addressed storage (SSRF-guarded, workspace-scoped). When an
- *  sha256+kind+mime reference is supplied, try the no-fetch fast-path (link an object ReelStack/another
- *  producer already wrote to the shared CAS bucket); on not_present fall back to fetch+store. */
+/** Stored references return immediately; remote sources use a durable worker job. */
 export async function POST(request: Request): Promise<Response> {
   const auth = await authenticateWithScope(request, "media:write");
   if (!auth) return ApiErrors.unauthorized();
@@ -53,6 +52,26 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const row = await registerByUrl(url, { storage, probe: defaultProbe }, auth.workspaceId);
-  return created(camelizeKeys(row));
+  let row = await enqueueIngest(url, auth.workspaceId);
+  if (new URL(request.url).searchParams.get("wait") === "true") {
+    const deadline = Date.now() + 60_000;
+    while (row.status === "ingesting" && Date.now() < deadline && !request.signal.aborted) {
+      await delay(250);
+      const current = await getMedia(row.id, auth.workspaceId);
+      if (!current) return ApiErrors.notFound("Media");
+      row = current;
+    }
+    if (row.status === "ready") return created(camelizeKeys(row));
+    if (row.status === "failed") throw new ApiError("ingest_failed", row.error ?? "Media ingest failed", 400);
+  }
+  return ok({ id: row.id, status: row.status, error: row.error }, undefined, 202);
+}
+
+export async function GET(request: Request, id: string): Promise<Response> {
+  const auth = await authenticateWithScope(request, "media:write");
+  if (!auth) return ApiErrors.unauthorized();
+  if (!z.string().uuid().safeParse(id).success) return ApiErrors.validationError([{ path: "id", message: "Invalid media id" }]);
+  const row = await getMedia(id, auth.workspaceId);
+  if (!row) return ApiErrors.notFound("Media");
+  return ok(row.status === "ready" ? camelizeKeys(row) : { id: row.id, status: row.status, error: row.error });
 }

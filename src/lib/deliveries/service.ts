@@ -54,6 +54,7 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
 
   for (const m of input.request.media) {
     const exists = await getMedia(m.mediaId, workspaceId).catch(() => undefined);
+    if (exists && exists.status !== "ready") throw new ApiError("invalid_request", `Media ${m.mediaId} is ${exists.status}; wait until ready before publishing`, 422);
     if (!exists) {
       throw new ApiError("invalid_request", `Unknown media: ${m.mediaId}`, 422);
     }

@@ -109,9 +109,14 @@ export async function registerByUrl(
 }
 
 export async function getMedia(id: string, workspaceId: string): Promise<MediaRow | undefined> {
-  return db.query.media.findFirst({
+  const row = await db.query.media.findFirst({
     where: and(eq(media.id, id), eq(media.workspace_id, workspaceId)),
   });
+  if (!row?.canonical_id) return row;
+  const canonical = await db.query.media.findFirst({
+    where: and(eq(media.id, row.canonical_id), eq(media.workspace_id, workspaceId)),
+  });
+  return canonical ? { ...canonical, id: row.id, created_at: row.created_at, source_url: row.source_url, canonical_id: row.canonical_id } : row;
 }
 
 // ---------------------------------------------------------------------------

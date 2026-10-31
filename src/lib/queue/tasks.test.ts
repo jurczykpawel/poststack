@@ -20,9 +20,12 @@ vi.mock("@/lib/deliveries/publish-worker", () => ({ processPublish: vi.fn() }));
 vi.mock("@/lib/webhooks/dispatch", () => ({ processEventDispatch: vi.fn(), processWebhookDelivery: vi.fn() }));
 vi.mock("@/lib/workers/ai-draft-worker", () => ({ processAiDraft: vi.fn() }));
 
+vi.mock("@/lib/media/async-ingest", () => ({ processMediaIngest: vi.fn() }));
+
 import { createTaskList } from "./tasks";
 
 const EXPECTED_TASKS = [
+  "media-ingest",
   "incoming-message",
   "incoming-comment",
   "incoming-reaction",

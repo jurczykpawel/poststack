@@ -7,6 +7,7 @@ const mediaHttp = await import("../../src/lib/media/ssrf");
 mock.module("../../src/lib/media/ssrf", () => ({
   ...mediaHttp,
   safeFetch: async (url: string) => {
+    if (url === "https://cdn.example.test/compose.png") return new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } });
     if (url !== "https://cdn.example.test/tt3.mp4") throw new Error("Unconfigured media fixture");
     return new Response(video, { headers: { "content-type": "video/mp4" } });
   },

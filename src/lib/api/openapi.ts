@@ -479,8 +479,18 @@ export const openApiSpec = {
         ...requiresScope("media:write"),
         tags: ["Publishing"],
         summary: "Register a media URL into content-addressed storage",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" } } } } } },
-        responses: { "201": { description: "Media registered" }, "400": { description: "Media ingest error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        description: "Remote URLs return 202 immediately. Poll GET /media/{id} until status is ready or failed; error explains failures. Publish only ready media. Matching sha256+mime+kind objects already in storage return 201 without downloading. Existing Compose and editorial post publishing retain their synchronous registration path.",
+        parameters: [{ name: "wait", in: "query", schema: { type: "boolean", default: false }, description: "Wait up to 60 seconds for a worker: 201 when ready, 400 when failed, otherwise 202 with the same polling handle." }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, sha256: { type: "string", pattern: "^[0-9a-f]{64}$" }, mime: { type: "string" }, kind: { type: "string", enum: ["image", "video"] }, size: { type: "integer" }, durationSec: { type: "integer" }, width: { type: "integer" }, height: { type: "integer" } } } } } },
+        responses: { "202": { description: "Accepted: data.id is the polling handle, data.status is ingesting; media metadata becomes available when ready" }, "201": { description: "Media registered" }, "400": { description: "Media ingest error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+      },
+    },
+    "/media/{id}": {
+      get: {
+        ...requiresScope("media:write"), tags: ["Publishing"], summary: "Read media ingestion status and metadata",
+        description: "Returns {data,error}. data.status is ingesting, ready or failed; data.error contains the failure reason or null. Once ready, data contains url, checksum, kind, mime, size and durationSec. Pending metadata must not be used for publishing.",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { "200": { description: "Workspace-scoped media status and metadata" }, "404": { description: "Media not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
     },
     "/brands": {
