@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,7 @@ export async function ingestStream<T>(res: Response, storage: Storage, use: (inp
   let directory: string | undefined, output: Awaited<ReturnType<typeof open>> | undefined;
   const hash = createHash("sha256"), prefix = new Uint8Array(64 * 1024);
   let size = 0, sampled = 0;
-  async function* chunks() {
+  async function download() {
     if (!reader || !Number.isFinite(max) || max <= 0 || Number(res.headers.get("content-length")) > max) throw new ApiError("too_large", "Media exceeds ingest cap", 413);
     for (;;) {
       const { done, value } = await ingestStage("download", () => reader.read());
@@ -35,7 +36,6 @@ export async function ingestStream<T>(res: Response, storage: Storage, use: (inp
       const sample = value.subarray(0, prefix.length - sampled); prefix.set(sample, sampled); sampled += sample.length;
       await ingestStage("hash", async () => { hash.update(value); });
       await ingestStage("temp", () => output!.writeFile(value));
-      yield value;
     }
   }
   let failed = false;
@@ -43,7 +43,13 @@ export async function ingestStream<T>(res: Response, storage: Storage, use: (inp
     directory = await ingestStage("temp", () => mkdtemp(join(tmpdir(), "poststack-ingest-")));
     const file = join(directory, "media");
     output = await ingestStage("temp", () => open(file, "w"));
-    await ingestStage("upload", () => storage.putStream(temporary, chunks(), "application/octet-stream"));
+    // Finish the source before slow multipart writes can hold its connection idle.
+    await download();
+    await ingestStage("upload", async () => {
+      const source = createReadStream(file);
+      try { await storage.putStream(temporary, source, "application/octet-stream"); }
+      finally { source.destroy(); }
+    });
     const checksum = await ingestStage("hash", async () => hash.digest("hex"));
     return await use({ checksum, size, prefix: prefix.subarray(0, sampled), file, temporary });
   } catch (error) {
