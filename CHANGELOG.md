@@ -14,6 +14,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Since 0.14.0, brands/content/posts/media API routes require their corresponding scopes. This is a breaking change for keys with explicit scope lists: add the required permissions. Empty scope lists retain full access. Valid keys missing a required scope now receive HTTP 403 `insufficient_scope`, with the scope named in the message; missing or invalid credentials still receive 401.
 
 ### Fixed
+- Concurrent media ingests finish downloading to temporary disk before uploading to slow object storage.
 - Large media downloads remain active while storage uploads apply backpressure; ingestion errors identify the failed stage.
 - Brand card channel counts refresh immediately after assigning or clearing a channel slot.
 - Startup automatically adds the seven publishing scopes to API keys containing all 19 pre-0.14.0 scopes. Narrower, empty and null scope lists are unchanged.
