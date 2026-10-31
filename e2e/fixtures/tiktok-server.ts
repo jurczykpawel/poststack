@@ -28,4 +28,20 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   if (url.hostname === "127.0.0.1" || url.hostname === "localhost") return nativeFetch(input, init);
   throw new Error("Unconfigured HTTP fixture");
 }) as typeof fetch;
+const { run } = await import("graphile-worker");
+let mediaRunner: ReturnType<typeof run> | undefined;
+const queue = await import("../../src/lib/queue/client");
+const addJobTx = queue.addJobTx;
+mock.module("../../src/lib/queue/client", () => ({ ...queue,
+  addJobTx: async (...args: Parameters<typeof addJobTx>) => {
+    if (args[1] === "media-ingest") {
+      mediaRunner ??= run({ connectionString: process.env.DATABASE_URL, concurrency: 1,
+        taskList: { "media-ingest": p => processMediaIngest(p as { id: string; workspaceId: string }) },
+      });
+      await mediaRunner;
+    }
+    return addJobTx(...args);
+  },
+}));
+const { processMediaIngest } = await import("../../src/lib/media/async-ingest");
 await import("../../src/server/index");

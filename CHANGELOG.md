@@ -10,7 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Changed
-- URL media registration now returns 202 with a durable ingestion handle; poll `GET /api/v1/media/:id` before publishing. `?wait=true` waits up to 60 seconds, and stored checksum references still return 201. Compose and editorial publishing retain their existing behavior.
+- URL media registration now returns 202 with a durable ingestion handle; poll `GET /api/v1/media/:id` before publishing. `?wait=true` waits up to 60 seconds, and stored checksum references still return 201. Editorial publish and Compose also queue remote media and wait in the delivery worker; response shapes and scheduled publication times are preserved.
 - Since 0.14.0, brands/content/posts/media API routes require their corresponding scopes. This is a breaking change for keys with explicit scope lists: add the required permissions. Empty scope lists retain full access. Valid keys missing a required scope now receive HTTP 403 `insufficient_scope`, with the scope named in the message; missing or invalid credentials still receive 401.
 
 ### Fixed

@@ -16,7 +16,7 @@ import { firstCommentEligibility } from "./first-comment";
 import { processTokenRefresh } from "@/lib/channels/token-refresh";
 import { emitPostEvent } from "./post-events";
 import type { PublishRequest } from "@/lib/providers/types";
-import { resolveMediaDetails } from "./resolve-media";
+import { MediaIngestingError, resolveMediaDetails } from "./resolve-media";
 import { redactSecrets } from "@/lib/redact";
 import { disclosureForPlatform } from "@/lib/ai-disclosure/mapping";
 import { dispatchAlert } from "@/lib/notifications/alert";
@@ -148,13 +148,13 @@ export async function stuckSendingSweep(): Promise<number> {
 const RATE_LIMIT_DEFER_BASE_MS = 5_000;
 
 /** Re-enqueue with jittered backoff instead of rethrowing (avoids a synchronized retry storm). PSA14. */
-async function deferPublish(postId: string, attempts: number, retryAfterSec?: number): Promise<void> {
+async function deferPublish(postId: string, attempts: number, retryAfterSec?: number, notBefore?: Date): Promise<void> {
   const base = RATE_LIMIT_DEFER_BASE_MS;
   const backoffMs =
     retryAfterSec != null
       ? retryAfterSec * 1000 + Math.floor(Math.random() * base)
       : base * 2 ** Math.min(attempts, 6) + Math.floor(Math.random() * base);
-  await addJobTx(db, "publish", { postId }, { runAt: new Date(Date.now() + backoffMs), jobKey: `publish:${postId}` });
+  await addJobTx(db, "publish", { postId }, { runAt: new Date(Math.max(Date.now() + backoffMs, notBefore?.getTime() ?? 0)), jobKey: `publish:${postId}` });
 }
 
 /** Coarse daily ceiling (PSA14), scoped to the channel. Latent until a provider sets perDay. */
@@ -249,6 +249,10 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   if (post.tiktok_confirmation === "required") return;
   if (["sent", "failed", "canceled"].includes(post.status)) return; // terminal
   const ws = post.workspace_id;
+  if (post.status === "scheduled" && post.scheduled_at.getTime() > Date.now()) {
+    await addJobTx(db, "publish", { postId }, { runAt: post.scheduled_at, jobKey: `publish:${postId}` });
+    return;
+  }
 
   const channel = await db.query.channels.findFirst({
     where: and(eq(channels.id, post.channel_id), eq(channels.workspace_id, ws), isNull(channels.deleted_at)),
@@ -290,6 +294,19 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     await setStatus(postId, ws, "held");
     await reflectEditorial(postId, ws, "held"); // PSA3
     return;
+  }
+
+  // Waiting for media happens before claiming a send or consuming a publish attempt.
+  if (post.status === "scheduled") {
+    try { await resolveMediaDetails((post.payload as PublishRequest).media, ws); }
+    catch (err) {
+      if (err instanceof MediaIngestingError) {
+        await deferPublish(postId, post.attempts, undefined, post.scheduled_at);
+        return;
+      }
+      if (!(err instanceof PermanentError)) throw err;
+      // Terminal validation is recorded only after the delivery claim below.
+    }
   }
 
   const provider = getProviderForPlatform(channel.platform);
@@ -376,6 +393,12 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     mediaUrls = media.map(m => m.url);
     mediaDurationsSec = media.map(m => m.durationSec);
   } catch (err) {
+    if (err instanceof MediaIngestingError) {
+      // A pending edit may have changed media between the preflight and the claim.
+      await setStatus(postId, ws, "scheduled", { attempts: post.attempts, attempt_started_at: post.attempt_started_at });
+      await deferPublish(postId, post.attempts, undefined, post.scheduled_at);
+      return;
+    }
     if (err instanceof PermanentError) {
       await failDelivery(postId, ws, err.message);
       return;

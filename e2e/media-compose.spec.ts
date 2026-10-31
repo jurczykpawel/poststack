@@ -38,9 +38,12 @@ test("Compose schedules a small image and brand slot counts update in place", as
   const client = new Client({ connectionString: E2E_DATABASE_URL });
   await client.connect();
   try {
-    const { rows } = await client.query(`SELECT d.status, m.kind, m.size, m.url FROM deliveries d
-      JOIN posts p ON p.delivery_id=d.id JOIN media m ON m.id=(d.payload->'media'->0->>'mediaId')::uuid
+    const query = () => client.query(`SELECT d.status, m.kind, m.size, m.url FROM deliveries d
+      JOIN posts p ON p.delivery_id=d.id JOIN media h ON h.id=(d.payload->'media'->0->>'mediaId')::uuid
+      JOIN media m ON m.id=coalesce(h.canonical_id,h.id)
       WHERE p.content_id=$1`, [new URL(page.url()).pathname.split("/").pop()]);
+    await expect.poll(async () => (await query()).rows[0]?.kind).toBe("image");
+    const { rows } = await query();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "scheduled", kind: "image" });
     expect(Number(rows[0].size)).toBeGreaterThan(0);
