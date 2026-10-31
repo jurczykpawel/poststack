@@ -20,3 +20,13 @@ it("rejects a short or differently addressed range", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array(4), { status: 206, headers: { "content-range": "bytes 4-7/8" } })));
   await expect(sourceRange("https://cdn.example/video.mp4", 0, 3, 8)).rejects.toThrow(/range/);
 });
+it("accepts a full 200 response when the requested range covers the whole object (Backblaze B2)", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": "8" } })));
+  expect((await sourceRange("https://cdn.example/video.mp4", 0, 7, 8)).length).toBe(8);
+});
+it("still rejects a 200 response for a partial range or a different object size", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": "8" } })));
+  await expect(sourceRange("https://cdn.example/video.mp4", 0, 3, 8)).rejects.toThrow(/range/);
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array(9), { status: 200, headers: { "content-length": "9" } })));
+  await expect(sourceRange("https://cdn.example/video.mp4", 0, 7, 8)).rejects.toThrow(/range/);
+});

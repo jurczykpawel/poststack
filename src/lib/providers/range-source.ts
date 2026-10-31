@@ -18,7 +18,9 @@ export async function sourceSize(url: string, max = Number(process.env.PROVIDER_
 export async function sourceRange(url: string, first: number, last: number, size: number): Promise<Uint8Array<ArrayBuffer>> {
   if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 0 || last < first || last >= size || last - first >= 2 * UPLOAD_CHUNK) throw new PermanentError("Invalid media range");
   const res = await safeFetch(url, { headers: { range: `bytes=${first}-${last}`, "accept-encoding": "identity" } });
-  if (res.status !== 206 || res.headers.get("content-range") !== `bytes ${first}-${last}/${size}`) {
+  // Backblaze B2 answers a range covering the whole object with a plain 200 and no Content-Range.
+  const wholeObject = res.status === 200 && first === 0 && last === size - 1 && res.headers.get("content-length") === String(size);
+  if (!wholeObject && (res.status !== 206 || res.headers.get("content-range") !== `bytes ${first}-${last}/${size}`)) {
     await res.body?.cancel();
     throw new PermanentError("Storage did not return the requested media range");
   }
