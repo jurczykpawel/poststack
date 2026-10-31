@@ -159,6 +159,10 @@ export const pinnedConnect: Connector = ({ url, pinnedIp, hostname, init, deadli
         // `maxResponseBytes` cap). The redirect guard above already ran, so we never stream a 3xx
         // body. `readBodyCapped` (caller) governs size; the inactivity timeout still bounds a hang.
         if (stream) {
+          // Backpressure pauses socket reads while the caller writes to disk or uploads a part.
+          // Only count inactivity while the response is asking the socket for more bytes.
+          res.on("pause", () => req.setTimeout(0));
+          res.on("resume", () => req.setTimeout(idleTimeoutMs ?? DEFAULT_TIMEOUT_MS));
           settleResolve(
             new Response(Readable.toWeb(res) as unknown as ReadableStream, {
               status,

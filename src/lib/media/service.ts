@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api/response";
 import type { Storage } from "@/lib/storage/types";
 import { safeFetch, SsrfError } from "./ssrf";
 import { casKey } from "./cas";
-import { ingestStream } from "./ingest-stream";
+import { ingestStage, ingestStream } from "./ingest-stream";
 import { withIngestSlot } from "./ingest-limit";
 
 export interface ProbeResult {
@@ -54,11 +54,11 @@ export async function registerByUrl(
       res = await safeFetch(url, { signal: AbortSignal.timeout(fetchTimeoutMs()) }, { resolve: deps.resolve });
     } catch (e) {
       if (e instanceof SsrfError) throw new ApiError("invalid_url", e.message, 400);
-      throw new ApiError("ingest_failed", `Could not fetch media: ${e instanceof Error ? e.message : "fetch failed"}`, 400);
+      throw new ApiError("ingest_failed", `download: Could not fetch media: ${e instanceof Error ? e.message : "fetch failed"}`, 400);
     }
     if (!res.ok) {
       await res.body?.cancel();
-      throw new ApiError("ingest_failed", `Could not fetch media: ${res.status}`, 400);
+      throw new ApiError("ingest_failed", `download: Could not fetch media: ${res.status}`, 400);
     }
     const headerMime = res.headers.get("content-type")?.split(";")[0]?.trim();
     return ingestStream(res, deps.storage, async ({ checksum, size, prefix, file, temporary }) => {
@@ -68,17 +68,19 @@ export async function registerByUrl(
       });
       if (existing) {
         if (existing.kind !== "video" || existing.duration_sec != null) return existing;
-        return fillMissingDuration(existing, (await deps.probe(prefix, headerMime, file)).durationSec);
+        return fillMissingDuration(existing, (await ingestStage("probe", () => deps.probe(prefix, headerMime, file))).durationSec);
       }
 
-      const probe = await deps.probe(prefix, headerMime, file);
+      const probe = await ingestStage("probe", () => deps.probe(prefix, headerMime, file));
       const mime = probe.mime ?? headerMime;
       const key = casKey(checksum, mime);
 
       // CAS dedup at the object level: only upload if not already present.
-      if (!(await deps.storage.head(key)).exists) {
-        await deps.storage.copy(temporary, key, mime ?? "application/octet-stream", { sha256: checksum });
-      }
+      await ingestStage("upload", async () => {
+        if (!(await deps.storage.head(key)).exists) {
+          await deps.storage.copy(temporary, key, mime ?? "application/octet-stream", { sha256: checksum });
+        }
+      });
 
       // Row-level CAS: a concurrent identical ingest can insert between the findFirst and here.
       // onConflictDoNothing + re-select makes the loser resolve to the winner (PSA34) — scoped to

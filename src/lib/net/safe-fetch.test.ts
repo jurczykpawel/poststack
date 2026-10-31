@@ -180,6 +180,37 @@ describe("pinnedConnect hardening (default connector, local server)", () => {
 });
 
 describe("pinnedConnect STREAMING mode (stream:true, local server)", () => {
+  it("finishes a fast source when a slower sink pauses beyond the socket idle timeout", async () => {
+    const total = 32 * 1024 * 1024;
+    await withServer((_req, res) => {
+      res.writeHead(200, { "content-length": total });
+      let sent = 0;
+      const chunk = Buffer.alloc(64 * 1024, 7);
+      const pump = () => {
+        while (sent < total) {
+          sent += chunk.length;
+          if (!res.write(chunk)) { res.once("drain", pump); return; }
+        }
+        res.end();
+      };
+      pump();
+    }, async url => {
+      const response = await safeFetch(url, {}, { allow: LOOPBACK, stream: true, idleTimeoutMs: 80 });
+      const reader = response.body!.getReader();
+      let received = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          received += value.length;
+          // A multipart sink can spend longer uploading a part than the download idle limit.
+          if (received === value.length) await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        expect(received).toBe(total);
+      } finally { await reader.cancel().catch(() => {}); }
+    });
+  });
+
   it("keeps the upstream paused when the consumer stops reading a large response", async () => {
     const total = 32 * 1024 * 1024;
     let sent = 0;

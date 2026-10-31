@@ -3,8 +3,36 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { ingestStream } from "./ingest-stream";
 import { InMemoryStorage } from "@/lib/storage/memory";
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("stream ingestion lifecycle", () => {
+  it("identifies a failed download and removes temporary storage", async () => {
+    const source = new ReadableStream({ pull(controller) { controller.error(new Error("aborted")); } });
+    const storage = new InMemoryStorage("https://cdn.example");
+    const remove = vi.spyOn(storage, "delete");
+    await expect(ingestStream(new Response(source), storage, async () => {})).rejects.toThrow("download: aborted");
+    expect(remove).toHaveBeenCalledOnce();
+  });
+  it("identifies a failed upload and cancels the download", async () => {
+    let canceled = false;
+    const source = new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(1)); }, cancel() { canceled = true; } });
+    const storage = new InMemoryStorage("https://cdn.example");
+    vi.spyOn(storage, "putStream").mockRejectedValue(new Error("S3 multipart part failed"));
+    await expect(ingestStream(new Response(source), storage, async () => {})).rejects.toThrow("upload: S3 multipart part failed");
+    expect(canceled).toBe(true);
+  });
+  it("preserves the download reason when temporary storage cleanup also fails", async () => {
+    const source = new ReadableStream({ pull(controller) { controller.error(new Error("aborted")); } });
+    const storage = new InMemoryStorage("https://cdn.example");
+    vi.spyOn(storage, "delete").mockRejectedValue(new Error("S3 delete failed"));
+    await expect(ingestStream(new Response(source), storage, async () => {})).rejects.toThrow("download: aborted");
+  });
+  it("identifies temporary-file failures and cancels the download even before opening a file", async () => {
+    let canceled = false;
+    const source = new ReadableStream({ cancel() { canceled = true; } });
+    vi.stubEnv("TMPDIR", "/dev/null");
+    await expect(ingestStream(new Response(source), new InMemoryStorage("https://cdn.example"), async () => {})).rejects.toThrow("temp: ENOTDIR");
+    expect(canceled).toBe(true);
+  });
   it("hashes exact streamed bytes and supplies a full disk file with only a bounded prefix", async () => {
     const bytes = new Uint8Array(256 * 1024).fill(7);
     const storage = new InMemoryStorage("https://cdn.example");
