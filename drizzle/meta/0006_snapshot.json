@@ -3708,6 +3708,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "CURRENT_TIMESTAMP"
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "canonical_id": {
+          "name": "canonical_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -3731,6 +3749,42 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "media_workspace_status_idx": {
+          "name": "media_workspace_status_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "media_canonical_idx": {
+          "name": "media_canonical_idx",
+          "columns": [
+            {
+              "expression": "canonical_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -3746,6 +3800,19 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
+        },
+        "media_canonical_id_fkey": {
+          "name": "media_canonical_id_fkey",
+          "tableFrom": "media",
+          "tableTo": "media",
+          "columnsFrom": [
+            "canonical_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -7480,7 +7547,8 @@
         "uploading",
         "probing",
         "ready",
-        "failed"
+        "failed",
+        "ingesting"
       ]
     },
     "public.message_direction": {

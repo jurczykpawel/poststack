@@ -7,6 +7,7 @@ const mediaHttp = await import("../../src/lib/media/ssrf");
 mock.module("../../src/lib/media/ssrf", () => ({
   ...mediaHttp,
   safeFetch: async (url: string) => {
+    if (url === "https://cdn.example.test/compose.png") return new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } });
     if (url !== "https://cdn.example.test/tt3.mp4") throw new Error("Unconfigured media fixture");
     return new Response(video, { headers: { "content-type": "video/mp4" } });
   },
@@ -27,4 +28,20 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   if (url.hostname === "127.0.0.1" || url.hostname === "localhost") return nativeFetch(input, init);
   throw new Error("Unconfigured HTTP fixture");
 }) as typeof fetch;
+const { run } = await import("graphile-worker");
+let mediaRunner: ReturnType<typeof run> | undefined;
+const queue = await import("../../src/lib/queue/client");
+const addJobTx = queue.addJobTx;
+mock.module("../../src/lib/queue/client", () => ({ ...queue,
+  addJobTx: async (...args: Parameters<typeof addJobTx>) => {
+    if (args[1] === "media-ingest") {
+      mediaRunner ??= run({ connectionString: process.env.DATABASE_URL, concurrency: 1,
+        taskList: { "media-ingest": p => processMediaIngest(p as { id: string; workspaceId: string }) },
+      });
+      await mediaRunner;
+    }
+    return addJobTx(...args);
+  },
+}));
+const { processMediaIngest } = await import("../../src/lib/media/async-ingest");
 await import("../../src/server/index");

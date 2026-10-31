@@ -52,6 +52,16 @@ describe("resolveMedia", () => {
     ]);
   });
 
+  it.each(["ingesting", "failed"] as const)("refuses %s media before resolving a publish URL", async status => {
+    const [row] = await db.insert(schema.media).values({ workspace_id: WS, checksum: status, storage_key: "", url: "", kind: "", status }).returning();
+    await expect(resolveMedia([{ mediaId: row.id }], WS)).rejects.toThrow(`referenced media is ${status}`);
+    const { encryptTokens } = await import("@/lib/crypto");
+    const [channel] = await db.insert(schema.channels).values({ workspace_id: WS, platform: "facebook", platform_id: status, token_encrypted: encryptTokens({ access_token: "fixture" }), webhook_secret: "fixture" }).returning();
+    const { createDelivery } = await import("./service");
+    await expect(createDelivery({ channelId: channel.id, scheduledAt: new Date().toISOString(), request: { format: "feed_post", media: [{ mediaId: row.id }] } }, WS)).rejects.toMatchObject({ status: 422, message: expect.stringContaining(`is ${status}`) });
+    expect(await db.query.deliveries.findMany({ where: eq(schema.deliveries.workspace_id, WS) })).toHaveLength(0);
+  });
+
   it("throws PermanentError when a referenced media is gone", async () => {
     if (!TEST_DB) return;
     await expect(

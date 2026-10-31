@@ -1,3 +1,4 @@
+vi.mock("@/lib/media/async-ingest", () => ({ enqueueIngest: vi.fn() }));
 import * as deliveryActions from "@/server/handlers/v1/deliveries/[deliveryId]/actions";
 import * as deliveryReschedule from "@/server/handlers/v1/deliveries/[deliveryId]/reschedule/route";
 import { beforeEach, describe, expect, it, vi } from "vitest";

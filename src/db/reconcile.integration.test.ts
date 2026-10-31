@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client, Pool } from "pg";
 import { getTableConfig } from "drizzle-orm/pg-core";
-import { channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs, posts } from "./schema";
+import { channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs, posts, media } from "./schema";
 
 const exec = promisify(execFile);
 const admin = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
@@ -50,7 +50,7 @@ afterAll(async () => { await admin.end(); });
 describe("startup schema reconciliation", () => {
   it("matches Drizzle columns on a fresh database and logs each reconciliation", async () => {
     const actual = await columns();
-    for (const table of [channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs, posts]) {
+    for (const table of [channels, workspaces, pendingApprovals, webhookEndpoints, aiGenerationLogs, posts, media]) {
       const config = getTableConfig(table);
       expect(actual.filter((c) => c.table_name === config.name).map((c) => c.column_name).sort())
         .toEqual(config.columns.map((c) => c.name).sort());
@@ -76,6 +76,16 @@ describe("startup schema reconciliation", () => {
     expect(await columns()).toEqual(before);
     expect((await client.query('SELECT ai_draft_prompt_dm, ai_draft_prompt_public FROM workspaces')).rows)
       .toEqual([{ ai_draft_prompt_dm: "Saved DM", ai_draft_prompt_public: "Saved public" }]);
+  });
+
+  it("restores the media ingestion columns and preserves existing media on repeated startups", async () => {
+    await client.query("INSERT INTO workspaces (name, slug) VALUES ('Media', 'media')");
+    await client.query("INSERT INTO media (workspace_id, checksum, storage_key, url, kind) SELECT id, 'kept', 'kept', 'https://example.com/kept.png', 'image' FROM workspaces");
+    await client.query("ALTER TABLE media DROP COLUMN source_url; ALTER TABLE media DROP COLUMN error; ALTER TABLE media DROP COLUMN canonical_id");
+    await runMigration();
+    await runMigration();
+    expect((await client.query("SELECT checksum, status, source_url, error, canonical_id FROM media")).rows)
+      .toEqual([{ checksum: "kept", status: "ready", source_url: null, error: null, canonical_id: null }]);
   });
 
   it("preserves enabled surfaces from legacy channel settings", async () => {

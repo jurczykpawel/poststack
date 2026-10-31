@@ -203,6 +203,17 @@ describe("Brands section", () => {
     expect((await db.query.channels.findFirst({ where: eq(channels.id, yt) }))!.brand_key).toBe("tsa");
   });
 
+  it("updates the card count together with a slot assignment and clearing", async () => {
+    await createBrandSvc({ key: "count", name: "Count" }, workspaceId);
+    const yt = await makeChannel("youtube", "count-yt");
+    for (const [channelId, count] of [[yt, "1 channel"], ["", "0 channels"]]) {
+      const res = await app.request("/brands/count/slot/youtube", { method: "PUT", headers: { cookie, "content-type": "application/x-www-form-urlencoded", "HX-Request": "true" }, body: new URLSearchParams({ channelId }) });
+      expect(await res.text()).toContain(`id="brand-count-count" hx-swap-oob="outerHTML"`);
+      const page = await (await app.request("/brands", { headers: { cookie } })).text();
+      expect(page).toContain(`title="${count} connected">${count}</span>`);
+    }
+  });
+
   it("assigning a new channel to a slot clears the previous one (one per slot)", async () => {
     if (!TEST_DB) return;
     await createBrandSvc({ key: "tsa", name: "TSA" }, workspaceId);

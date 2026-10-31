@@ -9,6 +9,7 @@ import type { TaskName } from "./types";
  * retained by graphile as a permanently-failed (dead-letter) row.
  */
 export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
+  "media-ingest": 3,
   "incoming-message": 3,
   "incoming-comment": 3,
   "incoming-reaction": 3,

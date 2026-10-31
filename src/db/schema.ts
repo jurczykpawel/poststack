@@ -1195,7 +1195,7 @@ export const instanceLicense = pgTable("instance_license", {
 
 // ─── Publishing engine (ported from PostStack, made workspace-scoped) ──────────────────────────
 
-export const mediaStatus = pgEnum("media_status", ['uploading', 'probing', 'ready', 'failed'])
+export const mediaStatus = pgEnum("media_status", ['uploading', 'probing', 'ready', 'failed', 'ingesting'])
 export const deliveryStatus = pgEnum("delivery_status", ['scheduled', 'sending', 'processing', 'sent', 'held', 'unknown', 'failed', 'canceled'])
 
 // A publishing brand (e.g. techskills.academy) — the grouping unit above channels WITHIN a workspace.
@@ -1240,8 +1240,14 @@ export const media = pgTable("media", {
 	height: integer("height"),
 	duration_sec: integer("duration_sec"),
 	status: mediaStatus().default('ready').notNull(),
+	source_url: text("source_url"),
+	error: text("error"),
+	canonical_id: uuid("canonical_id"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
+	index("media_workspace_status_idx").on(table.workspace_id, table.status),
+	index("media_canonical_idx").on(table.canonical_id),
+	foreignKey({ columns: [table.canonical_id], foreignColumns: [table.id], name: "media_canonical_id_fkey" }).onDelete("cascade"),
 	uniqueIndex("media_workspace_checksum_key").using("btree", table.workspace_id.asc().nullsLast(), table.checksum.asc().nullsLast()),
 	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "media_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
 ]);

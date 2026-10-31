@@ -294,6 +294,7 @@ export interface AiDraftJob {
 
 /** graphile-worker task identifiers → their payload type. */
 export type TaskPayloadMap = {
+  "media-ingest": { id: string; workspaceId: string };
   "incoming-message": IncomingMessageJob;
   "incoming-comment": IncomingCommentJob;
   "incoming-reaction": IncomingReactionJob;

@@ -3,6 +3,7 @@ import { buildTaskSpec, TASK_MAX_ATTEMPTS } from "./spec";
 import type { TaskName } from "./types";
 
 const ALL_TASKS: TaskName[] = [
+  "media-ingest",
   "incoming-message",
   "incoming-comment",
   "incoming-reaction",

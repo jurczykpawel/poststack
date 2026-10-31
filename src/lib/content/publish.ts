@@ -1,12 +1,10 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { posts, content as contentTable, channels, deliveries, brands } from "@/db/schema";
+import { posts, content as contentTable, channels, deliveries, brands, media } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { createDelivery } from "@/lib/deliveries/service";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
-import { registerByUrl } from "@/lib/media/service";
-import { getStorage } from "@/lib/storage";
-import { defaultProbe } from "@/lib/media/probe";
+import { enqueueIngest } from "@/lib/media/async-ingest";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getProviderForPlatform } from "@/lib/providers";
 import { disclosureFlag } from "@/lib/ai-disclosure/mapping";
@@ -153,19 +151,22 @@ export interface PublishPostInput {
 }
 
 export interface PublishPostDeps {
-  /** Register a media URL into storage → returns the media row id (workspace-scoped). */
+  /** Reuse or queue a media URL → returns its workspace-scoped handle. */
   registerMedia: (url: string, workspaceId: string) => Promise<{ id: string }>;
 }
 
 const defaultDeps: PublishPostDeps = {
-  registerMedia: (url, workspaceId) => registerByUrl(url, { storage: getStorage(), probe: defaultProbe }, workspaceId),
+  registerMedia: async (url, workspaceId) => {
+    const ready = await db.query.media.findFirst({ where: and(eq(media.workspace_id, workspaceId),
+      eq(media.status, "ready"), or(eq(media.url, url), eq(media.source_url, url))) });
+    return ready ?? enqueueIngest(url, workspaceId);
+  },
 };
 
 /**
  * Publish (or schedule) an editorial post through the delivery engine, scoped to a workspace. Atomic:
  * locks the editorial post row, guards against double-publish, creates the delivery on the same
- * transaction, and links it back. Media is registered before the transaction so the delivery's media
- * check sees it committed.
+ * transaction, and links it back. Remote media handles are committed before the delivery transaction.
  */
 export async function publishPost(
   input: PublishPostInput,
@@ -193,7 +194,7 @@ export async function publishPost(
     if (row.delivery_id || row.status === "published") {
       throw new ApiError("conflict", "Post already published", 409);
     }
-    const d = await createDelivery({ channelId: input.channelId, scheduledAt, request }, workspaceId, tx);
+    const d = await createDelivery({ channelId: input.channelId, scheduledAt, request, waitForMedia: true }, workspaceId, tx);
     await tx
       .update(posts)
       .set({
