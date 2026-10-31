@@ -21,6 +21,7 @@ import { redactSecrets } from "@/lib/redact";
 import { disclosureForPlatform } from "@/lib/ai-disclosure/mapping";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
+import { youtubeFormat } from "@/lib/providers/youtube-format";
 import { getConfig } from "@/lib/settings/config";
 import type { AiDisclosureLevel } from "@/db/schema";
 
@@ -390,6 +391,10 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   let mediaDurationsSec: (number | null)[];
   try {
     const media = await resolveMediaDetails(request.media, ws);
+    if (channel.platform === "youtube") {
+      request.format = youtubeFormat(request, media);
+      await setStatus(postId, ws, "sending", { format: request.format, payload: request });
+    }
     mediaUrls = media.map(m => m.url);
     mediaDurationsSec = media.map(m => m.durationSec);
   } catch (err) {

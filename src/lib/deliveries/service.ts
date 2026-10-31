@@ -10,6 +10,8 @@ import type { PublishRequest } from "@/lib/providers/types";
 import { getMedia } from "@/lib/media/service";
 import { addJobTx } from "@/lib/queue/client";
 
+import { youtubeFormat } from "@/lib/providers/youtube-format";
+import { PermanentError } from "@/lib/providers/errors";
 import { parseScheduledAt } from "./schedule";
 
 export type DeliveryRow = typeof deliveries.$inferSelect;
@@ -53,12 +55,20 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
   const v = validate(getProviderForPlatform(channel.platform), input.request);
   if (!v.ok) throw new ApiError("invalid_request", v.errors.join("; "), 422);
 
+  const assets = [];
   for (const m of input.request.media) {
     const exists = await getMedia(m.mediaId, workspaceId).catch(() => undefined);
     if (exists && exists.status !== "ready" && !(input.waitForMedia && exists.status === "ingesting")) throw new ApiError("invalid_request", `Media ${m.mediaId} is ${exists.status}; wait until ready before publishing`, 422);
     if (!exists) {
       throw new ApiError("invalid_request", `Unknown media: ${m.mediaId}`, 422);
     }
+    assets.push(exists);
+  }
+  try {
+    if (channel.platform === "youtube") input.request.format = youtubeFormat(input.request, assets.map(m => ({ durationSec: m.duration_sec, width: m.width, height: m.height, status: m.status })));
+  } catch (err) {
+    if (err instanceof PermanentError) throw new ApiError("invalid_request", err.message, 422);
+    throw err;
   }
 
   const runAt = parseScheduledAt(input.scheduledAt);

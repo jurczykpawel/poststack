@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 
@@ -446,5 +446,69 @@ describe("publishPost — AI-disclosure cascade (post → channel → brand)", (
     const { channelId, postId } = await branded({ post: { ai_disclosure: "ai_assisted" } });
     const payload = await publishedPayload(channelId, postId);
     expect(payload.options?.aiDisclosure).toMatchObject({ level: "ai_assisted", levelSource: "post", noteSource: "default" });
+  });
+});
+
+// Input shapes from the reported PT18M 16:9 upload and short camera clips.
+describe("YouTube film format at delivery and provider boundaries", () => {
+  async function film(duration: number | null, width: number | null, height: number | null, ingesting = false, format?: string) {
+    const { channelId, postId } = await fixtures({ platform: "youtube", title: "Film" });
+    await db.update(schema.channels).set({ platform: "youtube", status: "active" }).where(eq(schema.channels.id, channelId));
+    const [asset] = await db.insert(schema.media).values({ workspace_id: WS, checksum: randomUUID(), storage_key: "film", url: "https://cdn.example/film.mp4", kind: "video", status: ingesting ? "ingesting" : "ready", duration_sec: ingesting ? null : duration, width: ingesting ? null : width, height: ingesting ? null : height }).returning();
+    const result = await publishPost({ postId, channelId, when: "now", format }, WS, { registerMedia: async () => ({ id: asset!.id }) });
+    return { ...result, asset: asset! };
+  }
+
+  it.each([
+    [1080, 1920, 1080, "video"], // PT18M, landscape
+    [45, 1080, 1920, "short"],
+    [45, 1920, 1080, "video"],
+    [null, 1080, 1920, "video"],
+    [45, null, null, "video"],
+    [60, 1080, 1920, "short"],
+    [61, 1080, 1920, "video"],
+  ])("%s seconds %sx%s produces %s", async (duration, width, height, expected) => {
+    const { delivery } = await film(duration, width, height);
+    expect(delivery.format).toBe(expected);
+    expect(delivery.payload).toMatchObject({ format: expected });
+  });
+
+  it("keeps explicit video for a portrait short clip", async () => {
+    expect((await film(45, 1080, 1920, false, "video")).delivery.format).toBe("video");
+  });
+
+  it.each([[1080, 1920, 1080], [45, 1920, 1080], [null, 1080, 1920]])("rejects explicit short with incompatible or unknown metadata: %s %sx%s", async (duration, width, height) => {
+    await expect(film(duration, width, height, false, "short")).rejects.toMatchObject({ status: 422, message: expect.stringMatching(/YouTube short.*60.*9:16/) });
+    expect(await db.select().from(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS))).toHaveLength(0);
+  });
+
+  it.each([
+    [1080, 1920, 1080, undefined, "video"],
+    [45, 1080, 1920, undefined, "short"],
+    [45, 1920, 1080, undefined, "video"],
+    [null, 1080, 1920, undefined, "video"],
+    [45, 1080, 1920, "video", "video"],
+    [1080, 1920, 1080, "short", "failed"],
+  ])("waits for ingest then resolves %s %sx%s override %s to %s before provider send", async (duration, width, height, format, expected) => {
+    const { delivery, asset } = await film(duration, width, height, true, format);
+    const { youtubeProvider } = await import("@/lib/providers/youtube");
+    const { processPublish } = await import("@/lib/deliveries/publish-worker");
+    const send = vi.spyOn(youtubeProvider, "publish").mockResolvedValue({ providerHandle: "youtube-film" });
+    const helpers = { logger: { info() {}, error() {} } } as unknown as import("graphile-worker").JobHelpers;
+    try {
+      await processPublish({ postId: delivery.id }, helpers);
+      expect(send).not.toHaveBeenCalled();
+      expect(await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, delivery.id) })).toMatchObject({ status: "scheduled", attempts: 0 });
+      await db.update(schema.media).set({ status: "ready", duration_sec: duration, width, height }).where(eq(schema.media.id, asset.id));
+      await processPublish({ postId: delivery.id }, helpers);
+      const saved = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, delivery.id) });
+      if (expected === "failed") {
+        expect(send).not.toHaveBeenCalled();
+        expect(saved).toMatchObject({ status: "failed", last_error: expect.stringMatching(/YouTube short.*60.*9:16/) });
+      } else {
+        expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ request: expect.objectContaining({ format: expected }) }));
+        expect(saved).toMatchObject({ status: "sent", format: expected, payload: expect.objectContaining({ format: expected }) });
+      }
+    } finally { send.mockRestore(); }
   });
 });

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { describe, it, expect } from "vitest";
 import { defaultProbe } from "./probe";
 import { sniffMime } from "./sniff";
@@ -38,4 +40,10 @@ describe("defaultProbe [PSA12]", () => {
   it("rejects an unrecognized blob even when a media Content-Type is declared", async () => {
     await expect(defaultProbe(new Uint8Array([1, 2, 3, 4]), "image/png")).rejects.toBeInstanceOf(ApiError);
   });
+});
+
+it.each(["bytes", "file"])("reads duration and portrait dimensions from a real MP4 %s for format selection", async source => {
+  const path = new URL("../../../e2e/fixtures/tiktok-preview.mp4", import.meta.url);
+  const bytes = await readFile(path);
+  expect(await defaultProbe(bytes, "video/mp4", source === "file" ? fileURLToPath(path) : undefined)).toMatchObject({ durationSec: 1, width: 160, height: 284 });
 });

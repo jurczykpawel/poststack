@@ -58,7 +58,7 @@ export function mediaKind(contentType: string | null | undefined, mediaUrl: stri
 const PLATFORM_FORMAT: Record<string, { video: string; image: string }> = {
   instagram: { video: "reel", image: "feed_post" },
   facebook: { video: "reel", image: "feed_post" },
-  youtube: { video: "short", image: "short" },
+  youtube: { video: "video", image: "short" },
   tiktok: { video: "video", image: "video" },
   threads: { video: "video", image: "image" },
   // X's RS platform value is "twitter" (aliased to the "x" publish provider). resolveFormat is called
@@ -265,7 +265,7 @@ export async function preparePublishRequest(
       media: [{ mediaId: media.id }],
       ...(title ? { title } : {}),
       ...(caption ? { caption } : {}),
-      options: { mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}), ...extraOptions },
+      options: { ...(post.platform === "youtube" && !format ? { youtubeFormatMode: "auto" } : {}), mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}), ...extraOptions },
       ...overrides,
     };
   } else {
