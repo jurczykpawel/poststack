@@ -916,9 +916,10 @@ describe("channels — managed connection section", () => {
     const PCH = "dddddddd-0000-0000-0000-0000000000a8";
     await db.insert(s.channels).values({ id: PCH, workspace_id: WS, platform: "facebook", platform_id: "PAGE1", display_name: "My FB Page", token_encrypted: "x", webhook_secret: "pp", status: "active" });
     await db.insert(s.postReactions).values({ workspace_id: WS, channel_id: PCH, post_id: "PAGE1_999", reactor_id: "r1", reactor_name: "Reactor One", reaction_type: "like" });
-    const body = await (await app.request("/engagement", { headers: { cookie } })).text();
-    expect(body).toContain("My FB Page");
-    expect(body).toContain("View post");
+    const list = await (await app.request("/engagement", { headers: { cookie } })).text();
+    expect(list).toContain("My FB Page");
+    const body = await (await app.request(`/engagement?open=${encodeURIComponent(`${PCH}~PAGE1_999`)}`, { headers: { cookie } })).text();
+    expect(body).toContain("View on Facebook");
     expect(body).toContain("Reactor One");
   });
 
@@ -1154,8 +1155,7 @@ describe("channels — managed connection section", () => {
     );
     const body = await (await app.request("/engagement", { headers: { cookie } })).text();
     // Old code fetched only the latest 1000 raw rows before grouping → total would cap at 1000.
-    // The post's reaction total renders in the mono count cell (redesign: tabular data, not <strong>).
-    expect(body).toContain(">1200</span>");
+    expect(body).toContain("1,200");
   });
 
   it("/engagement filters post reactions by account and by brand", async () => {

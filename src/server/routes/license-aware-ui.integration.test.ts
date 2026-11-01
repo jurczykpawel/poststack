@@ -271,8 +271,8 @@ describe("license-aware dashboard UI", () => {
     ]);
     const body = await (await get("/engagement")).text();
     expect(body).toContain("POST-ENG");
-    expect(body).toContain("Ola Nowak");
     expect(body).toContain("❤️"); // love emoji
+    expect(await (await get(`/engagement?open=${encodeURIComponent(`${CH}~POST-ENG`)}`)).text()).toContain("Ola Nowak");
     // Engagement is unlocked under a license: it renders the real reactions view (above), not the lock copy.
     expect(body).not.toContain("Seeing who reacted to your posts is a PRO feature");
   });
@@ -291,7 +291,7 @@ describe("license-aware dashboard UI", () => {
       workspace_id: WS, channel_id: CH, conversation_id: cv!.id, contact_id: ct!.id,
       reacted_mid: "MID-1", reaction_type: "love", emoji: "❤️",
     });
-    const body = await (await get("/engagement")).text();
+    const body = await (await get("/engagement/messages")).text();
     expect(body).toContain("Message reactions");
     expect(body).toContain("Maja IG");
     expect(body).toContain("Instagram"); // limitation note

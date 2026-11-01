@@ -524,6 +524,7 @@ export const messageReactions = pgTable("message_reactions", {
 }, (table) => [
 	uniqueIndex("message_reactions_channel_contact_mid_key").using("btree", table.channel_id.asc().nullsLast(), table.contact_id.asc().nullsLast(), table.reacted_mid.asc().nullsLast()),
 	index("message_reactions_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast(), table.created_at.asc().nullsLast()),
+	index("message_reactions_workspace_id_created_at_idx").using("btree", table.workspace_id.asc().nullsLast(), table.created_at.asc().nullsLast()),
 	foreignKey({
 			columns: [table.workspace_id],
 			foreignColumns: [workspaces.id],

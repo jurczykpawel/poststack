@@ -3930,6 +3930,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "message_reactions_workspace_id_created_at_idx": {
+          "name": "message_reactions_workspace_id_created_at_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {

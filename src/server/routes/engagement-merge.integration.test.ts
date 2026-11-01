@@ -7,7 +7,8 @@ let schema: typeof import("@/db/schema");
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let seedWorkspace: typeof import("../../../tests/helpers/workspace").seedWorkspace;
 let compaction: typeof import("@/lib/history/compaction");
-let loadEngagement: typeof import("./dashboard").loadEngagement;
+let postFacts: typeof import("../ui/sections/engagement-data").postFacts;
+const facts = async (post: string) => (await postFacts(WS, [{ channelId: CH, postId: post }])).get(`${CH}~${post}`)!;
 let WS = "", CH = "";
 
 beforeAll(async () => {
@@ -22,7 +23,7 @@ beforeAll(async () => {
   ({ encryptTokens } = await import("@/lib/crypto"));
   ({ seedWorkspace } = await import("../../../tests/helpers/workspace"));
   compaction = await import("@/lib/history/compaction");
-  ({ loadEngagement } = await import("./dashboard"));
+  ({ postFacts } = await import("../ui/sections/engagement-data"));
 });
 afterAll(async () => { if (TEST_DB) { await db.delete(schema.workspaces).where(eq(schema.workspaces.id, WS)); await db.$client.end(); } });
 beforeEach(async () => {
@@ -44,7 +45,7 @@ async function rx(opts: { post: string; type: string; reactor: string; daysAgo: 
   });
 }
 
-describe("loadEngagement live ∪ stats", () => {
+describe("postFacts live ∪ stats", () => {
   it("merges compacted + live reactions per post", async () => {
     if (!TEST_DB) return;
     await rx({ post: "p1", type: "like", reactor: "u1", daysAgo: 90 }); // compacted
@@ -52,8 +53,7 @@ describe("loadEngagement live ∪ stats", () => {
     await rx({ post: "p1", type: "like", reactor: "u3", daysAgo: 3 });  // live
     await rx({ post: "p1", type: "love", reactor: "u4", daysAgo: 2 });  // live
     await compaction.compactHistory({ now: new Date(), retentionDays: 60, batchSize: 100, executor: db });
-    const posts = await loadEngagement(WS, [CH]);
-    const p1 = posts.find((p) => p.postId === "p1")!;
+    const p1 = await facts("p1");
     expect(p1.total).toBe(4);
     expect(p1.byType.find((t) => t.type === "like")!.n).toBe(3);
     expect(p1.byType.find((t) => t.type === "love")!.n).toBe(1);
@@ -64,8 +64,7 @@ describe("loadEngagement live ∪ stats", () => {
     await rx({ post: "p2", type: "like", reactor: "u1", daysAgo: 95 });
     await rx({ post: "p2", type: "like", reactor: "u2", daysAgo: 90 });
     await compaction.compactHistory({ now: new Date(), retentionDays: 60, batchSize: 100, executor: db });
-    const posts = await loadEngagement(WS, [CH]);
-    const p2 = posts.find((p) => p.postId === "p2")!;
+    const p2 = await facts("p2");
     expect(p2.total).toBe(2);
     expect(p2.byType.find((t) => t.type === "like")!.n).toBe(2);
   });

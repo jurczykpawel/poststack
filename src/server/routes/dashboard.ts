@@ -2,19 +2,20 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNull, isNotNull, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNull, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
-  conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
+  conversations, messages, messageReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, aiGenerationLogs, commentLogs, webhookEvents, webhookEventStats, postReactionStats, users,
+  pendingApprovals, aiGenerationLogs, commentLogs, webhookEvents, webhookEventStats, users,
   posts, content,
   type ConversationThreadType,
 } from "@/db/schema";
-import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
+import { mergeWebhookStatusCounts } from "@/lib/history/stats-read";
 import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { registerNavCounts } from "../ui/shell/nav-counts";
 import { registerEvents, EVENT_META } from "../ui/sections/events";
+import { registerEngagement } from "../ui/sections/engagement";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -63,9 +64,8 @@ import { registerChannels } from "../ui/sections/channels";
 import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
-import { listBrands, type BrandRow } from "@/lib/brands/service";
+import { listBrands } from "@/lib/brands/service";
 import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSubscriptionStatus } from "@/lib/channels/subscription-status";
-import { btn } from "../ui/components/button";
 import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
@@ -1243,6 +1243,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerWebhooksOutbound(app, guard);
   registerNavCounts(app, guard);
   registerEvents(app, guard);
+  registerEngagement(app, guard, proLockMain);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
@@ -1759,42 +1760,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </form>
           <div id="contacts-list">${renderContacts(await loadContacts(a.workspaceId, q, limit, channelId, platform, brand), q, limit, channelId, platform, brand)}</div>
         </div>`,
-        features,
-        products,
-      ),
-    );
-  });
-
-  // Engagement — post reactions/likes; the customer-engagement surface is PRO.
-  app.get("/engagement", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const { features, upgradeUrl, products } = await getInstanceLicense();
-    if (!features.has("contacts_crm")) {
-      return c.html(
-        dashboardDoc(t("title.suffix", { section: "Engagement" }), "/engagement", proLockMain("Engagement", html`Seeing who reacted to your posts is a PRO feature.`, upgradeUrl), features, products),
-      );
-    }
-    const brandParam = c.req.query("brand") || "all";
-    const channelParam = c.req.query("channel") || "all";
-    const [wsChannels, brands] = await Promise.all([loadInboxChannels(a.workspaceId), listBrands(a.workspaceId)]);
-    // Resolve the brand/account filter to a concrete channel-id set (null = all, [] = nothing).
-    let channelIds: string[] | null = null;
-    if (channelParam !== "all") {
-      channelIds = wsChannels.some((ch) => ch.id === channelParam) ? [channelParam] : [];
-    } else if (brandParam !== "all") {
-      const key = brandParam === "__unassigned__" ? null : brandParam;
-      channelIds = wsChannels.filter((ch) => (ch.brand_key ?? null) === key).map((ch) => ch.id);
-    }
-    const [posts, dms] = await Promise.all([
-      loadEngagement(a.workspaceId, channelIds),
-      loadMessageReactions(a.workspaceId, channelIds),
-    ]);
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "Engagement" }),
-        "/engagement",
-        renderEngagement(posts, dms, { channels: wsChannels, brands, brand: brandParam, channel: channelParam }),
         features,
         products,
       ),
@@ -3126,218 +3091,6 @@ function proLockMain(title: string, body: Html, upgradeUrl: string): Html {
       <a class="btn btn-primary" href="${upgradeUrl}" target="_blank" rel="noopener">Upgrade to PRO</a>
       <a class="btn" href="/overview">Back to overview</a>
     </div>
-  </div>`;
-}
-
-const REACTION_EMOJI: Record<string, string> = {
-  like: "👍", love: "❤️", care: "🥰", haha: "😆", wow: "😮", sad: "😢", angry: "😠",
-};
-
-type EngagementPost = { postId: string; channelName: string | null; total: number; lastAt: Date; byType: Array<{ type: string; n: number }>; reactors: string[] };
-
-/** Number of top posts (by reaction count) the Engagement table shows. */
-const ENGAGEMENT_POST_LIMIT = 200;
-
-/**
- * Group post reactions by post → accurate per-type counts + a few reactor names, optionally scoped to
- * a set of channels. Aggregated in SQL (`GROUP BY post_id, channel_id, reaction_type`) so the totals
- * reflect EVERY reaction — the old "fetch latest 1000 raw rows, then group" undercounted any post with
- * heavy engagement (e.g. 10k reactions across a few posts showed as ≤1000). `channelIds === null` =
- * all channels; `[]` = filtered to nothing.
- */
-// STATSCACHE1: same short-lived memo for the engagement view (a grouped scan over post_reactions).
-// Key includes the workspace and the channel scope ("all" when unfiltered).
-const engagementCache = createTtlCache<EngagementPost[]>({ ttlMs: env.STATS_CACHE_TTL_MS });
-
-export async function loadEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
-  if (channelIds && channelIds.length === 0) return [];
-  const key = `${workspaceId}|${channelIds ? channelKey(channelIds) : "all"}`;
-  return engagementCache.getOrCompute(key, () => computeEngagement(workspaceId, channelIds));
-}
-
-async function computeEngagement(workspaceId: string, channelIds: string[] | null): Promise<EngagementPost[]> {
-  const where = and(
-    eq(postReactions.workspace_id, workspaceId),
-    channelIds ? inArray(postReactions.channel_id, channelIds) : undefined,
-  );
-
-  const agg = await db
-    .select({
-      postId: postReactions.post_id,
-      channelId: postReactions.channel_id,
-      type: postReactions.reaction_type,
-      n: sql<number>`count(*)::int`,
-      lastAt: sql<Date>`max(${postReactions.created_at})`,
-    })
-    .from(postReactions)
-    .where(where)
-    .groupBy(postReactions.post_id, postReactions.channel_id, postReactions.reaction_type);
-
-  // Reactions older than the retention window live as aggregates in post_reaction_stats; merge so
-  // a fully-compacted post still shows accurate all-time totals (reactor identity is not retained).
-  const statRows = await db
-    .select({
-      post_id: postReactionStats.post_id, channel_id: postReactionStats.channel_id,
-      reaction_type: postReactionStats.reaction_type, count: postReactionStats.count,
-      last_reacted_at: postReactionStats.last_reacted_at,
-    })
-    .from(postReactionStats)
-    .where(and(eq(postReactionStats.workspace_id, workspaceId),
-      channelIds ? inArray(postReactionStats.channel_id, channelIds) : undefined));
-
-  // A small sample of reactor names per post (distinct), for the "Who" column.
-  const reactorRows = await db
-    .selectDistinct({ postId: postReactions.post_id, name: postReactions.reactor_name })
-    .from(postReactions)
-    .where(and(where, isNotNull(postReactions.reactor_name)));
-  const reactorsByPost = new Map<string, string[]>();
-  for (const r of reactorRows) {
-    if (!r.name) continue;
-    const arr = reactorsByPost.get(r.postId) ?? [];
-    if (arr.length < 8) arr.push(r.name);
-    reactorsByPost.set(r.postId, arr);
-  }
-
-  const byPost = mergePostReactionTotals(
-    agg.map((r) => ({ postId: r.postId, channelId: r.channelId, type: r.type, n: Number(r.n), lastAt: r.lastAt })),
-    statRows,
-  );
-
-  // Resolve the owning channel name from channel_id (every post_reaction carries it).
-  const chans = await db.query.channels.findMany({
-    where: eq(channels.workspace_id, workspaceId),
-    columns: { id: true, display_name: true, username: true },
-  });
-  const chanName = new Map(chans.map((ch) => [ch.id, ch.display_name ?? ch.username ?? null] as const));
-
-  return [...byPost.entries()]
-    .map(([postId, p]) => ({
-      postId,
-      channelName: chanName.get(p.channelId) ?? null,
-      total: p.total,
-      lastAt: p.lastAt,
-      byType: [...p.types.entries()].map(([type, n]) => ({ type, n })).sort((a, b) => b.n - a.n),
-      reactors: reactorsByPost.get(postId) ?? [],
-    }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, ENGAGEMENT_POST_LIMIT);
-}
-
-type DmReaction = { who: string; platform: string; emoji: string; type: string; at: Date };
-
-/** Reactions left on OUR direct messages (the only reaction signal Instagram delivers over webhooks;
- *  Facebook DMs too). Joined to the contact for a display name and the channel for the platform. */
-async function loadMessageReactions(workspaceId: string, channelIds: string[] | null): Promise<DmReaction[]> {
-  if (channelIds && channelIds.length === 0) return [];
-  const rows = await db
-    .select({
-      type: messageReactions.reaction_type,
-      emoji: messageReactions.emoji,
-      created_at: messageReactions.created_at,
-      who: contacts.display_name,
-      platform: channels.platform,
-    })
-    .from(messageReactions)
-    .leftJoin(contacts, eq(contacts.id, messageReactions.contact_id))
-    .leftJoin(channels, eq(channels.id, messageReactions.channel_id))
-    .where(and(
-      eq(messageReactions.workspace_id, workspaceId),
-      channelIds ? inArray(messageReactions.channel_id, channelIds) : undefined,
-    ))
-    .orderBy(desc(messageReactions.created_at))
-    .limit(50);
-  return rows.map((r) => ({
-    who: r.who ?? "Someone",
-    platform: r.platform ?? "—",
-    emoji: r.emoji ?? REACTION_EMOJI[r.type] ?? "💬",
-    type: r.type,
-    at: r.created_at,
-  }));
-}
-
-interface EngagementFilter {
-  channels: InboxChannel[];
-  brands: BrandRow[];
-  brand: string;
-  channel: string;
-}
-
-/** Brand + account filter bar for Engagement. Plain GET form (CSP-safe, no inline JS): picking a
- *  brand scopes to all its channels; picking a specific channel/account wins over the brand. */
-function engagementFilterBar(f: EngagementFilter): Html {
-  if (f.channels.length === 0) return html``;
-  const anyUnassigned = f.channels.some((ch) => !ch.brand_key);
-  return html`<form method="get" action="/engagement" class="filter-bar" style="margin:.5rem 0 1rem">
-    <label class="fld" style="gap:4px"><span>Brand</span>
-      <select name="brand">
-        <option value="all" ${f.brand === "all" ? "selected" : ""}>All brands</option>
-        ${f.brands.map((b) => html`<option value="${b.key}" ${f.brand === b.key ? "selected" : ""}>${b.name}</option>`)}
-        ${anyUnassigned ? html`<option value="__unassigned__" ${f.brand === "__unassigned__" ? "selected" : ""}>Unassigned</option>` : ""}
-      </select>
-    </label>
-    <label class="fld" style="gap:4px"><span>Account</span>
-      <select name="channel">
-        <option value="all" ${f.channel === "all" ? "selected" : ""}>All accounts</option>
-        ${renderInboxChannelOptions(f.channels, f.channel)}
-      </select>
-    </label>
-    ${btn({ label: "Filter", variant: "primary", size: "sm", attrs: 'type="submit"' })}
-    ${f.brand !== "all" || f.channel !== "all" ? html`<a class="btn btn-sm btn-ghost" href="/engagement">Clear</a>` : ""}
-  </form>`;
-}
-
-function renderEngagement(posts: EngagementPost[], dms: DmReaction[], filter: EngagementFilter): Html {
-  return html`<div class="page">
-    <h1>Engagement</h1>
-    <p class="section-intro">Who reacted to your posts and messages.</p>
-
-    ${engagementFilterBar(filter)}
-
-    <div class="callout">${icon("info", "ico", 15)}<div>
-      <strong>Platform coverage:</strong> Facebook delivers <em>post</em> reactions (shown below).
-      Instagram does <strong>not</strong> send <strong>post likes</strong> or reactions over its API,
-      so they can't appear here — Instagram engagement instead arrives as <em>message reactions</em>
-      (below) and as comments in your <a href="/inbox">Inbox</a>.
-    </div></div>
-
-    <section class="section">
-      <h2>Post reactions <span class="panel-sub" style="font-weight:400">· Facebook</span></h2>
-      ${posts.length === 0
-        ? html`<div class="empty"><span class="empty-ic">${icon("events", "ico", 20)}</span><p class="empty-title">No post reactions yet</p><p class="empty-body">Reactions on your Facebook posts will show up here.</p></div>`
-        : html`<div class="table-wrap"><table><thead><tr><th>Post</th><th>Reactions</th><th>Breakdown</th><th>Who</th><th>Latest</th></tr></thead>
-            <tbody>
-              ${posts.map(
-                (p) => html`<tr>
-                  <td>
-                    ${p.channelName ? html`<div style="font-weight:600;color:var(--text-1)">${p.channelName}</div>` : ""}
-                    <a href="https://www.facebook.com/${p.postId}" target="_blank" rel="noopener">View post</a>
-                    <div class="muted-mono" style="font-size:.68rem">${p.postId}</div>
-                  </td>
-                  <td><span style="font-family:var(--font-mono);font-weight:600;color:var(--text-1)">${p.total}</span></td>
-                  <td><span class="pill-row">${p.byType.map((t) => html`<span class="badge" title="${t.type}">${REACTION_EMOJI[t.type] ?? t.type} ${t.n}</span>`)}</span></td>
-                  <td><small>${p.reactors.length ? p.reactors.join(", ") : "—"}</small></td>
-                  <td><span class="muted-mono">${timeAgo(p.lastAt)}</span></td>
-                </tr>`,
-              )}
-            </tbody></table></div>`}
-    </section>
-
-    <section class="section">
-      <h2>Message reactions <span class="panel-sub" style="font-weight:400">· Facebook &amp; Instagram DMs</span></h2>
-      ${dms.length === 0
-        ? html`<div class="empty"><span class="empty-ic">${icon("comment", "ico", 20)}</span><p class="empty-title">No message reactions yet</p><p class="empty-body">When someone reacts to one of your direct messages, it shows up here.</p></div>`
-        : html`<div class="table-wrap"><table><thead><tr><th>Who</th><th>Reaction</th><th>Platform</th><th>When</th></tr></thead>
-            <tbody>
-              ${dms.map(
-                (d) => html`<tr>
-                  <td>${d.who}</td>
-                  <td><span class="badge" title="${d.type}">${d.emoji} ${d.type}</span></td>
-                  <td>${PLATFORM_LABELS[d.platform] ?? d.platform}</td>
-                  <td><span class="muted-mono">${d.at.toISOString().slice(0, 16).replace("T", " ")}</span></td>
-                </tr>`,
-              )}
-            </tbody></table></div>`}
-    </section>
   </div>`;
 }
 
