@@ -1,5 +1,10 @@
 import { html } from "hono/html";
 
+/** "12,345": the list counters read the same in every locale. */
+export function fmtCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
 /** Compact signed relative time: "in 5d" / "in 3h" / "12d ago" / "2m ago". */
 export function relTime(at: Date): string {
   const ms = at.getTime() - Date.now();

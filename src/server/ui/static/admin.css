@@ -1542,3 +1542,64 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
   .queue-list .reschedule { width: 100%; min-width: 0; }
   .queue-list .reschedule > form { max-width: 100%; }
 }
+
+/* ---- DataList: shared long list (components/data-list.ts) ---- */
+#data-list { scroll-margin-top: 72px; }
+.dl { margin-top: 14px; }
+.dl-tools { margin-bottom: 10px; }
+.dl-tools .filter-search { max-width: 360px; }
+.dl-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 8px; scrollbar-width: thin; }
+.dl-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 11px; white-space: nowrap;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: 13px; color: var(--text-2);
+  text-decoration: none; transition: border-color 0.12s, background-color 0.12s; }
+.dl-chip:hover { border-color: var(--accent-line); color: var(--text-1); }
+.dl-chip b { font: 500 12px var(--font-mono); color: var(--text-1); font-variant-numeric: tabular-nums; }
+.dl-chip[aria-current="true"] { background: var(--accent-bg); border-color: var(--accent-line); color: var(--text-1); }
+.dl-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+.dl-split.has-detail { grid-template-columns: minmax(0, 1fr) 370px; }
+.dl-list { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+.dl-table { table-layout: fixed; border: 0; border-radius: 0; }
+.dl-table td { height: 44px; padding: 0 12px; font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-table th { padding: 8px 12px; }
+.dl-table tbody tr { position: relative; }
+.dl-table tbody tr:hover td { background: var(--nav-hover); }
+.dl-table tbody tr[aria-current="true"] td { background: var(--accent-bg); }
+.dl-rowlink { color: inherit; text-decoration: none; }
+.dl-rowlink::after { content: ""; position: absolute; inset: 0; }
+.dl-rowlink:focus-visible { outline: none; }
+.dl-rowlink:focus-visible::after { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dl-num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.dl-when { font: 400 12.5px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dl-sub { display: none; }
+.dl-pager { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+.dl-pager-acts { display: inline-flex; gap: 8px; margin-left: auto; }
+.dl-detail { position: sticky; top: 68px; min-width: 0; max-height: calc(100vh - 90px); overflow: auto; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
+.dl-detail:focus { outline: none; }
+.dl-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dl-detail-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.dl-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 12px 0; font-size: 13px; }
+.dl-facts dt { color: var(--text-3); }
+.dl-facts dd { margin: 0; color: var(--text-1); overflow-wrap: anywhere; }
+.dl-problem { color: var(--bad-text) !important; }
+.dl-label { margin: 12px 0 0; font-size: 12.5px; color: var(--text-3); }
+.dl-json { margin: 6px 0 10px; padding: 10px; max-height: 260px; overflow: auto; font: 400 12px/1.5 var(--font-mono); color: var(--text-2);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dl-action { width: 100%; justify-content: center; }
+@media (max-width: 1100px) {
+  .dl-split.has-detail { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+@media (max-width: 760px) {
+  .dl-tools .filter-search { max-width: none; flex-basis: 100%; }
+  .dl-chip { min-height: 40px; }
+  .dl-split.has-detail { grid-template-columns: minmax(0, 1fr); }
+  .dl-detail { position: fixed; inset: 0; z-index: 45; max-height: none; border: 0; border-radius: 0; }
+  .dl-detail-head .btn-ic { min-width: 44px; min-height: 44px; }
+  .dl-table, .dl-table tbody { display: block; width: 100%; }
+  .dl-table thead, .dl-table colgroup { display: none; }
+  .dl-table tbody tr { display: block; margin: 0; background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; overflow: visible; }
+  .dl-table tbody td { display: none; }
+  .dl-table tbody td.dl-main { display: block; height: auto; min-height: 56px; padding: 8px 12px; border: 0; white-space: normal; }
+  .dl-sub { display: block; margin-top: 3px; font-size: 12.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dl-pager .btn { min-height: 44px; }
+}

@@ -7,13 +7,14 @@ import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
   apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, aiGenerationLogs, commentLogs, events as eventsTbl, webhookEvents, webhookEventStats, postReactionStats, users,
+  pendingApprovals, aiGenerationLogs, commentLogs, webhookEvents, webhookEventStats, postReactionStats, users,
   posts, content,
   type ConversationThreadType,
 } from "@/db/schema";
 import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
 import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { registerNavCounts } from "../ui/shell/nav-counts";
+import { registerEvents, EVENT_META } from "../ui/sections/events";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -28,7 +29,7 @@ import { toastHeader } from "../ui/components/toast";
 import { timeAgo } from "../ui/components/time";
 import { proLink } from "../ui/components/pro-link";
 import { addJobTx } from "@/lib/queue/client";
-import { platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
+import { PLATFORM_LABELS, platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, requireFeature, ProRequiredError, type LicenseState } from "@/lib/license/gate";
 import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
@@ -881,22 +882,6 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 
 // ─── channels ─────────────────────────────────────────────────────────────────
 
-const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube" };
-
-/** Friendly label + tone for each activity-feed event type (raw type is the fallback). */
-const EVENT_META: Record<string, { label: string; tone: Tone }> = {
-  "channel.created": { label: "Channel connected", tone: "ok" },
-  "channel.reconnected": { label: "Channel reconnected", tone: "ok" },
-  "channel.needs_reauth": { label: "Channel needs re-auth", tone: "bad" },
-  "post.published": { label: "Post published", tone: "ok" },
-  "post.held": { label: "Post held", tone: "warn" },
-  "post.failed": { label: "Post failed", tone: "bad" },
-  "post.unknown": { label: "Post error", tone: "bad" },
-  "source.connected": { label: "Source connected", tone: "ok" },
-  "source.synced": { label: "Source synced", tone: "info" },
-  "source.needs_reauth": { label: "Source needs re-auth", tone: "bad" },
-  "source.data_access_expiring": { label: "Data access expiring", tone: "warn" },
-};
 
 // Plain-language meaning of each inbound webhook handling status, for the /webhooks legend.
 const WEBHOOK_STATUS_LEGEND: ReadonlyArray<readonly [string, Tone, string]> = [
@@ -1257,6 +1242,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // `/webhooks/outbound*` paths aren't captured by the `:id` param (mirrors endpoint-activity / subscriptions).
   registerWebhooksOutbound(app, guard);
   registerNavCounts(app, guard);
+  registerEvents(app, guard);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
@@ -2547,48 +2533,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const ok = await deletePendingApproval(a.workspaceId, id);
     if (!ok) return c.notFound();
     return c.html(await renderApprovalsView(a.workspaceId));
-  });
-
-  // Events — the workspace activity log (a nav target). Read-only, identity-free type/time rows.
-  app.get("/events", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const { features, products } = await getInstanceLicense();
-    const rows = await db.query.events.findMany({
-      where: eq(eventsTbl.workspace_id, a.workspaceId),
-      orderBy: [desc(eventsTbl.created_at)],
-      limit: 100,
-      columns: { id: true, type: true, subject_type: true, subject_id: true, payload: true, created_at: true },
-    });
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "Events" }),
-        "/events",
-        html`<div class="page">
-          <h1>Events</h1>
-          <p class="muted">A log of what happened in this workspace — channel, publishing and automation events.</p>
-          ${rows.length === 0
-            ? html`<p class="muted">No events yet. Activity shows up here as channels connect, posts publish, and tokens expire.</p>`
-            : html`<table><thead><tr><th>Event</th><th>Platform</th><th>Subject</th><th>Detail</th><th>When</th></tr></thead>
-                <tbody>${rows.map((e) => {
-                  const p = (e.payload ?? {}) as { displayName?: string; platform?: string; error?: string; reason?: string; providerHandle?: string };
-                  const meta = EVENT_META[e.type];
-                  const platform = p.platform ? PLATFORM_LABELS[p.platform] ?? p.platform : "—";
-                  const subject = p.displayName ?? (e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—");
-                  const detail = p.error ?? p.reason ?? p.providerHandle ?? "";
-                  return html`<tr>
-                    <td><span class="badge tone-${meta?.tone ?? "neutral"}">${meta?.label ?? e.type}</span></td>
-                    <td class="muted" style="font-size:.82rem">${platform}</td>
-                    <td class="muted" style="font-size:.82rem">${subject}</td>
-                    <td class="muted mono" style="font-size:.72rem;max-width:24rem;overflow-wrap:anywhere">${detail || "—"}</td>
-                    <td class="muted" style="white-space:nowrap">${timeAgo(e.created_at)}</td>
-                  </tr>`;
-                })}</tbody></table>`}
-        </div>`,
-        features,
-        products,
-      ),
-    );
   });
 
   // Webhooks — the inbound webhook-event log (a nav target). Shows recent Meta/Telegram deliveries and
