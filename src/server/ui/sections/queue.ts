@@ -371,7 +371,7 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
   r.post("/queue/:id/reschedule", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     return rescheduleDelivery(id, ws, String(form.scheduledAt ?? ""));
-  }, () => "Termin zmieniony."));
+  }, () => "Schedule changed."));
   r.post("/queue/:id/publish-now", guard, action((ws, id) => publishDeliveryNow(id, ws), () => "Post re-queued for publishing now"));
   r.post("/queue/:id/retry", guard, action((ws, id) => retryPost(id, ws), () => "Post re-queued"));
   r.post("/queue/:id/cancel", guard, action((ws, id) => cancelDelivery(id, ws), () => "Post canceled"));

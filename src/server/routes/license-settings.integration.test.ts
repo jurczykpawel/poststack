@@ -228,7 +228,7 @@ describe("instance operator selection", () => {
     const body = await (await app.request("/settings", { headers: { cookie } })).text();
     expect(body).toContain('hx-post="/settings/credentials"');
     expect(body).toContain('hx-post="/settings/license"');
-    expect(body).toContain("TikTok: zawsze potwierdzaj przy wysyłce");
+    expect(body).toContain("TikTok: always confirm at send");
     expect(body).toContain('option value="false" selected');
   });
 

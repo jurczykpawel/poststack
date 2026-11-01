@@ -100,6 +100,30 @@ describe("queue section", () => {
     expect(out).toContain("rate limited");
   });
 
+  it("orders scheduled soonest first, then sent, then canceled last", async () => {
+    if (!TEST_DB) return;
+    const { listQueue } = await import("./queue-data");
+    const { chId } = await seedDelivery("failed");
+    await db.delete(deliveries).where(eq(deliveries.workspace_id, workspaceId));
+    const DAY = 86_400_000, at = (ms: number) => new Date(Date.now() + ms);
+    const seed: Array<[(typeof deliveries.$inferInsert)["status"], Date]> = [
+      ["canceled", at(-3_600_000)], ["scheduled", at(3 * DAY)], ["sent", at(-DAY)],
+      ["scheduled", at(1 * DAY)], ["sent", at(-2 * DAY)], ["scheduled", at(2 * DAY)],
+    ];
+    for (const [status, when] of seed) {
+      await db.insert(deliveries).values({
+        workspace_id: workspaceId, channel_id: chId, format: "reel", status,
+        payload: { format: "reel", media: [] }, scheduled_at: when, run_at: when,
+      });
+    }
+    const rows = await listQueue({ workspaceId, limit: 50 });
+    expect(rows.map((r) => r.status)).toEqual(["scheduled", "scheduled", "scheduled", "sent", "sent", "canceled"]);
+    const sched = rows.filter((r) => r.status === "scheduled").map((r) => r.scheduledAt!.getTime());
+    expect(sched).toEqual([...sched].sort((a, b) => a - b));
+    const sent = rows.filter((r) => r.status === "sent").map((r) => r.scheduledAt!.getTime());
+    expect(sent).toEqual([...sent].sort((a, b) => b - a));
+  });
+
   it("detail renders the payload + last-error panel", async () => {
     if (!TEST_DB) return;
     const { id } = await seedDelivery("failed", "boom");
@@ -150,7 +174,7 @@ describe("queue section", () => {
     const scheduledAt = new Date(Date.now() + 3600_000).toISOString();
     const res = await app.request(`/queue/${id}/reschedule`, { method: "POST", headers: htmx(), body: new URLSearchParams({ scheduledAt }).toString() });
     expect(res.status).toBe(200);
-    expect(JSON.parse(res.headers.get("HX-Trigger")!)["ps:toast"].msg).toBe("Termin zmieniony.");
+    expect(JSON.parse(res.headers.get("HX-Trigger")!)["ps:toast"].msg).toBe("Schedule changed.");
     expect(await res.text()).toContain('id="queue-rows"');
     const row = await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) });
     expect(row!.status).toBe("scheduled");
