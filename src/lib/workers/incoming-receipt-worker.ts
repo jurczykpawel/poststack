@@ -43,7 +43,15 @@ export async function processIncomingReceipt(payload: IncomingReceiptJob, helper
   if (!conv) return;
 
   // Which outbound messages this receipt covers: explicit mids (delivery) or everything ≤ watermark.
-  const scope = mids?.length
+  // A read receipt naming a message (Instagram) also covers everything we sent before it.
+  const seen = kind === "read" && mids?.length ? await db.query.messages.findFirst({
+    where: and(eq(messages.conversation_id, conv.id), inArray(messages.platform_message_id, mids)),
+    columns: { created_at: true },
+  }) : undefined;
+  if (kind === "read" && mids?.length && !seen) return;
+  const scope = seen
+    ? lte(messages.created_at, seen.created_at)
+    : mids?.length
     ? inArray(messages.platform_message_id, mids)
     : watermark
       ? lte(messages.created_at, new Date(watermark))

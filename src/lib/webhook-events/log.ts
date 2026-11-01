@@ -88,6 +88,7 @@ export interface MetaMessagingEvent {
     mid: string;
     text?: string;
     is_echo?: boolean;
+    is_deleted?: boolean;
     quick_reply?: { payload: string };
     attachments?: unknown[];
     reply_to?: { story?: { id?: string; url?: string } };
@@ -95,7 +96,7 @@ export interface MetaMessagingEvent {
   postback?: { payload: string; title?: string };
   reaction?: { mid: string; action: string; emoji?: string; reaction?: string };
   optin?: unknown;
-  read?: { watermark?: number };
+  read?: { watermark?: number; mid?: string };
   delivery?: { mids?: string[]; watermark?: number };
 }
 
@@ -134,6 +135,15 @@ export function classifyMessagingEvent(
     return {
       log: { ...base, event_key: `echo-${evt.message.mid}`, event_type: "echo", platform_message_id: evt.message.mid, is_echo: true },
       job: { task: "incoming-echo", jobKey: `echo-${evt.message.mid}` },
+    };
+  }
+
+  // The user removed a message: recorded, never a new inbox message.
+  if (evt.message?.is_deleted) {
+    return {
+      log: { ...base, event_key: `msg_deleted-${evt.message.mid}`, event_type: "message_deleted", platform_message_id: evt.message.mid },
+      job: null,
+      terminalStatus: "ignored",
     };
   }
 
@@ -185,7 +195,8 @@ export function classifyMessagingEvent(
   // A receipt is only actionable with a sender (whose conversation it scopes) and a watermark.
   if (evt.read) {
     const key = `seen-${senderId}-${evt.timestamp}`;
-    const actionable = !!(senderId && typeof evt.read.watermark === "number");
+    // Messenger sends a watermark; Instagram sends only the seen message's mid.
+    const actionable = !!(senderId && (typeof evt.read.watermark === "number" || evt.read.mid));
     return {
       log: { ...base, event_key: key, event_type: "seen" },
       job: actionable ? { task: "incoming-receipt", jobKey: key } : null,
@@ -264,15 +275,16 @@ export function classifyChangeEvent(
 
   // Instagram comment: field=comments (or live_comments, left during an IG Live) — same flatter shape.
   // Both route into the comment pipeline so comment→DM automation fires either way.
-  if ((field === "comments" || field === "live_comments") && v.id) {
-    const key = `cmt-${v.id}-add`;
+  const igCommentId = v.id ?? v.comment_id;
+  if ((field === "comments" || field === "live_comments") && igCommentId) {
+    const key = `cmt-${igCommentId}-add`;
     return {
       log: {
         platform, object, field, raw: change as unknown,
-        event_key: key, event_type: "comment", platform_message_id: v.id,
+        event_key: key, event_type: "comment", platform_message_id: igCommentId,
         sender_id: v.from?.id ?? null,
       },
-      job: { task: "incoming-comment", jobKey: `comment-${v.id}` },
+      job: { task: "incoming-comment", jobKey: `comment-${igCommentId}` },
     };
   }
 

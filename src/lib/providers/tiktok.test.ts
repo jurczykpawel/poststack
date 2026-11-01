@@ -24,6 +24,7 @@ vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
   };
 });
 
+import docs from "../../../tests/fixtures/provider-docs/tiktok.json";
 import { tiktokProvider } from "./tiktok";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
@@ -45,20 +46,20 @@ describe("tiktok provider", () => {
   it("refreshToken returns rotated tokens", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ access_token: "n", refresh_token: "n2", expires_in: 86400 }), { status: 200 })),
+      vi.fn(async () => Response.json(docs.refresh.ok)),
     );
     const t = await tiktokProvider.refreshToken(tokens);
-    expect(t.accessToken).toBe("n");
-    expect(t.refreshToken).toBe("n2");
+    expect(t.accessToken).toBe(docs.refresh.ok.access_token);
+    expect(t.refreshToken).toBe(docs.refresh.ok.refresh_token);
   });
 
   it("healthCheck returns open_id", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { user: { open_id: "ttuser" } } }), { status: 200 })));
-    expect((await tiktokProvider.healthCheck(tokens)).accountId).toBe("ttuser");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(docs.userInfo.ok.body)));
+    expect((await tiktokProvider.healthCheck(tokens)).accountId).toBe(docs.userInfo.ok.body.data.user.open_id);
   });
 
-  it("healthCheck 403 -> TokenInvalidError", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "x" } }), { status: 403 })));
+  it("healthCheck access_token_invalid -> TokenInvalidError", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(docs.userInfo.tokenInvalid.body, { status: docs.userInfo.tokenInvalid.status })));
     await expect(tiktokProvider.healthCheck(tokens)).rejects.toBeInstanceOf(TokenInvalidError);
   });
 
@@ -252,27 +253,6 @@ describe("tiktok provider", () => {
       mediaDurationsSec: [30],
     });
     expect(body.post_info).toBeUndefined();
-  });
-
-  it("surfaces a TikTok 200-with-error (e.g. url_ownership_unverified)", async () => {
-    vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://cdn/");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ error: { code: "url_ownership_unverified", message: "verify domain" } }), {
-          status: 200,
-        }),
-      ),
-    );
-    await expect(
-      tiktokProvider.publish({
-        tokens,
-        accountId: "ttuser",
-        request: { format: "video", media: [{ mediaId: "m" }], options: { ingestion: "pull_url" } },
-        mediaUrls: ["https://cdn/x.mp4"],
-      mediaDurationsSec: [30],
-      }),
-    ).rejects.toThrow();
   });
 });
 

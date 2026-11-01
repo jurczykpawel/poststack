@@ -78,6 +78,7 @@ export async function emitEvent(
       .where(eq(contactChannels.contact_id, subject.id)).orderBy(channels.id);
     payload = { ...payload, workspaceId, channels: identities };
   }
+  payload = { workspaceId, ...payload };
   const [e] = await tx
     .insert(events)
     .values({ workspace_id: workspaceId, type, subject_type: subject.type, subject_id: subject.id, payload })

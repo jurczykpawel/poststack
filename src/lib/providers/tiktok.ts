@@ -194,12 +194,13 @@ export const tiktokProvider: Provider = {
       error?: { code?: string; message?: string };
     };
     const publishId = asString(initJson.data?.publish_id); // PSA51
-    if (!init.ok || !publishId) {
-      // TikTok often returns HTTP 200 with a non-"ok" error code (e.g. url_ownership_unverified).
-      if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap"].includes(initJson.error?.code ?? "")) {
+    if (!init.ok || !publishId || initJson.error?.code !== "ok") {
+      if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap", "privacy_level_option_mismatch"].includes(initJson.error?.code ?? "")) {
         throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
       }
       const msg = initJson.error?.message || initJson.error?.code || `tiktok init failed (${init.status})`;
+      // TikTok's 403 here rejects the app, URL or post; only 401 concerns the creator's token.
+      if (init.status === 403) throw new PermanentError(`tiktok: ${msg}`);
       throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit"); // PSA36: init creates no post yet
     }
 
@@ -225,6 +226,8 @@ export const tiktokProvider: Provider = {
         // socket isn't held open until the inactivity timeout.
         const putFailed = !put.ok;
         await put.body?.cancel().catch(() => {});
+        // A 403 means upload_url expired (valid one hour); nothing is posted before the last chunk.
+        if (put.status === 403) throw new TransientError("tiktok: upload URL expired", "pre_commit");
         if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
       }
     }

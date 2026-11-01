@@ -1,0 +1,27 @@
+{
+  "source": "TikTok for Developers documentation, read 2026-11-01: content-posting-api-reference-direct-post, content-posting-api-reference-get-video-status, content-posting-api-media-transfer-guide, tiktok-api-v2-error-handling, oauth-user-access-token-management. Identifiers are inert placeholders.",
+  "init": {
+    "ok": { "status": 200, "body": { "data": { "publish_id": "v_inbox_file~v2.123456789", "upload_url": "https://open-upload.tiktokapis.com/video/?upload_id=67890&upload_token=example" }, "error": { "code": "ok", "message": "", "log_id": "202210112248442CB9319E1FB30C1073F3" } } },
+    "urlOwnershipUnverified": { "status": 403, "body": { "error": { "code": "url_ownership_unverified", "message": "Verify ownership of the URL prefix or domain.", "log_id": "example" } } },
+    "unauditedClient": { "status": 403, "body": { "error": { "code": "unaudited_client_can_only_post_to_private_accounts", "message": "Unaudited clients can only post to private accounts.", "log_id": "example" } } },
+    "privacyMismatch": { "status": 403, "body": { "error": { "code": "privacy_level_option_mismatch", "message": "privacy_level is not one of the creator options.", "log_id": "example" } } },
+    "spamRisk": { "status": 403, "body": { "error": { "code": "spam_risk_too_many_posts", "message": "Daily post cap reached.", "log_id": "example" } } },
+    "tokenInvalid": { "status": 401, "body": { "error": { "code": "access_token_invalid", "message": "The access token is invalid or not found in the request.", "log_id": "example" } } },
+    "rateLimited": { "status": 429, "body": { "error": { "code": "rate_limit_exceeded", "message": "Rate limit exceeded.", "log_id": "example" } } }
+  },
+  "status": {
+    "failed": { "status": 200, "body": { "data": { "status": "FAILED", "fail_reason": "picture_size_check_failed", "publicaly_available_post_id": [], "uploaded_bytes": 10000 }, "error": { "code": "ok", "message": "", "log_id": "example" } } },
+    "complete": { "status": 200, "body": { "data": { "status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [7300000000000000000] }, "error": { "code": "ok", "message": "", "log_id": "example" } } },
+    "invalidPublishId": { "status": 400, "body": { "error": { "code": "invalid_publish_id", "message": "The publish_id does not exist.", "log_id": "example" } } },
+    "tokenInvalid": { "status": 401, "body": { "error": { "code": "access_token_invalid", "message": "The access token is invalid.", "log_id": "example" } } },
+    "rateLimited": { "status": 429, "body": { "error": { "code": "rate_limit_exceeded", "message": "Rate limit exceeded.", "log_id": "example" } } }
+  },
+  "upload": { "partial": 206, "complete": 201, "urlExpired": 403, "rangeMismatch": 416 },
+  "userInfo": {
+    "ok": { "status": 200, "body": { "data": { "user": { "open_id": "723f24d7-e717-40f8-a2b6-cb8464cd23b4" } }, "error": { "code": "ok", "message": "", "log_id": "example" } } },
+    "tokenInvalid": { "status": 401, "body": { "data": {}, "error": { "code": "access_token_invalid", "message": "The access token is invalid.", "log_id": "example" } } }
+  },
+  "refresh": {
+    "ok": { "access_token": "act.example12345Example12345Example", "expires_in": 86400, "open_id": "asdf-12345c-1a2s3d-ac98-asdf123as12as34", "refresh_expires_in": 31536000, "refresh_token": "rft.example12345Example12345Example", "scope": "user.info.basic,video.list", "token_type": "Bearer" }
+  }
+}

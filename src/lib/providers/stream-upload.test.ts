@@ -9,12 +9,14 @@ const MiB = 1024 * 1024;
 const source = "https://cdn.example/video.mp4";
 const session = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=example";
 const args = { tokens: { accessToken: "test" }, accountId: "123", request: { format: "video", media: [] }, mediaUrls: [source] };
+// Measured on Backblaze B2: a range covering the whole object answers 200 without Content-Range.
 function mediaResponse(init: RequestInit | undefined, size: number): Response {
   if (init?.method === "HEAD") return new Response(null, { headers: { "content-length": String(size) } });
   const range = new Headers(init?.headers).get("range");
   if (!range) throw new Error("Source must be read through bounded ranges");
   const [, start, end] = /bytes=(\d+)-(\d+)/.exec(range)!;
   const bytes = new Uint8Array(Number(end) - Number(start) + 1).fill(7);
+  if (Number(start) === 0 && Number(end) === size - 1) return new Response(bytes, { status: 200, headers: { "content-length": String(size) } });
   return new Response(bytes, { status: 206, headers: { "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(bytes.length) } });
 }
 
@@ -90,6 +92,19 @@ describe("documented media transfer contracts", () => {
     }));
     expect((await linkedinProvider.publish(args)).providerHandle).toBe("urn:li:share:1");
     expect(uploaded).toEqual([4 * MiB, MiB]);
+  });
+
+  it("a video smaller than one chunk reaches every provider when storage answers 200 to the whole-object range", async () => {
+    const size = 2 * MiB;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === source) return mediaResponse(init, size);
+      if (url.includes("/init/")) return Response.json({ data: { publish_id: "tiktok-small", upload_url: "https://upload.us.tiktokapis.com/video/?upload_id=1" }, error: { code: "ok", message: "", log_id: "example" } });
+      if (url.includes("upload.us.tiktokapis.com")) return new Response(null, { status: 201 });
+      if (init?.method === "POST") return new Response(null, { headers: { location: session } });
+      return Response.json({ id: "youtube-small" }, { status: 201 });
+    }));
+    expect((await tiktokProvider.publish(args)).providerHandle).toBe("tiktok-small");
+    expect((await youtubeProvider.publish(args)).providerHandle).toBe("youtube-small");
   });
 
   it("refuses a source ignoring Range without consuming its body", async () => {

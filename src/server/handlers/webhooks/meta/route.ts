@@ -175,7 +175,9 @@ export async function POST(request: Request) {
     }
 
     // Every change event (comments + everything else) → one log row.
-    for (const change of entry.changes ?? []) {
+    // Business Login comments carry field + value on the entry itself, with no changes array.
+    const entryChanges = entry.changes ?? (entry.field ? [{ field: entry.field, value: entry.value ?? {} }] : []);
+    for (const change of entryChanges) {
       const classified = classifyChangeEvent(change as Parameters<typeof classifyChangeEvent>[0], platform, payload.object);
       if (!classified) continue;
       loggedAny = true;
@@ -320,7 +322,7 @@ async function enqueueFromClassified(
       userId: evt.sender!.id,
       kind: classified.log.event_type === "seen" ? "read" : "delivered",
       watermark: evt.read?.watermark ?? evt.delivery?.watermark ?? 0,
-      mids: evt.delivery?.mids,
+      mids: evt.delivery?.mids ?? (evt.read?.mid ? [evt.read.mid] : undefined),
     };
     await addJob("incoming-receipt", job, { jobKey: eventKey });
     return;
@@ -429,9 +431,10 @@ function normalizeComment(change: ChangeEvent): NormalizedComment | null {
   // Instagram comments — `comments` and `live_comments` (a comment during an IG Live) share the
   // flat shape, so both build the same comment job.
   if (change.field === "comments" || change.field === "live_comments") {
-    if (!v.id) return null;
+    const commentId = v.id ?? v.comment_id;
+    if (!commentId) return null;
     return {
-      commentId: v.id,
+      commentId,
       postId: v.media?.id ?? v.media_id,
       senderId: v.from?.id,
       senderName: v.from?.username ?? v.from?.name,
@@ -451,6 +454,8 @@ interface MetaWebhookPayload {
     id: string;
     messaging?: MessagingEvent[];
     changes?: ChangeEvent[];
+    field?: string;
+    value?: ChangeEvent["value"];
   }>;
 }
 
@@ -476,7 +481,7 @@ interface MessagingEvent {
     emoji?: string;
     reaction?: string;
   };
-  read?: { watermark?: number };
+  read?: { watermark?: number; mid?: string };
   delivery?: { mids?: string[]; watermark?: number };
 }
 

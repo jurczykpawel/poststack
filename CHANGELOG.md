@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Every outgoing webhook event carries `data.workspaceId`, including `channel.*`. The contract for webhooks, post delivery and alerts is in `docs/webhook-inbox-events.md`.
+
+### Fixed
+- Instagram comments and live comments in every documented webhook shape reach comment automation.
+- Instagram read receipts mark sent messages as seen; a deleted Instagram message no longer enters the inbox as a new message.
+- A TikTok app, URL or post rejection fails the post instead of asking to reconnect a healthy channel; an expired TikTok upload URL restarts the upload.
+- Provider rate limits (HTTP 429) are retried instead of failing the post at once.
+
 ## [0.15.0] - 2026-11-01
 
 ### Changed
