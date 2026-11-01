@@ -62,6 +62,13 @@ describe("buildContentSecurityPolicy — landing (relaxed)", () => {
     expect(connect).toContain("https://t.techskills.academy");
   });
 
+  it("lets the server-side GTM container open its measurement frame, only when GTM is configured", () => {
+    const withGtm = buildContentSecurityPolicy({ landing: true, analytics: { gtmId: "GTM-XXXX" } });
+    expect(directive(withGtm, "frame-src")).toEqual(["https://t.techskills.academy"]);
+    expect(directive(buildContentSecurityPolicy({ landing: true }), "frame-src")).toEqual([]);
+    expect(directive(buildContentSecurityPolicy({ landing: false, analytics: { gtmId: "GTM-XXXX" } }), "frame-src")).toEqual([]);
+  });
+
   it("does not add analytics hosts when nothing is configured (only telemetry + data: fonts)", () => {
     const csp = buildContentSecurityPolicy({ landing: true });
     expect(directive(csp, "script-src")).not.toContain("https://stats.techskills.academy");
