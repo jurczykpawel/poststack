@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- UI menu (UXFLOW1 stage 1): the sidebar is grouped by job (Publishing, Conversations, Automation, Setup) with a "New post" button; the phone bar is Overview, Queue, New post, Inbox and a "More" sheet with every other page; the command palette lists "New post". Inbox (unread), Approvals (pending) and Channels (need re-auth) show live counters, loaded from `/nav/counts` with a short per-workspace cache.
+
 ## [0.15.1] - 2026-11-01
 
 ### Added

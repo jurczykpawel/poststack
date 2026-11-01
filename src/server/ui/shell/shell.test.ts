@@ -28,12 +28,12 @@ beforeAll(async () => {
 describe("unified nav config", () => {
   it("has the publish + reply wings under named sections", () => {
     const names = NAV_SECTIONS.map((x) => x.section);
-    expect(names).toEqual(["Overview", "Replies", "Publishing", "Delivery"]);
+    expect(names).toEqual(["", "Publishing", "Conversations", "Automation", "Setup"]);
     const keys = NAV_SECTIONS.flatMap((x) => x.items.map((i) => i.key));
     expect(keys).toEqual(expect.arrayContaining([
       "overview", "channels", "brands", // overview (sources moved into Settings → Sources tab)
       "inbox", "rules", "contacts", "sequences", // replies
-      "compose", "content", "queue", // publishing
+      "content", "queue", "approvals", // publishing + approvals
       "webhooks", "events", // delivery
     ]));
     // sources + api-keys moved into Settings tabs, not top-level nav items.
@@ -84,8 +84,35 @@ describe("renderPage shell", () => {
     expect(out).toContain('aria-label="Open command palette"');
     expect(out).toContain("⌘K");
     expect(out).toContain("/channels");
-    expect(out).toMatch(/"label":"Compose"/);
+    expect(out).toMatch(/"label":"New post"/);
     expect(out).not.toMatch(/"href":"#"/);
+  });
+});
+
+describe("UXFLOW1 stage 1 menu", () => {
+  it("sidebar has the New post button and a unique icon per item", async () => {
+    const out = s(await renderPage({ title: "Queue", nav: "queue", body: html`<p>x</p>`, features: ALL_FEATURES, products: ALL_AREAS }));
+    expect(out).toContain('class="side-new" href="/compose"');
+    const { allNavItems } = await import("./nav");
+    const icons = allNavItems().map((i) => i.icon);
+    expect(new Set(icons).size).toBe(icons.length);
+  });
+  it("phone bar is Overview, Queue, New post, Inbox, More (sheet)", async () => {
+    const out = s(await renderPage({ title: "Overview", nav: "overview", body: html`<p>x</p>`, features: ALL_FEATURES, products: ALL_AREAS }));
+    const bar = out.slice(out.indexOf('class="mobile-nav"'));
+    const hrefs = [...bar.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]).slice(0, 4);
+    expect(hrefs).toEqual(["/overview", "/queue", "/compose", "/inbox"]);
+    expect(bar).toContain('aria-controls="mnav-more"');
+    expect(bar.slice(bar.indexOf('id="mnav-more"'))).toContain('href="/settings"');
+  });
+  it("count badges render only when > 0 and Channels is flagged bad", async () => {
+    const { navCountsFragment } = await import("./nav-counts");
+    const frag = s(navCountsFragment({ inbox: 3, approvals: 0, channels: 2 }));
+    expect(frag).toContain('id="nav-n-inbox"');
+    expect(frag).toContain(">3<");
+    expect(frag).not.toMatch(/id="nav-n-approvals"[^>]*>\s*[1-9]/);
+    expect(frag).toMatch(/id="nav-n-channels"[^>]*class="[^"]*bad/);
+    expect(frag).toContain('id="mnav-n-inbox"');
   });
 });
 
@@ -101,14 +128,14 @@ describe("area-gated nav (publish vs reply wings)", () => {
   it("a publishing-only license hides reply nav items", async () => {
     const out = s(await renderPage({ title: "Content", nav: "content", body: html`<p>x</p>`, features: ALL_FEATURES, products: new Set<Area>(["core", "publishing"]) }));
     expect(out).toContain('href="/content"');
-    expect(out).not.toContain("Replies");
+    expect(out).not.toContain("Conversations");
     expect(out).not.toContain('href="/inbox"');
     expect(out).not.toContain('href="/rules"');
   });
 
   it("a suite license shows both wings", async () => {
     const out = s(await renderPage({ title: "Overview", nav: "overview", body: html`<p>x</p>`, features: ALL_FEATURES, products: ALL_AREAS }));
-    expect(out).toContain("Replies");
+    expect(out).toContain("Conversations");
     expect(out).toContain("Publishing");
   });
 

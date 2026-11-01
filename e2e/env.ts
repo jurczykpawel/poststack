@@ -26,6 +26,8 @@ export function serverEnv(): Record<string, string> {
     DATABASE_URL: E2E_DATABASE_URL,
     REGISTRATION_ENABLED: "true",
     POSTSTACK_TELEMETRY_DISABLED: "true",
+    // Live reads: the nav counter memo must not hide rows a spec seeds moments earlier.
+    STATS_CACHE_TTL_MS: "0",
     BRAND_NAME: "PostStack",
     // 32+ char secrets (validated at boot).
     ENCRYPTION_KEY: "e2e-encryption-key-0123456789abcdef0123456789",
