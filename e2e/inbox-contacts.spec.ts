@@ -53,10 +53,10 @@ for (const width of [1280, 390]) {
       for (const [field, value] of [["brand", "e2e-brand"], ["channel", channelId], ["platform", "facebook"]]) {
         await expect(page.locator(`select[name="${field}"]`)).toHaveValue(value);
       }
-      await expect(page.locator("#contacts-list tbody tr")).toHaveCount(1);
-      await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), search.press("Enter")]);
+      await expect(page.locator("#data-list tbody tr")).toHaveCount(1);
+      await search.press("Enter"); // htmx-boosted: the list swaps in place, so wait for the new row set, not a navigation
       await expect(search).toHaveValue(name);
-      await expect(page.locator("#contacts-list tbody tr")).toHaveCount(1);
+      await expect(page.locator("#data-list tbody tr")).toHaveCount(1);
 
       await gotoOk(page, "/inbox");
       await page.locator("#conv-filter-form").getByRole("button", { name: "All channels", exact: true }).click();

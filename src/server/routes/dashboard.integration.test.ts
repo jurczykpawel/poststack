@@ -620,7 +620,7 @@ describe("dashboard inbox conversation controls", () => {
     const OTHER = "dddddddd-0000-4000-8000-0000000000cc";
     await db.insert(s.contacts).values({ id: OTHER, workspace_id: WS, display_name: "No Threads Person" });
 
-    const list = await (await app.request("/contacts/list", { headers: { cookie } })).text();
+    const list = await (await app.request(`/contacts?open=${CONTACT}`, { headers: { cookie } })).text();
     expect(list).toContain(`/inbox?contact=${CONTACT}`); // per-contact inbox deep-link
 
     // Inbox filtered to CONTACT shows their conversation; filtered to OTHER shows none.
@@ -641,17 +641,17 @@ describe("dashboard inbox conversation controls", () => {
 
     // page shows the channel + platform filter dropdowns (now that there are 2 channels / platforms)
     const page = await (await app.request("/contacts", { headers: { cookie } })).text();
-    expect(page).toContain("All channels");
-    expect(page).toContain("All platforms");
+    expect(page).toContain("Channel: all");
+    expect(page).toContain("Platform: all");
     expect(page).toContain("IG Shop");
 
     // channel filter → only the IG contact
-    const byChannel = await (await app.request(`/contacts/list?channel=${CH3}`, { headers: { cookie } })).text();
+    const byChannel = await (await app.request(`/contacts?channel=${CH3}`, { headers: { cookie } })).text();
     expect(byChannel).toContain("IG Only Person");
     expect(byChannel).not.toContain("dylankelly"); // (the FB-seeded CONTACT has no such name; just ensure scoping)
 
     // platform filter → instagram only
-    const byPlatform = await (await app.request("/contacts/list?platform=instagram", { headers: { cookie } })).text();
+    const byPlatform = await (await app.request("/contacts?platform=instagram", { headers: { cookie } })).text();
     expect(byPlatform).toContain("IG Only Person");
     expect(byPlatform).toContain("@ig_only"); // handle shown
   });
@@ -995,7 +995,7 @@ describe("channels — managed connection section", () => {
       { contact_id: ctA, channel_id: chA, platform_sender_id: "sa" },
       { contact_id: ctB, channel_id: chB, platform_sender_id: "sb" },
     ]);
-    const body = await (await app.request("/contacts/list?brand=acme", { headers: { cookie } })).text();
+    const body = await (await app.request("/contacts?brand=acme", { headers: { cookie } })).text();
     expect(body).toContain("AliceAcme");
     expect(body).not.toContain("BobGlobex");
   });
@@ -1202,15 +1202,13 @@ describe("dashboard contact filters and conversation status", () => {
     expect(body).toContain('value="filtered" selected');
     expect(body).toContain('value="facebook" selected');
     expect(body).not.toContain("Unrelated person");
-    const fragment = await app.request(`/contacts/list?${query}`, { headers: { cookie } });
-    expect(body).toContain(await fragment.text());
   });
 
-  it("keeps filters in the form when only one channel and platform are available", async () => {
+  it("keeps an applied filter selectable when only one channel and platform are available", async () => {
     const res = await app.request(`/contacts?channel=${CH}&platform=facebook`, { headers: { cookie } });
     const body = await res.text();
-    expect(body).toContain(`type="hidden" name="channel" value="${CH}"`);
-    expect(body).toContain('type="hidden" name="platform" value="facebook"');
+    expect(body).toContain(`value="${CH}" selected`);
+    expect(body).toContain('value="facebook" selected');
   });
 
   it("refreshes the current Inbox filter and counts after Done and Reopen", async () => {
