@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-01
+
 ### Added
 - Every outgoing webhook event carries `data.workspaceId`, including `channel.*`. The contract for webhooks, post delivery and alerts is in `docs/webhook-inbox-events.md`.
 
