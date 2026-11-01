@@ -46,9 +46,12 @@ const POST_MAP: Record<string, string> = {
   tiktokBrandOrganicToggle: "tiktok_brand_organic_toggle",
   tiktokCoverTimestampMs: "tiktok_cover_timestamp_ms",
   youtubePrivacy: "youtube_privacy", youtubeTags: "youtube_tags", youtubeCategoryId: "youtube_category_id",
-  youtubeMadeForKids: "youtube_made_for_kids", aiDisclosure: "ai_disclosure", aiDisclosureNote: "ai_disclosure_note",
+  youtubeMadeForKids: "youtube_made_for_kids", youtubeChapters: "youtube_chapters", youtubeLicense: "youtube_license",
+  youtubeEmbeddable: "youtube_embeddable", youtubePublicStatsViewable: "youtube_public_stats_viewable",
+  youtubeNotifySubscribers: "youtube_notify_subscribers", youtubeDefaultLanguage: "youtube_default_language",
+  youtubeRecordingDate: "youtube_recording_date", youtubeLocalizations: "youtube_localizations", aiDisclosure: "ai_disclosure", aiDisclosureNote: "ai_disclosure_note",
 };
-const POST_DATES = new Set(["scheduledDate", "publishedAt"]);
+const POST_DATES = new Set(["scheduledDate", "publishedAt", "youtubeRecordingDate"]);
 // URL fields normalized "" / whitespace → null on write, so a blank never gets stored (which would
 // poison the publish media resolver) — APIFIX3.
 const POST_BLANK_TO_NULL = new Set(["mediaUrl", "videoUrl", "coverUrl"]);

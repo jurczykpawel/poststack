@@ -318,6 +318,42 @@ describe("TikTok Compose controls", () => {
     expect(await pageHtml()).toContain(expected);
   });
 
+  it.each([
+    ["visibility", 'aria-label="YouTube visibility"'],
+    ["category", 'aria-label="YouTube category"'],
+    ["made for kids without a default", '<option value="">Select…</option><option value="no">'],
+    ["license", 'aria-label="YouTube license"'],
+    ["chapters editor", "yt.addChapter()"],
+    ["translations editor", "yt.addLocalization()"],
+    ["age restriction pointer to Studio", "Age restriction, playlists and subtitles"],
+  ])("renders the YouTube %s control", async (_rule, expected) => {
+    expect(await pageHtml()).toContain(expected);
+  });
+
+  it("persists YouTube chapters and film fields from the composer", async () => {
+    const payload = { brand: "techskills.academy", title: "Film", contentType: "video", mediaUrl: "https://cdn/film.mp4",
+      posts: [{ platform: "youtube", youtubePrivacy: "unlisted", youtubeMadeForKids: false, youtubeLicense: "creativeCommon",
+        youtubeEmbeddable: false, youtubeNotifySubscribers: false, youtubeDefaultLanguage: "pl", youtubeRecordingDate: "2026-10-01T00:00:00.000Z",
+        youtubeChapters: [{ start: "00:00", title: "A" }, { start: "00:30", title: "B" }, { start: "1:30", title: "C" }],
+        youtubeLocalizations: { en: { title: "Film EN" } } }] };
+    const res = await app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }) });
+    expect(res.status).toBe(303);
+    const id = res.headers.get("location")!.split("/").pop()!;
+    const [post] = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    expect(post).toMatchObject({ youtube_privacy: "unlisted", youtube_made_for_kids: false, youtube_license: "creativeCommon",
+      youtube_embeddable: false, youtube_notify_subscribers: false, youtube_default_language: "pl",
+      youtube_chapters: [{ start: 0, title: "A" }, { start: 30, title: "B" }, { start: 90, title: "C" }],
+      youtube_localizations: { en: { title: "Film EN" } } });
+    expect(post!.youtube_recording_date?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+  });
+
+  it("rejects chapters YouTube would ignore", async () => {
+    const payload = { brand: "techskills.academy", title: "Film", contentType: "video", mediaUrl: "https://cdn/film.mp4",
+      posts: [{ platform: "youtube", youtubeChapters: [{ start: "00:00", title: "A" }, { start: "00:30", title: "B" }] }] };
+    const res = await app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }) });
+    expect(res.status).toBe(400);
+  });
+
   it("persists TikTok choices from the composer", async () => {
     const payload = { brand: "techskills.academy", title: "TikTok choices", contentType: "video", mediaUrl: "https://cdn/reel.mp4",
       posts: [{ platform: "tiktok", tiktokPublishMode: "direct", tiktokPrivacyLevel: "PUBLIC_TO_EVERYONE",
@@ -408,7 +444,7 @@ async function composeState(): Promise<ComposeState> {
   const out = await pageHtml();
   const inline = out.match(/<script>\s*function psCompose\(\)[\s\S]*?<\/script>/)![0].replace(/^<script>|<\/script>$/g, "");
   const embedded = (id: string) => ({ textContent: out.match(new RegExp(`<script id="${id}"[^>]*>([\\s\\S]*?)</script>`))![1] });
-  return runInNewContext(readFileSync("src/server/ui/static/tiktok-panel.js", "utf8") +
+  return runInNewContext(readFileSync("src/server/ui/static/tiktok-panel.js", "utf8") + readFileSync("src/server/ui/static/youtube-panel.js", "utf8") +
     readFileSync("src/server/ui/static/schedule-time.js", "utf8") + inline + "; psCompose()", {
       window: {}, document: { getElementById: embedded, querySelectorAll: () => [], addEventListener: () => {} },
     }) as ComposeState;

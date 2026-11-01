@@ -75,3 +75,13 @@ DO $$ BEGIN
 END $$;
 CREATE INDEX IF NOT EXISTS "media_workspace_status_idx" ON "media" ("workspace_id", "status");
 CREATE INDEX IF NOT EXISTS "media_canonical_idx" ON "media" ("canonical_id");
+--> statement-breakpoint
+CREATE TYPE "public"."youtube_license" AS ENUM('youtube', 'creativeCommon');--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_chapters" jsonb;--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_license" "youtube_license";--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_embeddable" boolean;--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_public_stats_viewable" boolean;--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_notify_subscribers" boolean;--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_default_language" text;--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_recording_date" timestamp (3);--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "youtube_localizations" jsonb;

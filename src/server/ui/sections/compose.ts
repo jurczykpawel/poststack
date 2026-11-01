@@ -10,7 +10,7 @@ import { resolveBrandSlots } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
 import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
-import { autoReplyInput, tiktokPostSettings } from "@/lib/content/schemas";
+import { autoReplyInput, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
 import { db } from "@/lib/db";
 import { sequences as sequencesTbl, auditLogs } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
@@ -18,6 +18,7 @@ import { renderPage } from "../layout";
 import { platformLabel, platformColor, platformGlyphString } from "../components/platform";
 import { icon } from "../components/icons";
 import { tiktokPanel, tiktokPanelScript } from "../components/tiktok-panel";
+import { youtubePanel, youtubePanelScript } from "../components/youtube-panel";
 import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
 import type { CreatorInfoResult } from "@/lib/providers/tiktok-creator-info";
 import { resolveChannelForBrandPlatform } from "@/lib/brands/resolve";
@@ -38,6 +39,7 @@ const composeSchema = z.object({
     .array(
       z.object({
         ...tiktokPostSettings.shape,
+        ...youtubePostSettings.shape,
         tiktokConsent: z.boolean().optional(),
         tiktokDisclosure: z.boolean().optional(),
         tiktokChannelId: z.string().uuid().optional(),
@@ -110,6 +112,7 @@ function composeScript(): Html {
       return {
         brands: data,
         tt: window.psTikTokPanel(),
+        yt: window.psYouTubePanel(),
         tiktokScheduleText() {
           if (!this.scheduleAt) return "Choose a date and time for automatic publication.";
           var when = window.psScheduleTime(this.scheduleAt).iso;
@@ -150,6 +153,7 @@ function composeScript(): Html {
           this.sel = s; this.capTab = "base";
           var tik = this.availPlatforms.find((p) => p.platform === "tiktok");
           this.tt = window.psTikTokPanel(tik ? tik.tiktokCreator : null, tik ? tik.channelId : "");
+          this.yt = window.psYouTubePanel();
           var first = this.selectedPlatforms()[0];
           this.pvTab = first ? first.platform : "";
         },
@@ -197,6 +201,7 @@ function composeScript(): Html {
           return l.join(" \\u00b7 ");
         },
         canSubmit() {
+          if (this.isOn("youtube") && !this.yt.valid(this.publishMode !== "draft")) return false;
           if (this.isOn("tiktok")) {
             if (this.type !== "video" || this.over("tiktok")) return false;
             if (this.publishMode !== "draft" && (!this.tt.valid || !this.tt.consent || this.tt.consentKey !== this.tiktokConsentKey())) return false;
@@ -210,6 +215,7 @@ function composeScript(): Html {
             posts: this.selectedPlatforms().map((p) => {
               var s = this.sel[p.platform];
               var post = { platform: p.platform, description: (s.override || "").trim() || undefined };
+              if (p.platform === "youtube") Object.assign(post, this.yt.options());
               if (p.platform === "tiktok") Object.assign(post, this.tt.options(), { tiktokDisclosure: this.tt.disclosure, tiktokConsent: this.tt.consent, tiktokChannelId: this.tt.channelId });
               var fc = (s.firstComment || "").trim();
               if (this.canComment(p.platform) && this.licFirstComment && fc) post.firstComment = fc;
@@ -388,6 +394,7 @@ async function composePage(
           </section>
 
           <template x-if="sel.tiktok">${tiktokPanel()}</template>
+          <template x-if="sel.youtube">${youtubePanel()}</template>
 
           <div class="compose-pubbar" x-show="brand" x-cloak>
             <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
@@ -437,6 +444,7 @@ async function composePage(
       <script id="ps-compose-data" type="application/json">${raw(json)}</script>
       <script id="ps-compose-seq" type="application/json">${raw(seqJson)}</script>
       ${tiktokPanelScript()}
+      ${youtubePanelScript()}
       ${composeScript()}`,
   });
 }

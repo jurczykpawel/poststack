@@ -53,6 +53,7 @@ export const tiktokPrivacyLevel = pgEnum("tiktok_privacy_level", ['PUBLIC_TO_EVE
 // YTOPTS1: YouTube visibility. NULL on a post = the provider's safe default (`private`), i.e. exactly the
 // behaviour that existed before this column, so no historical post silently changes visibility.
 export const youtubePrivacy = pgEnum("youtube_privacy", ['private', 'unlisted', 'public'])
+export const youtubeLicense = pgEnum("youtube_license", ['youtube', 'creativeCommon'])
 export const response_type = pgEnum("response_type", ['text', 'random_text', 'sequence', 'none', 'ai_rephrase', 'follow_gate'])
 // `paused` is reserved/forward-looking: pausing happens at the channel/conversation level
 // (`is_automation_paused`, `channel.status='paused'`) and the worker DEFERS a step via a delayed job
@@ -1376,6 +1377,16 @@ export const posts = pgTable("posts", {
 	youtube_tags: jsonb("youtube_tags"),
 	youtube_category_id: text("youtube_category_id"),
 	youtube_made_for_kids: boolean("youtube_made_for_kids"),
+	// YTMETA1: chapters ([{start: seconds, title}], rendered into the description at publish) and the other
+	// videos.insert fields. NULL = leave YouTube's own default.
+	youtube_chapters: jsonb("youtube_chapters"),
+	youtube_license: youtubeLicense("youtube_license"),
+	youtube_embeddable: boolean("youtube_embeddable"),
+	youtube_public_stats_viewable: boolean("youtube_public_stats_viewable"),
+	youtube_notify_subscribers: boolean("youtube_notify_subscribers"),
+	youtube_default_language: text("youtube_default_language"),
+	youtube_recording_date: timestamp("youtube_recording_date", { precision: 3, mode: 'date' }),
+	youtube_localizations: jsonb("youtube_localizations"),
 	// AIDISC1 (EU AI Act Art. 50, applies 2026-08-02): the declared AI level for THIS post, and the
 	// evidence of what that declaration turned into on the wire.
 	//   ai_disclosure      — what the operator declared (see the enum comment for the levels). NULLABLE

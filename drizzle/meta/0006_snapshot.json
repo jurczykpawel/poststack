@@ -2724,6 +2724,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "tiktok_confirmation": {
+          "name": "tiktok_confirmation",
+          "type": "tiktok_confirmation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'scheduled'"
+        },
         "payload_version": {
           "name": "payload_version",
           "type": "integer",
@@ -2787,14 +2795,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "tiktok_confirmation": {
-          "name": "tiktok_confirmation",
-          "type": "tiktok_confirmation",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'scheduled'"
         }
       },
       "indexes": {
@@ -3702,13 +3702,6 @@
           "notNull": true,
           "default": "'ready'"
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp (3)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "CURRENT_TIMESTAMP"
-        },
         "source_url": {
           "name": "source_url",
           "type": "text",
@@ -3726,30 +3719,16 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_TIMESTAMP"
         }
       },
       "indexes": {
-        "media_workspace_checksum_key": {
-          "name": "media_workspace_checksum_key",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "checksum",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "media_workspace_status_idx": {
           "name": "media_workspace_status_idx",
           "columns": [
@@ -3785,22 +3764,30 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "media_workspace_checksum_key": {
+          "name": "media_workspace_checksum_key",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "checksum",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
-        "media_workspace_id_fkey": {
-          "name": "media_workspace_id_fkey",
-          "tableFrom": "media",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
         "media_canonical_id_fkey": {
           "name": "media_canonical_id_fkey",
           "tableFrom": "media",
@@ -3813,6 +3800,19 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "media_workspace_id_fkey": {
+          "name": "media_workspace_id_fkey",
+          "tableFrom": "media",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4452,6 +4452,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "inbound_message_id": {
+          "name": "inbound_message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inbound_comment_id": {
+          "name": "inbound_comment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "proposed_content": {
           "name": "proposed_content",
           "type": "jsonb",
@@ -4484,42 +4496,9 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "inbound_message_id": {
-          "name": "inbound_message_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "inbound_comment_id": {
-          "name": "inbound_comment_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "pending_approvals_workspace_id_status_idx": {
-          "name": "pending_approvals_workspace_id_status_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "pending_approvals_inbound_message_id_idx": {
           "name": "pending_approvals_inbound_message_id_idx",
           "columns": [
@@ -4549,9 +4528,56 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "pending_approvals_workspace_id_status_idx": {
+          "name": "pending_approvals_workspace_id_status_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
+        "pending_approvals_inbound_message_id_fkey": {
+          "name": "pending_approvals_inbound_message_id_fkey",
+          "tableFrom": "pending_approvals",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "inbound_message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "pending_approvals_inbound_comment_id_fkey": {
+          "name": "pending_approvals_inbound_comment_id_fkey",
+          "tableFrom": "pending_approvals",
+          "tableTo": "comment_logs",
+          "columnsFrom": [
+            "inbound_comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "pending_approvals_workspace_id_fkey": {
           "name": "pending_approvals_workspace_id_fkey",
           "tableFrom": "pending_approvals",
@@ -4616,32 +4642,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
-        },
-        "pending_approvals_inbound_message_id_fkey": {
-          "name": "pending_approvals_inbound_message_id_fkey",
-          "tableFrom": "pending_approvals",
-          "tableTo": "messages",
-          "columnsFrom": [
-            "inbound_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "pending_approvals_inbound_comment_id_fkey": {
-          "name": "pending_approvals_inbound_comment_id_fkey",
-          "tableFrom": "pending_approvals",
-          "tableTo": "comment_logs",
-          "columnsFrom": [
-            "inbound_comment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -5076,6 +5076,56 @@
           "primaryKey": false,
           "notNull": false
         },
+        "tiktok_publish_mode": {
+          "name": "tiktok_publish_mode",
+          "type": "tiktok_publish_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_privacy_level": {
+          "name": "tiktok_privacy_level",
+          "type": "tiktok_privacy_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_disable_comment": {
+          "name": "tiktok_disable_comment",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_disable_duet": {
+          "name": "tiktok_disable_duet",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_disable_stitch": {
+          "name": "tiktok_disable_stitch",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_brand_content_toggle": {
+          "name": "tiktok_brand_content_toggle",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_brand_organic_toggle": {
+          "name": "tiktok_brand_organic_toggle",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiktok_cover_timestamp_ms": {
+          "name": "tiktok_cover_timestamp_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "youtube_privacy": {
           "name": "youtube_privacy",
           "type": "youtube_privacy",
@@ -5098,6 +5148,55 @@
         "youtube_made_for_kids": {
           "name": "youtube_made_for_kids",
           "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_chapters": {
+          "name": "youtube_chapters",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_license": {
+          "name": "youtube_license",
+          "type": "youtube_license",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_embeddable": {
+          "name": "youtube_embeddable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_public_stats_viewable": {
+          "name": "youtube_public_stats_viewable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_notify_subscribers": {
+          "name": "youtube_notify_subscribers",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_default_language": {
+          "name": "youtube_default_language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_recording_date": {
+          "name": "youtube_recording_date",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_localizations": {
+          "name": "youtube_localizations",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -5139,56 +5238,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "tiktok_publish_mode": {
-          "name": "tiktok_publish_mode",
-          "type": "tiktok_publish_mode",
-          "primaryKey": false,
-          "notNull": false,
-          "typeSchema": "public"
-        },
-        "tiktok_privacy_level": {
-          "name": "tiktok_privacy_level",
-          "type": "tiktok_privacy_level",
-          "primaryKey": false,
-          "notNull": false,
-          "typeSchema": "public"
-        },
-        "tiktok_disable_comment": {
-          "name": "tiktok_disable_comment",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tiktok_disable_duet": {
-          "name": "tiktok_disable_duet",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tiktok_disable_stitch": {
-          "name": "tiktok_disable_stitch",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tiktok_brand_content_toggle": {
-          "name": "tiktok_brand_content_toggle",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tiktok_brand_organic_toggle": {
-          "name": "tiktok_brand_organic_toggle",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tiktok_cover_timestamp_ms": {
-          "name": "tiktok_cover_timestamp_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6527,6 +6576,12 @@
           "notNull": true,
           "default": 0
         },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "last_error": {
           "name": "last_error",
           "type": "text",
@@ -6546,15 +6601,42 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "http_status": {
-          "name": "http_status",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
+        "webhook_deliveries_workspace_endpoint_created_idx": {
+          "name": "webhook_deliveries_workspace_endpoint_created_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "endpoint_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "webhook_deliveries_event_id_endpoint_id_key": {
           "name": "webhook_deliveries_event_id_endpoint_id_key",
           "columns": [
@@ -6581,39 +6663,6 @@
           "columns": [
             {
               "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "webhook_deliveries_workspace_endpoint_created_idx": {
-          "name": "webhook_deliveries_workspace_endpoint_created_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -7642,6 +7691,34 @@
         "archived"
       ]
     },
+    "public.tiktok_confirmation": {
+      "name": "tiktok_confirmation",
+      "schema": "public",
+      "values": [
+        "scheduled",
+        "immediate",
+        "required",
+        "confirmed"
+      ]
+    },
+    "public.tiktok_privacy_level": {
+      "name": "tiktok_privacy_level",
+      "schema": "public",
+      "values": [
+        "PUBLIC_TO_EVERYONE",
+        "MUTUAL_FOLLOW_FRIENDS",
+        "FOLLOWER_OF_CREATOR",
+        "SELF_ONLY"
+      ]
+    },
+    "public.tiktok_publish_mode": {
+      "name": "tiktok_publish_mode",
+      "schema": "public",
+      "values": [
+        "inbox",
+        "direct"
+      ]
+    },
     "public.trigger_type": {
       "name": "trigger_type",
       "schema": "public",
@@ -7693,6 +7770,14 @@
         "owner"
       ]
     },
+    "public.youtube_license": {
+      "name": "youtube_license",
+      "schema": "public",
+      "values": [
+        "youtube",
+        "creativeCommon"
+      ]
+    },
     "public.youtube_privacy": {
       "name": "youtube_privacy",
       "schema": "public",
@@ -7700,34 +7785,6 @@
         "private",
         "unlisted",
         "public"
-      ]
-    },
-    "public.tiktok_publish_mode": {
-      "name": "tiktok_publish_mode",
-      "schema": "public",
-      "values": [
-        "inbox",
-        "direct"
-      ]
-    },
-    "public.tiktok_privacy_level": {
-      "name": "tiktok_privacy_level",
-      "schema": "public",
-      "values": [
-        "PUBLIC_TO_EVERYONE",
-        "MUTUAL_FOLLOW_FRIENDS",
-        "FOLLOWER_OF_CREATOR",
-        "SELF_ONLY"
-      ]
-    },
-    "public.tiktok_confirmation": {
-      "name": "tiktok_confirmation",
-      "schema": "public",
-      "values": [
-        "scheduled",
-        "immediate",
-        "required",
-        "confirmed"
       ]
     }
   },

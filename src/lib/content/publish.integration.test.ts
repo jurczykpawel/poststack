@@ -473,6 +473,25 @@ describe("YouTube film format at delivery and provider boundaries", () => {
     expect(delivery.payload).toMatchObject({ format: expected });
   });
 
+  it("puts saved chapters into the description and the saved film fields into the provider options [YTMETA1]", async () => {
+    const { channelId, postId } = await fixtures({
+      platform: "youtube", title: "Film", description: "About the film",
+      youtube_chapters: [{ start: 0, title: "Intro" }, { start: 75, title: "Main" }, { start: 600, title: "End" }],
+      youtube_license: "creativeCommon", youtube_embeddable: false, youtube_notify_subscribers: false,
+      youtube_default_language: "pl", youtube_recording_date: new Date("2026-10-01T10:00:00Z"),
+      youtube_localizations: { en: { title: "Film EN" } },
+    });
+    await db.update(schema.channels).set({ platform: "youtube", status: "active" }).where(eq(schema.channels.id, channelId));
+    const [asset] = await db.insert(schema.media).values({ workspace_id: WS, checksum: randomUUID(), storage_key: "film", url: "https://cdn.example/film.mp4", kind: "video", status: "ready", duration_sec: 600, width: 1920, height: 1080 }).returning();
+    const { delivery } = await publishPost({ postId, channelId, when: "now" }, WS, { registerMedia: async () => ({ id: asset!.id }) });
+    const payload = delivery.payload as { caption: string; options: Record<string, unknown> };
+    expect(payload.caption).toBe("About the film\n\n#a #b\n\n00:00 Intro\n01:15 Main\n10:00 End");
+    expect(payload.options).toMatchObject({
+      license: "creativeCommon", embeddable: false, notifySubscribers: false, defaultLanguage: "pl",
+      recordingDate: "2026-10-01T10:00:00.000Z", localizations: { en: { title: "Film EN" } },
+    });
+  });
+
   it("keeps explicit video for a portrait short clip", async () => {
     expect((await film(45, 1080, 1920, false, "video")).delivery.format).toBe("video");
   });

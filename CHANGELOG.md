@@ -19,6 +19,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Instagram read receipts mark sent messages as seen; a deleted Instagram message no longer enters the inbox as a new message.
 - A TikTok app, URL or post rejection fails the post instead of asking to reconnect a healthy channel; an expired TikTok upload URL restarts the upload.
 - Provider rate limits (HTTP 429) are retried instead of failing the post at once.
+- YouTube chapters: `youtubeChapters` (API and Compose) are checked against YouTube's rules (at least 3, first at 00:00, 10 seconds apart) and appended to the description at publish.
+- YouTube film fields in the API and in a new Compose YouTube section: `youtubeLicense`, `youtubeEmbeddable`, `youtubePublicStatsViewable`, `youtubeNotifySubscribers`, `youtubeDefaultLanguage`, `youtubeRecordingDate` and `youtubeLocalizations`, alongside the existing visibility, category, tags, made-for-kids and AI choices. Made-for-kids has no default in Compose. Age restriction, playlists and subtitles are not available through the API and stay in YouTube Studio.
 
 ## [0.15.0] - 2026-11-01
 
