@@ -13,6 +13,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Every outgoing webhook event carries `data.workspaceId`, including `channel.*`. The contract for webhooks, post delivery and alerts is in `docs/webhook-inbox-events.md`.
 
 ### Fixed
+- UI: the alert-webhook "Edit in Settings" link opens the right tab; Queue lists scheduled posts soonest first with sent and canceled last; secondary text and status colours meet 4.5:1 contrast in both themes; sidebar icons are unique; leftover Polish strings are English.
 - TikTok inbox drafts finish delivery when TikTok reports SEND_TO_USER_INBOX; Direct Post still waits for PUBLISH_COMPLETE.
 - Reconnect links for TikTok, LinkedIn, X and Threads start OAuth again. Their tokens refresh before expiry; rejected credentials and missing refresh tokens now show a reason and trigger channel alerts.
 - Instagram comments and live comments in every documented webhook shape reach comment automation.

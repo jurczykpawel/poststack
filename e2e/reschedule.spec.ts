@@ -145,7 +145,7 @@ for (const scenario of [
         await row.getByRole("button", { name: "Zapisz termin" }).click();
         await dialog.getByRole("button", { name: "Zapisz termin" }).click();
         await expect(row.locator("details")).not.toHaveAttribute("open");
-        await expect(page.locator(".toasts")).toHaveText("Termin zmieniony.");
+        await expect(page.locator(".toasts")).toHaveText("Schedule changed.");
         await expect(row.locator("time")).toHaveText(`${scenario.text} · ${zone}`);
         await page.screenshot({ path: testInfo.outputPath("queue-local.png"), fullPage: true, animations: "disabled" });
         await page.goto(`/content/${contentId}`);
