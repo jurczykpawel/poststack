@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- TikTok inbox drafts finish delivery when TikTok reports SEND_TO_USER_INBOX; Direct Post still waits for PUBLISH_COMPLETE.
+- Reconnect links for TikTok, LinkedIn, X and Threads start OAuth again. Their tokens refresh before expiry; rejected credentials and missing refresh tokens now show a reason and trigger channel alerts.
+
 ## [0.15.0] - 2026-11-01
 
 ### Changed

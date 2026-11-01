@@ -187,6 +187,7 @@ export async function upsertChannels(
             status: "active",
             deleted_at: null,
             last_error: null,
+            needs_reauth_reason: null,
             connection_mode: connectionMode,
             source_id: sourceId,
             token_expires_at: tokenExpiresAt,
@@ -284,6 +285,7 @@ async function augmentMessagingTokens(
             status: "active",
             deleted_at: null,
             last_error: null,
+            needs_reauth_reason: null,
           })
           .where(eq(channels.id, live.id));
 
@@ -329,6 +331,7 @@ async function augmentMessagingTokens(
             status: "active",
             deleted_at: null,
             last_error: null,
+            needs_reauth_reason: null,
             connection_mode: connectionMode,
           },
         })

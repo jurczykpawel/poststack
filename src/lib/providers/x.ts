@@ -41,6 +41,7 @@ export const xProvider: Provider = {
       clientId: process.env.X_CLIENT_ID ?? "",
       clientSecret: process.env.X_CLIENT_SECRET ?? "",
       refreshToken: tokens.refreshToken ?? "",
+      tokenAuthBasic: true,
     });
   },
 

@@ -32,6 +32,10 @@ beforeAll(async () => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   process.env.TIKTOK_CLIENT_KEY = "tt-key";
   process.env.TIKTOK_CLIENT_SECRET = "tt-secret";
+  process.env.LINKEDIN_CLIENT_ID = "li-id";
+  process.env.LINKEDIN_CLIENT_SECRET = "li-secret";
+  process.env.THREADS_CLIENT_ID = "th-id";
+  process.env.THREADS_CLIENT_SECRET = "th-secret";
   process.env.X_CLIENT_ID = "x-id";
   process.env.X_CLIENT_SECRET = "x-secret";
   ({ db } = await import("@/lib/db"));
@@ -107,6 +111,34 @@ describe("completePublishOAuth (real Postgres)", () => {
     expect(decryptTokens(ch!.token_encrypted!).access_token).toBe("AT");
     // and the cookies to clear are returned
     expect(r.clearCookies.some((c) => c.startsWith("rs_oauth_state="))).toBe(true);
+  });
+
+  it.each(["tiktok", "linkedin", "x", "threads"])("reconnects %s into the same channel", async (platform) => {
+    if (!TEST_DB) return;
+    await licenseInstance("pro");
+    const storedPlatform = platform === "x" ? "twitter" : platform;
+    const id = await seedChannel(storedPlatform, "g9-account", "needs_reauth");
+    await db.update(s.channels).set({ needs_reauth_reason: "expired" }).where(eq(s.channels.id, id));
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/userinfo")) return Response.json({ sub: "g9-account", name: "LinkedIn account" });
+      if (url.includes("/user/info")) return Response.json({ data: { user: { open_id: "g9-account", display_name: "TikTok account" } } });
+      if (url.includes("/users/me")) return Response.json({ data: { id: "g9-account", username: "x-account" } });
+      if (url.includes("/v1.0/me")) return Response.json({ id: "g9-account", username: "threads-account" });
+      return Response.json({ access_token: "NEW", refresh_token: "RT", expires_in: 86400 });
+    }) as typeof fetch;
+    const { state, setCookie } = generateOAuthState(AUTH, `connect:${platform}`);
+    const { verifier } = createPkcePair();
+    const r = await connect.completePublishOAuth({
+      platform, code: "C", state,
+      cookieHeader: `${setCookie.split(";")[0]}; ${pkceCookie(verifier).split(";")[0]}`,
+      redirectUri: "https://app/cb", auth: AUTH,
+    });
+    expect(r.channelId).toBe(id);
+    const rows = await db.query.channels.findMany({ where: eq(s.channels.workspace_id, WS) });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id, platform: storedPlatform, platform_id: "g9-account", status: "active", needs_reauth_reason: null });
+    expect(decryptTokens(rows[0]!.token_encrypted).access_token).toBe("NEW");
   });
 
   it("rejects a mismatched state (CSRF) before any token exchange", async () => {

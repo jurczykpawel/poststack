@@ -19,7 +19,9 @@ export async function oauth2Refresh(args: {
   clientSecret: string;
   refreshToken: string;
   extra?: Record<string, string>;
+  tokenAuthBasic?: boolean;
 }): Promise<TokenSet> {
+  if (!args.refreshToken) throw new TokenInvalidError("refresh token missing — reconnect required");
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: args.refreshToken,
@@ -27,9 +29,15 @@ export async function oauth2Refresh(args: {
     client_secret: args.clientSecret,
     ...(args.extra ?? {}),
   });
+  const headers: Record<string, string> = { "content-type": "application/x-www-form-urlencoded" };
+  if (args.tokenAuthBasic) {
+    headers.authorization = `Basic ${Buffer.from(`${args.clientId}:${args.clientSecret}`).toString("base64")}`;
+    body.delete("client_id");
+    body.delete("client_secret");
+  }
   const res = await fetch(args.tokenUrl, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers,
     body,
   });
   const json = (await res.json().catch(() => ({}))) as {
@@ -38,9 +46,13 @@ export async function oauth2Refresh(args: {
     expires_in?: number;
     error?: string;
   };
-  if (!res.ok || !json.access_token) {
+  if (res.status >= 500) throw classifyHttp(res.status);
+  if (!res.ok || !json.access_token || json.error) {
     // OAuth2 'invalid_grant' = the refresh token is expired/revoked — unrecoverable, needs reconnect.
     // Must be TokenInvalid (-> needs_reauth) not a retryable error, else the worker retries forever.
+    if (json.error === "invalid_client") {
+      throw new TokenInvalidError("application credentials rejected (invalid_client) — check application settings and reconnect");
+    }
     if (json.error === "invalid_grant") {
       throw new TokenInvalidError("refresh token invalid_grant — reconnect required");
     }

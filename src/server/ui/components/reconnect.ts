@@ -1,3 +1,5 @@
+import { providerIdForPlatform } from "@/lib/providers";
+
 /** Where a "Reconnect" affordance should send the user for a channel that needs re-auth.
  *  Shared by the channels table/detail and the dashboard "Needs attention" widget so every
  *  Reconnect link lands on the right flow instead of a generic page. */
@@ -7,6 +9,9 @@ export function oauthStartHref(platform: string): string | null {
   if (platform === "instagram") return "/api/oauth/instagram";
   if (platform === "youtube") return "/api/oauth/youtube";
   if (platform === "gmail") return "/api/oauth/gmail";
+  if (["tiktok", "linkedin", "twitter", "threads"].includes(platform)) {
+    return `/api/oauth/connect/${providerIdForPlatform(platform)}`;
+  }
   return null;
 }
 

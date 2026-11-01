@@ -7,6 +7,7 @@ import { channels } from "@/db/schema";
 import { encryptTokens, decryptTokens } from "@/lib/crypto";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
+import { getTokenRefreshProvider } from "@/lib/channels/refresh-provider";
 import { TokenInvalidError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth, markChannelHealthy } from "@/lib/channels/health";
 
@@ -51,7 +52,7 @@ export async function processTokenRefresh(
     return;
   }
 
-  const provider = getProvider(channel.platform);
+  const provider = getTokenRefreshProvider(channel.platform);
 
   if (!provider.requiresTokenRefresh()) {
     helpers.logger.info(`Platform ${channel.platform} does not require token refresh`);

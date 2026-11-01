@@ -16,3 +16,10 @@ describe("reconnectHref IG-Login awareness", () => {
     expect(reconnectHref({ id: "c1", connection_mode: "derived", platform: "instagram", messaging_connection: "instagram_login" })).toBe("/sources");
   });
 });
+
+
+describe("publisher reconnect destinations", () => {
+  it.each([["tiktok", "tiktok"], ["linkedin", "linkedin"], ["twitter", "x"], ["threads", "threads"]])("%s starts the hosted flow", (platform, slug) => {
+    expect(reconnectHref({ ...base, platform })).toBe(`/api/oauth/connect/${slug}`);
+  });
+});

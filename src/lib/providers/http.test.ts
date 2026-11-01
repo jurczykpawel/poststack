@@ -50,3 +50,25 @@ describe("oauth2Refresh", () => {
     ).rejects.toBeInstanceOf(TokenInvalidError);
   });
 });
+
+
+describe("OAuth refresh response contract", () => {
+  it.each(["invalid_client", "invalid_grant"])("TikTok HTTP 200 %s requires attention", async (error) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error, error_description: "Rejected", log_id: "20261101" })));
+    await expect(oauth2Refresh({ tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/", clientId: "c", clientSecret: "s", refreshToken: "RT" })).rejects.toBeInstanceOf(TokenInvalidError);
+  });
+  it("reports rejected application credentials explicitly", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "invalid_client" })));
+    await expect(oauth2Refresh({ tokenUrl: "https://x/token", clientId: "c", clientSecret: "s", refreshToken: "RT" })).rejects.toThrow(/application credentials rejected/);
+  });
+  it("does not send an empty refresh token", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await expect(oauth2Refresh({ tokenUrl: "https://x/token", clientId: "c", clientSecret: "s", refreshToken: "" })).rejects.toBeInstanceOf(TokenInvalidError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps 503 transient even with an OAuth error body", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "invalid_client" }, { status: 503 })));
+    await expect(oauth2Refresh({ tokenUrl: "https://x/token", clientId: "c", clientSecret: "s", refreshToken: "RT" })).rejects.toBeInstanceOf(TransientError);
+  });
+});

@@ -4,6 +4,7 @@ import { channels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { getProvider } from "@/lib/platforms/registry";
+import { getTokenRefreshProvider } from "@/lib/channels/refresh-provider";
 import { decryptTokens } from "@/lib/crypto";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 
@@ -18,24 +19,22 @@ import { sanitizeForLog } from "@/lib/api/safe-log";
  * refresh job — which would silently cascade into mass token expiry.
  */
 export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
-  // NOTE (perf): this decrypts every active OAuth token hourly just to read expires_at.
-  // Fine at a handful of channels; at managed-hosting scale add a plaintext channels.token_expires_at
-  // column (written wherever the token is stored) and filter DB-side (WHERE token_expires_at < now()
-  // + buffer), decrypting only the near-expiry rows. Deferred until the channel count makes it matter.
   const rows = await db.query.channels.findMany({
     where: and(eq(channels.status, "active"), eq(channels.connection_mode, "oauth")),
-    columns: { id: true, platform: true, token_encrypted: true },
+    columns: { id: true, platform: true, token_encrypted: true, token_expires_at: true },
   });
 
   let enqueued = 0;
 
   for (const channel of rows) {
     try {
-      const provider = getProvider(channel.platform);
+      const provider = getTokenRefreshProvider(channel.platform);
       if (!provider.requiresTokenRefresh()) continue;
 
       const tokens = decryptTokens(channel.token_encrypted);
-      const expiresAt = tokens.expires_at as number | undefined;
+      const expiresAt = channel.token_expires_at
+        ? channel.token_expires_at.getTime() / 1000
+        : tokens.expires_at as number | undefined;
       if (!expiresAt) continue;
 
       const refreshThreshold = expiresAt - provider.refreshBufferSeconds();
