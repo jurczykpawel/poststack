@@ -29,10 +29,10 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "META_APP_ID", group: "Meta (Facebook & Instagram)", label: "App ID", secret: false, help: "From your Meta app → Settings → Basic." },
   { key: "META_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "App Secret", secret: true, help: "Meta app → Settings → Basic → App Secret." },
   { key: "META_WEBHOOK_VERIFY_TOKEN", group: "Meta (Facebook & Instagram)", label: "Webhook Verify Token", secret: true, help: "Any string you choose; paste the same value into the Meta webhook config." },
-  { key: "INSTAGRAM_APP_ID", group: "Meta (Facebook & Instagram)", label: "Instagram App ID", secret: false, help: "Meta app → Instagram API setup with Instagram login → Instagram app ID. Wymagane do odbioru/wysyłki IG DM." },
-  { key: "INSTAGRAM_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "Instagram App Secret", secret: true, help: "Ten sam ekran → Instagram app secret. Webhooki wiadomości IG są nim podpisane." },
+  { key: "INSTAGRAM_APP_ID", group: "Meta (Facebook & Instagram)", label: "Instagram App ID", secret: false, help: "Meta app → Instagram API setup with Instagram login → Instagram app ID. Required to receive and send IG DMs." },
+  { key: "INSTAGRAM_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "Instagram App Secret", secret: true, help: "Same screen → Instagram app secret. IG message webhooks are signed with it." },
 
-  { key: "TIKTOK_CONFIRM_AT_SEND", group: "TikTok", label: "TikTok: zawsze potwierdzaj przy wysyłce", secret: false, help: "true = każdy zaplanowany post wymaga ponownego potwierdzenia w Queue. false (domyślnie) = automatyczna wysyłka po rewalidacji." },
+  { key: "TIKTOK_CONFIRM_AT_SEND", group: "TikTok", label: "TikTok: always confirm at send", secret: false, help: "true = every scheduled post needs re-confirmation in Queue. false (default) = sent automatically after revalidation." },
 
   // Google / YouTube OAuth client (Google Cloud Console → Credentials → OAuth client).
   { key: "GOOGLE_CLIENT_ID", group: "Google / YouTube", label: "OAuth Client ID", secret: false, help: "Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID." },

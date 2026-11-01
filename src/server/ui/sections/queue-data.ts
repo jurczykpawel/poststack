@@ -31,7 +31,8 @@ export interface QueueFilters {
 // With no explicit status filter, failures + upcoming work belong at the top; terminal states sink.
 const FOREGROUND_RANK = sql`case ${deliveries.status}
   when 'failed' then 0 when 'held' then 1 when 'unknown' then 2
-  when 'scheduled' then 3 when 'sending' then 4 when 'processing' then 4 else 5 end`;
+  when 'scheduled' then 3 when 'sending' then 4 when 'processing' then 4
+  when 'sent' then 5 else 6 end`;
 
 /** Deliveries joined with their channel for the operational queue view — workspace-scoped. */
 export async function listQueue(f: QueueFilters): Promise<QueueRow[]> {
@@ -62,6 +63,8 @@ export async function listQueue(f: QueueFilters): Promise<QueueRow[]> {
     .where(and(...filters))
     .orderBy(
       ...(f.status ? [] : [asc(FOREGROUND_RANK)]),
+      // Upcoming work: soonest first; every other group: newest first.
+      sql`case when ${deliveries.status} = 'scheduled' then ${deliveries.scheduled_at} end asc`,
       desc(deliveries.scheduled_at),
       desc(deliveries.id),
     )

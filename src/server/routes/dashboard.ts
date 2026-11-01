@@ -2035,7 +2035,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <h2 style="margin:0">Alert webhook</h2>
               ${canAlerts ? html`` : proLink(upgradeUrl, "PRO")}
             </div>
-            <p class="muted" style="margin-bottom:1rem">Get a proactive POST when a connection needs re-auth or nears expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
+            <p class="muted" style="margin-bottom:1rem">Get a proactive POST for: channel re-auth (and the urgent 24h nudge), degraded channels, failed or held deliveries, event errors, and tokens nearing expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
             <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
           </section>
           <section class="section">
@@ -2693,10 +2693,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                     <code class="mono grow" style="overflow-x:auto;white-space:nowrap">${alertWebhook.url}</code>
                   </div>
                   <p class="muted" style="font-size:.78rem;margin-top:.4rem">
-                    ${Object.keys(alertWebhook.headers).length ? `${Object.keys(alertWebhook.headers).length} custom header(s) · ` : ""}${Object.keys(alertWebhook.extraFields).length ? `${Object.keys(alertWebhook.extraFields).length} extra field(s) · ` : ""}<a href="/settings#alert">Edit in Settings →</a>
+                    ${Object.keys(alertWebhook.headers).length ? `${Object.keys(alertWebhook.headers).length} custom header(s) · ` : ""}${Object.keys(alertWebhook.extraFields).length ? `${Object.keys(alertWebhook.extraFields).length} extra field(s) · ` : ""}<a href="/settings#automation">Edit in Settings →</a>
                   </p>
                 </div>`
-              : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#alert">Set it up in Settings →</a></p></div>`}
+              : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#automation">Set it up in Settings →</a></p></div>`}
           <h3 style="margin-top:1.5rem">Outbound webhook endpoints ${canOutbound ? "" : proLink(upgradeUrl, "PRO")}</h3>
           <p class="muted" style="font-size:.85rem">Subscribe one or more external URLs (n8n, Zapier, your own service) to events like <code>post.published</code> or <code>contact.created</code>. Each delivery is HMAC-signed with a per-endpoint secret. The same endpoints are manageable via <a href="/api/docs">the API</a>.</p>
           ${outboundWebhooksMount()}

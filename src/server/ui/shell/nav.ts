@@ -35,12 +35,12 @@ export const NAV_SECTIONS: NavSection[] = [
   { section: "Replies", items: [
     // Inbox READING is free (basic incoming-message info; rules auto-reply for free). The human-reply
     // box is PRO (manual_reply, gated in the thread + send endpoint), so the nav item itself is ungated.
-    { key: "inbox", label: "Inbox", href: "/inbox", icon: "events", area: "replies" },
-    { key: "approvals", label: "Approvals", href: "/approvals", icon: "queue", area: "replies" },
-    { key: "rules", label: "Rules", href: "/rules", icon: "compose", area: "replies" },
-    { key: "contacts", label: "Contacts", href: "/contacts", icon: "brands", area: "replies", feature: "contacts_crm" },
-    { key: "engagement", label: "Engagement", href: "/engagement", icon: "dashboard", area: "replies", feature: "contacts_crm" },
-    { key: "sequences", label: "Sequences", href: "/sequences", icon: "events", area: "replies", feature: "sequences" },
+    { key: "inbox", label: "Inbox", href: "/inbox", icon: "mail", area: "replies" },
+    { key: "approvals", label: "Approvals", href: "/approvals", icon: "checks", area: "replies" },
+    { key: "rules", label: "Rules", href: "/rules", icon: "command", area: "replies" },
+    { key: "contacts", label: "Contacts", href: "/contacts", icon: "comment", area: "replies", feature: "contacts_crm" },
+    { key: "engagement", label: "Engagement", href: "/engagement", icon: "sparkles", area: "replies", feature: "contacts_crm" },
+    { key: "sequences", label: "Sequences", href: "/sequences", icon: "clock", area: "replies", feature: "sequences" },
   ]},
   { section: "Publishing", items: [
     { key: "compose", label: "Compose", href: "/compose", icon: "plus", area: "publishing" },
