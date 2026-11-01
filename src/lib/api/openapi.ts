@@ -410,7 +410,10 @@ export const openApiSpec = {
         description:
           "Body accepts tiktokPublishMode/tiktokPrivacyLevel/tiktokDisableComment/tiktokDisableDuet/tiktokDisableStitch/" +
           "tiktokBrandContentToggle/tiktokBrandOrganicToggle/tiktokCoverTimestampMs (saved TikTok choices), and youtubePrivacy/youtubeTags/youtubeCategoryId/youtubeMadeForKids (YouTube publish " +
-          "options) and aiDisclosure/aiDisclosureNote (declared AI-involvement level + optional in-content note; " +
+          "options), youtubeChapters ([{start: \"00:00\" or seconds, title}]; at least 3, first at 00:00, 10 s apart — appended to the " +
+          "description at publish), youtubeLicense/youtubeEmbeddable/youtubePublicStatsViewable/youtubeNotifySubscribers/" +
+          "youtubeDefaultLanguage/youtubeRecordingDate/youtubeLocalizations ({\"en\": {title, description}}, needs " +
+          "youtubeDefaultLanguage) (YouTube film fields; age restriction can only be set in YouTube Studio) and aiDisclosure/aiDisclosureNote (declared AI-involvement level + optional in-content note; " +
           "the resulting per-platform disclosure evidence is server-written, not accepted here).",
         responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } },
       },

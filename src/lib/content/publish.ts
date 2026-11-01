@@ -8,6 +8,7 @@ import { enqueueIngest } from "@/lib/media/async-ingest";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getProviderForPlatform } from "@/lib/providers";
 import { disclosureFlag } from "@/lib/ai-disclosure/mapping";
+import { appendChapters, type YouTubeChapter } from "@/lib/providers/youtube-chapters";
 import { resolveDisclosure, type ResolvedDisclosure } from "@/lib/ai-disclosure/resolve";
 
 /** description + hashtags → a single caption (blank-line separated). */
@@ -99,6 +100,13 @@ export function postPublishOptions(post: {
   youtube_tags: unknown;
   youtube_category_id: string | null;
   youtube_made_for_kids: boolean | null;
+  youtube_license?: string | null;
+  youtube_embeddable?: boolean | null;
+  youtube_public_stats_viewable?: boolean | null;
+  youtube_notify_subscribers?: boolean | null;
+  youtube_default_language?: string | null;
+  youtube_recording_date?: Date | null;
+  youtube_localizations?: unknown;
 }): Record<string, unknown> {
   return {
     ...(post.tiktok_publish_mode != null ? { publishMode: post.tiktok_publish_mode } : {}),
@@ -113,6 +121,13 @@ export function postPublishOptions(post: {
     ...(Array.isArray(post.youtube_tags) ? { tags: post.youtube_tags } : {}),
     ...(post.youtube_category_id ? { categoryId: post.youtube_category_id } : {}),
     ...(post.youtube_made_for_kids != null ? { madeForKids: post.youtube_made_for_kids } : {}),
+    ...(post.youtube_license ? { license: post.youtube_license } : {}),
+    ...(post.youtube_embeddable != null ? { embeddable: post.youtube_embeddable } : {}),
+    ...(post.youtube_public_stats_viewable != null ? { publicStatsViewable: post.youtube_public_stats_viewable } : {}),
+    ...(post.youtube_notify_subscribers != null ? { notifySubscribers: post.youtube_notify_subscribers } : {}),
+    ...(post.youtube_default_language ? { defaultLanguage: post.youtube_default_language } : {}),
+    ...(post.youtube_recording_date ? { recordingDate: post.youtube_recording_date.toISOString() } : {}),
+    ...(post.youtube_localizations && typeof post.youtube_localizations === "object" ? { localizations: post.youtube_localizations } : {}),
   };
 }
 
@@ -243,7 +258,10 @@ export async function preparePublishRequest(
   // AIDISC1: the in-content disclosure line (if any) goes into the caption BEFORE the request is built,
   // so it reaches every platform — including the three with no native disclosure field at all, where it
   // is the only disclosure the audience ever sees.
-  const caption = prependDisclosureNote(buildCaption(post.description, post.hashtags), disclosure.note);
+  // YTMETA1: YouTube builds chapters from timestamps in the description, so they are rendered here, before
+  // the capability check measures the caption.
+  const chapters = post.platform === "youtube" && Array.isArray(post.youtube_chapters) ? (post.youtube_chapters as YouTubeChapter[]) : null;
+  const caption = appendChapters(prependDisclosureNote(buildCaption(post.description, post.hashtags), disclosure.note) ?? "", chapters) || undefined;
   // Title for publish targets that require one (YouTube / LinkedIn article): the post's own title
   // wins, else the linked content's (APIFIX4). Blank normalizes to absent.
   const title = [post.title, content?.title].map((t) => t?.trim()).find((t) => !!t);

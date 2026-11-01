@@ -85,6 +85,16 @@ describe("postPublishOptions", () => {
     expect(postPublishOptions({ ...blank, youtube_made_for_kids: true })).toEqual({ madeForKids: true });
   });
 
+  it("carries the YTMETA1 columns through under their provider option names", () => {
+    expect(postPublishOptions({ ...blank, youtube_license: "creativeCommon" })).toEqual({ license: "creativeCommon" });
+    expect(postPublishOptions({ ...blank, youtube_embeddable: false })).toEqual({ embeddable: false });
+    expect(postPublishOptions({ ...blank, youtube_public_stats_viewable: false })).toEqual({ publicStatsViewable: false });
+    expect(postPublishOptions({ ...blank, youtube_notify_subscribers: false })).toEqual({ notifySubscribers: false });
+    expect(postPublishOptions({ ...blank, youtube_default_language: "pl" })).toEqual({ defaultLanguage: "pl" });
+    expect(postPublishOptions({ ...blank, youtube_recording_date: new Date("2026-10-01T10:00:00Z") })).toEqual({ recordingDate: "2026-10-01T10:00:00.000Z" });
+    expect(postPublishOptions({ ...blank, youtube_localizations: { en: { title: "T" } } })).toEqual({ localizations: { en: { title: "T" } } });
+  });
+
   it("ignores a non-array youtube_tags value (defensive against a corrupt jsonb column)", () => {
     expect(postPublishOptions({ ...blank, youtube_tags: "not-an-array" })).toEqual({});
   });

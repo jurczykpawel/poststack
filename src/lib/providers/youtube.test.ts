@@ -132,6 +132,60 @@ describe("youtube provider", () => {
     expect(calls.some((c) => c.url === "https://upload.googleapis.com/sess1" && c.method === "PUT")).toBe(true);
   });
 
+  // YTMETA1. Receiver contract = YouTube's videos.insert: `part` must name every resource part that
+  // is sent, localizations need snippet.defaultLanguage, notifySubscribers is a query parameter.
+  async function initOf(options: Record<string, unknown>) {
+    type Sent = { snippet: Record<string, unknown>; status: Record<string, unknown>; recordingDetails?: unknown; localizations?: unknown };
+    let init: { url: string; body: Sent } | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, req?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://cdn/x.mp4") return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+      if (url.includes("/upload/youtube/v3/videos")) {
+        init = { url, body: JSON.parse(String(req?.body)) };
+        return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess1" } });
+      }
+      if (url === "https://upload.googleapis.com/sess1") return new Response(JSON.stringify({ id: "vid_1" }), { status: 200 });
+      return new Response("{}", { status: 200 });
+    }));
+    const run = youtubeProvider.publish({ tokens, accountId: "UC", request: { format: "video", media: [{ mediaId: "m" }], title: "T", options }, mediaUrls: ["https://cdn/x.mp4"] });
+    return { run, init: () => init! };
+  }
+
+  it("sends license, embeddable, stats visibility, language, recording date and localizations in the parts YouTube expects [YTMETA1]", async () => {
+    const { run, init } = await initOf({
+      license: "creativeCommon", embeddable: false, publicStatsViewable: false, defaultLanguage: "pl",
+      recordingDate: "2026-10-01T10:00:00.000Z", localizations: { en: { title: "Hello", description: "World" } },
+    });
+    await run;
+    const { url, body } = init();
+    const parts = new URL(url).searchParams.get("part")!.split(",").sort();
+    expect(parts).toEqual(["localizations", "recordingDetails", "snippet", "status"]);
+    expect(body.status).toMatchObject({ license: "creativeCommon", embeddable: false, publicStatsViewable: false });
+    expect(body.snippet.defaultLanguage).toBe("pl");
+    expect(body.recordingDetails).toEqual({ recordingDate: "2026-10-01T10:00:00.000Z" });
+    expect(body.localizations).toEqual({ en: { title: "Hello", description: "World" } });
+    expect(new URL(url).searchParams.has("notifySubscribers")).toBe(false);
+  });
+
+  it("keeps the part list and body unchanged when no YTMETA1 option is set", async () => {
+    const { run, init } = await initOf({});
+    await run;
+    expect(new URL(init().url).searchParams.get("part")).toBe("snippet,status");
+    expect(Object.keys(init().body).sort()).toEqual(["snippet", "status"]);
+  });
+
+  it("passes notifySubscribers=false as a query parameter, not in the body [YTMETA1]", async () => {
+    const { run, init } = await initOf({ notifySubscribers: false });
+    await run;
+    expect(new URL(init().url).searchParams.get("notifySubscribers")).toBe("false");
+    expect(JSON.stringify(init().body)).not.toContain("notifySubscribers");
+  });
+
+  it("refuses localizations without a default language before calling YouTube [YTMETA1]", async () => {
+    const { run } = await initOf({ localizations: { en: { title: "Hello" } } });
+    await expect(run).rejects.toThrow(/defaultLanguage/);
+  });
+
   it("refuses to upload to a resumable Location on a non-Google host [PSA50]", async () => {
     const calls: string[] = [];
     vi.stubGlobal(

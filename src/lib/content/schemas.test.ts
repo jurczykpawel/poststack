@@ -48,6 +48,29 @@ describe("content schemas", () => {
     expect("title" in postPatch.parse({ platform: "youtube" })).toBe(false);
   });
 
+  it("validates YouTube chapters and film metadata [YTMETA1]", () => {
+    const base = { platform: "youtube" };
+    const chapters = [{ start: "00:00", title: "A" }, { start: "00:30", title: "B" }, { start: 90, title: "C" }];
+    expect(postCreate.parse({ ...base, youtubeChapters: chapters }).youtubeChapters).toEqual([
+      { start: 0, title: "A" }, { start: 30, title: "B" }, { start: 90, title: "C" },
+    ]);
+    expect(postCreate.safeParse({ ...base, youtubeChapters: chapters.slice(0, 2) }).success).toBe(false);
+    expect(postPatch.parse({ youtubeChapters: null }).youtubeChapters).toBeNull();
+
+    expect(postCreate.safeParse({ ...base, youtubeLicense: "creativeCommon", youtubeEmbeddable: false, youtubePublicStatsViewable: true, youtubeNotifySubscribers: false }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeLicense: "cc-by" }).success).toBe(false);
+    expect(postCreate.safeParse({ ...base, youtubeDefaultLanguage: "pl" }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeDefaultLanguage: "pl-PL" }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeDefaultLanguage: "polish!" }).success).toBe(false);
+    expect(postCreate.safeParse({ ...base, youtubeRecordingDate: "2026-10-01T10:00:00Z" }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeRecordingDate: "yesterday" }).success).toBe(false);
+
+    expect(postCreate.safeParse({ ...base, youtubeLocalizations: { en: { title: "T", description: "D" } } }).success).toBe(true);
+    expect(postCreate.safeParse({ ...base, youtubeLocalizations: { "not a lang": { title: "T" } } }).success).toBe(false);
+    expect(postCreate.safeParse({ ...base, youtubeLocalizations: { en: { title: "x".repeat(101) } } }).success).toBe(false);
+    expect(postCreate.safeParse({ ...base, youtubeLocalizations: { en: { description: "D" } } }).success).toBe(false); // title is required by YouTube
+  });
+
   it("validates YouTube publish options [YTOPTS1]", () => {
     const base = { platform: "youtube" };
     expect(postCreate.safeParse({ ...base, youtubePrivacy: "unlisted" }).success).toBe(true);

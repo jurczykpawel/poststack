@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LIMITS } from "@/lib/api/limits";
+import { youtubeChaptersSchema } from "@/lib/providers/youtube-chapters";
 
 const iso = z.string().refine((s) => !Number.isNaN(Date.parse(s)), "invalid ISO datetime");
 const urls = z.array(z.string().max(LIMITS.url)).max(LIMITS.arrayLen).optional();
@@ -8,6 +9,12 @@ const urls = z.array(z.string().max(LIMITS.url)).max(LIMITS.arrayLen).optional()
 // are normalized to null at the service layer (mapFields) so a URL column is never stored as "",
 // which would otherwise poison the publish media resolver.
 const optionalUrl = z.string().max(LIMITS.url).nullish();
+
+// YTMETA1: BCP-47-ish language tag as YouTube accepts it ("pl", "en-US", "zh-Hans").
+const languageTag = z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/, "invalid language tag");
+const youtubeLocalizations = z
+  .record(languageTag, z.object({ title: z.string().trim().min(1).max(100), description: z.string().max(5000).optional() }))
+  .refine((l) => Object.keys(l).length <= 50, "at most 50 localizations");
 
 // Open-set string fields stay free text (doctrine §1) — validated structurally, not as closed enums,
 // so values imported from NocoDB are never rejected. Inbound JSON is camelCase.
@@ -102,6 +109,15 @@ export const postCreate = z.object({
     .refine((tags) => !tags || tags.join("").length <= 500, "youtubeTags: combined tag length must not exceed 500 characters"),
   youtubeCategoryId: z.string().regex(/^\d+$/, "youtubeCategoryId must be digits only").max(10).nullish(),
   youtubeMadeForKids: z.boolean().nullish(),
+  // YTMETA1: chapters (rendered into the description at publish) and the remaining videos.insert fields.
+  youtubeChapters: youtubeChaptersSchema.nullish(),
+  youtubeLicense: z.enum(["youtube", "creativeCommon"]).nullish(),
+  youtubeEmbeddable: z.boolean().nullish(),
+  youtubePublicStatsViewable: z.boolean().nullish(),
+  youtubeNotifySubscribers: z.boolean().nullish(),
+  youtubeDefaultLanguage: languageTag.nullish(),
+  youtubeRecordingDate: iso.nullish(),
+  youtubeLocalizations: youtubeLocalizations.nullish(),
   // AIDISC1: the declared AI level (EU AI Act Art. 50) + an optional in-content note override. The
   // engine-written audit trail (`ai_disclosure_sent`) is deliberately NOT here — see PSA8 note above.
   // Nullish, not just optional: null clears it back to "nothing set on this post", which is what a
@@ -115,6 +131,12 @@ export const tiktokPostSettings = postCreate.pick({
   tiktokBrandContentToggle: true, tiktokBrandOrganicToggle: true, tiktokCoverTimestampMs: true,
 });
 export type TikTokPostSettings = z.infer<typeof tiktokPostSettings>;
+export const youtubePostSettings = postCreate.pick({
+  youtubePrivacy: true, youtubeTags: true, youtubeCategoryId: true, youtubeMadeForKids: true, aiDisclosure: true,
+  youtubeChapters: true, youtubeLicense: true, youtubeEmbeddable: true, youtubePublicStatsViewable: true,
+  youtubeNotifySubscribers: true, youtubeDefaultLanguage: true, youtubeRecordingDate: true, youtubeLocalizations: true,
+});
+export type YouTubePostSettings = z.infer<typeof youtubePostSettings>;
 export const postPatch = postCreate.partial();
 
 export type ContentCreate = z.infer<typeof contentCreate>;

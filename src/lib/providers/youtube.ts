@@ -114,12 +114,18 @@ export const youtubeProvider: Provider = {
     const opts = request.options ?? {};
     const privacyStatus =
       typeof opts.privacyStatus === "string" ? opts.privacyStatus : "private"; // safe default
+    const localizations = opts.localizations && typeof opts.localizations === "object" ? opts.localizations : undefined;
+    const defaultLanguage = typeof opts.defaultLanguage === "string" ? opts.defaultLanguage : undefined;
+    // YouTube rejects localizations when the video has no default language to translate from.
+    if (localizations && !defaultLanguage) throw new PermanentError("youtube: localizations require defaultLanguage");
+    const recordingDate = typeof opts.recordingDate === "string" ? opts.recordingDate : undefined;
     const metadata = {
       snippet: {
         title: request.title ?? "Untitled",
         description: request.caption ?? "",
         ...(Array.isArray(opts.tags) ? { tags: opts.tags } : {}),
         ...(typeof opts.categoryId === "string" ? { categoryId: opts.categoryId } : {}),
+        ...(defaultLanguage ? { defaultLanguage } : {}),
       },
       status: {
         privacyStatus,
@@ -129,13 +135,21 @@ export const youtubeProvider: Provider = {
         // so "ai_assisted" resolves to false there). Omitted entirely when undefined rather than
         // sent as false, so an untouched video keeps whatever YouTube defaults to.
         ...(typeof opts.aiDisclosed === "boolean" ? { containsSyntheticMedia: opts.aiDisclosed } : {}),
+        ...(typeof opts.license === "string" ? { license: opts.license } : {}),
+        ...(typeof opts.embeddable === "boolean" ? { embeddable: opts.embeddable } : {}),
+        ...(typeof opts.publicStatsViewable === "boolean" ? { publicStatsViewable: opts.publicStatsViewable } : {}),
       },
+      ...(recordingDate ? { recordingDetails: { recordingDate } } : {}),
+      ...(localizations ? { localizations } : {}),
     };
+    // `part` must name every top-level resource part that is sent. notifySubscribers is a query parameter.
+    const parts = ["snippet", "status", ...(recordingDate ? ["recordingDetails"] : []), ...(localizations ? ["localizations"] : [])];
+    const notify = opts.notifySubscribers === false ? "&notifySubscribers=false" : "";
 
     let location = uploadSession;
     if (!location) {
       const init = await fetch(
-        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+        `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=${parts.join(",")}${notify}`,
         {
           method: "POST",
           headers: {

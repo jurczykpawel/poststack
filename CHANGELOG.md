@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- YouTube chapters: `youtubeChapters` (API and Compose) are checked against YouTube's rules (at least 3, first at 00:00, 10 seconds apart) and appended to the description at publish.
+- YouTube film fields in the API and in a new Compose YouTube section: `youtubeLicense`, `youtubeEmbeddable`, `youtubePublicStatsViewable`, `youtubeNotifySubscribers`, `youtubeDefaultLanguage`, `youtubeRecordingDate` and `youtubeLocalizations`, alongside the existing visibility, category, tags, made-for-kids and AI choices. Made-for-kids has no default in Compose. Age restriction, playlists and subtitles are not available through the API and stay in YouTube Studio.
+
 ## [0.15.0] - 2026-11-01
 
 ### Changed
