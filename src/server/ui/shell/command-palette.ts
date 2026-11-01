@@ -1,5 +1,5 @@
 import { html, raw } from "hono/html";
-import { NAV_SECTIONS, SETTINGS_ITEM, navItemVisible } from "./nav";
+import { NAV_SECTIONS, NEW_POST_ITEM, SETTINGS_ITEM, navItemVisible } from "./nav";
 import { icon } from "../components/icons";
 import type { Area } from "@/lib/license/areas";
 import { AREAS } from "@/lib/license/areas";
@@ -18,9 +18,10 @@ function paletteItems(products: Set<Area>): PaletteItem[] {
   const navItems: PaletteItem[] = NAV_SECTIONS.flatMap((sec) =>
     sec.items
       .filter((it) => !it.soon && it.href !== "#" && navItemVisible(it, products))
-      .map((it) => ({ label: it.label, href: it.href, hint: `Go · ${sec.section}` })),
+      .map((it) => ({ label: it.label, href: it.href, hint: sec.section ? `Go · ${sec.section}` : "Go" })),
   );
   return [
+    ...(navItemVisible(NEW_POST_ITEM, products) ? [{ label: NEW_POST_ITEM.label, href: NEW_POST_ITEM.href, hint: "Action" }] : []),
     { label: "Connect channel", href: "/channels", hint: "Action" },
     { label: SETTINGS_ITEM.label, href: SETTINGS_ITEM.href, hint: "Go" },
     ...navItems,

@@ -13,6 +13,7 @@ import {
 } from "@/db/schema";
 import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
 import { createTtlCache } from "@/lib/cache/ttl-cache";
+import { registerNavCounts } from "../ui/shell/nav-counts";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -1255,6 +1256,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // Outbound webhook endpoints — register BEFORE the `/webhooks/:id` inbound-event route so its static
   // `/webhooks/outbound*` paths aren't captured by the `:id` param (mirrors endpoint-activity / subscriptions).
   registerWebhooksOutbound(app, guard);
+  registerNavCounts(app, guard);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);

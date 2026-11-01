@@ -21,45 +21,50 @@ export interface NavItem {
 }
 export interface NavSection { section: string; items: NavItem[]; }
 
+// Grouped by the job being done (UXFLOW1 stage 1). The first section has no heading (Overview stands alone);
+// "New post" is a button above the groups, not a list item. Counter badges are keyed by item key
+// (see nav-counts.ts): inbox, approvals, channels.
 export const NAV_SECTIONS: NavSection[] = [
-  { section: "Overview", items: [
+  { section: "", items: [
     { key: "overview", label: "Overview", href: "/overview", icon: "dashboard", area: "core" },
-    { key: "channels", label: "Channels", href: "/channels", icon: "channels", area: "core" },
-    // Brands is open-core: free gets ONE brand (LIMITS.free.brands=1, enforced at create via
-    // createWithinLimit); `multi_brand` gates the SECOND+ brand, NOT the page. So the nav item is
-    // ungated — otherwise a free user can pick a brand on /channels but can't open /brands to manage
-    // their one brand (the page route is only session-guarded; the page renders for everyone).
-    { key: "brands", label: "Brands", href: "/brands", icon: "brands", area: "core" },
-    // Managed connections (sources) live in Settings → Sources now, not a top-level nav item.
-  ]},
-  { section: "Replies", items: [
-    // Inbox READING is free (basic incoming-message info; rules auto-reply for free). The human-reply
-    // box is PRO (manual_reply, gated in the thread + send endpoint), so the nav item itself is ungated.
-    { key: "inbox", label: "Inbox", href: "/inbox", icon: "mail", area: "replies" },
-    { key: "approvals", label: "Approvals", href: "/approvals", icon: "checks", area: "replies" },
-    { key: "rules", label: "Rules", href: "/rules", icon: "command", area: "replies" },
-    { key: "contacts", label: "Contacts", href: "/contacts", icon: "comment", area: "replies", feature: "contacts_crm" },
-    { key: "engagement", label: "Engagement", href: "/engagement", icon: "sparkles", area: "replies", feature: "contacts_crm" },
-    { key: "sequences", label: "Sequences", href: "/sequences", icon: "clock", area: "replies", feature: "sequences" },
   ]},
   { section: "Publishing", items: [
-    { key: "compose", label: "Compose", href: "/compose", icon: "plus", area: "publishing" },
-    { key: "content", label: "Content", href: "/content", icon: "compose", area: "publishing" },
     { key: "queue", label: "Queue", href: "/queue", icon: "queue", area: "publishing" },
+    { key: "content", label: "Content", href: "/content", icon: "compose", area: "publishing" },
   ]},
-  { section: "Delivery", items: [
+  { section: "Conversations", items: [
+    // Inbox READING is free (the human-reply box is PRO, gated in the thread + send endpoint): ungated.
+    { key: "inbox", label: "Inbox", href: "/inbox", icon: "mail", area: "replies" },
+    { key: "approvals", label: "Approvals", href: "/approvals", icon: "checks", area: "replies" },
+    { key: "contacts", label: "Contacts", href: "/contacts", icon: "comment", area: "replies", feature: "contacts_crm" },
+    { key: "engagement", label: "Engagement", href: "/engagement", icon: "sparkles", area: "replies", feature: "contacts_crm" },
+  ]},
+  { section: "Automation", items: [
+    { key: "rules", label: "Rules", href: "/rules", icon: "command", area: "replies" },
+    { key: "sequences", label: "Sequences", href: "/sequences", icon: "clock", area: "replies", feature: "sequences" },
+  ]},
+  { section: "Setup", items: [
+    { key: "channels", label: "Channels", href: "/channels", icon: "channels", area: "core" },
+    // Brands is open-core: free gets ONE brand (LIMITS.free.brands=1); `multi_brand` gates the SECOND+
+    // brand, NOT the page — so the nav item is ungated.
+    { key: "brands", label: "Brands", href: "/brands", icon: "brands", area: "core" },
     { key: "webhooks", label: "Webhooks", href: "/webhooks", icon: "webhooks", area: "core" },
-    // API keys live in Settings → API keys now, not a top-level nav item.
     { key: "events", label: "Events", href: "/events", icon: "events", area: "core" },
   ]},
 ];
+
+/** The primary "New post" action (sidebar button, phone bar, palette). Publishing wing only. */
+export const NEW_POST_ITEM: NavItem = { key: "compose", label: "New post", href: "/compose", icon: "plus", area: "publishing" };
+
+/** Keys that show a live counter badge (values from nav-counts.ts). */
+export const COUNT_KEYS = ["inbox", "approvals", "channels"] as const;
 
 /** The settings foot link (always shown, never gated). */
 export const SETTINGS_ITEM: NavItem = { key: "settings", label: "Settings", href: "/settings", icon: "settings", area: "core" };
 
 /** All nav items flattened (sections + settings foot). */
 export function allNavItems(): NavItem[] {
-  return [...NAV_SECTIONS.flatMap((s) => s.items), SETTINGS_ITEM];
+  return [...NAV_SECTIONS.flatMap((s) => s.items), NEW_POST_ITEM, SETTINGS_ITEM];
 }
 
 /** Whether nav `key` is active for the given request path. */

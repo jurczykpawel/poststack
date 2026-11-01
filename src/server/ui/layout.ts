@@ -7,7 +7,8 @@ import type { Feature } from "@/lib/license/features";
 import type { Area } from "@/lib/license/areas";
 import { AREAS } from "@/lib/license/areas";
 import { resolveTheme, themeBootScript } from "./shell/theme";
-import { NAV_SECTIONS, SETTINGS_ITEM, isActive, navItemVisible, allNavItems } from "./shell/nav";
+import { NAV_SECTIONS, NEW_POST_ITEM, SETTINGS_ITEM, COUNT_KEYS, isActive, navItemVisible, allNavItems } from "./shell/nav";
+import { navBadge, navCountsLoader } from "./shell/nav-counts";
 import { iconSprite, icon } from "./components/icons";
 import { toastRegion, confirmDialog, uiBehaviorScript } from "./components/toast";
 import { commandPalette, paletteTrigger, paletteScript } from "./shell/command-palette";
@@ -47,7 +48,7 @@ function sidebar(activeKey: string, features: Set<Feature>, products: Set<Area>)
   const sections = NAV_SECTIONS.map((sec) => {
     const visible = sec.items.filter((it) => navItemVisible(it, products));
     if (visible.length === 0) return html``;
-    return html`<div class="nav-sec">${sec.section}</div>
+    return html`${sec.section ? html`<div class="nav-sec">${sec.section}</div>` : ""}
       ${visible.map((it) => {
         const locked = it.feature && !features.has(it.feature);
         if (locked) {
@@ -56,7 +57,7 @@ function sidebar(activeKey: string, features: Set<Feature>, products: Set<Area>)
         const active = it.key === activeKey;
         const cls = active ? "nav-item is-active" : "nav-item";
         const aria = active ? raw(' aria-current="page"') : raw("");
-        return html`<a class="${cls}" href="${it.href}"${aria}>${icon(it.icon, "ico", 16)}<span>${it.label}</span></a>`;
+        return html`<a class="${cls}" href="${it.href}"${aria}>${icon(it.icon, "ico", 16)}<span>${it.label}</span>${(COUNT_KEYS as readonly string[]).includes(it.key) ? navBadge(it.key) : ""}</a>`;
       })}`;
   });
   const footActive = activeKey === "settings";
@@ -64,24 +65,28 @@ function sidebar(activeKey: string, features: Set<Feature>, products: Set<Area>)
   const footAria = footActive ? raw(' aria-current="page"') : raw("");
   return html`<aside class="sidebar">
     <div class="brand">${brandLogo()}${BRAND.name}</div>
+    ${navItemVisible(NEW_POST_ITEM, products) ? html`<a class="side-new" href="${NEW_POST_ITEM.href}">${icon("plus", "ico", 16)}<span>${NEW_POST_ITEM.label}</span></a>` : ""}
     <nav aria-label="Primary">${sections}</nav>
     <a class="${footCls}" href="${SETTINGS_ITEM.href}"${footAria}>${icon("settings", "ico", 16)}<span>Settings</span></a>
   </aside>`;
 }
 
-function mobileNav(activeKey: string, products: Set<Area>): Html {
-  // Prefer a stable, area-aware set of bottom-nav targets, capped to keep the bar legible.
-  const preferred = ["overview", "inbox", "content", "channels", "queue"];
-  const items = preferred
+function mobileNav(activeKey: string, features: Set<Feature>, products: Set<Area>): Html {
+  // Fixed phone bar: Overview, Queue, New post, Inbox, then "More" (a sheet with every visible item).
+  const bar = ["overview", "queue", "compose", "inbox"]
     .map((k) => allNavItems().find((i) => i.key === k))
-    .filter((i): i is NonNullable<typeof i> => !!i && navItemVisible(i, products))
-    .slice(0, 4);
-  return html`<nav class="mobile-nav" aria-label="Primary mobile">
-    ${items.map((it) => {
+    .filter((i): i is NonNullable<typeof i> => !!i && navItemVisible(i, products));
+  const more = NAV_SECTIONS.flatMap((sec) => sec.items.filter((it) => navItemVisible(it, products) && !(it.feature && !features.has(it.feature))));
+  return html`<nav class="mobile-nav" aria-label="Primary mobile" x-data="{ more: false }" @keydown.escape.window="more = false">
+    ${bar.map((it) => {
       const active = it.key === activeKey;
-      return html`<a href="${it.href}" class="${active ? "is-active" : ""}"${active ? raw(' aria-current="page"') : raw("")}>${icon(it.icon, "ico", 20)}<span>${it.label}</span></a>`;
+      const cls = (active ? "is-active " : "") + (it.key === "compose" ? "mnav-new" : "");
+      return html`<a href="${it.href}" class="${cls}"${active ? raw(' aria-current="page"') : raw("")}>${icon(it.icon, "ico", 20)}<span>${it.label}</span>${(COUNT_KEYS as readonly string[]).includes(it.key) ? navBadge(it.key, true) : ""}</a>`;
     })}
-    <a href="${SETTINGS_ITEM.href}">${icon("more", "ico", 20)}<span>More</span></a>
+    <button type="button" :aria-expanded="more" aria-controls="mnav-more" @click="more = !more">${icon("more", "ico", 20)}<span>More</span></button>
+    <div id="mnav-more" class="mnav-more" x-show="more" x-cloak @click.outside="more = false">
+      ${more.concat(SETTINGS_ITEM).map((it) => html`<a href="${it.href}">${icon(it.icon, "ico", 18)}<span>${it.label}</span>${(COUNT_KEYS as readonly string[]).includes(it.key) && !bar.some((b) => b.key === it.key) ? navBadge(it.key, true) : ""}</a>`)}
+    </div>
   </nav>`;
 }
 
@@ -130,7 +135,8 @@ export function renderPage(o: PageOpts): Html {
       </div>
     </div>
     ${brandingFooter()}
-    ${mobileNav(activeKey, products)}
+    ${mobileNav(activeKey, features, products)}
+    ${navCountsLoader}
     ${commandPalette(products)}
     ${toastRegion()}
     ${confirmDialog()}

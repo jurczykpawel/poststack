@@ -54,6 +54,15 @@
   .nav-item.nav-locked { opacity: 0.55; }
   .nav-item.nav-locked:hover { opacity: 0.8; }
 
+  .side-new { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; margin: 0 0 6px;
+    background: var(--accent); color: var(--accent-contrast); font-weight: 600; font-size: 12.5px; border-radius: var(--radius-control); }
+  .side-new:hover { filter: brightness(1.08); }
+  .side-new .ico { color: inherit; }
+  .nav-item .n, .mobile-nav .n, .mnav-more .n { margin-left: auto; font: 500 11px var(--font-mono); line-height: 18px; padding: 0 6px;
+    border-radius: 999px; background: var(--surface-2, var(--nav-hover)); color: var(--text-1); }
+  .nav-item .n.bad, .mobile-nav .n.bad, .mnav-more .n.bad { background: var(--bad); color: var(--accent-contrast); }
+  .n:empty { display: none; }
+
   .sidebar-foot { margin-top: auto; display: flex; align-items: center; gap: 9px;
     padding: 11px 9px 2px; margin-top: 14px; border-top: 1px solid var(--border);
     font-size: 12px; color: var(--text-2); }
@@ -720,6 +729,15 @@
       font-size: 9.5px; color: var(--text-3); border-radius: var(--radius-control); }
     .mobile-nav a .ico { width: 20px; height: 20px; }
     .mobile-nav a.is-active { color: var(--accent); }
+    .mobile-nav a, .mobile-nav button { position: relative; }
+    .mobile-nav button { flex: 1; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; font: inherit; font-size: 9.5px; color: var(--text-3); background: none; border: 0; border-radius: var(--radius-control); }
+    .mobile-nav > a > .n { position: absolute; top: 0; left: calc(50% + 4px); margin: 0; font-size: 10px; line-height: 15px; padding: 0 4px; }
+    .mobile-nav a.mnav-new .ico { color: var(--accent-contrast); background: var(--accent); border-radius: 50%; padding: 3px; width: 26px; height: 26px; }
+    .mnav-more { position: absolute; right: 8px; bottom: calc(100% + 8px); width: min(260px, calc(100vw - 16px)); max-height: 70dvh; overflow-y: auto;
+      display: flex; flex-direction: column; padding: 6px; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+    .mnav-more a { flex: none; flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 40px; padding: 0 10px; font-size: 13px; color: var(--text-2); }
+    .mnav-more .n { position: static; }
     .mobile-nav a.is-active .ico { color: var(--accent); }
   }
 
