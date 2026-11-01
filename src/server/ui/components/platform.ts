@@ -19,6 +19,9 @@ const PLATFORMS: Record<string, PlatformView> = {
   linkedin: { label: "LinkedIn", color: "#0A66C2", path: "M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93zM6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37z" },
 };
 
+/** Names for raw channel platforms, including those without a brand glyph above. */
+export const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube", tiktok: "TikTok", gmail: "Gmail" };
+
 /** Meta channels carry { subKind } — split them into Instagram / Facebook so each is identifiable. */
 export function platformKey(platform: string, metadata?: unknown): string {
   if (platform === "meta") {
