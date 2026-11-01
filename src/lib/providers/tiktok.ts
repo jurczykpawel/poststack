@@ -136,7 +136,7 @@ export const tiktokProvider: Provider = {
     if (!parsed.success || parsed.data.error.code !== "ok" || !parsed.data.data) throw new TransientError("TikTok status unavailable. Try again later.");
     const data = parsed.data.data;
     if (data.status === "FAILED") return { state: "failed", error: data.fail_reason || "TikTok processing failed" };
-    if (data.status === "PUBLISH_COMPLETE") return { state: "published" };
+    if (data.status === "PUBLISH_COMPLETE" || data.status === "SEND_TO_USER_INBOX") return { state: "published" };
     return { state: "accepted" };
   },
 

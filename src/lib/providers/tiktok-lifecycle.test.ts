@@ -9,8 +9,8 @@ it("requires confirmation when a selected interaction is no longer available", a
   await expect(tiktokProvider.publish({ tokens: { accessToken: "test" }, accountId: "creator", request: { format: "video", media: [], options: { publishMode: "direct", privacyLevel: "SELF_ONLY", disableComment: false } }, mediaUrls: ["https://example.test/video.mp4"], mediaDurationsSec: [30] })).rejects.toMatchObject({ name: "ConfirmationRequiredError" });
   expect(http).toHaveBeenCalledTimes(1);
 });
-it.each([ ["PROCESSING_UPLOAD", "accepted"], ["PROCESSING_DOWNLOAD", "accepted"], ["SEND_TO_USER_INBOX", "accepted"], ["PUBLISH_COMPLETE", "published"], ["FAILED", "failed"] ])("maps TikTok %s to %s", async (status, state) => {
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: { status, fail_reason: "duration_check_failed" }, error: { code: "ok" } })));
+it.each([ ["PROCESSING_UPLOAD", "accepted"], ["PROCESSING_DOWNLOAD", "accepted"], ["SEND_TO_USER_INBOX", "published"], ["PUBLISH_COMPLETE", "published"], ["FAILED", "failed"] ])("maps TikTok %s to %s", async (status, state) => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: { status, ...(status === "FAILED" ? { fail_reason: "duration_check_failed" } : {}) }, error: { code: "ok" } })));
   expect(tiktokProvider.publishStatus).toBeTypeOf("function");
   expect(await tiktokProvider.publishStatus!({ accessToken: "test" }, { providerHandle: "publish-1" })).toMatchObject({ state, ...(state === "failed" ? { error: "duration_check_failed" } : {}) });
 });

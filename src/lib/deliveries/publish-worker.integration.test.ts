@@ -163,6 +163,19 @@ it("publishes the payload saved before the worker claims the delivery", async ()
   }
 });
 
+async function linkEditorial(
+  deliveryId: string,
+  postStatus = "scheduled",
+  extra: Partial<typeof schema.posts.$inferInsert> = {},
+) {
+  const [content] = await db.insert(schema.content).values({ workspace_id: WS, title: "x" }).returning();
+  const [p] = await db
+    .insert(schema.posts)
+    .values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId, ...extra })
+    .returning();
+  return p!.id;
+}
+
 describe("publish worker (AUD27)", () => {
   it("publishes Direct Post with saved settings and registered duration", async () => {
     const { postId } = await scenario();
@@ -366,18 +379,6 @@ describe("publish worker (AUD27)", () => {
     expect(await status(postId)).toBe("unknown");
   });
 
-  async function linkEditorial(
-    deliveryId: string,
-    postStatus = "scheduled",
-    extra: Partial<typeof schema.posts.$inferInsert> = {},
-  ) {
-    const [content] = await db.insert(schema.content).values({ workspace_id: WS, title: "x" }).returning();
-    const [p] = await db
-      .insert(schema.posts)
-      .values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId, ...extra })
-      .returning();
-    return p!.id;
-  }
   const editorialStatus = async (deliveryId: string) =>
     (await db.query.posts.findFirst({ where: eq(schema.posts.delivery_id, deliveryId) }))!.status;
   const events = async (subjectId: string) =>
@@ -924,11 +925,29 @@ describe("TikTok delivery lifecycle", () => {
     http();
     await processPublish({ postId }, helpers);
     expect(await status(postId)).toBe("processing");
+    const processing = http(creator, "PROCESSING_DOWNLOAD");
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("processing");
+    expect(processing).toHaveBeenCalledTimes(1);
     const calls = http(creator, "PUBLISH_COMPLETE");
     await processPublish({ postId }, helpers);
     expect(await status(postId)).toBe("sent");
     expect(calls).toHaveBeenCalledTimes(1);
     expect(String(calls.mock.calls[0]![0])).toContain("status/fetch");
+  });
+  it("completes an inbox delivery when TikTok reports SEND_TO_USER_INBOX", async () => {
+    const { postId } = await scenario();
+    await linkEditorial(postId, "scheduled");
+    await db.update(schema.deliveries).set({ status: "processing", provider_handle: "inbox-publish-id" }).where(eq(schema.deliveries.id, postId));
+    const fetch = vi.fn(async () => Response.json({ data: { status: "SEND_TO_USER_INBOX" }, error: { code: "ok" } }));
+    vi.stubGlobal("fetch", fetch);
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("sent");
+    const post = await db.query.posts.findFirst({ where: eq(schema.posts.delivery_id, postId) });
+    expect(post).toMatchObject({ status: "published", platform_post_id: "inbox-publish-id" });
+    await processPublish({ postId }, helpers);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("https://open.tiktokapis.com/v2/post/publish/status/fetch/", expect.objectContaining({ body: JSON.stringify({ publish_id: "inbox-publish-id" }) }));
   });
   it("records a final processing failure with its reason", async () => {
     const { postId } = await direct();
