@@ -2,7 +2,7 @@ import type { Hono, MiddlewareHandler, Context } from "hono";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, like, exists, inArray, isNull, isNotNull, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, inArray, isNull, isNotNull, sql, count, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, postReactions, channels, contacts, contactChannels,
@@ -15,6 +15,7 @@ import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history
 import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { registerNavCounts } from "../ui/shell/nav-counts";
 import { registerEvents, EVENT_META } from "../ui/sections/events";
+import { registerContacts } from "../ui/sections/contacts";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -1243,6 +1244,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerWebhooksOutbound(app, guard);
   registerNavCounts(app, guard);
   registerEvents(app, guard);
+  registerContacts(app, guard, proLockMain);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
@@ -1709,62 +1711,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.body(null, 200);
   });
 
-  // Contacts — the customer CRM; seeing individual people is PRO.
-  app.get("/contacts", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const { features, upgradeUrl, products } = await getInstanceLicense();
-    if (!features.has("contacts_crm")) {
-      return c.html(
-        dashboardDoc(t("title.suffix", { section: "Contacts" }), "/contacts", proLockMain("Contacts", html`The contacts CRM is a PRO feature.`, upgradeUrl), features, products),
-      );
-    }
-    const q = c.req.query("q") ?? "";
-    const channelId = c.req.query("channel") || "all";
-    const platform = c.req.query("platform") || "all";
-    const brand = features.has("multi_brand") ? (c.req.query("brand") || "all") : "all";
-    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 50), 1000);
-    const chans = await loadInboxChannels(a.workspaceId);
-    const platforms = [...new Set(chans.map((ch) => ch.platform))];
-    // Brand filter — only when the license allows multiple brands and the workspace actually has some.
-    const brandList = features.has("multi_brand") ? await listBrands(a.workspaceId) : [];
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "Contacts" }),
-        "/contacts",
-        html`<div class="page" style="max-width:900px">
-          <h1>Contacts</h1>
-          <p class="muted">Everyone who has messaged your connected pages. Contacts are assigned to a channel automatically.</p>
-          <form method="get" action="/contacts" class="row" style="gap:.5rem;margin:1rem 0;flex-wrap:wrap;align-items:center">
-            <input class="input" style="max-width:340px" type="search" name="q" value="${q}" placeholder="Search by name, email, username..."
-              hx-get="/contacts/list" hx-trigger="keyup changed delay:300ms, search" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form" />
-            ${brandList.length > 0
-              ? html`<select class="input" name="brand" style="max-width:200px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
-                  <option value="all">All brands</option>
-                  ${brandList.map((b) => html`<option value="${b.key}" ${brand === b.key ? "selected" : ""}>${b.name}</option>`)}
-                </select>`
-              : html`<input type="hidden" name="brand" value="${brand}" />`}
-            ${chans.length > 1
-              ? html`<select class="input" name="channel" style="max-width:220px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
-                  <option value="all">All channels</option>
-                  ${chans.map((ch) => html`<option value="${ch.id}" ${channelId === ch.id ? "selected" : ""}>${PLATFORM_LABELS[ch.platform] ?? ch.platform} · ${ch.display_name ?? ch.username ?? ch.id}</option>`)}
-                </select>`
-              : html`<input type="hidden" name="channel" value="${channelId}" />`}
-            ${platforms.length > 1
-              ? html`<select class="input" name="platform" style="max-width:160px;font-size:.85rem" hx-get="/contacts/list" hx-trigger="change" hx-target="#contacts-list" hx-swap="innerHTML" hx-include="closest form">
-                  <option value="all">All platforms</option>
-                  ${platforms.map((p) => html`<option value="${p}" ${platform === p ? "selected" : ""}>${PLATFORM_LABELS[p] ?? p}</option>`)}
-                </select>`
-              : html`<input type="hidden" name="platform" value="${platform}" />`}
-          </form>
-          <div id="contacts-list">${renderContacts(await loadContacts(a.workspaceId, q, limit, channelId, platform, brand), q, limit, channelId, platform, brand)}</div>
-        </div>`,
-        features,
-        products,
-      ),
-    );
-  });
-
   // Engagement — post reactions/likes; the customer-engagement surface is PRO.
   app.get("/engagement", guard, async (c) => {
     const a = await auth(c);
@@ -1799,21 +1745,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         products,
       ),
     );
-  });
-
-  app.get("/contacts/list", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const { features } = await getInstanceLicense();
-    if (!features.has("contacts_crm")) return c.body(null, 402);
-    const q = c.req.query("q") ?? "";
-    const channelId = c.req.query("channel") || "all";
-    const platform = c.req.query("platform") || "all";
-    // The brand dimension is a multi_brand (PRO) capability; ignore it on instances without the feature.
-    const brand = features.has("multi_brand") ? (c.req.query("brand") || "all") : "all";
-    // "Load more" grows the page (capped) so a workspace with >50 contacts is browsable.
-    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 50), 1000);
-    return c.html(renderContacts(await loadContacts(a.workspaceId, q, limit, channelId, platform, brand), q, limit, channelId, platform, brand));
   });
 
   // Settings
@@ -2851,105 +2782,6 @@ async function workspacePatch(c: Context, days: number | null): Promise<boolean>
 }
 
 // ─── contacts/keys/rules/sequences renderers ──────────────────────────────────
-
-function loadContacts(workspaceId: string, q: string, limit = 50, channelId = "all", platform = "all", brand = "all") {
-  const safeQ = q ? q.replace(/[%_\\]/g, "\\$&") : "";
-  const conds: SQL[] = [eq(contacts.workspace_id, workspaceId)];
-  if (safeQ) {
-    const pat = `%${safeQ}%`;
-    conds.push(
-      or(
-        ilike(contacts.display_name, pat),
-        ilike(contacts.email, pat),
-        exists(
-          db
-            .select({ x: sql`1` })
-            .from(contactChannels)
-            .where(
-              and(
-                eq(contactChannels.contact_id, contacts.id),
-                or(ilike(contactChannels.platform_username, pat), like(contactChannels.platform_sender_id, pat)),
-              ),
-            ),
-        ),
-      )!,
-    );
-  }
-  // Filter by the channel / platform a contact is linked to (via contact_channels). Auto-assignment
-  // only — a contact is discovered per channel; this is display + filtering, not a manual move.
-  if (channelId !== "all") {
-    conds.push(
-      exists(db.select({ x: sql`1` }).from(contactChannels).where(and(eq(contactChannels.contact_id, contacts.id), eq(contactChannels.channel_id, channelId)))),
-    );
-  } else if (platform !== "all") {
-    conds.push(
-      exists(
-        db
-          .select({ x: sql`1` })
-          .from(contactChannels)
-          .innerJoin(channels, eq(channels.id, contactChannels.channel_id))
-          .where(and(eq(contactChannels.contact_id, contacts.id), eq(channels.platform, platform as (typeof channels.platform.enumValues)[number]))),
-      ),
-    );
-  }
-  // Filter by the brand owning a contact's channel(s). Independent of channel/platform filters.
-  if (brand !== "all") {
-    conds.push(
-      exists(
-        db
-          .select({ x: sql`1` })
-          .from(contactChannels)
-          .innerJoin(channels, eq(channels.id, contactChannels.channel_id))
-          .where(and(eq(contactChannels.contact_id, contacts.id), eq(channels.brand_key, brand))),
-      ),
-    );
-  }
-  return db.query.contacts.findMany({
-    where: and(...conds),
-    orderBy: desc(contacts.last_interaction_at),
-    limit,
-    columns: { id: true, display_name: true, email: true, is_subscribed: true, last_interaction_at: true },
-    with: {
-      contact_channels: {
-        columns: { platform_sender_id: true, platform_username: true },
-        limit: 3,
-        with: { channel: { columns: { platform: true, display_name: true } } },
-      },
-    },
-  });
-}
-
-function renderContacts(contacts: Awaited<ReturnType<typeof loadContacts>>, q = "", limit = 50, channelId = "all", platform = "all", brand = "all"): Html {
-  if (contacts.length === 0) {
-    const filtered = q || channelId !== "all" || platform !== "all" || brand !== "all";
-    return html`<div class="empty">
-      <span class="empty-ic">${icon("events", "ico", 20)}</span>
-      <p class="empty-title">${filtered ? "No matching contacts" : "No contacts yet"}</p>
-      <p class="empty-body">${filtered ? "No contacts match your filters — try clearing them." : "Connect a channel and start receiving messages — everyone who writes in shows up here."}</p>
-    </div>`;
-  }
-  // A full page likely has more — offer to load the next batch by re-rendering with a larger limit
-  // (the list was previously capped at 50 with no way to browse the rest). Carry the active filters.
-  const more = contacts.length >= limit
-    ? html`<div style="margin-top:12px"><button class="btn btn-sm" hx-get="/contacts/list?q=${encodeURIComponent(q)}&channel=${encodeURIComponent(channelId)}&platform=${encodeURIComponent(platform)}&brand=${encodeURIComponent(brand)}&limit=${limit + 50}" hx-target="#contacts-list" hx-swap="innerHTML">Load more</button></div>`
-    : html``;
-  return html`<div class="table-wrap"><table>
-    <thead><tr><th>Contact</th><th>Channels</th><th>Last seen</th><th class="th-act"></th></tr></thead>
-    <tbody>
-    ${contacts.map(
-      (ct) => html`<tr>
-        <td>
-          <span style="font-weight:600;color:var(--text-1)">${ct.display_name ?? ct.contact_channels[0]?.platform_username ?? ct.contact_channels[0]?.platform_sender_id ?? "Unknown"}</span>
-          ${ct.email ? html`<div><small>${ct.email}</small></div>` : html``}
-          ${!ct.is_subscribed ? html`<div style="margin-top:3px"><span class="badge tone-bad">Unsubscribed</span></div>` : html``}
-        </td>
-        <td><span class="pill-row">${ct.contact_channels.map((cc) => html`<span class="badge" title="${cc.channel.display_name ?? cc.channel.platform}">${PLATFORM_LABELS[cc.channel.platform] ?? cc.channel.platform}${cc.platform_username ? html` · @${cc.platform_username}` : ""}</span>`)}</span></td>
-        <td><span class="muted-mono">${timeAgo(ct.last_interaction_at)}</span></td>
-        <td class="th-act"><a class="btn btn-sm" href="/inbox?contact=${ct.id}">View →</a></td>
-      </tr>`,
-    )}
-    </tbody></table></div>${more}`;
-}
 
 function loadKeys(workspaceId: string) {
   return db.query.apiKeys.findMany({

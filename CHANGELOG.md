@@ -10,6 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Changed
+- Contacts page (UXFLOW1 stage 4): same list as Events — search, Subscribed/Unsubscribed counters, brand, channel, platform and tag filters, a total with Newer/Older pages over every contact (contacts never seen sort last and are reachable), and a details panel with email, phone, channels, tags and a link to the conversations. The old "Load more" (limit 1000) and the `/contacts/list` fragment are gone.
 - Events page (UXFLOW1 stage 2): filters, severity counters, search, Newer/Older pages over the whole log and a details panel beside the list (full screen on a phone); the address holds the view, so links, Back and reload keep it. Built on a shared list component for the other long lists.
 - UI menu (UXFLOW1 stage 1): the sidebar is grouped by job (Publishing, Conversations, Automation, Setup) with a "New post" button; the phone bar is Overview, Queue, New post, Inbox and a "More" sheet with every other page; the command palette lists "New post". Inbox (unread), Approvals (pending) and Channels (need re-auth) show live counters, loaded from `/nav/counts` with a short per-workspace cache.
 
