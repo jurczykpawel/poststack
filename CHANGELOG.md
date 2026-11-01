@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Reconnect links for TikTok, LinkedIn, X and Threads start OAuth again. Their tokens refresh before expiry; rejected credentials and missing refresh tokens now show a reason and trigger channel alerts.
+
 ## [0.15.0] - 2026-11-01
 
 ### Changed

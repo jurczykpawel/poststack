@@ -1,6 +1,6 @@
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
-import { PermanentError } from "./errors";
+import { PermanentError, TokenInvalidError } from "./errors";
 import { classifyHttp } from "./http";
 import { asString } from "./util";
 
@@ -41,8 +41,9 @@ export const threadsProvider: Provider = {
     const json = (await res.json().catch(() => ({}))) as {
       access_token?: string;
       expires_in?: number;
-      error?: { message?: string };
+      error?: { message?: string; code?: number };
     };
+    if (res.status < 500 && json.error?.code === 190) throw new TokenInvalidError("Threads access token expired — reconnect required");
     if (!res.ok || !json.access_token) throw classifyHttp(res.status, json.error?.message);
     return {
       accessToken: json.access_token,

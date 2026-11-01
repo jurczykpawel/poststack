@@ -19,6 +19,23 @@ describe("x provider", () => {
     expect(t.refreshToken).toBe("rot");
   });
 
+  it("refresh authenticates the confidential client with Basic authorization", async () => {
+    vi.stubEnv("X_CLIENT_ID", "client");
+    vi.stubEnv("X_CLIENT_SECRET", "secret");
+    const fetch = vi.fn(async () => Response.json({ access_token: "NEW", refresh_token: "ROTATED", expires_in: 7200 }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      await xProvider.refreshToken(tokens);
+      const [url, request] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("https://api.twitter.com/2/oauth2/token");
+      expect(new Headers(request.headers).get("authorization")).toBe(`Basic ${Buffer.from("client:secret").toString("base64")}`);
+      const body = new URLSearchParams(String(request.body));
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("RT");
+      expect(body.has("client_secret")).toBe(false);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("healthCheck returns the user id", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { id: "u1", username: "me" } }), { status: 200 })));
     const info = await xProvider.healthCheck(tokens);
