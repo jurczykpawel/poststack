@@ -16,11 +16,13 @@ const TELEMETRY_ORIGIN = "https://telemetry.techskills.academy";
 const UMAMI_DEFAULT_ORIGIN = "https://stats.techskills.academy";
 /** GTM bootstrap (gtm.js) host. */
 const GTM_SCRIPT_ORIGIN = "https://www.googletagmanager.com";
+/** Our server-side GTM container: receives measurement and serves the frame the Google tag opens. */
+const SGTM_ORIGIN = "https://t.techskills.academy";
 /** Hosts GTM/GA4 may POST measurement to — Google's endpoints plus our server-side GTM container. */
 const GTM_COLLECT_ORIGINS = [
   "https://www.googletagmanager.com",
   "https://www.google-analytics.com",
-  "https://t.techskills.academy",
+  SGTM_ORIGIN,
 ];
 
 export interface LandingAnalyticsEnv {
@@ -60,6 +62,7 @@ export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
   const scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"];
   const connectSrc = ["'self'"];
   const fontSrc = ["'self'"];
+  const frameSrc: string[] = [];
 
   if (opts.apiDocs) fontSrc.push("https://fonts.scalar.com");
 
@@ -76,6 +79,7 @@ export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
     if (present(a.gtmId)) {
       scriptSrc.push(GTM_SCRIPT_ORIGIN);
       connectSrc.push(...GTM_COLLECT_ORIGINS);
+      frameSrc.push(SGTM_ORIGIN);
     }
   }
 
@@ -87,6 +91,7 @@ export function buildContentSecurityPolicy(opts: CspOptions = {}): string {
     ...(opts.mediaPreview ? ["media-src 'self' https:"] : []),
     `connect-src ${dedupe(connectSrc).join(" ")}`,
     `font-src ${dedupe(fontSrc).join(" ")}`,
+    ...(frameSrc.length ? [`frame-src ${frameSrc.join(" ")}`] : []),
     // The captcha widget runs its proof-of-work in a blob: worker on both the app and landing forms.
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
