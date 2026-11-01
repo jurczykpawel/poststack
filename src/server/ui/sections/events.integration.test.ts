@@ -13,8 +13,9 @@ const WS = "eeeeeeee-0000-4000-8000-0000000000a1";
 const OTHER_WS = "eeeeeeee-0000-4000-8000-0000000000b1";
 const USER = "eeeeeeee-0000-4000-8000-0000000000a2";
 
+// The events list lives at /activity?source=events since UXFLOW1 stage 3; the paths below stay short.
 const get = async (path: string) => {
-  const res = await app.request(path, { headers: { cookie } });
+  const res = await app.request(path.replace(/^\/events(\?)?/, (_m, q) => `/activity?source=events${q ? "&" : ""}`), { headers: { cookie } });
   expect(res.status).toBe(200);
   return res.text();
 };
@@ -57,7 +58,7 @@ beforeEach(async () => {
   await db.insert(s.workspaceMembers).values({ workspace_id: WS, user_id: USER, role: "owner" });
 });
 
-describe("/events list", () => {
+describe("events source of /activity", () => {
   it("reaches every row exactly once going older, and the same pages going newer, across equal timestamps", async () => {
     if (!TEST_DB) return;
     const sameMoment = new Date("2026-10-01T10:00:00.000Z");
@@ -179,7 +180,7 @@ describe("/events list", () => {
     expect(body).toContain("kept");
     expect(body).not.toContain("<script>alert(1)</script>");
     expect(body).not.toContain("PSID-SECRET");
-    expect(body).toContain('href="/events"'); // the close link returns to the same list without `open`
+    expect(body).toContain('href="/activity?source=events"'); // the close link returns to the same list without `open`
   });
 
   it("links a conversation event to its conversation, outside the list swap", async () => {

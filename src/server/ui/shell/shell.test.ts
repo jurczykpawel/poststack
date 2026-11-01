@@ -34,7 +34,7 @@ describe("unified nav config", () => {
       "overview", "channels", "brands", // overview (sources moved into Settings → Sources tab)
       "inbox", "rules", "contacts", "sequences", // replies
       "content", "queue", "approvals", // publishing + approvals
-      "webhooks", "events", // delivery
+      "webhooks", "activity", // delivery
     ]));
     // sources + api-keys moved into Settings tabs, not top-level nav items.
     expect(keys).not.toContain("sources");

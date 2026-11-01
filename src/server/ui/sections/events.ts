@@ -1,20 +1,14 @@
-import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import { and, eq, inArray, notInArray, or, sql, type SQL } from "drizzle-orm";
-import { authenticate } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { events } from "@/db/schema";
-import { getInstanceLicense } from "@/lib/license/gate";
 import { containsPattern, countBy, listPage } from "@/lib/list-page";
 import { isUuid } from "@/lib/api/identifiers";
-import { t } from "@/lib/i18n";
 import { redactSecrets } from "@/lib/redact";
 import { dataList, readListState, type ListColumn, type ListState } from "../components/data-list";
 import { fmtDate, localTime } from "../components/format";
 import { PLATFORM_LABELS } from "../components/platform";
-import { isHtmx } from "../components/toast";
 import { timeAgo } from "../components/time";
-import { dashboardDoc } from "../layout";
 import type { Tone } from "../components/status";
 
 const PAGE_SIZE = 50;
@@ -118,8 +112,9 @@ const COLUMNS: ListColumn<EventRow>[] = [
   { label: "When", width: "10%", cell: (e) => when(e.created_at) },
 ];
 
-async function renderEvents(workspaceId: string, url: string) {
-  const state: ListState = readListState(url, ["severity", "area", "platform"]);
+/** The events source of Activity; `path` is the list address the links and filter form point back to. */
+export async function renderEvents(workspaceId: string, url: string, path: string) {
+  const state: ListState = readListState(url, ["severity", "area", "platform"], ["source"]);
   const severity = SEVERITIES.find((sv) => sv.value === state.filters.severity);
   if (!severity) delete state.filters.severity;
 
@@ -153,7 +148,7 @@ async function renderEvents(workspaceId: string, url: string) {
   const areas = [...new Set([...typeCounts.keys()].map((type) => type.split(".")[0]!))].sort();
 
   return dataList<EventRow>({
-    path: "/events",
+    path,
     noun: "events",
     state,
     searchPlaceholder: "Search event or subject…",
@@ -179,26 +174,5 @@ async function renderEvents(workspaceId: string, url: string) {
     detail: opened ? eventDetail(opened) : undefined,
     emptyTitle: "No events yet",
     emptyBody: "Activity shows up here as channels connect, posts publish, and tokens expire.",
-  });
-}
-
-export function registerEvents(r: Hono, guard: MiddlewareHandler): void {
-  r.get("/events", guard, async (c: Context) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
-    if (!a) return isHtmx(c) ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
-    const { features, products } = await getInstanceLicense();
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "Events" }),
-        "/events",
-        html`<div class="page">
-          <h1>Events</h1>
-          <p class="muted">A log of what happened in this workspace — channel, publishing and automation events.</p>
-          ${await renderEvents(a.workspaceId, c.req.url)}
-        </div>`,
-        features,
-        products,
-      ),
-    );
   });
 }

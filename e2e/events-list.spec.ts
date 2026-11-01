@@ -50,11 +50,11 @@ async function shoot(page: Page, base: string) {
   await page.context().clearCookies({ name: "ps_theme" });
 }
 
-test("filter, page, open and go back on /events without leaving the page", async ({ page }, testInfo) => {
+test("filter, page, open and go back on /activity?source=events without leaving the page", async ({ page }, testInfo) => {
   const { errors } = watchConsole(page);
   await setPro(page.request);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await gotoOk(page, "/events");
+  await gotoOk(page, "/activity?source=events");
   await wired(page);
   await noReloadMarker(page);
   await expect(rows(page)).toHaveCount(50);
@@ -79,7 +79,7 @@ test("filter, page, open and go back on /events without leaving the page", async
   await expect(page).toHaveURL(/severity=problems/);
   await wired(page);
   await page.locator(".filter-clear").click();
-  await expect(page).toHaveURL(/\/events$/);
+  await expect(page).toHaveURL(/\/activity\?source=events$/);
 
   await wired(page);
   const firstBefore = await rows(page).first().getAttribute("data-row");
@@ -108,7 +108,7 @@ test("filter, page, open and go back on /events without leaving the page", async
   await expect(page.locator(`tr[data-row="${id}"] a.dl-rowlink`)).toBeFocused();
 
   // A link to a filtered view with an open row reproduces it for someone else.
-  await gotoOk(page, `/events?severity=problems&open=${id}`);
+  await gotoOk(page, `/activity?source=events&severity=problems&open=${id}`);
   await expect(panel).toContainText("Post failed");
   await expect(page.locator(".dl-chip[aria-current='true']")).toContainText("Problems");
   await shoot(page, testInfo.outputPath("events-desktop-detail"));
@@ -119,7 +119,7 @@ test("details take the whole phone screen and nothing scrolls sideways", async (
   const { errors } = watchConsole(page);
   await setPro(page.request);
   await page.setViewportSize({ width: 390, height: 844 });
-  await gotoOk(page, "/events");
+  await gotoOk(page, "/activity?source=events");
   await expect(rows(page)).toHaveCount(50);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   // One row per event, not a stacked card per field.

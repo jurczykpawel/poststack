@@ -938,7 +938,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
             <div class="panel-body">${postRows}</div>
           </section>
           <section class="panel">
-            <div class="panel-head"><h3>Event history</h3><a class="panel-more" href="/events">Events →</a></div>
+            <div class="panel-head"><h3>Event history</h3><a class="panel-more" href="/activity?source=events">Events →</a></div>
             <div class="panel-body">${eventRows}</div>
           </section>
         </div>

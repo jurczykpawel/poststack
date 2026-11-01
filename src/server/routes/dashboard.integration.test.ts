@@ -491,7 +491,7 @@ describe("dashboard events feed", () => {
       workspace_id: WS, type: "channel.needs_reauth", subject_type: "channel", subject_id: CH,
       payload: { platform: "instagram", displayName: "Acme IG" },
     });
-    const body = await (await app.request("/events", { headers: { cookie } })).text();
+    const body = await (await app.request("/activity?source=events", { headers: { cookie } })).text();
     expect(body).toContain("Channel needs re-auth"); // friendly label, not the raw type
     expect(body).toContain("Instagram"); // platform column
     expect(body).toContain("Acme IG"); // subject name from payload
@@ -944,7 +944,7 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Errors");
   });
 
-  it("webhooks detail shows the raw payload + what was triggered", async () => {
+  it("webhook log details show the raw payload + what was triggered", async () => {
     if (!TEST_DB) return;
     const EV = "dddddddd-0000-0000-0000-0000000000e9";
     await db.insert(s.webhookEvents).values({
@@ -953,13 +953,13 @@ describe("channels — managed connection section", () => {
       raw: { entry: [{ changes: [{ value: { from: { id: "SENDER-1", name: "Noémie Pfirsch" }, item: "reaction" } }] }] },
       handling_status: "recorded",
     });
-    const body = await (await app.request(`/webhooks/${EV}`, { headers: { cookie } })).text();
+    const body = await (await app.request(`/activity?source=webhooks&open=${EV}`, { headers: { cookie } })).text();
     expect(body).toContain("Raw payload");
     expect(body).toContain("Noémie Pfirsch"); // name resolved from the payload, not the bare id
     expect(body).toContain("engagement only"); // recorded → nothing triggered
   });
 
-  it("webhooks detail is tenant-scoped — another workspace's event is not found", async () => {
+  it("webhook log details are tenant-scoped — another workspace's event does not open", async () => {
     if (!TEST_DB) return;
     const WSX = "dddddddd-0000-0000-0000-0000000000f7";
     const CHX = "dddddddd-0000-0000-0000-0000000000f8";
@@ -968,8 +968,10 @@ describe("channels — managed connection section", () => {
     await db.insert(s.workspaces).values({ id: WSX, name: "X", slug: `x-${WSX}` });
     await db.insert(s.channels).values({ id: CHX, workspace_id: WSX, platform: "facebook", platform_id: "FB-X", token_encrypted: "x", webhook_secret: "wx", status: "active" });
     await db.insert(s.webhookEvents).values({ id: EVX, event_key: "k-x", channel_id: CHX, event_type: "message", raw: {}, handling_status: "fired" });
-    const res = await app.request(`/webhooks/${EVX}`, { headers: { cookie } });
-    expect((await res.text())).toContain("not found");
+    const res = await app.request(`/activity?source=webhooks&open=${EVX}`, { headers: { cookie } });
+    const body = await res.text();
+    expect(body).not.toContain("Raw payload");
+    expect(body).not.toContain('aria-label="Details"');
     await db.delete(s.workspaces).where(eq(s.workspaces.id, WSX));
   });
 
@@ -1122,7 +1124,7 @@ describe("channels — managed connection section", () => {
     // The seeded channel's token can't be decrypted (token_encrypted='x') → graceful error row, no Graph call.
   });
 
-  it("/webhooks shows which connected account each event belongs to", async () => {
+  it("the webhook log shows which connected account each event belongs to", async () => {
     if (!TEST_DB) return;
     await db.update(s.channels).set({ display_name: "Acme Page" }).where(eq(s.channels.id, CH));
     await db.insert(s.webhookEvents).values({
@@ -1134,8 +1136,8 @@ describe("channels — managed connection section", () => {
       handling_status: "recorded",
       raw: {},
     });
-    const body = await (await app.request("/webhooks", { headers: { cookie } })).text();
-    expect(body).toContain("<th>Channel</th>");
+    const body = await (await app.request("/activity?source=webhooks", { headers: { cookie } })).text();
+    expect(body).toContain(">Channel</th>");
     expect(body).toContain("Acme Page");
   });
 

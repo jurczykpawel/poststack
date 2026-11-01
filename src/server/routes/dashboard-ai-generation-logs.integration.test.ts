@@ -3,8 +3,9 @@ import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
-// ADLOG1: the /settings "Automation" tab surfaces the workspace's recent AI generations (drafts +
-// rephrases) — PRO-gated (ai_draft OR ai_rephrase), workspace-scoped, newest first.
+// ADLOG1 → UXFLOW1 stage 3: the AI generations (drafts + rephrases) are the `ai` source of /activity —
+// PRO-gated (ai_draft OR ai_rephrase), workspace-scoped, newest first. Settings → Automation only links to it.
+const AI = "/activity?source=ai";
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
 let app: Hono;
@@ -86,54 +87,109 @@ async function seedConversation(workspaceId: string): Promise<string> {
   return conv!.id;
 }
 
-describe("GET /settings — AI generation log (ADLOG1)", () => {
-  it("PRO: renders recent generations with model/kind/response, newest first", async () => {
+describe("GET /activity?source=ai — AI generation log (ADLOG1)", () => {
+  it("PRO: lists generations newest first with kind, model and the response start", async () => {
     if (!TEST_DB) return;
-    await seedLog(WS, { user_message: "OLDER", created_at: new Date(Date.now() - 60_000) });
-    await seedLog(WS, { user_message: "NEWER" });
-    const html = await (await get("/settings")).text();
+    await seedLog(WS, { response: "OLDER_RESP", created_at: new Date(Date.now() - 60_000) });
+    await seedLog(WS, { response: "NEWER_RESP" });
+    const html = await (await get(AI)).text();
     expect(html).toContain("gpt-4o-mini");
-    expect(html).toContain("NEWER");
-    expect(html).toContain("OLDER");
-    expect(html.indexOf("NEWER")).toBeLessThan(html.indexOf("OLDER")); // newest first
+    expect(html.indexOf("NEWER_RESP")).toBeGreaterThan(-1);
+    expect(html.indexOf("NEWER_RESP")).toBeLessThan(html.indexOf("OLDER_RESP"));
+    expect(html).not.toContain("SYS_MARKER"); // the prompts are in the details, not the list
   });
 
   it("PRO: shows the empty state when there are no generations yet", async () => {
     if (!TEST_DB) return;
-    const html = await (await get("/settings")).text();
-    expect(html).toContain("No AI generations yet");
+    expect(await (await get(AI)).text()).toContain("No AI generations yet");
   });
 
-  it("is workspace-scoped: another workspace's log never appears", async () => {
+  it("is workspace-scoped: another workspace's log never appears, even opened by id", async () => {
     if (!TEST_DB) return;
-    await seedLog(OTHER_WS, { user_message: "FOREIGN_MARKER" });
-    const html = await (await get("/settings")).text();
-    expect(html).not.toContain("FOREIGN_MARKER");
+    await seedLog(OTHER_WS, { user_message: "FOREIGN_MARKER", response: "FOREIGN_RESP" });
+    const foreign = await db.query.aiGenerationLogs.findFirst({ where: eq(s.aiGenerationLogs.workspace_id, OTHER_WS) });
+    const html = await (await get(AI)).text();
+    expect(html).not.toContain("FOREIGN_RESP");
+    expect(await (await get(`${AI}&open=${foreign!.id}`)).text()).not.toContain("FOREIGN_MARKER");
+  });
+
+  it("chips split OK and failed, filter by result, kind and model, and search the prompt", async () => {
+    if (!TEST_DB) return;
+    await seedLog(WS, { response: "fine one", model: "m-a" });
+    await seedLog(WS, { response: "fine two", model: "m-b", kind: "rephrase", user_message: "needle text" });
+    await seedLog(WS, { response: null, error: "Provider timeout", model: "m-a" });
+    const all = await (await get(AI)).text();
+    expect(all).toMatch(/class="dl-chip[^"]*"[^>]*>\s*OK\s*<b>2<\/b>/);
+    expect(all).toMatch(/class="dl-chip[^"]*"[^>]*>\s*Failed\s*<b>1<\/b>/);
+    const failed = await (await get(`${AI}&result=failed`)).text();
+    expect(failed).toContain("Provider timeout");
+    expect(failed).not.toContain("fine one");
+    const rephrase = await (await get(`${AI}&kind=rephrase`)).text();
+    expect(rephrase).toContain("fine two");
+    expect(rephrase).not.toContain("fine one");
+    expect(await (await get(`${AI}&model=m-b`)).text()).not.toContain("fine one");
+    const found = await (await get(`${AI}&q=needle`)).text();
+    expect(found).toContain("fine two");
+    expect(found).not.toContain("Provider timeout");
+  });
+
+  it("opens a generation: full system prompt, user message, response, escaped", async () => {
+    if (!TEST_DB) return;
+    await seedLog(WS, { system_prompt: "SYS_MARKER", user_message: "<script>alert(1)</script>", response: "RESP_MARKER" });
+    const row = await db.query.aiGenerationLogs.findFirst({ where: eq(s.aiGenerationLogs.workspace_id, WS) });
+    const html = await (await get(`${AI}&open=${row!.id}`)).text();
+    expect(html).toContain("SYS_MARKER");
+    expect(html).toContain("RESP_MARKER");
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
   });
 
   it("free instance: shows a PRO upsell, no log rows", async () => {
     if (!TEST_DB) return;
-    await seedLog(WS, { user_message: "SHOULD_NOT_APPEAR" });
+    await seedLog(WS, { response: "SHOULD_NOT_APPEAR" });
     await gate.clearLicense();
     gate.invalidateLicenseCache();
-    const html = await (await get("/settings")).text();
+    const html = await (await get(AI)).text();
     expect(html).not.toContain("SHOULD_NOT_APPEAR");
-    expect(html).toContain("AI generation log");
+    expect(html).toContain("PRO");
   });
 
-  // ADLOG2: a row links straight to the inbox conversation it was generated for.
-  it("links a row to /inbox/:id when it has a conversation_id", async () => {
+  // ADLOG2: a generation links straight to the inbox conversation it was made for.
+  it("links the opened generation to /inbox/:id when it has a conversation_id", async () => {
     if (!TEST_DB) return;
     const convId = await seedConversation(WS);
     await seedLog(WS, { conversation_id: convId });
-    const html = await (await get("/settings")).text();
-    expect(html).toContain(`href="/inbox/${convId}"`);
+    const row = await db.query.aiGenerationLogs.findFirst({ where: eq(s.aiGenerationLogs.workspace_id, WS) });
+    expect(await (await get(`${AI}&open=${row!.id}`)).text()).toContain(`href="/inbox/${convId}"`);
   });
 
-  it("renders no conversation link for a row with no conversation_id (e.g. a rule preview)", async () => {
+  it("renders no conversation link for a generation with no conversation_id (e.g. a rule preview)", async () => {
     if (!TEST_DB) return;
     await seedLog(WS);
+    const row = await db.query.aiGenerationLogs.findFirst({ where: eq(s.aiGenerationLogs.workspace_id, WS) });
+    expect(await (await get(`${AI}&open=${row!.id}`)).text()).not.toContain('href="/inbox/');
+  });
+});
+
+describe("GET /settings — AI log summary", () => {
+  it("PRO: counts generations and this week's failures and links to Activity, without listing rows", async () => {
+    if (!TEST_DB) return;
+    await seedLog(WS, { response: "ROW_IN_SETTINGS" });
+    await seedLog(WS, { response: null, error: "boom" });
+    await seedLog(WS, { response: null, error: "old failure", created_at: new Date(Date.now() - 10 * 86_400_000) });
     const html = await (await get("/settings")).text();
-    expect(html).not.toContain('href="/inbox/');
+    expect(html).toContain("3 generations, 1 failed this week.");
+    expect(html).toContain('href="/activity?source=ai"');
+    expect(html).not.toContain("ROW_IN_SETTINGS");
+  });
+
+  it("free instance: PRO upsell, no counts", async () => {
+    if (!TEST_DB) return;
+    await seedLog(WS);
+    await gate.clearLicense();
+    gate.invalidateLicenseCache();
+    const html = await (await get("/settings")).text();
+    expect(html).toContain("AI generation log");
+    expect(html).not.toContain("1 generations");
   });
 });
