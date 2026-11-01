@@ -1,5 +1,5 @@
 import type { TokenSet } from "./types";
-import { PermanentError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
+import { PermanentError, RateLimitedError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
 
 /** `phase` (PSA36) tags the resulting TransientError (5xx) so the worker knows whether a retry can
  *  safely re-run the publish; default `commit_uncertain` keeps the PSA2-safe behavior for callers
@@ -8,6 +8,7 @@ export function classifyHttp(status: number, message?: string, phase: PublishPha
   if (status === 401 || status === 403) {
     return new TokenInvalidError(`auth failed: ${message ?? status}`);
   }
+  if (status === 429) return new RateLimitedError("provider rate limit", 60, phase);
   if (status >= 500) return new TransientError(`upstream ${status}`, phase);
   return new PermanentError(`request failed (${status}): ${message ?? ""}`);
 }

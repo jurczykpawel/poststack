@@ -12,6 +12,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 - TikTok inbox drafts finish delivery when TikTok reports SEND_TO_USER_INBOX; Direct Post still waits for PUBLISH_COMPLETE.
 - Reconnect links for TikTok, LinkedIn, X and Threads start OAuth again. Their tokens refresh before expiry; rejected credentials and missing refresh tokens now show a reason and trigger channel alerts.
+### Added
+- Every outgoing webhook event carries `data.workspaceId`, including `channel.*`. The contract for webhooks, post delivery and alerts is in `docs/webhook-inbox-events.md`.
+
+### Fixed
+- Instagram comments and live comments in every documented webhook shape reach comment automation.
+- Instagram read receipts mark sent messages as seen; a deleted Instagram message no longer enters the inbox as a new message.
+- A TikTok app, URL or post rejection fails the post instead of asking to reconnect a healthy channel; an expired TikTok upload URL restarts the upload.
+- Provider rate limits (HTTP 429) are retried instead of failing the post at once.
 
 ## [0.15.0] - 2026-11-01
 

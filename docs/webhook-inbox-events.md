@@ -1,3 +1,48 @@
+# Outgoing interface contract
+
+What each receiver can rely on in order to act. Tests assert this contract, not the builder output.
+
+## Every webhook event
+
+Signed envelope: `id` (deduplicate on it), `type`, `created_at`, `data`. `data.id` identifies the
+resource and `data.workspaceId` the workspace. Delivery is at least once and may arrive out of order.
+
+## `post.*`
+
+`data.id` is the post, `data.deliveryId` the delivery on one channel. Each event also carries
+`channelId`, `platform` and `status`.
+
+| Event | The receiver can | Extra fields |
+| --- | --- | --- |
+| `post.published` | link to the live post | `providerHandle`, `publishedAt`, `firstComment` `{ status, commentId, reason? }` |
+| `post.failed` | show why and offer a new attempt | `reason`, `error` (same text) |
+| `post.held` | ask a person to act | `reason`; `confirmationUrl` when the post must be confirmed again |
+| `post.unknown` | check the platform before resending; the outcome could not be proven | `reason` |
+| `post.first_comment` | follow the comment after publication | `status`, `commentId` or `reason` |
+
+## `channel.*`
+
+`channel.created`, `channel.reconnected` and `channel.needs_reauth` carry `data.id` (the channel),
+`platform` and `displayName`. After `needs_reauth`, publishing to that channel waits until it is
+reconnected. Error text and tokens are not included.
+
+## `contact.created`, `contact.updated`
+
+`data.id` is the contact. `channels` lists its identities as `{ channelId, platform, platformSenderId }`.
+Read names and other details from `GET /api/v1/contacts/{data.id}`.
+
+## `GET /api/v1/posts` delivery
+
+Each post has `delivery`: `null` until it is scheduled, then `id`, `channelId`, `status`, `scheduledFor`,
+`attempts`, `lastError` (secrets redacted), `platformPostId`, `updatedAt` and `firstComment`
+`{ status, reason?, commentId, attempts, lastError }`.
+
+## E-mail and alert webhook
+
+Alerts go to one webhook, routed by `type`; e-mail is sent through that webhook's customized body. The body
+offers `channel_id`, `source_id`, `workspace_id`, `platform`, `display_name`, `detail`, `expires_at`,
+`days_left` and `app_url`, enough to name the channel and link to it. One alert per type and channel in 15 minutes.
+
 # Contact erasure and conversation state events
 
 Subscribe through `POST /api/v1/webhooks` with `event_types` set to

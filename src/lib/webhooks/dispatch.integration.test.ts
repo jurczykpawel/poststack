@@ -295,6 +295,46 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
 });
 
 describe.skipIf(!TEST_DB)("webhook consumer routing contract", () => {
+  describe("receiver contract (docs/webhook-inbox-events.md)", () => {
+    async function received(type: string) {
+      const event = (await db.select().from(s.events).where(eq(s.events.type, type)))[0];
+      await processEventDispatch({ eventId: event.id }, helpers());
+      const [delivery] = await db.select().from(s.webhookDeliveries).where(eq(s.webhookDeliveries.event_id, event.id));
+      await processWebhookDelivery({ deliveryId: delivery.id }, helpers());
+      const body = JSON.parse(String(connectStub.mock.calls.at(-1)![1].body));
+      expect(body).toMatchObject({ id: event.id, type, created_at: expect.any(String) });
+      return body.data;
+    }
+    const connect = async () => (await db.insert(s.channels).values({
+      workspace_id: WS, platform: "tiktok", platform_id: "contract-account", display_name: "Creator", token_encrypted: "unused", webhook_secret: "unused",
+    }).returning())[0];
+
+    it("channel.needs_reauth tells the receiver which channel to reconnect and in which workspace", async () => {
+      await svc.createEndpoint(WS, { url: "https://hook.test/channel" });
+      const channel = await connect();
+      const { markChannelNeedsReauth } = await import("@/lib/channels/health");
+      await markChannelNeedsReauth(channel.id, "access_token=abc123 expired");
+      const data = await received("channel.needs_reauth");
+      expect(data).toMatchObject({ type: "channel", id: channel.id, workspaceId: WS, platform: "tiktok", displayName: "Creator" });
+      expect(JSON.stringify(data)).not.toContain("abc123");
+    });
+
+    it.each([
+      ["post.held", "held", { reason: "Review the post", platform: "tiktok", confirmationUrl: "/queue/x/confirm" }],
+      ["post.unknown", "unknown", { reason: "Result unknown" }],
+      ["post.first_comment", "sent", { status: "failed", reason: "Comment unavailable" }],
+    ] as const)("%s identifies the post and its delivery and says why", async (type, status, payload) => {
+      await svc.createEndpoint(WS, { url: "https://hook.test/post" });
+      const channel = await connect();
+      const [delivery] = await db.insert(s.deliveries).values({ workspace_id: WS, channel_id: channel.id, format: "video", status, payload: {}, scheduled_at: new Date(), run_at: new Date() }).returning();
+      const [post] = await db.insert(s.posts).values({ workspace_id: WS, platform: "tiktok", delivery_id: delivery.id }).returning();
+      const { emitPostEvent } = await import("@/lib/deliveries/post-events");
+      await emitPostEvent(WS, type, delivery.id, payload);
+      const data = await received(type);
+      expect(data).toMatchObject({ type: "post", id: post.id, deliveryId: delivery.id, workspaceId: WS, channelId: channel.id, platform: "tiktok", reason: payload.reason });
+    });
+  });
+
   it.each(recordedWebhook.events)("preserves recorded $type fields and supplies routing context", async (recorded) => {
     const { emitPostEvent } = await import("@/lib/deliveries/post-events");
     const ep = await svc.createEndpoint(WS, { url: "https://hook.test/consumer", eventTypes: [recorded.type] });

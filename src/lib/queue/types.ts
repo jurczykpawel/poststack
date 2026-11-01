@@ -101,8 +101,8 @@ export interface IncomingEchoJob {
 }
 
 /** THREADSYNC1: a Messenger delivery/read receipt — marks our OUTBOUND messages delivered/seen in the
- *  thread. `watermark` (epoch ms) = everything up to it is delivered/read; `mids` (delivery only) are
- *  specific delivered message ids. */
+ *  thread. `watermark` (epoch ms) = everything up to it is delivered/read; `mids` are specific delivered
+ *  message ids, or the one message seen on Instagram. */
 export interface IncomingReceiptJob {
   platform: string;
   pageId: string;
