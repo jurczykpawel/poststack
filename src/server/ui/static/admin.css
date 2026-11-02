@@ -1446,6 +1446,7 @@ a.settings-tab { text-decoration: none; display: inline-block; }
 
 /* Per-message mono meta line (clock time + outbound delivery receipt). */
 .msg-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); display: flex; align-items: center; gap: 5px; }
+.msg-failed { color: var(--bad-text); font-family: var(--font-sans); white-space: normal; }
 .msg-meta .ico { width: 12px; height: 12px; color: var(--info); }
 /* Reaction pill, tucked under the message it belongs to (emoji only — that emoji IS content). */
 .msg-react { display: inline-flex; align-items: center; gap: 3px; margin-top: -7px; background: var(--overlay); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 11px; line-height: 1.4; }

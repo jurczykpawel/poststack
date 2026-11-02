@@ -94,7 +94,7 @@ export async function processOutgoingMessage(
     return { heldMessageId: m.id };
   };
 
-  await runDelivery({
+  const outcome = await runDelivery({
     deliveryKey: idempotencyKey ?? `job:${helpers.job.id}`,
     channelId,
     taskName: "outgoing-message",
@@ -154,4 +154,19 @@ export async function processOutgoingMessage(
         .where(eq(conversations.id, conversationId));
     },
   });
+  // A human's reply the platform refused for good (window closed, Human Agent not approved) is dropped
+  // without a retry; keep it in the thread as `failed` so the operator sees it did not go out.
+  if (outcome === "dropped_policy" && isHumanReply) {
+    if (heldMessageId) await db.update(messages).set({ status: "failed" }).where(eq(messages.id, heldMessageId));
+    else {
+      await db.insert(messages).values({
+        conversation_id: conversationId,
+        direction: "outbound",
+        text: content.text ?? null,
+        attachments: normalizeOutgoingAttachments(content),
+        status: "failed",
+        sent_by_user_id: sentByUserId ?? null,
+      });
+    }
+  }
 }

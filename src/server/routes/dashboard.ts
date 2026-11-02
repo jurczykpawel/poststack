@@ -3,6 +3,7 @@ import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, inArray, isNull, sql, count, type SQL } from "drizzle-orm";
+import { containsPattern } from "@/lib/list-page";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, channels, contacts, contactChannels,
@@ -304,7 +305,7 @@ function renderInboxChannelOptions(chans: InboxChannel[], channelId: string): Ht
 // small centered note; a comment is the post-anchored event that may have triggered an auto-DM/reply;
 // a message is a DM bubble. New channels add item kinds without changing the renderer's shape.
 type ThreadItem =
-  | { kind: "message"; id: string; direction: string; text: string | null; attachments?: StoredAttachments | null; quickReplyPayload?: string | null; postbackPayload?: string | null; createdAt: Date; deliveredAt?: Date | null; readAt?: Date | null }
+  | { kind: "message"; id: string; direction: string; text: string | null; attachments?: StoredAttachments | null; quickReplyPayload?: string | null; postbackPayload?: string | null; createdAt: Date; deliveredAt?: Date | null; readAt?: Date | null; status?: string }
   | { kind: "reaction"; id: string; emoji: string | null; reactionType: string; createdAt: Date }
   | { kind: "comment"; id: string; text: string; postId: string | null; postTitle: string | null; postUrl: string | null; replyText: string | null; dmSent: boolean; replySent: boolean; dmConvId: string | null; error: string | null; createdAt: Date };
 
@@ -336,7 +337,9 @@ type ThreadContext = { name: string; handle: string };
  *  receipt inline ("· ✓✓ Seen 14:06" / "· ✓✓ Delivered" / "· ✓ Sent"). Read beats delivered. */
 function messageMeta(it: Extract<ThreadItem, { kind: "message" }>): Html {
   const receipt =
-    it.direction === "outbound"
+    it.direction === "outbound" && it.status === "failed"
+      ? html` · <span class="msg-failed">Not delivered — the platform refused it (messaging window closed or Human Agent tag not approved)</span>`
+      : it.direction === "outbound"
       ? it.readAt
         ? html` · ${icon("checks", "ico", 12)} Seen ${clockTime(it.readAt)}`
         : it.deliveredAt
@@ -699,7 +702,7 @@ export function renderThread(
       ${renderConvControls(conv)}
     </div>
     ${opts.error ? html`<div class="notice notice-err">${opts.error}</div>` : html``}
-    <div id="thread-msgs" class="thread-msgs${isEmail ? " email-list" : ""}" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type, ctx)}</div>
+    <div id="thread-msgs" class="thread-msgs${isEmail ? " email-list" : ""}" x-data="{ stick: true }" x-init="$nextTick(() => $el.scrollTop = $el.scrollHeight)" @scroll.passive="stick = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 48" @htmx:after-swap="if (stick) $el.scrollTop = $el.scrollHeight" hx-get="/inbox/${conv.id}/messages" hx-trigger="every 5s" hx-swap="innerHTML">${renderMessages(messages, conv.thread_type, ctx)}</div>
     ${renderDraftsRegion(drafts, conv.id, opts.pollDrafts !== undefined ? { attempt: 0, expectMoreThan: opts.pollDrafts, startedAt: opts.draftStartedAt } : false)}
     ${windowNote}
     ${aiDraftBar}
@@ -792,7 +795,7 @@ function loadConversations(
       inArray(
         conversations.contact_id,
         db.select({ id: contacts.id }).from(contacts).where(
-          and(eq(contacts.workspace_id, workspaceId), ilike(contacts.display_name, `%${q}%`)),
+          and(eq(contacts.workspace_id, workspaceId), ilike(contacts.display_name, containsPattern(q))),
         ),
       ),
     );
@@ -861,7 +864,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       where: eq(messages.conversation_id, conversationId),
       orderBy: desc(messages.created_at),
       limit: 50,
-      columns: { id: true, direction: true, text: true, attachments: true, quick_reply_payload: true, postback_payload: true, created_at: true, delivered_at: true, read_at: true },
+      columns: { id: true, direction: true, text: true, attachments: true, quick_reply_payload: true, postback_payload: true, created_at: true, delivered_at: true, read_at: true, status: true },
     }),
     db.query.messageReactions.findMany({
       where: eq(messageReactions.conversation_id, conversationId),
@@ -893,7 +896,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
     }
   }
   const items: ThreadItem[] = [
-    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, attachments: (m.attachments as StoredAttachments | null) ?? null, quickReplyPayload: m.quick_reply_payload, postbackPayload: m.postback_payload, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at })),
+    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, attachments: (m.attachments as StoredAttachments | null) ?? null, quickReplyPayload: m.quick_reply_payload, postbackPayload: m.postback_payload, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at, status: m.status })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
     ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postTitle: c.post_id ? postTitleById.get(c.post_id) ?? null : null, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];
