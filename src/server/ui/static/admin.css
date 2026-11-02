@@ -1728,6 +1728,8 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .q-meta { display: none; }
 .q-end, .q-act { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .q-end, .dl-table .q-act { position: relative; z-index: 1; }
+/* An open row menu must sit above the next rows' actions, or a click on it lands on the neighbour's button. */
+.q-end:has(.q-menu[open]), .dl-table .q-act:has(.q-menu[open]) { z-index: 30; }
 .dl-table td:has(.q-act) { overflow: visible; }
 .q-form, .q-pn { display: contents; }
 .q-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; font-size: 12.5px; }
