@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
 import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
+import { BRAND_ACCENT_RE } from "@/lib/brands/validation";
 import { getStoryRenderer, STORY_TEMPLATES } from "@/lib/stories";
 import { resolveBrandSlots, EDITORIAL_PLATFORMS } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
@@ -29,6 +30,8 @@ async function auth(c: Context): Promise<AuthContext | null> {
 function domSafe(s: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
+/** MQA13-B01: a brand key in a URL path is always encoded (pre-validation keys may hold `/`, `'`, spaces). */
+const keyPath = (key: string): string => `/brands/${encodeURIComponent(key)}`;
 
 /** Channels (id+label) eligible to publish a post on `platform`, scoped to the workspace. The
  *  editorial platform `x` maps onto the `twitter` channel platform (the enum value); everything else
@@ -95,7 +98,7 @@ function slotRow(
   return html`<div class="brand-slot${ambiguous ? " is-amb" : ""}${selectedId ? "" : " is-none"}" id="${slotId}" role="cell">
     <span class="brand-slot-platform">${platformLabel(platform)}</span>
     <select name="channelId" aria-label="${platformLabel(platform)} channel for ${brandKey}"
-      hx-put="/brands/${brandKey}/slot/${platform}" hx-target="#${slotId}" hx-swap="outerHTML"
+      hx-put="${keyPath(brandKey)}/slot/${platform}" hx-target="#${slotId}" hx-swap="outerHTML"
       ${noChannels ? raw("disabled") : raw("")}>
       <option value="">${empty}</option>
       ${options}
@@ -180,8 +183,9 @@ function storyPreview(brand: BrandRow): Html {
   const template = encodeURIComponent(brand.story_template ?? "");
   return html`<div class="brand-story-preview">
     <span class="muted" style="font-size:.72rem">Auto-Story preview <span x-show="tpl !== '${brand.story_template ?? ""}'" x-cloak class="muted">· unsaved</span></span>
-    <img src="/brands/${brand.key}/story-preview?template=${template}&v=${v}"
-      :src="'/brands/${brand.key}/story-preview?template=' + encodeURIComponent(tpl) + '&v=${v}'"
+    <img src="${keyPath(brand.key)}/story-preview?template=${template}&v=${v}"
+      data-base="${keyPath(brand.key)}/story-preview?v=${v}&template="
+      :src="$el.dataset.base + encodeURIComponent(tpl)"
       loading="lazy"
       width="132" height="234" alt="Auto-Story preview"
       style="display:block;border-radius:10px;border:1px solid var(--border);margin-top:4px" />
@@ -201,7 +205,7 @@ function editPanel(brand: BrandRow): Html {
     <div class="sheet-h"><h4>Edit ${brand.name}</h4>
       <button type="button" class="btn btn-ghost btn-sm" @click="$refs.dlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
     <div class="sheet-b">
-      <form class="brand-edit-form" id="edit-${domSafe(brand.key)}" method="post" action="/brands/${brand.key}/edit"
+      <form class="brand-edit-form" id="edit-${domSafe(brand.key)}" method="post" action="${keyPath(brand.key)}/edit"
         x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
         <label class="brand-fld"><span>Brand name</span>
           <input name="name" value="${brand.name}" required /></label>
@@ -214,7 +218,7 @@ function editPanel(brand: BrandRow): Html {
       <details class="brand-danger">
         <summary>Danger zone</summary>
         <p class="muted">Its channels become unassigned, not deleted.</p>
-        <form method="post" action="/brands/${brand.key}/delete" hx-post="/brands/${brand.key}/delete" hx-swap="none"
+        <form method="post" action="${keyPath(brand.key)}/delete" hx-post="${keyPath(brand.key)}/delete" hx-swap="none"
           hx-confirm="Delete brand '${brand.name}'? Its channels become unassigned (not deleted).">
           ${btn({ label: "Delete brand", variant: "danger", size: "sm" })}
         </form>
@@ -229,7 +233,7 @@ function editPanel(brand: BrandRow): Html {
 /** One brand = one table row (desktop) / one collapsible card (phone) — same markup, CSS decides. */
 function brandRow(brand: BrandRow, slots: SlotsView, locked = false): Html {
   const mark = brand.icon ? brand.icon : brandInitials(brand.name);
-  const avatar = brand.accent
+  const avatar = brand.accent && BRAND_ACCENT_RE.test(brand.accent)
     ? html`<span class="brand-glyph brand-avatar" style="background:${brand.accent}">${mark}</span>`
     : html`<span class="brand-glyph brand-avatar">${mark}</span>`;
   // BRANDLIMIT1: brands beyond the free tier's limit stay visible but are flagged locked (PRO upsell)
@@ -280,7 +284,7 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
       products: lic.products,
       breadcrumb: `${brands.length} brand${brands.length === 1 ? "" : "s"}`,
       body: html`${notice ? html`<div class="notice notice-err" role="alert">${notice}</div>` : ""}
-        <div class="bm-page" x-data="{ q: '' }">
+        <div class="bm-page" x-data="{ q: '', get none() { const s = this.q.toLowerCase(); return !!s && ![...this.$root.querySelectorAll('[data-bn]')].some((el) => el.dataset.bn.includes(s)); } }">
         <div class="bm-tools">
           <p class="section-intro">Which channel posts for each brand. Pick one channel per platform.</p>
           <input type="search" x-model="q" placeholder="Search ${brands.length} brand${brands.length === 1 ? "" : "s"}…" aria-label="Search brands" />
@@ -311,7 +315,8 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
           : html`<div class="bm" role="table" aria-label="Brands and their channels">
               <div class="bm-row bm-head" role="row"><div class="bm-th" role="columnheader">Brand</div><div class="bm-cells">${cols}</div></div>
               ${rows}
-            </div>`}
+            </div>
+            <p class="empty-body" role="status" x-show="none" x-cloak>No brands match your search.</p>`}
         </div>`,
     }),
     status as 200,

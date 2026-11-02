@@ -257,7 +257,10 @@
   /* ---- Styled confirm dialog (replaces native confirm() on destructive HTMX actions) ---- */
   .confirm-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
     padding: 24px; background: color-mix(in srgb, var(--bg) 70%, transparent);
-    backdrop-filter: blur(3px); }
+    backdrop-filter: blur(3px);
+    /* it is a <dialog>: drop the UA box so it stays a full-viewport overlay */
+    width: auto; height: auto; max-width: none; max-height: none; margin: 0; border: 0; color: inherit; }
+  .confirm-overlay::backdrop { background: transparent; }
   .confirm-card { width: 100%; max-width: 400px; padding: 20px;
     background: var(--surface); border: 1px solid var(--border-strong);
     border-radius: var(--radius-card);

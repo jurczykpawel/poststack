@@ -113,3 +113,43 @@ test("phone: collapsed cards, expand to the same selects, no horizontal scroll",
   await shoot(page, testInfo.outputPath("brands-phone"));
   expect(errors, errors.join("\n")).toEqual([]);
 });
+
+// MQA13-B01/B03 + empty search: a legacy brand with an unsafe key must not run script, Delete brand is
+// confirmable from inside the Edit panel, and a search with no match says so.
+test("MQA13: legacy unsafe key stays inert, Delete confirm sits over the panel, empty search message", async ({ page }, testInfo) => {
+  const { errors } = watchConsole(page);
+  const evil = `${PREFIX}x'+(window.__p=1)+'`;
+  await db.query("INSERT INTO brands (workspace_id, key, name) VALUES ($1, $2, 'Legacy probe') ON CONFLICT DO NOTHING", [workspaceId, evil]);
+  await setPro(page.request);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoOk(page, "/brands");
+  const legacy = page.locator(".bm-row[data-bn*='legacy probe']");
+  await legacy.getByRole("button", { name: "Edit" }).click();
+  await expect(legacy.locator("dialog img")).toHaveAttribute("src", /story-preview/);
+  expect(await page.evaluate(() => (window as unknown as { __p?: number }).__p)).toBeUndefined();
+  await legacy.locator("dialog").getByRole("button", { name: "Close" }).click();
+
+  await page.getByLabel("Search brands").fill("no such brand zzz");
+  await expect(page.getByText("No brands match")).toBeVisible();
+  await page.getByLabel("Search brands").fill("");
+  await expect(page.getByText("No brands match")).toBeHidden();
+
+  const row = page.locator(`#brand-${PREFIX}14`);
+  const dlg = row.locator("dialog");
+  await row.getByRole("button", { name: "Edit" }).click();
+  await dlg.locator("summary", { hasText: "Danger zone" }).click();
+  await dlg.getByRole("button", { name: "Delete brand" }).click();
+  const confirm = page.getByRole("alertdialog");
+  await expect(confirm).toBeVisible();
+  const btn = confirm.getByRole("button", { name: "Confirm" });
+  const hit = await btn.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+  });
+  expect(hit).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("brands-delete-confirm.png") });
+  await Promise.all([page.waitForURL((u) => u.pathname === "/brands"), btn.click()]);
+  await expect(page.locator(`#brand-${PREFIX}14`)).toHaveCount(0);
+  expect((await db.query("SELECT 1 FROM brands WHERE workspace_id = $1 AND key = $2", [workspaceId, `${PREFIX}14`])).rowCount).toBe(0);
+  expect(errors, errors.join("\n")).toEqual([]);
+});

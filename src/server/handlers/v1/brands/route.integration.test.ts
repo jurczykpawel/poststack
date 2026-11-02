@@ -79,6 +79,25 @@ describe.skipIf(!TEST_DB)("/api/v1/brands", () => {
     expect((await call("POST", "/brands", {})).status).toBe(422);
   });
 
+  // MQA13-B01: a key lands in URLs and markup, so it must be a slug — the repro key was stored XSS.
+  it("rejects a brand key that is not a slug (422), accepts a dotted one", async () => {
+    for (const key of ["x'+(window.__p=1)+'", "a b", "a/b", ".hidden", "<b>"]) {
+      expect((await call("POST", "/brands", { key, name: "Probe" }, WRITE_KEY)).status, key).toBe(422);
+    }
+    expect(await db.query.brands.findFirst({ where: eq(s.brands.name, "Probe") })).toBeUndefined();
+    expect((await call("POST", "/brands", { key: "techskills.academy", name: "TSA" })).status).toBe(201);
+  });
+
+  // MQA13-B05: the accent goes into a style attribute, so only a hex colour is accepted.
+  it("rejects an accent that is not a hex colour on create and update (422)", async () => {
+    const css = "#f00;background-image:url(https://probe.example/p.png)";
+    expect((await call("POST", "/brands", { key: "css", name: "Css", accent: css })).status).toBe(422);
+    expect((await call("POST", "/brands", { key: "css", name: "Css", accent: "#abc" })).status).toBe(201);
+    expect((await call("PATCH", "/brands/css", { accent: css })).status).toBe(422);
+    expect((await call("PATCH", "/brands/css", { accent: "red" })).status).toBe(422);
+    expect((await call("PATCH", "/brands/css", { accent: null })).status).toBe(200);
+  });
+
   it("409 on a duplicate brand key in the same workspace", async () => {
     await call("POST", "/brands", { key: "dup", name: "First" });
     expect((await call("POST", "/brands", { key: "dup", name: "Second" })).status).toBe(409);

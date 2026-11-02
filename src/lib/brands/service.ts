@@ -3,6 +3,7 @@ import { db, isUniqueViolation } from "@/lib/db";
 import { brands, channels, type AiDisclosureLevel } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { STORY_TEMPLATES } from "@/lib/stories";
+import { BRAND_ACCENT_RE, BRAND_KEY_RE } from "./validation";
 
 export type BrandRow = typeof brands.$inferSelect;
 
@@ -12,6 +13,13 @@ function validateStoryTemplate(id: string | null | undefined): string | null {
   if (id === undefined || id === null || id === "") return null;
   if (!STORY_TEMPLATES[id]) throw new ApiError("invalid_request", `Unknown story template '${id}'`, 400);
   return id;
+}
+
+
+function validateAccent(accent: string | null | undefined): string | null {
+  if (!accent) return null;
+  if (!BRAND_ACCENT_RE.test(accent)) throw new ApiError("invalid_request", "Accent colour must be a hex colour like #7aa2f7", 400);
+  return accent;
 }
 
 /** A DB executor: the pool client or a transaction handle. */
@@ -32,6 +40,9 @@ export async function createBrand(
 ): Promise<BrandRow> {
   const key = input.key.trim();
   if (!key) throw new ApiError("invalid_request", "Brand key is required", 400);
+  if (!BRAND_KEY_RE.test(key)) {
+    throw new ApiError("invalid_request", "Brand key may contain only letters, digits, dots, dashes and underscores", 400);
+  }
   if (!input.name?.trim()) throw new ApiError("invalid_request", "Brand name is required", 400);
   const story_template = validateStoryTemplate(input.story_template);
   const inserted = await exec
@@ -40,7 +51,7 @@ export async function createBrand(
       workspace_id: workspaceId,
       key,
       name: input.name.trim(),
-      accent: input.accent ?? null,
+      accent: validateAccent(input.accent),
       icon: input.icon ?? null,
       story_template,
       // AIDISC2: the brand's default AI declaration. Undefined stays NULL = this brand sets no default.
@@ -77,7 +88,7 @@ export async function updateBrand(
 ): Promise<BrandRow> {
   const set: Partial<typeof brands.$inferInsert> = { updated_at: new Date() };
   if (patch.name !== undefined) set.name = patch.name;
-  if (patch.accent !== undefined) set.accent = patch.accent;
+  if (patch.accent !== undefined) set.accent = validateAccent(patch.accent);
   if (patch.icon !== undefined) set.icon = patch.icon;
   if (patch.story_template !== undefined) set.story_template = validateStoryTemplate(patch.story_template);
   // Explicit null clears the default back to "this brand declares nothing", so a brand-wide declaration

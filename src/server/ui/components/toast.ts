@@ -50,10 +50,14 @@ export function toastRegion(): Html {
  * (no Alpine Focus plugin needed). `x-show` toggles it; the danger button resumes the request.
  */
 export function confirmDialog(): Html {
-  return html`<div
+  // MQA13-B03: a modal <dialog> (showModal) joins the top layer above an already-open modal panel
+  // (e.g. Edit brand); a plain fixed div sat underneath it and could not be clicked.
+  return html`<dialog
     class="confirm-overlay"
     x-show="$store.ui.confirm.open"
     x-cloak
+    x-effect="$store.ui.confirm.open ? ($el.open || !$el.showModal || $el.showModal()) : ($el.open && $el.close())"
+    @cancel.prevent="$store.ui.cancelConfirm()"
     @keydown.escape.window="$store.ui.cancelConfirm()"
     @click.self="$store.ui.cancelConfirm()"
     x-transition.opacity.duration.120ms
@@ -75,7 +79,7 @@ export function confirmDialog(): Html {
         <button type="button" class="btn btn-danger btn-md" @click="$store.ui.acceptConfirm()" x-text="$store.ui.confirm.label"></button>
       </div>
     </div>
-  </div>`;
+  </dialog>`;
 }
 
 /**
