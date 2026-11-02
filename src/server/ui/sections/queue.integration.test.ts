@@ -167,7 +167,9 @@ describe("queue section", () => {
     const { id } = await seedDelivery("failed", "boom");
     const detail = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
     const list = await (await app.request("/queue?status=attention", { headers: { cookie } })).text();
-    for (const out of [detail, list]) {
+    const panel = await (await app.request(`/queue?open=${id}`, { headers: { cookie } })).text(); // the panel on the list page
+    expect(panel).toContain(`action="/queue/${id}/cancel"`);
+    for (const out of [detail, list, panel]) {
       expect(out).toMatch(new RegExp(`<form[^>]*action="/queue/${id}/retry"[^>]*hx-confirm=`));
     }
   });

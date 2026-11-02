@@ -183,8 +183,8 @@ async function panel(workspaceId: string, st: ListState): Promise<{ detail?: Dat
         <div class="q-panel-acts">
           ${review ? html`<a class="btn btn-primary btn-sm" href="${act}/confirm">Review TikTok settings</a>` : ""}
           ${editable ? actionForm(post.id, "publish-now", "Publish now", { confirm: PUBLISH_CONFIRM, className: "btn btn-secondary btn-sm" }) : ""}
-          ${post.status === "failed" ? actionForm(post.id, "retry", "Retry", { className: "btn btn-primary btn-sm" }) : ""}
-          ${isPending(post.status) ? actionForm(post.id, "cancel", "Cancel post", { confirm: CANCEL_CONFIRM, className: "btn btn-danger btn-sm" }) : ""}
+          ${post.status === "failed" ? actionForm(post.id, "retry", "Retry", { confirm: RETRY_CONFIRM, className: "btn btn-primary btn-sm" }) : ""}
+          ${isPending(post.status) || post.status === "failed" || post.status === "unknown" ? actionForm(post.id, "cancel", "Cancel post", { confirm: CANCEL_CONFIRM, className: "btn btn-danger btn-sm" }) : ""}
         </div>
         <details class="q-tech"><summary class="muted">Technical details</summary><pre class="dl-json">${shown}</pre><a class="btn btn-ghost btn-sm" href="${act}">Full post page</a></details>`,
     },
