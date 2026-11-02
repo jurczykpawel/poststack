@@ -15,7 +15,6 @@ import { env } from "@/lib/env";
 import { createWithinLimit } from "@/lib/license/limit-guard";
 import { listChannels } from "@/lib/channels/service";
 import { renderPage } from "../layout";
-import { pill } from "../components/status";
 import { platformLabel } from "../components/platform";
 import { btn } from "../components/button";
 import { icon } from "../components/icons";
@@ -90,29 +89,33 @@ function slotRow(
   const options = candidates.map(
     (ch) => html`<option value="${ch.id}"${selectedId === ch.id ? raw(" selected") : raw("")}>${ch.label}</option>`,
   );
-  const warn = ambiguous ? html` ${pill("ambiguous — pick one", "warn")}` : selectedId ? html` ${pill("set", "ok")}` : "";
   const noChannels = candidates.length === 0;
   const slotId = `slot-${domSafe(brandKey)}-${domSafe(platform)}`;
-  return html`<div class="brand-slot" id="${slotId}">
+  const empty = noChannels ? "None" : ambiguous ? "Pick one — several match" : "—";
+  return html`<div class="brand-slot${ambiguous ? " is-amb" : ""}${selectedId ? "" : " is-none"}" id="${slotId}" role="cell">
     <span class="brand-slot-platform">${platformLabel(platform)}</span>
     <select name="channelId" aria-label="${platformLabel(platform)} channel for ${brandKey}"
       hx-put="/brands/${brandKey}/slot/${platform}" hx-target="#${slotId}" hx-swap="outerHTML"
       ${noChannels ? raw("disabled") : raw("")}>
-      <option value="">${noChannels ? "— no channels connected —" : "— not set —"}</option>
+      <option value="">${empty}</option>
       ${options}
     </select>
-    ${warn}
   </div>`;
 }
 
+interface SlotsView { rows: Html; connected: number; ambiguous: string[] }
 async function brandSlotsView(
   workspaceId: string,
   brand: BrandRow,
   candidates: Record<string, { id: string; label: string }[]>,
-): Promise<{ rows: Html; connected: number }> {
+): Promise<SlotsView> {
   const slots = await resolveBrandSlots(workspaceId, brand.key);
   const rows = slots.map((s) => slotRow(brand.key, s.platform, candidates[s.platform] ?? [], s.channel?.id ?? null, s.ambiguous));
-  return { rows: html`<div class="brand-slots">${rows}</div>`, connected: slots.filter((s) => s.channel).length };
+  return {
+    rows: html`${rows}`,
+    connected: slots.filter((s) => s.channel).length,
+    ambiguous: slots.filter((s) => s.ambiguous).map((s) => `${brand.name} · ${platformLabel(s.platform)}`),
+  };
 }
 
 const STORY_TEMPLATE_LABELS: Record<string, string> = {
@@ -192,12 +195,43 @@ function brandInitials(name: string): string {
   return (letters || "?").toUpperCase();
 }
 
-function brandCard(brand: BrandRow, slots: { rows: Html; connected: number }, locked = false): Html {
+/** Right-hand edit panel (native <dialog>): the fields that used to sit in every card, Delete at the bottom. */
+function editPanel(brand: BrandRow): Html {
+  return html`<dialog class="sheet" x-ref="dlg" @click="if ($event.target === $el) $el.close()" aria-label="Edit ${brand.name}">
+    <div class="sheet-h"><h4>Edit ${brand.name}</h4>
+      <button type="button" class="btn btn-ghost btn-sm" @click="$refs.dlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
+    <div class="sheet-b">
+      <form class="brand-edit-form" id="edit-${domSafe(brand.key)}" method="post" action="/brands/${brand.key}/edit"
+        x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
+        <label class="brand-fld"><span>Brand name</span>
+          <input name="name" value="${brand.name}" required /></label>
+        ${accentField(brand.accent ?? "")}
+        ${iconField(brand.icon ?? "")}
+        ${storyTemplateField(brand)}
+        ${storyPreview(brand)}
+        ${aiDisclosureField(brand)}
+      </form>
+      <details class="brand-danger">
+        <summary>Danger zone</summary>
+        <p class="muted">Its channels become unassigned, not deleted.</p>
+        <form method="post" action="/brands/${brand.key}/delete" hx-post="/brands/${brand.key}/delete" hx-swap="none"
+          hx-confirm="Delete brand '${brand.name}'? Its channels become unassigned (not deleted).">
+          ${btn({ label: "Delete brand", variant: "danger", size: "sm" })}
+        </form>
+      </details>
+    </div>
+    <div class="sheet-f"><span class="sp"></span>
+      <button type="button" class="btn btn-sm" @click="$refs.dlg.close()">Cancel</button>
+      <button type="submit" form="edit-${domSafe(brand.key)}" class="btn btn-primary btn-sm">Save changes</button></div>
+  </dialog>`;
+}
+
+/** One brand = one table row (desktop) / one collapsible card (phone) — same markup, CSS decides. */
+function brandRow(brand: BrandRow, slots: SlotsView, locked = false): Html {
   const mark = brand.icon ? brand.icon : brandInitials(brand.name);
   const avatar = brand.accent
     ? html`<span class="brand-glyph brand-avatar" style="background:${brand.accent}">${mark}</span>`
     : html`<span class="brand-glyph brand-avatar">${mark}</span>`;
-  const cardId = `brand-${domSafe(brand.key)}`;
   // BRANDLIMIT1: brands beyond the free tier's limit stay visible but are flagged locked (PRO upsell)
   // and won't publish — the runtime authority is resolveChannelForBrandPlatform.
   const lockBadge = locked
@@ -205,44 +239,21 @@ function brandCard(brand: BrandRow, slots: { rows: Html; connected: number }, lo
         title="Beyond your plan's brand limit — won't publish. Upgrade to activate.">${icon("lock", "ico", 11)}PRO</a>`
     : "";
   const count = `${slots.connected} channel${slots.connected === 1 ? "" : "s"}`;
-  return html`<section class="panel brand-card${locked ? " brand-locked" : ""}" id="${cardId}">
-    <div class="panel-head brand-head">
+  return html`<div class="bm-row${locked ? " brand-locked" : ""}" role="row" id="brand-${domSafe(brand.key)}"
+    data-bn="${brand.name.toLowerCase()} ${brand.key.toLowerCase()}" x-data="{ open: false }" :class="{ open }"
+    x-show="!q || $el.dataset.bn.includes(q.toLowerCase())">
+    <div class="bm-id" role="rowheader">
+      <button type="button" class="bm-toggle" @click="open = !open" :aria-expanded="open" aria-label="Show channels of ${brand.name}">${icon("chevron", "ico", 14)}</button>
       ${avatar}
       <span class="acct-text">
-        <span class="brand-title"><h3>${brand.name}</h3>${lockBadge}</span>
-        <code class="brand-key">${brand.key}</code>
+        <span class="brand-title"><strong>${brand.name}</strong>${lockBadge}</span>
+        <span id="brand-count-${domSafe(brand.key)}" class="panel-count" title="${count} connected">${count}</span>
       </span>
-      <span id="brand-count-${domSafe(brand.key)}" class="panel-count" style="margin-left:auto" title="${count} connected">${count}</span>
-      <form method="post" action="/brands/${brand.key}/delete" hx-post="/brands/${brand.key}/delete"
-        hx-target="#${cardId}" hx-swap="outerHTML"
-        hx-confirm="Delete brand '${brand.name}'? Its channels become unassigned (not deleted).">
-        ${btn({ label: "Delete", variant: "danger", size: "sm" })}
-      </form>
+      <button type="button" class="btn btn-sm bm-edit" @click="$refs.dlg.showModal()">Edit</button>
     </div>
-    <div class="compose-body">
-      ${slots.rows}
-      <details class="brand-edit">
-        <summary>Edit name, colour, Story &amp; AI disclosure</summary>
-        <form class="brand-edit-form" method="post" action="/brands/${brand.key}/edit"
-          hx-post="/brands/${brand.key}/edit" hx-target="#${cardId}" hx-swap="outerHTML"
-          x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
-          <label class="brand-fld"><span>Brand name</span>
-            <input name="name" value="${brand.name}" required /></label>
-          ${accentField(brand.accent ?? "")}
-          ${iconField(brand.icon ?? "")}
-          ${storyTemplateField(brand)}
-          ${storyPreview(brand)}
-          ${aiDisclosureField(brand)}
-          ${btn({ label: "Save changes", variant: "primary", size: "sm" })}
-        </form>
-      </details>
-    </div>
-  </section>`;
-}
-
-async function renderBrandCard(workspaceId: string, brand: BrandRow): Promise<Html> {
-  const [candidates, locked] = await Promise.all([platformCandidates(workspaceId), lockedBrandKeys(workspaceId)]);
-  return brandCard(brand, await brandSlotsView(workspaceId, brand, candidates), locked.has(brand.key));
+    <div class="bm-cells">${slots.rows}</div>
+    ${editPanel(brand)}
+  </div>`;
 }
 
 async function brandsPage(c: Context, notice?: string, status = 200): Promise<Response> {
@@ -255,8 +266,11 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
     getInstanceLicense(),
     lockedBrandKeys(ws),
   ]);
-  const cards = await Promise.all(brands.map(async (b) => brandCard(b, await brandSlotsView(ws, b, candidates), locked.has(b.key))));
+  const views = await Promise.all(brands.map(async (b) => ({ b, v: await brandSlotsView(ws, b, candidates) })));
+  const rows = views.map(({ b, v }) => brandRow(b, v, locked.has(b.key)));
+  const ambiguous = views.flatMap(({ v }) => v.ambiguous);
   const empty = brands.length === 0;
+  const cols = EDITORIAL_PLATFORMS.map((p) => html`<div class="bm-th" role="columnheader">${platformLabel(p)}</div>`);
 
   return c.html(
     renderPage({
@@ -266,14 +280,15 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
       products: lic.products,
       breadcrumb: `${brands.length} brand${brands.length === 1 ? "" : "s"}`,
       body: html`${notice ? html`<div class="notice notice-err" role="alert">${notice}</div>` : ""}
-        <p class="section-intro">
-          A brand groups the channels you publish to. Map one channel per platform here, then publishing
-          a content item resolves the right channel automatically.
-        </p>
-        <section class="panel">
-          <div class="panel-head"><h3>New brand</h3><span class="panel-sub">map its channels after creating</span></div>
-          <div class="compose-body">
-            <form class="brand-new-form" method="post" action="/brands">
+        <div class="bm-page" x-data="{ q: '' }">
+        <div class="bm-tools">
+          <p class="section-intro">Which channel posts for each brand. Pick one channel per platform.</p>
+          <input type="search" x-model="q" placeholder="Search ${brands.length} brand${brands.length === 1 ? "" : "s"}…" aria-label="Search brands" />
+          <div x-data><button type="button" class="btn btn-primary btn-sm" @click="$refs.newDlg.showModal()">${icon("plus", "ico", 14)}Add brand</button>
+          <dialog class="sheet" x-ref="newDlg" @click="if ($event.target === $el) $el.close()" aria-label="New brand">
+            <div class="sheet-h"><h4>New brand</h4>
+              <button type="button" class="btn btn-ghost btn-sm" @click="$refs.newDlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
+            <form class="brand-new-form sheet-b" method="post" action="/brands">
               <label class="brand-fld"><span>Key <small>(stable id — e.g. techskills.academy)</small></span>
                 <input name="key" placeholder="techskills.academy" required /></label>
               <label class="brand-fld"><span>Display name</span>
@@ -282,15 +297,22 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
               ${iconField()}
               <button class="btn btn-primary btn-sm" type="submit">${icon("plus", "ico", 14)}Create brand</button>
             </form>
-          </div>
-        </section>
+          </dialog></div>
+        </div>
+        ${ambiguous.length
+          ? html`<div class="notice notice-warn" role="status">${ambiguous.join("; ")}: several channels match. Pick the one to post to.</div>`
+          : ""}
         ${empty
           ? html`<div class="empty">
               <span class="empty-ic">${icon("brands", "ico", 20)}</span>
               <p class="empty-title">No brands yet</p>
-              <p class="empty-body">A brand groups the channels you publish to. Create your first brand above, then map one channel per platform.</p>
+              <p class="empty-body">A brand groups the channels you publish to. Add your first brand, then map one channel per platform.</p>
             </div>`
-          : html`<div class="brand-grid">${cards}</div>`}`,
+          : html`<div class="bm" role="table" aria-label="Brands and their channels">
+              <div class="bm-row bm-head" role="row"><div class="bm-th" role="columnheader">Brand</div><div class="bm-cells">${cols}</div></div>
+              ${rows}
+            </div>`}
+        </div>`,
     }),
     status as 200,
   );
@@ -427,10 +449,7 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
       if (err instanceof ApiError) return c.text(err.message, err.status as 400);
       throw err;
     }
-    if (!isHtmx(c)) return c.redirect("/brands", 303);
-    const brand = await getBrand(ws, key);
-    toastHeader(c, "ok", "Brand saved");
-    return c.html(await renderBrandCard(ws, brand!));
+    return c.redirect("/brands", 303);
   });
 
   r.post("/brands/:key/delete", guard, async (c) => {
@@ -470,6 +489,6 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
     if (isHtmx(c)) toastHeader(c, "ok", `${platformLabel(platform)} channel updated`);
     const connected = slots.filter(s => s.channel).length;
     const count = `${connected} channel${connected === 1 ? "" : "s"}`;
-    return c.html(html`${slotRow(key, platform, candidates, slot.channel?.id ?? null, slot.ambiguous)}<span id="brand-count-${domSafe(key)}" hx-swap-oob="outerHTML" class="panel-count" style="margin-left:auto" title="${count} connected">${count}</span>`);
+    return c.html(html`${slotRow(key, platform, candidates, slot.channel?.id ?? null, slot.ambiguous)}<span id="brand-count-${domSafe(key)}" hx-swap-oob="outerHTML" class="panel-count" title="${count} connected">${count}</span>`);
   });
 }
