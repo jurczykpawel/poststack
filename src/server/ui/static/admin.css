@@ -1257,6 +1257,16 @@ a.settings-tab { text-decoration: none; display: inline-block; }
 .scope-mx input { width: 18px; height: 18px; accent-color: var(--accent); }
 .scope-mx-group td { height: 28px; padding-top: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase;
   letter-spacing: .05em; color: var(--text-3); border-top: 0; }
+/* The phone card transform for data tables (≤767px) must not touch this compact matrix. */
+@media (max-width: 767.98px) {
+  table.scope-mx { display: table; }
+  .scope-mx thead { display: table-header-group; position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .scope-mx tbody { display: table-row-group; }
+  .scope-mx thead tr { display: table-row; width: auto; }
+  .scope-mx tbody tr { display: table-row; margin: 0; background: none; border: 0; border-radius: 0; }
+  .scope-mx tbody tr td { display: table-cell; width: auto; min-height: 0; padding: 0 4px; border-top: 1px solid var(--border); }
+  .scope-mx tbody tr.scope-mx-group td { border-top: 0; padding-top: 8px; }
+}
 .int-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
 .int-list { display: flex; flex-direction: column; gap: 2px; }
 .int-group { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); padding: 10px 10px 4px; }
