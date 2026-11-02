@@ -7,7 +7,7 @@
 
 import { count, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, contacts, outboundDeliveries } from "@/db/schema";
+import { channels, contacts, deliveries, outboundDeliveries } from "@/db/schema";
 
 // Outbound task name -> a friendly, identity-free label for the activity log.
 const TASK_LABELS: Record<string, string> = {
@@ -38,6 +38,8 @@ export interface Overview {
   held: number;
   today: number;
   contactCount: number;
+  /** Queue posts (`deliveries`) that need a human — the same statuses Queue's "Needs attention" lists. */
+  posts: { failed: number; held: number; unknown: number };
   recentSends: RecentSend[];
 }
 
@@ -76,6 +78,15 @@ export async function loadOverview(
     .from(contacts)
     .where(eq(contacts.workspace_id, workspaceId));
 
+  const [postAgg] = await db
+    .select({
+      failed: sql<number>`count(*) filter (where ${deliveries.status} = 'failed')`,
+      held: sql<number>`count(*) filter (where ${deliveries.status} = 'held')`,
+      unknown: sql<number>`count(*) filter (where ${deliveries.status} = 'unknown')`,
+    })
+    .from(deliveries)
+    .where(eq(deliveries.workspace_id, workspaceId));
+
   // Identity-free: id, task_name, status, channel platform, created_at. Never contact_id/payload.
   const rows = await db
     .select({
@@ -98,6 +109,7 @@ export async function loadOverview(
     held: Number(agg?.held ?? 0),
     today: Number(agg?.today ?? 0),
     contactCount: Number(contactAgg?.n ?? 0),
+    posts: { failed: Number(postAgg?.failed ?? 0), held: Number(postAgg?.held ?? 0), unknown: Number(postAgg?.unknown ?? 0) },
     recentSends: rows.map((r) => ({
       id: r.id,
       label: deliveryLabel(r.taskName),

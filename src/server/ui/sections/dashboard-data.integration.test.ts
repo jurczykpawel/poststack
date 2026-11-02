@@ -70,6 +70,17 @@ describe("dashboard-data gatherAttention", () => {
     expect(rows.every((r) => r.title === "Chan")).toBe(true);
   });
 
+  it("lists every Queue attention status (failed, held, unknown) regardless of age, so Overview matches Queue", async () => {
+    if (!TEST_DB) return;
+    const ch = await channel(WS_A);
+    const old = new Date(Date.now() - 10 * 86400_000);
+    for (const status of ["failed", "held", "unknown"] as const) {
+      await db.insert(schema.deliveries).values({ workspace_id: WS_A, channel_id: ch, format: "reel", status, payload: {}, scheduled_at: old, run_at: old, updated_at: old });
+    }
+    const rows = await dd.gatherAttention(WS_A);
+    expect(rows.filter((r) => r.kind === "post")).toHaveLength(3);
+  });
+
   it("returns nothing when all healthy", async () => {
     if (!TEST_DB) return;
     await channel(WS_A, "active");

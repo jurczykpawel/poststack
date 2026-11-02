@@ -1,12 +1,12 @@
-import { and, asc, desc, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, accountSources, deliveries, events } from "@/db/schema";
+import { QUEUE_SECTIONS } from "./queue-data";
 import { platformLabel } from "../components/platform";
 import { reconnectHref } from "../components/reconnect";
 import type { Tone } from "../components/status";
 
 const WARN_DAYS = Math.max(1, Number(process.env.SOURCE_DATA_ACCESS_WARN_DAYS ?? 7) || 7);
-export const FAILED_WINDOW_MS = 24 * 3600_000;
 const MAX_ITEMS = 8;
 
 export interface AttentionAction {
@@ -83,7 +83,6 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
     });
   }
 
-  const since = new Date(Date.now() - FAILED_WINDOW_MS);
   const failed = await db
     .select({
       platform: channels.platform,
@@ -92,20 +91,20 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
       account: channels.platform_id,
       lastError: deliveries.last_error,
       attempts: deliveries.attempts,
+      status: deliveries.status,
     })
     .from(deliveries)
     .innerJoin(channels, eq(deliveries.channel_id, channels.id))
     .where(and(
       eq(deliveries.workspace_id, workspaceId),
-      eq(deliveries.status, "failed"),
+      inArray(deliveries.status, [...QUEUE_SECTIONS.attention]), // same statuses as Queue's "Needs attention", any age
       isNull(channels.deleted_at),
-      sql`${deliveries.updated_at} > ${since}`,
     ))
     .orderBy(desc(deliveries.updated_at))
     .limit(MAX_ITEMS);
   for (const p of failed) {
-    const detail = p.lastError ? p.lastError : `failed${p.attempts ? ` · attempt ${p.attempts}` : ""}`;
-    items.push({ kind: "post", platform: p.platform, metadata: p.metadata, title: p.name ?? p.account, tone: "bad", reason: detail, action: { label: "Retry", href: "/queue" }, detailHref: "/queue" });
+    const detail = p.lastError ? p.lastError : `${p.status}${p.attempts ? ` · attempt ${p.attempts}` : ""}`;
+    items.push({ kind: "post", platform: p.platform, metadata: p.metadata, title: p.name ?? p.account, tone: p.status === "failed" ? "bad" : "warn", reason: detail, action: { label: "Review", href: "/queue?status=attention" }, detailHref: "/queue?status=attention" });
   }
 
   items.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone]);
