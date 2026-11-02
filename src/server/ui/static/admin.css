@@ -926,7 +926,7 @@ select.ps-native-hidden { display: none !important; }
 [x-cloak] { display: none !important; }
 .compose { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 900px) { .compose { grid-template-columns: 1fr; } }
-.compose-form { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.compose-form { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: none; } /* beats the global form{max-width:460px} */
 .compose-form .panel { display: flex; flex-direction: column; gap: 12px; }
 .fld { display: flex; flex-direction: column; gap: 5px; }
 .fld > span { font-size: 0.78rem; color: var(--text-3); font-weight: 600; }
@@ -938,7 +938,9 @@ select.ps-native-hidden { display: none !important; }
 .fld textarea { resize: vertical; }
 .fld-row { display: flex; gap: 12px; align-items: flex-end; }
 .fld-row .fld { flex: 0 0 auto; }
-.fld-row .fld.grow { flex: 1 1 auto; min-width: 0; }
+.fld-row .fld.grow { flex: 1 1 100%; min-width: 0; }
+.fld-row .fld.grow input { width: 100%; }
+.media-fields .fld-row { flex-wrap: wrap; }
 
 .compose-counter { align-self: flex-end; font-size: 0.72rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .compose-counter.over { color: var(--bad-text); font-weight: 700; }
@@ -1264,6 +1266,10 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.45); }
   background: var(--surface);
 }
 .conv-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+.conv-more > summary { list-style: none; cursor: pointer; display: inline-block; font-size: .72rem; padding: .15rem .5rem; }
+.conv-more > summary::-webkit-details-marker { display: none; }
+.conv-more-body { display: flex; flex-direction: column; gap: .4rem; margin-top: .4rem; }
+.conv-older { margin: .6rem auto; display: block; }
 .conv-head { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
 /* Active contact filter banner (set when arriving from a contact's "View"): a removable chip so the
    one-person view is visible and clearable without guessing. */
@@ -1382,8 +1388,8 @@ a.msg-chip.msg-media:hover { border-color: var(--accent); }
 .email-date { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); flex: 0 0 auto; }
 .email-body { padding: 13px 14px; font-size: 13px; line-height: 1.6; color: var(--text-1); white-space: pre-wrap; }
 
-.reply-bar { display: flex; gap: 10px; align-items: flex-end; padding: 12px 14px; border-top: 1px solid var(--border); }
-.reply-bar .textarea { flex: 1; min-height: 42px; max-height: 140px; }
+.reply-bar { max-width: none; display: flex; gap: 10px; align-items: flex-end; padding: 12px 14px; border-top: 1px solid var(--border); }
+.reply-bar .textarea { flex: 1; min-width: 0; min-height: 42px; max-height: 140px; }
 .reply-locked .textarea { opacity: .6; }
 
 /* ── Form controls + notices + list (replies wing; missing after shell port) ─────────────────── */

@@ -59,6 +59,7 @@ for (const width of [1280, 390]) {
       await expect(page.locator("#data-list tbody tr")).toHaveCount(1);
 
       await gotoOk(page, "/inbox");
+      await page.locator("#conv-filter-form summary", { hasText: "Filters" }).click();
       await page.locator("#conv-filter-form").getByRole("button", { name: "All channels", exact: true }).click();
       await page.getByRole("option", { name: `Facebook · filter-${width}`, exact: true }).click();
       await expect(page.locator(`#conv-filter-form option[value="${channelId}"]`)).toHaveAttribute("selected", "");
