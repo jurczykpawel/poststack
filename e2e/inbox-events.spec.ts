@@ -13,7 +13,7 @@ test("outgoing subscriptions offer contact erasure and conversation updates", as
   let endpointId: string | undefined;
   try {
     await gotoOk(page, "/webhooks#outgoing");
-    await page.getByRole("button", { name: "Outgoing alert", exact: true }).click();
+    await page.getByRole("button", { name: "Outgoing", exact: true }).click();
     await page.getByText("Add an endpoint", { exact: true }).click();
     const form = page.locator('form[hx-post="/webhooks/outbound"]');
     await form.locator('[name="url"]').fill(url);

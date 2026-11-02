@@ -146,6 +146,59 @@ test("incoming webhook callback wraps within the phone page", async ({ page }, t
   await page.screenshot({ path: testInfo.outputPath("webhooks-phone.png"), fullPage: true });
 });
 
+test("Problem alerts card lives in Webhooks → Outgoing, saves in place, and is gone from Settings", async ({ page }, testInfo) => {
+  await setPro(page.request);
+  await gotoOk(page, "/webhooks#outgoing");
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Problem alerts" }) });
+  await expect(card).toContainText("a token is nearing expiry");
+  await card.getByLabel("Webhook URL", { exact: true }).fill("https://hooks.example.com/poststack-alerts");
+  await card.getByText("Advanced: headers and message template").click();
+  await card.getByLabel(/Custom headers/).fill("Authorization: Bearer e2e-secret");
+  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(card.getByText("Alert webhook saved.")).toBeVisible();
+  await expect(card.locator("code").first()).toHaveText("https://hooks.example.com/poststack-alerts");
+  await expect(card).toContainText("1 custom header(s)");
+  await expect(card).not.toContainText("e2e-secret");
+  for (const [width, theme] of [[1440, "dark"], [390, "light"]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`problem-alerts-${width}-${theme}.png`), fullPage: true });
+  }
+  await gotoOk(page, "/settings#automation");
+  await expect(page.getByText("Alert webhook", { exact: true })).toHaveCount(0);
+});
+
+test("Problem alerts card edits and clears the installation fallback; empty state on a phone", async ({ page }, testInfo) => {
+  await setPro(page.request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoOk(page, "/webhooks#outgoing");
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Problem alerts" }) });
+  const fallback = card.locator("[data-alert-fallback]");
+  if (await card.getByRole("button", { name: "Edit" }).count()) {
+    await card.getByRole("button", { name: "Edit" }).click();
+    await card.getByRole("button", { name: "Remove" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(card.getByText("Alert webhook removed.")).toBeVisible();
+  }
+  await expect(card.getByText("Not configured yet.")).toBeVisible();
+  await expect(fallback).toContainText("not set");
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+  await page.screenshot({ path: testInfo.outputPath("problem-alerts-empty-390-dark.png"), fullPage: true });
+
+  await fallback.getByLabel("Fallback webhook URL").fill("https://hooks.example.com/fallback-e2e");
+  await Promise.all([page.waitForLoadState("load"), fallback.getByRole("button", { name: "Save fallback" }).click()]);
+  await expect(fallback).toContainText("set here");
+  await expect(fallback).toContainText("https://hooks.example.com/fallback-e2e");
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("problem-alerts-fallback-390-dark.png"), fullPage: true });
+
+  await Promise.all([page.waitForLoadState("load"), fallback.getByRole("button", { name: "Clear fallback" }).click()]);
+  await expect(fallback).toContainText("not set");
+  await expect(fallback).not.toContainText("fallback-e2e");
+});
+
 for (const width of [1440, 390]) {
   test(`menu navigation and sign out/in have no page errors at ${width}px`, async ({ page }) => {
     test.setTimeout(120_000);
