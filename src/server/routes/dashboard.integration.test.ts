@@ -706,6 +706,30 @@ describe("dashboard inbox conversation controls", () => {
     expect(scoped).toContain("contact=all"); // the ✕ clears back to everyone
   });
 
+  it("pages the inbox list with an Older button: 50 rows, then the rest, no gaps or repeats (ties on the boundary)", async () => {
+    if (!TEST_DB) return;
+    const CHP = "dddddddd-0000-0000-0000-0000000000ca";
+    await db.insert(s.channels).values({ id: CHP, workspace_id: WS, platform: "instagram", platform_id: "IG-PAGE", display_name: "Paged IG", token_encrypted: "x", webhook_secret: "sp", status: "active" });
+    const base = Date.parse("2026-01-01T00:00:00.000Z");
+    // rows 49 and 50 share a timestamp, so the cursor must tie-break on id
+    await db.insert(s.conversations).values(Array.from({ length: 55 }, (_, i) => ({
+      id: `dddddddd-0000-0000-0000-${String(1000 + i).padStart(12, "0")}`, workspace_id: WS, channel_id: CHP, contact_id: CONTACT,
+      platform: "instagram" as const, thread_type: "dm" as const, thread_ref: `pg${i}`, last_message_preview: `paged ${i}`,
+      last_message_at: new Date(base - Math.min(i, 49) * 60_000),
+    })));
+    const ids = (h: string) => [...h.matchAll(/hx-get="\/inbox\/(dddddddd-0000-0000-0000-\d{12})"/g)].map((m) => m[1]);
+    const first = await (await app.request(`/inbox/list?channel=${CHP}`, { headers: { cookie } })).text();
+    expect(ids(first)).toHaveLength(50);
+    const older = first.match(/hx-get="(\/inbox\/older\?before=[^"]+)"/);
+    expect(older).not.toBeNull();
+    const second = await (await app.request(`${older![1]!.replace(/&amp;/g, "&")}&channel=${CHP}`, { headers: { cookie } })).text();
+    expect(ids(second)).toHaveLength(5);
+    expect(new Set([...ids(first), ...ids(second)]).size).toBe(55);
+    expect(second).not.toContain("conv-older"); // last page: no further button
+    await db.delete(s.conversations).where(eq(s.conversations.channel_id, CHP));
+    await db.delete(s.channels).where(eq(s.channels.id, CHP));
+  });
+
   // Bug: the unread dot was position:absolute at the same right edge as the timestamp, so it visually
   // overlapped the last character(s) of "36m" etc. Fixed by moving the dot INTO the same flex wrapper
   // as the timestamp (both flush right together, with a real gap between them) instead of floating an

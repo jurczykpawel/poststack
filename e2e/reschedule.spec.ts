@@ -124,7 +124,7 @@ for (const scenario of [
         await page.keyboard.press("Enter");
         await expect.poll(async () => (await client.query("select scheduled_at at time zone 'UTC' as scheduled_at from deliveries where workspace_id=$1 and id=$2", [workspaceId, deliveryId])).rows[0].scheduled_at.toISOString()).toBe(scenario.iso);
         await expect(card.locator("details")).not.toHaveAttribute("open");
-        await expect(page.locator(".toasts")).toHaveText("Termin zmieniony.");
+        await expect(page.locator(".toasts")).toHaveText("Schedule updated.");
         // Navigate immediately after the fragment save, as in the keyboard workflow.
         await card.getByRole("link", { name: "view delivery →" }).click();
         await expect(page).toHaveURL(new RegExp(`/queue/${deliveryId}$`));

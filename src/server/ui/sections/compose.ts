@@ -134,7 +134,7 @@ function composeScript(): Html {
         sel: {}, publishMode: "draft", scheduleAt: "", capTab: "base", pvTab: "",
         minAt() { var d = new Date(Date.now() + 60000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); },
         get scheduleNotice() { return this.publishMode === "schedule" ? window.psScheduleTime(this.scheduleAt).notice : ""; },
-        submitLabel() { return this.publishMode === "now" ? ("Publish to " + this.selectedPlatforms().length + " →") : this.publishMode === "schedule" ? "Schedule →" : "Create & open →"; },
+        submitLabel() { return this.publishMode === "now" ? "Publish to " + this.selectedPlatforms().length : this.publishMode === "schedule" ? "Schedule" : "Create & open"; },
         get availPlatforms() { return this.brand && this.brands[this.brand] ? this.brands[this.brand].platforms : []; },
         get hasBrands() { return this.brandList.length > 0; },
         STORY: { facebook: true, instagram: true },

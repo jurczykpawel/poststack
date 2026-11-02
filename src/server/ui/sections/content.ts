@@ -312,7 +312,7 @@ function publishPanel(contentId: string, views: PostView[]): Html {
     <p class="notice notice-warn" role="status" x-show="scheduleNotice" x-text="scheduleNotice" x-cloak></p>
     <input type="hidden" name="mode" :value="mode" />
     <input type="hidden" name="at" :value="atIso" />
-    ${views.some((v) => v.post.delivery_id && ["scheduled", "held"].includes(v.post.status)) ? html`<div class="reschedule-all"><p>Zmień termin wszystkich kanałów tego Content:</p>${rescheduleForm(`/content/${contentId}/reschedule`, "#publish-panel")}</div>` : ""}
+    ${views.some((v) => v.post.delivery_id && ["scheduled", "held"].includes(v.post.status)) ? html`<div class="reschedule-all"><p>Reschedule every channel of this Content:</p>${rescheduleForm(`/content/${contentId}/reschedule`, "#publish-panel")}</div>` : ""}
     <div class="card-grid">${cards}</div>
   </section>`;
 }
@@ -451,7 +451,7 @@ export function registerContent(r: Hono, guard: MiddlewareHandler): void {
     const panel = await renderPublishPanel(a.workspaceId, id);
     if (!panel) return c.text("not found", 404);
     if (!isHtmx(c)) return c.redirect(`/content/${id}`, 303);
-    toastHeader(c, "ok", "Termin zmieniony.");
+    toastHeader(c, "ok", "Schedule updated.");
     return c.html(panel);
   };
   r.post("/content/:id/reschedule", guard, reschedule(true));
