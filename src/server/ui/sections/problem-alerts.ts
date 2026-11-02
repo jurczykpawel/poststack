@@ -1,6 +1,7 @@
 import { html } from "hono/html";
 import { BRAND } from "@/lib/brand";
 import type { AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
+import type { ConfigStatus } from "@/lib/settings/config";
 import { icon } from "../components/icons";
 import { proLink } from "../components/pro-link";
 
@@ -44,20 +45,38 @@ export function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure:
       </details>
       <div class="row" style="gap:.5rem">
         <button class="btn btn-primary" type="submit">Save</button>
-        ${cfg ? html`<button class="btn btn-sm btn-danger" type="button" hx-delete="/settings/alert-webhook" hx-target="#alert-webhook-area" hx-swap="innerHTML" hx-confirm="Remove the problem alerts webhook?">Remove</button>` : html``}
+        ${cfg ? html`<button class="btn btn-sm btn-danger" type="button" hx-delete="/settings/alert-webhook" hx-target="#alert-webhook-area" hx-swap="innerHTML" hx-confirm="Remove the problem alerts webhook?" data-confirm-label="Remove">Remove</button>` : html``}
       </div>
     </form>`;
 }
 
-/** Webhooks → Outgoing: the "Problem alerts" card. `fallbackUrl` (instance operators only) is the
- *  CHANNEL_ALERT_WEBHOOK_URL installation fallback, shown as information so it never goes invisible. */
-export function problemAlertsCard(cfg: AlertWebhookConfig | null, canAlerts: boolean, upgradeUrl: string, fallbackUrl: string | null): Html {
+/** Installation fallback (CHANNEL_ALERT_WEBHOOK_URL), instance operators only: state + edit + clear through
+ *  the existing /settings/credentials route (htmx, no swap; the page reloads to re-read every status). */
+function fallbackRow(f: ConfigStatus): Html {
+  const tone = f.source === "db" ? "ok" : f.source === "env" ? "info" : "neutral";
+  const label = f.source === "db" ? "set here" : f.source === "env" ? "from env" : "not set";
+  const post = html`hx-post="/settings/credentials" hx-ext="json-enc" hx-swap="none" @htmx:after-request="location.reload()"`;
+  return html`<div data-alert-fallback style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)">
+    <div class="row" style="align-items:center;gap:.5rem;flex-wrap:wrap"><strong style="font-size:.85rem">Installation fallback</strong><span class="badge tone-${tone}">${label}</span>${f.preview ? html`<code class="mono" style="overflow-wrap:anywhere">${f.preview}</code>` : html``}</div>
+    <p class="muted" style="font-size:.78rem;margin:.25rem 0 .5rem">Used when the workspace alert above is off or not set. <code>CHANNEL_ALERT_WEBHOOK_URL</code>; a value set here overrides the environment variable.</p>
+    <form class="row" style="gap:.5rem;flex-wrap:wrap" ${post}>
+      <input type="hidden" name="key" value="CHANNEL_ALERT_WEBHOOK_URL" />
+      <input class="input input-sm" type="url" name="value" aria-label="Fallback webhook URL" placeholder="https://hooks.example.com/alert" autocomplete="off" required />
+      <button class="btn btn-sm btn-primary" type="submit">Save fallback</button>
+    </form>
+    ${f.source === "db" ? html`<form style="margin-top:.4rem" ${post}><input type="hidden" name="key" value="CHANNEL_ALERT_WEBHOOK_URL" /><input type="hidden" name="clear" value="1" /><button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear fallback</button></form>` : html``}
+  </div>`;
+}
+
+/** Webhooks → Outgoing: the "Problem alerts" card. `fallback` (instance operators only) is the
+ *  CHANNEL_ALERT_WEBHOOK_URL installation fallback status, editable here so it never goes invisible. */
+export function problemAlertsCard(cfg: AlertWebhookConfig | null, canAlerts: boolean, upgradeUrl: string, fallback: ConfigStatus | null): Html {
   return html`<div class="card" style="margin-bottom:1rem" x-data="{ open: false }">
     <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
       <h3 style="margin:0">Problem alerts</h3>${canAlerts ? html`` : proLink(upgradeUrl, "PRO")}
     </div>
     <p class="muted" style="font-size:.85rem;margin-bottom:.75rem">We POST to your URL when something breaks: a channel needs re-login (plus the urgent nudge ~24h before access expires), a channel is degraded, a post delivery fails or is held, an incoming event could not be handled, or a token is nearing expiry. Add custom headers and templated fields to reach Slack, n8n or an email relay.</p>
     <div id="alert-webhook-area">${renderAlertWebhook(cfg, canAlerts, upgradeUrl)}</div>
-    ${fallbackUrl ? html`<p class="muted" style="font-size:.78rem;margin:.5rem 0 0">Installation fallback, used when this is off or not set: <code>${fallbackUrl}</code> (<code>CHANNEL_ALERT_WEBHOOK_URL</code>).</p>` : html``}
+    ${fallback ? fallbackRow(fallback) : html``}
   </div>`;
 }

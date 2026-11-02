@@ -35,7 +35,7 @@ import { addJobTx } from "@/lib/queue/client";
 import { PLATFORM_LABELS, platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, requireFeature, ProRequiredError, type LicenseState } from "@/lib/license/gate";
-import { configStatus, getConfig, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
+import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
 import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
@@ -2344,7 +2344,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const channelIds = wsChannels.map((ch) => ch.id);
     const alertWebhook = await getAlertWebhook(a.workspaceId);
     const canAlerts = features.has("managed_connection");
-    const alertFallback = (await isInstanceOperator(a)) ? (await getConfig("CHANNEL_ALERT_WEBHOOK_URL")) || null : null;
+    const alertFallback = (await isInstanceOperator(a)) ? (await configStatus()).find((f) => f.key === "CHANNEL_ALERT_WEBHOOK_URL") ?? null : null;
     const canInsights = features.has("webhook_insights");
     const canOutbound = features.has("outbound_webhooks");
     const stats = canInsights ? await loadWebhookStats(channelIds) : null;
