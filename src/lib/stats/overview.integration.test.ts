@@ -73,6 +73,25 @@ describe("loadOverview", () => {
     expect(ov.today).toBe(1); // Only d1 was sent and created today.
   });
 
+  it("counts Queue posts (deliveries) failed/held/unknown separately from replies, scoped to the workspace", async () => {
+    if (!TEST_DB) return;
+    const post = (ws: string, status: "failed" | "held" | "unknown" | "sent") =>
+      db.insert(s.deliveries).values({ workspace_id: ws, channel_id: CH, format: "reel", status, payload: {}, scheduled_at: new Date(), run_at: new Date() });
+    await post(WS, "failed"); await post(WS, "failed"); await post(WS, "held"); await post(WS, "unknown"); await post(WS, "sent");
+    await seedDelivery("r1", "outgoing-message", "failed", new Date());
+    const OTHER = "0ad0aaaa-0000-0000-0000-0000000000d1";
+    await db.insert(s.workspaces).values({ id: OTHER, name: "Other", slug: `ov-${OTHER}` });
+    await db.insert(s.channels).values({ id: "0ad0aaaa-0000-0000-0000-0000000000d2", workspace_id: OTHER, platform: "instagram", platform_id: "IG-O2", display_name: "O", token_encrypted: "x", webhook_secret: "s" });
+    await db.insert(s.deliveries).values({ workspace_id: OTHER, channel_id: "0ad0aaaa-0000-0000-0000-0000000000d2", format: "reel", status: "failed", payload: {}, scheduled_at: new Date(), run_at: new Date() });
+    try {
+      const ov = await loadOverview(WS);
+      expect(ov.posts).toEqual({ failed: 2, held: 1, unknown: 1 });
+      expect(ov.failed).toBe(1); // replies stay separate
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, OTHER));
+    }
+  });
+
   it("counts only sent deliveries within the UTC creation day", async () => {
     if (!TEST_DB) return;
     const now = new Date("2026-06-12T23:30:00-04:00");

@@ -2276,7 +2276,7 @@ interface OverviewPublishing {
 function renderPublishingOverview(pub: OverviewPublishing): Html {
   const attention = pub.attention.length
     ? html`<section class="panel" style="margin:1rem 0">
-        <div class="panel-head"><h3>Needs attention</h3><span class="panel-count">${pub.attention.length}</span></div>
+        <div class="panel-head"><h3>Needs attention</h3><span class="panel-count">${pub.attention.length}</span><a class="panel-more" href="/queue?status=attention">All posts in Queue →</a></div>
         ${pub.attention.map((a) => {
           // Title body (name · reason). Linked to the entity's detail view when we know where it
           // lives, so the whole row is a click-through — otherwise a plain span (no dead link).
@@ -2292,7 +2292,7 @@ function renderPublishingOverview(pub: OverviewPublishing): Html {
           </div>`;
         })}
       </section>`
-    : html`<section class="panel" style="margin:1rem 0"><div class="panel-head"><h3>Needs attention</h3></div><div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">All healthy</p><p class="empty-body">No channels, sources or deliveries need a fix.</p></div></section>`;
+    : html`<section class="panel" style="margin:1rem 0"><div class="panel-head"><h3>Needs attention</h3></div><div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">All healthy</p><p class="empty-body">No channels, sources or posts need a fix.</p></div></section>`;
   const upcoming = html`<section class="panel">
       <div class="panel-head"><h3>Upcoming</h3><a class="panel-more" href="/queue?status=scheduled">Queue →</a></div>
       ${pub.upcoming.length
@@ -2331,8 +2331,8 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
     <div class="kpis" style="margin:14px 0">
       ${kpi({ label: "Sent today (UTC)", value: ov.today, tone: "neutral", sub: "Queued today, now sent" })}
       ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok" })}
-      ${kpi({ label: "Failed", value: ov.failed, tone: ov.failed > 0 ? "bad" : "neutral" })}
-      ${kpi({ label: "Held", value: ov.held, tone: ov.held > 0 ? "warn" : "neutral" })}
+      ${kpi({ label: "Failed", value: ov.failed + ov.posts.failed, tone: ov.failed + ov.posts.failed > 0 ? "bad" : "neutral", sub: `${ov.posts.failed} posts · ${ov.failed} replies`, href: ov.posts.failed > 0 ? "/queue?status=attention" : undefined })}
+      ${kpi({ label: "Held", value: ov.held + ov.posts.held, tone: ov.held + ov.posts.held > 0 ? "warn" : "neutral", sub: `${ov.posts.held} posts · ${ov.held} replies${ov.posts.unknown ? ` · ${ov.posts.unknown} posts unknown` : ""}`, href: ov.posts.held + ov.posts.unknown > 0 ? "/queue?status=attention" : undefined })}
       ${kpi({ label: "Contacts", value: ov.contactCount, tone: "neutral" })}
       ${showRt
         ? html`${kpi({ label: `Avg first reply (${DEFAULT_WINDOW_DAYS}d)`, value: formatLatencyMs(rt!.avg_first_response_ms), tone: "info" })}
