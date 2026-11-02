@@ -21,7 +21,7 @@ test.beforeAll(async () => {
     `INSERT INTO webhook_events (event_key, channel_id, platform, object, event_type, field, handling_status, error_detail, raw, received_at)
      SELECT 'actspec-' || i, $1, 'facebook', 'page', ($2::text[])[1 + i % 4], 'feed', (($3::text[])[1 + i % 6])::webhook_event_handling_status,
             CASE WHEN i % 6 = 5 THEN 'Provider returned 400: invalid recipient' END,
-            jsonb_build_object('entry', jsonb_build_array(jsonb_build_object('changes', jsonb_build_array(jsonb_build_object('value', jsonb_build_object('from', jsonb_build_object('id', 'S' || i, 'name', 'Noémie Pfirsch')))))),
+            jsonb_build_object('entry', jsonb_build_array(jsonb_build_object('changes', jsonb_build_array(jsonb_build_object('value', jsonb_build_object('from', jsonb_build_object('id', 'S' || i, 'name', 'Noémie Pfirsch'))))))),
             now() - (i * interval '5 minutes')
      FROM generate_series(0, 119) AS i`,
     [channelId, EVENT_TYPES, STATUSES],
