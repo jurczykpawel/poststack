@@ -29,6 +29,7 @@ import {
 import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
+import { renderSourcesManager } from "./sources";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../components/ai-notice";
@@ -456,10 +457,14 @@ async function channelsPage(c: Context): Promise<Response> {
                   <a class="btn btn-secondary" href="${showHidden ? "/channels?showHidden=1" : "/channels"}">Clear filters</a>
                 </div></section>`
               : channelGroups(items, brands)}`}
+        <section class="panel" id="sources">
+          <div class="panel-head"><h3>Managed connections</h3></div>
+          <div class="set-body">${await renderSourcesManager(ws)}</div>
+        </section>
         <section class="panel">
           <div class="panel-head"><h3>Connect a channel</h3></div>
           <div class="set-body">
-            <p class="set-lead">Connect a Facebook Page or Instagram Business account by OAuth, paste a long-lived token, or set up a <a href="/sources">managed connection</a>${canManaged ? "" : " (PRO)"} to connect all your accounts at once.</p>
+            <p class="set-lead">Connect a Facebook Page or Instagram Business account by OAuth, paste a long-lived token, or set up a <a href="#sources">managed connection</a>${canManaged ? "" : " (PRO)"} to connect all your accounts at once.</p>
             <div x-data="{ tg: false }">
               <div class="action-bar" style="margin:0">
                 ${hasFb && !canMultiChannel ? proConnect("Facebook") : html`<a class="btn btn-secondary" href="/api/oauth/facebook">+ Facebook</a>`}

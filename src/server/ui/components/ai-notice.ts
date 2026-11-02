@@ -10,5 +10,5 @@ type Html = ReturnType<typeof html>;
  * the API's `ai_configured`). `what` names the affected feature, e.g. "AI drafts", "rephrasing".
  */
 export function aiUnconfiguredBanner(what: string): Html {
-  return html`<div class="notice notice-warn" style="font-size:.8rem;display:flex;align-items:center;gap:6px">${icon("sparkles", "ico", 14)}<span>No AI provider configured — ${what} won't run until you add an API key in <a href="/settings">Settings → Credentials (AI rephrasing)</a>.</span></div>`;
+  return html`<div class="notice notice-warn" style="font-size:.8rem;display:flex;align-items:center;gap:6px">${icon("sparkles", "ico", 14)}<span>No AI provider configured — ${what} won't run until you add an API key in <a href="/settings/integrations/ai">Settings → Integrations → AI provider</a>.</span></div>`;
 }

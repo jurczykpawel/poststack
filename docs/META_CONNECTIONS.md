@@ -55,7 +55,7 @@ Instagram DMs only arrive through **Instagram Business Login (path C)**, one Ins
 | B | **Instagram via Facebook Login** ("+ Instagram") | Channels page → **+ Instagram** → same OAuth dialog, Instagram-flavored scopes | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Publish to Instagram, comment reading + replies — **not** Instagram DMs |
 | C | **Instagram Business Login** ("+ Instagram (messaging)") | Channels page → **+ Instagram (messaging)** | `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (separate app credentials) | `graph.instagram.com` | Instagram DM inbox + auto-reply, comment→DM. Augments an existing path-B channel with a `messaging_token`, or creates an IG-Login-only channel if none exists yet |
 | D | **Pasted token** (Channels form / API) | Channels page → paste a token, or `POST /api/v1/channels/connect-token` | `META_APP_ID` / `META_APP_SECRET` (used only to validate the token, via `debug_token`) | `graph.facebook.com` | Same as A (Page token) or same as A+B for both platforms in one paste (User/System User token) — everything the token's own scopes allow |
-| E | **Managed connection / Sources** (`POST /api/v1/sources`) | Settings → Sources → paste a User or System User token (or the API) | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Same as D, but auto-enumerates and auto-syncs **every** Page + linked Instagram account the token can reach, keeps them in sync daily, and cascades re-auth to all of them from one master |
+| E | **Managed connection / Sources** (`POST /api/v1/sources`) | Channels → Managed connections → paste a User or System User token (or the API) | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Same as D, but auto-enumerates and auto-syncs **every** Page + linked Instagram account the token can reach, keeps them in sync daily, and cascades re-auth to all of them from one master |
 
 Detail per path:
 
@@ -90,7 +90,7 @@ Detail per path:
     pasting the token again; nothing here syncs automatically (that's path E).
   Connects as `connection_mode: "manual_token"`.
 - **E — Managed connection (Sources).** `src/lib/channels/account-source.ts`,
-  `POST /api/v1/sources` (needs an API key with `sources:write`), Settings → Sources UI. **PRO
+  `POST /api/v1/sources` (needs an API key with `sources:write`), Channels → Managed connections UI. **PRO
   feature** (`managed_connection`, gated by `proGate`). The pasted **master** token (User or System
   User; a Page token is rejected — "connects only one page") is stored, encrypted, in
   `account_sources`; every Page + linked Instagram account it can reach is minted as a `derived`

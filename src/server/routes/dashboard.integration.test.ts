@@ -756,14 +756,14 @@ describe("dashboard sequence builder", () => {
 describe("dashboard API key scopes", () => {
   it("renders every catalog permission once with grouped presets and an empty initial selection", async () => {
     if (!TEST_DB) return;
-    const body = await (await app.request("/settings#apikeys", { headers: { cookie } })).text();
+    const body = await (await app.request("/settings/api-keys", { headers: { cookie } })).text();
     const rendered = [...body.matchAll(/data-api-scope type="checkbox" value="([^"]+)"/g)].map((match) => match[1]);
     expect(rendered).toHaveLength(API_SCOPES.length);
     expect([...rendered].sort()).toEqual([...API_SCOPES].sort());
     for (const preset of API_SCOPE_PRESETS) expect(body).toContain(`presets['${preset.id}']`);
     expect(body).toContain(">Select all</button>");
     expect(body).toContain(">Deselect all</button>");
-    expect(body).toContain('<label class="label" for="api-key-name">Key name</label>');
+    expect(body).toContain('<label class="label" for="api-key-name">Name</label>');
     expect(body).toContain('aria-live="polite"');
     expect(body).toContain(":disabled=\"scopes.length === 0\"");
   });
@@ -810,9 +810,8 @@ describe("dashboard API key scopes", () => {
 describe("settings — Meta App config + alert webhook UI", () => {
   it("shows copy-ready OAuth redirect URIs + webhook URL derived from APP_URL", async () => {
     if (!TEST_DB) return;
-    const res = await app.request("/settings", { headers: { cookie } });
-    const body = await res.text();
-    expect(body).toContain("Meta App configuration");
+    let body = "";
+    for (const id of ["meta", "google", "linkedin", "x", "tiktok", "threads"]) body += await (await app.request(`/settings/integrations/${id}`, { headers: { cookie } })).text();
     expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
     expect(body).toContain("http://localhost:3000/api/oauth/instagram/callback");
     expect(body).toContain("http://localhost:3000/api/oauth/youtube/callback"); // YouTube redirect URI
@@ -878,7 +877,7 @@ describe("channels — managed connection section", () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/channels", { headers: { cookie } })).text();
     // Managed connection moved to its own /sources section (UNIFY1 Task 5); the channels page links to it.
-    expect(body).toContain('href="/sources"');
+    expect(body).toContain('href="#sources"');
     expect(body).toContain("+ Facebook");
     expect(body).toContain("+ Instagram");
     expect(body).toContain("Connect a token manually");
@@ -1018,12 +1017,12 @@ describe("channels — managed connection section", () => {
     if (!TEST_DB) return;
     const res = await app.request("/api-keys", { headers: { cookie } });
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/settings#apikeys");
+    expect(res.headers.get("location")).toBe("/settings/api-keys");
   });
 
   it("Settings → API keys tab embeds the create form + key list", async () => {
     if (!TEST_DB) return;
-    const body = await (await app.request("/settings", { headers: { cookie } })).text();
+    const body = await (await app.request("/settings/api-keys", { headers: { cookie } })).text();
     expect(body).toContain('hx-post="/settings/api-keys"'); // the create form lives in Settings now
     expect(body).toContain('id="keys-area"');
     expect(body).toContain('value="content:read"');
@@ -1049,19 +1048,16 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("https://example.com/pic.jpg");
   });
 
-  it("the Settings → Sources tab renders the managed-connection form + System User guide on PRO", async () => {
+  it("Channels renders the managed-connection form + System User guide on PRO", async () => {
     if (!TEST_DB) return;
-    // Managed connections moved into Settings → Sources (the tab is rendered in the settings HTML).
-    const body = await (await app.request("/settings", { headers: { cookie } })).text();
-    expect(body).toContain("Sources — managed connections");
+    // Managed connections live on the Channels page (UXFLOW1 stage 7, was Settings → Sources).
+    const body = await (await app.request("/channels", { headers: { cookie } })).text();
+    expect(body).toContain("Managed connections");
     expect(body).toContain("Connect all"); // the master-token form
     expect(body).toContain("System User"); // the guide CTA
-    // The Meta callback / redirect URLs live in Settings → Integrations.
-    expect(body).toContain("http://localhost:3000/api/oauth/facebook/callback");
-    expect(body).toContain("http://localhost:3000/api/webhooks/meta");
   });
 
-  it("Settings → Sources groups a master source's channels by platform with per-platform counts", async () => {
+  it("Channels → Managed connections groups a master source's channels by platform with per-platform counts", async () => {
     if (!TEST_DB) return;
     const SRC = "dddddddd-0000-0000-0000-0000000000d1";
     await db.insert(s.accountSources).values({
@@ -1073,7 +1069,7 @@ describe("channels — managed connection section", () => {
       { workspace_id: WS, source_id: SRC, platform: "instagram", platform_id: "IG-G2", display_name: "IG Two", token_encrypted: "x", webhook_secret: "g2", status: "active", connection_mode: "derived" },
       { workspace_id: WS, source_id: SRC, platform: "facebook", platform_id: "FB-G1", display_name: "FB One", token_encrypted: "x", webhook_secret: "g3", status: "active", connection_mode: "derived" },
     ]);
-    const body = await (await app.request("/settings", { headers: { cookie } })).text();
+    const body = await (await app.request("/channels", { headers: { cookie } })).text();
     expect(body).toContain("Big Master");
     expect(body).toContain("<details"); // collapsible platform groups
     expect(body).toContain("Instagram <span class=\"muted\" style=\"font-weight:400\">· 2");

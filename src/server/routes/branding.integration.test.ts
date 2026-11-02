@@ -151,7 +151,7 @@ describe("instance branding settings", () => {
     const row = await db.query.instanceSettings.findFirst({ where: eq(s.instanceSettings.key, "INSTANCE_BRANDING") });
     expect(row?.value_encrypted).toBeTruthy();
     expect(row?.value_encrypted).not.toContain("Orchard");
-    for (const path of ["/", "/privacy", "/terms", "/login", "/register", "/overview", "/settings", "/channels", "/api/docs", "/api/v1", "/not-a-page"]) {
+    for (const path of ["/", "/privacy", "/terms", "/login", "/register", "/overview", "/settings/account", "/channels", "/api/docs", "/api/v1", "/not-a-page"]) {
       const response = await app.request(path, { headers: ["/", "/privacy", "/terms"].includes(path) ? {} : { cookie } });
       expect(response.status, path).toBe(path === "/not-a-page" ? 404 : 200);
       const body = await response.text();

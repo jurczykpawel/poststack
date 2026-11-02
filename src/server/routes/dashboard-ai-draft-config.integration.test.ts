@@ -77,18 +77,18 @@ async function chRow() {
 }
 
 describe("Workspace default AI-draft prompt — render + persist (Task 8 / ADPROMPT2)", () => {
-  it("GET /settings (PRO) renders both the DM and public-comment default-prompt textareas", async () => {
+  it("GET /settings/ai (PRO) renders both the DM and public-comment default-prompt textareas", async () => {
     if (!TEST_DB) return;
-    const html = await (await get("/settings")).text();
+    const html = await (await get("/settings/ai")).text();
     expect(html).toContain('name="ai_draft_prompt_dm"');
     expect(html).toContain('name="ai_draft_prompt_public"');
   });
 
-  it("GET /settings (free) shows a PRO upsell, no textareas", async () => {
+  it("GET /settings/ai (free) shows a PRO upsell, no textareas", async () => {
     if (!TEST_DB) return;
     await gate.clearLicense();
     gate.invalidateLicenseCache();
-    const html = await (await get("/settings")).text();
+    const html = await (await get("/settings/ai")).text();
     expect(html).not.toContain('name="ai_draft_prompt_dm"');
     expect(html).not.toContain('name="ai_draft_prompt_public"');
   });

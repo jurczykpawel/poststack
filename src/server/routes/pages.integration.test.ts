@@ -168,7 +168,7 @@ describe("authenticated dashboard (real Postgres)", () => {
       ["/rules", "Rules"],
       ["/approvals", "Approvals"],
       ["/sequences", "Sequences"],
-      ["/settings", "API keys"],
+      ["/settings/account", "API keys"],
     ] as const) {
       const res = await app.request(path, { headers: withCookie() });
       expect(res.status, path).toBe(200);

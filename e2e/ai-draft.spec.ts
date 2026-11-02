@@ -193,7 +193,7 @@ test.describe.serial("AI-draft UX (ADUX1/ADUX2/ADDEL1/ADLOG1)", () => {
     await expect(page.locator(".appr", { hasText: "Edited from Approvals" })).toBeVisible();
   });
 
-  test("AI generation log appears on Settings -> Automation, newest first, with model/response (ADLOG1)", async ({ page }) => {
+  test("AI log is counted on Settings -> AI and listed in Activity (ADLOG1)", async ({ page }) => {
     const client = await db();
     try {
       const workspaceId = await seedWorkspace(client);
@@ -206,15 +206,12 @@ test.describe.serial("AI-draft UX (ADUX1/ADUX2/ADDEL1/ADLOG1)", () => {
       await client.end();
     }
 
-    await gotoOk(page, "/settings#automation");
-    await page.getByRole("button", { name: "Automation" }).click();
-    await expect(page.getByText("AI generation log")).toBeVisible();
-    const logList = page.locator(".ai-log-list");
-    await expect(logList).toContainText("gpt-4o-mini");
-    // Expand the row to see the full logged exchange.
-    await logList.locator("details").first().click();
-    await expect(logList).toContainText("Congratulations on the launch!");
-    await expect(logList).toContainText("Thank you so much!");
+    // Settings → AI keeps a count and a pointer; the rows themselves live in Activity.
+    await gotoOk(page, "/settings/ai");
+    await expect(page.getByText(/\d+ generations?, \d+ failed this week\./)).toBeVisible();
+    await page.getByRole("link", { name: "Open in Activity" }).click();
+    await expect(page).toHaveURL(/\/activity\?source=ai/);
+    await expect(page.locator("#data-list")).toContainText("gpt-4o-mini");
   });
 });
 

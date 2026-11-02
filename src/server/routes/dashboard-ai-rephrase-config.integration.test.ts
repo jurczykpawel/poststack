@@ -66,18 +66,18 @@ async function wsPrompt(): Promise<string | null> {
 }
 
 describe("Workspace default rephrase prompt — render + persist (AIPROMPT1)", () => {
-  it("GET /settings (PRO) renders the rephrase-prompt textarea + the built-in default", async () => {
+  it("GET /settings/ai (PRO) renders the rephrase-prompt textarea + the built-in default", async () => {
     if (!TEST_DB) return;
-    const html = await (await get("/settings")).text();
+    const html = await (await get("/settings/ai")).text();
     expect(html).toContain('name="ai_rephrase_prompt"');
     expect(html).toContain("Built-in default"); // AIPROMPT2 visibility of the fallback
   });
 
-  it("GET /settings (free) shows a PRO upsell, no textarea", async () => {
+  it("GET /settings/ai (free) shows a PRO upsell, no textarea", async () => {
     if (!TEST_DB) return;
     await gate.clearLicense();
     gate.invalidateLicenseCache();
-    const html = await (await get("/settings")).text();
+    const html = await (await get("/settings/ai")).text();
     expect(html).not.toContain('name="ai_rephrase_prompt"');
   });
 
