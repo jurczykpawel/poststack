@@ -1,6 +1,7 @@
 import { registerTikTokConfirmation } from "./tiktok-confirmation";
 import { rescheduleForm } from "../components/reschedule";
 import type { Context, Hono, MiddlewareHandler } from "hono";
+import { getCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import { retryPost, cancelDelivery, publishDeliveryNow, rescheduleDelivery, type DeliveryRow } from "@/lib/deliveries/service";
 import { getMedia, type MediaRow } from "@/lib/media/service";
@@ -8,186 +9,46 @@ import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { renderPage } from "../layout";
-import { statusBadge, pill, dot, type Tone } from "../components/status";
+import { statusBadge, type Tone } from "../components/status";
 import { platformCell } from "../components/platform";
 import { btn } from "../components/button";
 import { icon } from "../components/icons";
 import { urlLink, safeHttpUrl } from "../components/url";
 import { relTime, localTime } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
-import { listQueue, channelOptions, getQueueItem, type QueueRow, type QueueItem } from "./queue-data";
+import { editDeliveryText } from "@/lib/content/service";
+import { getQueueItem, resolveZone, type QueueItem } from "./queue-data";
+import { currentListUrl, renderQueue } from "./queue-list";
 
 type Html = ReturnType<typeof html>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ATTEMPT_BUDGET = 5;
-
-const POST_STATUSES = [
-  "failed", "held", "unknown", "scheduled", "sending", "processing", "sent", "canceled",
-] as const satisfies readonly DeliveryRow["status"][];
+const TZ_COOKIE = "ps_tz";
 
 const STATUS_TONE: Record<DeliveryRow["status"], Tone> = {
   scheduled: "info", sending: "info", processing: "info", sent: "ok", held: "warn",
   failed: "bad", unknown: "warn", canceled: "neutral",
 };
 
-function isPostStatus(s: string): s is DeliveryRow["status"] {
-  return (POST_STATUSES as readonly string[]).includes(s);
-}
-
 async function auth(c: Context): Promise<AuthContext | null> {
   return authenticate(c.req.raw).catch(() => null);
 }
 
-function statusChips(active: string | undefined): Html {
-  const chips = POST_STATUSES.map((s) => {
-    const on = active === s;
-    const href = on ? "/queue" : `/queue?status=${s}`;
-    return html`<a class="count-chip ${on ? "is-on" : ""}" href="${href}">${pill(s, STATUS_TONE[s])}</a>`;
-  });
-  return html`<div class="counts-bar"><div class="counts-status">${chips}</div></div>`;
-}
-
-function filterBar(
-  active: { status?: string; channelId?: string; format?: string },
-  channels: { id: string; label: string }[],
-  formats: string[],
-): Html {
-  const statusOpts = POST_STATUSES.map((s) => html`<option value="${s}"${active.status === s ? raw(" selected") : raw("")}>${s}</option>`);
-  const channelOpts = channels.map((ch) => html`<option value="${ch.id}"${active.channelId === ch.id ? raw(" selected") : raw("")}>${ch.label}</option>`);
-  const formatOpts = formats.map((f) => html`<option value="${f}"${active.format === f ? raw(" selected") : raw("")}>${f}</option>`);
-  const hasFilters = !!(active.status || active.channelId || active.format);
-  return html`<form class="filter-bar" method="get" action="/queue" role="search">
-    <select name="status" aria-label="Filter by status"><option value="">All statuses</option>${statusOpts}</select>
-    <select name="channel" aria-label="Filter by channel"><option value="">All channels</option>${channelOpts}</select>
-    <select name="format" aria-label="Filter by format"><option value="">All formats</option>${formatOpts}</select>
-    <button class="btn btn-secondary btn-sm" type="submit">Apply</button>
-    ${hasFilters ? html`<a class="filter-clear" href="/queue">Clear</a>` : ""}
-  </form>`;
-}
-
-function timeCell(r: QueueRow): Html {
-  return html`<span class="q-time"><span class="q-rel">${relTime(r.scheduledAt)}</span><small class="q-abs">${localTime(r.scheduledAt)}</small></span>`;
-}
-function attemptsCell(n: number): Html {
-  return html`<span class="${n > 0 ? "q-att" : "q-att q-att-zero"}">${n}/${ATTEMPT_BUDGET}</span>`;
-}
-function errorCell(err: string | null): Html {
-  if (!err) return html`<small>—</small>`;
-  return html`<span class="q-err" title="${err}">${err}</span>`;
-}
-
-function rowHx(): ReturnType<typeof raw> {
-  // Retry/cancel re-render the whole grouped tbody (not just the row) so the status-cluster headers
-  // stay correct when an action moves a post between clusters; filters come from HX-Current-URL.
-  return raw(`hx-target="#queue-rows" hx-swap="outerHTML"`);
-}
-
-function rowAction(r: QueueRow): Html {
-  const act = `/queue/${r.id}`;
-  if (r.status === "failed") {
-    return html`<form method="post" action="${act}/retry" hx-post="${act}/retry" ${rowHx()} class="q-inline">
-      <button class="btn btn-ic" type="submit" title="Retry" aria-label="Retry post">${icon("reconnect", "ico", 15)}</button>
-    </form>`;
-  }
-  if (r.status === "scheduled" || r.status === "held") {
-    return html`${r.tiktokConfirmation !== "required" ? html`<form method="post" action="${act}/publish-now" hx-post="${act}/publish-now" ${rowHx()} hx-disabled-elt="find button" class="q-inline" hx-confirm="Publish this post now?" data-confirm-label="Publish now">
-      <button class="btn btn-secondary btn-sm" type="submit">Publish now</button>
-    </form>` : ""}${r.tiktokConfirmation === "required" ? html`<a class="btn btn-secondary btn-sm" href="${act}/confirm">Review TikTok settings</a>` : rescheduleForm(`${act}/reschedule`, "#queue-rows")}<form method="post" action="${act}/cancel" hx-post="${act}/cancel" ${rowHx()} class="q-inline"
-      hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">
-      <button class="btn btn-ic" type="submit" title="Cancel" aria-label="Cancel post">${icon("close", "ico", 15)}</button>
-    </form>`;
-  }
-  return html`<small>—</small>`;
-}
-
-function row(r: QueueRow): Html {
-  const link = `/queue/${r.id}`;
-  return html`<tr id="post-row-${r.id}">
-    <td data-label="Time"><a class="row-link" href="${link}">${timeCell(r)}</a></td>
-    <td data-label="Channel"><a class="row-link q-chcell" href="${link}">${platformCell(r.platform, r.metadata)}<span class="q-ch">${r.channelName}</span></a></td>
-    <td data-label="Format"><span class="q-fmt">${r.format}</span></td>
-    <td data-label="Status">${statusBadge(r.status)}</td>
-    <td data-label="Attempts">${attemptsCell(r.attempts)}</td>
-    <td data-label="Last error">${errorCell(r.lastError)}</td>
-    <td data-label="Action" class="th-act">${rowAction(r)}</td>
-  </tr>`;
-}
-
-// A status-keyed subheading so a mixed (unfiltered) queue reads as clusters — "Failed 3" then the rows.
-function groupHead(status: DeliveryRow["status"], n: number): Html {
-  return html`<tr class="row-group-head"><td colspan="7">${dot(STATUS_TONE[status])} ${status} <span class="muted">${n} ${n === 1 ? "post" : "posts"}</span></td></tr>`;
-}
-
-// Stable partition by status (preserves the query's urgency rank + each cluster's date order) → header + rows.
-function groupedRows(rows: QueueRow[], grouped: boolean): Html[] {
-  if (!grouped) return rows.map(row);
-  const order: DeliveryRow["status"][] = [];
-  const buckets = new Map<DeliveryRow["status"], QueueRow[]>();
-  for (const r of rows) {
-    let bucket = buckets.get(r.status);
-    if (!bucket) { bucket = []; buckets.set(r.status, bucket); order.push(r.status); }
-    bucket.push(r);
-  }
-  return order.flatMap((status) => [groupHead(status, buckets.get(status)!.length), ...buckets.get(status)!.map(row)]);
-}
-
-// The swappable <tbody> — shared by the page render and the retry/cancel re-render so group headers
-// regroup after a status change. Cluster only an unfiltered, status-mixed view (a filtered view is one status).
-function groupedTbody(rows: QueueRow[], status: DeliveryRow["status"] | undefined): Html {
-  const grouped = !status && new Set(rows.map((r) => r.status)).size > 1;
-  return html`<tbody id="queue-rows">
-    ${rows.length === 0 ? html`<tr><td colspan="7" class="table-empty">No posts match these filters.</td></tr>` : groupedRows(rows, grouped)}
-  </tbody>`;
-}
-
 async function queuePage(c: Context): Promise<Response> {
   const a = await auth(c);
-  if (!a) return c.redirect("/login");
-  const ws = a.workspaceId;
-  const url = new URL(c.req.url);
-  const statusParam = url.searchParams.get("status") || undefined;
-  const status = statusParam && isPostStatus(statusParam) ? statusParam : undefined;
-  const channelId = url.searchParams.get("channel") || undefined;
-  const format = url.searchParams.get("format")?.trim() || undefined;
-
-  const [rows, channels, lic] = await Promise.all([
-    listQueue({ workspaceId: ws, limit: 200, status, channelId, format }),
-    channelOptions(ws),
-    getInstanceLicense(),
-  ]);
-
-  const formats = [...new Set(rows.map((r) => r.format))].sort();
-  const empty = rows.length === 0;
-  const blankSlate = empty && !status && !channelId && !format;
-
+  if (!a) return isHtmx(c) ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
+  const tz = await resolveZone(getCookie(c, TZ_COOKIE));
+  const lic = await getInstanceLicense();
   return c.html(
     renderPage({
       title: "Queue",
       nav: "queue",
       features: lic.features,
       products: lic.products,
-      breadcrumb: `${rows.length} shown`,
-      body: html`${statusChips(status)}
-        ${filterBar({ status, channelId, format }, channels, formats)}
-        ${blankSlate
-          ? html`<div class="empty">
-              <span class="empty-ic">${icon("queue", "ico", 20)}</span>
-              <p class="empty-title">Nothing queued yet</p>
-              <p class="empty-body">Scheduled and failed posts land here. Publish or schedule content from the composer.</p>
-              ${btn({ label: "Open composer", href: "/compose", variant: "secondary", size: "sm", icon: "compose" })}
-            </div>`
-          : html`<div class="queue-list">
-              <table class="data-table" aria-label="Queued posts">
-                <thead>
-                  <tr>
-                    <th scope="col">Time</th><th scope="col">Channel</th><th scope="col">Format</th>
-                    <th scope="col">Status</th><th scope="col">Attempts</th><th scope="col">Last error</th>
-                    <th scope="col" class="th-act">Action</th>
-                  </tr>
-                </thead>
-                ${groupedTbody(rows, status)}
-              </table>
-            </div>`}`,
+      body: html`<div class="page q-page" data-view-tz="${tz}">
+        <div class="q-head"><h1>Queue</h1>${btn({ label: "New post", href: "/compose", variant: "primary", size: "sm", icon: "plus" })}</div>
+        ${await renderQueue(a.workspaceId, c.req.url, tz)}
+      </div>`,
     }),
   );
 }
@@ -358,13 +219,8 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
         if (c.req.path.endsWith("/reschedule")) c.header("HX-Refresh", "true");
         return c.html(postDetailHead(item));
       }
-      // List page: re-render the grouped tbody for the page's current filters (from HX-Current-URL) so
-      // the status-cluster headers regroup after this post changed status.
-      const sp = new URL(c.req.header("HX-Current-URL") || "http://x/queue").searchParams;
-      const sParam = sp.get("status") || undefined;
-      const status = sParam && isPostStatus(sParam) ? sParam : undefined;
-      const rows = await listQueue({ workspaceId: a.workspaceId, limit: 200, status, channelId: sp.get("channel") || undefined, format: sp.get("format")?.trim() || undefined });
-      return c.html(groupedTbody(rows, status));
+      const tz = await resolveZone(getCookie(c, TZ_COOKIE));
+      return c.html(await renderQueue(a.workspaceId, currentListUrl(c.req.url, c.req.header("HX-Current-URL")), tz));
     };
   }
 
@@ -373,6 +229,10 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
     return rescheduleDelivery(id, ws, String(form.scheduledAt ?? ""));
   }, () => "Schedule changed."));
   r.post("/queue/:id/publish-now", guard, action((ws, id) => publishDeliveryNow(id, ws), () => "Post re-queued for publishing now"));
+  r.post("/queue/:id/text", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    return editDeliveryText(id, ws, String(form.text ?? ""));
+  }, () => "Text saved."));
   r.post("/queue/:id/retry", guard, action((ws, id) => retryPost(id, ws), () => "Post re-queued"));
   r.post("/queue/:id/cancel", guard, action((ws, id) => cancelDelivery(id, ws), () => "Post canceled"));
 }

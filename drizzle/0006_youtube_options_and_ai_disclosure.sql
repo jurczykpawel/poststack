@@ -85,4 +85,5 @@ ALTER TABLE "posts" ADD COLUMN "youtube_notify_subscribers" boolean;--> statemen
 ALTER TABLE "posts" ADD COLUMN "youtube_default_language" text;--> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "youtube_recording_date" timestamp (3);--> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "youtube_localizations" jsonb;--> statement-breakpoint
-CREATE INDEX "message_reactions_workspace_id_created_at_idx" ON "message_reactions" USING btree ("workspace_id","created_at");
+CREATE INDEX "message_reactions_workspace_id_created_at_idx" ON "message_reactions" USING btree ("workspace_id","created_at");--> statement-breakpoint
+CREATE INDEX "deliveries_workspace_status_scheduled_idx" ON "deliveries" USING btree ("workspace_id","status","scheduled_at","id");

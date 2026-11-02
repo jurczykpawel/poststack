@@ -74,7 +74,7 @@ async function post(ws: string, o: {
   return p!.id;
 }
 
-describe("queue-data listQueue", () => {
+describe("queue-data sectionRows", () => {
   it("joins the channel (platform + name) onto each post, workspace-scoped", async () => {
     if (!TEST_DB) return;
     const chId = await channel(WS_A, { platform: "tiktok", name: "WiR" });
@@ -83,32 +83,23 @@ describe("queue-data listQueue", () => {
     const chB = await channel(WS_B, { platform: "youtube" });
     await post(WS_B, { channelId: chB, status: "failed" });
 
-    const rows = await qd.listQueue({ workspaceId: WS_A, limit: 50 });
+    const rows = await qd.sectionRows({ workspaceId: WS_A }, "attention", 50);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.platform).toBe("tiktok");
     expect(rows[0]!.channelName).toBe("WiR");
     expect(rows[0]!.lastError).toBe("rate limited");
   });
 
-  it("orders failures + upcoming first when no status filter (urgency-first)", async () => {
-    if (!TEST_DB) return;
-    const chId = await channel(WS_A);
-    await post(WS_A, { channelId: chId, status: "sent" });
-    await post(WS_A, { channelId: chId, status: "failed" });
-    await post(WS_A, { channelId: chId, status: "scheduled" });
-    const rows = await qd.listQueue({ workspaceId: WS_A, limit: 50 });
-    expect(rows[0]!.status).toBe("failed"); // rank 0
-    expect(rows.at(-1)!.status).toBe("sent"); // terminal sinks
-  });
-
-  it("filters by status + channel", async () => {
+  it("keeps sections apart and filters by channel", async () => {
     if (!TEST_DB) return;
     const ch1 = await channel(WS_A);
     const ch2 = await channel(WS_A);
     await post(WS_A, { channelId: ch1, status: "failed" });
     await post(WS_A, { channelId: ch2, status: "scheduled" });
-    expect(await qd.listQueue({ workspaceId: WS_A, limit: 50, status: "failed" })).toHaveLength(1);
-    expect(await qd.listQueue({ workspaceId: WS_A, limit: 50, channelId: ch2 })).toHaveLength(1);
+    await post(WS_A, { channelId: ch2, status: "sending" });
+    expect(await qd.sectionRows({ workspaceId: WS_A }, "attention", 50)).toHaveLength(1);
+    expect(await qd.sectionRows({ workspaceId: WS_A }, "scheduled", 50)).toHaveLength(2);
+    expect(await qd.sectionRows({ workspaceId: WS_A, channelId: ch1 }, "scheduled", 50)).toHaveLength(0);
   });
 });
 

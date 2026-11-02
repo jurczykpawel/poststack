@@ -30,7 +30,7 @@
       if (!returnTo) return;
       var id = returnTo;
       returnTo = null;
-      var row = Array.from(document.querySelectorAll("tr[data-row]")).find(function (r) { return r.getAttribute("data-row") === id; });
+      var row = Array.from(document.querySelectorAll("[data-row]")).find(function (r) { return r.getAttribute("data-row") === id; });
       var link = row && row.querySelector("a.dl-rowlink");
       if (link) link.focus({ preventScroll: true });
     });

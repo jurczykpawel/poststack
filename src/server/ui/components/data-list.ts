@@ -22,6 +22,8 @@ export interface ListState {
   open: string;
   /** Params that pick WHICH list this is (e.g. Activity's `source`); every link and the filter form keep them. */
   fixed?: Record<string, string>;
+  /** Carried in every link that keeps the current filters, without counting as a filter. */
+  keep?: Record<string, string>;
 }
 
 export interface ListColumn<R> {
@@ -56,7 +58,13 @@ export interface DataListProps<R> {
   rowId: (row: R) => string;
   /** Second line under the main column on a phone, where the other columns are hidden. */
   sub?: (row: R) => Html | string;
-  page: { start: number; end: number; total: number; older: string | null; newer: string | null };
+  page?: { start: number; end: number; total: number; older: string | null; newer: string | null };
+  /** Pager wording for a list that does not read newest first. */
+  pagerLabels?: { prev: string; next: string };
+  /** Above the toolbar, refreshed with the list. */
+  lead?: Html | string;
+  /** Replaces the table and pager for a list with its own layout. */
+  body?: Html;
   /** The row named by `state.open`, when it exists. */
   detail?: { title: Html | string; body: Html };
   /** Shown when the list is empty with no filters applied. */
@@ -92,6 +100,7 @@ export function listHref(
   if (st.q) params.set("q", st.q);
   for (const [k, v] of Object.entries({ ...st.filters, ...change.filter })) if (v) params.set(k, v);
   if (!change.filter) {
+    for (const [k, v] of Object.entries(st.keep ?? {})) params.set(k, v);
     const after = moved ? change.after : st.after;
     const before = moved ? change.before : st.before;
     if (after) params.set("after", after);
@@ -143,8 +152,10 @@ function table<R>(p: DataListProps<R>): Html {
   </table>`;
 }
 
-function pager<R>(p: DataListProps<R>): Html {
+function pager<R>(p: DataListProps<R>): Html | string {
+  if (!p.page) return "";
   const { older, newer, start, end, total } = p.page;
+  const labels = p.pagerLabels ?? { prev: "Newer", next: "Older" };
   const toTop = raw('hx-swap="outerHTML show:#data-list:top"');
   const link = (label: string, rel: "prev" | "next", href: string | null) =>
     href
@@ -153,8 +164,8 @@ function pager<R>(p: DataListProps<R>): Html {
   return html`<div class="dl-pager">
     <span class="muted">${total ? `${fmtCount(start)}–${fmtCount(end)} of ${fmtCount(total)}` : `0 ${p.noun}`}</span>
     <span class="dl-pager-acts">
-      ${link("Newer", "prev", newer ? listHref(p.path, p.state, { before: newer }) : null)}
-      ${link("Older", "next", older ? listHref(p.path, p.state, { after: older }) : null)}
+      ${link(labels.prev, "prev", newer ? listHref(p.path, p.state, { before: newer }) : null)}
+      ${link(labels.next, "next", older ? listHref(p.path, p.state, { after: older }) : null)}
     </span>
   </div>`;
 }
@@ -183,10 +194,11 @@ function detailPanel<R>(p: DataListProps<R>): Html | string {
 export function dataList<R>(p: DataListProps<R>): Html {
   return html`<div id="data-list" class="dl" hx-history="false" hx-boost="true" hx-target="#data-list" hx-select="#data-list" hx-swap="outerHTML show:none" hx-push-url="true">
     ${p.tabs ?? ""}
+    ${p.lead ?? ""}
     ${toolbar(p)}
     ${chipLinks(p)}
     <div class="dl-split${p.detail ? " has-detail" : ""}">
-      <div class="dl-list">${p.rows.length ? table(p) : emptyView(p)}${pager(p)}</div>
+      <div class="dl-list">${p.body ?? (p.rows.length ? table(p) : emptyView(p))}${pager(p)}</div>
       ${detailPanel(p)}
     </div>
   </div>`;
