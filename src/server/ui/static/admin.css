@@ -1544,6 +1544,10 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 }
 
 /* ---- DataList: shared long list (components/data-list.ts) ---- */
+/* Activity source switch: links, so every source has its own address. */
+.dl-sources { margin-top: 14px; max-width: 100%; }
+.dl-sources .seg-btn { display: inline-flex; align-items: center; min-height: 34px; text-decoration: none; white-space: nowrap; }
+.dl-sources .seg-btn:hover:not(.on) { color: var(--text-1); }
 #data-list { scroll-margin-top: 72px; }
 .dl { margin-top: 14px; }
 .dl-tools { margin-bottom: 10px; }
@@ -1592,6 +1596,7 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 @media (max-width: 760px) {
   .dl-tools .filter-search { max-width: none; flex-basis: 100%; }
   .dl-chip { min-height: 40px; }
+  .dl-sources .seg-btn { min-height: 40px; }
   .dl-split.has-detail { grid-template-columns: minmax(0, 1fr); }
   .dl-detail { position: fixed; inset: 0; z-index: 45; max-height: none; border: 0; border-radius: 0; }
   .dl-detail-head .btn-ic { min-width: 44px; min-height: 44px; }

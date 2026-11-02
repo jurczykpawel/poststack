@@ -49,7 +49,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // brand, NOT the page — so the nav item is ungated.
     { key: "brands", label: "Brands", href: "/brands", icon: "brands", area: "core" },
     { key: "webhooks", label: "Webhooks", href: "/webhooks", icon: "webhooks", area: "core" },
-    { key: "events", label: "Events", href: "/events", icon: "events", area: "core" },
+    { key: "activity", label: "Activity", href: "/activity", icon: "events", area: "core" },
   ]},
 ];
 

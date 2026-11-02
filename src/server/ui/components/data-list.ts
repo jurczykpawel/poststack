@@ -20,6 +20,8 @@ export interface ListState {
   after: string;
   before: string;
   open: string;
+  /** Params that pick WHICH list this is (e.g. Activity's `source`); every link and the filter form keep them. */
+  fixed?: Record<string, string>;
 }
 
 export interface ListColumn<R> {
@@ -62,9 +64,10 @@ export interface DataListProps<R> {
 
 const MAX_SEARCH = 200;
 
-export function readListState(url: string, filterKeys: string[]): ListState {
+export function readListState(url: string, filterKeys: string[], fixedKeys: string[] = []): ListState {
   const p = new URL(url).searchParams;
   return {
+    fixed: Object.fromEntries(fixedKeys.flatMap((k) => (p.get(k) ? [[k, p.get(k)!]] : []))),
     q: (p.get("q") ?? "").trim().slice(0, MAX_SEARCH),
     filters: Object.fromEntries(filterKeys.flatMap((k) => (p.get(k) ? [[k, p.get(k)!]] : []))),
     after: p.get("after") ?? "",
@@ -83,7 +86,7 @@ export function listHref(
   change: { filter?: Record<string, string>; after?: string; before?: string; open?: string } = {},
 ): string {
   const moved = change.after !== undefined || change.before !== undefined;
-  const params = new URLSearchParams();
+  const params = new URLSearchParams(st.fixed);
   if (st.q) params.set("q", st.q);
   for (const [k, v] of Object.entries({ ...st.filters, ...change.filter })) if (v) params.set(k, v);
   if (!change.filter) {
@@ -108,9 +111,10 @@ function toolbar<R>(p: DataListProps<R>): Html {
       <option value="">${s.label}: all</option>
       ${s.options.map((o) => html`<option value="${o.value}"${st.filters[s.key] === o.value ? raw(" selected") : raw("")}>${o.label}</option>`)}
     </select>`)}
+    ${Object.entries(st.fixed ?? {}).map(([k, v]) => html`<input type="hidden" name="${k}" value="${v}" />`)}
     ${p.chips && chipValue ? html`<input type="hidden" name="${p.chips.key}" value="${chipValue}" />` : ""}
     <button class="btn btn-secondary btn-sm" type="submit">Apply</button>
-    ${active ? html`<a class="filter-clear" href="${path}">Clear</a>` : ""}
+    ${active ? html`<a class="filter-clear" href="${listHref(path, { ...st, q: "", filters: {}, after: "", before: "", open: "" })}">Clear</a>` : ""}
   </form>`;
 }
 

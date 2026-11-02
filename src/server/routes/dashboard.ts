@@ -14,8 +14,10 @@ import {
 import { mergeWebhookStatusCounts, mergePostReactionTotals } from "@/lib/history/stats-read";
 import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { registerNavCounts } from "../ui/shell/nav-counts";
-import { registerEvents, EVENT_META } from "../ui/sections/events";
+import { EVENT_META } from "../ui/sections/events";
 import { registerContacts } from "../ui/sections/contacts";
+import { registerActivity, activityRedirect } from "../ui/sections/activity";
+import { WEBHOOK_STATUS_LEGEND, WEBHOOK_ENDPOINT_STATUSES, WEBHOOK_STATUS_TONE } from "../ui/sections/webhook-status";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -38,7 +40,7 @@ import { CONFIG_KEYS } from "@/lib/settings/registry";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
 import { buildDraftContext } from "@/lib/ai/draft-context";
-import { loadAiGenerationLogs, renderAiGenerationLogs } from "../ui/sections/ai-generation-logs";
+import { renderAiLogSummary } from "../ui/sections/ai-generation-logs";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
@@ -884,100 +886,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
 // ─── channels ─────────────────────────────────────────────────────────────────
 
 
-// Plain-language meaning of each inbound webhook handling status, for the /webhooks legend.
-const WEBHOOK_STATUS_LEGEND: ReadonlyArray<readonly [string, Tone, string]> = [
-  ["fired", "ok", "Matched an active rule — an auto-reply was sent or queued."],
-  ["recorded", "info", "Stored for engagement only (a like/reaction on your post) — no rule runs on these."],
-  ["received", "neutral", "Arrived and logged, still being processed (transient)."],
-  ["no_match", "neutral", "Valid event, but no rule's keywords/trigger matched."],
-  ["paused", "warn", "A rule would match, but it's currently paused."],
-  ["ignored", "neutral", "Intentionally skipped — e.g. your own echo or a duplicate."],
-  ["unhandled", "neutral", "An event type the app doesn't act on."],
-  ["error", "bad", "Processing failed — open the event for details."],
-  // OBS1: endpoint-level outcomes that never became an event (no channel) — see "Endpoint activity".
-  ["handshake_ok", "ok", "Meta verified your webhook subscription (the GET challenge succeeded)."],
-  ["handshake_fail", "bad", "A subscription verification was refused — wrong/absent verify token or unexpected mode."],
-  ["rejected_signature", "bad", "A POST was refused before processing — its signature didn't match your app secret."],
-  ["rejected_parse", "bad", "A POST body wasn't valid JSON — refused before processing."],
-  ["rejected_object", "warn", "A POST for an object type the app doesn't handle — recorded, not processed."],
-  ["rejected_too_large", "bad", "A POST body exceeded the size cap — refused before buffering."],
-];
-// OBS1: the endpoint-activity statuses (handshake + rejected-before-record). These rows have no
-// channel, so they live in their own instance-wide list rather than the per-channel incoming log.
-const WEBHOOK_ENDPOINT_STATUSES = [
-  "handshake_ok", "handshake_fail", "rejected_signature", "rejected_parse", "rejected_object", "rejected_too_large",
-] as const;
-const WEBHOOK_STATUS_TONE: Record<string, Tone> = Object.fromEntries(WEBHOOK_STATUS_LEGEND.map(([s, tone]) => [s, tone]));
-
 type WebhookEventDetail = typeof import("@/db/schema").webhookEvents.$inferSelect;
-
-function metaRow(label: string, value: unknown): Html {
-  if (value === null || value === undefined || value === "") return html``;
-  return html`<div class="meta-row"><dt>${label}</dt><dd>${typeof value === "boolean" ? (value ? "yes" : "no") : String(value)}</dd></div>`;
-}
-
-/** Find the display name a platform attached to an id anywhere in the raw payload (Meta nests it as
- *  `{ id, name }` under from/sender/recipient). Generic recursive match so it works for any event. */
-function findNameForId(node: unknown, id: string, depth = 0): string | null {
-  if (depth > 8 || node === null || typeof node !== "object") return null;
-  const o = node as Record<string, unknown>;
-  if (o.id === id && typeof o.name === "string" && o.name.trim()) return o.name;
-  for (const v of Object.values(o)) {
-    const found = findNameForId(v, id, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** A "From"/"To" row that leads with the person's name and shows the raw id quietly beside it. */
-function identityRow(label: string, id: string | null, raw: unknown): Html {
-  if (!id) return html``;
-  const name = findNameForId(raw, id);
-  return html`<div class="meta-row"><dt>${label}</dt><dd>${name
-    ? html`<strong>${name}</strong> <code class="mono" style="color:var(--text-2);font-size:.74rem">${id}</code>`
-    : html`<code class="mono">${id}</code>`}</dd></div>`;
-}
-
-/** Expanded view of one inbound webhook event: what arrived + what (if anything) it triggered + the
- *  full raw payload. Lazy-loaded into #wh-detail so the list stays light. */
-function renderWebhookDetail(e: WebhookEventDetail): Html {
-  const triggered: Array<[string, string]> = [];
-  if (e.conversation_id) triggered.push(["Conversation", e.conversation_id]);
-  if (e.message_id) triggered.push(["Message", e.message_id]);
-  if (e.comment_log_id) triggered.push(["Comment action", e.comment_log_id]);
-  if (e.outbound_delivery_id) triggered.push(["Outbound reply", e.outbound_delivery_id]);
-  if (e.contact_id) triggered.push(["Contact", e.contact_id]);
-  const rawJson = JSON.stringify(e.raw, null, 2);
-  const tone = WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral";
-  return html`<section class="panel${e.handling_status === "error" ? " panel-error" : ""}" id="wh-detail-card" style="margin:.5rem 0 1rem">
-    <div class="panel-head">
-      <h3>${PLATFORM_LABELS[e.object ?? ""] ?? e.object ?? "—"} · ${e.event_type}${e.field ? ` · ${e.field}` : ""}</h3>
-      <span class="badge tone-${tone}">${e.handling_status}</span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto" hx-get="/webhooks/clear" hx-target="#wh-detail" hx-swap="innerHTML">${icon("close", "ico", 14)} Close</button>
-    </div>
-    <div class="panel-head" style="border-top:1px solid var(--border)"><h3>What came in</h3></div>
-    <dl class="meta-list">
-      ${metaRow("Received", e.received_at.toISOString().replace("T", " ").slice(0, 19))}
-      ${metaRow("Handled", e.handled_at ? e.handled_at.toISOString().replace("T", " ").slice(0, 19) : null)}
-      ${identityRow("From", e.sender_id, e.raw)}
-      ${identityRow("To", e.recipient_id, e.raw)}
-      ${metaRow("Platform message id", e.platform_message_id)}
-      ${metaRow("Echo (our own message)", e.is_echo)}
-      ${metaRow("Event key", e.event_key)}
-    </dl>
-    <div class="panel-head" style="border-top:1px solid var(--border)"><h3>What was triggered</h3></div>
-    ${triggered.length === 0
-      ? html`<p style="margin:0;padding:11px 16px;font-size:12.5px;color:var(--text-3)">${e.handling_status === "recorded" ? "Nothing — stored for engagement only (no rule runs on post likes/reactions)." : e.handling_status === "fired" ? "A reply was sent/queued (no linked record captured)." : "Nothing was triggered for this event."}</p>`
-      : html`<dl class="meta-list">${triggered.map(([k, v]) =>
-          k === "Conversation"
-            ? html`<div class="meta-row"><dt>${k}</dt><dd><a href="/inbox/${v}">${v} →</a></dd></div>`
-            : html`<div class="meta-row"><dt>${k}</dt><dd><code>${v}</code></dd></div>`,
-        )}</dl>`}
-    ${e.error_detail ? html`<div class="notice notice-err" style="margin:11px 16px">${e.error_detail}</div>` : html``}
-    <div class="panel-head" style="border-top:1px solid var(--border)"><h3>Raw payload</h3></div>
-    <pre class="payload" style="border-top:0;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word">${rawJson}</pre>
-  </section>`;
-}
 
 interface WebhookStats { total: number; last24h: number; byStatus: Record<string, number> }
 
@@ -1243,8 +1152,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // `/webhooks/outbound*` paths aren't captured by the `:id` param (mirrors endpoint-activity / subscriptions).
   registerWebhooksOutbound(app, guard);
   registerNavCounts(app, guard);
-  registerEvents(app, guard);
   registerContacts(app, guard, proLockMain);
+  registerActivity(app, guard);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
@@ -1844,7 +1753,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const canAiRephrase = license.features.has("ai_rephrase");
     const canAiLogs = canAiDraft || canAiRephrase;
     const aiConfigured = await isAiConfigured();
-    const aiGenerationLogRows = canAiLogs ? await loadAiGenerationLogs(a.workspaceId) : [];
     const upgradeUrl = license.upgradeUrl;
     return c.html(
       dashboardDoc(
@@ -1978,8 +1886,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               <h2 style="margin:0">AI generation log</h2>
               ${canAiLogs ? html`` : proLink(upgradeUrl, "PRO")}
             </div>
-            <p class="muted" style="margin-bottom:1rem">Every AI-drafted reply and rephrase, exactly as sent to and received from the model — expand a row to see the full system/user prompt and response or failure reason.</p>
-            ${renderAiGenerationLogs(aiGenerationLogRows, canAiLogs, upgradeUrl)}
+            <p class="muted" style="margin-bottom:1rem">Every AI-drafted reply and rephrase, exactly as sent to and received from the model, with the full prompt and response or failure reason, lives in Activity.</p>
+            ${await renderAiLogSummary(a.workspaceId, canAiLogs, upgradeUrl)}
           </section>
           </div>
         </div>`,
@@ -2472,26 +2380,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const { features, products, upgradeUrl } = await getInstanceLicense();
-    // webhook_events has no workspace_id column (it resolves page→channel); scope by the workspace's
-    // own channels so the log is tenant-correct.
-    const wsChannels = await db.query.channels.findMany({
-      where: eq(channels.workspace_id, a.workspaceId),
-      columns: { id: true, display_name: true, username: true },
-    });
+    // webhook_events has no workspace_id column (it resolves page→channel); the stats below are scoped by
+    // the workspace's own channels so they are tenant-correct.
+    const wsChannels = await db.query.channels.findMany({ where: eq(channels.workspace_id, a.workspaceId), columns: { id: true } });
     const channelIds = wsChannels.map((ch) => ch.id);
-    // Which connected account each event belongs to (webhook_events stores only channel_id).
-    const channelLabel = new Map(wsChannels.map((ch) => [ch.id, ch.display_name ?? ch.username ?? null] as const));
-    const [rows, alertWebhook] = await Promise.all([
-      channelIds.length
-        ? db.query.webhookEvents.findMany({
-            where: inArray(webhookEvents.channel_id, channelIds),
-            orderBy: [desc(webhookEvents.received_at)],
-            limit: 100,
-            columns: { id: true, channel_id: true, platform: true, event_type: true, field: true, handling_status: true, received_at: true, error_detail: true },
-          })
-        : Promise.resolve([]),
-      getAlertWebhook(a.workspaceId),
-    ]);
+    const alertWebhook = await getAlertWebhook(a.workspaceId);
     const canAlerts = features.has("managed_connection");
     const canInsights = features.has("webhook_insights");
     const canOutbound = features.has("outbound_webhooks");
@@ -2525,21 +2418,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
               ${WEBHOOK_STATUS_LEGEND.map(([status, tone, desc]) => html`<dt><span class="badge tone-${tone}">${status}</span></dt><dd class="muted">${desc}</dd>`)}
             </dl>
           </details>
-          <div id="wh-detail"></div>
-          ${rows.length === 0
-            ? html`<p class="muted">No webhook events received yet. They appear here once your connected pages send activity.</p>`
-            : html`<table><thead><tr><th>Platform</th><th>Channel</th><th>Event</th><th>Status</th><th>Detail</th><th>When</th><th></th></tr></thead>
-                <tbody>${rows.map(
-                  (e) => html`<tr>
-                    <td>${PLATFORM_LABELS[e.platform ?? ""] ?? e.platform ?? "—"}</td>
-                    <td class="muted" style="font-size:.82rem">${channelLabel.get(e.channel_id ?? "") ?? "—"}</td>
-                    <td class="muted" style="font-size:.8rem">${e.event_type}${e.field ? ` · ${e.field}` : ""}</td>
-                    <td><span class="badge tone-${WEBHOOK_STATUS_TONE[e.handling_status] ?? "neutral"}">${e.handling_status}</span></td>
-                    <td class="muted" style="font-size:.78rem">${e.handling_status === "error" && e.error_detail ? html`<span style="color:var(--bad-text)">${e.error_detail}</span>` : e.field ? e.field : "—"}</td>
-                    <td class="muted">${timeAgo(e.received_at)}</td>
-                    <td><button class="btn btn-sm" hx-get="/webhooks/${e.id}" hx-target="#wh-detail" hx-swap="innerHTML" title="Full payload + what it triggered">View</button></td>
-                  </tr>`,
-                )}</tbody></table>`}
+          <div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:.75rem">
+            <p class="muted" style="margin:0;flex:1 1 220px;font-size:.85rem">The log of what arrived and what the bot did with it now lives in Activity, with filters and details.</p>
+            <a class="btn btn-secondary btn-sm" href="/activity?source=webhooks">Open webhook log</a>
+          </div>
           ${unhandledTypes
             ? html`<h3 style="margin-top:1.5rem">Unhandled event types</h3>
               <p class="muted" style="font-size:.85rem">Event types that arrived and were logged (with their raw payload) but have no handler yet — so you can spot something the platforms send that the app isn't acting on. Includes instance-wide hits with no channel.</p>
@@ -2585,9 +2467,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     );
   });
 
-  // Clear the inbound-event detail panel (Close button).
-  app.get("/webhooks/clear", guard, (c) => c.html(html``));
-
   // OBS1: read-only endpoint-activity list (handshakes + rejected-before-record hits), with an
   // optional ?status= filter. Lazy-loaded + re-fetched on filter change. Registered BEFORE
   // /webhooks/:id so this static path isn't captured by the :id param.
@@ -2620,20 +2499,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderSubscriptionPanel(statuses));
   });
 
-  // Full detail for one inbound webhook event — raw payload + what it triggered. Tenant-scoped: the
-  // event must belong to one of this workspace's channels (webhook_events has no workspace_id).
-  app.get("/webhooks/:id", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const ev = await db.query.webhookEvents.findFirst({ where: eq(webhookEvents.id, c.req.param("id")) });
-    if (!ev || !ev.channel_id) return c.html(html`<div class="notice notice-err">Event not found.</div>`);
-    const owns = await db.query.channels.findFirst({
-      where: and(eq(channels.id, ev.channel_id), eq(channels.workspace_id, a.workspaceId)),
-      columns: { id: true },
-    });
-    if (!owns) return c.html(html`<div class="notice notice-err">Event not found.</div>`);
-    return c.html(renderWebhookDetail(ev));
-  });
+  // The inbound-event detail moved into Activity; old links open the same event there.
+  app.get("/webhooks/:id", guard, (c) => activityRedirect(c, "webhooks", { open: c.req.param("id") }));
 
   // API keys — its own top-level page (create + revoke + scopes). Settings links here.
   // API keys live in Settings → API keys now; redirect the old path so deep links still work.
@@ -3256,7 +3123,7 @@ function renderPublishingOverview(pub: OverviewPublishing): Html {
         : html`<div class="empty"><p class="empty-body">Nothing scheduled.</p></div>`}
     </section>`;
   const recent = html`<section class="panel">
-      <div class="panel-head"><h3>Recent events</h3><a class="panel-more" href="/events">Events →</a></div>
+      <div class="panel-head"><h3>Recent events</h3><a class="panel-more" href="/activity?source=events">Events →</a></div>
       ${pub.recent.length
         ? pub.recent.map((e) => {
             const m = EVENT_META[e.type];

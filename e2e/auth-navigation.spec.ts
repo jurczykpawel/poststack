@@ -341,7 +341,7 @@ test("idle stream reconnects without a raw Event in the console", async ({ page 
     if (!disconnected) { disconnected = true; await route.abort("connectionreset"); }
     else await route.continue();
   });
-  await page.goto("/events");
+  await page.goto("/activity");
   await expect.poll(() => states.includes(0)).toBe(true);
   await expect.poll(() => page.locator(".app").evaluate((el) =>
     (el as HTMLElement & { "htmx-internal-data": { sseEventSource: EventSource } })["htmx-internal-data"].sseEventSource.readyState,
@@ -368,7 +368,7 @@ test("API docs history traversal has no skipped-transition page errors", async (
   await expect(page.getByRole("heading", { name: "PostStack API", exact: true })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   for (let cycle = 0; cycle < 5; cycle++) {
-    await page.goto("/events");
+    await page.goto("/activity");
     await expect(page.locator(".app")).toBeVisible();
     await page.goBack();
     await expect(page).toHaveURL(/\/api\/docs#tag\/webhooks$/);

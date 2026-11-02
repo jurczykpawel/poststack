@@ -16,7 +16,13 @@ async function render(over: Partial<Parameters<typeof dataList<Row>>[0]> = {}) {
 describe("readListState", () => {
   it("reads only the declared filters and trims the search", () => {
     const st = readListState("http://x/t?q=%20hi%20&area=post&evil=1&after=A&open=O", ["area"]);
-    expect(st).toEqual({ q: "hi", filters: { area: "post" }, after: "A", before: "", open: "O" });
+    expect(st).toEqual({ q: "hi", filters: { area: "post" }, after: "A", before: "", open: "O", fixed: {} });
+  });
+
+  it("reads fixed params apart from filters, so a filter clear can never drop them", () => {
+    const st = readListState("http://x/t?source=ai&area=post", ["area"], ["source"]);
+    expect(st.fixed).toEqual({ source: "ai" });
+    expect(st.filters).toEqual({ area: "post" });
   });
 
   it("bounds an oversized search", () => {
@@ -42,6 +48,22 @@ describe("listHref", () => {
 
   it("moving a page closes details", () => {
     expect(listHref("/t", st, { before: "B" })).toBe("/t?q=hi+there&area=post&before=B");
+  });
+});
+
+describe("fixed params", () => {
+  const st = readListState("http://x/t?source=ai&q=hi&area=post&after=A", ["area"], ["source"]);
+
+  it("lead every address and survive filter, page and close changes", () => {
+    expect(listHref("/t", st)).toBe("/t?source=ai&q=hi&area=post&after=A");
+    expect(listHref("/t", st, { filter: { area: "" } })).toBe("/t?source=ai&q=hi");
+    expect(listHref("/t", st, { before: "B" })).toBe("/t?source=ai&q=hi&area=post&before=B");
+  });
+
+  it("stay in the filter form and on the Clear link", async () => {
+    const out = await render({ path: "/t", state: st });
+    expect(out).toContain('<input type="hidden" name="source" value="ai" />');
+    expect(out).toContain('class="filter-clear" href="/t?source=ai"');
   });
 });
 
