@@ -141,6 +141,11 @@ describe("Brands section", () => {
     expect(prev.status).toBe(200);
     expect(prev.headers.get("content-type")).toBe("image/jpeg");
     expect((await prev.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    // the Alpine :src = data-base + encodeURIComponent(tpl): the URL the browser builds renders too
+    const base = page.match(/data-base="([^"]+)"/)![1].replaceAll("&amp;", "&");
+    const live = await app.request(base + "phone", { headers: { cookie } });
+    expect(live.status).toBe(200);
+    expect(live.headers.get("content-type")).toBe("image/jpeg");
     // ?template= override (live preview of an unsaved choice) + graceful fallback for a bogus id
     expect((await app.request("/brands/storybrand/story-preview?template=fullbleed", { headers: { cookie } })).status).toBe(200);
     expect((await app.request("/brands/storybrand/story-preview?template=bogus", { headers: { cookie } })).status).toBe(200);
