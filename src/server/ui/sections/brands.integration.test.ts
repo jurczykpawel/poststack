@@ -135,7 +135,7 @@ describe("Brands section", () => {
     expect(page).toContain('<option value="phone" selected>'); // saved choice reflected
     expect(page).toContain("/brands/storybrand/story-preview"); // live preview <img>
     expect(page).toContain('x-model="tpl"'); // picker drives Alpine state
-    expect(page).toContain("story-preview?template=' + encodeURIComponent(tpl)"); // preview updates safely on change
+    expect(page).toContain(':src="$el.dataset.base + encodeURIComponent(tpl)"'); // preview updates safely on change
     // the preview endpoint renders a JPEG card
     const prev = await app.request("/brands/storybrand/story-preview", { headers: { cookie } });
     expect(prev.status).toBe(200);
@@ -234,6 +234,35 @@ describe("Brands section", () => {
     expect(res.status).toBe(303);
     expect(await db.query.brands.findFirst({ where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, "tsa")) })).toBeUndefined();
     expect((await db.query.channels.findFirst({ where: eq(channels.id, yt) }))!.brand_key).toBeNull();
+  });
+
+  // MQA13-B01/B05: the form refuses a non-slug key and a non-hex accent.
+  it("rejects a non-slug key and a non-hex accent from the forms", async () => {
+    const bad = await app.request("/brands", form({ key: "x'+(window.__p=1)+'", name: "Probe" }));
+    expect(bad.status).toBe(400);
+    const css = "#f00;background-image:url(https://probe.example/p.png)";
+    expect((await app.request("/brands", form({ key: "css", name: "Css", accent: css }))).status).toBe(400);
+    expect(await db.query.brands.findFirst({ where: eq(brands.workspace_id, workspaceId) })).toBeUndefined();
+    await createBrandSvc({ key: "ok", name: "Ok" }, workspaceId);
+    expect((await app.request("/brands/ok/edit", form({ name: "Ok", accent: css }))).status).toBe(400);
+  });
+
+  // MQA13-B01: brands created before validation keep working — the key is encoded in URLs and never
+  // spliced into an Alpine/JS expression; a stored non-hex accent never reaches a style attribute.
+  it("keeps a legacy brand with an unsafe key and accent usable and inert", async () => {
+    const key = "x'+(window.__p=1)+' a/b";
+    await db.insert(brands).values({ workspace_id: workspaceId, key, name: "Legacy", accent: "#f00;background:url(https://p.example/x)" });
+    const page = await (await app.request("/brands", { headers: { cookie } })).text();
+    // no Alpine binding / directive / handler attribute carries the key (the browser decodes &#39;)
+    expect(page).not.toMatch(/\s(?::[\w.-]+|x-[\w.:-]+|@[\w.:-]+)="[^"]*__p/);
+    expect(page).not.toMatch(/style="[^"]*p\.example/); // the stored value may show in the form input, never as CSS
+    const enc = encodeURIComponent(key);
+    expect(page).toContain(`/brands/${enc.replaceAll("'", "&#39;")}/delete`); // HTML-escaped in the attribute
+    const prev = await app.request(`/brands/${enc}/story-preview`, { headers: { cookie } });
+    expect(prev.status).toBe(200);
+    const del = await app.request(`/brands/${enc}/delete`, form({}));
+    expect(del.status).toBe(303);
+    expect(await db.query.brands.findFirst({ where: eq(brands.workspace_id, workspaceId) })).toBeUndefined();
   });
 
   it("a brand's slot assignment NEVER touches another workspace's channel", async () => {
