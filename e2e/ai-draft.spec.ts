@@ -248,6 +248,7 @@ test("mobile inbox opens a full thread from a deep link and the list", async ({ 
   await expect(page.locator("#thread")).toBeHidden();
   const filters = page.locator("#conv-filter-form");
   const initialForm = await filters.elementHandle();
+  await filters.locator("summary", { hasText: "Filters" }).click();
   await filters.getByRole("button", { name: "Any time", exact: true }).click();
   await Promise.all([
     page.waitForResponse((r) => r.url().includes("/inbox/list?") && new URL(r.url()).searchParams.get("since") === "custom"),

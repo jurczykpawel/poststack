@@ -16,7 +16,7 @@ test("Compose schedules a small image and brand slot counts update in place", as
   const count = card.locator(".panel-count");
   const initialCount = Number((await count.innerText()).split(" ")[0]);
   await page.getByRole("button", { name: "Facebook channel for e2e-brand", exact: true }).click();
-  await page.locator("#slot-e2e-brand-facebook").getByRole("option", { name: "— not set —", exact: true }).click();
+  await page.locator("#slot-e2e-brand-facebook").getByRole("option", { name: "—", exact: true }).click();
   await expect(count).toHaveText(`${initialCount - 1} channels`);
   await page.getByRole("button", { name: "Facebook channel for e2e-brand", exact: true }).click();
   await page.locator("#slot-e2e-brand-facebook").getByRole("option", { name: selected, exact: true }).click();
