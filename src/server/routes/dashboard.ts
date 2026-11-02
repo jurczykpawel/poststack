@@ -35,9 +35,9 @@ import { addJobTx } from "@/lib/queue/client";
 import { PLATFORM_LABELS, platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
 import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, requireFeature, ProRequiredError, type LicenseState } from "@/lib/license/gate";
-import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
+import { configStatus, getConfig, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
 import { CONFIG_KEYS } from "@/lib/settings/registry";
-import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook, type AlertWebhookConfig } from "@/lib/notifications/alert-webhook";
+import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
 import { buildDraftContext } from "@/lib/ai/draft-context";
 import { renderAiLogSummary } from "../ui/sections/ai-generation-logs";
@@ -71,6 +71,7 @@ import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSub
 import { btn } from "../ui/components/button";
 import { registerSources, renderSourcesManager } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
+import { renderAlertWebhook, problemAlertsCard } from "../ui/sections/problem-alerts";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
@@ -1038,39 +1039,6 @@ function renderEndpointActivity(rows: WebhookEndpointRow[], status?: string): Ht
 }
 
 /**
- * The alert-webhook config form (PRO). Custom header VALUES are never echoed back — only their names
- * (so the operator knows what's set without leaking secrets). Headers are entered as `Key: Value`
- * lines; extra payload fields as a JSON object with {{placeholder}} tokens; field selection as a
- * comma list (blank = send all standard fields).
- */
-function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure: boolean, upgradeUrl: string, msg?: string): Html {
-  const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
-  if (!canConfigure) {
-    return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>Configuring a proactive alert webhook is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
-  }
-  const headerNames = cfg ? Object.keys(cfg.headers) : [];
-  const extraJson = cfg && Object.keys(cfg.extraFields).length ? JSON.stringify(cfg.extraFields, null, 2) : "";
-  const selection = cfg?.fieldSelection?.join(", ") ?? "";
-  const mono = "font-family:var(--font-mono);font-size:12.5px";
-  return html`${notice}
-    <form hx-post="/settings/alert-webhook" hx-ext="json-enc" hx-target="#alert-webhook-area" hx-swap="innerHTML" style="max-width:560px">
-      <label class="fld"><span>Webhook URL</span>
-        <input type="url" name="url" placeholder="https://hooks.example.com/alert" value="${cfg?.url ?? ""}" required style="${mono}" /></label>
-      <label class="compose-toggle"><input type="checkbox" name="enabled" value="true" ${cfg ? (cfg.enabled ? "checked" : "") : "checked"} /><span>Enabled</span></label>
-      <label class="fld"><span>Custom headers <small>— one <code>Key: Value</code> per line, encrypted at rest${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</small></span>
-        <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${mono}"></textarea></label>
-      <label class="fld"><span>Extra payload fields <small>— JSON; supports {{type}} {{display_name}} {{days_left}} {{detail}} {{expires_at}}</small></span>
-        <textarea name="extra" rows="3" placeholder='{ "to": "ops@example.com", "subject": "${BRAND.name}: {{type}} ({{days_left}}d)" }' style="${mono}">${extraJson}</textarea></label>
-      <label class="fld"><span>Only send these standard fields <small>— comma list, blank = all</small></span>
-        <input name="selection" placeholder="type, display_name, detail" value="${selection}" style="${mono}" /></label>
-      <div class="row" style="gap:.5rem">
-        <button class="btn btn-primary" type="submit">Save</button>
-        ${cfg ? html`<button class="btn btn-sm btn-danger" type="button" hx-delete="/settings/alert-webhook" hx-target="#alert-webhook-area" hx-swap="innerHTML" hx-confirm="Remove the alert webhook?">Remove</button>` : html``}
-      </div>
-    </form>`;
-}
-
-/**
  * AIDRAFT1 (Task 8): the workspace-default AI-draft prompt form (PRO). This default is used whenever a
  * channel has no per-channel prompt override; blank = the built-in default prompt. PRO-gated UI — a
  * free instance sees an upsell instead of the textarea (the POST is also gated server-side).
@@ -1742,13 +1710,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const canManageInstance = await isInstanceOperator(a);
-    const [workspace, license, alertWebhook, keys] = await Promise.all([
+    const [workspace, license, keys] = await Promise.all([
       db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt_dm: true, ai_draft_prompt_public: true, ai_rephrase_prompt: true } }),
       getInstanceLicense(),
-      getAlertWebhook(a.workspaceId),
       loadKeys(a.workspaceId),
     ]);
-    const canAlerts = license.features.has("managed_connection");
     const canAiDraft = license.features.has("ai_draft");
     const canAiRephrase = license.features.has("ai_rephrase");
     const canAiLogs = canAiDraft || canAiRephrase;
@@ -1857,14 +1823,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </section>
           </div>
           <div class="settings-panel" x-show="tab==='automation'" x-cloak>
-          <section class="section">
-            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
-              <h2 style="margin:0">Alert webhook</h2>
-              ${canAlerts ? html`` : proLink(upgradeUrl, "PRO")}
-            </div>
-            <p class="muted" style="margin-bottom:1rem">Get a proactive POST for: channel re-auth (and the urgent 24h nudge), degraded channels, failed or held deliveries, event errors, and tokens nearing expiry. Add custom headers + templated fields to target email (via your own sender), Slack, or n8n. ${canAlerts ? "" : html`This is a ${proLink(upgradeUrl, "PRO")} feature.`}</p>
-            <div id="alert-webhook-area">${renderAlertWebhook(alertWebhook, canAlerts, upgradeUrl)}</div>
-          </section>
           <section class="section">
             <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
               <h2 style="margin:0">AI-drafted replies</h2>
@@ -2375,7 +2333,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   });
 
   // Webhooks — the inbound webhook-event log (a nav target). Shows recent Meta/Telegram deliveries and
-  // how each was handled; outbound alert-webhook config lives under Settings.
+  // how each was handled; problem-alerts config lives under Webhooks → Outgoing.
   app.get("/webhooks", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.redirect("/login");
@@ -2386,6 +2344,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const channelIds = wsChannels.map((ch) => ch.id);
     const alertWebhook = await getAlertWebhook(a.workspaceId);
     const canAlerts = features.has("managed_connection");
+    const alertFallback = (await isInstanceOperator(a)) ? (await getConfig("CHANNEL_ALERT_WEBHOOK_URL")) || null : null;
     const canInsights = features.has("webhook_insights");
     const canOutbound = features.has("outbound_webhooks");
     const stats = canInsights ? await loadWebhookStats(channelIds) : null;
@@ -2396,11 +2355,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/webhooks",
         html`<div class="page" x-data="{ tab: 'incoming', tabs: ['incoming','subscriptions','outgoing'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
           <h1>Webhooks</h1>
-          <p class="muted">Two separate things share this name: events <strong>coming in</strong> from the platforms, and an alert we send <strong>out</strong> to you.</p>
+          <p class="muted">Events <strong>coming in</strong> from the platforms, and what we send <strong>out</strong> to you: problem alerts and event webhooks.</p>
           <nav class="settings-tabs" role="tablist">
             <button type="button" class="settings-tab" :class="{ active: tab==='incoming' }" @click="go('incoming')">Incoming</button>
             <button type="button" class="settings-tab" :class="{ active: tab==='subscriptions' }" @click="go('subscriptions')">Subscriptions</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='outgoing' }" @click="go('outgoing')">Outgoing alert</button>
+            <button type="button" class="settings-tab" :class="{ active: tab==='outgoing' }" @click="go('outgoing')">Outgoing</button>
           </nav>
           <div class="settings-panel" x-show="tab==='incoming'" x-cloak>
           <h2>Incoming — from Meta / Telegram</h2>
@@ -2441,22 +2400,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           </div>
           </div>
           <div class="settings-panel" x-show="tab==='outgoing'" x-cloak>
-          <h2>Outgoing — alert webhook ${canAlerts ? "" : proLink(upgradeUrl, "PRO")}</h2>
-          <p class="muted" style="font-size:.85rem">A proactive POST we send to <em>your</em> endpoint (Slack, n8n, email relay…) when a connection needs re-auth or nears expiry — so you find out before publishing breaks.</p>
-          ${!canAlerts
-            ? html`<div class="card"><p class="muted" style="font-size:.85rem">Configuring an outbound alert webhook is a ${proLink(upgradeUrl, "PRO")} feature.</p></div>`
-            : alertWebhook
-              ? html`<div class="card">
-                  <div class="row" style="align-items:center;gap:.5rem">
-                    <span class="badge tone-${alertWebhook.enabled ? "ok" : "neutral"}">${alertWebhook.enabled ? "Enabled" : "Disabled"}</span>
-                    <code class="mono grow" style="overflow-x:auto;white-space:nowrap">${alertWebhook.url}</code>
-                  </div>
-                  <p class="muted" style="font-size:.78rem;margin-top:.4rem">
-                    ${Object.keys(alertWebhook.headers).length ? `${Object.keys(alertWebhook.headers).length} custom header(s) · ` : ""}${Object.keys(alertWebhook.extraFields).length ? `${Object.keys(alertWebhook.extraFields).length} extra field(s) · ` : ""}<a href="/settings#automation">Edit in Settings →</a>
-                  </p>
-                </div>`
-              : html`<div class="card"><p class="muted" style="font-size:.85rem">Not configured yet. <a href="/settings#automation">Set it up in Settings →</a></p></div>`}
-          <h3 style="margin-top:1.5rem">Outbound webhook endpoints ${canOutbound ? "" : proLink(upgradeUrl, "PRO")}</h3>
+          <h2>Outgoing</h2>
+          ${problemAlertsCard(alertWebhook, canAlerts, upgradeUrl, alertFallback)}
+          <h3>Event webhooks ${canOutbound ? "" : proLink(upgradeUrl, "PRO")}</h3>
           <p class="muted" style="font-size:.85rem">Subscribe one or more external URLs (n8n, Zapier, your own service) to events like <code>post.published</code> or <code>contact.created</code>. Each delivery is HMAC-signed with a per-endpoint secret. The same endpoints are manageable via <a href="/api/docs">the API</a>.</p>
           ${outboundWebhooksMount()}
           </div>
@@ -2763,7 +2709,7 @@ function apiKeysUpsell(upgradeUrl: string): Html {
  *  env var. Secrets are never echoed — only a masked "set" preview. Each row has a Save (set/change)
  *  and, when DB-set, a Clear (revert to env) form, both swapping this block in place via htmx. */
 function renderCredentials(status: ConfigStatus[], msg?: string): Html {
-  status = status.filter((field) => field.key !== "INSTANCE_BRANDING");
+  status = status.filter((field) => field.key !== "INSTANCE_BRANDING" && field.key !== "CHANNEL_ALERT_WEBHOOK_URL");
   const badge = (s: ConfigStatus["source"]) =>
     s === "db" ? html`<span class="badge tone-ok">set here</span>`
     : s === "env" ? html`<span class="badge tone-info">from env</span>`

@@ -18,7 +18,7 @@ test("outgoing endpoints show delivery outcomes at desktop and phone widths", as
       VALUES ($1, $2, $3, 'failed', 8, 500, 'HTTP 500')`, [endpoints[0].workspace_id, endpoint.id, events[0].id]);
     const { errors } = watchConsole(page);
     await gotoOk(page, "/webhooks#outgoing");
-    await page.getByRole("button", { name: "Outgoing alert", exact: true }).click();
+    await page.getByRole("button", { name: "Outgoing", exact: true }).click();
     const panel = page.locator(`[data-webhook-deliveries="${endpoint.id}"]`);
     await panel.getByText("Recent deliveries", { exact: true }).click();
     for (const width of [1440, 390]) {
