@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
-import { content as contentTable, posts, deliveries } from "@/db/schema";
+import { channels, content as contentTable, posts, deliveries } from "@/db/schema";
 import { rescheduleDelivery, type DbTx } from "@/lib/deliveries/service";
 import { preparePublishRequest } from "./publish";
 import { validate } from "@/lib/providers/validate";
@@ -218,6 +218,9 @@ export async function getPost(id: string, workspaceId: string): Promise<PostRow 
   return db.query.posts.findFirst({ where: and(eq(posts.id, id), eq(posts.workspace_id, workspaceId)) });
 }
 
+const PENDING_STATUSES: readonly string[] = ["scheduled", "held"];
+const NOT_PENDING = "Delivery is already publishing or no longer pending; only scheduled or held deliveries can be edited";
+
 async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostWritable>, tx: DbTx): Promise<PostRow | undefined> {
   const [existing] = await tx.select().from(posts)
     .where(and(eq(posts.id, id), eq(posts.workspace_id, workspaceId))).for("update");
@@ -232,9 +235,7 @@ async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostW
     const [delivery] = await tx.select().from(deliveries).where(and(
       eq(deliveries.id, existing.delivery_id), eq(deliveries.workspace_id, workspaceId),
     )).for("update");
-    if (!delivery || !["scheduled", "held"].includes(delivery.status)) {
-      throw new ApiError("conflict", "Delivery is already publishing or no longer pending; only scheduled or held deliveries can be edited", 409);
-    }
+    if (!delivery || !PENDING_STATUSES.includes(delivery.status)) throw new ApiError("conflict", NOT_PENDING, 409);
     const updated = { ...existing, ...values } as PostRow;
     const mediaChanged = ["mediaUrl", "videoUrl", "mediaUrls"].some((key) => key in patch);
     const previous = delivery.payload as PublishRequest;
@@ -256,6 +257,31 @@ async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostW
 export async function patchPost(id: string, workspaceId: string, patch: Partial<PostWritable>): Promise<PostRow | undefined> {
   await assertContentWorkspace(patch.contentId, workspaceId);
   return db.transaction((tx) => patchPostTx(id, workspaceId, patch, tx));
+}
+
+/** Change what a pending delivery will publish. A linked editorial post stays the source of its caption. */
+export async function editDeliveryText(id: string, workspaceId: string, text: string): Promise<void> {
+  const value = text.trim();
+  await db.transaction(async (tx) => {
+    const linked = await tx.select({ id: posts.id }).from(posts)
+      .where(and(eq(posts.workspace_id, workspaceId), eq(posts.delivery_id, id))).orderBy(posts.id).for("update");
+    const [delivery] = await tx.select().from(deliveries)
+      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId))).for("update");
+    if (!delivery) throw new ApiError("not_found", "Delivery not found", 404);
+    if (delivery.tiktok_confirmation === "required") throw new ApiError("conflict", "Review the TikTok settings to change this post", 409);
+    if (!PENDING_STATUSES.includes(delivery.status)) throw new ApiError("conflict", NOT_PENDING, 409);
+    if (linked.length) {
+      for (const post of linked) await patchPostTx(post.id, workspaceId, { description: value }, tx);
+      return;
+    }
+    const [channel] = await tx.select({ platform: channels.platform }).from(channels)
+      .where(and(eq(channels.id, delivery.channel_id), eq(channels.workspace_id, workspaceId)));
+    const payload = { ...(delivery.payload as PublishRequest), caption: value || undefined };
+    const checked = validate(getProviderForPlatform(channel!.platform), payload);
+    if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
+    await tx.update(deliveries).set({ payload, updated_at: new Date() })
+      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId)));
+  });
 }
 
 /** Reschedule the pending cross-platform plan as one operation. */

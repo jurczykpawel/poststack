@@ -19,6 +19,8 @@ export interface ListPageArgs<R> {
   where: SQL | undefined;
   /** `timestamp(3)` without time zone, as every list table uses. */
   time: AnyColumn;
+  /** Soonest first instead of newest first; "older" then means later. Not combined with `nullable`. */
+  ascending?: boolean;
   /** The time may be NULL; those rows sort after every dated one (`desc nulls last`) and are ordered by id. */
   nullable?: boolean;
   id: AnyColumn;
@@ -31,13 +33,13 @@ export interface ListPageArgs<R> {
   fetch: (q: { where: SQL | undefined; orderBy: SQL[]; limit: number }) => Promise<R[]>;
 }
 
-/** Newest-first keyset page with exact position and total, stable while new rows keep arriving. */
+/** Keyset page, newest first unless `ascending`, with exact position and total, stable while new rows keep arriving. */
 export async function listPage<R>(a: ListPageArgs<R>): Promise<ListPage<R>> {
   const after = a.after ? decodeCursor(a.after, a.nullable) : null;
   const before = !after && a.before ? decodeCursor(a.before, a.nullable) : null;
   // Rows strictly older/newer than a cursor ("" = the NULL group, which is the oldest).
   const seek = (c: Cursor, dir: "older" | "newer"): SQL => {
-    const cmp = dir === "older" ? sql`<` : sql`>`;
+    const cmp = (dir === "older") === !a.ascending ? sql`<` : sql`>`;
     if (!a.nullable) return sql`(${a.time}, ${a.id}) ${cmp} (${c.createdAt}::timestamp, ${c.id}::uuid)`;
     const none = sql`${a.time} is null`;
     if (c.createdAt === "") return dir === "older" ? sql`(${none} and ${a.id} < ${c.id}::uuid)` : sql`(not ${none} or (${none} and ${a.id} > ${c.id}::uuid))`;
@@ -45,14 +47,16 @@ export async function listPage<R>(a: ListPageArgs<R>): Promise<ListPage<R>> {
     return sql`(${a.time} ${cmp} ${c.createdAt}::timestamp or (${same})${dir === "older" ? sql` or ${none}` : sql``})`;
   };
   const tuple = (c: Cursor) => seek(c, before ? "newer" : "older");
-  const newestFirst = [sql`${a.time} desc${a.nullable ? sql` nulls last` : sql``}`, sql`${a.id} desc`];
+  const forward = a.ascending ? sql`asc` : sql`desc`;
+  const backward = a.ascending ? sql`desc` : sql`asc`;
+  const newestFirst = [sql`${a.time} ${forward}${a.nullable ? sql` nulls last` : sql``}`, sql`${a.id} ${forward}`];
   const take = a.limit + 1;
 
   const first = () => a.fetch({ where: a.where, orderBy: newestFirst, limit: take });
   let rows: R[];
   let hasOlder: boolean;
   if (before) {
-    const ascending = await a.fetch({ where: and(a.where, tuple(before)), orderBy: [sql`${a.time} asc${a.nullable ? sql` nulls first` : sql``}`, sql`${a.id} asc`], limit: take });
+    const ascending = await a.fetch({ where: and(a.where, tuple(before)), orderBy: [sql`${a.time} ${backward}${a.nullable ? sql` nulls first` : sql``}`, sql`${a.id} ${backward}`], limit: take });
     // At the newest end a short page would be left over; the first page is the honest one.
     if (ascending.length > a.limit) {
       rows = ascending.slice(0, a.limit).reverse();

@@ -1278,6 +1278,7 @@ export const deliveries = pgTable("deliveries", {
 }, (table) => [
 	index("deliveries_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	index("deliveries_channel_idx").using("btree", table.channel_id.asc().nullsLast()),
+	index("deliveries_workspace_status_scheduled_idx").using("btree", table.workspace_id.asc().nullsLast(), table.status.asc().nullsLast(), table.scheduled_at.asc().nullsLast(), table.id.asc().nullsLast()),
 	uniqueIndex("deliveries_workspace_idempotency_key").using("btree", table.workspace_id.asc().nullsLast(), table.idempotency_key.asc().nullsLast()),
 	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "deliveries_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
 	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "deliveries_channel_id_fkey" }).onUpdate("cascade").onDelete("cascade"),

@@ -44,7 +44,7 @@ window.psReschedule = function () {
     get preview() {
       return this.iso ? new Date(this.iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) + " · " + Intl.DateTimeFormat().resolvedOptions().timeZone : "";
     },
-    get confirmation() { return "Zmienić termin na " + this.preview + "? Post wyjdzie automatycznie z zapisanymi ustawieniami."; },
+    get confirmation() { return "Move this post to " + this.preview + "? It goes out automatically with its saved settings."; },
   };
 };
 
@@ -59,7 +59,19 @@ window.psReschedule = function () {
       }) + " · " + zone;
     });
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { localize(document); });
-  else localize(document);
+  // Server-rendered calendar days (Queue) need the zone; a list rendered for another zone is fetched again once.
+  function syncZone() {
+    var zone = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if ((document.cookie || "").split("; ").indexOf("ps_tz=" + zone) >= 0) return;
+    document.cookie = "ps_tz=" + zone + "; path=/; max-age=31536000; samesite=lax";
+    var view = document.querySelector && document.querySelector("[data-view-tz]");
+    if (!view || encodeURIComponent(view.getAttribute("data-view-tz")) === zone) return;
+    view.setAttribute("data-view-tz", decodeURIComponent(zone));
+    if (window.htmx && document.getElementById("data-list")) window.htmx.ajax("GET", location.href, { target: "#data-list", select: "#data-list", swap: "outerHTML" });
+    else location.reload();
+  }
+  function start() { localize(document); syncZone(); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
   document.addEventListener("htmx:load", function (event) { localize(event.target); });
 })();
