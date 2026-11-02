@@ -53,13 +53,17 @@ function actionForm(id: string, verb: string, label: string, opts: { confirm?: s
 }
 
 const PUBLISH_CONFIRM = "Publish this post now?";
+const RETRY_CONFIRM = "Retry publishing this post now?";
 const CANCEL_CONFIRM = "Cancel this post? It will not be published.";
 const isPending = (status: string) => status === "scheduled" || status === "held";
 
 /** One visible action and a menu; everything else lives in the post's panel. */
 function rowActions(r: QueueRow, st: ListState): Html | string {
   const open = listHref(PATH, st, { open: r.id });
-  if (r.status === "failed") return html`<span class="q-act">${actionForm(r.id, "retry", "Retry", { className: "btn btn-secondary btn-sm" })}</span>`;
+  if (r.status === "failed" || r.status === "unknown") {
+    const retry = r.status === "failed" ? actionForm(r.id, "retry", "Retry", { confirm: RETRY_CONFIRM, className: "btn btn-secondary btn-sm" }) : "";
+    return html`<span class="q-act">${retry}${actionForm(r.id, "cancel", "Cancel post", { confirm: CANCEL_CONFIRM, className: "btn btn-ghost btn-sm" })}</span>`;
+  }
   if (!isPending(r.status)) return "";
   const review = r.tiktokConfirmation === "required";
   return html`<span class="q-act">
@@ -179,8 +183,8 @@ async function panel(workspaceId: string, st: ListState): Promise<{ detail?: Dat
         <div class="q-panel-acts">
           ${review ? html`<a class="btn btn-primary btn-sm" href="${act}/confirm">Review TikTok settings</a>` : ""}
           ${editable ? actionForm(post.id, "publish-now", "Publish now", { confirm: PUBLISH_CONFIRM, className: "btn btn-secondary btn-sm" }) : ""}
-          ${post.status === "failed" ? actionForm(post.id, "retry", "Retry", { className: "btn btn-primary btn-sm" }) : ""}
-          ${isPending(post.status) ? actionForm(post.id, "cancel", "Cancel post", { confirm: CANCEL_CONFIRM, className: "btn btn-danger btn-sm" }) : ""}
+          ${post.status === "failed" ? actionForm(post.id, "retry", "Retry", { confirm: RETRY_CONFIRM, className: "btn btn-primary btn-sm" }) : ""}
+          ${isPending(post.status) || post.status === "failed" || post.status === "unknown" ? actionForm(post.id, "cancel", "Cancel post", { confirm: CANCEL_CONFIRM, className: "btn btn-danger btn-sm" }) : ""}
         </div>
         <details class="q-tech"><summary class="muted">Technical details</summary><pre class="dl-json">${shown}</pre><a class="btn btn-ghost btn-sm" href="${act}">Full post page</a></details>`,
     },

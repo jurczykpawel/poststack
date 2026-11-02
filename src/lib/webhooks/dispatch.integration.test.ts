@@ -239,6 +239,18 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
     expect(result).toMatchObject({ attempts: 2, http_status: null, last_error: "Connection timed out" });
   });
 
+  it("MQA13-B10: a backlog delivery for a disabled endpoint is not attempted or retried", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.test/off2", eventTypes: [] });
+    const eventId = await emitNow(WS, "post.failed");
+    const [d] = await db.insert(s.webhookDeliveries).values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id }).returning({ id: s.webhookDeliveries.id });
+    await svc.updateEndpoint(WS, ep.id, { active: false });
+    connectStub.mockClear();
+    await expect(processWebhookDelivery({ deliveryId: d!.id }, helpers())).resolves.toBeUndefined(); // no throw = no graphile retry
+    expect(connectStub).not.toHaveBeenCalled();
+    const after = await db.query.webhookDeliveries.findFirst({ where: eq(s.webhookDeliveries.id, d!.id) });
+    expect(after).toMatchObject({ status: "failed", attempts: 0, last_error: "Endpoint disabled" });
+  });
+
   it("non-2xx -> throws (retry); marks failed on the final attempt", async () => {
     const ep = await svc.createEndpoint(WS, { url: "https://hook.test/x", eventTypes: [] });
     const eventId = await emitNow(WS, "post.failed");

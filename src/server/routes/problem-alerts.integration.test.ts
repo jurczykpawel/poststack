@@ -66,6 +66,14 @@ const post = (body: unknown, as = cookie) =>
 const page = async (as = cookie) => (await app.request("/webhooks", { headers: { cookie: as } })).text();
 
 describe("Problem alerts card: installation fallback", () => {
+  it("MQA13-B08: rejects non-http(s) and private/metadata fallback URLs, saves nothing", async () => {
+    if (!TEST_DB) return;
+    for (const value of ["javascript:alert(1)", "http://169.254.169.254/latest", "http://10.0.0.5/hook", "not a url"]) {
+      expect((await post({ key: KEY, value })).status, value).toBe(422);
+    }
+    expect(await page()).toContain("not set");
+  });
+
   it("shows state, then edits and clears the fallback through the existing credentials route", async () => {
     if (!TEST_DB) return;
     let body = await page();

@@ -26,3 +26,14 @@ export const safeFetchWebhook = (
     connect: opts.connect,
     deadlineMs: opts.deadlineMs,
   });
+
+/** Save-time check for a stored webhook URL: http(s) only, and literal IPs get the delivery-time category
+ *  rules. Hostnames are not resolved here (offline save) — delivery re-checks them via safeFetchWebhook. */
+export async function webhookUrlError(url: string): Promise<string | null> {
+  try {
+    await assertSafeWebhookTarget(url, { resolve: async (h) => [/^[\d.]+$|:/.test(h) ? h : "93.184.216.34"] });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : "invalid URL";
+  }
+}

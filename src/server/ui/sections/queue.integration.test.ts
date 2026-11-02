@@ -143,6 +143,37 @@ describe("queue section", () => {
     await db.delete(content).where(eq(content.id, parent!.id));
   });
 
+  it("MQA13-B09: failed, held and unknown deliveries cancel via API and panel and leave attention", async () => {
+    if (!TEST_DB) return;
+    for (const status of ["failed", "unknown"] as const) {
+      const { id } = await seedDelivery(status, "boom");
+      const detail = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
+      expect(detail).toContain(`action="/queue/${id}/cancel"`);
+      const list = await (await app.request("/queue?status=attention", { headers: { cookie } })).text();
+      expect(list).toContain(`/queue/${id}/cancel`);
+      const api = await app.request(`/api/v1/deliveries/${id}/cancel`, { method: "POST", headers: { cookie } });
+      expect(api.status).toBe(204);
+      expect((await db.query.deliveries.findFirst({ where: eq(deliveries.id, id) }))!.status).toBe("canceled");
+      expect(await (await app.request("/queue?status=attention", { headers: { cookie } })).text()).not.toContain(`/queue/${id}/cancel`);
+    }
+    const { id: held } = await seedDelivery("held");
+    expect((await app.request(`/queue/${held}/cancel`, { method: "POST", headers: htmx() })).status).toBe(200);
+    const { id: sent } = await seedDelivery("sent");
+    expect((await app.request(`/queue/${sent}/cancel`, { method: "POST", headers: htmx() })).status).toBe(409);
+  });
+
+  it("MQA13-B06: Retry asks for confirmation in the panel and in the list", async () => {
+    if (!TEST_DB) return;
+    const { id } = await seedDelivery("failed", "boom");
+    const detail = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
+    const list = await (await app.request("/queue?status=attention", { headers: { cookie } })).text();
+    const panel = await (await app.request(`/queue?open=${id}`, { headers: { cookie } })).text(); // the panel on the list page
+    expect(panel).toContain(`action="/queue/${id}/cancel"`);
+    for (const out of [detail, list, panel]) {
+      expect(out).toMatch(new RegExp(`<form[^>]*action="/queue/${id}/retry"[^>]*hx-confirm=`));
+    }
+  });
+
   it("reschedule returns the fresh list and updates the job and detail timeline", async () => {
     if (!TEST_DB) return;
     const { id } = await seedDelivery("held");

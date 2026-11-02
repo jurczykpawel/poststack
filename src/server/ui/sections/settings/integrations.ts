@@ -6,6 +6,7 @@ import { isInstanceOperator } from "@/lib/auth/instance-operator";
 import { getInstanceLicense, requireFeature, ProRequiredError } from "@/lib/license/gate";
 import { configStatus, setConfig, setConfigs, clearConfig, type ConfigStatus } from "@/lib/settings/config";
 import { CONFIG_KEYS, type ConfigKey } from "@/lib/settings/registry";
+import { webhookUrlError } from "@/lib/webhooks/safe-target";
 import { listProviders } from "@/lib/providers";
 import { requireInstanceOperator } from "../../../middleware/instance-operator";
 import { brandingForm } from "../../branding";
@@ -178,6 +179,9 @@ export function registerIntegrationSettings(app: Hono, guard: MiddlewareHandler)
       // An unchanged select (TikTok confirmation) is not a change; a blank field keeps its value.
       .filter(([k, v]) => v && !(k === "TIKTOK_CONFIRM_AT_SEND" && v === (status.find((f) => f.key === k)?.preview || "false")));
     if (entries.some(([k, v]) => k === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(v))) return c.text("Choose On or Off for TikTok confirmation.", 422);
+    const alertUrl = entries.find(([k]) => k === "CHANNEL_ALERT_WEBHOOK_URL")?.[1];
+    const badAlert = alertUrl ? await webhookUrlError(alertUrl) : null;
+    if (badAlert) return c.text(`Alert webhook URL rejected: ${badAlert}. Use a public http(s) address.`, 422);
     if (entries.length) await setConfigs(entries);
     return c.html(await grid(service, entries.length ? `Saved ${entries.length} value${entries.length === 1 ? "" : "s"}.` : "Nothing changed. Enter a value to save it."));
   });
@@ -197,6 +201,10 @@ export function registerIntegrationSettings(app: Hono, guard: MiddlewareHandler)
     // Empty save = no-op (don't silently wipe a secret); use Clear to revert.
     if (!value) return c.html(html`Nothing changed — enter a value, or use Clear to revert to env.`);
     if (key === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(value)) return c.html(html`Choose On or Off for TikTok confirmation.`, 422);
+    if (key === "CHANNEL_ALERT_WEBHOOK_URL") {
+      const bad = await webhookUrlError(value);
+      if (bad) return c.html(html`<span class="error">Alert webhook URL rejected: ${bad}. Use a public http(s) address.</span>`, 422);
+    }
     await setConfig(key as ConfigKey, value);
     return c.html(html`Saved.`);
   });

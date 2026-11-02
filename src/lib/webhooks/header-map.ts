@@ -37,12 +37,13 @@ export function decryptHeaderMap(stored: string | null): HeaderMap {
   }
 }
 
-/** Parse a `Key: Value` per-line textarea into a header map (ignoring blanks / malformed lines). */
+/** Parse a `Key: Value` per-line textarea into a header map (blank lines skipped; a line without `Name:` is a 422). */
 export function parseHeaderLines(raw: string): HeaderMap {
   const out: HeaderMap = {};
   for (const line of raw.replace(/\r\n/g, "\n").split("\n")) {
     const i = line.indexOf(":");
-    if (i <= 0) continue;
+    if (!line.trim()) continue;
+    if (i <= 0) throw new ApiError("invalid_request", "Each custom header line must look like Name: value.", 422);
     if ([...line].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) {
       throw new ApiError("invalid_request", "Custom header lines must contain no control characters.", 422);
     }

@@ -206,6 +206,26 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
     expect((await endpoints.getEndpoint(workspaceId, ep.id))!.extra_payload_fields).toEqual({ a: 1 }); // unchanged
   });
 
+  it("MQA13-B12: a header line without a colon is reported as a header problem, not an extra-fields one", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/hdr" });
+    for (const [path, fields] of [["/webhooks/outbound", { url: "https://hooks.example.com/hdr2", headers: "NoColonHere", extra: "" }], [`/webhooks/outbound/${ep.id}`, { url: ep.url, headers: "NoColonHere", extra: "" }]] as const) {
+      const res = await form(path, fields);
+      expect(res.status).toBe(422);
+      const msg = JSON.parse(res.headers.get("HX-Trigger")!)["ps:toast"].msg as string;
+      expect(msg).toContain("header");
+      expect(msg).not.toContain("Extra payload");
+    }
+  });
+
+  it("MQA13-B10: Disable asks for confirmation (Enable does not)", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/dis" });
+    const out = await (await app.request("/webhooks/outbound", { headers: withCookie({ "HX-Request": "true" }) })).text();
+    expect(out).toMatch(new RegExp(`hx-post="/webhooks/outbound/${ep.id}/toggle"[^>]*hx-confirm=`));
+    await endpoints.updateEndpoint(workspaceId, ep.id, { active: false });
+    const off = await (await app.request("/webhooks/outbound", { headers: withCookie({ "HX-Request": "true" }) })).text();
+    expect(off).not.toMatch(new RegExp(`hx-post="/webhooks/outbound/${ep.id}/toggle"[^>]*hx-confirm=`));
+  });
+
   it("rotates the signing secret (new secret, distinct)", async () => {
     const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/rotate" });
     const before = ep.secret;
