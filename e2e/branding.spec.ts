@@ -10,7 +10,7 @@ test.describe.serial("instance branding", () => {
 
   test("free operator sees the Business requirement and cannot save", async ({ page }) => {
     await setFree(page.request);
-    await gotoOk(page, "/settings#integrations");
+    await gotoOk(page, "/settings/integrations/branding");
     await expect(page.getByText("A Business license enables custom branding.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Save instance branding" })).toHaveCount(0);
     const response = await page.request.post("/settings/branding", { data: { name: "Orchard" } });
@@ -21,7 +21,7 @@ test.describe.serial("instance branding", () => {
   test("branding validation stays visible and settings fit a phone", async ({ page }, testInfo) => {
     await setPro(page.request);
     await page.setViewportSize({ width: 390, height: 844 });
-    await gotoOk(page, "/settings#integrations");
+    await gotoOk(page, "/settings/integrations/branding");
     const name = page.getByLabel("Product name");
     const origin = page.getByLabel("Public origin (HTTPS)");
     await name.fill("X".repeat(81));
@@ -42,7 +42,8 @@ test.describe.serial("instance branding", () => {
     await expect(name).toHaveValue("Orchard");
     await page.locator("#branding-msg").scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("branding-validation.png") });
-    const help = page.locator(".cred-row").filter({ hasText: "AI_FALLBACKS" }).locator(".cred-help");
+    await gotoOk(page, "/settings/integrations/ai");
+    const help = page.locator(".int-field").filter({ hasText: "AI_FALLBACKS" }).locator(".int-help");
     await help.scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(await help.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -50,9 +51,9 @@ test.describe.serial("instance branding", () => {
   });
 
   test("integration help fits a phone", async ({ page }) => {
-    await gotoOk(page, "/settings#integrations");
+    await gotoOk(page, "/settings/integrations/ai");
     await page.setViewportSize({ width: 390, height: 844 });
-    const help = page.locator(".cred-row").filter({ hasText: "AI_FALLBACKS" }).locator(".cred-help");
+    const help = page.locator(".int-field").filter({ hasText: "AI_FALLBACKS" }).locator(".int-help");
     await expect(help).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(await help.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -63,7 +64,7 @@ test.describe.serial("instance branding", () => {
       await setPro(page.request);
       await page.setViewportSize({ width, height: 950 });
       const { errors } = watchConsole(page);
-      await gotoOk(page, "/settings#integrations");
+      await gotoOk(page, "/settings/integrations/branding");
       await page.getByLabel("Product name").fill("Orchard Social");
       await page.getByLabel("Logo URL (HTTPS or local path)").fill("/instance-favicon.svg");
       await page.getByLabel("Favicon URL (blank generates an icon)").fill("");
@@ -111,7 +112,7 @@ test.describe.serial("instance branding", () => {
         expect(await favicon.text()).toContain("#4263d5");
       } finally { await context.close(); }
       expect(errors).toEqual([]);
-      await gotoOk(page, "/settings#integrations");
+      await gotoOk(page, "/settings/integrations/branding");
       await page.getByRole("button", { name: "Reset stored branding" }).click();
       await expect(page).toHaveTitle(/PostStack/);
       await expect(page.getByLabel("Product name")).toHaveValue("PostStack");

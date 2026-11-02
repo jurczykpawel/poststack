@@ -224,7 +224,7 @@ for (const width of [1440, 390]) {
       } else {
         await page.locator(`.sidebar a[href='${route.href}']`).click();
       }
-      await expect(page).toHaveURL(new RegExp(`${route.href}$`));
+      await expect(page).toHaveURL(new RegExp(`${REDIRECTS[route.key] ?? route.href}$`));
       await expect(page.locator(".topbar h1")).toContainText(new RegExp(route.key, "i"));
       // Let both navigation and load-triggered fragments finish before leaving.
       await page.evaluate(async () => {

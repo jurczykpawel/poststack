@@ -103,6 +103,25 @@ export async function setConfig(key: ConfigKey, value: string): Promise<void> {
   invalidateConfigCache();
 }
 
+/** Store several values at once, all or nothing (one integration's credential group). */
+export async function setConfigs(entries: ReadonlyArray<readonly [ConfigKey, string]>): Promise<void> {
+  for (const [key, value] of entries) {
+    if (!CONFIG_KEYS.has(key) || !value) throw new Error(`invalid config entry: ${key}`);
+    if (key === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(value)) throw new Error("TikTok confirmation must be true or false");
+  }
+  await (await getDb()).transaction(async (tx) => {
+    for (const [key, value] of entries) {
+      const value_encrypted = encryptString(value);
+      await tx.insert(instanceSettings)
+        .values({ key, value_encrypted, updated_at: new Date() })
+        .onConflictDoUpdate({ target: instanceSettings.key, set: { value_encrypted, updated_at: new Date() } });
+      const aliases = configField(key)?.aliases ?? [];
+      if (aliases.length > 0) await tx.delete(instanceSettings).where(inArray(instanceSettings.key, [...aliases]));
+    }
+  });
+  invalidateConfigCache();
+}
+
 /** Remove a stored value (and any legacy alias rows) → the key falls back to its env var. */
 export async function clearConfig(key: ConfigKey): Promise<void> {
   await (await getDb()).delete(instanceSettings).where(inArray(instanceSettings.key, keyWithAliases(key)));

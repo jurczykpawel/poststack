@@ -56,13 +56,12 @@ test.describe("full document auth redirects", () => {
       let authenticated = true;
       try {
         if (branded) {
-          await page.goto("/settings#integrations");
+          await page.goto("/settings/integrations/branding");
           await page.getByLabel("Product name").fill("MQA5 Orchard");
           await page.getByRole("button", { name: "Save instance branding", exact: true }).click();
           await expect(page).toHaveTitle(/MQA5 Orchard/);
         }
-        await page.goto("/settings#automation");
-        await page.getByRole("button", { name: "Automation", exact: true }).click();
+        await page.goto("/settings/ai");
         const save = page.locator('form[hx-post="/settings/ai-draft-prompt"]').getByRole("button");
         await expect(save).toBeVisible();
         const cookies = await context.cookies();
@@ -214,8 +213,8 @@ test("sidebar navigation, Inbox updates and resizing before repeated sign out", 
       await page.setViewportSize({ width: 1440, height: 900 });
       if (cycle === 1) {
         await page.locator('.sidebar a[href="/settings"]').click();
-        await page.getByRole("button", { name: "Data", exact: true }).click();
-        await expect(page).toHaveURL(/\/settings#data$/);
+        await page.getByRole("link", { name: "Data", exact: true }).click();
+        await expect(page).toHaveURL(/\/settings\/data$/);
       }
       await page.getByRole("button", { name: "Sign out", exact: true }).click();
       await expect(page).toHaveURL(/\/login$/);
@@ -271,7 +270,7 @@ test("document teardown closes a connecting SSE stream before a disconnect", asy
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
     await expect.poll(streamState).toBe(1);
     await page.locator('.sidebar a[href="/settings"]').click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/account$/);
     expect(errors).toEqual([]);
     expect(consoleErrors).toEqual([]);
     expect(closedBeforeDisconnect).toBe(true);

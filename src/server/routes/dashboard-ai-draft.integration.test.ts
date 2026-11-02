@@ -354,7 +354,7 @@ describe("Inbox filter and thread feedback", () => {
     const body = await res.text();
     expect(body).toContain(message);
     expect(body).not.toContain("private provider details");
-    expect(body).toContain('href="/settings#automation"');
+    expect(body).toContain('href="/activity?source=ai"');
     expect(body).not.toContain('hx-trigger="load delay:3s"');
   });
 

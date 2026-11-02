@@ -61,21 +61,22 @@ describe("license-aware dashboard UI", () => {
     process.env.META_APP_ID = "env-app";
     process.env.META_APP_SECRET = "env-secret";
     try {
-      let body = await (await get("/settings")).text();
-      expect(body).toContain("configured via environment");
-      expect(body).toContain("YouTube (Google connection)");
-      expect(body).toContain("YouTube (direct publishing OAuth)");
+      const meta = async () => (await get("/settings/integrations/meta")).text();
+      let body = await meta();
+      expect(body).toContain("Set up via environment");
+      const google = await (await get("/settings/integrations/google")).text();
+      expect(google).toContain("YouTube direct publishing");
       await setConfig("GOOGLE_CLIENT_ID", "panel-google");
       await setConfig("GOOGLE_CLIENT_SECRET", "panel-google-secret");
       await setConfig("META_APP_SECRET", "panel-secret");
-      body = await (await get("/settings")).text();
-      expect(body).toContain("configured via Settings + environment");
-      expect(body).toMatch(/YouTube \(Google connection\)<\/td><td>[^<]*<[^>]+>configured via Settings<\//);
+      body = await meta();
+      expect(body).toContain("Set up via Settings + environment");
+      expect(await (await get("/settings/integrations/google")).text()).toContain("Set up via Settings");
       expect(body).not.toContain("panel-secret");
       await clearConfig("META_APP_SECRET");
       delete process.env.META_APP_SECRET;
-      body = await (await get("/settings")).text();
-      expect(body).toMatch(/Meta \(Facebook Login\)<\/td><td>[^<]*<[^>]+>incomplete via environment/);
+      body = await meta();
+      expect(body).toContain("Partly set via environment");
     } finally {
       await clearConfig("GOOGLE_CLIENT_ID");
       await clearConfig("GOOGLE_CLIENT_SECRET");
@@ -240,23 +241,16 @@ describe("license-aware dashboard UI", () => {
   it("settings shows the entitled product areas (publishing/replies/core) for an all-access license", async () => {
     if (!TEST_DB) return;
     await licenseInstance(); // all-access poststack token → every area
-    const body = await (await get("/settings")).text();
+    const body = await (await get("/settings/license")).text();
     expect(body).toContain("Products:");
     expect(body).toContain(">core<");
     expect(body).toContain(">publishing<");
     expect(body).toContain(">replies<");
-    // Unified settings (Task 8): the publishing-providers status panel shows under a publishing license.
-    expect(body).toContain("Publishing providers");
-  });
-
-  it("free settings hides the publishing-providers panel (publishing not entitled)", async () => {
-    if (!TEST_DB) return;
-    expect(await (await get("/settings")).text()).not.toContain("Publishing providers");
   });
 
   it("free settings shows no product areas (nothing entitled)", async () => {
     if (!TEST_DB) return;
-    const body = await (await get("/settings")).text();
+    const body = await (await get("/settings/license")).text();
     expect(body).not.toContain("Products:");
   });
 

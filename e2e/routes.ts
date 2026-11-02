@@ -27,5 +27,5 @@ export function featureUnlocked(state: "free" | "pro", _feature: string | undefi
 // the page and gate individual affordances (sidebar lock link / in-form 🔒 PRO / disabled controls).
 export const PAGE_LOCKED_WHEN_LOCKED = new Set(["inbox", "contacts", "engagement", "sequences"]);
 
-// api-keys is a redirect-to-settings nav target (no own page); assert the landing URL is /settings.
-export const REDIRECTS: Record<string, string> = { "api-keys": "/settings" };
+// Redirecting nav targets: assert the landing URL.
+export const REDIRECTS: Record<string, string> = { "api-keys": "/settings/api-keys", settings: "/settings/account" };

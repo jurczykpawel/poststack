@@ -83,7 +83,7 @@ afterAll(async () => {
 describe("settings → License section", () => {
   it("renders a free/none status with a Buy PRO link", async () => {
     if (!TEST_DB) return;
-    const res = await app.request("/settings", { headers: { cookie } });
+    const res = await app.request("/settings/license", { headers: { cookie } });
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("License");
@@ -128,6 +128,8 @@ describe("instance operator settings", () => {
   const writes = [
     ["/settings/credentials", "POST", { key: "META_APP_SECRET", value: "test-value" }],
     ["/settings/credentials", "POST", { key: "META_APP_SECRET", clear: "1" }],
+    ["/settings/integrations/meta", "POST", { META_APP_SECRET: "test-value" }],
+    ["/settings/integrations/meta", "POST", { clear: "META_APP_SECRET" }],
     ["/settings/license", "POST", { token: "garbage" }],
     ["/settings/license/clear", "POST", {}],
     ["/api/v1/license", "POST", { token: "garbage" }],
@@ -149,9 +151,9 @@ describe("instance operator settings", () => {
   it("shows managed sections without instance forms or credential metadata", async () => {
     await warmJwks();
     await postLicense(await key.sign(makeClaims({ kid: "kid-1", tier: "pro" })));
-    const response = await app.request("/settings", { headers: { cookie: otherCookie } });
-    const body = await response.text();
-    expect(response.status).toBe(200);
+    const pages = await Promise.all(["/settings/license", "/settings/integrations", "/settings/data"].map((p) => app.request(p, { headers: { cookie: otherCookie } })));
+    for (const p of pages) expect(p.status).toBe(200);
+    const body = (await Promise.all(pages.map((p) => p.text()))).join("\n");
     expect(body).toContain("Managed by the instance operator");
     expect(body).not.toContain('hx-post="/settings/credentials"');
     expect(body).not.toContain('hx-post="/settings/license"');
@@ -225,8 +227,9 @@ describe("instance operator selection", () => {
   });
 
   it("renders instance forms for the operator", async () => {
-    const body = await (await app.request("/settings", { headers: { cookie } })).text();
-    expect(body).toContain('hx-post="/settings/credentials"');
+    const page = async (p: string) => (await app.request(p, { headers: { cookie } })).text();
+    const body = (await page("/settings/integrations/meta")) + (await page("/settings/license")) + (await page("/settings/integrations/tiktok"));
+    expect(body).toContain('hx-post="/settings/integrations/meta"');
     expect(body).toContain('hx-post="/settings/license"');
     expect(body).toContain("TikTok: always confirm at send");
     expect(body).toContain('option value="false" selected');

@@ -93,22 +93,29 @@ for (const state of ["free", "pro"] as const) {
       });
 
       test(`pro · API key scope presets replace the selection predictably`, async ({ page }) => {
-        const { errors } = watchConsole(page);
+        // The old #apikeys address still lands on the API keys page (the forward aborts the first
+        // page's asset requests, so console watching starts on the landing page).
         await gotoOk(page, "/settings#apikeys");
+        await page.waitForURL((url) => url.pathname === "/settings/api-keys");
+        const { errors } = watchConsole(page);
+        await page.reload();
+        await page.getByRole("button", { name: "Create API key" }).click();
 
         const form = page.locator("form[data-api-key-form]");
-        const create = form.getByRole("button", { name: "Create API key" });
+        const create = form.getByRole("button", { name: "Create key" });
         const checked = form.locator("input[data-api-scope]:checked");
         const serialized = form.locator("input[name='scopes_json']");
 
-        await expect(create).toBeDisabled();
-        await expect(checked).toHaveCount(0);
-
+        // Default choice is Publishing; the per-permission table only shows for Custom.
+        await expect(form.locator("table.scope-mx")).toBeHidden();
         for (const preset of API_SCOPE_PRESETS) {
-          await form.getByRole("button", { name: preset.label, exact: true }).click();
-          await expect(checked).toHaveCount(preset.scopes.length);
+          await form.locator(".preset-card", { hasText: preset.label }).click();
           await expect(serialized).toHaveValue(JSON.stringify(preset.scopes));
+          await expect(create).toBeEnabled();
         }
+        await form.locator(".preset-card", { hasText: "Custom" }).click();
+        await expect(form.locator("table.scope-mx")).toBeVisible();
+        await expect(checked).toHaveCount(API_SCOPE_PRESETS.at(-1)!.scopes.length);
 
         await form.getByRole("button", { name: "Deselect all", exact: true }).click();
         await expect(checked).toHaveCount(0);

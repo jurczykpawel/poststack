@@ -117,7 +117,7 @@ async function noticeFrom(res: Response | null, fallback: string): Promise<strin
   return body?.error?.message ?? fallback;
 }
 
-/** The managed-connection (sources) manager body — rendered inside the Settings → Sources tab.
+/** The managed-connection (sources) manager body — rendered on the Channels page (#sources).
  *  PRO-gated; on free it shows an upgrade prompt. The app-setup OAuth/callback URLs are NOT
  *  duplicated here — they live in Settings → Integrations. */
 export async function renderSourcesManager(workspaceId: string): Promise<Html> {
@@ -154,9 +154,9 @@ export async function renderSourcesManager(workspaceId: string): Promise<Html> {
 }
 
 export function registerSources(r: Hono, guard: MiddlewareHandler): void {
-  // Managed connections now live in Settings → Sources; keep the path as a redirect so existing
-  // links ("Reconnect master →", deep links) land on the tab. The POST/sync/delete endpoints stay.
-  r.get("/sources", guard, (c) => c.redirect("/settings#sources"));
+  // Managed connections live on the Channels page; keep the path as a redirect so existing
+  // links ("Reconnect master →", deep links) land there. The POST/sync/delete endpoints stay.
+  r.get("/sources", guard, (c) => c.redirect("/channels#sources"));
 
   r.post("/sources", guard, async (c) => {
     const a = await auth(c);

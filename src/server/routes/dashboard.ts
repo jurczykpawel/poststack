@@ -6,8 +6,8 @@ import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, inArray, isNull, sql, c
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, channels, contacts, contactChannels,
-  apiKeys as apiKeysTbl, autoReplyRules, sequences as sequencesTbl, sequenceEnrollments, workspaces,
-  pendingApprovals, aiGenerationLogs, commentLogs, webhookEvents, webhookEventStats, users,
+  autoReplyRules, sequences as sequencesTbl, sequenceEnrollments,
+  pendingApprovals, aiGenerationLogs, commentLogs, webhookEvents, webhookEventStats,
   posts, content,
   type ConversationThreadType,
 } from "@/db/schema";
@@ -19,15 +19,13 @@ import { registerContacts } from "../ui/sections/contacts";
 import { registerActivity, activityRedirect } from "../ui/sections/activity";
 import { WEBHOOK_STATUS_LEGEND, WEBHOOK_ENDPOINT_STATUSES, WEBHOOK_STATUS_TONE } from "../ui/sections/webhook-status";
 import { registerEngagement } from "../ui/sections/engagement";
+import { registerSettings } from "../ui/sections/settings";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
-import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { truncateCodePoints } from "@/lib/text";
 import type { StoredAttachments } from "@/lib/messages/attachments";
-import { MAX_RETENTION_DAYS } from "@/lib/retention";
 import { env } from "@/lib/env";
-import { BRAND, brandingSchema } from "@/lib/brand";
-import { brandingForm } from "../ui/branding";
+import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
 import { toastHeader } from "../ui/components/toast";
 import { timeAgo } from "../ui/components/time";
@@ -35,13 +33,11 @@ import { proLink } from "../ui/components/pro-link";
 import { addJobTx } from "@/lib/queue/client";
 import { PLATFORM_LABELS, platformCell, platformColor, platformGlyph, platformGlyphString, platformLabel } from "../ui/components/platform";
 import { t } from "@/lib/i18n";
-import { getInstanceLicense, setLicense, clearLicense, licenseRejectionMessage, requireFeature, ProRequiredError, type LicenseState } from "@/lib/license/gate";
-import { configStatus, setConfig, clearConfig, type ConfigStatus } from "@/lib/settings/config";
-import { CONFIG_KEYS } from "@/lib/settings/registry";
+import { getInstanceLicense } from "@/lib/license/gate";
+import { configStatus } from "@/lib/settings/config";
 import { getAlertWebhook, upsertAlertWebhook, deleteAlertWebhook } from "@/lib/notifications/alert-webhook";
 import { parseHeaderLines } from "@/lib/webhooks/header-map";
 import { buildDraftContext } from "@/lib/ai/draft-context";
-import { renderAiLogSummary } from "../ui/sections/ai-generation-logs";
 import type { Feature } from "@/lib/license/features";
 import { loadOverview } from "@/lib/stats/overview";
 import { getResponseTimeStats, formatLatencyMs, DEFAULT_WINDOW_DAYS, type ResponseTimeStats } from "@/lib/metrics/response-times";
@@ -56,11 +52,8 @@ import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/rej
 import type { ProposedContent } from "@/lib/approvals/draft";
 import * as sequences from "@/server/handlers/v1/sequences/route";
 import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
-import * as apiKeys from "@/server/handlers/v1/api-keys/route";
-import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { dashboardDoc } from "../ui/layout";
 import { isInstanceOperator } from "@/lib/auth/instance-operator";
-import { requireInstanceOperator } from "../middleware/instance-operator";
 import { requireSameOrigin } from "../middleware/same-origin";
 import * as tiktokCreatorInfo from "@/server/handlers/v1/channels/[channelId]/tiktok/creator-info/route";
 import { registerChannels } from "../ui/sections/channels";
@@ -68,24 +61,16 @@ import { registerCompose } from "../ui/sections/compose";
 import { registerContent } from "../ui/sections/content";
 import { registerBrands } from "../ui/sections/brands";
 import { loadSubscriptionStatuses, reconcileChannelSubscription, type ChannelSubscriptionStatus } from "@/lib/channels/subscription-status";
-import { registerSources, renderSourcesManager } from "../ui/sections/sources";
+import { registerSources } from "../ui/sections/sources";
 import { registerQueue } from "../ui/sections/queue";
 import { renderAlertWebhook, problemAlertsCard } from "../ui/sections/problem-alerts";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
-import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
-import {
-  API_SCOPE_DEFINITIONS,
-  API_SCOPE_GROUPS,
-  API_SCOPE_PRESETS,
-  API_SCOPES,
-} from "@/lib/auth/scopes";
 import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
 import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
-import { dot, pill as pillBadge, statusBadge, type Tone } from "../ui/components/status";
+import { dot, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
-import { listProviders } from "@/lib/providers";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -640,7 +625,7 @@ function renderDraftsRegion(
   const missing = poll !== false && drafts.length <= poll.expectMoreThan;
   const waiting = missing && !error && poll.attempt < MAX_DRAFT_POLL_ATTEMPTS;
   const failure = missing && (error || (!waiting ? "AI draft did not finish. Please try again" : undefined));
-  const notice = failure ? html`<div class="notice notice-err" role="alert">${failure} — see <a href="/settings#automation">Settings → AI log</a>.</div>` : html``;
+  const notice = failure ? html`<div class="notice notice-err" role="alert">${failure} — see <a href="/activity?source=ai">Activity → AI log</a>.</div>` : html``;
   // Existing drafts (already-generated, still-pending ones from an earlier click) always render —
   // waiting on a NEW one must never hide them.
   const existing = drafts.map(renderDraftBubble);
@@ -1071,49 +1056,6 @@ function renderEndpointActivity(rows: WebhookEndpointRow[], status?: string): Ht
 }
 
 /**
- * AIDRAFT1 (Task 8): the workspace-default AI-draft prompt form (PRO). This default is used whenever a
- * channel has no per-channel prompt override; blank = the built-in default prompt. PRO-gated UI — a
- * free instance sees an upsell instead of the textarea (the POST is also gated server-side).
- */
-function renderAiDraftPrompt(promptDm: string | null, promptPublic: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
-  const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
-  if (!canConfigure) {
-    return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default AI-draft prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
-  }
-  // No provider key → the prompt is saved but nothing will run. Flag it where it's configured.
-  const aiOff = aiConfigured ? html`` : aiUnconfiguredBanner("AI drafts");
-  return html`${notice}${aiOff}
-    <form hx-post="/settings/ai-draft-prompt" hx-ext="json-enc" hx-target="#ai-draft-prompt-area" hx-swap="innerHTML" style="max-width:560px">
-      <label class="fld"><span>Default DM prompt <small>— used when a channel has no DM prompt override; blank = the built-in default below</small></span>
-        <textarea name="ai_draft_prompt_dm" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${promptDm ?? ""}</textarea></label>
-      <label class="fld" style="margin-top:.6rem"><span>Default public comment prompt <small>— used when a channel has no public comment prompt override; blank = the built-in default below</small></span>
-        <textarea name="ai_draft_prompt_public" rows="4" maxlength="4000" placeholder="${DEFAULT_DRAFT_PROMPT}" style="font:inherit">${promptPublic ?? ""}</textarea></label>
-      <p class="muted" style="font-size:.78rem;margin:.25rem 0 0">Built-in default (used when both are blank): <span class="mono">${DEFAULT_DRAFT_PROMPT}</span></p>
-      <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
-    </form>`;
-}
-
-/**
- * AIPROMPT1: the workspace-default rephrase prompt form (PRO). Used when a rule's `custom_prompt` is
- * blank; blank here = the built-in default rephrase prompt (shown as the textarea placeholder so the
- * operator always sees what will run if left empty — AIPROMPT2). PRO-gated UI + server-side gate.
- */
-function renderAiRephrasePrompt(prompt: string | null, canConfigure: boolean, upgradeUrl: string, msg?: string, aiConfigured = true): Html {
-  const notice = msg ? html`<div class="notice notice-ok">${msg}</div>` : html``;
-  if (!canConfigure) {
-    return html`${notice}<div class="callout">${icon("lock", "ico", 15)}<div>A workspace-default rephrase prompt is ${proLink(upgradeUrl, "PRO")}.</div></div>`;
-  }
-  const aiOff = aiConfigured ? html`` : aiUnconfiguredBanner("AI rephrasing");
-  return html`${notice}${aiOff}
-    <form hx-post="/settings/ai-rephrase-prompt" hx-ext="json-enc" hx-target="#ai-rephrase-prompt-area" hx-swap="innerHTML" style="max-width:560px">
-      <label class="fld"><span>Default rephrase prompt <small>— used when a rule has no custom prompt; blank = the built-in default below</small></span>
-        <textarea name="ai_rephrase_prompt" rows="4" maxlength="4000" placeholder="${DEFAULT_REPHRASE_PROMPT}" style="font:inherit">${prompt ?? ""}</textarea></label>
-      <p class="muted" style="font-size:.78rem;margin:.25rem 0 0">Built-in default (used when blank): <span class="mono">${DEFAULT_REPHRASE_PROMPT}</span></p>
-      <div class="row"><button class="btn btn-primary" type="submit">Save</button></div>
-    </form>`;
-}
-
-/**
  * AIPROMPT1: per-rule rephrase override fields (Tone + Custom prompt), shown only when the rephrase
  * toggle is on (`aiRephrase` Alpine state). `:disabled="!aiRephrase"` so stale values aren't submitted
  * when the toggle is off. The custom-prompt placeholder + the hint show what applies when left blank
@@ -1125,7 +1067,7 @@ function rephrasePromptFields(tone: string | null, customPrompt: string | null, 
     ${aiOff}
     <label class="fld"><span>Tone <small>— optional; steers the built-in prompt (e.g. casual, warm)</small></span>
       <input class="input" name="tone" maxlength="100" placeholder="${DEFAULT_REPHRASE_TONE}" value="${tone ?? ""}" :disabled="!aiRephrase" /></label>
-    <label class="fld"><span>Custom prompt <small>— optional; fully overrides the prompt. Blank = your workspace default (Settings → Automation), or the built-in default below</small></span>
+    <label class="fld"><span>Custom prompt <small>— optional; fully overrides the prompt. Blank = your workspace default (Settings → AI), or the built-in default below</small></span>
       <textarea class="input" name="custom_prompt" rows="3" maxlength="2000" placeholder="${DEFAULT_REPHRASE_PROMPT}" style="font:inherit" :disabled="!aiRephrase">${customPrompt ?? ""}</textarea></label>
   </div>`;
 }
@@ -1155,6 +1097,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerContacts(app, guard, proLockMain);
   registerActivity(app, guard);
   registerEngagement(app, guard, proLockMain);
+  registerSettings(app, guard, jsonReq);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {
     const a = await auth(c);
@@ -1617,7 +1560,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.body(null, 200);
   });
 
-  // Settings
+  // Problem alerts (the card lives in Webhooks → Outgoing; the paths stay)
   app.post("/settings/alert-webhook", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -1663,321 +1606,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const license = await getInstanceLicense();
     await deleteAlertWebhook(a.workspaceId);
     return c.html(renderAlertWebhook(null, license.features.has("managed_connection"), license.upgradeUrl, "Alert webhook removed."));
-  });
-
-  // AIDRAFT1 (Task 8): persist the workspace-default AI-draft prompt (PRO). Blank → null (built-in
-  // default). Server-side PRO gate — a forged POST from a free instance is refused (403, no write).
-  app.post("/settings/ai-draft-prompt", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const license = await getInstanceLicense();
-    if (!license.features.has("ai_draft")) {
-      return c.html(renderAiDraftPrompt(null, null, false, license.upgradeUrl), 403);
-    }
-    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    // Cap at 4000 chars for parity with the per-channel prompt (channels/service.ts) — both feed the
-    // same LLM prompt builder, so an unbounded workspace default must not slip past the channel cap.
-    const rawDm = typeof form.ai_draft_prompt_dm === "string" ? form.ai_draft_prompt_dm.trim().slice(0, 4000) : "";
-    const rawPublic = typeof form.ai_draft_prompt_public === "string" ? form.ai_draft_prompt_public.trim().slice(0, 4000) : "";
-    await db.update(workspaces).set({ ai_draft_prompt_dm: rawDm || null, ai_draft_prompt_public: rawPublic || null }).where(eq(workspaces.id, a.workspaceId));
-    return c.html(renderAiDraftPrompt(rawDm || null, rawPublic || null, true, license.upgradeUrl, "Default AI-draft prompt saved.", await isAiConfigured()));
-  });
-
-  // AIPROMPT1: persist the workspace-default rephrase prompt (PRO). Blank → null (built-in default).
-  // Server-side PRO gate — a forged POST from a free instance is refused (403, no write).
-  app.post("/settings/ai-rephrase-prompt", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const license = await getInstanceLicense();
-    if (!license.features.has("ai_rephrase")) {
-      return c.html(renderAiRephrasePrompt(null, false, license.upgradeUrl), 403);
-    }
-    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    // Cap at 4000 (parity with the AI-draft prompt + the per-rule custom_prompt 2000 is the override).
-    const raw = typeof form.ai_rephrase_prompt === "string" ? form.ai_rephrase_prompt.trim().slice(0, 4000) : "";
-    await db.update(workspaces).set({ ai_rephrase_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
-    return c.html(renderAiRephrasePrompt(raw || null, true, license.upgradeUrl, "Default rephrase prompt saved.", await isAiConfigured()));
-  });
-
-  app.get("/settings", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.redirect("/login");
-    const canManageInstance = await isInstanceOperator(a);
-    const [workspace, license, keys] = await Promise.all([
-      db.query.workspaces.findFirst({ where: eq(workspaces.id, a.workspaceId), columns: { message_retention_days: true, ai_draft_prompt_dm: true, ai_draft_prompt_public: true, ai_rephrase_prompt: true } }),
-      getInstanceLicense(),
-      loadKeys(a.workspaceId),
-    ]);
-    const canAiDraft = license.features.has("ai_draft");
-    const canAiRephrase = license.features.has("ai_rephrase");
-    const canAiLogs = canAiDraft || canAiRephrase;
-    const aiConfigured = await isAiConfigured();
-    const upgradeUrl = license.upgradeUrl;
-    return c.html(
-      dashboardDoc(
-        t("title.suffix", { section: "Settings" }),
-        "/settings",
-        html`<div class="page" x-data="{ tab: 'account', tabs: ['account','apikeys','license','integrations','sources','automation','data'], go(t){ this.tab = t; history.replaceState(null, '', '#' + t); } }" x-init="const h = location.hash.slice(1); if (tabs.includes(h)) tab = h;">
-          <h1>Settings</h1>
-          <p class="muted">Manage your workspace settings and integrations.</p>
-          <nav class="settings-tabs" role="tablist">
-            <button type="button" class="settings-tab" :class="{ active: tab==='account' }" @click="go('account')">Account</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='apikeys' }" @click="go('apikeys')">API keys</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='license' }" @click="go('license')">License</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='integrations' }" @click="go('integrations')">Integrations</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='sources' }" @click="go('sources')">Sources</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='automation' }" @click="go('automation')">Automation</button>
-            <button type="button" class="settings-tab" :class="{ active: tab==='data' }" @click="go('data')">Data</button>
-          </nav>
-          <div class="settings-panel" x-show="tab==='apikeys'" x-cloak>
-          <section class="section">
-            <h2>API keys ${license.features.has("api_access") ? "" : proLink(upgradeUrl, "PRO")}</h2>
-            ${apiKeysSection(keys, license)}
-          </section>
-          </div>
-          <div class="settings-panel" x-show="tab==='account'" x-cloak>
-          <section class="section">
-            <h2>Change password</h2>
-            <form hx-post="/settings/password" hx-ext="json-enc" hx-target="#password-msg" hx-swap="innerHTML" class="stack" style="max-width:24rem">
-              <div><label class="label">Current password</label><input class="input" type="password" name="current_password" autocomplete="current-password" required /></div>
-              <div><label class="label">New password (min 8 chars)</label><input class="input" type="password" name="new_password" autocomplete="new-password" minlength="8" required /></div>
-              <div class="row"><button class="btn btn-primary" type="submit">Update password</button></div>
-            </form>
-            <p id="password-msg" class="muted" style="margin-top:.5rem"></p>
-          </section>
-          </div>
-          <div class="settings-panel" x-show="tab==='data'" x-cloak>
-          <section class="section">
-            <h2>Data retention</h2>
-            <p class="muted" style="margin-bottom:1rem">Delete messages older than N days (runs daily). Blank = keep forever. Pending messages are never deleted.</p>
-            <form hx-post="/settings/retention" hx-ext="json-enc" hx-target="#retention-msg" hx-swap="innerHTML" style="display:flex;flex-direction:row;align-items:center;gap:.5rem;flex-wrap:nowrap">
-              <input class="input" style="width:7rem;flex:0 0 auto" type="number" min="1" name="message_retention_days" placeholder="Keep forever"
-                value="${workspace?.message_retention_days ?? ""}" />
-              <span class="muted" style="flex:0 0 auto">days</span>
-              <button class="btn btn-primary" type="submit" style="flex:0 0 auto">Save</button>
-            </form>
-            <p id="retention-msg" class="muted" style="margin-top:.5rem"></p>
-            <p class="muted" style="margin-top:1rem;font-size:.85rem">
-              ${env.HISTORY_RETENTION_DAYS > 0
-                ? html`Webhook events and post reactions are compacted automatically after
-                    <strong>${env.HISTORY_RETENTION_DAYS} days</strong> — rolled into aggregates (all-time
-                    counts and the Engagement view stay correct) and the raw rows are removed, so the
-                    database stays small. Configured by the operator via <code>HISTORY_RETENTION_DAYS</code>.`
-                : html`Automatic compaction of webhook events and post reactions is
-                    <strong>disabled</strong> (<code>HISTORY_RETENTION_DAYS=0</code>) — those tables grow
-                    without bound. Set a value (≥ 30 days) to keep the database small.`}
-            </p>
-          </section>
-          </div>
-          <div class="settings-panel" x-show="tab==='license'" x-cloak>
-          <section class="section">
-            <h2>License</h2>
-            ${canManageInstance ? html`<p class="muted" style="margin-bottom:1rem">Unlock PRO features with a license token from Sellf. A free instance keeps all free features.</p>
-            <form hx-post="/settings/license" hx-ext="json-enc" hx-target="#license-area" hx-swap="innerHTML" class="stack" style="margin-bottom:1rem">
-              <textarea class="input mono" name="token" rows="3" placeholder="Paste your license token" style="font-size:.8rem"></textarea>
-              <div class="row"><button class="btn btn-primary" type="submit">Verify &amp; save</button></div>
-            </form>
-            <div id="license-area">${renderLicense(license)}</div>` : html`<p class="muted">Managed by the instance operator</p>`}
-          </section>
-          </div>
-          <div class="settings-panel" x-show="tab==='integrations'" x-cloak>
-          ${canManageInstance ? html`<section class="section">
-            <h2>Instance branding</h2>
-            <p class="muted">Applies to the whole instance. Requires a Business license.</p>
-            ${license.features.has("white_label") ? brandingForm() : html`<p class="muted">A Business license enables custom branding.</p>`}
-          </section><section class="section">
-            <h2>Meta App configuration</h2>
-            <p class="muted" style="margin-bottom:.75rem">Paste these <strong>into</strong> your Facebook app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>. They are derived from <code>APP_URL</code> — no guessing.</p>
-            ${metaConfigRow("Valid OAuth Redirect URI (Facebook Login → Settings)", `${env.APP_URL}/api/oauth/facebook/callback`)}
-            ${metaConfigRow("Valid OAuth Redirect URI (Instagram)", `${env.APP_URL}/api/oauth/instagram/callback`)}
-            ${metaConfigRow("Valid OAuth Redirect URI (Instagram Business Login → API setup with Instagram login)", `${env.APP_URL}/api/oauth/instagram-login/callback`)}
-            ${metaConfigRow("Authorized redirect URI — YouTube (Google Cloud Console)", `${env.APP_URL}/api/oauth/youtube/callback`)}
-            ${metaConfigRow("Webhook callback URL (Messenger + Instagram products)", `${env.APP_URL}/api/webhooks/meta`)}
-            <h3 style="margin:1rem 0 .25rem">Other publishing platforms</h3>
-            <p class="muted" style="margin-bottom:.75rem">Direct-OAuth publishers. Paste each redirect URI into that platform's developer app.</p>
-            ${(
-              [
-                ["LinkedIn (LinkedIn Developers → Auth → Authorized redirect URLs)", "linkedin"],
-                ["X / Twitter (developer portal → User authentication settings → Callback URI)", "x"],
-                ["TikTok (developers.tiktok.com → Login Kit → Redirect URI)", "tiktok"],
-                ["Threads (developers.facebook.com → Threads app → Redirect Callback URLs)", "threads"],
-              ] as const
-            ).map(([label, id]) => metaConfigRow(label, `${env.APP_URL}/api/oauth/connect/${id}/callback`))}
-            <h3 style="margin:1rem 0 .25rem">Your credentials</h3>
-            <p class="muted" style="margin-bottom:.75rem">Paste your integration credentials here — stored encrypted; a value set here overrides the matching environment variable, so you don't have to edit <code>.env</code>. Grouped by integration below.</p>
-            ${renderCredentials(await configStatus())}
-          </section>
-          ${license.products.has("publishing") ? await renderProvidersStatus() : ""}` : html`<section class="section"><h2>Integrations</h2><p class="muted">Managed by the instance operator</p></section>`}
-          </div>
-          <div class="settings-panel" x-show="tab==='sources'" x-cloak>
-          <section class="section">
-            <h2>Sources — managed connections</h2>
-            ${await renderSourcesManager(a.workspaceId)}
-          </section>
-          </div>
-          <div class="settings-panel" x-show="tab==='automation'" x-cloak>
-          <section class="section">
-            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
-              <h2 style="margin:0">AI-drafted replies</h2>
-              ${canAiDraft ? html`` : proLink(upgradeUrl, "PRO")}
-            </div>
-            <p class="muted" style="margin-bottom:1rem">Set the workspace-default prompt used when drafting AI replies. Each channel can override it (and enable drafting) from its own settings.</p>
-            <div id="ai-draft-prompt-area">${renderAiDraftPrompt(workspace?.ai_draft_prompt_dm ?? null, workspace?.ai_draft_prompt_public ?? null, canAiDraft, upgradeUrl, undefined, aiConfigured)}</div>
-          </section>
-          <section class="section">
-            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
-              <h2 style="margin:0">AI rephrasing</h2>
-              ${canAiRephrase ? html`` : proLink(upgradeUrl, "PRO")}
-            </div>
-            <p class="muted" style="margin-bottom:1rem">Default prompt used when a rule rephrases its reply with AI (the “Rephrase with AI for variety” toggle). A rule can override it with its own Tone / Custom prompt. Blank = the built-in default shown below.</p>
-            <div id="ai-rephrase-prompt-area">${renderAiRephrasePrompt(workspace?.ai_rephrase_prompt ?? null, canAiRephrase, upgradeUrl, undefined, aiConfigured)}</div>
-          </section>
-          <section class="section">
-            <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.25rem">
-              <h2 style="margin:0">AI generation log</h2>
-              ${canAiLogs ? html`` : proLink(upgradeUrl, "PRO")}
-            </div>
-            <p class="muted" style="margin-bottom:1rem">Every AI-drafted reply and rephrase, exactly as sent to and received from the model, with the full prompt and response or failure reason, lives in Activity.</p>
-            ${await renderAiLogSummary(a.workspaceId, canAiLogs, upgradeUrl)}
-          </section>
-          </div>
-        </div>`,
-        license.features,
-        license.products,
-      ),
-    );
-  });
-
-  app.post("/settings/api-keys", guard, async (c) => {
-    // Transform the form (name + the scope checkboxes serialized to scopes_json) into the API's
-    // JSON shape, so a dashboard key can be scoped instead of always full-access.
-    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const scopes = parseJsonArray(typeof form.scopes_json === "string" ? form.scopes_json : "").filter((s): s is string => typeof s === "string");
-    // An empty scopes array is the full-access sentinel for programmatic keys, but in this form
-    // deselecting every permission means the user wants no permissions. Require at least one.
-    if (scopes.length === 0) {
-      const a = await auth(c);
-      if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-      return c.html(renderKeys(await loadKeys(a.workspaceId), "Select at least one permission."));
-    }
-    const res = await apiKeys.POST(jsonReq(c, { name: form.name ?? "", scopes }));
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const body = await res.json().catch(() => ({}));
-    const keys = await loadKeys(a.workspaceId);
-    const created = res.status === 201 ? body?.data?.key : null;
-    const banner = created
-      ? html`<div class="notice notice-ok"><strong>Copy this key now — it won't be shown again:</strong><br /><code class="mono">${created}</code></div>`
-      : res.status >= 400
-        ? html`<div class="notice notice-err">${body?.error?.message ?? "Failed to create key."}</div>`
-        : html``;
-    return c.html(html`${banner}${renderKeys(keys)}`);
-  });
-
-  app.delete("/settings/api-keys/:id", guard, async (c) => {
-    const id = c.req.param("id");
-    const res = await apiKey.DELETE(c.req.raw, { params: Promise.resolve({ keyId: id }) }).catch(() => null);
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const keys = await loadKeys(a.workspaceId);
-    return c.html(renderKeys(keys, await noticeFrom(res, "Could not revoke the API key.")));
-  });
-
-  app.post("/settings/password", guard, async (c) => {
-    const a = await auth(c);
-    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const form = (await c.req.json().catch(() => ({}))) as Record<string, string>;
-    const current = form.current_password ?? "";
-    const next = form.new_password ?? "";
-    if (next.length < 8) return c.html(html`<span class="error">New password must be at least 8 characters.</span>`);
-    const user = await db.query.users.findFirst({ where: eq(users.id, a.userId), columns: { password_hash: true } });
-    if (!user?.password_hash || !(await verifyPassword(current, user.password_hash))) {
-      return c.html(html`<span class="error">Current password is incorrect.</span>`);
-    }
-    await db.update(users).set({ password_hash: await hashPassword(next) }).where(eq(users.id, a.userId));
-    return c.html(html`<span style="color:var(--ok-text)">Password updated.</span>`);
-  });
-
-  app.post("/settings/retention", guard, async (c) => {
-    const form = await c.req.json().catch(() => ({} as Record<string, unknown>));
-    const rawDays = (form as Record<string, unknown>).message_retention_days;
-    const days = rawDays === "" || rawDays == null ? null : Number(rawDays);
-    // Validate server-side: the input's min="1" is client-only. A direct POST with 0/negative
-    // makes the prune cutoff `now` (or the future) and the next retention run deletes EVERY
-    // prunable message in the workspace. Require a whole number in a sane range.
-    if (days !== null && (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS)) {
-      return c.html(html`Retention must be a whole number of days between 1 and ${MAX_RETENTION_DAYS}.`);
-    }
-    const res = await workspacePatch(c, days);
-    return c.html(html`${res ? "Saved." : "Could not save retention policy."}`);
-  });
-
-  app.post("/settings/branding", guard, requireInstanceOperator, async (c) => {
-    try {
-      await requireFeature("white_label");
-    } catch (error) {
-      if (!(error instanceof ProRequiredError)) throw error;
-      return c.json({ data: null, error: { code: "pro_required", message: error.message } }, 403);
-    }
-    const input = await c.req.json().catch(() => null);
-    if (input && typeof input === "object" && Object.keys(input).length === 1 && input.reset === true) {
-      await clearConfig("INSTANCE_BRANDING");
-      c.header("HX-Refresh", "true");
-      return c.html(html`Stored instance branding cleared.`);
-    }
-    const parsed = brandingSchema.safeParse(input);
-    if (!parsed.success) {
-      if (c.req.header("hx-request") === "true") {
-        return c.html(html`<span class="error" role="alert">Check the brand fields.
-          ${parsed.error.issues.map((issue) => html`<span style="display:block">${issue.path.join(".") || "Branding"}: ${issue.message}</span>`)}</span>`, 400);
-      }
-      return c.json({ data: null, error: { code: "invalid_request", message: "Check the brand fields.", details: parsed.error.issues } }, 400);
-    }
-    await setConfig("INSTANCE_BRANDING", JSON.stringify(parsed.data));
-    c.header("HX-Refresh", "true");
-    return c.html(html`Instance branding saved.`);
-  });
-
-  app.post("/settings/license", guard, requireInstanceOperator, async (c) => {
-    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const token = typeof form.token === "string" ? form.token.trim() : "";
-    if (!token) {
-      return c.html(renderLicense(await getInstanceLicense(), "Paste a license token first."));
-    }
-    const result = await setLicense(token);
-    if (!result.ok) {
-      return c.html(renderLicense(result.state, licenseRejectionMessage(result.reason)));
-    }
-    return c.html(renderLicense(result.state, "License activated.", true));
-  });
-
-  app.post("/settings/license/clear", guard, requireInstanceOperator, async (c) => {
-    return c.html(renderLicense(await clearLicense(), "License removed.", true));
-  });
-
-  // CONFIG1: set / clear an instance integration credential (stored encrypted; overrides the env var).
-  app.post("/settings/credentials", guard, requireInstanceOperator, async (c) => {
-    const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const key = typeof form.key === "string" ? form.key : "";
-    if (key === "INSTANCE_BRANDING") return c.text("Use instance branding settings.", 400);
-    if (!CONFIG_KEYS.has(key)) {
-      return c.html(renderCredentials(await configStatus(), "Unknown setting."));
-    }
-    let msg = "";
-    if (form.clear === "1" || form.clear === true) {
-      await clearConfig(key as Parameters<typeof clearConfig>[0]);
-      msg = "Reverted to the environment variable.";
-    } else {
-      const value = typeof form.value === "string" ? form.value.trim() : "";
-      if (!value) {
-        // Empty save = no-op (don't silently wipe a secret); use Clear to revert.
-        return c.html(renderCredentials(await configStatus(), "Nothing changed — enter a value, or use Clear to revert to env."));
-      }
-      if (key === "TIKTOK_CONFIRM_AT_SEND" && !["true", "false"].includes(value)) return c.html(renderCredentials(await configStatus(), "Choose On or Off for TikTok confirmation."), 422);
-      await setConfig(key as Parameters<typeof setConfig>[0], value);
-      msg = "Saved.";
-    }
-    return c.html(renderCredentials(await configStatus(), msg));
   });
 
   // Rules
@@ -2441,10 +2069,6 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // The inbound-event detail moved into Activity; old links open the same event there.
   app.get("/webhooks/:id", guard, (c) => activityRedirect(c, "webhooks", { open: c.req.param("id") }));
 
-  // API keys — its own top-level page (create + revoke + scopes). Settings links here.
-  // API keys live in Settings → API keys now; redirect the old path so deep links still work.
-  app.get("/api-keys", guard, (c) => c.redirect("/settings#apikeys"));
-
   // Sequences
   app.get("/sequences", guard, async (c) => {
     const a = await auth(c);
@@ -2576,181 +2200,7 @@ function jsonReqMethod(c: Context, method: string, body: unknown): Request {
   return new Request(c.req.url, { method, headers, body: JSON.stringify(body) });
 }
 
-async function workspacePatch(c: Context, days: number | null): Promise<boolean> {
-  const a = await auth(c);
-  if (!a) return false;
-  try {
-    await db.update(workspaces).set({ message_retention_days: days }).where(eq(workspaces.id, a.workspaceId));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // ─── contacts/keys/rules/sequences renderers ──────────────────────────────────
-
-function loadKeys(workspaceId: string) {
-  return db.query.apiKeys.findMany({
-    where: eq(apiKeysTbl.workspace_id, workspaceId),
-    orderBy: desc(apiKeysTbl.created_at),
-    columns: { id: true, name: true, key_prefix: true, scopes: true, last_used_at: true, expires_at: true },
-  });
-}
-
-function renderKeys(keys: Array<{ id: string; name: string; key_prefix: string; scopes: string[] | null; last_used_at: Date | null; expires_at: Date | null }>, error?: string): Html {
-  const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
-  if (keys.length === 0) return html`${notice}<p class="muted">No API keys yet.</p>`;
-  return html`${notice}<table><thead><tr><th>Name</th><th>Last used</th><th>Expiry</th><th></th></tr></thead><tbody>
-    ${keys.map(
-      (k) => html`<tr>
-        <td>${k.name}<div class="muted mono" style="font-size:.75rem">${k.key_prefix}...</div><div class="muted" style="font-size:.75rem">${k.scopes?.length ? k.scopes.join(", ") : "Full access"}</div></td>
-        <td class="muted">${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "Never"}</td>
-        <td class="muted">${k.expires_at ? new Date(k.expires_at).toLocaleDateString() : "No expiry"}</td>
-        <td><button class="btn btn-sm btn-danger" hx-delete="/settings/api-keys/${k.id}" hx-target="#keys-area" hx-swap="innerHTML" hx-confirm="Revoke this API key?">Revoke</button></td>
-      </tr>`,
-    )}
-  </tbody></table>`;
-}
-
-/** API-key management body (create form + key list). Lives on its own /api-keys page; the page
- *  supplies the H1, so this renders only the intro + form + list. */
-function apiKeysSection(keys: Awaited<ReturnType<typeof loadKeys>>, license: Awaited<ReturnType<typeof getInstanceLicense>>): Html {
-  const canApi = license.features.has("api_access");
-  // Owner directive: unlicensed instances don't see the keys UI at all — only the upsell, so it's
-  // obvious that API/agent access needs PRO (mirrors the onboarding wizard's License→API step).
-  if (!canApi) return apiKeysUpsell(license.upgradeUrl);
-  const pickerState = JSON.stringify({
-    allScopes: API_SCOPES,
-    presets: Object.fromEntries(API_SCOPE_PRESETS.map(({ id, scopes }) => [id, scopes])),
-    scopes: [],
-  });
-  return html`
-    <p class="muted" style="margin-bottom:1rem">Programmatic access to your workspace over the REST API (<a href="/api/docs" target="_blank" rel="noopener">docs</a>). Authenticate with <code>Authorization: Bearer ${BRAND.idPrefix}…</code>. Keys are shown once on creation — store them securely.</p>
-    <form data-api-key-form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" class="stack api-key-form"
-      x-data="${pickerState}">
-      <label class="label" for="api-key-name">Key name</label>
-      <input class="input" id="api-key-name" name="name" placeholder="e.g. Content pipeline" required />
-      <div class="api-scope-picker">
-        <div class="api-scope-toolbar">
-          <div>
-            <strong>Quick presets</strong>
-            <div class="muted">A preset replaces the current selection; refine it below if needed.</div>
-          </div>
-          <div class="api-scope-actions">
-            ${API_SCOPE_PRESETS.map(
-              (preset) => html`<button class="btn btn-sm" type="button" title="${preset.description}"
-                @click="scopes = [...presets['${preset.id}']]">${preset.label}</button>`,
-            )}
-            <button class="btn btn-sm" type="button" @click="scopes = [...allScopes]">Select all</button>
-            <button class="btn btn-sm" type="button" @click="scopes = []">Deselect all</button>
-          </div>
-        </div>
-        <div class="api-scope-groups">
-          ${API_SCOPE_GROUPS.map((group) => {
-            const definitions = API_SCOPE_DEFINITIONS.filter(({ group: groupId }) => groupId === group.id);
-            return html`<fieldset class="api-scope-group">
-              <legend>${group.label}</legend>
-              <p>${group.description}</p>
-              <div class="api-scope-options">
-                ${definitions.map(
-                  (definition) => html`<label class="api-scope-option">
-                    <input data-api-scope type="checkbox" value="${definition.scope}" x-model="scopes" />
-                    <span><strong>${definition.label}</strong><code>${definition.scope}</code></span>
-                  </label>`,
-                )}
-              </div>
-            </fieldset>`;
-          })}
-        </div>
-      </div>
-      <input type="hidden" name="scopes_json" :value="JSON.stringify(scopes)" />
-      <div class="api-scope-submit">
-        <span class="muted" aria-live="polite" x-text="scopes.length + ' of ' + allScopes.length + ' permissions selected'"></span>
-        <button class="btn btn-primary" type="submit" :disabled="scopes.length === 0">Create API key</button>
-      </div>
-    </form>
-    <div id="keys-area">${renderKeys(keys)}</div>`;
-}
-
-/** License gate for the API-keys tab. Shown instead of the keys UI on the free plan: states plainly
- *  what PRO unlocks, a buy CTA, and that free still works (license can be added later). */
-function apiKeysUpsell(upgradeUrl: string): Html {
-  const locked = [
-    "REST API access — programmatic keys for agents & integrations",
-    "First-comment automation",
-    "Auto-Story publishing",
-    "Drip sequences",
-    "Contacts CRM",
-    "Manual inbox replies",
-  ];
-  return html`<div class="upsell">
-    <div class="upsell-head">${icon("lock", "ico", 18)}<h3>API access is a PRO feature</h3></div>
-    <p class="upsell-lead">API keys and agent automations are part of PRO. On the free plan you create and schedule posts manually in the panel — without programmatic access.</p>
-    <div class="upsell-sub">Without a license, these stay off:</div>
-    <ul class="upsell-list">
-      ${locked.map((f) => html`<li>${icon("lock", "ico", 14)}<span>${f}</span></li>`)}
-    </ul>
-    <div class="upsell-actions">
-      <a class="btn btn-primary" href="${upgradeUrl}" target="_blank" rel="noopener">${icon("sparkles", "ico", 15)} Get PRO</a>
-      <a class="btn btn-ghost" href="${upgradeUrl}" target="_blank" rel="noopener">See plans</a>
-    </div>
-    <div class="callout">${icon("info", "ico", 15)}<div>Free still works — create &amp; schedule posts manually. Already have a license? Add it in the <strong>License</strong> tab and API access unlocks instantly.</div></div>
-  </div>`;
-}
-
-/** CONFIG1: editable instance-credential rows (App ID/Secret/Verify token). A DB value overrides the
- *  env var. Secrets are never echoed — only a masked "set" preview. Each row has a Save (set/change)
- *  and, when DB-set, a Clear (revert to env) form, both swapping this block in place via htmx. */
-function renderCredentials(status: ConfigStatus[], msg?: string): Html {
-  status = status.filter((field) => field.key !== "INSTANCE_BRANDING" && field.key !== "CHANNEL_ALERT_WEBHOOK_URL");
-  const badge = (s: ConfigStatus["source"]) =>
-    s === "db" ? html`<span class="badge tone-ok">set here</span>`
-    : s === "env" ? html`<span class="badge tone-info">from env</span>`
-    : html`<span class="badge tone-neutral">not set</span>`;
-  // Group rows by their integration group (preserving first-seen order) so e.g. Google / AI /
-  // Integrations / Security each get their own subheading and don't read as part of Meta.
-  const groups: string[] = [];
-  for (const f of status) if (!groups.includes(f.group)) groups.push(f.group);
-  const row = (f: ConfigStatus) => html`<div class="cred-row">
-      <div class="cred-head"><span class="cred-label">${f.label}</span>${badge(f.source)}</div>
-      <div class="cred-meta"><code>${f.key}</code>${f.preview ? html` · ${f.preview}` : ""}</div>
-      ${f.help ? html`<div class="cred-help">${f.help}</div>` : ""}
-      <div class="cred-form">
-        <form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
-          <input type="hidden" name="key" value="${f.key}" />
-          ${f.key === "TIKTOK_CONFIRM_AT_SEND" ? html`<select class="input input-sm" name="value" aria-label="${f.label}">
-            <option value="false"${f.preview !== "true" ? raw(" selected") : ""}>Off — automatic after validation</option>
-            <option value="true"${f.preview === "true" ? raw(" selected") : ""}>On — always confirm at send time</option>
-          </select>` : html`<input class="input input-sm" type="${f.secret ? "password" : "text"}" name="value" autocomplete="off"
-            placeholder="${f.secret ? "paste to set / change" : "value"}" />`}
-          <button class="btn btn-sm btn-primary" type="submit">Save</button>
-        </form>
-        ${f.source === "db"
-          ? html`<form hx-post="/settings/credentials" hx-ext="json-enc" hx-target="#credentials" hx-swap="outerHTML">
-              <input type="hidden" name="key" value="${f.key}" /><input type="hidden" name="clear" value="1" />
-              <button class="btn btn-sm btn-danger" type="submit" title="Revert to the environment variable">Clear</button>
-            </form>`
-          : html``}
-      </div>
-    </div>`;
-  return html`<div id="credentials">
-    ${msg ? html`<div class="notice notice-ok" style="margin-bottom:.5rem">${msg}</div>` : html``}
-    ${groups.map((g) => html`<div class="cred-subhead">${g}</div>
-      <div class="cred-list">${status.filter((f) => f.group === g).map(row)}</div>`)}
-  </div>`;
-}
-
-// A small "🔒 PRO" link to the upgrade URL, for locking gated controls in forms.
-// A labelled, copy-to-clipboard config value (for the Meta App configuration panel).
-function metaConfigRow(label: string, value: string): Html {
-  return html`<div style="margin-bottom:.75rem">
-    <div class="muted" style="font-size:.75rem;margin-bottom:.2rem">${label}</div>
-    <div class="row" style="gap:.5rem;align-items:stretch" x-data="{ copied: false }">
-      <code class="card mono grow" style="overflow-x:auto;white-space:nowrap;padding:.5rem .6rem">${value}</code>
-      <button type="button" class="btn btn-sm" @click="navigator.clipboard.writeText($el.previousElementSibling.textContent); copied = true; setTimeout(() => copied = false, 1200)" x-text="copied ? '✓ Copied' : 'Copy'"></button>
-    </div>
-  </div>`;
-}
 
 
 // Full-page upsell shown when a free instance opens a PRO-only view (inbox / contacts).
@@ -2908,54 +2358,6 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
           ${locked ? html`<p class="section-intro" style="margin-top:.75rem">This log shows what was sent, without client details. To see who you talked to, ${proLink(upgradeUrl, "upgrade to PRO")}.</p>` : html``}`}
     </section>
   </div>`;
-}
-
-/** Show credentials for each actual connection path; existing channels need no new OAuth login. */
-async function renderProvidersStatus(): Promise<Html> {
-  const status = await configStatus();
-  const configLabel = (keys: string[]) => {
-    const sources = keys.map((key) => status.find((s) => s.key === key)?.source ?? "unset");
-    if (sources.every((source) => source === "unset")) return "not configured";
-    const settings = sources.includes("db"), environment = sources.includes("env");
-    return (sources.includes("unset") ? "incomplete via " : "configured via ") + (settings && environment ? "Settings + environment" : settings ? "Settings" : "environment");
-  };
-  const rows = [
-    { label: "Meta (Facebook Login)", state: configLabel(["META_APP_ID", "META_APP_SECRET"]) },
-    { label: "Meta (Instagram Business Login)", state: configLabel(["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"]) },
-    { label: "YouTube (Google connection)", state: configLabel(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]) },
-    ...listProviders().filter((p) => p.id !== "meta").map((p) => ({
-      label: p.id === "youtube" ? "YouTube (direct publishing OAuth)" : p.label,
-      state: p.oauthConfig?.() ? "configured via environment" : "not configured (direct OAuth environment credentials)",
-    })),
-  ];
-  return html`<section class="section">
-    <h2>Publishing providers</h2>
-    <p class="section-intro">Credentials for connecting or reconnecting channels, by connection path. Existing connected channels are shown in Channels.</p>
-    <div class="table-wrap"><table><thead><tr><th>Connection</th><th>OAuth credentials</th></tr></thead><tbody>
-      ${rows.map((r) => html`<tr><td>${r.label}</td><td>${pillBadge(r.state, r.state.startsWith("configured") ? "ok" : "neutral")}</td></tr>`)}
-    </tbody></table></div>
-  </section>`;
-}
-
-function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {
-  const notice = msg ? html`<div class="notice ${msgOk ? "notice-ok" : "notice-err"}">${msg}</div>` : html``;
-  const sourceLabel = state.source === "db" ? "panel" : state.source === "env" ? "environment variable" : "—";
-  // When the active license comes from the LICENSE_KEY env var (server config), make it explicit —
-  // otherwise the panel looks "empty" (no stored token) even though PRO is active, which is confusing.
-  const envNote = state.source === "env"
-    ? html`<div class="notice notice-info">ℹ This license is provided by the <code>LICENSE_KEY</code> environment variable (server config), not the panel — so there's nothing to paste here. To change it, update the env var. Pasting a token below would override the env one via the panel.</div>`
-    : html``;
-  return html`${notice}${envNote}
-    <div class="card" style="margin-bottom:1rem">
-      <div><strong>Status:</strong> <span class="badge">${state.status}</span>${state.tier ? html` &nbsp;<strong>Tier:</strong> ${state.tier}` : html``}${state.expiresAt ? html` &nbsp;<span class="muted">expires ${new Date(state.expiresAt).toLocaleDateString()}</span>` : html``}</div>
-      ${state.products.size > 0 ? html`<div style="margin-top:.4rem"><strong>Products:</strong> ${[...state.products].map((p) => html`<span class="badge">${p}</span> `)}</div>` : html``}
-      ${state.features.size > 0 ? html`<div class="muted" style="margin-top:.4rem">Unlocked: ${[...state.features].join(", ")}</div>` : html``}
-      <div class="muted" style="margin-top:.4rem;font-size:.8rem">Source: ${sourceLabel}</div>
-    </div>
-    <div class="row">
-      ${state.status !== "active" ? html`<a class="btn btn-primary" href="${state.upgradeUrl}" target="_blank" rel="noopener">Buy PRO</a>` : html``}
-      ${state.source === "db" ? html`<button class="btn btn-sm" hx-post="/settings/license/clear" hx-target="#license-area" hx-swap="innerHTML" hx-confirm="Remove the stored license token?">Remove license</button>` : html``}
-    </div>`;
 }
 
 /** Parse a JSON-array string from the rule form (quick replies / buttons); returns [] on anything else. */
