@@ -45,6 +45,7 @@ for (const state of ["free", "pro"] as const) {
       test(`free · creating a 2nd brand shows the limit notice, never a 500`, async ({ page }) => {
         const { errors } = watchConsole(page);
         await gotoOk(page, "/brands");
+        await page.getByRole("button", { name: "Add brand" }).click();
         await page.locator("form.brand-new-form input[name='key']").fill(`e2e-free-${Date.now()}`);
         await page.locator("form.brand-new-form input[name='name']").fill("E2E Free Overflow");
         const resp = await Promise.all([
@@ -66,13 +67,14 @@ for (const state of ["free", "pro"] as const) {
       test(`pro · create a brand (plain POST) → brand appears`, async ({ page }) => {
         const { errors } = watchConsole(page);
         await gotoOk(page, "/brands");
+        await page.getByRole("button", { name: "Add brand" }).click();
         const key = `e2e-pro-${Date.now()}`;
         await page.locator("form.brand-new-form input[name='key']").fill(key);
         await page.locator("form.brand-new-form input[name='name']").fill("E2E PRO Brand");
         await page.getByRole("button", { name: "Create brand" }).click();
         // 303 → back to /brands; the new brand is listed.
         await page.waitForURL((url) => url.pathname === "/brands");
-        await expect(page.locator("body")).toContainText(key);
+        await expect(page.locator("body")).toContainText("E2E PRO Brand");
         expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
       });
 

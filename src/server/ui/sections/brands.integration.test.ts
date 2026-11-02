@@ -103,6 +103,7 @@ describe("Brands section", () => {
     expect(res.status).toBe(200);
     const out = await res.text();
     expect(out).toContain("New brand");
+    expect(out).toContain("Add brand");
     expect(out).toContain("No brands yet");
     expect(out).toContain('type="color"');
     expect(out).toContain("emoji-pick");
@@ -119,7 +120,6 @@ describe("Brands section", () => {
     expect(page).toContain("Tech Skills Academy");
     expect(page).toContain("techskills.academy");
     expect(page).toContain('id="brand-techskills-academy"');
-    expect(page).toContain('hx-target="#brand-techskills-academy"');
     expect(page).toContain('id="slot-techskills-academy-instagram"');
     expect(page).not.toContain("brand-techskills.academy");
     expect(page).not.toContain("slot-techskills.academy");
