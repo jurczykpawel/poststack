@@ -1,5 +1,5 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { ApiError } from "@/lib/api/response";
@@ -102,7 +102,7 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
       <button type="button" class="btn btn-sm btn-ghost" @click="navigator.clipboard && navigator.clipboard.writeText($refs.sec.textContent)">Copy</button>
     </div>
     <div class="row" style="gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
-      <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/toggle" hx-target="#wh-outbound" hx-swap="outerHTML">${ep.active ? "Disable" : "Enable"}</button>
+      <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/toggle" hx-target="#wh-outbound" hx-swap="outerHTML"${ep.active ? raw(' hx-confirm="Disable this endpoint? Pending deliveries to it will be dropped." data-confirm-label="Disable"') : raw("")}>${ep.active ? "Disable" : "Enable"}</button>
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/rotate" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Rotate the signing secret? The previous secret keeps verifying briefly, then stops." data-confirm-label="Rotate">${icon("reconnect", "ico", 13)} Rotate secret</button>
       <button class="btn btn-sm btn-danger" hx-delete="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Delete this endpoint? Future events will no longer be delivered to it." data-confirm-label="Delete">Delete</button>
     </div>

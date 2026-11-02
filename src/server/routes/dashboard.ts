@@ -1,4 +1,5 @@
 import type { Hono, MiddlewareHandler, Context } from "hono";
+import { isUuid } from "@/lib/api/identifiers";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
@@ -738,8 +739,8 @@ function convQuery(c: Context) {
   const q = (k: string) => c.req.query(k) || "";
   return {
     filter: parseConvFilter(c.req.query("filter")),
-    channelId: q("channel") || "all",
-    contactId: q("contact") || "all",
+    channelId: isUuid(q("channel")) ? q("channel") : "all", // MQA13-B11: malformed ids are ignored, not a 500
+    contactId: isUuid(q("contact")) ? q("contact") : "all",
     search: q("search"),
     since: parseConvSince(c.req.query("since")),
     from: q("from"),
@@ -833,6 +834,7 @@ function loadInboxChannels(workspaceId: string) {
 }
 
 function loadConversation(id: string, workspaceId: string) {
+  if (!isUuid(id)) return Promise.resolve(undefined);
   return db.query.conversations.findFirst({
     where: and(eq(conversations.id, id), eq(conversations.workspace_id, workspaceId)),
     ...CONV_QUERY,
@@ -1132,7 +1134,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { filter, channelId, contactId, search, since, from, to } = convQuery(c);
     // Deep-link to a specific thread (e.g. "open in inbox" from Approvals): the #thread pane
     // self-loads that conversation on page load. The /inbox/:id endpoint scopes it to the workspace.
-    const open = (c.req.query("open") || "").trim();
+    const openRaw = (c.req.query("open") || "").trim();
+    const open = isUuid(openRaw) ? openRaw : "";
     const [conversations, chans, doneCount] = await Promise.all([
       loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
       loadInboxChannels(a.workspaceId),

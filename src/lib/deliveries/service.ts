@@ -120,7 +120,7 @@ export async function cancelDelivery(id: string, workspaceId: string): Promise<v
       .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId)));
     if (!existing) throw new ApiError("not_found", "Delivery not found", 404);
     const [row] = await tx.update(deliveries).set({ status: "canceled", updated_at: new Date() })
-      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held"])))
+      .where(and(eq(deliveries.id, id), eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, ["scheduled", "held", "failed", "unknown"])))
       .returning({ id: deliveries.id });
     if (!row) throw new ApiError("conflict", "Post is not cancelable", 409);
     await tx.update(posts).set({ status: "planned", delivery_id: null, updated_at: new Date() })

@@ -97,6 +97,20 @@ describe("dashboard /inbox/:id/reply — surfaces send failures", () => {
   });
 });
 
+describe("MQA13-B11: Inbox ignores or 404s malformed ids instead of 500", () => {
+  it("non-UUID filters are ignored; non-UUID conversation ids 404", async () => {
+    if (!TEST_DB) return;
+    for (const path of ["/inbox?contact=abc", "/inbox?contact='", "/inbox?channel=abc", "/inbox/list?channel=abc&contact=abc", "/inbox/older?channel=abc", "/inbox?open=not-uuid"]) {
+      expect((await app.request(path, { headers: { cookie } })).status, path).toBe(200);
+    }
+    for (const path of ["/inbox/not-uuid", "/inbox/not-uuid/messages", "/inbox/not-uuid/drafts"]) {
+      expect((await app.request(path, { headers: { cookie } })).status, path).toBe(404);
+    }
+    const frag = await (await app.request("/inbox?open=not-uuid", { headers: { cookie } })).text();
+    expect(frag).not.toContain("/inbox/not-uuid");
+  });
+});
+
 describe("dashboard /settings/retention — validates days", () => {
   it.each([0, -5, 1.5])("rejects %s and leaves the policy unchanged", async (bad) => {
     if (!TEST_DB) return;

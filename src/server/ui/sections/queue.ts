@@ -87,18 +87,20 @@ function attemptTimeline(post: DeliveryRow): Html {
 
 const HX_HEAD = `hx-target="#post-detail-head" hx-swap="outerHTML"`;
 
+const isPendingStatus = (s: string) => s === "scheduled" || s === "held";
+
 function detailActions(post: DeliveryRow): Html {
   const back = `/queue/${post.id}`;
   const retry = post.status === "failed"
-    ? html`<form method="post" action="${back}/retry" hx-post="${back}/retry" ${raw(HX_HEAD)}>${btn({ label: "Retry", variant: "primary", icon: "reconnect" })}</form>`
+    ? html`<form method="post" action="${back}/retry" hx-post="${back}/retry" ${raw(HX_HEAD)} hx-confirm="Retry publishing this post now?" data-confirm-label="Retry">${btn({ label: "Retry", variant: "primary", icon: "reconnect" })}</form>`
     : "";
   const confirm = post.status === "held" && post.tiktok_confirmation === "required"
     ? html`<a class="btn btn-primary" href="${back}/confirm">Review TikTok settings</a>` : "";
-  const cancel = post.status === "scheduled" || post.status === "held"
+  const cancel = ["scheduled", "held", "failed", "unknown"].includes(post.status)
     ? html`<form method="post" action="${back}/cancel" hx-post="${back}/cancel" ${raw(HX_HEAD)} hx-confirm="Cancel this post? It will not be published." data-confirm-label="Cancel post">${btn({ label: "Cancel", variant: "danger", icon: "close" })}</form>`
     : "";
   if (!retry && !cancel && !confirm) return html``;
-  return html`<div class="action-bar">${confirm}${retry}${cancel}${cancel && !confirm ? rescheduleForm(`${back}/reschedule`, "#post-detail-head") : ""}</div>`;
+  return html`<div class="action-bar">${confirm}${retry}${cancel}${cancel && !confirm && isPendingStatus(post.status) ? rescheduleForm(`${back}/reschedule`, "#post-detail-head") : ""}</div>`;
 }
 
 function postDetailHead(item: QueueItem): Html {

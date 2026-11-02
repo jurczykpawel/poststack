@@ -30,9 +30,13 @@ describe("encryptHeaderMap / decryptHeaderMap", () => {
 });
 
 describe("parseHeaderLines", () => {
-  it("parses Key: Value lines, ignoring blanks and malformed lines", () => {
-    const out = parseHeaderLines("Authorization: Bearer xxx\n\nX-Api-Key: yyy\nmalformed-line\n:no-key");
-    expect(out).toEqual({ Authorization: "Bearer xxx", "X-Api-Key": "yyy" });
+  it("parses Key: Value lines, skipping blank lines", () => {
+    expect(parseHeaderLines("Authorization: Bearer xxx\n\nX-Api-Key: yyy")).toEqual({ Authorization: "Bearer xxx", "X-Api-Key": "yyy" });
+  });
+
+  it("MQA13-B12: rejects a line without a name or colon, with a header-specific message", () => {
+    expect(() => parseHeaderLines("malformed-line")).toThrow(/Name: value/);
+    expect(() => parseHeaderLines(":no-key")).toThrow(/Name: value/);
   });
 
   it("trims whitespace around keys and values", () => {

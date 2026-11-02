@@ -61,6 +61,11 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
   const endpoint = await getEndpoint(delivery.workspace_id, delivery.endpoint_id); // secrets decrypted at the boundary
   const event = await db.query.events.findFirst({ where: eq(events.id, delivery.event_id) });
   if (!endpoint || !event) return;
+  if (!endpoint.active) { // MQA13-B10: Disable stops the backlog too; returning (not throwing) ends graphile's retries
+    await db.update(webhookDeliveries).set({ status: "failed", last_error: "Endpoint disabled", updated_at: new Date() })
+      .where(eq(webhookDeliveries.id, delivery.id));
+    return;
+  }
 
   // `id`/`type`/`created_at` describe the EVENT; `data` describes the subject it's about. `data.id`
   // is the subject's id (the contact / post / channel), so a receiver can correlate the event with
