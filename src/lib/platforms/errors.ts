@@ -98,7 +98,8 @@ export function isMetaWindowError(body: string): boolean {
   } catch {
     // not JSON — fall through to the text heuristic
   }
-  return /outside of allowed window|outside the allowed window|24[- ]?hour (?:window|standard messaging)/i.test(body);
+  // "Human Agent not approved": the app lacks the HUMAN_AGENT tag permission, so every retry fails the same way.
+  return /outside of allowed window|outside the allowed window|24[- ]?hour (?:window|standard messaging)|human[ _]agent[^"]{0,40}not approved/i.test(body);
 }
 
 /**

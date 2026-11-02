@@ -1144,6 +1144,23 @@ describe("outgoing-message worker", () => {
     expect(health.markChannelNeedsReauth).not.toHaveBeenCalled();
   });
 
+  // MQA13-B04: a human reply the platform refused must stay visible in the thread as `failed`.
+  it("records a failed message row for a manual reply dropped by a policy rejection", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValueOnce(new MessagingPolicyError("outside the allowed messaging window"));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-policy-manual", isManual: true, content: { text: "late hello" } }) as never, helpers);
+    const failed = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "failed")));
+    expect(failed.map((m) => [m.direction, m.text])).toEqual([["outbound", "late hello"]]);
+  });
+
+  it("does not add a failed row for an automated reply dropped by policy", async () => {
+    if (!TEST_DB) return;
+    provider.sendMessage.mockRejectedValueOnce(new MessagingPolicyError("outside the allowed messaging window"));
+    await w.processOutgoingMessage(job({ idempotencyKey: "d-policy-auto" }) as never, helpers);
+    const failed = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "failed")));
+    expect(failed.length).toBe(0);
+  });
+
   // a platform rate-limit (429) is retryable, but only after its Retry-After window. The
   // delivery is recorded `failed` (reattemptable) and re-enqueued at that delay under a deterministic
   // per-delivery key, instead of being rethrown to burn graphile's short backoff budget and dead-letter.

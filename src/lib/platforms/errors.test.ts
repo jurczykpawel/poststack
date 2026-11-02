@@ -37,6 +37,11 @@ describe("isMetaWindowError", () => {
     expect(isMetaWindowError('{"error":{"code":10,"error_subcode":2042002}}')).toBe(true);
   });
 
+  // MQA13-B04 (measured on TEST): a manual IG DM past 24h gets this from Meta on every retry.
+  it("is true when Meta says the Human Agent tag is not approved (permission, not transient)", () => {
+    expect(isMetaWindowError('{"error":{"message":"(#10) Human Agent not approved","type":"OAuthException","code":10}}')).toBe(true);
+  });
+
   it("is false for token errors and ordinary failures", () => {
     expect(isMetaWindowError('{"error":{"code":190}}')).toBe(false);
     expect(isMetaWindowError('{"error":{"code":100,"message":"bad param"}}')).toBe(false);

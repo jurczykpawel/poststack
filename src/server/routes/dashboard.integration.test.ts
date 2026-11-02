@@ -1258,3 +1258,37 @@ describe("dashboard contact filters and conversation status", () => {
     expect(await res.text()).toContain("notice-err");
   });
 });
+
+describe("dashboard inbox thread (MQA13 B02/B04/B07)", () => {
+  const thread = async () => (await app.request(`/inbox/${CONV}`, { headers: { cookie, "hx-request": "true" } })).text();
+
+  // B02: the thread opens on the newest message, and a poll swap keeps a manual scroll.
+  it("B02: #thread-msgs scrolls to the newest message on open and sticks only while at the bottom", async () => {
+    if (!TEST_DB) return;
+    const body = await thread();
+    const tag = body.match(/<div id="thread-msgs"[\s\S]*?hx-get/)?.[0] ?? "";
+    expect(tag).toContain("scrollHeight"); // scrolls to the end on init
+    expect(tag).toContain("htmx:after-swap"); // re-pins after a poll swap …
+    expect(tag).toContain("stick"); // … only when the reader was at the bottom
+  });
+
+  // B04: a refused human reply shows as a failed bubble with a reason.
+  it("B04: a failed outbound message renders as Not delivered with a reason", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.messages).values({ conversation_id: CONV, direction: "outbound", text: "late hello", status: "failed" });
+    const body = await thread();
+    expect(body).toContain("late hello");
+    expect(body).toContain("Not delivered");
+    expect(body).toContain("messaging window");
+  });
+
+  // B07: % and _ are literal in the Inbox search, like the new lists.
+  it("B07: search treats % and _ literally", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.contacts).set({ display_name: "Plain Name" }).where(eq(s.contacts.id, CONTACT));
+    const list = async (q: string) => (await app.request(`/inbox/list?search=${encodeURIComponent(q)}`, { headers: { cookie, "hx-request": "true" } })).text();
+    expect(await list("Plain")).toContain(CONV);
+    expect(await list("%")).not.toContain(CONV);
+    expect(await list("_")).not.toContain(CONV);
+  });
+});

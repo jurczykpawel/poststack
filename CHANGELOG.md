@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Inbox: a thread opens on its newest message (also on a phone) and the 5 s refresh keeps it there unless you scrolled up; search treats `%` and `_` literally; a manual reply Meta refuses for good (window closed, Human Agent tag not approved) is no longer retried three times into the dead-letter queue and shows in the thread as "Not delivered".
+
 ### Changed
 - Inbox and Compose (UXFLOW1 stage 10): the reply box and the Compose form use the full width (a global `form{max-width:460px}` was capping them), Media URL gets its own row, the Inbox search takes a full row with date and channel filters under "Filters", the conversation list gets an "Older" button (keyset cursor), "Create & open" has one arrow, and the reschedule toast and label in Content are in English.
 - Settings (UXFLOW1 stage 7): each tab is its own address under the top tabs (`/settings/account`, `/api-keys`, `/ai`, `/data`, and for the instance operator `/integrations` and `/license`); old `/settings#tab` links land on the right page. API keys: the key list comes first and a key is created in a side panel by picking Read only, Publishing, Inbox & automation or Custom, with a compact Read/Write table only for Custom. Integrations: a list of services with their state and one page per service: addresses to paste at the provider, the keys to enter, saved together in one request (blank fields are kept), and the environment variables for providers configured on the server. Automation is now AI (default prompts and a pointer to the AI log). Managed connections (Sources) moved to the Channels page.
