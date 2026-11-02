@@ -46,6 +46,8 @@ export interface DataListProps<R> {
   noun: string;
   state: ListState;
   searchPlaceholder: string;
+  /** Sits above the toolbar, inside the swapped list: a switch between views of the same data. */
+  tabs?: Html;
   /** One filter shown as counter chips above the list. */
   chips?: { key: string; label: string; all: number; options: Array<ListOption & { count: number }> };
   selects?: Array<{ key: string; label: string; options: ListOption[] }>;
@@ -180,6 +182,7 @@ function detailPanel<R>(p: DataListProps<R>): Html | string {
 
 export function dataList<R>(p: DataListProps<R>): Html {
   return html`<div id="data-list" class="dl" hx-history="false" hx-boost="true" hx-target="#data-list" hx-select="#data-list" hx-swap="outerHTML show:none" hx-push-url="true">
+    ${p.tabs ?? ""}
     ${toolbar(p)}
     ${chipLinks(p)}
     <div class="dl-split${p.detail ? " has-detail" : ""}">

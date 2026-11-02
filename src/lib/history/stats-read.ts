@@ -23,22 +23,3 @@ export function mergeWebhookPlatformCounts(live: LivePlatformRow[], stats: Platf
   for (const r of stats) if (r.platform) out[r.platform] = (out[r.platform] ?? 0) + Number(r.count);
   return out;
 }
-
-export interface LiveReactionAgg { postId: string; channelId: string; type: string; n: number; lastAt: Date }
-export interface ReactionStatRow { post_id: string; channel_id: string; reaction_type: string; count: number; last_reacted_at: Date }
-export interface MergedPost { channelId: string; total: number; types: Map<string, number>; lastAt: Date }
-
-/** Per-post reaction totals = live aggregate ∪ compaction aggregate, summed by reaction type. */
-export function mergePostReactionTotals(live: LiveReactionAgg[], stats: ReactionStatRow[]): Map<string, MergedPost> {
-  const byPost = new Map<string, MergedPost>();
-  const bump = (postId: string, channelId: string, type: string, n: number, at: Date) => {
-    let p = byPost.get(postId);
-    if (!p) byPost.set(postId, (p = { channelId, total: 0, types: new Map(), lastAt: at }));
-    p.total += n;
-    p.types.set(type, (p.types.get(type) ?? 0) + n);
-    if (at > p.lastAt) p.lastAt = at;
-  };
-  for (const r of live) bump(r.postId, r.channelId, r.type, Number(r.n), r.lastAt);
-  for (const r of stats) bump(r.post_id, r.channel_id, r.reaction_type, Number(r.count), r.last_reacted_at);
-  return byPost;
-}
