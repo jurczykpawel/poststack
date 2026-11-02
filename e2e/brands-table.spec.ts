@@ -55,6 +55,13 @@ test("desktop: one table row per brand, slot save, edit panel, search", async ({
   await expect(page.locator(".brand-slot.is-amb")).toHaveCount(1); // Brand 1 YouTube slot only
   // the table fits the viewport: no horizontal page scroll
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // nothing is clipped at 1440: the table needs no inner scroll, the search box sits fully in view
+  expect(await page.locator(".bm").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const search = (await page.getByLabel("Search brands").boundingBox())!;
+  expect(search.x + search.width).toBeLessThanOrEqual(1440);
+  expect(search.width).toBeGreaterThan(150);
+  const last = (await page.locator(".bm-head .bm-th").last().boundingBox())!;
+  expect(last.x + last.width).toBeLessThanOrEqual(1440);
   await shoot(page, testInfo.outputPath("brands-desktop"));
 
   // searching narrows the rows
@@ -79,6 +86,9 @@ test("desktop: one table row per brand, slot save, edit panel, search", async ({
   await shoot(page, testInfo.outputPath("brands-edit"), async () => {
     await row.getByRole("button", { name: "Edit" }).click();
     await expect(dlg).toBeVisible();
+    // the form card fills the panel: no empty strip on the right
+    const [panel, form] = await Promise.all([dlg.locator(".sheet-b").boundingBox(), dlg.locator("form.brand-edit-form").boundingBox()]);
+    expect(panel!.x + panel!.width - (form!.x + form!.width)).toBeLessThanOrEqual(40);
   });
   await dlg.locator("input[name='name']").fill("Renamed three");
   await Promise.all([page.waitForURL((u) => u.pathname === "/brands"), dlg.getByRole("button", { name: "Save changes" }).click()]);

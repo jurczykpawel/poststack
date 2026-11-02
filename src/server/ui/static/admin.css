@@ -1148,7 +1148,8 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .bm-tools input[type="search"] { flex: 0 1 240px; min-width: 0; padding: 8px 10px; font: inherit; font-size: 0.86rem;
   border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg); color: var(--text-1); }
 .bm { --bm-cols: 230px repeat(7, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-card, 10px); background: var(--surface, var(--bg-2)); }
-.bm-row { display: grid; grid-template-columns: var(--bm-cols); align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border); }
+.bm { overflow-x: auto; }
+.bm-row { min-width: 1040px; display: grid; grid-template-columns: var(--bm-cols); align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border); }
 .bm-row.bm-head { border-top: 0; color: var(--text-3); font-size: 0.78rem; }
 .bm-cells { display: contents; }
 .bm-id { display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -1174,7 +1175,7 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.45); }
 @media (max-width: 980px) {
   .bm { border: 0; background: none; }
   .bm-head { display: none; }
-  .bm-row { grid-template-columns: minmax(0, 1fr); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--bg-2); }
+  .bm-row { min-width: 0; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--bg-2); }
   .bm-cells { display: none; }
   .bm-row.open .bm-cells { display: block; margin-top: 4px; }
   .bm-toggle { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; background: none; border: 0; color: var(--text-2); cursor: pointer; }
@@ -1185,6 +1186,7 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.45); }
   .bm-row .brand-slot select, .bm-row .brand-slot .ps-trigger, .bm-tools input[type="search"] { min-height: 44px; font-size: 16px; }
 }
 .brand-edit-form, .brand-new-form { display: flex; flex-direction: column; gap: 12px; max-width: 420px; }
+.sheet-b .brand-edit-form, .sheet-b.brand-new-form { max-width: none; }
 .brand-edit-form > input, .brand-new-form > input,
 .brand-fld input { padding: 8px 10px; font: inherit; font-size: 0.86rem; width: 100%;
   border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg); color: var(--text-1); }
