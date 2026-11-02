@@ -69,10 +69,10 @@ const postLabel = (r: PostRow) =>
   r.linked?.text ? clip(r.linked.text, 140) : html`<span class="mono">${r.postId}</span>`;
 
 const POST_COLUMNS: ListColumn<PostRow>[] = [
-  { label: "Post", width: "44%", main: true, cell: postLabel },
+  { label: "Post", width: "40%", main: true, cell: postLabel },
   { label: "Channel", width: "18%", cell: (r) => channelName(r.channel) },
   { label: "Reactions", width: "10%", num: true, cell: (r) => fmtCount(r.facts?.total ?? 0) },
-  { label: "Breakdown", width: "16%", cell: (r) => breakdown(r.facts) },
+  { label: "Breakdown", width: "20%", cell: (r) => breakdown(r.facts) },
   { label: "Latest", width: "12%", cell: (r) => (r.facts ? when(r.facts.lastAt) : "—") },
 ];
 
