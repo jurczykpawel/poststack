@@ -391,7 +391,7 @@ describe("authenticated dashboard (real Postgres)", () => {
       if (url.endsWith("/setWebhook")) return Response.json({ ok: false, description: "bad url" }, { status: 400 });
       return new Response("nope", { status: 404 });
     }) as typeof fetch;
-    let bodyText = "";
+    let bodyText: string;
     try {
       const res = await app.request("/channels/telegram/connect", {
         method: "POST",

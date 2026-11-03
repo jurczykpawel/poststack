@@ -57,7 +57,7 @@ export async function POST(request: Request): Promise<Response> {
   // (a chunked/header-less request bypasses the early check). Oversized → 200 ignored.
   const rawBody = await request.text().catch(() => "");
   if (Buffer.byteLength(rawBody) > MAX_TELEGRAM_BODY_BYTES) return ok();
-  let update: TelegramUpdate | null = null;
+  let update: TelegramUpdate | null;
   try {
     update = rawBody ? (JSON.parse(rawBody) as TelegramUpdate) : null;
   } catch {
