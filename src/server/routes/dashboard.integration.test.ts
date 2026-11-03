@@ -1298,6 +1298,14 @@ describe("dashboard inbox thread (MQA13 B02/B04/B07)", () => {
     expect(body).toContain("messaging window");
   });
 
+  it("shows the stored failure_reason (escaped) instead of the generic text", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.messages).values({ conversation_id: CONV, direction: "outbound", text: "reason hello", status: "failed", failure_reason: "(#100) bad <b>recipient</b>" });
+    const body = await thread();
+    expect(body).toContain("Not delivered — (#100) bad &lt;b&gt;recipient&lt;/b&gt;");
+    expect(body).not.toContain("<b>recipient</b>");
+  });
+
   // B07: % and _ are literal in the Inbox search, like the new lists.
   it("B07: search treats % and _ literally", async () => {
     if (!TEST_DB) return;
