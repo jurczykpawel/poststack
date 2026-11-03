@@ -4,7 +4,7 @@ import { E2E_DATABASE_URL } from "./env";
 import { gotoOk, setPro } from "./helpers";
 
 // G34: a permanently failed outbound bubble shows the stored failure_reason (escaped); no reason keeps the generic text.
-test("Inbox failed bubble shows the real failure_reason, falls back to generic text without one", async ({ page }) => {
+test("Inbox failed bubble shows the real failure_reason, falls back to generic text without one", async ({ page }, testInfo) => {
   await setPro(page.request);
   const client = new Client({ connectionString: E2E_DATABASE_URL });
   await client.connect();
@@ -31,7 +31,7 @@ test("Inbox failed bubble shows the real failure_reason, falls back to generic t
     await expect(failed.nth(0)).toHaveText("Not delivered — (#100) bad <b>recipient</b>");
     await expect(page.locator("#thread-msgs b")).toHaveCount(0);
     await expect(failed.nth(1)).toContainText("the platform refused it");
-    await page.screenshot({ path: "/private/tmp/g34-failed-reason.png", fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath("failed-reason.png"), fullPage: true });
   } finally {
     if (channelId) await client.query("DELETE FROM channels WHERE id = $1", [channelId]);
     await client.end();
