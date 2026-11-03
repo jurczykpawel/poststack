@@ -1,5 +1,9 @@
 import { getConfig } from "@/lib/settings/config";
 import { logGeneration } from "@/lib/ai/generation-log";
+import { aiFetch } from "@/lib/ai/net";
+import { AI_PROVIDER_IDS, chatRequest, parseChatText, providerFromBaseUrl, resolveBaseUrl, isReasoningModel, type AiProviderId } from "@/lib/ai/providers";
+
+export { isReasoningModel };
 
 // Defaults mirror the env schema (env.ts), since getConfig falls back to raw process.env (no zod
 // defaults): an unset model/base-url resolves to "" here, so we apply the same defaults.
@@ -48,16 +52,24 @@ export function parseFallbacks(raw: string): Provider[] {
  * a pure config change: each provider is tried in turn until one returns a usable completion.
  */
 export async function buildProviderChain(): Promise<Provider[]> {
-  const [apiKey, baseUrl, model, fallbacks] = await Promise.all([
-    getConfig("AI_API_KEY"),
-    getConfig("AI_BASE_URL"),
-    getConfig("AI_MODEL"),
-    getConfig("AI_FALLBACKS"),
-  ]);
+  const [{ apiKey, baseUrl, model }, fallbacks] = await Promise.all([readAiConfig(), getConfig("AI_FALLBACKS")]);
   const chain: Provider[] = [];
   if (apiKey) chain.push({ apiKey, baseUrl: baseUrl || DEFAULT_BASE_URL, model: model || DEFAULT_MODEL });
   chain.push(...parseFallbacks(fallbacks));
   return chain;
+}
+
+/**
+ * AIPROVIDER1: the effective primary provider config. A preset provider uses its catalog URL (a stale stored
+ * URL cannot redirect it); `custom` uses AI_BASE_URL; with no AI_PROVIDER (older installs) the provider is
+ * inferred from the host of AI_BASE_URL. `model` is "" when unset (callers apply the default).
+ */
+export async function readAiConfig(): Promise<{ provider: AiProviderId; baseUrl: string; apiKey: string; model: string }> {
+  const [apiKey, storedBaseUrl, model, storedProvider] = await Promise.all([
+    getConfig("AI_API_KEY"), getConfig("AI_BASE_URL"), getConfig("AI_MODEL"), getConfig("AI_PROVIDER"),
+  ]);
+  const provider = (AI_PROVIDER_IDS as readonly string[]).includes(storedProvider) ? (storedProvider as AiProviderId) : providerFromBaseUrl(storedBaseUrl);
+  return { provider, baseUrl: resolveBaseUrl(provider, storedBaseUrl), apiKey, model };
 }
 
 /**
@@ -102,25 +114,6 @@ export interface ChatCompleteOptions {
  * model say that" question never requires re-reading code to answer.
  */
 /**
- * OpenAI's GPT-5 and o-series ("reasoning") models renamed `max_tokens` → `max_completion_tokens`
- * and reject any non-default `temperature` (only 1 is allowed). Detect them by name so they work
- * through this shared OpenAI-compatible client, while every other model — gpt-4o, plus non-OpenAI
- * providers reached via AI_BASE_URL (Groq / Ollama / OpenRouter / a Claude proxy) — keeps the classic
- * `max_tokens` + `temperature` shape it already accepts. Matches an optional `provider/` prefix so an
- * OpenRouter id like `openai/gpt-5.6-terra` is caught too.
- */
-export function isReasoningModel(model: string): boolean {
-  return /(^|\/)(o[1-9]|gpt-5)/.test(model);
-}
-
-/** The token-limit + temperature params for a model, in the shape that model's API accepts. */
-function samplingParams(model: string, maxTokens: number, temperature: number): Record<string, number> {
-  return isReasoningModel(model)
-    ? { max_completion_tokens: maxTokens } // temperature omitted → provider default (1), the only value these accept
-    : { max_tokens: maxTokens, temperature };
-}
-
-/**
  * Run ONE provider attempt. Returns the completion text, or `null` with the failure reason — a non-2xx
  * (any status), a thrown/timed-out request, or an empty/malformed completion all count as failures, so
  * the caller can fall through to the next provider. Never throws.
@@ -134,24 +127,17 @@ async function attemptCompletion(
   timeoutMs: number,
 ): Promise<{ response: string | null; error: string | null }> {
   try {
-    const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+    const req = chatRequest({ provider: providerFromBaseUrl(provider.baseUrl), ...provider }, { system, user, maxTokens, temperature });
+    const res = await aiFetch(req.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
-      body: JSON.stringify({
-        model: provider.model,
-        ...samplingParams(provider.model, maxTokens, temperature),
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+      headers: req.headers,
+      body: JSON.stringify(req.body),
       redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
-    });
+    }, { deadlineMs: timeoutMs });
     if (!res.ok) return { response: null, error: `HTTP ${res.status}` };
-    const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string } }> };
-    const content = data.choices?.[0]?.message?.content?.trim();
-    if (content && content.length > 0) return { response: content, error: null };
+    const content = parseChatText(providerFromBaseUrl(provider.baseUrl), await res.json().catch(() => null));
+    if (content) return { response: content, error: null };
     return { response: null, error: "empty completion" };
   } catch (err) {
     return { response: null, error: err instanceof Error ? err.message : String(err) };

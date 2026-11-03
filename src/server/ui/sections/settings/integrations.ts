@@ -10,6 +10,8 @@ import { webhookUrlError } from "@/lib/webhooks/safe-target";
 import { listProviders } from "@/lib/providers";
 import { requireInstanceOperator } from "../../../middleware/instance-operator";
 import { brandingForm } from "../../branding";
+import { aiSettingsView } from "@/lib/ai/settings";
+import { aiProviderForm, registerAiProvider } from "./ai-provider";
 import { copyBtn } from "../../components/copy";
 import { platformGlyph } from "../../components/platform";
 import { dot, type Tone } from "../../components/status";
@@ -31,6 +33,8 @@ interface Service {
   /** Direct-OAuth publishers read credentials from the environment only (provider id + var names). */
   envProvider?: { id: string; label: string; vars: readonly string[] };
   branding?: true;
+  /** The AI provider has its own form (provider picker + model list) instead of generic key fields. */
+  ai?: true;
 }
 
 const SERVICES: readonly Service[] = [
@@ -51,7 +55,7 @@ const SERVICES: readonly Service[] = [
     urls: [["Callback URI", "/api/oauth/connect/x/callback"]], envProvider: { id: "x", label: "X publishing", vars: ["X_CLIENT_ID", "X_CLIENT_SECRET"] } },
   { id: "threads", name: "Threads", sub: "Publishing", group: "Channels", platform: "threads", where: "developers.facebook.com → Threads app → Redirect Callback URLs",
     urls: [["Redirect callback URL", "/api/oauth/connect/threads/callback"]], envProvider: { id: "threads", label: "Threads publishing", vars: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET"] } },
-  { id: "ai", name: "AI provider", sub: "Drafts and rephrasing", group: "Other", keys: ["AI_API_KEY", "AI_BASE_URL", "AI_MODEL", "AI_FALLBACKS"], required: ["AI_API_KEY"] },
+  { id: "ai", name: "AI provider", sub: "Drafts and rephrasing", group: "Other", ai: true, keys: ["AI_FALLBACKS"], required: ["AI_API_KEY"] },
   { id: "reelstack", name: "ReelStack", sub: "Inbound media webhook", group: "Other", keys: ["REELSTACK_WEBHOOK_SECRET"], required: ["REELSTACK_WEBHOOK_SECRET"] },
   { id: "security", name: "Login protection", sub: "Proof-of-work captcha", group: "Other", keys: ["ALTCHA_HMAC_KEY"], required: ["ALTCHA_HMAC_KEY"] },
   { id: "branding", name: "Instance branding", sub: "Name, logo and footer", group: "Other", branding: true },
@@ -103,7 +107,7 @@ function field(f: ConfigStatus): Html {
   </div>`;
 }
 
-function detail(s: Service, status: ConfigStatus[], whiteLabel: boolean, msg?: string): Html {
+async function detail(s: Service, status: ConfigStatus[], whiteLabel: boolean, msg?: string): Promise<Html> {
   const st = stateOf(s, status, whiteLabel);
   let n = 0;
   const step = (title: Html | string) => html`<div class="int-step"><i>${++n}</i><h3>${title}</h3></div>`;
@@ -115,12 +119,13 @@ function detail(s: Service, status: ConfigStatus[], whiteLabel: boolean, msg?: s
     ${s.branding ? (whiteLabel ? brandingForm() : html`<p class="muted">A Business license enables custom branding.</p><p class="muted">Custom name, logo and footer across the whole installation.</p>`) : ""}
     ${s.urls ? html`${step(html`Paste these into ${s.where}`)}${s.urls.map(([label, path]) => html`<div class="int-url-label">${label}</div>
       <div class="int-url"><code>${env.APP_URL}${path}</code>${copyBtn(`${env.APP_URL}${path}`)}</div>`)}` : ""}
-    ${fields.length ? html`${step("Enter your keys")}
+    ${s.ai ? aiProviderForm(await aiSettingsView()) : ""}
+    ${fields.length ? html`${s.ai ? html`<details class="ai-adv"><summary>Advanced: backup providers (JSON)</summary>` : step("Enter your keys")}
       <form hx-post="/settings/integrations/${s.id}" hx-ext="json-enc" hx-target="#int-grid" hx-swap="outerHTML">
         <p class="muted int-note">Stored encrypted. A value set here overrides the environment variable. Leave a field blank to keep it.</p>
         <div class="int-fields">${fields.map(field)}</div>
         <div class="row" style="margin-top:12px"><button class="btn btn-primary" type="submit">Save</button></div>
-      </form>` : ""}
+      </form>${s.ai ? html`</details>` : ""}` : ""}
     ${s.envProvider ? html`${step(s.required ? `${s.envProvider.label}: set keys on the server` : "Set keys on the server")}
       <p class="muted int-note">${s.envProvider.label} reads its credentials from environment variables:
         ${s.envProvider.vars.map((v, i) => html`${i ? ", " : ""}<code>${v}</code>`)}.
@@ -145,7 +150,7 @@ async function grid(current: Service | undefined, msg?: string): Promise<Html> {
   const [status, license] = await Promise.all([configStatus(), getInstanceLicense()]);
   const whiteLabel = license.features.has("white_label");
   const shown = current ?? SERVICES[0];
-  return html`<div class="int-grid${current ? " has-current" : ""}" id="int-grid">${list(current?.id, status, whiteLabel)}${detail(shown, status, whiteLabel, msg)}</div>`;
+  return html`<div class="int-grid${current ? " has-current" : ""}" id="int-grid">${list(current?.id, status, whiteLabel)}${await detail(shown, status, whiteLabel, msg)}</div>`;
 }
 
 async function integrationsPage(c: Context): Promise<Response> {
@@ -160,6 +165,7 @@ async function integrationsPage(c: Context): Promise<Response> {
 
 export function registerIntegrationSettings(app: Hono, guard: MiddlewareHandler): void {
   app.get("/settings/integrations", guard, integrationsPage);
+  registerAiProvider(app, guard, (msg) => grid(SERVICES.find((s) => s.ai), msg));
   app.get("/settings/integrations/:service", guard, requireInstanceOperator, integrationsPage);
 
   // One integration's keys in one request: blank fields stay as they are; a "Use environment value"
@@ -193,6 +199,8 @@ export function registerIntegrationSettings(app: Hono, guard: MiddlewareHandler)
     const key = typeof form.key === "string" ? form.key : "";
     if (key === "INSTANCE_BRANDING") return c.text("Use instance branding settings.", 400);
     if (!CONFIG_KEYS.has(key)) return c.html(html`<span class="error">Unknown setting.</span>`, 400);
+    // The saved AI key must never follow a changed provider/URL: those are edited only through the AI provider form.
+    if (["AI_API_KEY", "AI_BASE_URL", "AI_MODEL", "AI_PROVIDER"].includes(key)) return c.text("Use the AI provider form.", 400);
     if (form.clear === "1" || form.clear === true) {
       await clearConfig(key as ConfigKey);
       return c.html(html`Reverted to the environment variable.`);

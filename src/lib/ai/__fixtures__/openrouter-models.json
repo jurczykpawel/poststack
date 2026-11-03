@@ -1,0 +1,215 @@
+{
+ "data": [
+  {
+   "id": "anthropic/claude-haiku-4.5",
+   "canonical_slug": "anthropic/claude-4.5-haiku-20251001",
+   "hugging_face_id": "",
+   "name": "Anthropic: Claude Haiku 4.5",
+   "created": 1760547638,
+   "description": "Claude Haiku 4.5 is Anthropic\u2019s fastest and most efficient model, delivering near-frontier intelligence at a fraction of the cost and latency of larger Claude models. Matching Claude Sonnet 4\u2019s performance...",
+   "context_length": 200000,
+   "architecture": {
+    "modality": "text+image+file->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "file"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Claude",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000001",
+    "completion": "0.000005",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000001",
+    "input_cache_write": "0.00000125",
+    "input_cache_write_1h": "0.000002"
+   },
+   "top_provider": {
+    "context_length": 200000,
+    "max_completion_tokens": 64000,
+    "is_moderated": true
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_completion_tokens",
+    "max_tokens",
+    "reasoning",
+    "response_format",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_p"
+   ],
+   "default_parameters": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/anthropic/claude-4.5-haiku-20251001/endpoints"
+   },
+   "endpoints": [
+    "/api/v1/chat/completions",
+    "/api/v1/completions",
+    "/api/v1/messages",
+    "/api/v1/responses"
+   ],
+   "benchmarks": {
+    "design_arena": [
+     {
+      "arena": "models",
+      "category": "3d",
+      "elo": 1069,
+      "win_rate": 41.1,
+      "rank": 102
+     },
+     {
+      "arena": "models",
+      "category": "asciiart",
+      "elo": 1137,
+      "win_rate": 49.3,
+      "rank": 53
+     },
+     {
+      "arena": "models",
+      "category": "codecategories",
+      "elo": 1113,
+      "win_rate": 44.9,
+      "rank": 102
+     },
+     {
+      "arena": "models",
+      "category": "dataviz",
+      "elo": 1125,
+      "win_rate": 45.7,
+      "rank": 94
+     },
+     {
+      "arena": "models",
+      "category": "gamedev",
+      "elo": 1097,
+      "win_rate": 44.7,
+      "rank": 98
+     },
+     {
+      "arena": "models",
+      "category": "svg",
+      "elo": 1022,
+      "win_rate": 39.1,
+      "rank": 86
+     },
+     {
+      "arena": "models",
+      "category": "uicomponent",
+      "elo": 1095,
+      "win_rate": 42.6,
+      "rank": 98
+     },
+     {
+      "arena": "models",
+      "category": "website",
+      "elo": 1122,
+      "win_rate": 45.1,
+      "rank": 103
+     }
+    ],
+    "artificial_analysis": {
+     "intelligence_index": null,
+     "coding_index": 43.9,
+     "agentic_index": 8
+    }
+   },
+   "reasoning": {
+    "mandatory": false
+   }
+  },
+  {
+   "id": "openai/gpt-4o-mini",
+   "canonical_slug": "openai/gpt-4o-mini",
+   "hugging_face_id": null,
+   "name": "OpenAI: GPT-4o-mini",
+   "created": 1721260800,
+   "description": "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
+   "context_length": 128000,
+   "architecture": {
+    "modality": "text+image+file->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "file"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "GPT",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.00000015",
+    "completion": "0.0000006",
+    "input_cache_read": "0.000000075"
+   },
+   "top_provider": {
+    "context_length": 128000,
+    "max_completion_tokens": 16384,
+    "is_moderated": true
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "logit_bias",
+    "logprobs",
+    "max_completion_tokens",
+    "max_tokens",
+    "prediction",
+    "presence_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_logprobs",
+    "top_p",
+    "web_search_options"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": "2023-10-31",
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/openai/gpt-4o-mini/endpoints"
+   },
+   "endpoints": [
+    "/api/v1/chat/completions",
+    "/api/v1/completions",
+    "/api/v1/messages",
+    "/api/v1/responses"
+   ],
+   "benchmarks": {
+    "design_arena": [],
+    "artificial_analysis": {
+     "intelligence_index": null,
+     "coding_index": 11.4,
+     "agentic_index": null
+    }
+   }
+  }
+ ]
+}

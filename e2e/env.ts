@@ -16,6 +16,9 @@ export const E2E_DATABASE_URL = process.env.E2E_DATABASE_URL
 export const E2E_ADMIN_DATABASE_URL = process.env.E2E_ADMIN_DATABASE_URL
   ?? "postgres://test:test@localhost:5433/test";
 
+// AIPROVIDER1: a fake AI provider runs inside the spec on this port; the app may reach it because it is listed here.
+export const E2E_AI_PORT = Number(process.env.E2E_AI_PORT ?? 3199);
+
 /** The environment the e2e web server boots with (Playwright webServer.env). */
 export function serverEnv(): Record<string, string> {
   return {
@@ -38,6 +41,7 @@ export function serverEnv(): Record<string, string> {
     LICENSE_JWKS_URL: "http://127.0.0.1:9/jwks",
     LICENSE_PRODUCT_SLUG: "poststack",
     SELLF_JWKS_FALLBACK: jwksFallbackJson(),
+    AI_ALLOWED_PRIVATE_TARGETS: `127.0.0.1:${E2E_AI_PORT}`,
     // No revocation in e2e (empty disables it).
     LICENSE_REVOCATION_URL: "",
     // Storage falls back to in-memory; Meta/OAuth unconfigured (UI tests don't publish).

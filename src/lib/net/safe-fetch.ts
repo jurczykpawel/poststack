@@ -6,7 +6,7 @@ import { classifyIp, type IpCategory } from "./ip-classify";
 
 export class SsrfError extends Error {}
 export type Resolver = (host: string) => Promise<string[]>;
-const defaultResolver: Resolver = async (host) => (await lookup(host, { all: true })).map((r) => r.address);
+export const defaultResolver: Resolver = async (host) => (await lookup(host, { all: true })).map((r) => r.address);
 
 /** Categories no policy may ever allow — connecting here is never legitimate. */
 const NEVER_ALLOWED: ReadonlySet<IpCategory> = new Set(["link_local", "unspecified", "multicast", "unknown"]);

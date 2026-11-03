@@ -853,6 +853,7 @@ export const apiKeys = pgTable("api_keys", {
 	expires_at: timestamp("expires_at", { precision: 3, mode: 'date' }),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	scopes: text().array().default([]),
+	created_by_user_id: uuid("created_by_user_id"),
 }, (table) => [
 	uniqueIndex("api_keys_key_hash_key").using("btree", table.key_hash.asc().nullsLast()),
 	index("api_keys_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
@@ -861,6 +862,11 @@ export const apiKeys = pgTable("api_keys", {
 			foreignColumns: [workspaces.id],
 			name: "api_keys_workspace_id_fkey"
 		}).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({
+			columns: [table.created_by_user_id],
+			foreignColumns: [users.id],
+			name: "api_keys_created_by_user_id_fkey"
+		}).onUpdate("cascade").onDelete("set null"),
 ]);
 
 export const autoReplyRules = pgTable("auto_reply_rules", {

@@ -20,6 +20,8 @@ export const AuditAction = {
   MessagesPruned: "messages.pruned",
   WebhookEventsPruned: "webhook_events.pruned",
   HistoryCompacted: "history.compacted",
+  AiSettingsUpdated: "settings.ai.updated",
+  AiSettingsCleared: "settings.ai.cleared",
 } as const;
 
 /** Derive the audit actor from a request's auth context (never the raw key). */

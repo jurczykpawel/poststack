@@ -1,0 +1,54 @@
+{
+ "object": "list",
+ "data": [
+  {
+   "id": "omni-moderation-latest",
+   "object": "model",
+   "created": 1731689265,
+   "owned_by": "system",
+   "shutdown_date": null
+  },
+  {
+   "id": "tts-1",
+   "object": "model",
+   "created": 1681940951,
+   "owned_by": "openai-internal",
+   "shutdown_date": "2027-01-06"
+  },
+  {
+   "id": "whisper-1",
+   "object": "model",
+   "created": 1677532384,
+   "owned_by": "openai-internal",
+   "shutdown_date": "2027-02-26"
+  },
+  {
+   "id": "gpt-4o-mini",
+   "object": "model",
+   "created": 1721172741,
+   "owned_by": "system",
+   "shutdown_date": "2027-01-14"
+  },
+  {
+   "id": "text-embedding-3-small",
+   "object": "model",
+   "created": 1705948997,
+   "owned_by": "system",
+   "shutdown_date": null
+  },
+  {
+   "id": "gpt-image-1",
+   "object": "model",
+   "created": 1745517030,
+   "owned_by": "system",
+   "shutdown_date": "2026-10-23"
+  },
+  {
+   "id": "o3-mini",
+   "object": "model",
+   "created": 1737146383,
+   "owned_by": "system",
+   "shutdown_date": "2026-10-23"
+  }
+ ]
+}

@@ -10,6 +10,10 @@ vi.mock("@/lib/settings/config", () => ({
 const logGeneration = vi.fn(async (_entry: unknown) => {});
 vi.mock("@/lib/ai/generation-log", () => ({ logGeneration: (...a: unknown[]) => logGeneration(...(a as [unknown])) }));
 
+// AIPROVIDER1: the client reaches providers through aiFetch (SSRF policy). Here it is routed to the mocked
+// global fetch so these stay pure unit tests; the real policy is covered by net.test.ts and client-ssrf.test.ts.
+vi.mock("@/lib/ai/net", () => ({ aiFetch: (url: string, init: RequestInit) => globalThis.fetch(url, init) }));
+
 const originalFetch = globalThis.fetch;
 
 let lastUrl = "";
@@ -70,6 +74,7 @@ beforeEach(() => {
   process.env.AI_API_KEY = "test-key";
   delete process.env.AI_MODEL;
   delete process.env.AI_BASE_URL;
+  delete process.env.AI_PROVIDER;
   delete process.env.AI_FALLBACKS;
   lastUrl = "";
   lastBody = null;
@@ -370,5 +375,42 @@ describe("chatComplete — provider fallback chain", () => {
     mockRouted();
     expect(await chatComplete({ workspaceId: "WS", kind: "draft", system: "s", user: "u" })).toBe("primary-ok");
     expect(calls.map((c) => c.model)).toEqual(["primary"]);
+  });
+});
+
+describe("chatComplete — AIPROVIDER1 providers", () => {
+  const ask = async () => (await loadChatComplete())({ workspaceId: "WS", kind: "draft", system: "sys", user: "usr", temperature: 0.8 });
+
+  it("talks to Anthropic natively: /messages, x-api-key + anthropic-version, no temperature, text blocks parsed", async () => {
+    process.env.AI_PROVIDER = "anthropic";
+    process.env.AI_MODEL = "claude-haiku-5-5";
+    let seen: { url: string; headers: Record<string, string>; body: Record<string, unknown> } | null = null;
+    globalThis.fetch = vi.fn(async (url: unknown, init: { body: string; headers: Record<string, string> }) => {
+      seen = { url: String(url), headers: init.headers, body: JSON.parse(init.body) };
+      return Response.json({ content: [{ type: "text", text: " Hello " }], stop_reason: "end_turn" });
+    }) as unknown as typeof fetch;
+    expect(await ask()).toBe("Hello");
+    expect(seen!.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(seen!.headers).toMatchObject({ "x-api-key": "test-key", "anthropic-version": "2023-06-01" });
+    expect(seen!.body).toEqual({ model: "claude-haiku-5-5", max_tokens: 300, system: "sys", messages: [{ role: "user", content: "usr" }] });
+  });
+
+  it("infers Anthropic from an existing AI_BASE_URL (installs without AI_PROVIDER keep working, now natively)", async () => {
+    process.env.AI_BASE_URL = "https://api.anthropic.com/v1";
+    mockFetchOk("unused");
+    await ask();
+    expect(lastUrl).toBe("https://api.anthropic.com/v1/messages");
+  });
+
+  it("a preset provider ignores a stale AI_BASE_URL; custom uses it", async () => {
+    process.env.AI_PROVIDER = "groq";
+    process.env.AI_BASE_URL = "https://stale.example/v1";
+    mockFetchOk("ok");
+    await ask();
+    expect(lastUrl).toBe("https://api.groq.com/openai/v1/chat/completions");
+    process.env.AI_PROVIDER = "custom";
+    process.env.AI_BASE_URL = "http://ollama:11434/v1/";
+    await ask();
+    expect(lastUrl).toBe("http://ollama:11434/v1/chat/completions");
   });
 });

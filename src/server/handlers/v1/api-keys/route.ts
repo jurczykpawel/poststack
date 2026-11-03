@@ -7,7 +7,8 @@ import { rateLimit } from "@/lib/api/rate-limit";
 import { parseJsonBody } from "@/lib/api/body-limit";
 import { proGate } from "@/lib/api/pro-gate";
 import { z } from "zod";
-import { API_SCOPES } from "@/lib/auth/scopes";
+import { API_SCOPES, isInstanceScope } from "@/lib/auth/scopes";
+import { isInstanceOperator } from "@/lib/auth/instance-operator";
 
 export const runtime = "nodejs";
 
@@ -74,6 +75,11 @@ export async function POST(request: Request) {
     return ApiErrors.validationError(parsed.error);
   }
 
+  // Instance scopes (instance_*) act on the whole installation: only the instance operator may grant them.
+  if (parsed.data.scopes.some(isInstanceScope) && !(await isInstanceOperator(auth))) {
+    return ApiErrors.forbidden("Instance permissions can only be granted by the instance operator");
+  }
+
   const { plaintext, prefix, hash } = generateApiKey();
 
   const [apiKey] = await db
@@ -84,6 +90,7 @@ export async function POST(request: Request) {
       key_hash: hash,
       key_prefix: prefix,
       scopes: parsed.data.scopes,
+      created_by_user_id: auth.userId,
       expires_at: parsed.data.expires_at ? new Date(parsed.data.expires_at) : null,
     })
     .returning({
