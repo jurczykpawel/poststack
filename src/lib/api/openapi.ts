@@ -223,6 +223,12 @@ export const openApiSpec = {
             enum: ["pending", "sent", "delivered", "failed", "held", "expired"],
             description: "held = parked while the channel was down; expired = dropped (e.g. outside the messaging window)",
           },
+          failure_reason: {
+            type: "string",
+            nullable: true,
+            description:
+              "Why an outbound message ended `failed` and will not be retried: the platform's refusal (e.g. outside the allowed messaging window) or the error from the last send attempt. Secrets redacted, at most 500 characters. null for every other status and for messages that failed before this field existed.",
+          },
           created_at: { type: "string", format: "date-time" },
         },
       },

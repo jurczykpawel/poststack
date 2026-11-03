@@ -3,7 +3,8 @@ import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages, conversations, contacts } from "@/db/schema";
+import { messages, conversations, contacts, outboundDeliveries } from "@/db/schema";
+import { redactSecrets } from "@/lib/redact";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { refreshIfNearExpiry } from "@/lib/channels/refresh-if-near-expiry";
@@ -97,9 +98,18 @@ export async function processOutgoingMessage(
   };
 
   // A human's reply that never goes out (refused for good, or every retry failed) stays in the thread
-  // as `failed`, so the operator sees it did not reach the contact.
-  const recordFailed = async () => {
-    if (heldMessageId) await db.update(messages).set({ status: "failed" }).where(eq(messages.id, heldMessageId));
+  // as `failed`, so the operator sees it did not reach the contact — and an API client sees why
+  // (MSGFAIL1): the ledger's last_error, which runDelivery records for every failure it classifies,
+  // else the thrown error (e.g. the channel vanished before any ledger write).
+  const deliveryKey = idempotencyKey ?? `job:${helpers.job.id}`;
+  const recordFailed = async (thrown?: unknown) => {
+    const ledger = await db.query.outboundDeliveries.findFirst({
+      where: eq(outboundDeliveries.delivery_key, deliveryKey),
+      columns: { last_error: true },
+    });
+    const detail = ledger?.last_error ?? (thrown instanceof Error ? thrown.message : thrown ? String(thrown) : null);
+    const failure_reason = detail ? truncateCodePoints(redactSecrets(detail), 500) : null;
+    if (heldMessageId) await db.update(messages).set({ status: "failed", failure_reason }).where(eq(messages.id, heldMessageId));
     else {
       await db.insert(messages).values({
         conversation_id: conversationId,
@@ -107,13 +117,14 @@ export async function processOutgoingMessage(
         text: content.text ?? null,
         attachments: normalizeOutgoingAttachments(content),
         status: "failed",
+        failure_reason,
         sent_by_user_id: sentByUserId ?? null,
       });
     }
   };
 
   const outcome = await runDelivery({
-    deliveryKey: idempotencyKey ?? `job:${helpers.job.id}`,
+    deliveryKey,
     channelId,
     taskName: "outgoing-message",
     payload: payload as unknown as Record<string, unknown>,
@@ -173,7 +184,7 @@ export async function processOutgoingMessage(
     },
   }).catch(async (err) => {
     const job: { attempts: number; max_attempts: number } | undefined = helpers.job;
-    if (isHumanReply && job && job.attempts >= job.max_attempts) await recordFailed();
+    if (isHumanReply && job && job.attempts >= job.max_attempts) await recordFailed(err);
     throw err;
   });
   if (outcome === "dropped_policy" && isHumanReply) await recordFailed();
