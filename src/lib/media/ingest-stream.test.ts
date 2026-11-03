@@ -15,7 +15,7 @@ describe("stream ingestion lifecycle", () => {
     const checksum = expectedHash.digest("hex");
     const server = http.createServer((_req, res) => {
       res.writeHead(200, { "content-length": total });
-      res.setTimeout(100, () => res.destroy());
+      res.setTimeout(500, () => res.destroy()); // idle limit; each storage pause below is 3x longer, so only a download decoupled from upload survives
       let sent = 0;
       const pump = () => {
         while (sent < total) {
@@ -37,7 +37,7 @@ describe("stream ingestion lifecycle", () => {
             stored += value.length; hash.update(value);
             if (stored >= (pauses + 1) * 8 * 1024 * 1024 && pauses < 3) {
               pauses++;
-              await new Promise(resolve => setTimeout(resolve, 250));
+              await new Promise(resolve => setTimeout(resolve, 1500));
             }
           }
         });
