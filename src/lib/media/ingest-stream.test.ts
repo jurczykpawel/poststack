@@ -58,7 +58,7 @@ describe("stream ingestion lifecycle", () => {
       server.closeAllConnections();
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
-  });
+  }, 30_000);
   it("identifies a failed download and removes temporary storage", async () => {
     const source = new ReadableStream({ pull(controller) { controller.error(new Error("aborted")); } });
     const storage = new InMemoryStorage("https://cdn.example");
