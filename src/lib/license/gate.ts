@@ -132,7 +132,7 @@ export async function refreshLicense(opts: RefreshOpts = {}): Promise<LicenseSta
   }
 
   let keys: JwksKey[];
-  let fresh = false;
+  let fresh: boolean;
   try {
     ({ keys, fresh } = await getJwks({
       url: env.LICENSE_JWKS_URL,

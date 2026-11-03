@@ -45,19 +45,20 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
     "@types/html-to-text": "^9.0.4",
     "@types/node": "^25.9.9",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
-    "eslint": "^9.39.5",
+    "eslint": "^10.14.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "^8.67.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "4.1.12"
   },
   "overrides": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "minimatch": "11.0.4"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
