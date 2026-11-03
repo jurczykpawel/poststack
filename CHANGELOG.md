@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- Facebook/Instagram DMs: a manual reply after Meta's 24h window is no longer attempted. The API answers `422 messaging_window_closed` with the reason, and the Inbox disables the reply box and Send with an explanation instead of "sending as a human-agent message" (which Meta rejects unless it approved the Human Agent permission). Operators with that approval set `META_HUMAN_AGENT_APPROVED=true` to keep sending with the tag up to 7 days. Comments and automations are unchanged.
+
 ## [0.16.0] - 2026-11-03
 
 ### Fixed

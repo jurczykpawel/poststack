@@ -3,7 +3,9 @@ import { and, eq, lt, desc, sql, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { messages, conversations, contactChannels } from "@/db/schema";
-import { ok, created, ApiErrors } from "@/lib/api/response";
+import { ok, created, err, ApiErrors } from "@/lib/api/response";
+import { env } from "@/lib/env";
+import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { proGate } from "@/lib/api/pro-gate";
 import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
@@ -88,9 +90,18 @@ export async function POST(
   const { conversationId } = await params;
   const conversation = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
-    columns: { id: true, channel_id: true, contact_id: true },
+    columns: { id: true, channel_id: true, contact_id: true, platform: true, thread_type: true, last_inbound_at: true },
   });
   if (!conversation) return ApiErrors.notFound();
+
+  // Meta DM past the 24h window: refuse up front (Human Agent only when the operator has Meta's approval).
+  const win = messagingWindowState({
+    platform: conversation.platform,
+    threadType: conversation.thread_type,
+    lastInboundAt: conversation.last_inbound_at,
+    humanAgentApproved: env.META_HUMAN_AGENT_APPROVED,
+  });
+  if (!win.canSend) return err("messaging_window_closed", win.label ?? "Messaging window closed", 422);
 
   const body = await request.json().catch(() => ({}));
   const parsed = sendSchema.safeParse(body);

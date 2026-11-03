@@ -39,21 +39,22 @@ describe("messagingWindowState", () => {
   });
 
   it("past 24h but within 7 days → human_agent (tag) with an informative label", () => {
-    const s = messagingWindowState({ platform: "facebook", threadType: "dm", lastInboundAt: ago(48 * HOUR), now });
+    const s = messagingWindowState({ platform: "facebook", threadType: "dm", lastInboundAt: ago(48 * HOUR), now, humanAgentApproved: true });
     expect(s.kind).toBe("human_agent");
+    expect(s.canSend).toBe(true);
     expect(s.useHumanAgentTag).toBe(true);
     expect(s.label).toMatch(/human-agent/i);
   });
 
   it("past 7 days → expired (tag won't save it; warn the operator)", () => {
-    const s = messagingWindowState({ platform: "instagram", threadType: "dm", lastInboundAt: ago(HUMAN_AGENT_WINDOW_MS + HOUR), now });
+    const s = messagingWindowState({ platform: "instagram", threadType: "dm", lastInboundAt: ago(HUMAN_AGENT_WINDOW_MS + HOUR), now, humanAgentApproved: true });
     expect(s.kind).toBe("expired");
     expect(s.useHumanAgentTag).toBe(true);
     expect(s.label).toMatch(/7-day|reject/i);
   });
 
   it("no inbound on record → treated as outside the window (tag) for a Meta DM", () => {
-    const s = messagingWindowState({ platform: "facebook", threadType: "dm", lastInboundAt: null, now });
+    const s = messagingWindowState({ platform: "facebook", threadType: "dm", lastInboundAt: null, now, humanAgentApproved: true });
     expect(s.useHumanAgentTag).toBe(true);
     expect(s.kind).toBe("expired");
   });
@@ -61,5 +62,25 @@ describe("messagingWindowState", () => {
   it("defaults threadType to DM when omitted (Meta conversations are DMs unless told otherwise)", () => {
     const s = messagingWindowState({ platform: "facebook", lastInboundAt: ago(2 * HOUR), now });
     expect(s.kind).toBe("open");
+  });
+
+  describe("Human Agent not approved by Meta (default)", () => {
+    it.each([
+      ["past 24h", ago(48 * HOUR)],
+      ["past 7 days", ago(HUMAN_AGENT_WINDOW_MS + HOUR)],
+      ["no inbound on record", null],
+    ])("%s → closed: cannot send, no tag, explains why", (_n, lastInboundAt) => {
+      const s = messagingWindowState({ platform: "facebook", threadType: "dm", lastInboundAt, now });
+      expect(s.kind).toBe("closed");
+      expect(s.canSend).toBe(false);
+      expect(s.useHumanAgentTag).toBe(false);
+      expect(s.label).toMatch(/24 ?h.*closed/i);
+    });
+
+    it("still sends inside the 24h window and where the window does not apply", () => {
+      expect(messagingWindowState({ platform: "instagram", threadType: "dm", lastInboundAt: ago(2 * HOUR), now }).canSend).toBe(true);
+      expect(messagingWindowState({ platform: "telegram", threadType: "dm", lastInboundAt: ago(99 * HOUR), now }).canSend).toBe(true);
+      expect(messagingWindowState({ platform: "facebook", threadType: "comment", lastInboundAt: ago(99 * HOUR), now }).canSend).toBe(true);
+    });
   });
 });

@@ -71,6 +71,7 @@ beforeAll(async () => {
   process.env.ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
   process.env.APP_URL = "http://localhost:3000";
+  process.env.META_HUMAN_AGENT_APPROVED = "true"; // the HUMAN_AGENT-tag tests below assume Meta approved it
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");

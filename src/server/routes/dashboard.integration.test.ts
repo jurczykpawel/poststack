@@ -48,7 +48,7 @@ beforeEach(async () => {
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-D", token_encrypted: "x", webhook_secret: "s", status: "active" });
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-D" });
-  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook" });
+  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", last_inbound_at: new Date() });
 });
 
 afterAll(async () => {
@@ -542,11 +542,13 @@ describe("dashboard inbox conversation controls", () => {
     expect(body).toContain("❤️");
   });
 
-  it("shows the Meta 24h-window heads-up in the composer when the window has closed", async () => {
+  it("disables the composer with the reason when the 24h window has closed", async () => {
     if (!TEST_DB) return;
     await db.update(s.conversations).set({ last_inbound_at: new Date(Date.now() - 48 * 60 * 60 * 1000) }).where(eq(s.conversations.id, CONV));
     const body = await (await app.request(`/inbox/${CONV}`, { headers: { cookie } })).text();
-    expect(body).toContain("human-agent");
+    expect(body).toContain("24h reply window closed");
+    expect(body).toContain("data-window-closed");
+    expect(body).not.toContain("/inbox/" + CONV + "/reply");
   });
 
   it("shows no window heads-up while the conversation is well within the 24h window", async () => {
