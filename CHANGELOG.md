@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-03
+
 ### Fixed
 - Inbox: a manual reply the platform refuses for good (e.g. Instagram "Human Agent" not approved) shows in the thread as not delivered, with the reason. Overview's "Needs attention" counts every post that needs a fix, not just the ones listed, and the Queue row menu is no longer clipped on a short list.
 - Inbox: a thread opens on its newest message (also on a phone) and the 5 s refresh keeps it there unless you scrolled up; search treats `%` and `_` literally; a manual reply Meta refuses for good (window closed, Human Agent tag not approved) is no longer retried three times into the dead-letter queue and shows in the thread as "Not delivered".
