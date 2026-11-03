@@ -1640,7 +1640,7 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .dl-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
 .dl-split.has-detail { grid-template-columns: minmax(0, 1fr) 370px; }
 .dl-list { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
-.dl-table { table-layout: fixed; border: 0; border-radius: 0; }
+.dl-table { table-layout: fixed; border: 0; border-radius: 0; overflow: visible; } /* the global table rule clips; a row menu must not be */
 .dl-table td { height: 44px; padding: 0 12px; font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dl-table th { padding: 8px 12px; }
 .dl-table tbody tr { position: relative; }

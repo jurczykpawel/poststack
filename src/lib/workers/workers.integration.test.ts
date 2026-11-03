@@ -1153,6 +1153,26 @@ describe("outgoing-message worker", () => {
     expect(failed.map((m) => [m.direction, m.text])).toEqual([["outbound", "late hello"]]);
   });
 
+  // MQA14-B03: a manual DM whose send keeps failing (unclassified error, e.g. Human Agent not approved)
+  // is dead-lettered after the last attempt; the thread must still show it as `failed`.
+  it("records a failed message row for a manual reply on the final retry attempt", async () => {
+    if (!TEST_DB) return;
+    const final = { logger: { info: () => {} }, job: { id: "j", attempts: 8, max_attempts: 8 } } as never;
+    provider.sendMessage.mockRejectedValueOnce(new Error("(#10) Human Agent not approved"));
+    await expect(w.processOutgoingMessage(job({ idempotencyKey: "d-final-manual", isManual: true, content: { text: "never delivered" } }) as never, final)).rejects.toThrow();
+    const failed = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "failed")));
+    expect(failed.map((m) => [m.direction, m.text])).toEqual([["outbound", "never delivered"]]);
+  });
+
+  it("does not record a failed message row on a non-final attempt", async () => {
+    if (!TEST_DB) return;
+    const early = { logger: { info: () => {} }, job: { id: "j", attempts: 2, max_attempts: 8 } } as never;
+    provider.sendMessage.mockRejectedValueOnce(new Error("boom"));
+    await expect(w.processOutgoingMessage(job({ idempotencyKey: "d-early-manual", isManual: true }) as never, early)).rejects.toThrow();
+    const failed = await db.select().from(s.messages).where(and(eq(s.messages.conversation_id, CONV), eq(s.messages.status, "failed")));
+    expect(failed.length).toBe(0);
+  });
+
   it("does not add a failed row for an automated reply dropped by policy", async () => {
     if (!TEST_DB) return;
     provider.sendMessage.mockRejectedValueOnce(new MessagingPolicyError("outside the allowed messaging window"));

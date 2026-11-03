@@ -94,6 +94,22 @@ export async function processOutgoingMessage(
     return { heldMessageId: m.id };
   };
 
+  // A human's reply that never goes out (refused for good, or every retry failed) stays in the thread
+  // as `failed`, so the operator sees it did not reach the contact.
+  const recordFailed = async () => {
+    if (heldMessageId) await db.update(messages).set({ status: "failed" }).where(eq(messages.id, heldMessageId));
+    else {
+      await db.insert(messages).values({
+        conversation_id: conversationId,
+        direction: "outbound",
+        text: content.text ?? null,
+        attachments: normalizeOutgoingAttachments(content),
+        status: "failed",
+        sent_by_user_id: sentByUserId ?? null,
+      });
+    }
+  };
+
   const outcome = await runDelivery({
     deliveryKey: idempotencyKey ?? `job:${helpers.job.id}`,
     channelId,
@@ -153,20 +169,10 @@ export async function processOutgoingMessage(
         })
         .where(eq(conversations.id, conversationId));
     },
+  }).catch(async (err) => {
+    const job: { attempts: number; max_attempts: number } | undefined = helpers.job;
+    if (isHumanReply && job && job.attempts >= job.max_attempts) await recordFailed();
+    throw err;
   });
-  // A human's reply the platform refused for good (window closed, Human Agent not approved) is dropped
-  // without a retry; keep it in the thread as `failed` so the operator sees it did not go out.
-  if (outcome === "dropped_policy" && isHumanReply) {
-    if (heldMessageId) await db.update(messages).set({ status: "failed" }).where(eq(messages.id, heldMessageId));
-    else {
-      await db.insert(messages).values({
-        conversation_id: conversationId,
-        direction: "outbound",
-        text: content.text ?? null,
-        attachments: normalizeOutgoingAttachments(content),
-        status: "failed",
-        sent_by_user_id: sentByUserId ?? null,
-      });
-    }
-  }
+  if (outcome === "dropped_policy" && isHumanReply) await recordFailed();
 }
