@@ -165,6 +165,8 @@ See `.env.example`. Required:
 | `INSTAGRAM_APP_ID` | Optional. Instagram app ID for **Instagram Business Login** (connect one IG account directly; IG DMs at Standard Access). Distinct from `META_APP_ID`. |
 | `INSTAGRAM_APP_SECRET` | Optional. Instagram app secret for Instagram Business Login. Also a valid webhook-signature secret (dual-secret verify). Distinct from `META_APP_SECRET`. |
 | `APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
+| `AI_PROVIDER` | Optional. `openai` \| `anthropic` \| `openrouter` \| `groq` \| `custom`; presets bring their own Base URL (Claude is called natively via `/v1/messages`). Unset = inferred from `AI_BASE_URL`. Normally set from Settings → Integrations → AI provider or `PUT /api/v1/settings/ai` (scope `instance_ai:write`, operator only). |
+| `AI_ALLOWED_PRIVATE_TARGETS` | Optional. AI provider calls are public-only; a custom Base URL on loopback/private/CGNAT (Ollama, LM Studio) must be listed here (hosts, IPs, IPv4 CIDRs, optional `:port`). Link-local/cloud metadata always blocked. |
 | `CHANNEL_ALERT_WEBHOOK_URL` | Optional. Outbound webhook POSTed when a channel needs re-auth |
 | `WEBHOOK_ALLOW_PRIVATE_TARGETS` | Optional. Default false. Webhook delivery (alert + outbound) is secure-by-default and blocks private/loopback/LAN targets; set true to allow an internal receiver (n8n/ntfy on the same Docker network/LAN). Cloud-metadata + link-local always blocked. |
 | `HISTORY_RETENTION_DAYS` | Optional. Compaction window in days; 0 = off; default 60; if set must be >= 30 |

@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- AI provider setup: Settings → Integrations → AI provider now has a provider picker (OpenAI, Anthropic/Claude, OpenRouter, Groq, custom), an automatic Base URL, a model list fetched from the provider with your key (cached 24 h, with Refresh; type any other model name), and a connection test that runs before saving. Claude is called natively (`/v1/messages`). API for agents: `GET/PUT/DELETE /api/v1/settings/ai`, `POST /api/v1/settings/ai/models`, `POST /api/v1/settings/ai/test`, behind the new operator-only permissions `instance_ai:read` / `instance_ai:write` (never implied by a full-access key; only the instance operator can grant them, and a key stops working if its creator stops being the operator). The response never contains the API key. New `AI_PROVIDER` setting (older installs infer it from `AI_BASE_URL`).
+
+### Changed
+- **Upgrade note:** calls to the AI provider (drafts, rephrasing, model list, test) now go through the SSRF guard. A custom Base URL on a loopback, private or CGNAT address (Ollama, LM Studio) is blocked until it is listed in the new `AI_ALLOWED_PRIVATE_TARGETS` (hosts, IPs, IPv4 CIDRs, optional port; see docs/DEPLOY.md). Cloud-metadata / link-local addresses are always blocked.
+
+### Fixed
+- AI with Claude: `temperature` is no longer sent to Anthropic (Claude 5 answers it with HTTP 400). An existing `AI_BASE_URL=https://api.anthropic.com/v1` now uses the native Anthropic API.
+- AI settings: the saved API key is never sent to a different provider or host. Changing the provider or the Base URL host requires the key in the same request (`422 API_KEY_REQUIRED`); the generic credentials endpoint no longer edits AI settings.
+
 ## [0.16.2] - 2026-11-03
 
 ### Added

@@ -14,6 +14,9 @@ vi.mock("@/lib/settings/config", () => ({
 const logGeneration = vi.fn(async (_entry: unknown) => {});
 vi.mock("@/lib/ai/generation-log", () => ({ logGeneration: (...a: unknown[]) => logGeneration(...(a as [unknown])) }));
 
+// AIPROVIDER1: provider calls go through aiFetch (SSRF policy); route it to the mocked global fetch here.
+vi.mock("@/lib/ai/net", () => ({ aiFetch: (url: string, init: RequestInit) => globalThis.fetch(url, init) }));
+
 const originalFetch = globalThis.fetch;
 
 let lastUrl = "";

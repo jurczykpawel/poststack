@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { apiKeys as apiKeysTbl } from "@/db/schema";
 import { BRAND } from "@/lib/brand";
 import { getInstanceLicense } from "@/lib/license/gate";
-import { API_SCOPE_DEFINITIONS, API_SCOPE_GROUPS, API_SCOPE_PRESETS, API_SCOPES } from "@/lib/auth/scopes";
+import { API_SCOPE_DEFINITIONS, API_SCOPE_GROUPS, API_SCOPE_PRESETS, API_SCOPES, isInstanceScope } from "@/lib/auth/scopes";
+import { isInstanceOperator } from "@/lib/auth/instance-operator";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { icon } from "../../components/icons";
@@ -29,7 +30,7 @@ function scopeSummary(scopes: string[] | null): string {
   const set = new Set(scopes);
   const preset = API_SCOPE_PRESETS.find((p) => p.scopes.length === set.size && p.scopes.every((s) => set.has(s)));
   const n = `${scopes.length} permission${scopes.length === 1 ? "" : "s"}`;
-  return set.size === API_SCOPES.length ? `All permissions · ${n}` : preset ? `${preset.label} · ${n}` : `Custom · ${n}`;
+  return API_SCOPES.filter((x) => !isInstanceScope(x)).every((x) => set.has(x)) ? `All permissions · ${n}` : preset ? `${preset.label} · ${n}` : `Custom · ${n}`;
 }
 
 function renderKeys(keys: KeyRow[], error?: string): Html {
@@ -46,15 +47,15 @@ function renderKeys(keys: KeyRow[], error?: string): Html {
 }
 
 /** Resource rows for the compact Read/Write table: one row per resource, grouped like the catalog. */
-const RESOURCE_LABELS: Record<string, string> = { sources: "Account sources", stats: "Analytics", media: "Media uploads" };
+const RESOURCE_LABELS: Record<string, string> = { sources: "Account sources", stats: "Analytics", media: "Media uploads", instance_ai: "AI provider" };
 const resourceLabel = (r: string) => RESOURCE_LABELS[r] ?? r.charAt(0).toUpperCase() + r.slice(1);
 
-function scopeMatrix(): Html {
+function scopeMatrix(operator: boolean): Html {
   const cell = (scope: string | undefined, label: string) => scope
     ? html`<td><input data-api-scope type="checkbox" value="${scope}" x-model="scopes" aria-label="${label}" /></td>`
     : html`<td><span class="muted" aria-hidden="true">—</span></td>`;
   return html`<table class="scope-mx"><thead><tr><th scope="col">Resource</th><th scope="col">Read</th><th scope="col">Write</th></tr></thead><tbody>
-    ${API_SCOPE_GROUPS.map((g) => {
+    ${API_SCOPE_GROUPS.filter((g) => operator || g.id !== "instance").map((g) => {
       const defs = API_SCOPE_DEFINITIONS.filter((d) => d.group === g.id);
       const resources = [...new Set(defs.map((d) => d.scope.split(":")[0]))];
       return html`<tr class="scope-mx-group"><td colspan="3">${g.label}</td></tr>
@@ -68,9 +69,11 @@ function scopeMatrix(): Html {
 }
 
 /** Create sheet: a name, one of four access choices; the per-permission table shows only for Custom. */
-function createSheet(): Html {
+function createSheet(operator: boolean): Html {
   const presets = Object.fromEntries(API_SCOPE_PRESETS.map(({ id, scopes }) => [id, scopes]));
-  const state = JSON.stringify({ allScopes: API_SCOPES, presets, preset: "publishing", scopes: [...presets.publishing] });
+  // "Select all" never ticks the operator-only instance permissions: those are granted one by one, on purpose.
+  const allScopes = API_SCOPES.filter((x) => !isInstanceScope(x));
+  const state = JSON.stringify({ allScopes, total: operator ? API_SCOPES.length : allScopes.length, presets, preset: "publishing", scopes: [...presets.publishing] });
   const choices = [
     ...API_SCOPE_PRESETS.map((p) => ({ id: p.id, label: p.label, hint: p.description })),
     { id: "custom", label: "Custom", hint: "Choose permissions one by one." },
@@ -94,12 +97,13 @@ function createSheet(): Html {
             <button class="btn btn-sm btn-ghost" type="button" @click="scopes = [...allScopes]">Select all</button>
             <button class="btn btn-sm btn-ghost" type="button" @click="scopes = []">Deselect all</button>
           </div>
-          ${scopeMatrix()}
+          ${scopeMatrix(operator)}
+          ${operator ? html`<p class="muted" style="font-size:12px;margin:8px 0 0">Instance permissions apply to the whole installation. The key stops working for them if you stop being the instance operator. A full-access key does not include them.</p>` : ""}
         </div>
       </div>
       <input type="hidden" name="scopes_json" :value="JSON.stringify(scopes)" />
       <div class="side-sheet-foot">
-        <span class="muted" aria-live="polite" x-text="scopes.length + ' of ' + allScopes.length + ' permissions'"></span>
+        <span class="muted" aria-live="polite" x-text="scopes.length + ' of ' + total + ' permissions'"></span>
         <button class="btn" type="button" @click="$el.closest('dialog').close()">Cancel</button>
         <button class="btn btn-primary" type="submit" :disabled="scopes.length === 0">Create key</button>
       </div>
@@ -145,7 +149,7 @@ async function keysPage(c: Context): Promise<Response> {
     <div class="set-head"><p class="muted" style="margin:0;flex:1 1 260px">For your scripts and agents: <code>Authorization: Bearer ${BRAND.idPrefix}…</code> · <a href="/api/docs" target="_blank" rel="noopener">API docs</a></p>
       <button class="btn btn-primary" type="button" onclick="document.getElementById('api-key-sheet').showModal()">${icon("plus", "ico", 14)} Create API key</button></div>
     <div id="keys-area">${renderKeys(await loadKeys(a.workspaceId))}</div>
-    ${createSheet()}`);
+    ${createSheet(await isInstanceOperator(a))}`);
 }
 
 export function registerApiKeySettings(app: Hono, guard: MiddlewareHandler, jsonReq: (c: Context, body: unknown) => Request): void {

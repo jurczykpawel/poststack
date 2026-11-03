@@ -282,6 +282,45 @@ export const openApiSpec = {
           _count: { type: "object", properties: { enrollments: { type: "integer" } } },
         },
       },
+      AiProviderId: { type: "string", enum: ["openai", "anthropic", "openrouter", "groq", "custom"] },
+      AiErrorCode: { type: "string", enum: ["invalid_key", "model_not_found", "rate_limited", "timeout", "unreachable", "blocked_target", "no_models_endpoint", "bad_response"] },
+      AiModel: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string" }, name: { type: "string" }, context: { type: "integer", description: "Context window in tokens" }, price_in: { type: "number", description: "USD per 1M input tokens (OpenRouter only)" }, price_out: { type: "number" } },
+      },
+      AiSettings: {
+        type: "object",
+        properties: {
+          configured: { type: "boolean" },
+          provider: { $ref: "#/components/schemas/AiProviderId" },
+          base_url: { type: "string" },
+          model: { type: "string" },
+          api_key: { type: "object", properties: { set: { type: "boolean" }, source: { type: "string", enum: ["db", "env", "unset"] }, hint: { type: "string", nullable: true } } },
+          sources: { type: "object", additionalProperties: { type: "string" } },
+          fallbacks: { type: "object", properties: { count: { type: "integer" } } },
+          providers: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" }, base_url: { type: "string", nullable: true }, models_need_key: { type: "boolean" }, key_url: { type: "string" } } } },
+        },
+      },
+      AiSettingsUpdate: {
+        type: "object",
+        required: ["provider", "model"],
+        properties: {
+          provider: { $ref: "#/components/schemas/AiProviderId" },
+          model: { type: "string", maxLength: 200, description: "Any model id the provider accepts; it does not have to be in the list." },
+          api_key: { type: "string", description: "Required for a first save and whenever the provider or Base URL host changes." },
+          base_url: { type: "string", nullable: true, description: "Only for `custom` (http/https, no credentials/query)." },
+          verify: { type: "boolean", default: true },
+        },
+      },
+      AiTestResult: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" }, latency_ms: { type: "integer" }, model: { type: "string" },
+          truncated: { type: "boolean", description: "The model used its whole token budget (reasoning) but the connection works." },
+          error: { type: "object", properties: { code: { $ref: "#/components/schemas/AiErrorCode" }, http_status: { type: "integer" }, message: { type: "string" } } },
+        },
+      },
       ApiKey: {
         type: "object",
         properties: {
@@ -1397,6 +1436,70 @@ export const openApiSpec = {
           "200": { description: "License removed" },
           "403": { description: "Instance operator session required" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/settings/ai": {
+      get: {
+        ...requiresScope("instance_ai:read"),
+        tags: ["Instance settings"],
+        summary: "Get the instance AI provider settings (never the API key)",
+        description: "Requires an API key created by the instance operator with the instance_ai permissions (an empty permission list never grants them), or an operator session. The key is bound to its creator: it stops working when they are no longer an operator. `providers` is the catalog to pick from; `api_key.hint` is the last 4 characters of a key of 20+ characters, otherwise null.",
+        responses: {
+          "200": { description: "Effective AI settings", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiSettings" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      put: {
+        ...requiresScope("instance_ai:write"),
+        tags: ["Instance settings"],
+        summary: "Choose the AI provider and model",
+        description: "Typical agent flow: GET this → POST /settings/ai/models with the key → PUT here → GET /license shows `ai_configured: true`. By default (`verify: true`) a minimal chat request is sent first and nothing is saved if it fails (422 with the error code). `base_url` is allowed only for `custom`. When the provider or the host of the Base URL changes, `api_key` is required (422 `API_KEY_REQUIRED`): the saved key is never sent to a different provider or host. Private/loopback targets are blocked unless the server lists them in AI_ALLOWED_PRIVATE_TARGETS (`blocked_target`).",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AiSettingsUpdate" } } } },
+        responses: {
+          "200": { description: "Saved; the new effective settings", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiSettings" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "422": { description: "Validation failed (`API_KEY_REQUIRED`, `BASE_URL_NOT_ALLOWED`, `BASE_URL_REQUIRED`, `INVALID_BASE_URL`, `INVALID_MODEL`) or the connection test failed (`error.code` is an AiErrorCode, `error.details.http_status` the provider's status). Provider response bodies are never included." },
+        },
+      },
+      delete: {
+        ...requiresScope("instance_ai:write"),
+        tags: ["Instance settings"],
+        summary: "Remove the values stored here (environment values apply again)",
+        responses: {
+          "200": { description: "Effective settings after removal", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiSettings" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/settings/ai/models": {
+      post: {
+        ...requiresScope("instance_ai:read"),
+        tags: ["Instance settings"],
+        summary: "List the provider's models (cached 24 h)",
+        description: "POST so the candidate `api_key` never appears in a URL. Every field is optional: omitted ones come from the saved config, but the saved key is used only for the saved provider and host. Embedding, speech, image and moderation models are hidden unless `all` is true; `refresh` bypasses the cache. Limit: 10 requests per minute.",
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { provider: { $ref: "#/components/schemas/AiProviderId" }, api_key: { type: "string" }, base_url: { type: "string", nullable: true }, refresh: { type: "boolean", default: false }, all: { type: "boolean", default: false } } } } } },
+        responses: {
+          "200": { description: "Models", content: { "application/json": { schema: { type: "object", properties: { data: { type: "object", properties: { models: { type: "array", items: { $ref: "#/components/schemas/AiModel" } }, fetched_at: { type: "string", format: "date-time" }, cached: { type: "boolean" }, filtered_out: { type: "integer" } } }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "422": { description: "The list could not be fetched (`error.code` is an AiErrorCode) or the candidate is invalid" },
+          "429": { description: "Too many requests" },
+        },
+      },
+    },
+    "/settings/ai/test": {
+      post: {
+        ...requiresScope("instance_ai:write"),
+        tags: ["Instance settings"],
+        summary: "Send one tiny chat request to check provider, key and model",
+        description: "Costs a few tokens. Needs `model` (or a saved one). A failed probe is a normal 200 response with `data.ok: false`. Limit: 5 requests per minute.",
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { provider: { $ref: "#/components/schemas/AiProviderId" }, api_key: { type: "string" }, base_url: { type: "string", nullable: true }, model: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "Probe result", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiTestResult" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "422": { description: "Invalid candidate, or `API_KEY_REQUIRED` when probing another provider/host without a key" },
+          "429": { description: "Too many requests" },
         },
       },
     },

@@ -104,4 +104,6 @@ CREATE TABLE "post_previews" (
 --> statement-breakpoint
 ALTER TABLE "post_previews" ADD CONSTRAINT "post_previews_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "post_previews" ADD CONSTRAINT "post_previews_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
-CREATE UNIQUE INDEX "post_previews_workspace_channel_post_key" ON "post_previews" USING btree ("workspace_id","channel_id","post_id");
+CREATE UNIQUE INDEX "post_previews_workspace_channel_post_key" ON "post_previews" USING btree ("workspace_id","channel_id","post_id");--> statement-breakpoint
+ALTER TABLE "api_keys" ADD COLUMN "created_by_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_created_by_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE cascade;

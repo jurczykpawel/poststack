@@ -10,6 +10,7 @@ export const API_SCOPE_GROUPS = [
   { id: "automation", label: "Automation", description: "Rules, sequences and webhook integrations." },
   { id: "publishing", label: "Publishing", description: "Content, posts, brands and media uploads." },
   { id: "workspace", label: "Workspace", description: "Workspace settings and analytics." },
+  { id: "instance", label: "Instance (operator only)", description: "Instance-wide settings. Only the instance operator can grant these." },
 ] as const;
 
 export type ApiScopeGroup = (typeof API_SCOPE_GROUPS)[number]["id"];
@@ -51,7 +52,12 @@ export const API_SCOPE_DEFINITIONS = [
   { scope: "brands:read", group: "publishing", access: "read", label: "View brands", presets: ["publishing"] },
   { scope: "brands:write", group: "publishing", access: "write", label: "Manage brands", presets: [] },
   { scope: "media:write", group: "publishing", access: "write", label: "Upload media", presets: ["publishing"] },
+  { scope: "instance_ai:read", group: "instance", access: "read", label: "View AI provider settings", presets: [] },
+  { scope: "instance_ai:write", group: "instance", access: "write", label: "Manage AI provider settings", presets: [] },
 ] as const satisfies readonly ScopeDefinition[];
+
+/** Instance-operator scopes (`instance_*`) are never implied by an empty scope list or a preset. */
+export const isInstanceScope = (scope: string): boolean => scope.startsWith("instance_");
 
 export type ApiScope = (typeof API_SCOPE_DEFINITIONS)[number]["scope"];
 
@@ -82,7 +88,7 @@ function belongsToPreset(
 
 /** Presets replace the current selection; users can still refine individual checkboxes afterwards. */
 export const API_SCOPE_PRESETS = Object.freeze([
-  buildPreset("read_only", "Read only", "Inspect data without making changes.", ({ access }) => access === "read"),
+  buildPreset("read_only", "Read only", "Inspect data without making changes.", ({ access, group }) => access === "read" && group !== "instance"),
   buildPreset("publishing", "Publishing", "Create, schedule and inspect content and posts.", (definition) => belongsToPreset(definition, "publishing")),
   buildPreset("inbox_automation", "Inbox & automation", "Work with conversations, contacts and automations.", (definition) => belongsToPreset(definition, "inbox_automation")),
 ]);

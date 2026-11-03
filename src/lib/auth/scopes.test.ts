@@ -34,7 +34,7 @@ describe("API scope catalog", () => {
   it("derives read-only from access metadata and keeps publishing least-purposeful", () => {
     const readOnly = API_SCOPE_PRESETS.find(({ id }) => id === "read_only");
     expect(readOnly?.scopes).toEqual(
-      API_SCOPE_DEFINITIONS.filter(({ access }) => access === "read").map(({ scope }) => scope),
+      API_SCOPE_DEFINITIONS.filter(({ access, group }) => access === "read" && group !== "instance").map(({ scope }) => scope),
     );
 
     const publishing = API_SCOPE_PRESETS.find(({ id }) => id === "publishing");
@@ -47,5 +47,11 @@ describe("API scope catalog", () => {
       "brands:read",
       "media:write",
     ]);
+  });
+
+  it("keeps instance-operator scopes out of every preset (they are granted explicitly, never implied)", () => {
+    expect(API_SCOPES).toEqual(expect.arrayContaining(["instance_ai:read", "instance_ai:write"]));
+    expect(API_SCOPE_DEFINITIONS.filter(({ group }) => group === "instance").map(({ scope }) => scope)).toEqual(["instance_ai:read", "instance_ai:write"]);
+    for (const preset of API_SCOPE_PRESETS) expect(preset.scopes.some((s) => s.startsWith("instance_")), preset.id).toBe(false);
   });
 });

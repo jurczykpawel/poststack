@@ -41,6 +41,7 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   // AI rephrase — ANY OpenAI-compatible chat-completions endpoint (OpenAI, OpenRouter, Groq, Together,
   // DeepSeek, local Ollama, …). Names are provider-neutral; the legacy OPENAI_* / AI_REPHRASE_MODEL
   // names are still honored as aliases so existing configs keep working without a redeploy.
+  { key: "AI_PROVIDER", group: "AI rephrasing (OpenAI-compatible)", label: "Provider", secret: false, help: "openai · anthropic · openrouter · groq · custom. Presets use their own Base URL; custom uses AI_BASE_URL. Unset = inferred from AI_BASE_URL." },
   { key: "AI_API_KEY", aliases: ["OPENAI_API_KEY"], group: "AI rephrasing (OpenAI-compatible)", label: "API Key", secret: true, help: "Bearer API key for your OpenAI-compatible provider. Leave unset to disable AI rephrasing. (Legacy name OPENAI_API_KEY still works.)" },
   { key: "AI_BASE_URL", aliases: ["OPENAI_BASE_URL"], group: "AI rephrasing (OpenAI-compatible)", label: "Base URL", secret: false, help: "Chat-completions base URL. Examples: OpenAI https://api.openai.com/v1 · OpenRouter https://openrouter.ai/api/v1 · Groq https://api.groq.com/openai/v1 · Ollama http://host:11434/v1. Defaults to OpenAI if unset." },
   { key: "AI_MODEL", aliases: ["AI_REPHRASE_MODEL"], group: "AI rephrasing (OpenAI-compatible)", label: "Model", secret: false, help: "Model name for your provider. Examples: gpt-4o-mini · anthropic/claude-3.5-haiku (OpenRouter) · llama-3.3-70b-versatile (Groq). Defaults to gpt-4o-mini." },

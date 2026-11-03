@@ -18,6 +18,7 @@ const EXPECTED_API_KEY_SCOPES = [
   "posts:read", "posts:write",
   "brands:read", "brands:write",
   "media:write",
+  "instance_ai:read", "instance_ai:write",
 ] as const;
 
 beforeAll(async () => {
@@ -200,6 +201,11 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     ["GET", "/license", "settings:read"],
     ["POST", "/license", "settings:write"],
     ["DELETE", "/license", "settings:write"],
+    ["GET", "/settings/ai", "instance_ai:read"],
+    ["PUT", "/settings/ai", "instance_ai:write"],
+    ["DELETE", "/settings/ai", "instance_ai:write"],
+    ["POST", "/settings/ai/models", "instance_ai:read"],
+    ["POST", "/settings/ai/test", "instance_ai:write"],
     ["GET", "/tags", "tags:read"],
     ["POST", "/tags", "tags:write"],
     ["PATCH", "/tags/{tagId}", "tags:write"],

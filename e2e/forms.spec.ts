@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { setFree, setPro, watchConsole, gotoOk } from "./helpers";
-import { API_SCOPE_PRESETS, API_SCOPES } from "../src/lib/auth/scopes";
+import { API_SCOPE_PRESETS, API_SCOPES, isInstanceScope } from "../src/lib/auth/scopes";
 
 // Real FORM SUBMITS — the path GET/200 checks miss. The whole reason for this suite: a missing
 // htmx json-enc extension silently breaks every json-enc form (the JSON-only handlers reject the
@@ -122,9 +122,11 @@ for (const state of ["free", "pro"] as const) {
         await expect(serialized).toHaveValue("[]");
         await expect(create).toBeDisabled();
 
+        // "Select all" never ticks the operator-only instance_* permissions: those are granted one by one.
+        const selectable = API_SCOPES.filter((scope) => !isInstanceScope(scope));
         await form.getByRole("button", { name: "Select all", exact: true }).click();
-        await expect(checked).toHaveCount(API_SCOPES.length);
-        await expect(serialized).toHaveValue(JSON.stringify(API_SCOPES));
+        await expect(checked).toHaveCount(selectable.length);
+        await expect(serialized).toHaveValue(JSON.stringify(selectable));
         await expect(create).toBeEnabled();
         expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
       });
