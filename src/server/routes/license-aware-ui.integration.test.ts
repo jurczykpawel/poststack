@@ -25,6 +25,9 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
   gate = await import("@/lib/license/gate");
+  // Without INSTANCE_ADMIN_EMAILS the operator is the OLDEST user; rows other files leave behind would
+  // outrank USER (recreated each test) and hide the operator-only settings. Pin the operator explicitly.
+  Object.assign((await import("@/lib/env")).env, { INSTANCE_ADMIN_EMAILS: `u-${USER}@test.local` });
   const { buildApp } = await import("../app");
   app = buildApp();
   const { signSession } = await import("@/lib/auth");

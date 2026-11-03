@@ -26,6 +26,8 @@ beforeAll(async () => {
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
   ({ db } = await import("@/lib/db"));
   s = await import("@/db/schema");
+  // Operator-only settings: pin USER instead of relying on "oldest user" (other files leave older rows).
+  Object.assign((await import("@/lib/env")).env, { INSTANCE_ADMIN_EMAILS: `u-${USER}@test.local` });
   const { buildApp } = await import("../app");
   app = buildApp();
   const { signSession } = await import("@/lib/auth");
