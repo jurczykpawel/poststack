@@ -73,6 +73,7 @@ import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
 import { gatherAttention, attentionTotal, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
+import { postUrlFor } from "@/lib/posts/post-url";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -319,17 +320,6 @@ export type DraftBubble = {
   dmText: string | null;
   commentText: string | null;
 };
-
-/** Fallback public URL for the post a comment was on, built from the id alone. Used only when no
- *  permalink was stored on the row (comment_logs.post_url). Facebook post ids resolve directly;
- *  Instagram media ids carry no shortcode, so IG relies on the stored permalink (resolved at log
- *  time by the incoming-comment worker) and gets no fallback here. */
-function postUrlFor(platform: string, postId: string | null): string | null {
-  if (!postId) return null;
-  if (platform === "youtube") return `https://www.youtube.com/watch?v=${encodeURIComponent(postId)}`;
-  if (platform === "facebook") return `https://www.facebook.com/${encodeURIComponent(postId)}`;
-  return null;
-}
 
 /** Sender identity for an email thread's cards (the message items carry no per-row sender). */
 type ThreadContext = { name: string; handle: string };
