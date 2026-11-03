@@ -44,11 +44,11 @@ export function aiProviderForm(v: AiSettingsView): Html {
       <input class="input" id="ai-model" name="model" role="combobox" aria-controls="ai-model-list" :aria-expanded="open" autocomplete="off" x-model="model"
         placeholder="Search models or type a model name" @focus="open = true" @input="open = true" @blur="setTimeout(() => open = false, 150)" @keydown.escape="open = false" required />
     </div>
-    <div id="ai-models" hx-post="/settings/integrations/ai/models" hx-trigger="load, reload-models from:#ai-form" hx-swap="innerHTML"></div>
+    <div id="ai-models" hx-post="/settings/integrations/ai/models" hx-target="this" hx-trigger="load, reload-models from:#ai-form" hx-swap="innerHTML"></div>
     <div class="row" style="margin-top:14px">
       <button class="btn" type="button" hx-post="/settings/integrations/ai/test" hx-target="#ai-result" hx-swap="innerHTML">Test connection</button>
       <button class="btn btn-primary" type="submit">Save</button>
-      ${fromDb ? html`<button class="btn btn-ghost" type="button" hx-post="/settings/integrations/ai/reset" hx-target="#int-grid" hx-swap="outerHTML" hx-confirm="Remove the values saved here and use the environment variables?">Use environment values</button>` : ""}
+      ${fromDb ? html`<button class="btn btn-ghost" type="button" hx-post="/settings/integrations/ai/reset" hx-target="#int-grid" hx-swap="outerHTML" hx-confirm="Remove the values saved here and use the environment variables?" data-confirm-label="Use environment">Use environment values</button>` : ""}
     </div>
     <div id="ai-result" role="status" aria-live="polite"></div>
   </form>`;

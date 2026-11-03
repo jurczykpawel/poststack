@@ -22,7 +22,7 @@ describe("api_keys.created_by_user_id reconciliation", () => {
       const user = randomUUID(), ws = randomUUID(), key = randomUUID();
       await client.query("INSERT INTO users(id, email) VALUES ($1, $2)", [user, `creator-${user}@test.local`]);
       await client.query("INSERT INTO workspaces(id, name, slug) VALUES ($1::uuid, 'Creator', $1::text)", [ws]);
-      await client.query("INSERT INTO api_keys(id, workspace_id, name, key_hash, key_prefix, created_by_user_id) VALUES ($1, $2, 'k', $1::text, 'sk_live_t', $3)", [key, ws, user]);
+      await client.query("INSERT INTO api_keys(id, workspace_id, name, key_hash, key_prefix, created_by_user_id) VALUES ($1::uuid, $2, 'k', $1::text, 'sk_live_t', $3)", [key, ws, user]);
       await client.query(delta); // second run: nothing breaks, data stays
       expect(await shape()).toEqual({ col: "uuid", del: "n" });
       expect((await client.query("SELECT created_by_user_id FROM api_keys WHERE id = $1", [key])).rows[0].created_by_user_id).toBe(user);

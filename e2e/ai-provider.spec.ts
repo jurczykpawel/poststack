@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import { setPro, gotoOk, watchConsole } from "./helpers";
-import { E2E_AI_PORT } from "./env";
+import { Client } from "pg";
+import { E2E_AI_PORT, E2E_DATABASE_URL } from "./env";
 import openaiModels from "../src/lib/ai/__fixtures__/openai-models.json";
 import openaiChat from "../src/lib/ai/__fixtures__/openai-chat.json";
 
@@ -22,6 +23,13 @@ test.beforeAll(async () => {
 });
 test.afterAll(() => { server.close(); });
 
+// A failed run must not leave a saved AI config behind: the e2e server starts before global-setup and caches settings.
+async function clearSavedAiConfig() {
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  try { await client.query("DELETE FROM instance_settings WHERE key LIKE 'AI\\_%'"); } finally { await client.end(); }
+}
+
 async function shoot(page: Page, base: string) {
   for (const theme of ["dark", "light"]) {
     await page.context().addCookies([{ name: "ps_theme", value: theme, url: page.url() }]);
@@ -33,9 +41,10 @@ async function shoot(page: Page, base: string) {
 }
 
 test("AI provider: pick, list models, test, save, reload, revert", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  try {
   await setPro(page.request);
   const { errors } = watchConsole(page);
-  page.on("dialog", (d) => d.accept());
   await gotoOk(page, "/settings/integrations/ai");
 
   // Presets show their own Base URL; no key yet, so the list explains what to do.
@@ -99,8 +108,12 @@ test("AI provider: pick, list models, test, save, reload, revert", async ({ page
 
   // Revert to environment values.
   await page.getByRole("button", { name: "Use environment values" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Use environment", exact: true }).click();
   await expect(page.locator(".notice-ok").first()).toContainText("Reverted");
   expect(errors, errors.join("\n")).toEqual([]);
+  } finally {
+    await clearSavedAiConfig();
+  }
 });
 
 test("API keys: the operator sees the Instance group in the Custom table", async ({ page }, testInfo) => {
