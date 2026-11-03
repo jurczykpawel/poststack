@@ -9,8 +9,3 @@ export function postUrlFor(platform: string, postId: string | null | undefined, 
   return null;
 }
 
-/** YouTube serves a still for every public video id; other platforms need an API read. */
-export function videoThumbFor(platform: string, postId: string | null | undefined): string | null {
-  if (platform !== "youtube" || !postId || !/^[\w-]{6,20}$/.test(postId)) return null;
-  return `https://i.ytimg.com/vi/${postId}/hqdefault.jpg`;
-}

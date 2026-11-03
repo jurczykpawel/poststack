@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { postUrlFor, videoThumbFor } from "./post-url";
+import { postUrlFor } from "./post-url";
 
 describe("postUrlFor", () => {
   it("builds links from bare ids", () => {
@@ -15,10 +15,3 @@ describe("postUrlFor", () => {
   });
 });
 
-describe("videoThumbFor", () => {
-  it("gives a YouTube still only for a plausible id", () => {
-    expect(videoThumbFor("youtube", "ZlDpanbR3FM")).toBe("https://i.ytimg.com/vi/ZlDpanbR3FM/hqdefault.jpg");
-    expect(videoThumbFor("youtube", "../x")).toBeNull();
-    expect(videoThumbFor("facebook", "ZlDpanbR3FM")).toBeNull();
-  });
-});

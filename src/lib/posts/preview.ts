@@ -9,7 +9,7 @@ import { casKey } from "@/lib/media/cas";
 import { readBodyCapped } from "@/lib/media/read-capped";
 import { sniffMime } from "@/lib/media/sniff";
 import { safeFetch } from "@/lib/media/ssrf";
-import { postUrlFor, videoThumbFor } from "@/lib/posts/post-url";
+import { postUrlFor } from "@/lib/posts/post-url";
 import { getStorage } from "@/lib/storage";
 import type { Storage } from "@/lib/storage/types";
 
@@ -51,7 +51,7 @@ export async function deliveryPostCard(workspaceId: string, deliveryId: string):
     platform: channel.platform,
     channelName: nameOf(channel),
     text: post?.description || payload.caption || post?.title || payload.title || null,
-    imageUrl: first?.kind === "image" ? httpUrl(first.url) : videoThumbFor(channel.platform, delivery.provider_handle),
+    imageUrl: first?.kind === "image" ? httpUrl(first.url) : null,
     video: first?.kind === "video",
     url: httpUrl(post?.published_url) ?? httpUrl(delivery.provider_handle) ?? postUrlFor(channel.platform, delivery.provider_handle, channel.username),
     at: post?.published_at ?? (delivery.status === "sent" ? delivery.updated_at : null),
