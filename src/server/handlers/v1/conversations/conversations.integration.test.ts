@@ -43,7 +43,7 @@ beforeEach(async () => {
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-CV", display_name: "Page", token_encrypted: "x", webhook_secret: "s" });
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS, display_name: "Jane" });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-CV", platform_username: "jane" });
-  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", status: "open", last_message_at: new Date(), last_message_preview: "hi" });
+  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", status: "open", last_message_at: new Date(), last_inbound_at: new Date(), last_message_preview: "hi" });
   await db.insert(s.messages).values({ conversation_id: CONV, direction: "inbound", text: "hi", status: "delivered" });
   await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_cv" });
 });

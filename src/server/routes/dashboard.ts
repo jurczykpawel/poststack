@@ -659,9 +659,9 @@ export function renderThread(
   // Whether an AI provider key is set. Defaults to true so callers that don't pass it keep the old
   // behaviour; the inbox handlers pass the real value so the buttons disable when AI can't run.
   const aiConfigured = opts.aiConfigured ?? true;
-  // Meta 24h-window heads-up: warn when the standard window is closing/closed (the send still goes —
-  // a human reply past 24h rides the HUMAN_AGENT tag, see ./messaging-window + the outgoing worker).
-  const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at });
+  // Meta 24h-window heads-up. Closed window (and no approved HUMAN_AGENT tag) → the reply box is
+  // disabled with the reason; with the tag approved a reply past 24h still goes (see ./messaging-window).
+  const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at, humanAgentApproved: env.META_HUMAN_AGENT_APPROVED });
   const windowNote = canReply && windowState.label
     ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem;display:flex;align-items:center;gap:6px">${icon("clock", "ico", 13)}<span>${windowState.label}</span></div>`
     : html``;
@@ -708,10 +708,15 @@ export function renderThread(
     ${windowNote}
     ${aiDraftBar}
     ${canReply
-      ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
+      ? windowState.canSend
+        ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
           <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
           <button class="btn btn-primary" type="submit">Send</button>
         </form>`
+        : html`<div class="reply-bar reply-locked" data-window-closed>
+          <textarea class="textarea" rows="2" placeholder="Reply window closed — see the note above." disabled></textarea>
+          <button class="btn btn-primary" type="button" disabled>Send</button>
+        </div>`
       : html`<div class="reply-bar reply-locked">
           <textarea class="textarea" rows="2" placeholder="Replying by hand is a PRO feature — your rules still auto-reply for free." disabled></textarea>
           <a class="btn btn-primary" href="${opts.upgradeUrl ?? "#"}">Upgrade to reply</a>

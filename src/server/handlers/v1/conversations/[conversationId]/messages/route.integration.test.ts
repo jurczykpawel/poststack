@@ -45,7 +45,7 @@ beforeEach(async () => {
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-M", token_encrypted: "x", webhook_secret: "s" });
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-M" });
-  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", needs_manual_reply: true });
+  await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", needs_manual_reply: true, last_inbound_at: new Date() });
   await db.insert(s.apiKeys).values({ workspace_id: WS, name: "k", key_hash: createHash("sha256").update(RAW_KEY).digest("hex"), key_prefix: "sk_live_aud21" });
 });
 
@@ -148,5 +148,28 @@ describe("manual reply — PRO gate (manual_reply)", () => {
       await licenseInstance(); // restore PRO for any later work
       invalidateLicenseCache();
     }
+  });
+});
+
+describe("manual reply — Meta 24h window closed (Human Agent not approved)", () => {
+  const closeWindow = (hoursAgo: number) =>
+    db.update(s.conversations).set({ last_inbound_at: new Date(Date.now() - hoursAgo * 3600_000) }).where(eq(s.conversations.id, CONV));
+
+  it.skipIf(!TEST_DB)("422 with a readable message, nothing queued, flag kept", async () => {
+    await closeWindow(30);
+    const res = await POST(postReq(), ctx);
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.error.code).toBe("messaging_window_closed");
+    expect(body.error.message).toMatch(/24 ?h/i);
+    expect(addJobTx).not.toHaveBeenCalled();
+    const [row] = await db.select().from(s.conversations).where(eq(s.conversations.id, CONV));
+    expect(row.needs_manual_reply).toBe(true);
+  });
+
+  it.skipIf(!TEST_DB)("still queues inside the 24h window", async () => {
+    await closeWindow(2);
+    expect((await POST(postReq(), ctx)).status).toBe(201);
+    expect(addJobTx).toHaveBeenCalledTimes(1);
   });
 });

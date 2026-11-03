@@ -168,6 +168,9 @@ const envSchema = z.object({
   // deliberately internal deployment that must POST to a private host. Raw string here; loadEnv()
   // folds it into the resolved WEBHOOK_ALLOW_PRIVATE_TARGETS boolean the policy reads.
   WEBHOOK_ALLOW_PRIVATE_TARGETS: z.string().default("false"),
+  // Operator setting: Meta approved the "Human Agent" permission for this app. Off (default), a manual
+  // DM reply past the 24h window is refused; on, it is sent with the HUMAN_AGENT tag up to 7 days.
+  META_HUMAN_AGENT_APPROVED: z.string().default("false"),
 
   // Cron
   CRON_SECRET: z.string().min(32),
@@ -212,7 +215,9 @@ function loadEnv() {
   // raw flag is explicitly truthy. Folded to a boolean here so the policy (Task 6) reads one type.
   const WEBHOOK_ALLOW_PRIVATE_TARGETS = truthy(parsed.data.WEBHOOK_ALLOW_PRIVATE_TARGETS);
 
-  return { ...parsed.data, TELEMETRY_ENABLED, WEBHOOK_ALLOW_PRIVATE_TARGETS };
+  const META_HUMAN_AGENT_APPROVED = truthy(parsed.data.META_HUMAN_AGENT_APPROVED);
+
+  return { ...parsed.data, TELEMETRY_ENABLED, WEBHOOK_ALLOW_PRIVATE_TARGETS, META_HUMAN_AGENT_APPROVED };
 }
 
 export const env = loadEnv();

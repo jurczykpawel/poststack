@@ -8,6 +8,7 @@ import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { refreshIfNearExpiry } from "@/lib/channels/refresh-if-near-expiry";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
+import { env } from "@/lib/env";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 import { captureFieldFromQuickReplies } from "@/lib/contacts/capture";
 import { normalizeOutgoingAttachments } from "@/lib/messages/attachments";
@@ -43,6 +44,7 @@ export async function processOutgoingMessage(
       platform: conv?.platform ?? "",
       threadType: conv?.thread_type,
       lastInboundAt: conv?.last_inbound_at ?? null,
+      humanAgentApproved: env.META_HUMAN_AGENT_APPROVED,
     }).useHumanAgentTag;
 
   // Email reply context: thread via the Gmail threadId (thread_ref) and carry the subject. In-Reply-To

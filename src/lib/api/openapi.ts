@@ -1104,7 +1104,7 @@ export const openApiSpec = {
           "400": { description: "No platform identity / over-long Idempotency-Key" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { $ref: "#/components/responses/NotFound" },
-          "422": { description: "Validation error" },
+          "422": { description: "Validation error, or `messaging_window_closed`: a Facebook/Instagram DM more than 24h after the customer's last message (Meta only allows the HUMAN_AGENT tag after the operator sets `META_HUMAN_AGENT_APPROVED=true`)" },
         },
       },
     },
