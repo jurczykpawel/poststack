@@ -480,6 +480,9 @@ export const messages = pgTable("messages", {
 	// our OUTBOUND messages so the thread can show ✓✓ Delivered / Seen. NULL = not yet acknowledged.
 	delivered_at: timestamp("delivered_at", { precision: 3, mode: 'date' }),
 	read_at: timestamp("read_at", { precision: 3, mode: 'date' }),
+	// MSGFAIL1: why an outbound message ended `failed` (platform refusal or the last send error),
+	// redacted before write. NULL for every other status and for rows failed before this column.
+	failure_reason: text("failure_reason"),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	index("messages_conversation_id_created_at_idx").using("btree", table.conversation_id.asc().nullsLast(), table.created_at.asc().nullsLast()),

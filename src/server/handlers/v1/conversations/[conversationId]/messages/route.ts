@@ -56,6 +56,7 @@ export async function GET(
       direction: true,
       text: true,
       status: true,
+      failure_reason: true,
       platform_message_id: true,
       sent_by_rule_id: true,
       sent_by_user_id: true,
