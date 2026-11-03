@@ -57,7 +57,7 @@ export const cronTaskList = {
     await scanExpiringConnections();
   },
   // YouTube has no comment webhook, so poll each active YouTube channel on a schedule. Quota-cheap:
-  // an unchanged channel returns 304 (zero quota); the manual "Poll now" button covers urgency.
+  // an unchanged channel returns 304 (zero quota); there is no manual trigger.
   "youtube-comment-poll": async () => {
     await sweepYouTubeChannels();
   },
