@@ -8,6 +8,8 @@ async function shoot(page: Page, base: string, prepare?: () => Promise<void>) {
     await page.reload({ waitUntil: "domcontentloaded" });
     if (prepare) await prepare();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${base}-${theme} fits`).toBe(true);
+    // Every Settings tab is on screen without scrolling the tab bar (phone wraps to two rows).
+    expect(await page.evaluate(() => [...document.querySelectorAll(".settings-tab")].every((t) => t.getBoundingClientRect().right <= window.innerWidth)), `${base}-${theme} tabs visible`).toBe(true);
     await page.screenshot({ path: `${base}-${theme}.png`, animations: "disabled" });
   }
   await page.context().clearCookies({ name: "ps_theme" });

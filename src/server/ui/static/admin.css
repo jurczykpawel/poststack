@@ -1249,7 +1249,7 @@ a.settings-tab { text-decoration: none; display: inline-block; }
 .settings-tab:not([data-inst]) + [data-inst]::before { content: ""; position: absolute; left: -9px; top: 9px; bottom: 9px;
   width: 1px; background: var(--border-strong); }
 @media (max-width: 767.98px) {
-  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; margin: 12px 0 16px; }
+  .settings-tabs { margin: 12px 0 16px; }
   .settings-tab { padding: 12px 12px; }
 }
 .set-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
