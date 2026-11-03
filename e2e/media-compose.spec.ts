@@ -7,6 +7,10 @@ const imageUrl = "https://cdn.example.test/compose.png";
 
 test("Compose schedules a small image and brand slot counts update in place", async ({ page }, testInfo) => {
   await setPro(page.request);
+  // The compose -> content POST/303 runs a cross-document View Transition; awaiting its animations'
+  // `finished` hung 27s on a CI runner (FLAKY-MEDIACOMPOSE1). Reduced motion turns the transition off
+  // via the app's own CSS, so the final screenshot needs no animation promises.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const errors: string[] = [];
   page.on("pageerror", e => errors.push(e.message));
   await page.goto("/brands");
@@ -50,6 +54,6 @@ test("Compose schedules a small image and brand slot counts update in place", as
     expect(rows[0].url).toContain(".png");
   } finally { await client.end(); }
   expect(errors).toEqual([]);
-  await page.evaluate(async () => { await Promise.all(document.getAnimations().map(a => a.finished.catch(() => {}))); });
+  await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
   await page.screenshot({ path: testInfo.outputPath("compose-image.png"), fullPage: true });
 });
