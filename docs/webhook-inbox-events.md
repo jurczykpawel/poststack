@@ -94,3 +94,28 @@ automation changes made through Inbox use the same transactional state writer.
 
 State changes on the same conversation are serialized when recorded. Webhook delivery
 is asynchronous; receivers must tolerate duplicates and requests arriving out of order.
+
+# Incoming message and comment events (PRO)
+
+`message.received` and `comment.received` announce that a contact wrote to you, so a receiver
+(an n8n workflow, an AI assistant) can react. They are part of outbound webhooks, a PRO capability:
+without a PRO licence they are not emitted. Select them in Webhooks or through `POST /api/v1/webhooks`
+with `event_types`; an omitted or empty list subscribes to every event, including these two.
+
+They carry identifiers only, never text, names or e-mail addresses. Read the content with
+`GET /api/v1/messages/{data.id}` or `GET /api/v1/comments/{data.id}` (scope `conversations:read`).
+Only items written by the contact produce events. Messages and comments sent by you (API, auto-reply,
+Inbox, the page's own comments, echoes of your sends) never do, so a reply cannot trigger a loop.
+A redelivered platform event produces no second event.
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `messageId` / `commentId` | The new message or comment (`id` equals the type-specific field). |
+| `type` | `message` or `comment`. |
+| `workspaceId`, `channelId`, `platform`, `conversationId`, `contactId` | Routing and correlation. |
+| `postId` | Comments only: the platform post the comment is on, or `null`. |
+| `direction` | Always `inbound`. |
+| `createdAt` | UTC ISO timestamp the item was stored. |
+
+Every inbound item becomes one delivery per subscribed endpoint. Subscribe explicitly to these types
+if a busy account would otherwise send a high volume to an endpoint that only needs other events.

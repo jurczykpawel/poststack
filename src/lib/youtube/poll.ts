@@ -9,6 +9,7 @@ import { evaluateRules } from "@/lib/rules/executor";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { updateConversation } from "@/lib/conversations/update";
+import { emitCommentReceived } from "@/lib/webhooks/inbound-events";
 import { pollCommentThreads, refreshGoogleAccessToken, YouTubeApiError, type YtComment } from "./client";
 
 interface PollCursor {
@@ -91,8 +92,12 @@ async function ingestComment(channel: YtChannel, c: YtComment): Promise<boolean>
         conversation_id: conversationId,
       })
       .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
-      .returning({ id: commentLogs.id });
+      .returning({ id: commentLogs.id, created_at: commentLogs.created_at });
     if (!logged) return null;
+    await emitCommentReceived(tx, logged.id, {
+      workspaceId: channel.workspace_id, channelId: channel.id, platform: "youtube",
+      conversationId, contactId, createdAt: logged.created_at,
+    }, c.videoId ?? null);
     await updateConversation(tx, channel.workspace_id, conversationId, { last_message_at: new Date(), status: "open" });
     await tx.update(contacts).set({ last_interaction_at: new Date() }).where(eq(contacts.id, contactId));
     await tx.update(conversations).set({ unread_count: sql`${conversations.unread_count} + 1` }).where(eq(conversations.id, conversationId));

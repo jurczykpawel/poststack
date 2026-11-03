@@ -51,6 +51,8 @@ import * as brandsList from "@/server/handlers/v1/brands/route";
 import * as brandItem from "@/server/handlers/v1/brands/[brandKey]/route";
 import * as brandChannels from "@/server/handlers/v1/brands/[brandKey]/channels/route";
 import * as statsResponseTimes from "@/server/handlers/v1/stats/response-times/route";
+import * as messageItem from "@/server/handlers/v1/messages/[messageId]/route";
+import * as commentItem from "@/server/handlers/v1/comments/[commentId]/route";
 import * as webhooksList from "@/server/handlers/v1/webhooks/route";
 import * as webhookItem from "@/server/handlers/v1/webhooks/[webhookId]/route";
 import * as webhookDeliveries from "@/server/handlers/v1/webhooks/[webhookId]/deliveries/route";
@@ -131,6 +133,13 @@ v1.get("/conversations/:conversationId/messages", validateIds, (c) =>
 );
 v1.post("/conversations/:conversationId/messages", validateIds, (c) =>
   conversationMessages.POST(c.req.raw, { params: Promise.resolve({ conversationId: c.req.param("conversationId") }) }),
+);
+
+v1.get("/messages/:messageId", validateIds, (c) =>
+  messageItem.GET(c.req.raw, { params: Promise.resolve({ messageId: c.req.param("messageId") }) }),
+);
+v1.get("/comments/:commentId", validateIds, (c) =>
+  commentItem.GET(c.req.raw, { params: Promise.resolve({ commentId: c.req.param("commentId") }) }),
 );
 
 // Rules

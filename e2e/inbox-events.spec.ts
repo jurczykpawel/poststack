@@ -6,7 +6,7 @@ import { E2E_DATABASE_URL, serverEnv } from "./env";
 import { gotoOk, setPro, watchConsole } from "./helpers";
 import inbound from "../tests/fixtures/inbox/inbound.json";
 
-test("outgoing subscriptions offer contact erasure and conversation updates", async ({ page }) => {
+test("outgoing subscriptions offer contact erasure, conversation updates and inbound message and comment events", async ({ page }) => {
   await setPro(page.request);
   const { errors } = watchConsole(page);
   const url = "https://example.test/inbox-events";
@@ -19,12 +19,14 @@ test("outgoing subscriptions offer contact erasure and conversation updates", as
     await form.locator('[name="url"]').fill(url);
     await form.getByRole("checkbox", { name: "contact.erased", exact: true }).check();
     await form.getByRole("checkbox", { name: "conversation.updated", exact: true }).check();
+    await form.getByRole("checkbox", { name: "message.received", exact: true }).check();
+    await form.getByRole("checkbox", { name: "comment.received", exact: true }).check();
     await form.getByRole("button", { name: "Add endpoint" }).click();
     await expect(page.locator("#wh-outbound .notice")).toContainText("Endpoint added");
     const response = await page.request.get("/api/v1/webhooks");
     const ep = (await response.json()).data.find((e: { url: string }) => e.url === url);
     endpointId = ep?.id;
-    expect(ep.event_types).toEqual(["contact.erased", "conversation.updated"]);
+    expect(ep.event_types).toEqual(["contact.erased", "conversation.updated", "message.received", "comment.received"]);
     expect(errors).toEqual([]);
   } finally {
     if (endpointId) expect((await page.request.delete(`/api/v1/webhooks/${endpointId}`)).status()).toBe(204);

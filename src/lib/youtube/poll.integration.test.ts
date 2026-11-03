@@ -103,6 +103,24 @@ describe("pollYouTubeChannel (real Postgres)", () => {
     expect(await events()).toHaveLength(1);
   });
 
+  it("emits comment.received once per newly ingested comment on a licensed instance", async () => {
+    if (!TEST_DB) return;
+    const { licenseInstance } = await import("@/lib/license/__fixtures__/license-instance");
+    const { clearLicense } = await import("@/lib/license/gate");
+    await licenseInstance();
+    try {
+      const fetchImpl = vi.fn(async () => Response.json(commentThreads.response)) as typeof fetch;
+      await poll.pollYouTubeChannel(CH, { fetchImpl });
+      await poll.pollYouTubeChannel(CH, { fetchImpl });
+      const emitted = await db.select().from(s.events).where(and(eq(s.events.workspace_id, WS), eq(s.events.type, "comment.received")));
+      const [logged] = await db.select().from(s.commentLogs).where(eq(s.commentLogs.channel_id, CH));
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].payload).toMatchObject({ workspaceId: WS, channelId: CH, platform: "youtube", commentId: logged.id, conversationId: logged.conversation_id, direction: "inbound" });
+    } finally {
+      await clearLicense();
+    }
+  });
+
   it("ingests new comments into per-video comment threads + logs + persists the cursor", async () => {
     if (!TEST_DB) return;
     mockFetch();

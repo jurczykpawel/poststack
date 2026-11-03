@@ -43,6 +43,8 @@ export const EVENT_TYPES = [
   "contact.updated",
   "contact.erased",
   "conversation.updated",
+  "message.received",
+  "comment.received",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

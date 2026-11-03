@@ -180,6 +180,8 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     ["DELETE", "/contacts/{contactId}", "contacts:write"],
     ["GET", "/conversations/{conversationId}", "conversations:read"],
     ["PATCH", "/conversations/{conversationId}", "conversations:write"],
+    ["GET", "/messages/{messageId}", "conversations:read"],
+    ["GET", "/comments/{commentId}", "conversations:read"],
     ["GET", "/conversations/{conversationId}/messages", "conversations:read"],
     ["POST", "/conversations/{conversationId}/messages", "conversations:write"],
     ["GET", "/rules/{ruleId}", "rules:read"],
