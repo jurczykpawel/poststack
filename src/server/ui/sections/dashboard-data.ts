@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, accountSources, deliveries, events } from "@/db/schema";
 import { QUEUE_SECTIONS } from "./queue-data";
@@ -109,6 +109,17 @@ export async function gatherAttention(workspaceId: string): Promise<AttentionRow
 
   items.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone]);
   return items.slice(0, MAX_ITEMS).map((it, i) => ({ ...it, action: { ...it.action, variant: i === 0 ? "primary" : "secondary" } }));
+}
+
+/** How many attention rows exist in total (the list is capped at MAX_ITEMS): the shown rows plus the
+ *  failed/unknown posts beyond the cap — the same statuses Queue's "Needs attention" counts. */
+export async function attentionTotal(workspaceId: string, shown: AttentionRow[]): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(deliveries)
+    .innerJoin(channels, eq(deliveries.channel_id, channels.id))
+    .where(and(eq(deliveries.workspace_id, workspaceId), inArray(deliveries.status, [...QUEUE_SECTIONS.attention]), isNull(channels.deleted_at)));
+  return shown.length + Math.max(0, n - shown.filter((a) => a.kind === "post").length);
 }
 
 export interface UpcomingPost {

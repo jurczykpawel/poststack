@@ -70,7 +70,7 @@ import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
 import { isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
-import { gatherAttention, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
+import { gatherAttention, attentionTotal, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
 
@@ -1121,7 +1121,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
             upcomingScheduled(a.workspaceId, 6),
             recentEvents(a.workspaceId, 8),
           ]);
-          return { attention, upcoming, recent };
+          return { attention, attentionTotal: await attentionTotal(a.workspaceId, attention), upcoming, recent };
         })()
       : null;
     return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub, responseTimes), features, products));
@@ -2274,6 +2274,7 @@ export function renderSubscriptionPanel(statuses: ChannelSubscriptionStatus[]): 
 
 interface OverviewPublishing {
   attention: AttentionRow[];
+  attentionTotal: number;
   upcoming: UpcomingPost[];
   recent: RecentEvent[];
 }
@@ -2282,7 +2283,7 @@ interface OverviewPublishing {
 function renderPublishingOverview(pub: OverviewPublishing): Html {
   const attention = pub.attention.length
     ? html`<section class="panel" style="margin:1rem 0">
-        <div class="panel-head"><h3>Needs attention</h3><span class="panel-count">${pub.attention.length}</span><a class="panel-more" href="/queue?status=attention">All posts in Queue →</a></div>
+        <div class="panel-head"><h3>Needs attention</h3><span class="panel-count">${pub.attentionTotal}</span><a class="panel-more" href="/queue?status=attention">All posts in Queue →</a></div>
         ${pub.attention.map((a) => {
           // Title body (name · reason). Linked to the entity's detail view when we know where it
           // lives, so the whole row is a click-through — otherwise a plain span (no dead link).
