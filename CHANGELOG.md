@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-11-03
+
 ### Added
 - API: `GET /api/v1/conversations/{id}/messages` returns `failure_reason` on every message. For an outbound message that ended `failed` (a reply the platform refused for good or that failed on every retry) it carries the reason (secrets redacted); otherwise `null`. New column `messages.failure_reason` (folded into migration 0006, reconcile delta `0020`).
 
