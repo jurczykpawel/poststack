@@ -13,6 +13,7 @@ import { dispatchAlert } from "@/lib/notifications/alert";
 import { resolveContactConversation } from "./resolve-contact";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { updateConversation } from "@/lib/conversations/update";
+import { emitCommentReceived } from "@/lib/webhooks/inbound-events";
 
 /**
  * Best-effort public permalink of the post a comment is on, so the inbox can link to it.
@@ -150,8 +151,12 @@ export async function processIncomingComment(
     const [logged] = await tx
       .insert(commentLogs).values({ ...logValues, conversation_id: conversationId })
       .onConflictDoNothing({ target: [commentLogs.channel_id, commentLogs.platform_comment_id] })
-      .returning({ id: commentLogs.id });
+      .returning({ id: commentLogs.id, created_at: commentLogs.created_at });
     if (!logged) return null;
+    await emitCommentReceived(tx, logged.id, {
+      workspaceId: channel.workspace_id, channelId: channel.id, platform: channel.platform,
+      conversationId, contactId, createdAt: logged.created_at,
+    }, postId ?? null);
     await updateConversation(tx, channel.workspace_id, conversationId, { last_message_at: new Date(), status: "open" });
     await tx.update(contacts)
       .set({ last_interaction_at: new Date() })

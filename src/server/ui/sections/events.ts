@@ -33,6 +33,8 @@ export const EVENT_META: Record<string, { label: string; tone: Tone }> = {
   "contact.updated": { label: "Contact updated", tone: "neutral" },
   "contact.erased": { label: "Contact erased", tone: "neutral" },
   "conversation.updated": { label: "Conversation updated", tone: "neutral" },
+  "message.received": { label: "Message received", tone: "info" },
+  "comment.received": { label: "Comment received", tone: "info" },
 };
 
 const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p;

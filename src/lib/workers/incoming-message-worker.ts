@@ -13,6 +13,7 @@ import { resolveContactProfile } from "@/lib/contacts/profile";
 import { applyCapture } from "@/lib/contacts/capture-apply";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { updateConversation } from "@/lib/conversations/update";
+import { emitMessageReceived } from "@/lib/webhooks/inbound-events";
 
 /**
  * Process an incoming DM from Facebook/Instagram.
@@ -116,9 +117,13 @@ export async function processIncomingMessage(
         platform_message_id: mid,
       })
       .onConflictDoNothing({ target: [messages.conversation_id, messages.platform_message_id] })
-      .returning({ id: messages.id });
+      .returning({ id: messages.id, created_at: messages.created_at });
     if (!inserted) return false;
     messageId = inserted.id;
+    await emitMessageReceived(tx, inserted.id, {
+      workspaceId: channel.workspace_id, channelId: channel.id, platform: channel.platform,
+      conversationId: conversation.id, contactId, createdAt: inserted.created_at,
+    });
     // unread always increments — it's a new message regardless of arrival order.
     await tx.update(conversations)
       .set({ unread_count: sql`${conversations.unread_count} + 1` })

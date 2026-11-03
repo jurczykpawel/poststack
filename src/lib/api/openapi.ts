@@ -1121,6 +1121,32 @@ export const openApiSpec = {
         },
       },
     },
+    "/messages/{messageId}": {
+      parameters: [{ name: "messageId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      get: {
+        ...requiresScope("conversations:read"),
+        tags: ["Conversations"],
+        summary: "Get a message by id (the content behind a message.received event)",
+        responses: {
+          "200": { description: "Message", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Message" }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/comments/{commentId}": {
+      parameters: [{ name: "commentId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      get: {
+        ...requiresScope("conversations:read"),
+        tags: ["Conversations"],
+        summary: "Get a comment by id (the content behind a comment.received event)",
+        responses: {
+          "200": { description: "Comment: id, conversation_id, channel_id, post_id, post_url, platform_comment_id, author_name, comment_text, created_at" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
     "/conversations/{conversationId}/messages": {
       parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
@@ -1569,7 +1595,7 @@ export const openApiSpec = {
         ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Register a webhook endpoint",
-        description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license. contact.erased provides data.id, workspaceId and channels [{channelId, platform, platformSenderId}] captured before deletion; GET contact then returns 404. conversation.updated provides data.conversationId, contactId, channelId, workspaceId, updatedAt (UTC), previous and current states ({status: open|closed|snoozed, is_automation_paused, assigned_to}). State events include automatic reopening by an incoming message or comment, and exclude read receipts, unchanged values and message activity without a state change. Both types are selectable explicitly and included in wildcard subscriptions ([]).",
+        description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license. contact.erased provides data.id, workspaceId and channels [{channelId, platform, platformSenderId}] captured before deletion; GET contact then returns 404. conversation.updated provides data.conversationId, contactId, channelId, workspaceId, updatedAt (UTC), previous and current states ({status: open|closed|snoozed, is_automation_paused, assigned_to}). State events include automatic reopening by an incoming message or comment, and exclude read receipts, unchanged values and message activity without a state change. Both types are selectable explicitly and included in wildcard subscriptions ([]). message.received and comment.received announce a message or comment from a contact (never our own sends or echoes) and carry identifiers only: data.id (also messageId or commentId), workspaceId, channelId, platform, conversationId, contactId, direction (inbound), createdAt, plus postId for comments. Read the content with GET /messages/{messageId} or GET /comments/{commentId}.",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
         responses: {
           "201": { description: "Created (includes the signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
