@@ -56,6 +56,14 @@ export interface UserProfile {
   profilePicture?: string;
 }
 
+/** A published post as the platform shows it (POSTPREVIEW1). Fields the API omits are null. */
+export interface PostPreviewData {
+  text: string | null;
+  imageUrl: string | null;
+  url: string | null;
+  postedAt: Date | null;
+}
+
 export interface SendMessageOptions {
   /**
    * Meta message tag. When set, the send uses `messaging_type: MESSAGE_TAG` with this tag instead
@@ -222,6 +230,9 @@ export abstract class SocialProvider {
    * @param postId - Platform-native post/media id
    */
   getPostText?(tokens: TokenData, postId: string): Promise<string | null>;
+
+  /** Text, picture, permalink and date of a post made outside PostStack. Throws on an API error. */
+  getPostPreview?(tokens: TokenData, postId: string): Promise<PostPreviewData>;
 
   /**
    * Whether a user follows the connected business account.

@@ -6,6 +6,8 @@ import { dataList, listHref, readListState, type DataListProps, type ListColumn,
 import { fmtCount, fmtDate, localTime, relTime } from "../components/format";
 import { icon } from "../components/icons";
 import { platformGlyph } from "../components/platform";
+import { postPreview } from "../components/post-preview";
+import { deliveryPostCard } from "@/lib/posts/preview";
 import { rescheduleForm } from "../components/reschedule";
 import { statusBadge } from "../components/status";
 import { urlLink } from "../components/url";
@@ -154,7 +156,7 @@ async function panel(workspaceId: string, st: ListState): Promise<{ detail?: Dat
   if (!item) return {};
   const { post, channel, channelName } = item;
   const payload = post.payload as { caption?: string; title?: string; media?: unknown[] } | null;
-  const linked = await linkedPostText(workspaceId, post.id);
+  const [linked, card] = await Promise.all([linkedPostText(workspaceId, post.id), post.status === "sent" ? deliveryPostCard(workspaceId, post.id) : undefined]);
   const review = post.tiktok_confirmation === "required";
   const editable = isPending(post.status) && !review;
   const act = `/queue/${post.id}`;
@@ -173,7 +175,7 @@ async function panel(workspaceId: string, st: ListState): Promise<{ detail?: Dat
               ${linked?.hashtags ? html`<p class="muted q-hint-line">Published with: ${linked.hashtags}</p>` : ""}
               <button class="btn btn-primary btn-sm" type="submit">Save text</button>
             </form>`
-          : html`<p class="dl-label">Text</p><p class="q-panel-text">${payload?.caption || payload?.title || "—"}</p>`}
+          : card ? postPreview(card) : html`<p class="dl-label">Text</p><p class="q-panel-text">${payload?.caption || payload?.title || "—"}</p>`}
         <dl class="dl-facts">
           <dt>${post.status === "sent" ? "Published" : post.status === "canceled" ? "Was due" : "When"}</dt><dd>${localTime(post.scheduled_at)}</dd>
           <dt>Attempts</dt><dd>${post.attempts}/${ATTEMPT_BUDGET}</dd>

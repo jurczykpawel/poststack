@@ -24,6 +24,8 @@ import { relTime, localTime } from "../components/format";
 import { emptyState } from "../components/empty-state";
 import { isHtmx, toastHeader } from "../components/toast";
 import { icon, type IconName } from "../components/icons";
+import { postPreview } from "../components/post-preview";
+import { deliveryPostCard, type PostCardData } from "@/lib/posts/preview";
 
 type Html = ReturnType<typeof html>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -190,6 +192,7 @@ interface PostView {
   post: PostRow;
   channelLabel?: string;
   reason?: string;
+  card?: PostCardData;
 }
 
 async function withDeliveryStatus<T extends { status: string; delivery_id: string | null }>(ws: string, posts: T[]): Promise<T[]> {
@@ -205,7 +208,7 @@ async function resolvePosts(ws: string, profile: string | null, posts: PostRow[]
   const brandKey = profile?.trim();
   return Promise.all(
     (await withDeliveryStatus(ws, posts)).map(async (post) => {
-      if (post.status !== "planned") return { post };
+      if (post.status !== "planned") return { post, card: post.status === "sent" && post.delivery_id ? await deliveryPostCard(ws, post.delivery_id) : undefined };
       if (!brandKey) return { post, reason: "Content has no brand — set its profile" };
       const ch = await resolveChannelForBrandPlatform(ws, brandKey, post.platform);
       return ch ? { post, channelLabel: ch.label } : { post, reason: `No ${post.platform} channel mapped for ${brandKey}` };
@@ -225,7 +228,7 @@ function copyRow(label: string, value: string | null, copyLabel: string): Html {
 function publishControl(contentId: string, v: PostView): Html {
   const { post } = v;
   if (post.status !== "planned") {
-    return html`<div class="card-published">
+    return html`${v.card ? postPreview(v.card) : ""}<div class="card-published">
       ${statusBadge(post.status)}
       ${post.scheduled_date ? html`<small class="meta-mono">${localTime(post.scheduled_date)}</small>` : ""}
       ${post.delivery_id ? html`<a class="meta-mono" href="/queue/${post.delivery_id}">view delivery →</a>` : ""}

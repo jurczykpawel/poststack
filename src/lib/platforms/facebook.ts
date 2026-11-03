@@ -6,6 +6,7 @@ import {
   type MessageContent,
   type SentMessage,
   type SendMessageOptions,
+  type PostPreviewData,
   type UserProfile,
 } from "./base";
 import { expectedPageFields } from "./webhook-fields";
@@ -239,6 +240,16 @@ export class FacebookProvider extends SocialProvider {
     await assertMetaOk(res, "Facebook get post text");
     const data = (await res.json().catch(() => ({}))) as { message?: string };
     return data.message ?? null;
+  }
+
+  override async getPostPreview(tokens: TokenData, postId: string): Promise<PostPreviewData> {
+    const res = await fetch(
+      `${GRAPH_API}/${encodeURIComponent(postId)}?` + new URLSearchParams({ fields: "message,full_picture,permalink_url,created_time", access_token: tokens.access_token }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    await assertMetaOk(res, "Facebook get post preview");
+    const d = (await res.json().catch(() => ({}))) as { message?: string; full_picture?: string; permalink_url?: string; created_time?: string };
+    return { text: d.message ?? null, imageUrl: d.full_picture ?? null, url: d.permalink_url ?? null, postedAt: d.created_time ? new Date(d.created_time) : null };
   }
 
   /**

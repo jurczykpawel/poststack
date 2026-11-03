@@ -183,3 +183,32 @@ describe("InstagramProvider.sendPrivateReply", () => {
     expect(r).toEqual({ platformMessageId: "m_PRIG" });
   });
 });
+
+describe("InstagramProvider.getPostPreview (POSTPREVIEW1)", () => {
+  // Recorded shape of GET /{ig-media-id}?fields=caption,media_type,media_url,thumbnail_url,permalink,timestamp.
+  const reel = {
+    caption: "Reel o automatyzacji",
+    media_type: "VIDEO",
+    media_url: "https://scontent.cdninstagram.com/o1/v/t16/f2/m86/AQM.mp4?efg=eyJ&_nc_ht=scontent.cdninstagram.com",
+    thumbnail_url: "https://scontent.cdninstagram.com/v/t51.29350-15/4651_n.jpg?stp=dst-jpg_e35&_nc_ht=scontent.cdninstagram.com",
+    permalink: "https://www.instagram.com/reel/DPxAbCdEfGh/",
+    timestamp: "2026-10-31T19:00:00+0000",
+    id: "18115367134699712",
+  };
+
+  it("uses the video's thumbnail, never the mp4, as the picture", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify(reel), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const preview = await new InstagramProvider().getPostPreview!({ access_token: "tok" }, reel.id);
+    expect(preview).toEqual({ text: reel.caption, imageUrl: reel.thumbnail_url, url: reel.permalink, postedAt: new Date("2026-10-31T19:00:00Z") });
+    expect(calls.find((c) => c.url.includes(reel.id))!.url).toContain("thumbnail_url");
+  });
+
+  it("uses media_url for an image post", async () => {
+    const image = { ...reel, media_type: "IMAGE", media_url: "https://scontent.cdninstagram.com/v/t51.2885-15/img.jpg?x=1", thumbnail_url: undefined };
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify(image), { status: 200 })) as typeof fetch;
+    expect((await new InstagramProvider().getPostPreview!({ access_token: "tok" }, reel.id))?.imageUrl).toBe(image.media_url);
+  });
+});

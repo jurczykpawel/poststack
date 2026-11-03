@@ -580,6 +580,27 @@ export const postReactions = pgTable("post_reactions", {
 		}).onUpdate("cascade").onDelete("cascade"),
 ]);
 
+// POSTPREVIEW1: a post made outside PostStack, fetched once from the platform so its card does not
+// call the API on every view. `failed` keeps the card text-only instead of retrying each time.
+export const postPreviewStatus = pgEnum("post_preview_status", ['ready', 'failed']);
+
+export const postPreviews = pgTable("post_previews", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	post_id: text("post_id").notNull(),
+	status: postPreviewStatus().notNull(),
+	text: text("text"),
+	image_url: text("image_url"), // copy in our storage, never the expiring platform CDN link
+	permalink: text("permalink"),
+	posted_at: timestamp("posted_at", { precision: 3, mode: 'date' }),
+	fetched_at: timestamp("fetched_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("post_previews_workspace_channel_post_key").using("btree", table.workspace_id.asc().nullsLast(), table.channel_id.asc().nullsLast(), table.post_id.asc().nullsLast()),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "post_previews_workspace_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+	foreignKey({ columns: [table.channel_id], foreignColumns: [channels.id], name: "post_previews_channel_id_fkey" }).onUpdate("cascade").onDelete("cascade"),
+]);
+
 // ── RETAIN1: compaction aggregates ────────────────────────────────────────────────────────────
 // webhook_events older than the retention window are folded into per-(channel, day, type, status)
 // counts here, then the raw rows are deleted. The all-time webhook stat tiles read live ∪ this.

@@ -13,6 +13,8 @@ import { dataList, listHref, readListState, type ListColumn, type ListOption, ty
 import { fmtCount, fmtDate, localTime } from "../components/format";
 import { icon } from "../components/icons";
 import { PLATFORM_LABELS } from "../components/platform";
+import { postPreview } from "../components/post-preview";
+import { deliveryPostCard, externalPostCard } from "@/lib/posts/preview";
 import { timeAgo } from "../components/time";
 import { dashboardDoc } from "../layout";
 import { countPosts, linkedPosts, parsePostRowId, postFacts, postPage, postRowId, recentReactors, type LinkedPost, type PostFacts, type PostKey } from "./engagement-data";
@@ -85,19 +87,20 @@ async function postDetail(workspaceId: string, key: PostKey, chans: Channel[]) {
     recentReactors(workspaceId, key, WHO_LIMIT),
   ]);
   if (!facts) return undefined;
-  const url = safeUrl(linked?.url) ?? (channel.platform === "facebook" ? `https://www.facebook.com/${key.postId}` : null);
+  // Ours: built from our rows. Only a post made outside PostStack is read (once) from the platform.
+  const card = (linked?.deliveryId && await deliveryPostCard(workspaceId, linked.deliveryId))
+    || (linked ? { platform: channel.platform, channelName: channelName(channel), text: linked.text, imageUrl: null, video: false, url: null, at: null } : await externalPostCard(workspaceId, channel.id, key.postId));
+  if (card) card.url ??= safeUrl(linked?.url) ?? (channel.platform === "facebook" ? `https://www.facebook.com/${key.postId}` : null);
   const others = facts.total - who.length;
   return {
-    title: linked?.text ? clip(linked.text, 280) : "Post made outside PostStack",
-    body: html`<dl class="dl-facts">
-        <dt>Channel</dt><dd>${platformName(channel.platform)} · ${channelName(channel)}</dd>
+    title: linked ? "Post published with PostStack" : "Post made outside PostStack",
+    body: html`${card ? postPreview(card) : ""}<dl class="dl-facts">
         <dt>Reactions</dt><dd>${fmtCount(facts.total)}</dd>
         <dt>Breakdown</dt><dd>${breakdown(facts)}</dd>
         <dt>Latest</dt><dd>${localTime(facts.lastAt)}</dd>
         <dt>Who</dt><dd>${who.length ? `${who.join(", ")}${others > 0 ? ` and ${fmtCount(others)} more` : ""}` : "Names are removed from older reactions"}</dd>
         <dt>Post id</dt><dd class="mono">${key.postId}</dd>
       </dl>
-      ${url ? html`<a class="btn btn-secondary btn-sm dl-action" href="${url}" target="_blank" rel="noopener">View on ${platformName(channel.platform)}</a>` : ""}
       ${linked?.contentId ? html`<a class="btn btn-secondary btn-sm dl-action" href="/content/${linked.contentId}">Open in Content</a>` : ""}`,
   };
 }

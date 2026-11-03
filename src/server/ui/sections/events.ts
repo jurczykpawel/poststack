@@ -10,6 +10,8 @@ import { fmtDate, localTime } from "../components/format";
 import { PLATFORM_LABELS } from "../components/platform";
 import { timeAgo } from "../components/time";
 import type { Tone } from "../components/status";
+import { postPreview } from "../components/post-preview";
+import { deliveryPostCard, type PostCardData } from "@/lib/posts/preview";
 
 const PAGE_SIZE = 50;
 
@@ -46,7 +48,7 @@ const SEVERITIES = [
 ];
 
 type EventRow = Pick<typeof events.$inferSelect, "id" | "type" | "subject_type" | "subject_id" | "payload" | "created_at">;
-type Payload = { displayName?: string; platform?: string; error?: string; reason?: string; providerHandle?: string };
+type Payload = { displayName?: string; platform?: string; error?: string; reason?: string; providerHandle?: string; deliveryId?: string };
 
 const payloadOf = (e: EventRow) => (e.payload ?? {}) as Payload;
 const subjectOf = (e: EventRow) => payloadOf(e).displayName ?? (e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—");
@@ -84,7 +86,13 @@ function subjectLink(e: EventRow) {
   return null;
 }
 
-function eventDetail(e: EventRow) {
+/** post.published / post.failed point at a delivery: show the post itself (POSTPREVIEW1). */
+async function postCardFor(workspaceId: string, e: EventRow): Promise<PostCardData | undefined> {
+  const id = payloadOf(e).deliveryId;
+  return e.type.startsWith("post.") && isUuid(id) ? deliveryPostCard(workspaceId, id) : undefined;
+}
+
+function eventDetail(e: EventRow, card?: PostCardData) {
   const p = payloadOf(e);
   // `channels` holds platform sender ids, which this log has never displayed.
   const { workspaceId: _ws, channels: _ids, ...shown } = (e.payload ?? {}) as Record<string, unknown>;
@@ -92,7 +100,7 @@ function eventDetail(e: EventRow) {
   const link = subjectLink(e);
   return {
     title: eventBadge(e),
-    body: html`<dl class="dl-facts">
+    body: html`${card ? postPreview(card) : ""}<dl class="dl-facts">
         <dt>Subject</dt><dd>${subjectOf(e)}</dd>
         ${p.platform ? html`<dt>Platform</dt><dd>${platformLabel(p.platform)}</dd>` : ""}
         <dt>When</dt><dd>${localTime(e.created_at)}</dd>
@@ -171,7 +179,7 @@ export async function renderEvents(workspaceId: string, url: string, path: strin
     rowId: (e) => e.id,
     sub: (e) => html`${subjectOf(e)} · ${timeAgo(e.created_at)}`,
     page,
-    detail: opened ? eventDetail(opened) : undefined,
+    detail: opened ? eventDetail(opened, await postCardFor(workspaceId, opened)) : undefined,
     emptyTitle: "No events yet",
     emptyBody: "Activity shows up here as channels connect, posts publish, and tokens expire.",
   });
