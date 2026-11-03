@@ -28,6 +28,8 @@ beforeAll(async () => {
   ({ signSession } = await import("@/lib/auth"));
   gate = await import("@/lib/license/gate");
   ({ closeQueue } = await import("@/lib/queue/client"));
+  // Select-all includes instance_* scopes only for the operator; pin USER rather than rely on "oldest user".
+  Object.assign((await import("@/lib/env")).env, { INSTANCE_ADMIN_EMAILS: `u-${USER}@test.local` });
   cookie = `session=${await signSession(USER, WS)}`;
 });
 
