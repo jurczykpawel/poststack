@@ -6,6 +6,7 @@ import {
   type MessageContent,
   type SentMessage,
   type SendMessageOptions,
+  type PostPreviewData,
   type UserProfile,
 } from "./base";
 import { expectedPageFields, instagramLoginFields } from "./webhook-fields";
@@ -381,6 +382,19 @@ export class InstagramProvider extends SocialProvider {
     await assertMetaOk(res, "Instagram get post text");
     const data = (await res.json().catch(() => ({}))) as { caption?: string };
     return data.caption ?? null;
+  }
+
+  override async getPostPreview(tokens: TokenData, mediaId: string): Promise<PostPreviewData> {
+    const { base, token } = this.contentTransport(tokens);
+    const res = await fetch(
+      `${base}/${encodeURIComponent(mediaId)}?` + new URLSearchParams({ fields: "caption,media_type,media_url,thumbnail_url,permalink,timestamp", access_token: token }),
+      { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    );
+    await assertMetaOk(res, "Instagram get post preview");
+    const d = (await res.json().catch(() => ({}))) as { caption?: string; media_type?: string; media_url?: string; thumbnail_url?: string; permalink?: string; timestamp?: string };
+    // A video's media_url is the mp4; only its thumbnail can be shown as a picture.
+    const imageUrl = d.media_type === "VIDEO" ? d.thumbnail_url : d.thumbnail_url ?? d.media_url;
+    return { text: d.caption ?? null, imageUrl: imageUrl ?? null, url: d.permalink ?? null, postedAt: d.timestamp ? new Date(d.timestamp) : null };
   }
 
   override async sendPrivateReply(

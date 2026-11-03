@@ -18,6 +18,7 @@ export interface LinkedPost {
   text: string | null;
   url: string | null;
   contentId: string | null;
+  deliveryId: string | null;
 }
 
 interface PageCursor extends PostKey {
@@ -161,7 +162,7 @@ export async function linkedPosts(workspaceId: string, postIds: string[]): Promi
   if (!postIds.length) return out;
   const bare = (id: string) => id.split("_")[1] ?? id;
   const rows = await db
-    .select({ platformId: posts.platform_post_id, description: posts.description, title: posts.title, url: posts.published_url, contentId: posts.content_id, contentTitle: content.title })
+    .select({ platformId: posts.platform_post_id, description: posts.description, title: posts.title, url: posts.published_url, contentId: posts.content_id, deliveryId: posts.delivery_id, contentTitle: content.title })
     .from(posts)
     .leftJoin(content, eq(content.id, posts.content_id))
     .where(and(eq(posts.workspace_id, workspaceId), inArray(posts.platform_post_id, [...new Set(postIds.flatMap((id) => [id, bare(id)]))])))
@@ -170,7 +171,7 @@ export async function linkedPosts(workspaceId: string, postIds: string[]): Promi
   for (const r of rows) if (r.platformId && !byId.has(r.platformId)) byId.set(r.platformId, r);
   for (const id of postIds) {
     const r = byId.get(id) ?? byId.get(bare(id));
-    if (r) out.set(id, { text: r.description || r.title || r.contentTitle || null, url: r.url, contentId: r.contentId });
+    if (r) out.set(id, { text: r.description || r.title || r.contentTitle || null, url: r.url, contentId: r.contentId, deliveryId: r.deliveryId });
   }
   return out;
 }

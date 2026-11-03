@@ -103,3 +103,33 @@ describe("FacebookProvider.sendPrivateReply", () => {
     expect(r).toEqual({ platformMessageId: "m_PR123" });
   });
 });
+
+describe("FacebookProvider.getPostPreview (POSTPREVIEW1)", () => {
+  // Recorded shape of GET /{page-post-id}?fields=message,full_picture,permalink_url,created_time.
+  const recorded = {
+    message: "Nowy odcinek już jest 🎬",
+    full_picture: "https://scontent-waw2-1.xx.fbcdn.net/v/t39.30808-6/465_n.jpg?stp=dst-jpg_s720x720&_nc_cat=1&oh=00_AYA&oe=6730A1B2",
+    permalink_url: "https://www.facebook.com/122100000000000001/posts/pfbid02abc",
+    created_time: "2026-10-30T08:15:00+0000",
+    id: "122100000000000001_122111111111111111",
+  };
+
+  it("maps the Graph fields to text, picture, permalink and date", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push({ url: String(input) });
+      return new Response(JSON.stringify(recorded), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const preview = await new FacebookProvider().getPostPreview!({ access_token: "pagetok" }, recorded.id);
+    expect(preview).toEqual({
+      text: recorded.message, imageUrl: recorded.full_picture, url: recorded.permalink_url, postedAt: new Date("2026-10-30T08:15:00Z"),
+    });
+    expect(calls[0].url).toContain("fields=message%2Cfull_picture%2Cpermalink_url%2Ccreated_time");
+  });
+
+  it("returns nulls for a post without text or picture, and throws on an API error", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ id: "x" }), { status: 200 })) as typeof fetch;
+    expect(await new FacebookProvider().getPostPreview!({ access_token: "t" }, "x")).toEqual({ text: null, imageUrl: null, url: null, postedAt: null });
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 100, message: "Unsupported get request" } }), { status: 400 })) as typeof fetch;
+    await expect(new FacebookProvider().getPostPreview!({ access_token: "t" }, "x")).rejects.toThrow();
+  });
+});

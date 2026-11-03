@@ -87,4 +87,21 @@ ALTER TABLE "posts" ADD COLUMN "youtube_recording_date" timestamp (3);--> statem
 ALTER TABLE "posts" ADD COLUMN "youtube_localizations" jsonb;--> statement-breakpoint
 CREATE INDEX "message_reactions_workspace_id_created_at_idx" ON "message_reactions" USING btree ("workspace_id","created_at");--> statement-breakpoint
 CREATE INDEX "deliveries_workspace_status_scheduled_idx" ON "deliveries" USING btree ("workspace_id","status","scheduled_at","id");--> statement-breakpoint
-ALTER TABLE "messages" ADD COLUMN "failure_reason" text;
+ALTER TABLE "messages" ADD COLUMN "failure_reason" text;--> statement-breakpoint
+CREATE TYPE "public"."post_preview_status" AS ENUM('ready', 'failed');--> statement-breakpoint
+CREATE TABLE "post_previews" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"post_id" text NOT NULL,
+	"status" "post_preview_status" NOT NULL,
+	"text" text,
+	"image_url" text,
+	"permalink" text,
+	"posted_at" timestamp (3),
+	"fetched_at" timestamp (3) DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "post_previews" ADD CONSTRAINT "post_previews_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "post_previews" ADD CONSTRAINT "post_previews_channel_id_fkey" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
+CREATE UNIQUE INDEX "post_previews_workspace_channel_post_key" ON "post_previews" USING btree ("workspace_id","channel_id","post_id");

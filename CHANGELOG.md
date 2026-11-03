@@ -10,6 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- Dashboard: a published post now shows as one preview card (picture, text, channel, date, link to the platform) in the Engagement post panel, the Queue panel of a published post, Content and the details of `post.published` / `post.failed` in Activity. Posts published with PostStack come from our own records; a post made outside PostStack (e.g. by hand on Facebook) is read once from the platform, its picture copied into our storage, and remembered in the new `post_previews` table (folded into migration 0006, reconcile delta `0021`). If the platform cannot be read, the card shows without a picture instead of an error.
 - API: `GET /api/v1/conversations/{id}/messages` returns `failure_reason` on every message. For an outbound message that ended `failed` (a reply the platform refused for good or that failed on every retry) it carries the reason (secrets redacted); otherwise `null`. New column `messages.failure_reason` (folded into migration 0006, reconcile delta `0020`).
 
 ## [0.16.1] - 2026-11-03

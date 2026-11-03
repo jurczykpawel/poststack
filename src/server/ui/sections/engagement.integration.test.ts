@@ -102,6 +102,25 @@ describe("/engagement post view", () => {
     expect(list).toContain("PG1_300");
   });
 
+  it("shows a remembered preview card for a post made elsewhere, and a text-only card when the platform cannot be read", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.postPreviews).values({
+      workspace_id: WS, channel_id: CH, post_id: "PG1_700", status: "ready", text: "Posted by hand on Facebook",
+      image_url: "https://cdn.poststack.test/media/sha256/ab.jpg", permalink: "https://www.facebook.com/PG1/posts/pfbid700",
+    });
+    await db.insert(s.postReactions).values([reaction("PG1_700", "u1"), reaction("PG1_701", "u1")]);
+    const cached = await get(`/engagement?open=${encodeURIComponent(`${CH}~PG1_700`)}`);
+    expect(cached).toContain("data-post-preview");
+    expect(cached).toContain("Posted by hand on Facebook");
+    expect(cached).toContain('src="https://cdn.poststack.test/media/sha256/ab.jpg"');
+    expect(cached).toContain('href="https://www.facebook.com/PG1/posts/pfbid700"');
+    // The seeded token cannot be decrypted: no 500, a card without content, and the miss is remembered.
+    const failed = await get(`/engagement?open=${encodeURIComponent(`${CH}~PG1_701`)}`);
+    expect(failed).toContain("No text to show");
+    const [row] = await db.select().from(s.postPreviews).where(eq(s.postPreviews.post_id, "PG1_701"));
+    expect(row).toMatchObject({ workspace_id: WS, status: "failed" });
+  });
+
   it("links a video post: publishing keeps the bare video id, the webhook sends page_video", async () => {
     if (!TEST_DB) return;
     await db.insert(s.posts).values({ workspace_id: WS, platform: "facebook", status: "published", platform_post_id: "555", description: "Video caption" });
