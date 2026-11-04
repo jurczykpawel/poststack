@@ -102,7 +102,7 @@ export function renderPage(o: PageOpts): Html {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- CSS handles document navigation; fragment swaps must not overlap its transition. -->
-    <meta name="htmx-config" content='{"globalViewTransitions":false}' />
+    <meta name="htmx-config" content='{"globalViewTransitions":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' />
     <title>${o.title}</title>
     <script src="${assetUrl("view-transitions.js")}"></script>
     ${themeBootScript()}

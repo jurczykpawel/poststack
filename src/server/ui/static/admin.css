@@ -18,7 +18,7 @@
   .app { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100dvh; }
 
   /* ---- Sidebar (left rail) ---- */
-  .sidebar { position: sticky; top: 0; align-self: start; height: 100dvh;
+  .sidebar { position: sticky; top: 0; align-self: start; height: 100dvh; overflow-y: auto; overscroll-behavior: contain;
     display: flex; flex-direction: column; gap: 2px;
     padding: 14px 11px; background: var(--bg-sidebar); border-right: 1px solid var(--border); }
   .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
@@ -1251,6 +1251,9 @@ a.settings-tab { text-decoration: none; display: inline-block; }
 @media (max-width: 767.98px) {
   .settings-tabs { margin: 12px 0 16px; }
   .settings-tab { padding: 12px 12px; }
+  /* Tabs wrap here: the divider would land at a row edge (or mid-air), so drop it. */
+  .settings-tab:not([data-inst]) + [data-inst] { margin-left: 0; }
+  .settings-tab:not([data-inst]) + [data-inst]::before { display: none; }
 }
 .set-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .set-card { margin-bottom: 12px; padding: 16px; }

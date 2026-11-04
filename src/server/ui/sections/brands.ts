@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/api/response";
 import { authenticate, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
 import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
-import { BRAND_ACCENT_RE } from "@/lib/brands/validation";
+import { BRAND_ACCENT_RE, BRAND_KEY_HTML_PATTERN } from "@/lib/brands/validation";
 import { getStoryRenderer, STORY_TEMPLATES } from "@/lib/stories";
 import { resolveBrandSlots, EDITORIAL_PLATFORMS } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
@@ -292,9 +292,10 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
           <dialog class="sheet" x-ref="newDlg" @click="if ($event.target === $el) $el.close()" aria-label="New brand">
             <div class="sheet-h"><h4>New brand</h4>
               <button type="button" class="btn btn-ghost btn-sm" @click="$refs.newDlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
-            <form class="brand-new-form sheet-b" method="post" action="/brands">
+            <form class="brand-new-form sheet-b" method="post" action="/brands" hx-post="/brands" hx-target="#brand-new-err" hx-swap="innerHTML">
+              <div id="brand-new-err" role="alert"></div>
               <label class="brand-fld"><span>Key <small>(stable id — e.g. techskills.academy)</small></span>
-                <input name="key" placeholder="techskills.academy" required /></label>
+                <input name="key" placeholder="techskills.academy" required pattern="${BRAND_KEY_HTML_PATTERN}" title="Letters, digits, dots, dashes and underscores; start with a letter or digit" /></label>
               <label class="brand-fld"><span>Display name</span>
                 <input name="name" placeholder="Tech Skills Academy" required /></label>
               ${accentField()}
@@ -420,12 +421,15 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
     } catch (err) {
       // Limit hit (free already has its 1 brand) or area not entitled → re-render the page with a
       // friendly notice, NOT a 500/raw text. A plain full-page form POST, so we return the HTML page.
+      // htmx (the Add brand sheet): 422 fragment into the sheet — it stays open and keeps what was typed.
+      const inline = c.req.header("hx-request") === "true";
       if (err instanceof LimitExceededError || err instanceof ProRequiredError) {
-        return brandsPage(c, err.message, 402);
+        return inline ? c.html(html`<div class="notice notice-err">${err.message}</div>`, 422) : brandsPage(c, err.message, 402);
       }
-      if (err instanceof ApiError) return brandsPage(c, err.message, err.status);
+      if (err instanceof ApiError) return inline ? c.html(html`<div class="notice notice-err">${err.message}</div>`, 422) : brandsPage(c, err.message, err.status);
       throw err;
     }
+    if (c.req.header("hx-request") === "true") { c.header("HX-Redirect", "/brands"); return c.body(null, 200); }
     return c.redirect("/brands", 303);
   });
 

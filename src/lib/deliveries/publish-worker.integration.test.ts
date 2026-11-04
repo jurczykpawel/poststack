@@ -285,6 +285,7 @@ describe("publish worker (AUD27)", () => {
       expect(await status(postId)).toBe("sent");
       const row = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
       expect(row!.provider_handle).toBe("post_xyz");
+      expect(row!.sent_at).toBeInstanceOf(Date);
     } finally {
       spy.mockRestore();
     }

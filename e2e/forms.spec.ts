@@ -52,13 +52,13 @@ for (const state of ["free", "pro"] as const) {
           page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith("/brands")),
           page.getByRole("button", { name: "Create brand" }).click(),
         ]).then(([r]) => r);
-        expect(resp.status(), "limit hit → 402, not 500").toBe(402);
-        // the re-rendered page (shell intact) shows the upgrade notice, not a raw error page
-        await expect(page.locator(".notice-err")).toContainText(/brand/i);
+        expect(resp.status(), "limit hit → 422 fragment in the sheet (G42), not 500").toBe(422);
+        // the sheet stays open and shows the upgrade notice, the shell is intact, no raw error page
+        await expect(page.locator("#brand-new-err .notice-err")).toContainText(/brand/i);
         await expect(page.locator(".sidebar")).toBeVisible();
         await expect(page.locator("body")).not.toContainText("Internal Server Error");
         // the browser logs the intentional 402 as a resource error — that one is expected; assert no OTHERS
-        const unexpected = errors.filter((e) => !/402|Payment Required/.test(e));
+        const unexpected = errors.filter((e) => !/402|422|Payment Required|Unprocessable/.test(e));
         expect(unexpected, `unexpected console errors:\n${unexpected.join("\n")}`).toEqual([]);
       });
     }

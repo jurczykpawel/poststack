@@ -55,10 +55,11 @@ export function renderAlertWebhook(cfg: AlertWebhookConfig | null, canConfigure:
 function fallbackRow(f: ConfigStatus): Html {
   const tone = f.source === "db" ? "ok" : f.source === "env" ? "info" : "neutral";
   const label = f.source === "db" ? "set here" : f.source === "env" ? "from env" : "not set";
-  const post = html`hx-post="/settings/credentials" hx-ext="json-enc" hx-swap="none" @htmx:after-request="location.reload()"`;
+  const post = html`hx-post="/settings/credentials" hx-ext="json-enc" hx-target="[data-alert-fallback-msg]" hx-swap="innerHTML" hx-on::after-request="if (event.detail.successful) location.reload()"`;
   return html`<div data-alert-fallback style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)">
     <div class="row" style="align-items:center;gap:.5rem;flex-wrap:wrap"><strong style="font-size:.85rem">Installation fallback</strong><span class="badge tone-${tone}">${label}</span>${f.preview ? html`<code class="mono" style="overflow-wrap:anywhere">${f.preview}</code>` : html``}</div>
     <p class="muted" style="font-size:.78rem;margin:.25rem 0 .5rem">Used when the workspace alert above is off or not set. <code>CHANNEL_ALERT_WEBHOOK_URL</code>; a value set here overrides the environment variable.</p>
+    <div data-alert-fallback-msg role="alert" class="muted" style="font-size:.8rem;margin-bottom:.4rem"></div>
     <form class="row" style="gap:.5rem;flex-wrap:wrap" ${post}>
       <input type="hidden" name="key" value="CHANNEL_ALERT_WEBHOOK_URL" />
       <input class="input input-sm" type="url" name="value" aria-label="Fallback webhook URL" placeholder="https://hooks.example.com/alert" autocomplete="off" required />

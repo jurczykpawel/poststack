@@ -53,7 +53,7 @@ export async function deliveryPostCard(workspaceId: string, deliveryId: string):
     imageUrl: first?.kind === "image" ? httpUrl(first.url) : null,
     video: first?.kind === "video",
     url: httpUrl(post?.published_url) ?? httpUrl(delivery.provider_handle) ?? postUrlFor(channel.platform, delivery.provider_handle, channel.username),
-    at: post?.published_at ?? (delivery.status === "sent" ? delivery.updated_at : null),
+    at: post?.published_at ?? delivery.sent_at ?? (delivery.status === "sent" ? delivery.updated_at : null),
   };
 }
 

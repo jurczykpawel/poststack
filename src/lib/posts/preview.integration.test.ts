@@ -139,4 +139,11 @@ describe("deliveryPostCard (a post PostStack published)", () => {
     expect(graphCalls).toBe(0);
     expect(await preview.deliveryPostCard(OTHER_WS, DELIVERY)).toBeUndefined();
   });
+
+  it("without a posts row the time is when it was published (sent_at), not the last row update", async () => {
+    if (!TEST_DB) return;
+    await db.delete(s.posts).where(eq(s.posts.delivery_id, DELIVERY));
+    await db.update(s.deliveries).set({ sent_at: new Date("2026-10-29T10:01:00Z"), updated_at: new Date("2026-10-29T10:11:00Z") }).where(eq(s.deliveries.id, DELIVERY));
+    expect((await preview.deliveryPostCard(WS, DELIVERY))?.at).toEqual(new Date("2026-10-29T10:01:00Z"));
+  });
 });
