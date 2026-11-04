@@ -1,6 +1,6 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { accountSources, channels } from "@/db/schema";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -115,6 +115,12 @@ async function noticeFrom(res: Response | null, fallback: string): Promise<strin
   if (!res) return fallback;
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return body?.error?.message ?? fallback;
+}
+
+/** How many managed connections the workspace has (the Channels page opens the section when > 0). */
+export async function countSources(workspaceId: string): Promise<number> {
+  const [row] = await db.select({ n: count() }).from(accountSources).where(eq(accountSources.workspace_id, workspaceId));
+  return row?.n ?? 0;
 }
 
 /** The managed-connection (sources) manager body — rendered on the Channels page (#sources).

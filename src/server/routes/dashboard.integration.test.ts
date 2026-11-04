@@ -931,14 +931,77 @@ describe("channels — managed connection section", () => {
     }) as typeof fetch;
   }
 
-  it("the unified channels page links to the managed-connection section + offers connect buttons", async () => {
+  it("one header CTA opens the connect sheet: grouped platform tiles, Telegram form, token + managed links in the footer", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/channels", { headers: { cookie } })).text();
-    // Managed connection moved to its own /sources section (UNIFY1 Task 5); the channels page links to it.
+    expect(body).toMatch(/<button class="btn btn-primary ch-connect-cta"[^>]*>[\s\S]*?Connect channel<\/button>/);
+    expect(body).toContain('<dialog class="sheet ch-sheet" id="connect-sheet"');
+    expect(body).not.toContain(`x-init="$el.showModal()"`); // closed unless ?connect=1
+    for (const g of ["Meta", "Video and social", "Messaging and email"]) expect(body).toContain(`<div class="ct-group">${g}</div>`);
+    for (const href of ["/api/oauth/facebook", "/api/oauth/instagram-login", "/api/oauth/instagram", "/api/oauth/youtube", "/api/oauth/gmail"])
+      expect(body).toContain(`class="ct-tile" href="${href}"`);
+    expect(body).toContain("Which Instagram option should I use?");
+    expect(body).toContain('hx-post="/channels/telegram/connect"');
+    expect(body).toContain('hx-post="/channels/connect-token"');
+    expect(body).toContain("Connect with a token (advanced)");
     expect(body).toContain('href="#sources"');
-    expect(body).toContain("+ Facebook");
-    expect(body).toContain("+ Instagram");
-    expect(body).toContain("Connect a token manually");
+    // The old bottom-of-page connect section is gone; managed connections collapse under the list.
+    expect(body).not.toContain("<h3>Connect a channel</h3>");
+    expect(body).toMatch(/<details class="panel ch-sources" id="sources"(?! open)/);
+  });
+
+  it("?connect=1 opens the sheet on load (deep link from ⌘K)", async () => {
+    if (!TEST_DB) return;
+    const body = await (await app.request("/channels?connect=1", { headers: { cookie } })).text();
+    expect(body).toContain('x-init="$el.showModal()"');
+  });
+
+  it("an empty workspace shows the platform tiles right on the page", async () => {
+    if (!TEST_DB) return;
+    const WS0 = "dddddddd-0000-0000-0000-0000000000c0";
+    await db.delete(s.workspaces).where(eq(s.workspaces.id, WS0));
+    await db.insert(s.workspaces).values({ id: WS0, name: "Empty", slug: `e-${WS0}` });
+    await db.insert(s.workspaceMembers).values({ workspace_id: WS0, user_id: USER, role: "owner" });
+    try {
+      const { signSession } = await import("@/lib/auth");
+      const body = await (await app.request("/channels", { headers: { cookie: `session=${await signSession(USER, WS0)}` } })).text();
+      expect(body).toContain("Connect your first channel");
+      // Tiles on the page AND in the sheet behind the header CTA.
+      expect(body.split('class="ct-tile" href="/api/oauth/facebook"').length - 1).toBe(2);
+    } finally {
+      await db.delete(s.workspaces).where(eq(s.workspaces.id, WS0));
+    }
+  });
+
+  it("FREE: PRO-only platforms are locked tiles that lead to the upgrade page", async () => {
+    if (!TEST_DB) return;
+    const { clearLicense } = await import("@/lib/license/gate");
+    const { env } = await import("@/lib/env");
+    await clearLicense();
+    try {
+      const body = await (await app.request("/channels", { headers: { cookie } })).text();
+      expect(body).not.toContain('href="/api/oauth/youtube"');
+      expect(body).not.toContain('hx-post="/channels/telegram/connect"');
+      const at = body.indexOf("<b>YouTube</b>");
+      const tile = body.slice(body.lastIndexOf("<a ", at), body.indexOf("</a>", at));
+      expect(tile).toContain(`class="ct-tile is-locked" href="${env.LICENSE_UPGRADE_URL}"`);
+      expect(tile).toContain("PRO");
+      // FREE already has a Facebook channel → a second Facebook Page is locked too.
+      expect(body).not.toContain('href="/api/oauth/facebook"');
+    } finally {
+      await licenseInstance();
+    }
+  });
+
+  it("Managed connections start open when a source exists", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.accountSources).values({
+      workspace_id: WS, provider: "meta", provider_account_id: "MASTER_OPEN", display_name: "Open Master",
+      kind: "system_user", token_encrypted: "x", status: "active",
+    });
+    const body = await (await app.request("/channels", { headers: { cookie } })).text();
+    expect(body).toContain('<details class="panel ch-sources" id="sources" open');
+    expect(body).toContain("1 source");
   });
 
   it("edits a rule's name + reply text via the edit form, preserving advanced config", async () => {

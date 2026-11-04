@@ -20,9 +20,9 @@ Instagram business account. "Documented" = taken from the code and docs, not re-
 
 | Path | Publish | Comments | **Facebook DMs (Messenger)** | **Instagram DMs** | Token lifetime | Keeps itself in sync |
 |---|---|---|---|---|---|---|
-| A + Facebook (OAuth) | ✅ Page | ✅ | ✅ documented | — | Page token never expires | no |
-| B + Instagram (via Facebook Login) | ✅ IG | ✅ | — | ❌ **measured: no DM webhook** | Page token + user token refresh | no |
-| C + Instagram (messaging), Instagram Business Login | ✅ IG | ✅ | — | ✅ **measured** | 60 days, refreshed automatically | no |
+| A Facebook Page tile (OAuth) | ✅ Page | ✅ | ✅ documented | — | Page token never expires | no |
+| B Instagram via Facebook tile (Facebook Login) | ✅ IG | ✅ | — | ❌ **measured: no DM webhook** | Page token + user token refresh | no |
+| C Instagram tile, Instagram Business Login | ✅ IG | ✅ | — | ✅ **measured** | 60 days, refreshed automatically | no |
 | D Pasted token (Page / User / System User) | ✅ | ✅ | ✅ like A | ❌ like B | as the pasted token | no — paste again |
 | E Sources: **User token** | ✅ all reachable Pages + IG | ✅ | ✅ like E-SU | ❌ like B | ~60 days, data access ~90 days ("User token · data access until …") | ✅ daily |
 | E Sources: **System User token** | ✅ all assigned Pages + IG (**measured**, partial access is enough) | ✅ | ✅ **measured** (sender: Page admin) | ❌ **measured: no DM webhook** | **never** ("System User (permanent)") | ✅ daily (**measured**: keeps the C token) |
@@ -34,9 +34,9 @@ Instagram DMs only arrive through **Instagram Business Login (path C)**, one Ins
 ### DMs on both Facebook and Instagram — the required steps
 1. One Meta app in **Live** mode, with webhooks for the Page (Messenger fields) **and** for Instagram
    (Instagram Business Login webhook). See [README → Meta App Setup](../README.md#meta-app-setup).
-2. **Facebook DMs:** connect the Page through **A** (+ Facebook) **or** **E** (Sources, User / System
+2. **Facebook DMs:** connect the Page through **A** (the Facebook Page tile) **or** **E** (Sources, User / System
    User token). Either is enough.
-3. **Instagram DMs:** additionally connect **each** Instagram account through **C** (+ Instagram (messaging)):
+3. **Instagram DMs:** additionally connect **each** Instagram account through **C** (the **Instagram** tile):
    - `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` set on the instance;
    - the Instagram account has the accepted **Instagram Tester** role in the app. This is required even in Live
      mode. Measured: without it the login fails with "Unsupported request".
@@ -51,9 +51,9 @@ Instagram DMs only arrive through **Instagram Business Login (path C)**, one Ins
 
 | # | Path | How you start it | App credentials | Host | What works |
 |---|---|---|---|---|---|
-| A | **Facebook Login OAuth** ("+ Facebook") | Channels page → **+ Facebook** → Meta's OAuth dialog | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Publish (posts/photos/videos/reels), first comment + comment replies, Messenger DM inbox + auto-reply, comment→DM |
-| B | **Instagram via Facebook Login** ("+ Instagram") | Channels page → **+ Instagram** → same OAuth dialog, Instagram-flavored scopes | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Publish to Instagram, comment reading + replies — **not** Instagram DMs |
-| C | **Instagram Business Login** ("+ Instagram (messaging)") | Channels page → **+ Instagram (messaging)** | `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (separate app credentials) | `graph.instagram.com` | Instagram DM inbox + auto-reply, comment→DM. Augments an existing path-B channel with a `messaging_token`, or creates an IG-Login-only channel if none exists yet |
+| A | **Facebook Login OAuth** (the "Facebook Page" tile) | Channels page → **+ Connect channel → Facebook Page** → Meta's OAuth dialog | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Publish (posts/photos/videos/reels), first comment + comment replies, Messenger DM inbox + auto-reply, comment→DM |
+| B | **Instagram via Facebook Login** (the "Instagram via Facebook" tile) | Channels page → **+ Connect channel → Instagram via Facebook** → same OAuth dialog, Instagram-flavored scopes | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Publish to Instagram, comment reading + replies — **not** Instagram DMs |
+| C | **Instagram Business Login** (the "Instagram" tile) | Channels page → **+ Connect channel → Instagram** | `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (separate app credentials) | `graph.instagram.com` | Instagram DM inbox + auto-reply, comment→DM. Augments an existing path-B channel with a `messaging_token`, or creates an IG-Login-only channel if none exists yet |
 | D | **Pasted token** (Channels form / API) | Channels page → paste a token, or `POST /api/v1/channels/connect-token` | `META_APP_ID` / `META_APP_SECRET` (used only to validate the token, via `debug_token`) | `graph.facebook.com` | Same as A (Page token) or same as A+B for both platforms in one paste (User/System User token) — everything the token's own scopes allow |
 | E | **Managed connection / Sources** (`POST /api/v1/sources`) | Channels → Managed connections → paste a User or System User token (or the API) | `META_APP_ID` / `META_APP_SECRET` | `graph.facebook.com` | Same as D, but auto-enumerates and auto-syncs **every** Page + linked Instagram account the token can reach, keeps them in sync daily, and cascades re-auth to all of them from one master |
 

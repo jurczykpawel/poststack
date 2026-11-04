@@ -140,8 +140,8 @@ Open http://localhost:3000.
 
 Register an account, go to **Channels**, and connect your first Facebook Page or Instagram account.
 
-> **Connecting Instagram — two paths.** **Instagram Business Login** (the "+ Instagram (messaging)"
-> button) connects **one** Instagram account on its own — full capabilities incl. **direct messages**,
+> **Connecting Instagram — two paths.** **Instagram Business Login** (the **Instagram** tile under
+> **+ Connect channel**) connects **one** Instagram account on its own — full capabilities incl. **direct messages**,
 > comments, publishing and follow-gate — and needs **no Facebook page**. Alternatively, a
 > **Facebook / System User** connection bulk-connects **all** your linked Instagram accounts at once,
 > but only for **publishing and comments** — Instagram DMs are **not** delivered that way at Standard
@@ -250,8 +250,8 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 > Instagram Business Login, pasted token, and the managed/System-User connection — with what each
 > needs, what it can do, and how its tokens expire and refresh.
 >
-> **DMs on both platforms in one sentence:** Facebook (Messenger) DMs come with **+ Facebook** or a
-> User / System User token (Sources). **Instagram DMs always additionally need + Instagram (messaging)**
+> **DMs on both platforms in one sentence:** Facebook (Messenger) DMs come with the **Facebook Page** tile or a
+> User / System User token (Sources). **Instagram DMs always additionally need the Instagram tile**
 > (Instagram Business Login) for each IG account, with that account added as an **Instagram Tester**.
 > No token, not even a permanent System User token, delivers Instagram DMs on its own at Standard Access.
 > Measured, with step-by-step: [docs/META_CONNECTIONS.md → At a glance](docs/META_CONNECTIONS.md#at-a-glance--what-each-path-gives-you).
@@ -306,7 +306,7 @@ around; the steps below were verified on the Meta App Dashboard in October 2026.
 
 ### Instagram Business Login (required for Instagram DMs)
 
-A Facebook-Login connection (the **+ Instagram** button) covers Instagram **publishing and
+A Facebook-Login connection (the **Instagram via Facebook** tile) covers Instagram **publishing and
 comments** — it requests `instagram_content_publish` in addition to the messaging/comment scopes
 below. Instagram **DMs**, though, are only delivered at Standard Access through **Instagram
 Business Login** — a second, separate login flow with its **own** app ID and secret, living inside
@@ -320,7 +320,7 @@ the same Meta app. A channel connected before publishing/comment scopes were add
    the Facebook app's ID/secret.
 2. Set them as `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` (`.env` or Settings → Meta). The secret
    is also used to verify the signature of Instagram webhook deliveries, so rotate it in both places.
-   The **+ Instagram (messaging)** button appears on the Channels page only once both are set.
+   Until both are set, the **Instagram** tile on the Channels page stops with "Instagram Business Login isn't configured".
 3. **Configure webhooks** (same screen): the same callback URL and verify token as the Facebook
    webhooks (`https://your-domain.com/api/webhooks/meta`, value of `META_WEBHOOK_VERIFY_TOKEN`), then
    make sure these fields are **Subscribed**: `messages`, `messaging_postbacks`, `message_reactions`,
@@ -335,7 +335,7 @@ the same Meta app. A channel connected before publishing/comment scopes were add
 6. The Instagram account must be **Business or Creator** and allow message access for connected tools.
 7. Switch the app to **Live** — Development mode delivers no real webhook events (see
    [Meta Access Levels](#meta-access-levels--what-needs-app-review-and-what-doesnt)).
-8. On the Channels page click **+ Instagram (messaging)**, make sure Instagram shows the right account
+8. On the Channels page click **+ Connect channel → Instagram**, make sure Instagram shows the right account
    on the consent screen ("…is requesting access to: *your account*") and **Allow**.
 
 PostStack requests `instagram_business_basic`, `instagram_business_manage_messages`,
@@ -349,7 +349,7 @@ has the same guide in-app (**Connecting Instagram — what works, and when**).
 |---|---|
 | "The callback URL or verify token couldn't be validated" | The URL must be exactly `…/api/webhooks/meta` (not `/webhook`), publicly reachable over HTTPS, and the verify token must equal `META_WEBHOOK_VERIFY_TOKEN` of the instance behind that URL. Rejections are logged by PostStack with the reason. |
 | "Insufficient Developer Role" when generating an Instagram token | The Instagram account has no accepted **Instagram Tester** role on this app (step 5). A Facebook-side admin/developer role is not enough. |
-| **+ Instagram (messaging)** ends with "Connection failed", and the log shows `Instagram-Login long-lived exchange failed: … "Unsupported request - method type: get"` | Same cause: the Instagram account has no accepted **Instagram Tester** role (step 5). Meta issues a token, but every API call with it is rejected — also when the app is **Live**. Add the role, accept the invite on Instagram, connect again. |
+| The **Instagram** tile ends with "Connection failed", and the log shows `Instagram-Login long-lived exchange failed: … "Unsupported request - method type: get"` | Same cause: the Instagram account has no accepted **Instagram Tester** role (step 5). Meta issues a token, but every API call with it is rejected — also when the app is **Live**. Add the role, accept the invite on Instagram, connect again. |
 | "Invalid Scopes: publish_video" on the Facebook login screen | Older versions of PostStack requested this live-video scope, which apps created with **use cases** cannot add. Update PostStack and retry connecting the Page. |
 | `/channels?error=no_pages` although you picked a Page | Older versions of PostStack did not request `business_management`, so `/me/accounts` could omit Pages owned by a business portfolio. Update PostStack, verify this permission in step 3, and reconnect, selecting the business portfolio and Page in the consent dialog. |
 | "That channel needs a PRO license" after connecting | The FREE tier allows **one** channel per Meta platform; connecting a second Facebook Page or Instagram account needs PRO. Remove the old channel or add a license. |
@@ -637,7 +637,7 @@ directly, subject to each platform's own developer-app setup and API access tier
 
 ### 1. Connect a channel
 
-Go to **Channels** and click **+ Facebook** or **+ Instagram**. You'll be redirected to Meta to authorize access. After granting permissions, your Pages/IG accounts appear in the list.
+Go to **Channels**, click **+ Connect channel** and pick a platform tile (e.g. **Facebook Page** or **Instagram**). You'll be redirected to Meta to authorize access. After granting permissions, your Pages/IG accounts appear in the list.
 
 ### 2. Set up auto-reply rules
 

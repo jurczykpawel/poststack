@@ -29,7 +29,7 @@ import {
 import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
-import { renderSourcesManager } from "./sources";
+import { renderSourcesManager, countSources } from "./sources";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../components/ai-notice";
@@ -127,7 +127,7 @@ export function lastErrorNote(ch: PublicChannel): Html {
   return html`<div class="ch-last-error">${pill("last error", "bad")} <small>${ch.last_error}</small></div>`;
 }
 
-/** A2: in-panel guide for connecting Instagram, surfaced near the "+ Instagram (messaging)" button.
+/** A2: in-panel guide for connecting Instagram, surfaced under the Instagram tiles of the connect sheet.
  *  Explains the two-path connection model (Instagram has a real asymmetry Facebook doesn't): a full
  *  standalone **Instagram Login** vs the bulk **Facebook Login / managed connection**, *when* to use
  *  each, why DMs don't arrive on a Facebook connection (Meta's **Advanced Access** / App Review), how
@@ -137,18 +137,18 @@ export function lastErrorNote(ch: PublicChannel): Html {
 export function instagramLoginInstructions(): Html {
   const redirectUri = `${env.APP_URL.replace(/\/$/, "")}/api/oauth/instagram-login/callback`;
   return html`<details class="guide-panel" style="margin-top:.75rem">
-    <summary class="guide-summary">Connecting Instagram — what works, and when ${pill("setup", "info")}</summary>
+    <summary class="guide-summary">Which Instagram option should I use?</summary>
     <div class="guide-body">
       <p>There are two ways to connect Instagram, and they have different capabilities:</p>
       <ul class="guide-steps">
         <li>
-          <strong>Instagram Login</strong> (the "+ Instagram (messaging)" button): a full standalone
+          <strong>Instagram Login</strong> (the "Instagram" tile): a full standalone
           connection for <strong>one</strong> Instagram account — supporting
           <strong>publishing, comments, direct messages, and follow-gate</strong> — and it
           <strong>does not require a Facebook page</strong>. You connect each account individually.
         </li>
         <li>
-          <strong>Facebook Login</strong> (or a managed connection): bulk-connects
+          <strong>Facebook Login</strong> ("Instagram via Facebook", or a managed connection): bulk-connects
           <strong>all</strong> linked Instagram accounts at once — but only
           <strong>publishing and comments</strong>. Instagram <strong>direct messages</strong> are
           not delivered this way at the access level self-hosters use — that would need Meta's
@@ -165,8 +165,8 @@ export function instagramLoginInstructions(): Html {
       </ul>
       <p>
         <strong>Connected but DMs don't work?</strong> A channel showing the
-        <strong>"Facebook only"</strong> badge means its DM webhooks won't arrive — click
-        <strong>"+ Instagram (messaging)"</strong> on that account to enable
+        <strong>"Facebook only"</strong> badge means its DM webhooks won't arrive — connect that
+        account again with the <strong>"Instagram"</strong> tile to enable
         <strong>direct messages</strong>.
       </p>
       <div class="notice notice-info">
@@ -412,25 +412,15 @@ async function channelsPage(c: Context): Promise<Response> {
   const totalChannels = CHANNEL_STATUSES.reduce((n, s) => n + countsByStatus[s], 0);
   const noChannels = totalChannels === 0; // truly empty workspace (vs. none matching a filter)
   const noMatch = !noChannels && items.length === 0;
-  const canManaged = lic.features.has("managed_connection");
-  const canMultiChannel = lic.features.has("multi_channel");
-  const canNonMeta = lic.features.has("non_meta_channels");
-  const upgradeUrl = lic.upgradeUrl;
-  const hasFb = items.some((ch) => ch.platform === "facebook" && ch.status !== "disabled");
-  const hasIg = items.some((ch) => ch.platform === "instagram" && ch.status !== "disabled");
-  // A locked connect affordance: links to the upgrade page instead of connecting.
-  const proConnect = (label: string) =>
-    html`<a class="btn btn-secondary" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 12)} ${label} (PRO)</a>`;
-  // Direct-OAuth publishers (the generic /api/oauth/connect/:platform flow). Surfaced as connect
-  // buttons only when the provider has credentials configured — no dead buttons that 400 on click.
-  const genericOAuthConnects = (
-    [
-      ["linkedin", "LinkedIn"],
-      ["x", "X"],
-      ["tiktok", "TikTok"],
-      ["threads", "Threads"],
-    ] as const
-  ).filter(([id]) => getPublishProvider(id).oauthConfig?.() != null);
+  const connect: ConnectOpts = {
+    canMultiChannel: lic.features.has("multi_channel"),
+    canNonMeta: lic.features.has("non_meta_channels"),
+    upgradeUrl: lic.upgradeUrl,
+    hasFb: items.some((ch) => ch.platform === "facebook" && ch.status !== "disabled"),
+    hasIg: items.some((ch) => ch.platform === "instagram" && ch.status !== "disabled"),
+  };
+  const sources = lic.features.has("managed_connection") ? await countSources(ws) : 0;
+  const attention = countsByStatus.needs_reauth;
 
   return c.html(
     renderPage({
@@ -439,14 +429,19 @@ async function channelsPage(c: Context): Promise<Response> {
       features: lic.features,
       products: lic.products,
       breadcrumb: noChannels ? "No channels yet" : sourceId ? `${items.length} shown · filtered by source` : `${items.length} shown`,
-      body: html`${errorKey ? html`<div class="auth-error">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : ""}
+      body: html`<div class="set-head ch-head">
+          <p class="muted">${noChannels ? "No channels yet" : `${totalChannels} connected${attention ? ` · ${attention} need attention` : ""}`}</p>
+          <button class="btn btn-primary ch-connect-cta" type="button" onclick="document.getElementById('connect-sheet').showModal()">${icon("plus", "ico", 14)} Connect channel</button>
+        </div>
+        ${connectSheet(connect, url.searchParams.get("connect") === "1")}
+        ${errorKey ? html`<div class="auth-error">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : ""}
         ${connected && connectedCount ? html`<div class="notice notice-ok">${connectedCount} ${platformLabel(connected)} account(s) connected.</div>` : ""}
         ${noChannels
-          ? html`<section class="panel"><div class="empty">
-              <span class="empty-ic">${icon("channels", "ico", 20)}</span>
-              <p class="empty-title">No channels connected yet</p>
-              <p class="empty-body">Connect your first Facebook Page, Instagram, YouTube, Telegram or Gmail account to start publishing and auto-replying — they’ll appear here grouped by brand.</p>
-            </div></section>`
+          ? html`<section class="panel ch-empty">
+              <h2>Connect your first channel</h2>
+              <p>Pick a platform. You can add more at any time with “+ Connect channel”.</p>
+              ${connectGroups(connect)}
+            </section>`
           : html`${countsHeader(countsByStatus, countsByPlatform, { status, platform: platformParam, showHidden }, hiddenCount)}
             ${filterBar(platformsForFilter, { platform: platformParam, status, q, sort, showHidden })}
             ${noMatch
@@ -457,52 +452,100 @@ async function channelsPage(c: Context): Promise<Response> {
                   <a class="btn btn-secondary" href="${showHidden ? "/channels?showHidden=1" : "/channels"}">Clear filters</a>
                 </div></section>`
               : channelGroups(items, brands)}`}
-        <section class="panel" id="sources">
-          <div class="panel-head"><h3>Managed connections</h3></div>
+        <details class="panel ch-sources" id="sources"${sources ? raw(" open") : raw("")} x-init="if (location.hash === '#sources') $el.open = true">
+          <summary class="panel-head"><h3>Managed connections</h3><span class="muted">${sources ? `${sources} source${sources === 1 ? "" : "s"} · ` : ""}connects all accounts of a Meta Business at once</span></summary>
           <div class="set-body">${await renderSourcesManager(ws)}</div>
-        </section>
-        <section class="panel">
-          <div class="panel-head"><h3>Connect a channel</h3></div>
-          <div class="set-body">
-            <p class="set-lead">Connect a Facebook Page or Instagram Business account by OAuth, paste a long-lived token, or set up a <a href="#sources">managed connection</a>${canManaged ? "" : " (PRO)"} to connect all your accounts at once.</p>
-            <div x-data="{ tg: false }">
-              <div class="action-bar" style="margin:0">
-                ${hasFb && !canMultiChannel ? proConnect("Facebook") : html`<a class="btn btn-secondary" href="/api/oauth/facebook">+ Facebook</a>`}
-                ${hasIg && !canMultiChannel ? proConnect("Instagram") : html`<a class="btn btn-secondary" href="/api/oauth/instagram">+ Instagram</a>`}
-                ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/youtube">+ YouTube</a>` : proConnect("YouTube")}
-                ${canNonMeta
-                  ? html`<button class="btn btn-secondary" type="button" @click="tg = !tg">+ Telegram</button>`
-                  : proConnect("Telegram")}
-                ${canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/gmail">+ Gmail</a>` : proConnect("Gmail")}
-                ${genericOAuthConnects.map(([id, label]) =>
-                  canNonMeta ? html`<a class="btn btn-secondary" href="/api/oauth/connect/${id}">+ ${label}</a>` : proConnect(label),
-                )}
-                <a class="btn btn-secondary" href="/api/oauth/instagram-login">+ Instagram (messaging)</a>
-              </div>
-              <p class="set-lead" style="margin:.5rem 0 0">Instagram (messaging) connects an Instagram account directly — DMs, comments and publishing in one, at Standard Access (no App Review), no Facebook page required. Add Facebook only for page-managed publishing across many accounts; the two combine in any order.</p>
-              ${instagramLoginInstructions()}
-              ${(hasFb || hasIg) && !canMultiChannel
-                ? html`<p class="set-lead" style="margin:.75rem 0 0">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</p>`
-                : ""}
-              <div x-show="tg" x-cloak style="margin-top:.75rem">
-                <p class="set-lead" style="margin:0 0 .5rem">In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token. We register the webhook for you.</p>
-                <form class="connect-form" hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="#channels-toast" hx-swap="innerHTML">
-                  <input class="input" name="token" placeholder="123456789:AA..." required />
-                  <button class="btn btn-primary btn-sm" type="submit">Connect Telegram</button>
-                </form>
-              </div>
-            </div>
-            <div class="cred-subhead">Connect a token manually</div>
-            <form class="connect-form" hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="#channels-toast" hx-swap="innerHTML">
-              <select name="platform" aria-label="Platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select>
-              <input class="input" name="token" placeholder="paste long-lived / System User token" required />
-              <button class="btn btn-primary btn-sm" type="submit">Connect</button>
-            </form>
-            <div id="channels-toast"></div>
-          </div>
-        </section>`,
+        </details>`,
     }),
   );
+}
+
+// ── connect a channel (CTA sheet + empty-state tiles) ────────────────────────────────────────
+
+interface ConnectOpts { canMultiChannel: boolean; canNonMeta: boolean; upgradeUrl: string; hasFb: boolean; hasIg: boolean }
+interface ConnectTile { platform: string; name: string; does: string; href: string; locked: boolean }
+
+// Platforms without a brand glyph in components/platform get a letter on their brand colour.
+const TILE_FALLBACK: Record<string, { color: string; letter: string }> = { telegram: { color: "#27A7E7", letter: "✈" }, gmail: { color: "#EA4335", letter: "M" } };
+
+function tileAvatar(platform: string): Html {
+  const f = TILE_FALLBACK[platform];
+  return html`<span class="ct-av" style="background:${f?.color ?? platformColor(platform)}">${f ? f.letter : platformGlyph(platform, 18)}</span>`;
+}
+
+function connectTile(t: ConnectTile, upgradeUrl: string): Html {
+  const body = html`${tileAvatar(t.platform)}<span><b>${t.name}</b><small>${t.does}</small></span>`;
+  if (t.locked) return html`<a class="ct-tile is-locked" href="${upgradeUrl}" target="_blank" rel="noopener" title="Requires a PRO license">${body}<span class="ct-lock">${icon("lock", "ico", 11)} PRO</span></a>`;
+  return html`<a class="ct-tile" href="${t.href}">${body}</a>`;
+}
+
+/** Telegram has no OAuth: the tile unfolds the BotFather steps and the bot-token form in place. */
+function telegramTile(o: ConnectOpts): Html {
+  const t: ConnectTile = { platform: "telegram", name: "Telegram bot", does: "Messages to your bot", href: "", locked: !o.canNonMeta };
+  if (t.locked) return connectTile(t, o.upgradeUrl);
+  return html`<div class="ct-tg" x-data="{ open: false }" :class="{ 'is-open': open }">
+    <button class="ct-tile" type="button" @click="open = !open" :aria-expanded="open">${tileAvatar(t.platform)}<span><b>${t.name}</b><small>${t.does}</small></span></button>
+    <div class="ct-tg-body" x-show="open" x-cloak>
+      <p>In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token. We set up the webhook for you.</p>
+      <form class="ct-form" hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML">
+        <label class="label">Bot token<input class="input" name="token" placeholder="123456789:AA..." autocomplete="off" required /></label>
+        <button class="btn btn-primary btn-sm" type="submit">Connect Telegram</button>
+        <div class="ct-err" role="alert"></div>
+      </form>
+    </div>
+  </div>`;
+}
+
+/** Platform tiles grouped as on the mockup. Visibility/lock rules are the old connect buttons':
+ *  one FB + one IG on FREE, non-Meta platforms PRO, direct-OAuth publishers only when configured. */
+function connectGroups(o: ConnectOpts): Html {
+  const generic = (["threads", "tiktok", "linkedin", "x"] as const).filter((id) => getPublishProvider(id).oauthConfig?.() != null);
+  const pub = (id: (typeof generic)[number], name: string, does: string): ConnectTile[] =>
+    generic.includes(id) ? [{ platform: id, name, does, href: `/api/oauth/connect/${id}`, locked: !o.canNonMeta }] : [];
+  const group = (label: string, tiles: Html[], after: Html | string = "") =>
+    html`<div class="ct-group">${label}</div><div class="ct-tiles">${tiles}</div>${after}`;
+  const tile = (t: ConnectTile) => connectTile(t, o.upgradeUrl);
+  const freeNote = (o.hasFb || o.hasIg) && !o.canMultiChannel
+    ? html`<p class="ct-note">Free includes one Facebook + one Instagram channel. More channels — and Telegram — are PRO.</p>`
+    : "";
+  return html`${group("Meta", [
+      { platform: "facebook", name: "Facebook Page", does: "Publish, Messenger DMs, comments", href: "/api/oauth/facebook", locked: o.hasFb && !o.canMultiChannel },
+      { platform: "instagram", name: "Instagram", does: "DMs, comments, publish. One account, no Facebook Page needed", href: "/api/oauth/instagram-login", locked: false },
+      { platform: "instagram", name: "Instagram via Facebook", does: "Many accounts at once through their Pages; publish and comments", href: "/api/oauth/instagram", locked: o.hasIg && !o.canMultiChannel },
+      ...pub("threads", "Threads", "Publish"),
+    ].map(tile), html`${instagramLoginInstructions()}${freeNote}`)}
+    ${group("Video and social", [
+      { platform: "youtube", name: "YouTube", does: "Upload videos, reply to comments", href: "/api/oauth/youtube", locked: !o.canNonMeta },
+      ...pub("tiktok", "TikTok", "Publish videos"),
+      ...pub("linkedin", "LinkedIn", "Publish to your profile"),
+      ...pub("x", "X", "Publish posts"),
+    ].map(tile))}
+    ${group("Messaging and email", [
+      telegramTile(o),
+      tile({ platform: "gmail", name: "Gmail", does: "Inbox and replies by email", href: "/api/oauth/gmail", locked: !o.canNonMeta }),
+    ])}`;
+}
+
+function connectSheet(o: ConnectOpts, openOnLoad: boolean): Html {
+  return html`<dialog class="sheet ch-sheet" id="connect-sheet" aria-labelledby="connect-sheet-title"${openOnLoad ? raw(` x-init="$el.showModal()"`) : raw("")} @click="if ($event.target === $el) $el.close()">
+    <div class="sheet-h"><div><h4 id="connect-sheet-title">Connect a channel</h4><p class="muted">Pick a platform. You will sign in on its own page and come back here.</p></div>
+      <button type="button" class="btn btn-ghost btn-sm" @click="$el.closest('dialog').close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
+    <div class="sheet-b">
+      ${connectGroups(o)}
+      <details class="ct-adv" id="ct-token"><summary>Advanced: connect with a token</summary>
+        <form class="ct-form" hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML">
+          <label class="label">Platform<select name="platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select></label>
+          <label class="label">Long-lived or System User token<input class="input" name="token" placeholder="paste the token" autocomplete="off" required /></label>
+          <button class="btn btn-primary btn-sm" type="submit">Connect</button>
+          <div class="ct-err" role="alert"></div>
+        </form>
+      </details>
+    </div>
+    <div class="sheet-f ct-foot">
+      <a href="#ct-token" onclick="document.getElementById('ct-token').open = true">Connect with a token (advanced)</a>
+      <a href="#sources" onclick="this.closest('dialog').close(); document.getElementById('sources').open = true">Managed connections →</a>
+    </div>
+  </dialog>`;
 }
 
 // ── channel detail ───────────────────────────────────────────────────────────────────────────

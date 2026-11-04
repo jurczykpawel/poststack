@@ -160,7 +160,7 @@ an instance operator. Review the operator email list before opening registration
    The webhook callback there is the **same** `APP_URL/api/webhooks/meta` (fields: `messages`,
    `messaging_postbacks`, `message_reactions`, `messaging_seen`, `comments`, `live_comments`). Give the
    Instagram account the **Instagram Tester** role and accept the invite on Instagram — required at
-   Standard Access even in Live mode. Then use **"+ Instagram (messaging)"** on the Channels page. Full
+   Standard Access even in Live mode. Then use **+ Connect channel → Instagram** on the Channels page. Full
    steps: [README → Instagram Business Login](../README.md#instagram-business-login-required-for-instagram-dms).
 
 > **Two paths for Instagram.** A **Facebook / System User** connection (see

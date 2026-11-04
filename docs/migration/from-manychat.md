@@ -97,8 +97,8 @@ node docs/migration/import-contacts.mjs path/to/audience.csv
 ## 5. Rebuild your automations
 
 > **First, connect the Instagram account for DMs.** ManyChat's bread and butter is Instagram DM
-> automation, so connect that account via **Instagram Business Login** (the "+ Instagram (messaging)"
-> button on the Channels page). This is the path that **receives and replies to Instagram DMs** — it
+> automation, so connect that account via **Instagram Business Login** (the "Instagram" tile under "+ Connect channel"
+> on the Channels page). This is the path that **receives and replies to Instagram DMs** — it
 > runs at Meta **Standard Access** (no App Review), needs **no Facebook page**, and requires
 > `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` set on your instance. (A Facebook/System-User connection
 > bulk-connects IG accounts for publishing and comments, but **not** DMs at Standard Access.)

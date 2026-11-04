@@ -14,6 +14,11 @@ let gate: typeof import("@/lib/license/gate");
 let cookie: string;
 
 const get = (path: string) => app.request(path, { headers: { cookie } });
+/** The connect-sheet tile whose title is `name` (from its opening tag to the end of its title). */
+const tile = (body: string, name: string) => {
+  const at = body.indexOf(`<b>${name}</b>`);
+  return at < 0 ? "" : body.slice(body.lastIndexOf("class=\"ct-tile", at), at);
+};
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -126,9 +131,9 @@ describe("license-aware dashboard UI", () => {
   it("free /channels locks Telegram and Gmail (PRO)", async () => {
     if (!TEST_DB) return;
     const body = await (await get("/channels")).text();
-    expect(body).toContain("Telegram (PRO)");
-    expect(body).toContain("Gmail (PRO)");
-    expect(body).not.toContain("@click=\"tg = !tg\""); // telegram connect toggle hidden
+    expect(tile(body, "Telegram bot")).toContain("is-locked");
+    expect(tile(body, "Gmail")).toContain("is-locked");
+    expect(body).not.toContain('hx-post="/channels/telegram/connect"'); // telegram token form hidden
   });
 
   it("free /channels locks a 2nd Facebook once one is connected", async () => {
@@ -137,7 +142,7 @@ describe("license-aware dashboard UI", () => {
       workspace_id: WS, platform: "facebook", platform_id: "FB-UI", token_encrypted: "x", webhook_secret: "s", status: "active",
     });
     const body = await (await get("/channels")).text();
-    expect(body).toContain("Facebook (PRO)");
+    expect(tile(body, "Facebook Page")).toContain("is-locked");
     expect(body).toContain("one Facebook + one Instagram channel");
   });
 
@@ -145,8 +150,8 @@ describe("license-aware dashboard UI", () => {
     if (!TEST_DB) return;
     await licenseInstance();
     const body = await (await get("/channels")).text();
-    expect(body).toContain("@click=\"tg = !tg\"");
-    expect(body).not.toContain("Telegram (PRO)");
+    expect(body).toContain('hx-post="/channels/telegram/connect"');
+    expect(tile(body, "Telegram bot")).not.toContain("is-locked");
   });
 
   it("licensed /channels shows a direct-OAuth connect button for a CONFIGURED generic provider (LinkedIn)", async () => {
@@ -158,8 +163,7 @@ describe("license-aware dashboard UI", () => {
     process.env.LINKEDIN_CLIENT_SECRET = "test-li-secret";
     try {
       const body = await (await get("/channels")).text();
-      expect(body).toContain("/api/oauth/connect/linkedin");
-      expect(body).toContain("+ LinkedIn");
+      expect(tile(body, "LinkedIn")).toContain('class="ct-tile" href="/api/oauth/connect/linkedin"');
     } finally {
       if (prevId === undefined) delete process.env.LINKEDIN_CLIENT_ID;
       else process.env.LINKEDIN_CLIENT_ID = prevId;
