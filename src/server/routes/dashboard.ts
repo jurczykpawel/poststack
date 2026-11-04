@@ -30,6 +30,7 @@ import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
 import { toastHeader } from "../ui/components/toast";
+import { can } from "@/lib/channels/capabilities";
 import { formErrorText } from "../ui/components/form-error";
 import { ApiError } from "@/lib/api/response";
 import { timeAgo } from "../ui/components/time";
@@ -581,7 +582,7 @@ function renderDraftBubble(d: DraftBubble): Html {
           : html``}
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="button" hx-post="/inbox/approval/${d.id}/approve" hx-target="#thread" hx-swap="innerHTML">Accept</button>
-          <button class="btn btn-sm" type="button" @click="editing = true">Edit</button>
+          <button class="btn btn-sm" type="button" x-ref="edit" @click="editing = true; $nextTick(() => $refs.ta.focus())">Edit</button>
           <button class="btn btn-sm btn-danger" type="button" hx-post="/inbox/approval/${d.id}/reject" hx-target="#thread" hx-swap="innerHTML">Reject</button>
           <button class="btn btn-sm btn-danger" type="button" hx-delete="/inbox/approval/${d.id}" hx-target="#thread" hx-swap="innerHTML" hx-confirm="Delete this draft? It will be gone from the inbox and from Approvals." data-confirm-label="Delete">Delete</button>
         </div>
@@ -590,7 +591,7 @@ function renderDraftBubble(d: DraftBubble): Html {
         <textarea class="textarea" name="text" rows="3" required x-ref="ta">${prefill}</textarea>
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
-          <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue">Cancel</button>
+          <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue; $nextTick(() => $refs.edit.focus())">Cancel</button>
         </div>
       </form>
     </div>
@@ -654,6 +655,7 @@ export function renderThread(
   // Meta 24h-window heads-up. Closed window (and no approved HUMAN_AGENT tag) → the reply box is
   // disabled with the reason; with the tag approved a reply past 24h still goes (see ./messaging-window).
   const windowState = messagingWindowState({ platform: conv.platform, threadType: conv.thread_type, lastInboundAt: conv.last_inbound_at, humanAgentApproved: env.META_HUMAN_AGENT_APPROVED });
+  const replySupported = can({ platform: conv.platform }, conv.thread_type === "comment" ? "comment_reply" : "dm") && (conv.thread_type !== "comment" || messages.some(it => it.kind === "comment"));
   const windowNote = canReply && windowState.label
     ? html`<div class="notice ${windowState.kind === "closing_soon" ? "" : "notice-warn"}" style="font-size:.78rem;display:flex;align-items:center;gap:6px">${icon("clock", "ico", 13)}<span>${windowState.label}</span></div>`
     : html``;
@@ -700,13 +702,14 @@ export function renderThread(
     ${windowNote}
     ${aiDraftBar}
     ${canReply
-      ? windowState.canSend
+      ? windowState.canSend && replySupported
         ? html`<form class="reply-bar" hx-post="/inbox/${conv.id}/reply" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
-          <textarea class="textarea" name="text" rows="2" placeholder="Type a reply..." required>${opts.draft ?? ""}</textarea>
+          <textarea class="textarea" name="text" rows="2" aria-label="Reply text" aria-invalid="${opts.error ? "true" : "false"}" aria-describedby="reply-error" placeholder="${conv.thread_type === "comment" ? "Reply publicly to the latest comment..." : "Type a reply..."}" required>${opts.draft ?? ""}</textarea>
+          ${opts.error ? html`<span id="reply-error" role="alert">${opts.error}</span>` : ""}
           <button class="btn btn-primary" type="submit">Send</button>
         </form>`
-        : html`<div class="reply-bar reply-locked" data-window-closed>
-          <textarea class="textarea" rows="2" placeholder="Reply window closed — see the note above." disabled></textarea>
+        : html`${!replySupported ? html`<p class="notice notice-warn">This channel or comment context does not support replies. Open the platform to respond.</p>` : ""}<div class="reply-bar reply-locked" data-window-closed>
+          <textarea class="textarea" rows="2" placeholder="Reply unavailable" disabled></textarea>
           <button class="btn btn-primary" type="button" disabled>Send</button>
         </div>`
       : html`<div class="reply-bar reply-locked">
@@ -1303,8 +1306,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!conv) return c.notFound();
     const drafts = await loadDrafts(id, a.workspaceId);
     if (!res || res.status >= 400) {
-      const errBody = res ? ((await res.json().catch(() => null)) as { error?: { message?: string } } | null) : null;
-      const error = errBody?.error?.message ?? "Could not send the reply. Please try again.";
+      const errBody = res ? await res.json().catch(() => null) : null;
+      const error = formErrorText(errBody, "Could not send the reply. Please try again.");
       return c.html(renderThread(conv, await loadMessages(id), { error, draft, canReply, canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts }));
     }
     return c.html(renderThread(conv, await loadMessages(id), { canReply, canAiDraft: features.has("ai_draft"), aiConfigured, upgradeUrl, drafts }));
@@ -1794,7 +1797,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
-    if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
+    if (!r) return c.notFound();
     const { features, upgradeUrl } = await getInstanceLicense();
     const channels = await loadInboxChannels(a.workspaceId);
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
@@ -1807,7 +1810,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
-    if (!r) return c.html(renderRules(await loadRules(a.workspaceId), "Rule not found."));
+    if (!r) return c.notFound();
     const { features, upgradeUrl } = await getInstanceLicense();
     const channels = await loadInboxChannels(a.workspaceId);
     const activeSequences = (await loadSequences(a.workspaceId)).filter((seq) => seq.status === "active");
@@ -1957,6 +1960,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!existing) return c.notFound();
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const text = typeof form.text === "string" ? form.text.trim() : "";
+    if (!text) return c.html(await renderApprovalsView(a.workspaceId, undefined, id), 422);
     await updateProposedText(a.workspaceId, id, existing.proposed_content, text);
     return c.html(await renderApprovalsView(a.workspaceId));
   });
@@ -2866,9 +2870,9 @@ function loadResolvedApprovals(workspaceId: string) {
 
 /** Load both queues + render — shared by the page and the approve/reject htmx swaps so a just-resolved
  *  item drops straight into the history. */
-async function renderApprovalsView(workspaceId: string, error?: string): Promise<Html> {
+async function renderApprovalsView(workspaceId: string, error?: string, invalidId?: string): Promise<Html> {
   const [pending, resolved] = await Promise.all([loadApprovals(workspaceId), loadResolvedApprovals(workspaceId)]);
-  return renderApprovals(pending, resolved, error);
+  return renderApprovals(pending, resolved, error, invalidId);
 }
 
 function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApprovals>>): Html {
@@ -2894,7 +2898,7 @@ function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApp
   </details>`;
 }
 
-function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolved: Awaited<ReturnType<typeof loadResolvedApprovals>> = [], error?: string): Html {
+function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolved: Awaited<ReturnType<typeof loadResolvedApprovals>> = [], error?: string, invalidId?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (list.length === 0) return html`${notice}<div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">Nothing waiting for approval</p><p class="empty-body">When a rule holds a reply for review, it shows up here.</p></div>${renderResolvedApprovals(resolved)}`;
   return html`${notice}<div class="appr-list">${list.map((a) => {
@@ -2911,7 +2915,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
     // ADUX2: one edited text feeds whichever parts the parked reply has — same single-textarea
     // semantics as the inbox thread's edit form (updateProposedText applies it to both).
     const editPrefill = dmText ?? commentText ?? "";
-    return html`<div class="appr" x-data="{ editing: false }">
+    return html`<div class="appr" x-data="{ editing: ${String(a.id === invalidId)} }">
       <div class="appr-top">
         <div>
           <div class="appr-who">${who}</div>
@@ -2919,7 +2923,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
         </div>
         <div class="appr-actions" x-show="!editing">
           <button class="btn btn-sm btn-primary" hx-post="/approvals/${a.id}/approve" hx-target="#approvals-list" hx-swap="innerHTML">Approve</button>
-          <button class="btn btn-sm" type="button" @click="editing = true">Edit</button>
+          <button class="btn btn-sm" type="button" x-ref="edit" @click="editing = true; $nextTick(() => $refs.ta.focus())">Edit</button>
           <button class="btn btn-sm btn-danger" hx-post="/approvals/${a.id}/reject" hx-target="#approvals-list" hx-swap="innerHTML">Reject</button>
           <button class="btn btn-sm btn-danger" hx-delete="/approvals/${a.id}" hx-target="#approvals-list" hx-swap="innerHTML" hx-confirm="Delete this draft? It will be gone from Approvals and from the inbox." data-confirm-label="Delete">Delete</button>
         </div>
@@ -2936,10 +2940,11 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
         </div>` : (!commentText ? html`<div class="appr-reply"><div class="appr-reply-text is-empty">(no reply text)</div></div>` : html``)}
       </div>
       <form class="draft-edit" x-show="editing" x-cloak hx-post="/approvals/${a.id}/edit" hx-ext="json-enc" hx-target="#approvals-list" hx-swap="innerHTML">
-        <textarea class="textarea" name="text" rows="3" required x-ref="ta">${editPrefill}</textarea>
+        <textarea class="textarea" name="text" rows="3" required aria-label="Reply text" aria-invalid="${String(a.id === invalidId)}" x-ref="ta">${editPrefill}</textarea>
+        ${a.id === invalidId ? html`<p class="notice notice-err" role="alert">Reply text is required</p>` : ""}
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
-          <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue">Cancel</button>
+          <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue; $nextTick(() => $refs.edit.focus())">Cancel</button>
         </div>
       </form>
     </div>`;

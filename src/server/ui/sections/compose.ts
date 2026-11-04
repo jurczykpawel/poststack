@@ -115,6 +115,19 @@ function composeScript(): Html {
       try { seqCfg = JSON.parse(document.getElementById("ps-compose-seq").textContent); } catch (e) {}
       return {
         brands: data,
+        init() {
+          var d = {};
+          try { d = JSON.parse(document.getElementById("ps-compose-draft").textContent) || {}; } catch (e) {}
+          if (!d.brand || !data[d.brand]) return;
+          this.brand = d.brand; this.onBrandChange();
+          this.title = d.title || ""; this.type = d.contentType || "video";
+          this.mediaUrl = d.mediaUrl || ""; this.coverUrl = d.coverUrl || "";
+          this.baseDescription = d.baseDescription || ""; this.baseHashtags = d.baseHashtags || "";
+          this.publishMode = d.publish?.mode || "draft";
+          if (d.publish?.at) { var at = new Date(d.publish.at); this.scheduleAt = new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+          Object.keys(this.sel).forEach(p => { var post = (d.posts || []).find(x => x.platform === p); this.sel[p].on = !!post;
+            if (post) Object.assign(this.sel[p], { override: post.description || "", firstComment: post.firstComment || "", autoStory: !!post.autoStory }); });
+        },
         tt: window.psTikTokPanel(),
         yt: window.psYouTubePanel(),
         tiktokScheduleText() {
@@ -252,6 +265,8 @@ async function composePage(
   products: Awaited<ReturnType<typeof getInstanceLicense>>["products"],
   sequences: Array<{ id: string; name: string }> = [],
   error?: string,
+  draft?: unknown,
+  mediaError = false,
 ): Promise<Html> {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   const seqJson = JSON.stringify({
@@ -320,7 +335,7 @@ async function composePage(
                 <div class="media-fields">
                   <div class="fld-row">
                     <label class="fld"><span>Type</span><select x-model="type" aria-label="Content type">${typeOpts}</select></label>
-                    <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" placeholder="https://cdn…/reel.mp4" required /></label>
+                    <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" aria-invalid="${mediaError ? "true" : "false"}" aria-describedby="compose-media-error" placeholder="https://cdn…/reel.mp4" required />${mediaError ? html`<span id="compose-media-error" role="alert" class="notice-err">${error}</span>` : ""}</label>
                   </div>
                   <label class="fld"><span>Cover URL <small>(optional)</small></span><input type="url" x-model="coverUrl" placeholder="https://cdn…/cover.png" /></label>
                 </div>
@@ -445,6 +460,7 @@ async function composePage(
           </div>
         </aside>
       </div>
+      <script id="ps-compose-draft" type="application/json">${raw(JSON.stringify(draft ?? null).replace(/</g, "\\u003c"))}</script>
       <script id="ps-compose-data" type="application/json">${raw(json)}</script>
       <script id="ps-compose-seq" type="application/json">${raw(seqJson)}</script>
       ${tiktokPanelScript()}
@@ -474,7 +490,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
       // Anything else (unreadable or structurally wrong payload) stays a 400.
       const fixable = json !== null && result.error.issues.every((i) => i.code === "too_big" || i.message === MEDIA_URL_MSG);
       const msg = fixable ? formErrorText({ error: { details: result.error.issues } }, "Check the form and try again.") : "Could not read the form — please try again.";
-      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg), fixable ? 422 : 400);
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg, fixable ? json : undefined, result.error.issues.some(i => i.path[0] === "mediaUrl")), fixable ? 422 : 400);
     }
     const parsed = result.data;
     const mode = parsed.publish?.mode ?? "draft";

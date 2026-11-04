@@ -53,6 +53,9 @@ export interface IncomingMessageJob {
 }
 
 export interface OutgoingCommentJob extends FirstResponseStamp {
+  workspaceId?: string;
+  conversationId?: string;
+  manualReplyAt?: string;
   channelId: string;
   /** The addressed contact — stamped on the delivery ledger so erasure cascades + the queue
    *  PII scrub reach the (personalized) public-reply text too. */
@@ -179,6 +182,7 @@ export interface IncomingPostReactionJob {
 }
 
 export interface OutgoingMessageJob extends FirstResponseStamp {
+  manualReplyAt?: string;
   channelId: string;
   conversationId: string;
   contactId: string;

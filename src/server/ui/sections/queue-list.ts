@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api/response";
 import { html, raw } from "hono/html";
 import { isUuid } from "@/lib/api/identifiers";
 import { redactSecrets } from "@/lib/redact";
@@ -246,6 +247,8 @@ export async function renderQueue(workspaceId: string, href: string, tz: string)
 
   const filters: QueueFilters = { workspaceId, q: st.q, channelId: st.filters.channel, format: st.filters.format };
   const [{ byStatus: counts, formats }, channels, opened] = await Promise.all([queueCounts(filters), channelOptions(workspaceId), panel(workspaceId, st)]);
+  if (st.open && !opened.detail) throw new ApiError("not_found", "Not found", 404);
+
   const base = shared(st, channels, formats);
 
   if (section) {

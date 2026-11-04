@@ -65,7 +65,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 const patchSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
+  name: z.string().trim().min(1, "Name is required").max(100).optional(),
   channel_id: z.string().uuid().nullable().optional(),
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).max(999).optional(),

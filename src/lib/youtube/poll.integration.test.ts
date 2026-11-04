@@ -49,6 +49,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
+  await db.execute(sql`delete from webhook_events where event_key like ${`yt-comment:${CH}:%`}`);
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   await db.insert(s.workspaces).values({ id: WS, name: "YT", slug: `yt-${WS}` });
   // A connected YouTube channel with a still-valid access token (no refresh needed).
@@ -67,6 +68,7 @@ afterEach(() => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.execute(sql`truncate table graphile_worker._private_jobs cascade`);
+  await db.execute(sql`delete from webhook_events where event_key like ${`yt-comment:${CH}:%`}`);
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   if (closeQueue) await closeQueue();
 });
@@ -189,4 +191,20 @@ describe("freshYouTubeAccessToken", () => {
     const token = await poll.freshYouTubeAccessToken(ch!);
     expect(token).toBe("fresh");
   });
+});
+
+it.each(["link", "preview", "source"])("keeps YouTube comment %s", async (check) => {
+  await db.insert(s.autoReplyRules).values({ workspace_id: WS, channel_id: CH, name: "Review comments", trigger_type: "comment_keyword", trigger_config: { keywords: [{ value: "hello", match_type: "contains" }] }, response_type: "text", response_config: { text: "Thanks", reply_mode: "public" }, requires_approval: true, cooldown_seconds: 0 });
+  mockFetch();
+  setThreads([ytThread("source-first", "2026-06-01T00:00:00Z", "UCviewer")]);
+  await poll.pollYouTubeChannel(CH);
+  setThreads([ytThread("source-latest", "2026-06-02T00:00:00Z", "UCviewer")]);
+  await poll.pollYouTubeChannel(CH);
+  const logs = await db.select().from(s.commentLogs).where(eq(s.commentLogs.channel_id, CH));
+  if (check === "link") expect(logs.map(l => l.post_url)).toEqual(["https://www.youtube.com/watch?v=VIDx", "https://www.youtube.com/watch?v=VIDx"]);
+  const conv = await db.query.conversations.findFirst({ where: eq(s.conversations.channel_id, CH) });
+  if (check === "preview") expect(conv?.last_message_preview).toBe("hello source-latest");
+  const drafts = await db.select().from(s.pendingApprovals).where(eq(s.pendingApprovals.channel_id, CH));
+  expect(drafts).toHaveLength(2);
+  if (check === "source") expect(drafts.map(d => d.inbound_comment_id).sort()).toEqual(logs.map(l => l.id).sort());
 });

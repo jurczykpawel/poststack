@@ -421,12 +421,12 @@ describe("queue post panel", () => {
     expect(out).toContain(`/queue/${id}/cancel`);
   });
 
-  it("ignores a malformed or unknown row id", async () => {
+  it("returns 404 for a malformed or unknown row id", async () => {
     if (!TEST_DB) return;
     await seed({ status: "sent" });
     for (const open of ["nope", "00000000-0000-4000-8000-000000000000"]) {
       const res = await app.request(`/queue?open=${open}`, { headers: { cookie } });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(404);
       expect(await res.text()).not.toContain("dl-detail");
     }
   });

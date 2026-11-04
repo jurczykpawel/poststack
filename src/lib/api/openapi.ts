@@ -1166,6 +1166,7 @@ export const openApiSpec = {
         ...requiresScope("conversations:write"),
         tags: ["Conversations"],
         summary: "Send a manual reply",
+        description: "Comment threads queue a public reply to the latest inbound comment. Other threads require a channel with direct messaging. Needs reply is cleared only after successful delivery, provided no newer activity arrived.",
         parameters: [
           { name: "Idempotency-Key", in: "header", required: false, schema: { type: "string", maxLength: 200 }, description: "Repeat-safe send: the same key sends at most once (≤200 chars)" },
         ],
@@ -1175,7 +1176,7 @@ export const openApiSpec = {
           "400": { description: "No platform identity / over-long Idempotency-Key" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { $ref: "#/components/responses/NotFound" },
-          "422": { description: "Validation error, or `messaging_window_closed`: a Facebook/Instagram DM more than 24h after the customer's last message (Meta only allows the HUMAN_AGENT tag after the operator sets `META_HUMAN_AGENT_APPROVED=true`)" },
+          "422": { description: "Validation error, `reply_unavailable` for an unsupported reply or missing parent comment, or `messaging_window_closed`: a Facebook/Instagram DM more than 24h after the customer's last message (Meta only allows the HUMAN_AGENT tag after the operator sets `META_HUMAN_AGENT_APPROVED=true`)" },
         },
       },
     },

@@ -39,6 +39,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
+  await db.delete(s.webhookEvents);
   for (const ws of [WS, FOREIGN_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, ws));
   await db.delete(s.users).where(eq(s.users.id, USER));
   await db.insert(s.users).values({ id: USER, email: `u-${USER}@test.local` });
@@ -209,4 +210,36 @@ describe("inbox thread — pending approval drafts", () => {
     expect(res.status).toBe(200);
     expect((await statusOf(id))?.status).toBe("rejected");
   });
+});
+
+it("reports whitespace approval edits next to the field without changing the draft", async () => {
+  const id = await seedApproval();
+  const before = await statusOf(id);
+  const res = await post(`/approvals/${id}/edit`, { text: "   " });
+  expect(res.status).toBe(422);
+  expect(await res.text()).toContain("Reply text is required");
+  expect(await statusOf(id)).toEqual(before);
+});
+it("gives the approval editor an accessible name and keyboard focus targets", async () => {
+  await seedApproval();
+  const body = await (await get("/approvals")).text();
+  expect(body).toContain('aria-label="Reply text"');
+  expect(body).toContain('$nextTick(() => $refs.ta.focus())');
+  expect(body).toContain('$refs.edit.focus()');
+});
+it("explains the reply length limit at the field and preserves the draft", async () => {
+  await db.update(s.conversations).set({ last_inbound_at: new Date() }).where(eq(s.conversations.id, CONV_DM));
+  const res = await post(`/inbox/${CONV_DM}/reply`, { text: "x".repeat(2001) });
+  const body = await res.text();
+  expect(body).toContain("at most 2000 characters");
+  expect(body).toContain('aria-invalid="true"');
+  expect(body).toContain("x".repeat(2001));
+});
+it.each(["/contacts?open=", "/queue?open=", "/activity?source=events&open=", "/rules/"])("returns 404 for an unavailable panel %s", async (path) => {
+  const id = "ffffffff-0000-0000-0000-000000000099";
+  expect((await get(path + id + (path === "/rules/" ? "/edit" : ""))).status).toBe(404);
+});
+it("rejects rule names containing only whitespace", async () => {
+  const res = await post("/api/v1/rules", { name: "   ", trigger_type: "keyword", trigger_config: { keywords: [{ value: "never", match_type: "contains" }] }, response_type: "text", response_config: { text: "Hello" } });
+  expect(res.status).toBe(422);
 });

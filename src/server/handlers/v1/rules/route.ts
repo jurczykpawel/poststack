@@ -93,7 +93,7 @@ const responseConfigSchema = z
 
 export const createRuleSchema = z
   .object({
-    name: z.string().min(1).max(100),
+    name: z.string().trim().min(1, "Name is required").max(100),
     channel_id: z.string().uuid().optional().nullable(),
     is_active: z.boolean().default(true),
     priority: z.number().int().min(0).max(999).default(0),

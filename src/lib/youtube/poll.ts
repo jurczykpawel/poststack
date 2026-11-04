@@ -85,6 +85,7 @@ async function ingestComment(channel: YtChannel, c: YtComment): Promise<boolean>
         channel_id: channel.id,
         workspace_id: channel.workspace_id,
         post_id: c.videoId ?? null,
+        post_url: c.videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(c.videoId)}` : null,
         platform_comment_id: c.commentId,
         author_id: c.authorChannelId,
         author_name: c.authorName,
@@ -98,7 +99,7 @@ async function ingestComment(channel: YtChannel, c: YtComment): Promise<boolean>
       workspaceId: channel.workspace_id, channelId: channel.id, platform: "youtube",
       conversationId, contactId, createdAt: logged.created_at,
     }, c.videoId ?? null);
-    await updateConversation(tx, channel.workspace_id, conversationId, { last_message_at: new Date(), status: "open" });
+    await updateConversation(tx, channel.workspace_id, conversationId, { last_message_at: new Date(), last_inbound_at: new Date(), last_message_preview: truncateCodePoints(c.text, 255), status: "open" });
     await tx.update(contacts).set({ last_interaction_at: new Date() }).where(eq(contacts.id, contactId));
     await tx.update(conversations).set({ unread_count: sql`${conversations.unread_count} + 1` }).where(eq(conversations.id, conversationId));
     return logged.id;
@@ -119,6 +120,7 @@ async function ingestComment(channel: YtChannel, c: YtComment): Promise<boolean>
       postId: c.videoId ?? undefined,
       commentId: c.commentId,
       eventKey,
+      inboundCommentId: loggedId,
     });
     if (outcome === "no_match") {
       await db.update(conversations).set({ needs_manual_reply: true }).where(eq(conversations.id, conversationId));

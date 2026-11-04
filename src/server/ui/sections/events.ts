@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api/response";
 import { html } from "hono/html";
 import { and, eq, inArray, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -184,6 +185,8 @@ export async function renderEvents(workspaceId: string, url: string, path: strin
         })
       : undefined,
   ]);
+
+  if (state.open && !opened) throw new ApiError("not_found", "Not found", 404);
 
   const counts = [...chipCounts];
   const areas = [...new Set([...typeCounts.keys()].map((type) => type.split(".")[0]!))].sort();
