@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-11-04
+
+### Fixed
+- Facebook Reels: the post is stored as `<page>_<post>`. Facebook returns a bare post id for Reels, which Graph rejects (error #12 "singular statuses API is deprecated"), so the first comment under a Reel failed.
+
+### Changed
+- Dependencies: jose 6.2.14, hono 4.13.14, pg 8.23.1, @playwright/test 1.64.1, Node 22.23.4 (Docker), docker/login-action 4.7.0.
+- Releases: every final version tag now gets a GitHub Release with notes from this changelog.
+
 ## [0.17.1] - 2026-11-04
 
 ### Added
