@@ -1,0 +1,47 @@
+name: Dependabot Auto-Merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        id: metadata
+
+      - name: Auto-merge non-major updates
+        # Patch, minor, Docker digest and submodule bumps (no semver type) merge by
+        # themselves once every check is green; majors stay open for a human.
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        # `gh pr merge --auto` needs branch protection with required checks; main here has none
+        # (measured 2026-11-04: protection API 404), so wait for the other checks ourselves
+        # and merge only when all are green. E2E runs in release.yml before any deploy.
+        run: |
+          sleep 90  # let the other workflows register their checks
+          for _ in $(seq 1 90); do
+            rollup=$(gh pr view "$PR_URL" --json statusCheckRollup -q \
+              '[.statusCheckRollup[] | select(.name != "auto-merge")]')
+            total=$(jq length <<<"$rollup")
+            pending=$(jq '[.[] | select(.status != "COMPLETED")] | length' <<<"$rollup")
+            bad=$(jq '[.[] | select(.conclusion | IN("FAILURE","CANCELLED","TIMED_OUT","ACTION_REQUIRED"))] | length' <<<"$rollup")
+            if [ "$bad" != 0 ]; then
+              # The only case that needs a human: one targeted mail, nothing otherwise.
+              gh pr comment "$PR_URL" --body "@${OWNER} CI failed on this dependency update, so it was not merged. Fix it or close it with \`@dependabot ignore this dependency\`."
+              exit 0
+            fi
+            if [ "$total" != 0 ] && [ "$pending" = 0 ]; then
+              gh pr merge "$PR_URL" --squash
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Checks did not finish in time; not merging."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}

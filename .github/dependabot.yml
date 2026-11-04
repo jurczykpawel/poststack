@@ -1,24 +1,50 @@
 version: 2
+# Noise control: one PR per ecosystem and update kind. Everything except majors (patch,
+# minor, Docker digests) is merged automatically once CI is green
+# (workflows/dependabot-auto-merge.yml); a red CI pings the owner on the PR, and majors
+# stay individual PRs for review. Base-image majors are ignored: the Node LTS line is
+# pinned deliberately and bumped by hand.
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
     open-pull-requests-limit: 5
+    groups:
+      compatible-patches:
+        update-types: [patch]
+      compatible-minors:
+        update-types: [minor]
+  - package-ecosystem: npm
+    directory: /landing
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      compatible-patches:
+        update-types: [patch]
+      compatible-minors:
+        update-types: [minor]
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      base-images:
+        patterns: ["*"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-
-  - package-ecosystem: "docker"
-    directory: "/docker"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-    ignore:
-      - dependency-name: "node"
-        update-types: ["version-update:semver-major"]
-
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      compatible-patches:
+        update-types: [patch]
+      compatible-minors:
+        update-types: [minor]
