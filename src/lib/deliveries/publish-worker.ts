@@ -1,3 +1,4 @@
+import { postUrlFor } from "@/lib/posts/post-url";
 import type { JobHelpers } from "graphile-worker";
 import { and, count, eq, gte, lte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -224,16 +225,17 @@ async function enqueueAutoStory(
   );
 }
 
-async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string) {
+async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string, publicPostId?: string) {
+  const publishedUrl = publicPostId ? postUrlFor(channel.platform, publicPostId, channel.username) : null;
   const request = post.payload as PublishRequest;
   const aiDisclosureSent = await buildAiDisclosureSent(post.id, post.workspace_id, request);
   const sentAt = new Date();
   const changed = await db.transaction(async (tx) => {
     await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id))).orderBy(posts.id).for("update");
-    const rows = await tx.update(deliveries).set({ status: "sent", sent_at: sentAt, provider_handle: providerHandle, payload: sql`${deliveries.payload} - '_youtubeUploadSession'`, last_error: null, updated_at: new Date() })
+    const rows = await tx.update(deliveries).set({ status: "sent", sent_at: sentAt, provider_handle: providerHandle, payload: sql`(${deliveries.payload} - '_youtubeUploadSession') || ${JSON.stringify(publishedUrl ? { _publishedUrl: publishedUrl } : {})}::jsonb`, last_error: null, updated_at: new Date() })
       .where(and(eq(deliveries.id, post.id), eq(deliveries.workspace_id, post.workspace_id), inArray(deliveries.status, ["sending", "processing"]))).returning({ id: deliveries.id });
     if (!rows.length) return false;
-    await tx.update(posts).set({ status: "published", published_at: sentAt, platform_post_id: providerHandle, updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
+    await tx.update(posts).set({ status: "published", published_at: sentAt, platform_post_id: providerHandle, ...(publishedUrl ? { published_url: publishedUrl } : {}), updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
       .where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id)));
     return true;
   });
@@ -278,7 +280,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       }
       if (!post.provider_handle || !provider.publishStatus) throw new Error("Publish status unavailable");
       const outcome = await provider.publishStatus(toTokenSet(decryptTokens(channel.token_encrypted)), { providerHandle: post.provider_handle });
-      if (outcome.state === "published") { await completePublish(post, channel, post.provider_handle); return; }
+      if (outcome.state === "published") { await completePublish(post, channel, post.provider_handle, outcome.postId); return; }
       if (outcome.state === "failed") { await failDelivery(postId, ws, outcome.error || "TikTok processing failed"); return; }
       await db.update(deliveries).set({ last_error: null, updated_at: new Date() })
         .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "processing")));

@@ -20,7 +20,7 @@ const PLATFORMS: Record<string, PlatformView> = {
 };
 
 /** Names for raw channel platforms, including those without a brand glyph above. */
-export const PLATFORM_LABELS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube", tiktok: "TikTok", gmail: "Gmail" };
+export const PLATFORM_LABELS: Record<string, string> = { twitter: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram", youtube: "YouTube", tiktok: "TikTok", gmail: "Gmail" };
 
 /** Meta channels carry { subKind } — split them into Instagram / Facebook so each is identifiable. */
 export function platformKey(platform: string, metadata?: unknown): string {

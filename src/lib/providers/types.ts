@@ -92,6 +92,7 @@ export interface PublishHandle {
 
 export type PublishState = "accepted" | "published" | "failed";
 export interface PublishStatus {
+  postId?: string;
   state: PublishState;
   url?: string;
   error?: string;

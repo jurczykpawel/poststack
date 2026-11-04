@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import docs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 import { postUrlFor } from "./post-url";
 
 describe("postUrlFor", () => {
+  it("links the documented X post id (no recorded X channel)", () => {
+    expect(postUrlFor("twitter", docs.x.createPost.body.data.id)).toBe(`https://x.com/i/web/status/${docs.x.createPost.body.data.id}`);
+  });
   it("builds links from bare ids", () => {
     expect(postUrlFor("youtube", "ZlDpanbR3FM")).toBe("https://www.youtube.com/watch?v=ZlDpanbR3FM");
     expect(postUrlFor("facebook", "122100_998877")).toBe("https://www.facebook.com/122100/posts/998877");
