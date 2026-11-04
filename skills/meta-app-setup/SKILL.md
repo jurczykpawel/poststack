@@ -19,10 +19,10 @@ step as ground truth rather than the label.
 
 | Goal | What to connect |
 |---|---|
-| Publish and comments on the Page | **+ Facebook** (step 11a) **or** a System User / User token in Sources (step 12) |
-| **Facebook DMs (Messenger)** | the same: **+ Facebook** or the token in Sources. No extra step. |
-| Publish and comments on Instagram | **+ Instagram** (11b) or the token in Sources |
-| **Instagram DMs** | **always also + Instagram (messaging)** (11c) for each account, with the **Instagram Tester** role (step 8) |
+| Publish and comments on the Page | the **Facebook Page** tile (step 11a) **or** a System User / User token in Sources (step 12) |
+| **Facebook DMs (Messenger)** | the same: the **Facebook Page** tile or the token in Sources. No extra step. |
+| Publish and comments on Instagram | the **Instagram via Facebook** tile (11b) or the token in Sources |
+| **Instagram DMs** | **always also the Instagram tile** (11c) for each account, with the **Instagram Tester** role (step 8) |
 
 No token, not even a permanent System User token, delivers Instagram DMs on its own. An IG channel with the
 "Facebook only" badge has no DMs. Full matrix: `docs/META_CONNECTIONS.md` → "At a glance".
@@ -118,7 +118,7 @@ and worker processes.
   `comments`, `live_comments`. Meta pre-subscribes some of them.
 - **4. Set up Instagram business login → Set up:** Redirect URL
   `{APP_URL}/api/oauth/instagram-login/callback`, then **Save**.
-- ✅ The Channels page of the instance now shows **+ Instagram (messaging)**.
+- ✅ On the Channels page, **+ Connect channel → Instagram** now completes the sign-in.
 
 ### 8. Roles
 **App roles → Roles → Add People → Instagram Tester**. Type the Instagram username, pick the exact
@@ -148,10 +148,10 @@ Meta error pages name the exact problem:
   requested by older PostStack versions, see the troubleshooting table below.
 
 ### 11. Connect and verify
-Sign in to the PostStack dashboard → **Channels**. There are three buttons, one per connection type.
+Sign in to the PostStack dashboard → **Channels** → **+ Connect channel**. Three Meta tiles, one per connection type.
 Connect the ones the user needs (usually all three):
 
-**a) + Facebook: the Page (publishing, comments, Messenger).** On Facebook's screens:
+**a) Facebook Page tile: the Page (publishing, comments, Messenger).** On Facebook's screens:
 - **Continue as <user>**.
 - **Choose the Pages:** pick **Opt in to current Pages only** and tick only the Pages the user wants in
   PostStack. Check the count shown, e.g. "1 Asset Selected".
@@ -161,14 +161,14 @@ Connect the ones the user needs (usually all three):
 - ✅ The URL is `/channels?connected=facebook&count=<N>`, where N equals the Pages you ticked.
   `error=no_pages` means the Page wasn't ticked, or the instance is an old version without `business_management`.
 
-**b) + Instagram: the Instagram account linked to that Page (publishing and comments).** This runs through
+**b) Instagram via Facebook tile: the Instagram account linked to that Page (publishing and comments).** This runs through
 the same Facebook screens, plus a fourth one: **Choose the Instagram accounts you want <app> to access**. Tick the
 Page and its Instagram account.
 - ✅ The URL is `/channels?connected=instagram&count=<N>`. The channel shows the **Facebook only** badge.
 - ⚠️ **This connection alone does not deliver Instagram DMs.** Measured on 2026-10-27 at Standard Access: with
   only b) connected, a DM sent to the account produced no webhook at all. For DMs you always also need c).
 
-**c) + Instagram (messaging): Instagram DMs (Instagram Business Login).**
+**c) Instagram tile: Instagram DMs (Instagram Business Login).**
 - On the Instagram consent screen, check that it names the right account ("…is requesting access to: <account>").
   If it doesn't, the user switches accounts on instagram.com first. The account needs the Instagram Tester role
   from step 8.
@@ -207,7 +207,7 @@ Verified end to end on TEST on 2026-10-27. Concepts and the scope table: `docs/M
    - ✅ Badge **"System User (permanent) · … · data access never expires"**. Every assigned Page and IG account
      appears. Channels connected earlier by OAuth switch to `derived` and keep their Instagram DM token.
    - ✅ **↻ Sync** (daily automatically) keeps the DM token.
-5. ⚠️ **Instagram DMs still need step 11 c)** (+ Instagram (messaging) + Instagram Tester role). Measured: an IG
+5. ⚠️ **Instagram DMs still need step 11 c)** (the Instagram tile + Instagram Tester role). Measured: an IG
    account connected only through the System User received no DM webhook. After c) on the same `derived`
    channel, DMs arrived.
 

@@ -85,7 +85,7 @@ describe("renderPage shell", () => {
     expect(out).toContain("psPalette");
     expect(out).toContain('aria-label="Open command palette"');
     expect(out).toContain("⌘K");
-    expect(out).toContain("/channels");
+    expect(out).toContain('{"label":"Connect channel","href":"/channels?connect=1"');
     expect(out).toMatch(/"label":"New post"/);
     expect(out).not.toMatch(/"href":"#"/);
   });

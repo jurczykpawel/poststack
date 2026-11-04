@@ -22,7 +22,7 @@ function paletteItems(products: Set<Area>): PaletteItem[] {
   );
   return [
     ...(navItemVisible(NEW_POST_ITEM, products) ? [{ label: NEW_POST_ITEM.label, href: NEW_POST_ITEM.href, hint: "Action" }] : []),
-    { label: "Connect channel", href: "/channels", hint: "Action" },
+    { label: "Connect channel", href: "/channels?connect=1", hint: "Action" },
     { label: SETTINGS_ITEM.label, href: SETTINGS_ITEM.href, hint: "Go" },
     ...navItems,
   ];

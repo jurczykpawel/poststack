@@ -92,14 +92,14 @@ permission** identifiers — they are part of the API contract and change far le
 > through the Facebook/System-User path would require Meta **Advanced Access** / App Review, which
 > self-hosters typically skip.) To enable DMs on an Instagram account — inbox, auto-reply,
 > comment-to-DM, follow-gate — additionally connect **that** account via **Instagram Business Login**
-> (the **"+ Instagram (messaging)"** button on the Channels page), which needs `INSTAGRAM_APP_ID` /
+> (the **Instagram** tile under **+ Connect channel** on the Channels page), which needs `INSTAGRAM_APP_ID` /
 > `INSTAGRAM_APP_SECRET` set on the instance. That connection runs at Standard Access too (no App
 > Review for your own account). The Instagram account also needs the accepted **Instagram Tester** role in
 > the app, even in Live mode. The permissions table above still applies to the System-User connection.
 >
 > **Measured on 2026-10-27** (TEST instance, own Page + IG):
 > - System-User-only Instagram account: no DM webhook.
-> - After "+ Instagram (messaging)" on the same `derived` channel: DMs arrive, and a later source re-sync keeps them.
+> - After connecting the Instagram tile on the same `derived` channel: DMs arrive, and a later source re-sync keeps them.
 > - Messenger DMs to the Page arrive through the System User connection with no extra step. The sender in that
 >   test was the Page admin.
 >
