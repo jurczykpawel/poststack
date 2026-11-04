@@ -358,7 +358,7 @@ describe("Inbox filter and thread feedback", () => {
     expect(body).not.toContain('hx-trigger="load delay:3s"');
   });
 
-  it("keeps polling after a failed provider attempt while a fallback may still complete", async () => {
+  it("MQA18-B03: the only provider failed → the poll shows the reason now, not after the 60 s cap", async () => {
     const started = Date.now() - 1000;
     await db.insert(s.aiGenerationLogs).values({
       workspace_id: WS, conversation_id: CONV_DM, kind: "draft", model: "test",
@@ -366,6 +366,21 @@ describe("Inbox filter and thread feedback", () => {
     });
     const res = await app.request(`/inbox/${CONV_DM}/drafts?attempt=1&since=0&started=${started}`, { headers: { cookie } });
     const body = await res.text();
+    expect(body).toContain("AI draft failed: rate limited by provider");
+    expect(body).not.toContain('hx-trigger="load delay:3s"');
+    expect(body).not.toContain("AI is generating");
+  });
+
+  it("keeps polling after a failed provider attempt while a fallback may still complete", async () => {
+    process.env.AI_FALLBACKS = JSON.stringify([{ apiKey: "fb-key", model: "fb-model" }]);
+    const started = Date.now() - 1000;
+    await db.insert(s.aiGenerationLogs).values({
+      workspace_id: WS, conversation_id: CONV_DM, kind: "draft", model: "test",
+      system_prompt: "test", user_message: "test", error: "HTTP 429", duration_ms: 1,
+    });
+    const res = await app.request(`/inbox/${CONV_DM}/drafts?attempt=1&since=0&started=${started}`, { headers: { cookie } });
+    const body = await res.text();
+    delete process.env.AI_FALLBACKS;
     expect(body).toContain('hx-trigger="load delay:3s"');
     expect(body).not.toContain("AI draft failed");
   });

@@ -8,7 +8,8 @@ import { special } from "./routes/special";
 import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
 import { integrationsRoutes } from "./routes/integrations";
-import { ApiErrors, ApiError, apiErrorResponse } from "@/lib/api/response";
+import { ApiErrors, ApiError, apiErrorResponse, err } from "@/lib/api/response";
+import { toastHeader } from "./ui/components/toast";
 import { errorPage } from "./ui/error-page";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { ProRequiredError, LimitExceededError } from "@/lib/license/gate";
@@ -20,6 +21,15 @@ const corsMiddleware = cors({
   // Idempotency-Key lets a client safely retry a manual reply without double-sending.
   allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
 });
+
+/** Postgres "invalid byte sequence" (22021) / "unsupported Unicode escape" (22P05), anywhere in the cause chain. */
+function isNulInputError(e: unknown): boolean {
+  for (let cur = e, i = 0; cur && typeof cur === "object" && i < 5; cur = (cur as { cause?: unknown }).cause, i++) {
+    const code = (cur as { code?: unknown }).code;
+    if (code === "22021" || code === "22P05") return true;
+  }
+  return false;
+}
 
 export function buildApp(): Hono {
   const app = new Hono();
@@ -40,6 +50,14 @@ export function buildApp(): Hono {
   // { data, error } contract — not leak Hono's plain-text 500 — and never expose internals
   //. HTML page routes keep the framework default.
   app.onError((e, c) => {
+    // A NUL character in any text field: Postgres rejects it (22021 text, 22P05 jsonb). One mapping
+    // here instead of per-route validation — the input is the caller's mistake, not a server fault.
+    if (isNulInputError(e)) {
+      const msg = "Text must not contain NUL (\\u0000) characters.";
+      if (c.req.path.startsWith("/api/")) return err("validation_error", msg, 422);
+      toastHeader(c, "bad", msg);
+      return c.text(msg, 422);
+    }
     if (c.req.path.startsWith("/api/")) {
       // A feature gated behind a PRO license surfaces as 402, not a 500.
       if (e instanceof ProRequiredError) {

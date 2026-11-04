@@ -106,11 +106,11 @@ export async function renderAiLogSummary(workspaceId: string, canView: boolean, 
   if (!canView) return aiLogLocked(upgradeUrl);
   const [c] = await db.select({
     total: sql<number>`count(*)::int`,
-    failed: sql<number>`count(*) filter (where ${aiGenerationLogs.error} is not null and ${aiGenerationLogs.created_at} > now() - interval '7 days')::int`,
-  }).from(aiGenerationLogs).where(and(eq(aiGenerationLogs.workspace_id, workspaceId)));
+    failed: sql<number>`count(*) filter (where ${aiGenerationLogs.error} is not null)::int`,
+  }).from(aiGenerationLogs).where(and(eq(aiGenerationLogs.workspace_id, workspaceId), sql`${aiGenerationLogs.created_at} > now() - interval '7 days'`));
   const total = c?.total ?? 0;
   return html`<div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-    <p class="muted" style="margin:0;flex:1 1 220px">${total === 0 ? "No AI generations yet." : `${fmtCount(total)} generations, ${fmtCount(c!.failed)} failed this week.`}</p>
+    <p class="muted" style="margin:0;flex:1 1 220px">${total === 0 ? "No AI generations this week." : `${fmtCount(total)} generations, ${fmtCount(c!.failed)} failed this week.`}</p>
     <a class="btn btn-secondary btn-sm" href="/activity?source=ai">Open in Activity</a>
   </div>`;
 }

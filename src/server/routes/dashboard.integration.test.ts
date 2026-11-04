@@ -886,6 +886,22 @@ describe("settings — Meta App config + alert webhook UI", () => {
     expect(row?.field_selection).toEqual(["type", "detail"]);
   });
 
+  it.each(["X-MQA18 no colon", "NoColon", ": empty-name", "Good: ok\nbad line"])(
+    "MQA18-B01: malformed header line %j → 422 with the field message, nothing saved (not a 500)",
+    async (headers) => {
+      if (!TEST_DB) return;
+      await db.delete(s.alertWebhooks).where(eq(s.alertWebhooks.workspace_id, WS));
+      const res = await app.request("/settings/alert-webhook", {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com/hook", enabled: "true", headers, extra: "{}" }),
+      });
+      expect(res.status).toBe(422);
+      expect(await res.text()).toContain("Each custom header line must look like Name: value.");
+      expect(await db.query.alertWebhooks.findFirst({ where: eq(s.alertWebhooks.workspace_id, WS) })).toBeUndefined();
+    },
+  );
+
   it("rejects invalid extra-fields JSON without saving", async () => {
     if (!TEST_DB) return;
     await db.delete(s.alertWebhooks).where(eq(s.alertWebhooks.workspace_id, WS));

@@ -188,6 +188,21 @@ export function uiBehaviorScript(): Html {
       var d = (e && e.detail) || {};
       if (window.Alpine && Alpine.store('ui')) Alpine.store('ui').push(d.tone, d.msg);
     });
+    // MQA18-B04: a failed htmx write must never look saved. Network failure → sendError; a 5xx (or an
+    // error the server did not already explain with its own toast) → responseError. GET polls stay silent.
+    function writeFailed(e, fallback) {
+      var d = e.detail || {};
+      if (((d.requestConfig && d.requestConfig.verb) || 'get') === 'get') return;
+      if (window.Alpine && Alpine.store('ui')) Alpine.store('ui').push('bad', fallback);
+    }
+    document.body.addEventListener('htmx:sendError', function (e) {
+      writeFailed(e, 'Not saved — no connection. Check your network and try again.');
+    });
+    document.body.addEventListener('htmx:responseError', function (e) {
+      var xhr = (e.detail || {}).xhr;
+      var explained = xhr && /ps:toast/.test(xhr.getResponseHeader('HX-Trigger') || '');
+      if (!explained) writeFailed(e, 'Not saved — server error. Try again in a moment.');
+    });
     // HTMX confirm → styled Alpine dialog (only for elements carrying hx-confirm).
     document.body.addEventListener('htmx:confirm', function (e) {
       if (!e.detail || !e.detail.question) return; // no hx-confirm → native flow

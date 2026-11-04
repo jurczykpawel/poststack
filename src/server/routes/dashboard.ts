@@ -30,6 +30,7 @@ import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
 import { toastHeader } from "../ui/components/toast";
+import { ApiError } from "@/lib/api/response";
 import { timeAgo } from "../ui/components/time";
 import { proLink } from "../ui/components/pro-link";
 import { addJobTx } from "@/lib/queue/client";
@@ -68,7 +69,7 @@ import { registerQueue } from "../ui/sections/queue";
 import { renderAlertWebhook, problemAlertsCard } from "../ui/sections/problem-alerts";
 import { registerWebhooksOutbound, outboundWebhooksMount } from "../ui/sections/webhooks-outbound";
 import { DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "@/lib/ai/rephrase";
-import { isAiConfigured } from "@/lib/ai/client";
+import { buildProviderChain, isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
 import { gatherAttention, attentionTotal, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, statusBadge, type Tone } from "../ui/components/status";
@@ -1249,17 +1250,21 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const startedAt = Number.isSafeInteger(started) && started > 0 && started <= Date.now() ? started : undefined;
     const drafts = await loadDrafts(id, a.workspaceId);
     let error: string | undefined;
-    // A failed attempt may still fall through to another AI provider.
-    // Wait for the polling window before presenting the final log outcome.
-    if (startedAt !== undefined && attempt >= MAX_DRAFT_POLL_ATTEMPTS && drafts.length <= since) {
-      const [log] = await db.select({ error: aiGenerationLogs.error }).from(aiGenerationLogs).where(and(
-        eq(aiGenerationLogs.workspace_id, a.workspaceId),
-        eq(aiGenerationLogs.conversation_id, id),
-        eq(aiGenerationLogs.kind, "draft"),
-        gte(aiGenerationLogs.created_at, new Date(startedAt)),
-      )).orderBy(desc(aiGenerationLogs.created_at)).limit(1);
-      if (log?.error) {
-        error = /\b429\b/.test(log.error)
+    // Each provider in the chain writes one log row. Show the reason as soon as EVERY provider has
+    // failed (a fallback may still complete before that); the attempt cap is the backstop.
+    if (startedAt !== undefined && drafts.length <= since) {
+      const [logs, chain] = await Promise.all([
+        db.select({ error: aiGenerationLogs.error }).from(aiGenerationLogs).where(and(
+          eq(aiGenerationLogs.workspace_id, a.workspaceId),
+          eq(aiGenerationLogs.conversation_id, id),
+          eq(aiGenerationLogs.kind, "draft"),
+          gte(aiGenerationLogs.created_at, new Date(startedAt)),
+        )).orderBy(desc(aiGenerationLogs.created_at)),
+        buildProviderChain(),
+      ]);
+      const failed = logs.filter((l) => l.error);
+      if (failed[0] && (attempt >= MAX_DRAFT_POLL_ATTEMPTS || failed.length >= Math.max(1, chain.length))) {
+        error = /\b429\b/.test(failed[0].error!)
           ? "AI draft failed: rate limited by provider"
           : "AI draft failed: provider could not generate a reply";
       }
@@ -1583,7 +1588,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         return c.html(renderAlertWebhook(await getAlertWebhook(a.workspaceId), true, license.upgradeUrl, "Extra fields must be valid JSON — nothing saved."));
       }
     }
-    const headerLines = typeof form.headers === "string" ? parseHeaderLines(form.headers) : {};
+    let headerLines: Record<string, string> = {};
+    try {
+      if (typeof form.headers === "string") headerLines = parseHeaderLines(form.headers);
+    } catch (err) {
+      if (!(err instanceof ApiError)) throw err;
+      toastHeader(c, "bad", err.message);
+      return c.html(renderAlertWebhook(await getAlertWebhook(a.workspaceId), true, license.upgradeUrl, `${err.message} — nothing saved.`), 422);
+    }
     const selection = typeof form.selection === "string" && form.selection.trim()
       ? form.selection.split(",").map((s) => s.trim()).filter(Boolean)
       : null;
