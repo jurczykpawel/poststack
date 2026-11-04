@@ -88,11 +88,12 @@ describe("Workspace default rephrase prompt — render + persist (AIPROMPT1)", (
     expect(await wsPrompt()).toBe("Rephrase concisely in Polish.");
   });
 
-  it("POST caps the stored prompt at 4000 chars", async () => {
+  it("POST rejects a prompt over 4000 chars instead of cutting it", async () => {
     if (!TEST_DB) return;
     const res = await postJson("/settings/ai-rephrase-prompt", { ai_rephrase_prompt: "a".repeat(5000) });
-    expect(res.status).toBe(200);
-    expect((await wsPrompt())?.length).toBe(4000);
+    expect(res.status).toBe(422);
+    expect(await wsPrompt()).toBeNull();
+    expect((await postJson("/settings/ai-rephrase-prompt", { ai_rephrase_prompt: "a".repeat(4000) })).status).toBe(200);
   });
 
   it("POST with a blank prompt stores null", async () => {

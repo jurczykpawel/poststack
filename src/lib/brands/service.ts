@@ -40,10 +40,12 @@ export async function createBrand(
 ): Promise<BrandRow> {
   const key = input.key.trim();
   if (!key) throw new ApiError("invalid_request", "Brand key is required", 400);
+  if (key.length > 64) throw new ApiError("invalid_request", "Brand key must be at most 64 characters", 400);
   if (!BRAND_KEY_RE.test(key)) {
     throw new ApiError("invalid_request", "Brand key may contain only letters, digits, dots, dashes and underscores", 400);
   }
   if (!input.name?.trim()) throw new ApiError("invalid_request", "Brand name is required", 400);
+  if (input.name.trim().length > 100) throw new ApiError("invalid_request", "Brand name must be at most 100 characters", 400);
   const story_template = validateStoryTemplate(input.story_template);
   const inserted = await exec
     .insert(brands)

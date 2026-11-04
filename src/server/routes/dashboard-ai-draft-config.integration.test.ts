@@ -110,15 +110,13 @@ describe("Workspace default AI-draft prompt — render + persist (Task 8 / ADPRO
     expect(await wsPrompts()).toEqual({ dm: "New DM prompt.", pub: null });
   });
 
-  it("POST caps each stored prompt at 4000 chars independently (parity with the per-channel prompt)", async () => {
+  it("POST rejects a prompt over 4000 chars (parity with the per-channel prompt) instead of cutting it", async () => {
     if (!TEST_DB) return;
-    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "a".repeat(5000), ai_draft_prompt_public: "b".repeat(5000) });
-    expect(res.status).toBe(200);
-    const { dm, pub } = await wsPrompts();
-    expect(dm?.length).toBe(4000);
-    expect(pub?.length).toBe(4000);
-    expect(dm?.[0]).toBe("a");
-    expect(pub?.[0]).toBe("b");
+    const res = await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "a".repeat(4000), ai_draft_prompt_public: "b".repeat(5000) });
+    expect(res.status).toBe(422);
+    expect(await wsPrompts()).toEqual({ dm: null, pub: null });
+    expect((await postJson("/settings/ai-draft-prompt", { ai_draft_prompt_dm: "a".repeat(4000) })).status).toBe(200);
+    expect((await wsPrompts()).dm?.length).toBe(4000);
   });
 
   it("POST with blank prompts stores null for both", async () => {

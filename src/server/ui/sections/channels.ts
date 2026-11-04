@@ -33,7 +33,7 @@ import { renderSourcesManager, countSources } from "./sources";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../components/ai-notice";
-import type { Platform } from "@/db/schema";
+import { platform as platformEnum, type Platform } from "@/db/schema";
 import { listDeliveries } from "@/lib/deliveries/service";
 import { listBrands, assignChannelBrand, type BrandRow } from "@/lib/brands/service";
 import { ApiError } from "@/lib/api/response";
@@ -390,7 +390,7 @@ async function channelsPage(c: Context): Promise<Response> {
   const ws = a.workspaceId;
   const url = new URL(c.req.url);
 
-  const platformParam = url.searchParams.get("platform") || undefined;
+  const platformParam = (platformEnum.enumValues as string[]).includes(url.searchParams.get("platform") ?? "") ? url.searchParams.get("platform")! : undefined;
   const showHidden = url.searchParams.get("showHidden") === "1";
   const statusParam = url.searchParams.get("status") || undefined;
   const status = (statusParam && (CHANNEL_STATUSES as string[]).includes(statusParam) ? statusParam : undefined) as ChannelStatus | undefined;

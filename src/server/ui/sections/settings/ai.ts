@@ -63,6 +63,9 @@ const cardHead = (title: string, locked: boolean, upgradeUrl: string, lead: stri
   html`<div class="row" style="align-items:center;gap:.5rem"><h2 style="margin:0">${title}</h2>${locked ? proLink(upgradeUrl, "PRO") : html``}</div>
     <p class="muted" style="margin:.25rem 0 .75rem">${lead}</p>`;
 
+const PROMPT_MAX = 4000;
+const PROMPT_TOO_LONG = `Prompt is too long — the limit is ${PROMPT_MAX} characters. Nothing was saved.`;
+
 export function registerAiSettings(app: Hono, guard: MiddlewareHandler): void {
   app.get("/settings/ai", guard, async (c) => {
     const a = await settingsAuth(c);
@@ -105,10 +108,12 @@ export function registerAiSettings(app: Hono, guard: MiddlewareHandler): void {
       return c.html(renderAiDraftPrompt(null, null, false, license.upgradeUrl), 403);
     }
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    // Cap at 4000 chars for parity with the per-channel prompt (channels/service.ts) — both feed the
-    // same LLM prompt builder, so an unbounded workspace default must not slip past the channel cap.
-    const rawDm = typeof form.ai_draft_prompt_dm === "string" ? form.ai_draft_prompt_dm.trim().slice(0, 4000) : "";
-    const rawPublic = typeof form.ai_draft_prompt_public === "string" ? form.ai_draft_prompt_public.trim().slice(0, 4000) : "";
+    // 4000-char cap, parity with the per-channel prompt (channels/service.ts); over it is a 422, never a silent cut.
+    const rawDm = typeof form.ai_draft_prompt_dm === "string" ? form.ai_draft_prompt_dm.trim() : "";
+    const rawPublic = typeof form.ai_draft_prompt_public === "string" ? form.ai_draft_prompt_public.trim() : "";
+    if (rawDm.length > PROMPT_MAX || rawPublic.length > PROMPT_MAX) {
+      return c.html(renderAiDraftPrompt(rawDm || null, rawPublic || null, true, license.upgradeUrl, PROMPT_TOO_LONG, await isAiConfigured()), 422);
+    }
     await db.update(workspaces).set({ ai_draft_prompt_dm: rawDm || null, ai_draft_prompt_public: rawPublic || null }).where(eq(workspaces.id, a.workspaceId));
     return c.html(renderAiDraftPrompt(rawDm || null, rawPublic || null, true, license.upgradeUrl, "Default AI-draft prompt saved.", await isAiConfigured()));
   });
@@ -124,7 +129,8 @@ export function registerAiSettings(app: Hono, guard: MiddlewareHandler): void {
     }
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     // Cap at 4000 (parity with the AI-draft prompt + the per-rule custom_prompt 2000 is the override).
-    const raw = typeof form.ai_rephrase_prompt === "string" ? form.ai_rephrase_prompt.trim().slice(0, 4000) : "";
+    const raw = typeof form.ai_rephrase_prompt === "string" ? form.ai_rephrase_prompt.trim() : "";
+    if (raw.length > PROMPT_MAX) return c.html(renderAiRephrasePrompt(raw, true, license.upgradeUrl, PROMPT_TOO_LONG, await isAiConfigured()), 422);
     await db.update(workspaces).set({ ai_rephrase_prompt: raw || null }).where(eq(workspaces.id, a.workspaceId));
     return c.html(renderAiRephrasePrompt(raw || null, true, license.upgradeUrl, "Default rephrase prompt saved.", await isAiConfigured()));
   });

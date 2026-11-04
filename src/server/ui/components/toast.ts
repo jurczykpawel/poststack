@@ -200,7 +200,8 @@ export function uiBehaviorScript(): Html {
     });
     document.body.addEventListener('htmx:responseError', function (e) {
       var xhr = (e.detail || {}).xhr;
-      var explained = xhr && /ps:toast/.test(xhr.getResponseHeader('HX-Trigger') || '');
+      // A 422 is swapped into the form's own message slot, so it is explained already (MQA19-B04).
+      var explained = xhr && (xhr.status === 422 || /ps:toast/.test(xhr.getResponseHeader('HX-Trigger') || ''));
       if (!explained) writeFailed(e, 'Not saved — server error. Try again in a moment.');
     });
     // HTMX confirm → styled Alpine dialog (only for elements carrying hx-confirm).
