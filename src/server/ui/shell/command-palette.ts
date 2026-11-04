@@ -143,7 +143,12 @@ document.addEventListener('alpine:init', function () {
         var self = this;
         this.$nextTick(function () { if (self.$refs.cmdkInput) self.$refs.cmdkInput.focus(); });
       },
-      close: function () { this.open = false; },
+      // Esc hands focus back to the button that opened the palette (MQA19-B10).
+      close: function () {
+        this.open = false;
+        var t = document.querySelector('.cmdk-trigger');
+        if (t && !this.leaving) t.focus();
+      },
       move: function (delta) {
         var n = this.filtered.length;
         if (!n) return;
@@ -153,7 +158,7 @@ document.addEventListener('alpine:init', function () {
         var it = this.filtered[this.active];
         if (it) this.goTo(it.href);
       },
-      goTo: function (href) { this.close(); window.location.href = href; },
+      goTo: function (href) { this.leaving = true; this.close(); window.location.href = href; },
     };
   });
 });

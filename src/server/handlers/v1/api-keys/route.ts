@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 export const VALID_SCOPES = API_SCOPES;
 
 const createSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(100),
   scopes: z.array(z.enum(VALID_SCOPES))
     .min(1, "Select at least one permission")
     .max(API_SCOPES.length)

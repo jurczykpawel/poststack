@@ -10,6 +10,7 @@ import { isInstanceOperator } from "@/lib/auth/instance-operator";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { icon } from "../../components/icons";
+import { formErrorText } from "../../components/form-error";
 import { proLink } from "../../components/pro-link";
 import { timeAgo } from "../../components/time";
 import { copyBtn } from "../../components/copy";
@@ -176,7 +177,7 @@ export function registerApiKeySettings(app: Hono, guard: MiddlewareHandler, json
       ? html`<div class="notice notice-ok key-created"><strong>Copy this key now. It won't be shown again.</strong>
           <div class="row" style="gap:8px;align-items:center;margin-top:6px"><code class="mono" style="overflow-wrap:anywhere">${created}</code>${copyBtn(created)}</div></div>`
       : res.status >= 400
-        ? html`<div class="notice notice-err">${body?.error?.message ?? "Failed to create key."}</div>`
+        ? html`<div class="notice notice-err">${formErrorText(body, "Failed to create key.")}</div>`
         : html``;
     return c.html(html`${banner}${renderKeys(await loadKeys(a.workspaceId))}`);
   });

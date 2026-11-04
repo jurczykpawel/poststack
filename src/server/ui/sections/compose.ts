@@ -16,6 +16,7 @@ import { sequences as sequencesTbl, auditLogs } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { renderPage } from "../layout";
 import { platformLabel, platformColor, platformGlyphString } from "../components/platform";
+import { formErrorText } from "../components/form-error";
 import { icon } from "../components/icons";
 import { tiktokPanel, tiktokPanelScript } from "../components/tiktok-panel";
 import { youtubePanel, youtubePanelScript } from "../components/youtube-panel";
@@ -27,12 +28,15 @@ import { AuditAction } from "@/lib/audit";
 
 type Html = ReturnType<typeof html>;
 
+const MEDIA_URL_MSG = "Media URL must be an http(s) address.";
+const httpUrl = z.string().max(LIMITS.url).refine((u) => /^https?:\/\//i.test(u.trim()), MEDIA_URL_MSG);
+
 const composeSchema = z.object({
   brand: z.string().min(1).max(LIMITS.line),
   title: z.string().min(1).max(LIMITS.name),
   contentType: z.string().max(LIMITS.line).optional(),
-  mediaUrl: z.string().min(1).max(LIMITS.url),
-  coverUrl: z.string().max(LIMITS.url).optional(),
+  mediaUrl: httpUrl,
+  coverUrl: httpUrl.optional().or(z.literal("")),
   baseDescription: z.string().max(LIMITS.text).optional(),
   baseHashtags: z.string().max(LIMITS.hashtags).optional(),
   posts: z
@@ -462,12 +466,17 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const form = await c.req.parseBody();
     const lic = await getInstanceLicense();
-    let parsed: z.infer<typeof composeSchema>;
-    try {
-      parsed = composeSchema.parse(JSON.parse(String(form.payload ?? "{}")));
-    } catch {
-      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Could not read the form — please try again."), 400);
+    let json: unknown;
+    try { json = JSON.parse(String(form.payload ?? "{}")); } catch { json = null; }
+    const result = composeSchema.safeParse(json);
+    if (!result.success) {
+      // A too-long field or a non-http(s) address is the user's to fix: 422 with the field named.
+      // Anything else (unreadable or structurally wrong payload) stays a 400.
+      const fixable = json !== null && result.error.issues.every((i) => i.code === "too_big" || i.message === MEDIA_URL_MSG);
+      const msg = fixable ? formErrorText({ error: { details: result.error.issues } }, "Check the form and try again.") : "Could not read the form — please try again.";
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg), fixable ? 422 : 400);
     }
+    const parsed = result.data;
     const mode = parsed.publish?.mode ?? "draft";
     const tik = parsed.posts.find((p) => p.platform === "tiktok");
     let consentChannelId: string | undefined;

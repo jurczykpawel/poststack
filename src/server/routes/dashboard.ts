@@ -30,6 +30,7 @@ import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import { icon } from "../ui/components/icons";
 import { toastHeader } from "../ui/components/toast";
+import { formErrorText } from "../ui/components/form-error";
 import { ApiError } from "@/lib/api/response";
 import { timeAgo } from "../ui/components/time";
 import { proLink } from "../ui/components/pro-link";
@@ -193,7 +194,7 @@ function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>
     const kind = isComment ? { cls: "comment", ic: "comment" as const, t: "Comment" } : isEmail ? { cls: "email", ic: "mail" as const, t: "Email" } : { cls: "dm", ic: "comment" as const, t: "DM" };
     const name = contactName(conv);
     const initials = (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
-    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML">
+    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
       <span class="conv-av"><span class="conv-av-i">${initials}</span><span class="conv-pg" style="background:${platformColor(conv.platform)}">${raw(platformGlyphString(conv.platform, 9))}</span></span>
       <span class="conv-body">
         <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time-wrap">${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}<span class="conv-time">${timeAgo(conv.last_message_at)}</span></span></span>
@@ -466,7 +467,7 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
             ? html`<div class="cmt-dm">${icon("check", "ico", 12)} public reply sent${it.replyText ? html` — “${it.replyText}”` : html``}</div>`
             : html``}
           ${it.dmSent
-            ? html`<div class="cmt-dm">${icon("check", "ico", 12)} auto-DM sent${it.dmConvId ? html` · <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML">open DM thread →</a>` : html``}</div>`
+            ? html`<div class="cmt-dm">${icon("check", "ico", 12)} auto-DM sent${it.dmConvId ? html` · <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">open DM thread →</a>` : html``}</div>`
             : html``}
           ${it.error ? html`<div class="cmt-err">${icon("alert", "ico", 11)} ${it.error}</div>` : html``}
         </div>
@@ -1075,6 +1076,13 @@ function rephrasePromptFields(tone: string | null, customPrompt: string | null, 
 
 // ─── registration ─────────────────────────────────────────────────────────────
 
+/** A validation failure shown in the form's own slot (htmx swaps 422): the form stays open with its data. */
+function formError(c: Context, slot: string, text: string) {
+  c.header("HX-Retarget", `#${slot}`);
+  c.header("HX-Reswap", "innerHTML");
+  return c.html(html`<div class="notice notice-err" role="alert">${text}</div>`, 422);
+}
+
 /**
  * Turn a delegated API response into an error notice (or undefined on success). A swallowed `null`
  * (the delegated call threw) and any >=400 both surface a message — preferring the API's own error
@@ -1548,7 +1556,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
-      return c.html(html`<div class="auth-error">${body?.error?.message ?? "Could not connect with this token."}</div>`);
+      return c.html(html`<div class="auth-error">${formErrorText(body, "Could not connect with this token.")}</div>`);
     }
     c.header("HX-Redirect", "/channels");
     return c.body(null, 200);
@@ -1560,7 +1568,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
-      return c.html(html`<div class="auth-error">${body?.error?.message ?? "Could not connect the Telegram bot."}</div>`);
+      return c.html(html`<div class="auth-error">${formErrorText(body, "Could not connect the Telegram bot.")}</div>`);
     }
     c.header("HX-Redirect", "/channels");
     return c.body(null, 200);
@@ -1698,6 +1706,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     } else if (followGate) {
       responseType = "follow_gate";
       const claimLabel = (form.claim_label ?? "").trim() || "Chcę odebrać";
+      if (claimLabel.length > 20) return formError(c, `rule-new-err-${form.source_rule_id ?? "new"}`, "Re-prompt button label must be at most 20 characters.");
       const storedButtons = (responseConfig.not_followed as { buttons?: Array<{ title: string; payload?: string; url?: string }> } | undefined)?.buttons ?? [];
       const claimButton = storedButtons[0] ? { ...storedButtons[0], title: claimLabel } : { title: claimLabel, payload: payloadValue || "CLAIM" };
       responseConfig.followed = { ...(responseConfig.followed as object), text: form.followed_text ?? "" };
@@ -1713,9 +1722,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       }
       if (form.ai_rephrase === "true") {
         responseConfig.ai_rephrase = true;
-        // AIPROMPT1: optional per-rule overrides (caps mirror the API: tone 100, custom_prompt 2000).
-        const tone = typeof form.tone === "string" ? form.tone.trim().slice(0, 100) : "";
-        const customPrompt = typeof form.custom_prompt === "string" ? form.custom_prompt.trim().slice(0, 2000) : "";
+        // AIPROMPT1: optional per-rule overrides; the API schema caps them (tone 100, custom_prompt 2000) and answers 422.
+        const tone = typeof form.tone === "string" ? form.tone.trim() : "";
+        const customPrompt = typeof form.custom_prompt === "string" ? form.custom_prompt.trim() : "";
         if (tone) responseConfig.tone = tone;
         if (customPrompt) responseConfig.custom_prompt = customPrompt;
       }
@@ -1750,10 +1759,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     };
     const res = await rules.POST(jsonReq(c, payload));
     const list = renderRules(await loadRules(a.workspaceId));
-    if (res.status >= 400) {
-      const body = await res.json().catch(() => ({}));
-      return c.html(html`<div class="notice notice-err">${body?.error?.message ?? "Could not create rule."}</div>${list}`);
-    }
+    if (res.status >= 400) return formError(c, `rule-new-err-${form.source_rule_id ?? "new"}`, formErrorText(await res.json().catch(() => ({})), "Could not create rule."));
     return c.html(list);
   });
 
@@ -1853,8 +1859,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         if (form.ai_rephrase === "true") {
           responseConfig.ai_rephrase = true;
           // AIPROMPT1: update per-rule overrides; blank clears them (fall back to workspace/built-in).
-          const tone = typeof form.tone === "string" ? form.tone.trim().slice(0, 100) : "";
-          const customPrompt = typeof form.custom_prompt === "string" ? form.custom_prompt.trim().slice(0, 2000) : "";
+          const tone = typeof form.tone === "string" ? form.tone.trim() : "";
+          const customPrompt = typeof form.custom_prompt === "string" ? form.custom_prompt.trim() : "";
           if (tone) responseConfig.tone = tone; else delete responseConfig.tone;
           if (customPrompt) responseConfig.custom_prompt = customPrompt; else delete responseConfig.custom_prompt;
         } else {
@@ -1894,11 +1900,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!res || res.status >= 400) {
       const body = res ? await res.json().catch(() => ({})) : {};
       // The edit form stays open with its data: the message goes to the form's own slot (422 is swapped by htmx).
-      const e = (body as { error?: { message?: string; details?: Array<{ path?: unknown; message?: string }> } })?.error;
-      const fields = (e?.details ?? []).filter((d) => d?.message).map((d) => `${Array.isArray(d.path) ? d.path.join(".") : d.path ?? "field"}: ${d.message}`);
-      c.header("HX-Retarget", `#rule-err-${id}`);
-      c.header("HX-Reswap", "innerHTML");
-      return c.html(html`<div class="notice notice-err" role="alert">${fields.length ? fields.join(". ") : e?.message ?? "Could not update the rule."}</div>`, 422);
+      return formError(c, `rule-err-${id}`, formErrorText(body, "Could not update the rule."));
     }
     return c.html(renderRules(await loadRules(a.workspaceId)));
   });
@@ -2135,6 +2137,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
                 <button class="btn btn-sm" type="button" @click="steps.push({ type: 'message', content: '', delay_minutes: 60 })" x-show="steps.length < 50">+ step</button>
               </div>
               <input type="hidden" name="steps_json" :value="stepsJson()" />
+              <div id="sequence-new-err"></div>
               <button class="btn btn-primary" type="submit" style="align-self:flex-start">Create sequence</button>
             </form>
           </details>`}
@@ -2166,12 +2169,11 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const res = await sequences.POST(jsonReq(c, payload));
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const list = renderSequences(await loadSequences(a.workspaceId));
     if (res.status >= 400) {
       const body = await res.json().catch(() => ({}));
-      return c.html(html`<div class="notice notice-err">${body?.error?.message ?? "Could not create sequence."}</div>${list}`);
+      return formError(c, "sequence-new-err", steps.length ? formErrorText(body, "Could not create sequence.") : "Add at least one step with text.");
     }
-    return c.html(list);
+    return c.html(renderSequences(await loadSequences(a.workspaceId)));
   });
 
   app.post("/sequences/:id/status", guard, async (c) => {
@@ -2803,6 +2805,7 @@ function ruleCreateForm(
       <input type="hidden" name="ai_rephrase" :value="aiRephrase" />
       <input type="hidden" name="requires_approval" :value="requiresApproval" />
       <div class="row" style="gap:.5rem;align-self:flex-start">
+        <div id="rule-new-err-${p ? p.id : "new"}"></div>
         <button class="btn btn-primary" type="submit">Create rule</button>
         ${cancel ? html`<button class="btn btn-sm" type="button" hx-get="/rules/list" hx-target="#rules-list" hx-swap="innerHTML">Cancel</button>` : html``}
       </div>

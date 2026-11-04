@@ -193,7 +193,7 @@ function detailPanel<R>(p: DataListProps<R>): Html | string {
 }
 
 export function dataList<R>(p: DataListProps<R>): Html {
-  return html`<div id="data-list" class="dl" hx-history="false" hx-boost="true" hx-target="#data-list" hx-select="#data-list" hx-swap="outerHTML show:none" hx-push-url="true">
+  return html`<div id="data-list" class="dl" hx-history="false" hx-boost="true" hx-sync="this:replace" hx-target="#data-list" hx-select="#data-list" hx-swap="outerHTML show:none" hx-push-url="true">
     ${p.tabs ?? ""}
     ${p.lead ?? ""}
     ${toolbar(p)}

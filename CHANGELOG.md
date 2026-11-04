@@ -10,6 +10,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Fixed
+- Opening an Inbox thread, a Queue post or a Contact while an earlier open is still loading no longer lets the slow answer replace your latest choice (htmx `hx-sync` replace).
+- `/channels?platform=<unknown>` shows the default list (was HTTP 500).
+- New rule, New sequence, Edit rule and Telegram connect show the field message ("Name is required.", "That doesn't look like a Telegram bot token") next to the form; the extra "server error" toast on a 422 is gone.
+- API key names must be non-blank (max 100); brand key ≤ 64 and name ≤ 100; rule tone/custom prompt and the default AI prompts over their limit return 422 instead of being cut silently.
+- Compose accepts only http(s) media URLs and names an over-long field (422) instead of "Could not read the form".
+- Esc in ⌘K returns focus to the "Jump to…" button.
 - AI provider: an account with no credits left (OpenAI `insufficient_quota`) is reported as `no_credits` with a billing hint, instead of a rate limit to retry.
 - Problem alerts: a malformed custom header returns 422 with the reason next to the field (was HTTP 500).
 - Text fields with a NUL character are rejected with 422 instead of HTTP 500.
