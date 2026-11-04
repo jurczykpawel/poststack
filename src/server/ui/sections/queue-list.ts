@@ -89,7 +89,7 @@ function sectionRow(r: QueueRow, section: PanelSection, st: ListState, tz: strin
   const stamp = section === "scheduled" ? clock(r.scheduledAt, tz) : relTime(r.scheduledAt);
   const opened = st.open === r.id;
   return html`<li class="q-row" id="post-row-${r.id}" data-row="${r.id}"${opened ? raw(' aria-current="true"') : raw("")}>
-    <span class="q-t" title="${fmtDate(r.scheduledAt)}">${stamp}</span>
+    <span class="q-t" data-local-title="${r.scheduledAt.toISOString()}" title="${fmtDate(r.scheduledAt)}">${stamp}</span>
     ${channelCell(r)}
     <a class="q-text dl-rowlink" href="${listHref(PATH, st, { open: r.id })}">${textOf(r)}</a>
     <span class="q-fmt">${r.format}</span>
@@ -210,7 +210,7 @@ function shared(st: ListState, channels: { id: string; label: string }[], format
 }
 
 function fullListColumns(section: QueueSection, st: ListState, tz: string): ListColumn<QueueRow>[] {
-  const when: ListColumn<QueueRow> = { label: "When", width: "13%", cell: (r) => html`<span class="dl-when" title="${fmtDate(r.scheduledAt)}">${section === "scheduled" ? `${shortDate(r.scheduledAt, tz)}, ${clock(r.scheduledAt, tz)}` : relTime(r.scheduledAt)}</span>` };
+  const when: ListColumn<QueueRow> = { label: "When", width: "13%", cell: (r) => html`<span class="dl-when" data-local-title="${r.scheduledAt.toISOString()}" title="${fmtDate(r.scheduledAt)}">${section === "scheduled" ? `${shortDate(r.scheduledAt, tz)}, ${clock(r.scheduledAt, tz)}` : relTime(r.scheduledAt)}</span>` };
   const channel: ListColumn<QueueRow> = { label: "Channel", width: "18%", cell: channelCell };
   const text: ListColumn<QueueRow> = { label: "Post", width: "33%", main: true, cell: textOf };
   const acts: ListColumn<QueueRow> = { label: "", width: section === "attention" ? "13%" : "17%", cell: (r) => rowActions(r, st) };

@@ -931,7 +931,7 @@ describe("channels — managed connection section", () => {
     }) as typeof fetch;
   }
 
-  it("one header CTA opens the connect sheet: grouped platform tiles, Telegram form, token + managed links in the footer", async () => {
+  it("one header CTA opens the connect sheet with grouped tiles and one token entry point", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request("/channels", { headers: { cookie } })).text();
     expect(body).toMatch(/<button class="btn btn-primary ch-connect-cta"[^>]*>[\s\S]*?Connect channel<\/button>/);
@@ -943,7 +943,7 @@ describe("channels — managed connection section", () => {
     expect(body).toContain("Which Instagram option should I use?");
     expect(body).toContain('hx-post="/channels/telegram/connect"');
     expect(body).toContain('hx-post="/channels/connect-token"');
-    expect(body).toContain("Connect with a token (advanced)");
+    expect(body.match(/connect with a token/gi)).toHaveLength(1);
     expect(body).toContain('href="#sources"');
     // The old bottom-of-page connect section is gone; managed connections collapse under the list.
     expect(body).not.toContain("<h3>Connect a channel</h3>");

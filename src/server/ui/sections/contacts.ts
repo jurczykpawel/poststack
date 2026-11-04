@@ -50,7 +50,7 @@ const COLUMNS: ListColumn<Row>[] = [
   { label: "Contact", width: "32%", main: true, cell: (c) => html`<b>${nameOf(c)}</b>${c.email ? html`<div class="muted">${c.email}</div>` : ""}` },
   { label: "Channels", width: "30%", cell: (c) => channelBadges(c.contact_channels) },
   { label: "Status", width: "16%", cell: statusBadge },
-  { label: "Last seen", width: "22%", cell: (c) => (c.last_interaction_at ? html`<span class="dl-when" title="${fmtDate(c.last_interaction_at)}">${timeAgo(c.last_interaction_at)}</span>` : html`<span class="muted">Never</span>`) },
+  { label: "Last seen", width: "22%", cell: (c) => (c.last_interaction_at ? html`<span class="dl-when" data-local-title="${c.last_interaction_at.toISOString()}" title="${fmtDate(c.last_interaction_at)}">${timeAgo(c.last_interaction_at)}</span>` : html`<span class="muted">Never</span>`) },
 ];
 
 async function openedContact(workspaceId: string, id: string) {

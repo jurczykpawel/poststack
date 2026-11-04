@@ -1,3 +1,4 @@
+import { localTime } from "../../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
@@ -55,7 +56,7 @@ export function aiProviderForm(v: AiSettingsView): Html {
 }
 
 function modelList(models: AiModel[], list: { fetched_at: string; filtered_out: number }, all: boolean): Html {
-  const time = new Date(list.fetched_at).toISOString().slice(11, 16);
+  const time = localTime(new Date(list.fetched_at));
   const ids = JSON.stringify({ ids: models.map((m) => m.id) });
   return html`<div x-data="${ids}"><div class="ai-list" id="ai-model-list" role="listbox" aria-label="Models" x-show="open" x-cloak>
     ${models.map((m) => html`<button type="button" class="ai-opt" role="option" data-id="${m.id}" data-s="${`${m.id} ${m.name ?? ""}`.toLowerCase()}"
@@ -64,7 +65,7 @@ function modelList(models: AiModel[], list: { fetched_at: string; filtered_out: 
       <span class="ai-meta">${[ctx(m.context), m.price_in !== undefined ? `$${m.price_in}/1M in` : ""].filter(Boolean).join(" · ")}</span></button>`)}
     <div class="ai-opt ai-custom" x-show="model && !ids.includes(model)">Use custom name: <span class="ai-id" x-text="model"></span> <span class="muted">(not on the provider's list; checked when you test)</span></div>
   </div>
-  <div class="ai-foot"><span>List from ${time} UTC · ${models.length} models${list.filtered_out ? ` · ${list.filtered_out} non-chat hidden` : ""}</span>
+  <div class="ai-foot"><span>List from ${time} · ${models.length} models${list.filtered_out ? ` · ${list.filtered_out} non-chat hidden` : ""}</span>
     <button class="btn btn-ghost btn-sm" type="button" hx-post="/settings/integrations/ai/models" hx-vals='{"refresh":"1"}' hx-target="#ai-models" hx-swap="innerHTML">Refresh</button>
     <label><input type="checkbox" name="all" value="1"${all ? raw(" checked") : ""} @change="$dispatch('reload-models')" /> Show all</label></div></div>`;
 }

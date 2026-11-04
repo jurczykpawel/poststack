@@ -106,7 +106,7 @@ function eventBadge(e: Pick<EventRow, "type">) {
 }
 
 function when(at: Date) {
-  return html`<span class="dl-when" title="${fmtDate(at)}">${timeAgo(at)}</span>`;
+  return html`<span class="dl-when" data-local-title="${at.toISOString()}" title="${fmtDate(at)}">${timeAgo(at)}</span>`;
 }
 
 /** Where the event's subject can be opened. Posts are skipped: their subject id may be a delivery. */

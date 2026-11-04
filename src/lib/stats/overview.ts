@@ -43,8 +43,12 @@ export interface Overview {
   recentSends: RecentSend[];
 }
 
-export function startOfUtcDay(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+/** Calendar-day predicate for dashboard counters and their linked activity list. */
+export function inViewerDay(at: typeof outboundDeliveries.created_at, now: Date, timeZone = "UTC") {
+  const local = sql`date_trunc('day', ${now.toISOString()}::timestamptz at time zone ${timeZone})`;
+  const start = sql`(${local} at time zone ${timeZone} at time zone 'UTC')`;
+  const end = sql`((${local} + interval '1 day') at time zone ${timeZone} at time zone 'UTC')`;
+  return sql`${at} >= ${start} and ${at} < ${end}`;
 }
 
 /**
@@ -53,12 +57,11 @@ export function startOfUtcDay(now: Date): Date {
  */
 export async function loadOverview(
   workspaceId: string,
-  opts: { now?: Date; logLimit?: number } = {},
+  opts: { now?: Date; logLimit?: number; timeZone?: string } = {},
 ): Promise<Overview> {
   const now = opts.now ?? new Date();
   const logLimit = opts.logLimit ?? 20;
-  const dayStart = startOfUtcDay(now);
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+  const today = inViewerDay(outboundDeliveries.created_at, now, opts.timeZone);
 
   const isStatus = (s: string) => sql<number>`count(*) filter (where ${outboundDeliveries.status} = ${s})`;
 
@@ -68,7 +71,7 @@ export async function loadOverview(
       sent: isStatus("sent"),
       failed: isStatus("failed"),
       held: isStatus("held"),
-      today: sql<number>`count(*) filter (where ${outboundDeliveries.status} = 'sent' and ${outboundDeliveries.created_at} >= ${dayStart} and ${outboundDeliveries.created_at} < ${dayEnd})`,
+      today: sql<number>`count(*) filter (where ${outboundDeliveries.status} = 'sent' and ${today})`,
     })
     .from(outboundDeliveries)
     .where(eq(outboundDeliveries.workspace_id, workspaceId));

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 function convert(local: string, zone = "Europe/Warsaw") {
   const previous = process.env.TZ;
@@ -39,6 +39,42 @@ describe("local schedule conversion", () => {
 });
 
 describe("local timestamp display", () => {
+  it("refreshes the main fragment when learning a calendar view's zone", async () => {
+    const ajax = vi.fn(() => Promise.resolve());
+    const reload = vi.fn();
+    const marker = { inert: false, getAttribute: () => "Other/Zone", setAttribute: () => {} };
+    runInNewContext(readFileSync("src/server/ui/static/schedule-time.js", "utf8"), {
+      window: { htmx: { ajax } }, Date, Intl, Number,
+      location: { href: "http://localhost/overview", reload },
+      document: { readyState: "complete", cookie: "", querySelectorAll: () => [], querySelector: () => marker,
+        getElementById: (id: string) => id === "main" ? {} : null, addEventListener: () => {} },
+    });
+    expect(marker.inert).toBe(true);
+    await Promise.resolve();
+    expect(marker.inert).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+    expect(ajax).toHaveBeenCalledWith("GET", "http://localhost/overview", { target: "#main", select: "#main", swap: "outerHTML" });
+  });
+  it.each(["Europe/Warsaw", "Pacific/Auckland"])("uses one local clock for message times and tooltips in %s", (zone) => {
+    const previous = process.env.TZ;
+    process.env.TZ = zone;
+    try {
+      const clock = { textContent: "", getAttribute: (name: string) => name === "datetime" ? "2026-10-26T18:00:00Z" : "clock" };
+      const email = { textContent: "", getAttribute: (name: string) => name === "datetime" ? "2026-10-26T18:00:00Z" : "email" };
+      const tooltip = { title: "", getAttribute: () => "2026-10-26T18:00:00Z" };
+      runInNewContext(readFileSync("src/server/ui/static/schedule-time.js", "utf8"), {
+        window: {}, Date, Intl, Number,
+        document: { readyState: "complete", cookie: "ps_tz=" + encodeURIComponent(zone), addEventListener: () => {},
+          querySelectorAll: (selector: string) => selector.startsWith("time") ? [clock, email] : [tooltip] },
+      });
+      expect(clock.textContent).toBe(zone === "Europe/Warsaw" ? "19:00" : "07:00");
+      expect(tooltip.title).toContain(zone === "Europe/Warsaw" ? "26 Oct 2026, 19:00" : "27 Oct 2026, 07:00");
+      expect(tooltip.title).toContain(zone);
+      expect(email.textContent).toBe(zone === "Europe/Warsaw" ? "26 Oct, 19:00" : "27 Oct, 07:00");
+    } finally {
+      if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous;
+    }
+  });
   it.each([
     ["America/New_York", "2027-12-22T15:30:00Z", "22 Dec 2027, 10:30"],
     ["Asia/Kolkata", "2027-01-22T18:45:00Z", "23 Jan 2027, 00:15"],

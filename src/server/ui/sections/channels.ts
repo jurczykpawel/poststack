@@ -46,7 +46,7 @@ import { platformCell, platformLabel, platformColor, platformGlyph } from "../co
 import { btn } from "../components/button";
 import { icon } from "../components/icons";
 import { reconnectHref } from "../components/reconnect";
-import { relTime, fmtDate } from "../components/format";
+import { relTime, localTime } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 
 type Html = ReturnType<typeof html>;
@@ -542,7 +542,6 @@ function connectSheet(o: ConnectOpts, openOnLoad: boolean): Html {
       </details>
     </div>
     <div class="sheet-f ct-foot">
-      <a href="#ct-token" onclick="document.getElementById('ct-token').open = true">Connect with a token (advanced)</a>
       <a href="#sources" onclick="this.closest('dialog').close(); document.getElementById('sources').open = true">Managed connections →</a>
     </div>
   </dialog>`;
@@ -560,7 +559,7 @@ function tokenExpiry(expires: Date | null): Html {
   const expired = days <= 0;
   const near = !expired && days <= TOKEN_WARN_DAYS;
   const tag = expired ? pill("expired", "bad") : near ? pill(relTime(expires), "warn") : pill(relTime(expires), "ok");
-  return html`<span class="meta-mono">${fmtDate(expires)}</span> ${tag}`;
+  return html`<span class="meta-mono">${localTime(expires)}</span> ${tag}`;
 }
 
 function tokenPanel(ch: PublicChannel): Html {

@@ -51,12 +51,19 @@ window.psReschedule = function () {
 (function () {
   function localize(root) {
     var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    function format(iso, style) {
+      var date = new Date(iso);
+      if (!Number.isFinite(date.getTime())) return "";
+      var options = style === "clock" ? { hour: "2-digit", minute: "2-digit", hour12: false }
+        : style === "email" ? { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }
+        : { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false };
+      return date.toLocaleString("en-GB", options) + (style === "clock" || style === "email" ? "" : " · " + zone);
+    }
     root.querySelectorAll("time[data-local-time]").forEach(function (el) {
-      var date = new Date(el.getAttribute("datetime"));
-      if (!Number.isFinite(date.getTime())) return;
-      el.textContent = date.toLocaleString("en-GB", {
-        year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
-      }) + " · " + zone;
+      el.textContent = format(el.getAttribute("datetime"), el.getAttribute("data-local-time"));
+    });
+    root.querySelectorAll("[data-local-title]").forEach(function (el) {
+      el.title = format(el.getAttribute("data-local-title"));
     });
   }
   // Server-rendered calendar days (Queue) need the zone; a list rendered for another zone is fetched again once.
@@ -67,11 +74,16 @@ window.psReschedule = function () {
     var view = document.querySelector && document.querySelector("[data-view-tz]");
     if (!view || encodeURIComponent(view.getAttribute("data-view-tz")) === zone) return;
     view.setAttribute("data-view-tz", decodeURIComponent(zone));
-    if (window.htmx && document.getElementById("data-list")) window.htmx.ajax("GET", location.href, { target: "#data-list", select: "#data-list", swap: "outerHTML" });
-    else location.reload();
+    var target = document.getElementById("data-list") ? "#data-list" : "#main";
+    if (window.htmx && document.getElementById(target.slice(1))) {
+      view.inert = true;
+      var ready = function () { view.inert = false; };
+      window.htmx.ajax("GET", location.href, { target: target, select: target, swap: "outerHTML" }).then(ready, ready);
+    } else location.reload();
   }
   function start() { localize(document); syncZone(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
+  document.addEventListener("htmx:historyRestore", start);
   document.addEventListener("htmx:load", function (event) { localize(event.target); });
 })();

@@ -37,7 +37,8 @@ export function commandPalette(products: Set<Area> = new Set<Area>(AREAS)): Html
   // Items are a static, server-trusted list. Embed as JSON in a <script> the factory reads —
   // avoids fragile escaping inside an x-data attribute. The "</" guard keeps the JSON from
   // prematurely closing the script tag (defence-in-depth; the list contains no user/DB input).
-  const itemsJson = JSON.stringify(paletteItems(products)).replace(/</g, "\\u003c");
+  const items = paletteItems(products);
+  const itemsJson = JSON.stringify(items).replace(/</g, "\\u003c");
   return html`<script id="ps-palette-data" type="application/json">${raw(itemsJson)}</script>
   <div
     class="cmdk"
@@ -71,19 +72,18 @@ export function commandPalette(products: Set<Area> = new Set<Area>(AREAS)): Html
         <kbd class="cmdk-kbd">Esc</kbd>
       </div>
       <ul class="cmdk-list" role="listbox" aria-label="Commands">
-        <template x-for="(it, i) in filtered" :key="it.href + it.label">
-          <li
+        ${items.map((it, i) => html`<li
             class="cmdk-item"
-            :class="{ 'is-active': i === active }"
+            x-show="filtered.includes(items[${i}])"
+            :class="{ 'is-active': filtered.indexOf(items[${i}]) === active }"
             role="option"
-            :aria-selected="i === active"
-            @click="goTo(it.href)"
-            @mousemove="active = i"
+            :aria-selected="filtered.indexOf(items[${i}]) === active"
+            @click="goTo(items[${i}].href)"
+            @mousemove="active = filtered.indexOf(items[${i}])"
           >
-            <span class="cmdk-label" x-text="it.label"></span>
-            <span class="cmdk-hint" x-text="it.hint"></span>
-          </li>
-        </template>
+            <span class="cmdk-label">${it.label}</span>
+            <span class="cmdk-hint">${it.hint}</span>
+          </li>`)}
         <li class="cmdk-empty" x-show="filtered.length === 0">No matches.</li>
       </ul>
     </div>

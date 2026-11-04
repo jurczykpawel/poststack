@@ -1,3 +1,4 @@
+import { localTime } from "../../components/format";
 import type { Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import { isInstanceOperator } from "@/lib/auth/instance-operator";
@@ -15,7 +16,7 @@ function renderLicense(state: LicenseState, msg?: string, msgOk = false): Html {
     : html``;
   return html`${notice}${envNote}
     <div class="card" style="margin-bottom:1rem">
-      <div><strong>Status:</strong> <span class="badge">${state.status}</span>${state.tier ? html` &nbsp;<strong>Tier:</strong> ${state.tier}` : html``}${state.expiresAt ? html` &nbsp;<span class="muted">expires ${new Date(state.expiresAt).toLocaleDateString()}</span>` : html``}</div>
+      <div><strong>Status:</strong> <span class="badge">${state.status}</span>${state.tier ? html` &nbsp;<strong>Tier:</strong> ${state.tier}` : html``}${state.expiresAt ? html` &nbsp;<span class="muted">expires ${localTime(new Date(state.expiresAt))}</span>` : html``}</div>
       ${state.products.size > 0 ? html`<div style="margin-top:.4rem"><strong>Products:</strong> ${[...state.products].map((p) => html`<span class="badge">${p}</span> `)}</div>` : html``}
       ${state.features.size > 0 ? html`<div class="muted" style="margin-top:.4rem">Unlocked: ${[...state.features].join(", ")}</div>` : html``}
       <div class="muted" style="margin-top:.4rem;font-size:.8rem">Source: ${sourceLabel}</div>

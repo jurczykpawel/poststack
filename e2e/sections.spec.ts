@@ -92,9 +92,9 @@ for (const state of STATES) {
       // Inbox is a replies destination; in both states the replies wing is visible (free shows both
       // wings, locked-by-feature) so the palette offers it. Settings is always present.
       await page.locator(".cmdk-search input").fill("settings");
-      await expect(page.locator(".cmdk-item")).toContainText(["Settings"]);
+      await expect(page.locator(".cmdk-item:visible")).toContainText(["Settings"]);
       await page.locator(".cmdk-search input").fill("overview");
-      await expect(page.locator(".cmdk-item").first()).toContainText("Overview");
+      await expect(page.locator(".cmdk-item:visible").first()).toContainText("Overview");
       await page.keyboard.press("Escape");
       await expect(palette).toBeHidden();
     });
@@ -220,7 +220,7 @@ for (const width of [1440, 390]) {
       if (width === 390) {
         await page.getByRole("button", { name: "Open command palette" }).click();
         await page.locator(".cmdk-search input").fill(route.href.slice(1));
-        await page.locator(".cmdk-item").filter({ has: page.locator(".cmdk-label", { hasText: new RegExp(`^${route.key}$`, "i") }) }).click();
+        await page.locator(".cmdk-item:visible").filter({ has: page.locator(".cmdk-label", { hasText: new RegExp(`^${route.key}$`, "i") }) }).click();
       } else {
         await page.locator(`.sidebar a[href='${route.href}']`).click();
       }

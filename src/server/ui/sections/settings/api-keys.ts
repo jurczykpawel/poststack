@@ -1,3 +1,4 @@
+import { localTime } from "../../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { desc, eq } from "drizzle-orm";
@@ -41,7 +42,7 @@ function renderKeys(keys: KeyRow[], error?: string): Html {
     ${keys.map((k) => html`<div class="key-row">
       <div style="min-width:0"><div class="key-name">${k.name}</div><div class="muted mono key-prefix">${k.key_prefix}…</div></div>
       <div class="muted key-scopes" title="${k.scopes?.length ? k.scopes.join(", ") : "Full access"}">${scopeSummary(k.scopes)}</div>
-      <div class="muted key-used">${k.last_used_at ? html`Used ${timeAgo(k.last_used_at)}` : "Never used"}${k.expires_at ? html`<br />Expires ${new Date(k.expires_at).toLocaleDateString()}` : ""}</div>
+      <div class="muted key-used">${k.last_used_at ? html`Used ${timeAgo(k.last_used_at)}` : "Never used"}${k.expires_at ? html`<br />Expires ${localTime(new Date(k.expires_at))}` : ""}</div>
       <button class="btn btn-sm btn-danger" hx-delete="/settings/api-keys/${k.id}" hx-target="#keys-area" hx-swap="innerHTML" hx-confirm="Revoke ${k.name}? Scripts using it stop working." data-confirm-label="Revoke">Revoke</button>
     </div>`)}
   </div>`;

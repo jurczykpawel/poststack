@@ -121,7 +121,7 @@ export async function renderWebhooksLog(workspaceId: string, url: string, path: 
     { label: "Channel", width: "22%", cell: (e) => nameOf(e) ?? "—" },
     { label: "Status", width: "13%", cell: (e) => statusBadge(e.handling_status) },
     { label: "Detail", width: "27%", cell: (e) => (e.error_detail ? html`<span class="dl-problem">${e.error_detail}</span>` : "—") },
-    { label: "When", width: "12%", cell: (e) => html`<span class="dl-when" title="${fmtDate(e.received_at)}">${timeAgo(e.received_at)}</span>` },
+    { label: "When", width: "12%", cell: (e) => html`<span class="dl-when" data-local-title="${e.received_at.toISOString()}" title="${fmtDate(e.received_at)}">${timeAgo(e.received_at)}</span>` },
   ];
 
   return dataList<HookRow>({

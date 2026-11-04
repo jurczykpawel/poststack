@@ -111,6 +111,7 @@ describe("renderMessages — dated timeline", () => {
     }))));
     for (const date of dates) expect(body).toContain(new Date(date).toISOString());
     expect(body).toContain("toDateString()");
+    expect(body).toContain('data-local-time="clock"');
     expect(body).not.toContain('<div class="daysep">Today</div>');
   });
 });

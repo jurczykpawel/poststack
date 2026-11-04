@@ -1,3 +1,4 @@
+import { localTime } from "../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
@@ -16,8 +17,8 @@ async function auth(c: Context): Promise<AuthContext | null> {
   return authenticate(c.req.raw).catch(() => null);
 }
 
-function fmtDate(d: Date | null): string {
-  return d ? d.toISOString().slice(0, 10) : "—";
+function fmtDate(d: Date | null): Html | string {
+  return d ? localTime(d) : "—";
 }
 
 /** Soonest expiry hint for a derived channel (token-death / 90-day data-access clock). */
@@ -88,7 +89,7 @@ function renderSources(srcs: Awaited<ReturnType<typeof loadSources>>, error?: st
           <div class="muted" style="font-size:.72rem">
             ${s.kind === "system_user" ? "System User (permanent)" : "User token"} ·
             ${s.channels.length} channel${s.channels.length === 1 ? "" : "s"} across ${groupEntries.length} platform${groupEntries.length === 1 ? "" : "s"} ·
-            data access ${s.kind === "system_user" ? "never expires" : `until ${fmtDate(s.data_access_expires_at)}`} ·
+            data access ${s.kind === "system_user" ? "never expires" : html`until ${fmtDate(s.data_access_expires_at)}`} ·
             synced ${fmtDate(s.last_synced_at)}
           </div>
           ${broken && s.needs_reauth_reason ? html`<div class="muted" style="font-size:.72rem;color:var(--bad-text)">${s.needs_reauth_reason}</div>` : html``}
