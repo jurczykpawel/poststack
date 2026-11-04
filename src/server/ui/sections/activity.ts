@@ -1,3 +1,5 @@
+import { getCookie } from "hono/cookie";
+import { resolveZone } from "./queue-data";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import { authenticate } from "@/lib/auth";
@@ -45,16 +47,17 @@ export function registerActivity(r: Hono, guard: MiddlewareHandler): void {
     const u = new URL(c.req.url);
     u.searchParams.set("source", source);
     const url = u.toString();
+    const timeZone = await resolveZone(getCookie(c, "ps_tz"));
     const list =
       source === "webhooks" ? await renderWebhooksLog(a.workspaceId, url, PATH)
-      : source === "sent" ? await renderSentLog(a.workspaceId, url, PATH)
+      : source === "sent" ? await renderSentLog(a.workspaceId, url, PATH, timeZone)
       : source === "ai" ? (features.has("ai_draft") || features.has("ai_rephrase") ? await renderAiLog(a.workspaceId, url, PATH) : aiLogLocked(upgradeUrl))
       : await renderEvents(a.workspaceId, url, PATH);
     return c.html(
       dashboardDoc(
         t("title.suffix", { section: "Activity" }),
         PATH,
-        html`<div class="page">
+        html`<div class="page" data-view-tz="${timeZone}">
           <h1>Activity</h1>
           <p class="muted">What happened in this workspace: events, what the platforms delivered to your webhook, and every AI generation.</p>
           <nav class="seg dl-sources" aria-label="Source">${SOURCES.map((s) =>

@@ -31,7 +31,7 @@ const REACTION_EMOJI: Record<string, string> = { like: "👍", love: "❤️", c
 
 const platformName = (p: string | null | undefined) => (p ? PLATFORM_LABELS[p] ?? p : "—");
 const channelName = (c: Pick<Channel, "id" | "display_name" | "username"> | undefined) => c?.display_name ?? c?.username ?? "—";
-const when = (at: Date) => html`<span class="dl-when" title="${fmtDate(at)}">${timeAgo(at)}</span>`;
+const when = (at: Date) => html`<span class="dl-when" data-local-title="${at.toISOString()}" title="${fmtDate(at)}">${timeAgo(at)}</span>`;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 const safeUrl = (u: string | null | undefined) => (u && /^https?:\/\//i.test(u) ? u : null);
 

@@ -1,3 +1,4 @@
+import { localTime } from "../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -203,8 +204,8 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
         <strong>${d.event_type}</strong> · <span class="badge tone-${d.status === "delivered" ? "ok" : d.status === "failed" ? "bad" : "neutral"}">${d.status}</span>
         <dl>
           <dt>Event ID</dt><dd class="mono">${d.event_id}</dd>
-          <dt>Created</dt><dd>${d.created_at.toISOString()}</dd>
-          <dt>Last update</dt><dd>${d.updated_at.toISOString()}</dd>
+          <dt>Created</dt><dd>${localTime(d.created_at)}</dd>
+          <dt>Last update</dt><dd>${localTime(d.updated_at)}</dd>
           <dt>HTTP status</dt><dd>${d.http_status ?? "—"}</dd>
           <dt>Attempts</dt><dd>${d.attempts}</dd>
           <dt>Last error</dt><dd>${d.last_error ?? "—"}</dd>

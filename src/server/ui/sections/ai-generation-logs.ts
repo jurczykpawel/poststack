@@ -78,7 +78,7 @@ export async function renderAiLog(workspaceId: string, url: string, path: string
     { label: "Kind", width: "11%", cell: (r) => html`<span class="badge tone-neutral">${r.kind}</span>` },
     { label: "Model", width: "18%", cell: (r) => html`<span class="mono">${r.model}</span>` },
     { label: "Time", width: "9%", num: true, cell: (r) => seconds(r.duration_ms) },
-    { label: "When", width: "14%", cell: (r) => html`<span class="dl-when" title="${fmtDate(r.created_at)}">${timeAgo(r.created_at)}</span>` },
+    { label: "When", width: "14%", cell: (r) => html`<span class="dl-when" data-local-title="${r.created_at.toISOString()}" title="${fmtDate(r.created_at)}">${timeAgo(r.created_at)}</span>` },
   ];
 
   return dataList<Row>({

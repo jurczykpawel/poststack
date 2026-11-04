@@ -112,7 +112,7 @@ test("OVSENT1: Sent cards open the list and the number of rows equals the number
   await setPro(page.request);
   for (const [w, h, tag] of [[1440, 900, "1440"], [390, 800, "390"]] as const) {
     await page.setViewportSize({ width: w, height: h });
-    for (const [label, query] of [["Sent today (UTC)", "range=today"], ["Sent (all time)", ""]] as const) {
+    for (const [label, query] of [["Sent today", "range=today"], ["Sent (all time)", ""]] as const) {
       await gotoOk(page, "/overview");
       const card = page.locator("a.kpi", { hasText: label });
       const n = (await card.locator(".kpi-n").innerText()).trim();

@@ -12,6 +12,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 - Closing list details restores focus to its row after the close response settles.
 - Post cards link to X posts and TikTok public videos; TikTok uploads without a public video link offer a clearly labelled channel profile link.
+- Compose guides unassigned channels through brand setup in one click, opens the relevant channel assignments on mobile and links back to Compose.
+- Dashboard dates, message clocks and timestamp tooltips use the browser's time zone; Overview and Activity count today's replies in that same calendar day.
+- Inbox threads keep their address on refresh; browser Back closes the thread and Forward restores it. The command palette also works after restoring history.
+- Channel connection shows one advanced token entry point.
 
 ## [0.17.3] - 2026-11-04
 

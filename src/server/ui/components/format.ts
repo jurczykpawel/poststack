@@ -1,4 +1,4 @@
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
 
 /** "12,345": the list counters read the same in every locale. */
 export function fmtCount(n: number): string {
@@ -31,6 +31,6 @@ export function fmtDate(at: Date): string {
 }
 
 /** The shell localizes this instant in the browser, including after fragment swaps. */
-export function localTime(at: Date) {
-  return html`<time datetime="${at.toISOString()}" data-local-time>${fmtDate(at)}</time>`;
+export function localTime(at: Date, style = "full") {
+  return html`<time datetime="${at.toISOString()}" ${style === "full" ? raw("data-local-time") : html`data-local-time="${style}"`}>${fmtDate(at)}</time>`;
 }

@@ -231,7 +231,7 @@ function editPanel(brand: BrandRow): Html {
 }
 
 /** One brand = one table row (desktop) / one collapsible card (phone) — same markup, CSS decides. */
-function brandRow(brand: BrandRow, slots: SlotsView, locked = false): Html {
+function brandRow(brand: BrandRow, slots: SlotsView, locked = false, open = false): Html {
   const mark = brand.icon ? brand.icon : brandInitials(brand.name);
   const avatar = brand.accent && BRAND_ACCENT_RE.test(brand.accent)
     ? html`<span class="brand-glyph brand-avatar" style="background:${brand.accent}">${mark}</span>`
@@ -244,7 +244,7 @@ function brandRow(brand: BrandRow, slots: SlotsView, locked = false): Html {
     : "";
   const count = `${slots.connected} channel${slots.connected === 1 ? "" : "s"}`;
   return html`<div class="bm-row${locked ? " brand-locked" : ""}" role="row" id="brand-${domSafe(brand.key)}"
-    data-bn="${brand.name.toLowerCase()} ${brand.key.toLowerCase()}" x-data="{ open: false }" :class="{ open }"
+    data-bn="${brand.name.toLowerCase()} ${brand.key.toLowerCase()}" x-data="{ open: ${String(open)} }" :class="{ open }"${open ? raw(` x-init="$el.scrollIntoView({ block: 'center' })"`) : ""}
     x-show="!q || $el.dataset.bn.includes(q.toLowerCase())">
     <div class="bm-id" role="rowheader">
       <button type="button" class="bm-toggle" @click="open = !open" :aria-expanded="open" aria-label="Show channels of ${brand.name}">${icon("chevron", "ico", 14)}</button>
@@ -271,9 +271,10 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
     lockedBrandKeys(ws),
   ]);
   const views = await Promise.all(brands.map(async (b) => ({ b, v: await brandSlotsView(ws, b, candidates) })));
-  const rows = views.map(({ b, v }) => brandRow(b, v, locked.has(b.key)));
+  const rows = views.map(({ b, v }) => brandRow(b, v, locked.has(b.key), c.req.query("open") === b.key));
   const ambiguous = views.flatMap(({ v }) => v.ambiguous);
   const empty = brands.length === 0;
+  const composing = c.req.query("compose") === "1";
   const cols = EDITORIAL_PLATFORMS.map((p) => html`<div class="bm-th" role="columnheader">${platformLabel(p)}</div>`);
 
   return c.html(
@@ -287,13 +288,15 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
         <div class="bm-page" x-data="{ q: '', get none() { const s = this.q.toLowerCase(); return !!s && ![...this.$root.querySelectorAll('[data-bn]')].some((el) => el.dataset.bn.includes(s)); } }">
         <div class="bm-tools">
           <p class="section-intro">Which channel posts for each brand. Pick one channel per platform.</p>
+          ${composing ? html`<a class="btn btn-primary btn-sm" href="/compose">Back to Compose</a>` : ""}
           <input type="search" x-model="q" placeholder="Search ${brands.length} brand${brands.length === 1 ? "" : "s"}…" aria-label="Search brands" />
           <div x-data><button type="button" class="btn btn-primary btn-sm" @click="$refs.newDlg.showModal()">${icon("plus", "ico", 14)}Add brand</button>
-          <dialog class="sheet" x-ref="newDlg" @click="if ($event.target === $el) $el.close()" aria-label="New brand">
+          <dialog class="sheet" x-ref="newDlg"${c.req.query("new") === "1" ? raw(` x-init="$el.showModal()"`) : ""} @click="if ($event.target === $el) $el.close()" aria-label="New brand">
             <div class="sheet-h"><h4>New brand</h4>
               <button type="button" class="btn btn-ghost btn-sm" @click="$refs.newDlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
             <form class="brand-new-form sheet-b" method="post" action="/brands" hx-post="/brands" hx-target="#brand-new-err" hx-swap="innerHTML">
               <div id="brand-new-err" role="alert"></div>
+              ${composing ? html`<input type="hidden" name="compose" value="1" />` : ""}
               <label class="brand-fld"><span>Key <small>(stable id — e.g. techskills.academy)</small></span>
                 <input name="key" placeholder="techskills.academy" required pattern="${BRAND_KEY_HTML_PATTERN}" title="Letters, digits, dots, dashes and underscores; start with a letter or digit" /></label>
               <label class="brand-fld"><span>Display name</span>
@@ -429,8 +432,9 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
       if (err instanceof ApiError) return inline ? c.html(html`<div class="notice notice-err">${err.message}</div>`, 422) : brandsPage(c, err.message, err.status);
       throw err;
     }
-    if (c.req.header("hx-request") === "true") { c.header("HX-Redirect", "/brands"); return c.body(null, 200); }
-    return c.redirect("/brands", 303);
+    const to = form.compose === "1" ? `/brands?compose=1&open=${encodeURIComponent(key.trim())}` : "/brands";
+    if (c.req.header("hx-request") === "true") { c.header("HX-Redirect", to); return c.body(null, 200); }
+    return c.redirect(to, 303);
   });
 
   r.post("/brands/:key/edit", guard, async (c) => {

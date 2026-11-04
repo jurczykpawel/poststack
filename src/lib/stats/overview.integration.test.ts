@@ -73,6 +73,22 @@ describe("loadOverview", () => {
     expect(ov.today).toBe(1); // Only d1 was sent and created today.
   });
 
+  it("counts today's replies in the viewer's calendar day", async () => {
+    const now = new Date("2026-10-26T18:00:00Z");
+    await seedDelivery("local-day", "outgoing-message", "sent", new Date("2026-10-26T00:30:00Z"));
+    expect((await loadOverview(WS, { now, timeZone: "Europe/Warsaw" })).today).toBe(1);
+    expect((await loadOverview(WS, { now, timeZone: "Pacific/Auckland" })).today).toBe(0);
+  });
+
+  it.each([
+    ["2027-03-28T12:00:00Z", "2027-03-28T21:59:00Z", "2027-03-28T22:30:00Z"],
+    ["2027-10-31T12:00:00Z", "2027-10-31T22:30:00Z", "2027-10-31T23:30:00Z"],
+  ])("uses the whole local day across clock changes on %s", async (now, inside, outside) => {
+    await seedDelivery("inside", "outgoing-message", "sent", new Date(inside));
+    await seedDelivery("outside", "outgoing-message", "sent", new Date(outside));
+    expect((await loadOverview(WS, { now: new Date(now), timeZone: "Europe/Warsaw" })).today).toBe(1);
+  });
+
   it("counts Queue posts (deliveries) failed/held/unknown separately from replies, scoped to the workspace", async () => {
     if (!TEST_DB) return;
     const post = (ws: string, status: "failed" | "held" | "unknown" | "sent") =>

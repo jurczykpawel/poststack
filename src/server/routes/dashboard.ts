@@ -1,9 +1,12 @@
+import { localTime } from "../ui/components/format";
+import { getCookie } from "hono/cookie";
+import { resolveZone } from "../ui/sections/queue-data";
 import type { Hono, MiddlewareHandler, Context } from "hono";
 import { isUuid } from "@/lib/api/identifiers";
 import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { and, or, eq, ne, gt, gte, lt, asc, desc, ilike, inArray, isNull, sql, count, type SQL } from "drizzle-orm";
+import { and, or, eq, ne, gt, gte, asc, desc, ilike, inArray, isNull, sql, count, type SQL } from "drizzle-orm";
 import { containsPattern } from "@/lib/list-page";
 import { db } from "@/lib/db";
 import {
@@ -98,15 +101,15 @@ function jsonReq(c: Context, body: unknown): Request {
 
 
 /** Wall-clock HH:MM for a message's own timestamp — the mono time under each thread bubble. */
-function clockTime(iso: string | Date | null): string {
+function clockTime(iso: string | Date | null): Html | string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  return localTime(new Date(iso), "clock");
 }
 
 /** Compact date + time for an email card header (no relative fuzzing — emails are dated, not "5m ago"). */
-function emailWhen(iso: string | Date | null): string {
+function emailWhen(iso: string | Date | null): Html | string {
   if (!iso) return "";
-  return new Date(iso).toLocaleString([], { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  return localTime(new Date(iso), "email");
 }
 
 // ─── inbox ────────────────────────────────────────────────────────────────────
@@ -194,7 +197,7 @@ function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>
     const kind = isComment ? { cls: "comment", ic: "comment" as const, t: "Comment" } : isEmail ? { cls: "email", ic: "mail" as const, t: "Email" } : { cls: "dm", ic: "comment" as const, t: "DM" };
     const name = contactName(conv);
     const initials = (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
-    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
+    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-push-url="/inbox?open=${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
       <span class="conv-av"><span class="conv-av-i">${initials}</span><span class="conv-pg" style="background:${platformColor(conv.platform)}">${raw(platformGlyphString(conv.platform, 9))}</span></span>
       <span class="conv-body">
         <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time-wrap">${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}<span class="conv-time">${timeAgo(conv.last_message_at)}</span></span></span>
@@ -243,7 +246,7 @@ function renderConvPanel(
     </div>
     <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}', since: '${since}' }"
       hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
-      hx-trigger="submit, change, conversation-updated from:body, input changed delay:350ms from:find input[name='search']"
+      hx-trigger="submit, change, conversation-updated from:body, htmx:historyRestore from:body, input changed delay:350ms from:find input[name='search']"
       style="display:flex;flex-direction:column;gap:.4rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
       <input type="hidden" name="filter" :value="filter" />
       <input type="hidden" name="contact" value="${contactId}" />
@@ -467,7 +470,7 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
             ? html`<div class="cmt-dm">${icon("check", "ico", 12)} public reply sent${it.replyText ? html` — “${it.replyText}”` : html``}</div>`
             : html``}
           ${it.dmSent
-            ? html`<div class="cmt-dm">${icon("check", "ico", 12)} auto-DM sent${it.dmConvId ? html` · <a href="#" hx-get="/inbox/${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">open DM thread →</a>` : html``}</div>`
+            ? html`<div class="cmt-dm">${icon("check", "ico", 12)} auto-DM sent${it.dmConvId ? html` · <a href="#" hx-get="/inbox/${it.dmConvId}" hx-push-url="/inbox?open=${it.dmConvId}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">open DM thread →</a>` : html``}</div>`
             : html``}
           ${it.error ? html`<div class="cmt-err">${icon("alert", "ico", 11)} ${it.error}</div>` : html``}
         </div>
@@ -686,7 +689,7 @@ export function renderThread(
       </div>`
     : html``;
   return html`<div class="thread-head">
-      <button class="btn btn-sm thread-back" type="button" x-data @click="$el.closest('#thread').replaceChildren(); document.querySelector('#conv-panel .conv-item')?.focus()">← Back</button>
+      <button class="btn btn-sm thread-back" type="button" x-data @click="if (history.state?.htmx) history.back(); else { history.replaceState(null, '', '/inbox'); $el.closest('#thread').replaceChildren(); document.querySelector('#conv-panel .conv-item')?.focus(); }">← Back</button>
       <div class="th-top">
         <span class="th-av">${initialsOf(name)}</span>
         <span class="th-id"><div class="th-nm">${title}</div><div class="th-via">${platformVia(conv)}</div></span>
@@ -727,7 +730,7 @@ export function parseConvSince(v: string | undefined): string {
   return v && v in CONV_SINCE_PRESETS ? v : "";
 }
 
-/** Parse a YYYY-MM-DD form value to a UTC midnight Date (TZ=UTC is pinned), or null if malformed. */
+/** Validate the calendar-date fields before building the viewer-zone range. */
 function parseYmd(v: string | undefined): Date | null {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const d = new Date(`${v}T00:00:00.000Z`);
@@ -735,7 +738,7 @@ function parseYmd(v: string | undefined): Date | null {
 }
 
 /** The Inbox list filter state from the query string (shared by /inbox, /inbox/list, /inbox/older). */
-function convQuery(c: Context) {
+async function convQuery(c: Context) {
   const q = (k: string) => c.req.query(k) || "";
   return {
     filter: parseConvFilter(c.req.query("filter")),
@@ -746,6 +749,7 @@ function convQuery(c: Context) {
     from: q("from"),
     to: q("to"),
     before: q("before"),
+    timeZone: await resolveZone(getCookie(c, "ps_tz")),
   };
 }
 
@@ -759,6 +763,7 @@ function loadConversations(
   from = "",
   to = "",
   before = "",
+  timeZone = "UTC",
 ) {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   // Triage: "Done" is the archive (anything not open — closed or snoozed); every other view is the
@@ -780,8 +785,8 @@ function loadConversations(
   if (since === "custom") {
     const fromD = parseYmd(from);
     const toD = parseYmd(to);
-    if (fromD) where.push(gte(conversations.last_message_at, fromD));
-    if (toD) where.push(lt(conversations.last_message_at, new Date(toD.getTime() + 86_400_000)));
+    if (fromD) where.push(sql`${conversations.last_message_at} >= (${fromD.toISOString().slice(0, 10)}::timestamp at time zone ${timeZone} at time zone 'UTC')`);
+    if (toD) where.push(sql`${conversations.last_message_at} < ((${toD.toISOString().slice(0, 10)}::timestamp + interval '1 day') at time zone ${timeZone} at time zone 'UTC')`);
   } else {
     const windowMs = CONV_SINCE_PRESETS[since];
     if (windowMs) where.push(gt(conversations.last_message_at, new Date(Date.now() - windowMs)));
@@ -1112,8 +1117,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl, products } = await getInstanceLicense();
+    const timeZone = await resolveZone(getCookie(c, "ps_tz"));
     const [ov, responseTimes] = await Promise.all([
-      loadOverview(a.workspaceId),
+      loadOverview(a.workspaceId, { timeZone }),
       getResponseTimeStats(db, { workspaceId: a.workspaceId, windowDays: DEFAULT_WINDOW_DAYS }),
     ]);
     // When the publishing wing is entitled, fold its KPIs (attention / upcoming / events) into the
@@ -1128,7 +1134,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
           return { attention, attentionTotal: await attentionTotal(a.workspaceId, attention), upcoming, recent };
         })()
       : null;
-    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub, responseTimes), features, products));
+    return c.html(dashboardDoc(t("title.suffix", { section: "Overview" }), "/overview", renderOverview(ov, features, upgradeUrl, pub, responseTimes, timeZone), features, products));
   });
 
   // Inbox — READING incoming conversations is free (basic info; rules auto-reply for free). Only the
@@ -1138,13 +1144,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const { features, products } = await getInstanceLicense();
-    const { filter, channelId, contactId, search, since, from, to } = convQuery(c);
+    const { filter, channelId, contactId, search, since, from, to, timeZone } = await convQuery(c);
     // Deep-link to a specific thread (e.g. "open in inbox" from Approvals): the #thread pane
     // self-loads that conversation on page load. The /inbox/:id endpoint scopes it to the workspace.
     const openRaw = (c.req.query("open") || "").trim();
     const open = isUuid(openRaw) ? openRaw : "";
     const [conversations, chans, doneCount] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone),
       loadInboxChannels(a.workspaceId),
       loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
@@ -1152,13 +1158,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       dashboardDoc(
         t("title.suffix", { section: "Inbox" }),
         "/inbox",
-        html`<div class="inbox">
+        html`<div class="inbox" data-view-tz="${timeZone}">
           <div id="conv-panel" class="conv-list"
             hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
             hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount)}</div>
           ${open
-            ? html`<div id="thread" class="thread" hx-get="/inbox/${open}" hx-trigger="load" hx-swap="innerHTML"><div class="thread-empty">Loading…</div></div>`
+            ? html`<div id="thread" class="thread"><div class="thread-empty" hx-get="/inbox/${open}" hx-trigger="load" hx-target="#thread" hx-sync="#thread:replace" hx-swap="innerHTML">Loading…</div></div>`
             : html`<div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>`}
         </div>`,
         features,
@@ -1171,9 +1177,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/list", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const { filter, channelId, contactId, search, since, from, to } = convQuery(c);
+    const { filter, channelId, contactId, search, since, from, to, timeZone } = await convQuery(c);
     const [conversations, chans, doneCount] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone),
       loadInboxChannels(a.workspaceId),
       loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
@@ -1184,8 +1190,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/older", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const { filter, channelId, contactId, search, since, from, to, before } = convQuery(c);
-    return c.html(renderConvItems(await loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, before), true));
+    const { filter, channelId, contactId, search, since, from, to, before, timeZone } = await convQuery(c);
+    return c.html(renderConvItems(await loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, before, timeZone), true));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -2340,16 +2346,16 @@ function relTimeShort(at: Date): string {
   return ms >= 0 ? `in ${v}` : `${v} ago`;
 }
 
-function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string, pub: OverviewPublishing | null = null, responseTimes: ResponseTimeStats | null = null): Html {
+function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: Set<Feature>, upgradeUrl: string, pub: OverviewPublishing | null = null, responseTimes: ResponseTimeStats | null = null, timeZone = "UTC"): Html {
   const locked = !features.has("contacts_crm");
   const rt = responseTimes?.overall;
   // Only meaningful once we've handled something; otherwise the tiles would read "0% / —".
   const showRt = rt != null && rt.total_count > 0;
-  return html`<div class="page">
+  return html`<div class="page" data-view-tz="${timeZone}">
     <h1>Overview</h1>
     <p class="section-intro">Your automation at a glance.${locked ? html` Replying to conversations by hand is ${proLink(upgradeUrl, "PRO")} — your rules auto-reply for free.` : html``}</p>
     <div class="kpis" style="margin:14px 0">
-      ${kpi({ label: "Sent today (UTC)", value: ov.today, tone: "neutral", sub: "Queued today, now sent", href: "/activity?source=sent&range=today" })}
+      ${kpi({ label: "Sent today", value: ov.today, tone: "neutral", sub: "Queued today, now sent", href: "/activity?source=sent&range=today" })}
       ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok", href: "/activity?source=sent" })}
       ${kpi({ label: "Failed", value: ov.failed + ov.posts.failed, tone: ov.failed + ov.posts.failed > 0 ? "bad" : "neutral", sub: `${ov.posts.failed} posts · ${ov.failed} replies`, href: ov.posts.failed > 0 ? "/queue?status=attention" : undefined })}
       ${kpi({ label: "Held", value: ov.held + ov.posts.held, tone: ov.held + ov.posts.held > 0 ? "warn" : "neutral", sub: `${ov.posts.held} posts · ${ov.held} replies${ov.posts.unknown ? ` · ${ov.posts.unknown} posts unknown` : ""}`, href: ov.posts.held + ov.posts.unknown > 0 ? "/queue?status=attention" : undefined })}

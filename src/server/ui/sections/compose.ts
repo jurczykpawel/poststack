@@ -294,9 +294,9 @@ async function composePage(
                 </select>
               </label>
               <template x-if="!hasBrands">
-                <p class="card-hint"><small>No brands yet — create one and map its channels in <a href="/brands">Brands</a> first.</small></p>
+                <div><p class="card-hint">Set up a brand to choose which channels publish your posts.</p><a class="btn btn-primary btn-sm" href="/brands?new=1&amp;compose=1">Set up brand &amp; channels</a></div>
               </template>
-              <p class="notice notice-info" role="status" x-show="brand &amp;&amp; availPlatforms.length === 0" x-cloak>This brand has no channels — assign a channel in <a href="/brands">Brands</a>.</p>
+              <p class="notice notice-info" role="status" x-show="brand &amp;&amp; availPlatforms.length === 0" x-cloak>This brand has no channels. <a class="btn btn-sm" href="/brands" :href="'/brands?compose=1&amp;open=' + encodeURIComponent(brand)">Assign channels</a></p>
               <div class="targets" x-show="brand" x-cloak>
                 <template x-for="p in availPlatforms" :key="p.platform">
                   <div class="target" :class="isOn(p.platform) ? 'on' : ''" @click="toggleTarget(p.platform)" role="button" tabindex="0" @keydown.enter.prevent="toggleTarget(p.platform)" @keydown.space.prevent="toggleTarget(p.platform)">

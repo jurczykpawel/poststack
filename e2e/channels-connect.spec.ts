@@ -56,8 +56,8 @@ test("CTA above the fold, sheet opens and closes with Esc, ?connect=1 deep link,
   await expect(sheet(page).getByRole("button", { name: "Connect Telegram" })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("channels-sheet-telegram-1440.png"), animations: "disabled" });
 
-  // Footer: the token form unfolds; "Managed connections" closes the sheet and opens that section.
-  await sheet(page).getByRole("link", { name: "Connect with a token (advanced)" }).click();
+  // Advanced unfolds the token form; the footer opens Managed connections.
+  await sheet(page).locator("summary", { hasText: "Advanced: connect with a token" }).click();
   await expect(sheet(page).getByLabel("Long-lived or System User token")).toBeVisible();
   await sheet(page).getByRole("link", { name: "Managed connections →" }).click();
   await expect(sheet(page)).toBeHidden();
