@@ -142,6 +142,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  github-release:
+    name: GitHub Release
+    # Final versions only (vX.Y.Z); release candidates stay tags. Notes come from CHANGELOG.md.
+    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create release from CHANGELOG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scripts/ci/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+
   deploy-test:
     name: Auto-deploy to TEST
     if: github.event_name == 'push'
