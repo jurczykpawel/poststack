@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-04
+
+### Added
+- Webhooks (PRO): new `message.received` and `comment.received` events for messages and comments from contacts. The payload carries identifiers only (channel, platform, conversation, message/comment, contact), never the text; read the content with the new `GET /api/v1/messages/{id}` and `GET /api/v1/comments/{id}` (scope `conversations:read`). Our own replies never emit them. Endpoints subscribed to all events receive the new types too.
+- Activity: inbound message and comment rows show who wrote and a snippet of the text; the panel links to the conversation and the video/post.
+
+### Fixed
+- Settings: on a phone the tabs wrap to a second row instead of scrolling sideways, so every tab is visible.
+- Post links in the Inbox comment list and the Activity panel are used only when they are http(s).
+
 ## [0.17.0] - 2026-11-03
 
 ### Added
