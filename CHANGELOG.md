@@ -9,7 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-11-04
+
+### Changed
+- Channels: one "+ Connect channel" button at the top opens a side panel with a tile per platform (what each one does, PRO lock, two Instagram options, Telegram token in the tile); `/channels?connect=1` and ⌘K "Connect channel" open it directly; with no channels the tiles show on the page; Managed connections are folded below the list.
+
 ### Fixed
+- Facebook videos are stored as `<page>_<post>` (was the video id), so comment auto-replies on videos published with PostStack match their rules again.
+- YouTube: a first comment on a private video is skipped with reason `private_post` instead of failing with 403 and an alert.
+- Post card links for older Facebook Reels stored with a bare id open the post; an unpublished Facebook post has no link.
 - Opening an Inbox thread, a Queue post or a Contact while an earlier open is still loading no longer lets the slow answer replace your latest choice (htmx `hx-sync` replace).
 - `/channels?platform=<unknown>` shows the default list (was HTTP 500).
 - New rule, New sequence, Edit rule and Telegram connect show the field message ("Name is required.", "That doesn't look like a Telegram bot token") next to the form; the extra "server error" toast on a 422 is gone.
