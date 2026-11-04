@@ -178,7 +178,7 @@ describe("GET /settings — AI log summary", () => {
     await seedLog(WS, { response: null, error: "boom" });
     await seedLog(WS, { response: null, error: "old failure", created_at: new Date(Date.now() - 10 * 86_400_000) });
     const html = await (await get("/settings/ai")).text();
-    expect(html).toContain("3 generations, 1 failed this week.");
+    expect(html).toContain("2 generations, 1 failed this week."); // MQA18-B06: both counts from the same 7-day window
     expect(html).toContain('href="/activity?source=ai"');
     expect(html).not.toContain("ROW_IN_SETTINGS");
   });

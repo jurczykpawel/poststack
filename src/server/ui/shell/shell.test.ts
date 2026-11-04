@@ -75,6 +75,8 @@ describe("renderPage shell", () => {
     expect(out).toContain('role="alertdialog"');
     expect(out).toContain("ps:toast");
     expect(out).toContain("htmx:confirm");
+    expect(out).toContain("htmx:sendError"); // MQA18-B04
+    expect(out).toContain("htmx:responseError");
   });
 
   it("ships the ⌘K command palette + its topbar trigger, listing real nav targets", async () => {
