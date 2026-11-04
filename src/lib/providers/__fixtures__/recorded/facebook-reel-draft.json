@@ -1,0 +1,84 @@
+{
+  "path": "facebook reel, video_state=DRAFT (published=false)",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live publish on the PostStack TEST Page (0 followers) through metaProvider.publish, Graph v26.0; deleted right after.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/video_reels?upload_phase=start&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "video_id": "9781767738505795",
+        "upload_url": "https://rupload.facebook.com/video-upload/v26.0/9781767738505795"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://rupload.facebook.com/video-upload/v26.0/9781767738505795",
+      "status": 200,
+      "body": {
+        "success": true,
+        "message": "Upload Successful. To check the status of the video, please follow the instructions listed at https://developers.facebook.com/docs/video-api/guides/reels-publishing#get-the-upload-status."
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/video_reels?upload_phase=finish&video_id=9781767738505795&video_state=DRAFT&description=g44%20probe%20(deleted%20right%20away)&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "success": true,
+        "message": "Video is Processing. To check the status of the video, please follow the instructions listed at https://developers.facebook.com/docs/video-api/guides/reels-publishing#get-the-upload-status.",
+        "post_id": "426282767073598889"
+      }
+    }
+  ],
+  "providerHandle": "125730403827906_426282767073598889",
+  "verified": {
+    "get": {
+      "status": 200,
+      "body": {
+        "id": "125730403827906_426282767073598889",
+        "permalink_url": "https://www.facebook.com/reel/9781767738505795/",
+        "created_time": "2026-11-04T14:49:28+0000"
+      }
+    },
+    "commentAccepted": true,
+    "commentRequest": {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906_426282767073598889/comments",
+      "status": 200,
+      "body": {
+        "id": "426282767073598889_2089399060476947"
+      }
+    },
+    "postUrlFor": "https://www.facebook.com/125730403827906/posts/426282767073598889",
+    "linkCheck": {
+      "status": 302,
+      "location": "https://www.facebook.com/19266991118252/posts/426282767073598889/"
+    }
+  },
+  "commentWebhook": {
+    "field": "feed",
+    "value": {
+      "from": {
+        "id": "125730403827906",
+        "name": "Test Page"
+      },
+      "item": "comment",
+      "post": {
+        "id": "125730403827906_426282767073598889",
+        "status_type": "added_video",
+        "is_published": false,
+        "updated_time": "2026-11-04T14:49:55+0000",
+        "permalink_url": "https://www.facebook.com/reel/9781767738505795/",
+        "promotion_status": "inactive"
+      },
+      "verb": "add",
+      "message": "g44 probe (deleted right away)",
+      "post_id": "125730403827906_426282767073598889",
+      "parent_id": "125730403827906_426282767073598889",
+      "comment_id": "426282767073598889_2089399060476947",
+      "created_time": 1793803795
+    }
+  }
+}

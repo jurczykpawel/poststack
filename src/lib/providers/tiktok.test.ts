@@ -25,6 +25,7 @@ vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
 });
 
 import docs from "../../../tests/fixtures/provider-docs/tiktok.json";
+import ttRec from "./__fixtures__/recorded/tiktok-inbox.json";
 import { tiktokProvider } from "./tiktok";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
@@ -36,6 +37,9 @@ const creatorInfo = {
 };
 const tokens = { accessToken: "AT", refreshToken: "RT" };
 
+// PROVFIX1: TikTok's init response recorded 2026-11-04 (sandbox); tests swap in their own upload_url.
+const TT_INIT = ttRec.exchanges[0]!.body;
+const TT_ID = ttRec.providerHandle;
 describe("tiktok provider", () => {
   it("is registered + refreshable + video capability", () => {
     expect(isProvider("tiktok")).toBe(true);
@@ -77,7 +81,7 @@ describe("tiktok provider", () => {
         if (url.includes("/inbox/video/init/")) {
           calls[calls.length - 1]!.body = JSON.parse(String(init?.body ?? "{}"));
           return new Response(
-            JSON.stringify({ data: { publish_id: "pub_1", upload_url: "https://upload.tiktok/u1" }, error: { code: "ok" } }),
+            JSON.stringify({ ...TT_INIT, data: { ...TT_INIT.data, upload_url: "https://upload.tiktok/u1" } }),
             { status: 200 },
           );
         }
@@ -95,7 +99,7 @@ describe("tiktok provider", () => {
       mediaUrls: ["https://cdn/x.mp4"],
       mediaDurationsSec: [30],
     });
-    expect(h.providerHandle).toBe("pub_1");
+    expect(h.providerHandle).toBe(TT_ID);
     const init = calls.find((c) => c.url.includes("/inbox/video/init/"))!;
     expect((init.body as { source_info: Record<string, unknown> }).source_info).toMatchObject({
       source: "FILE_UPLOAD",
@@ -118,7 +122,7 @@ describe("tiktok provider", () => {
         if ((init?.method ?? "GET") === "PUT") putCalled = true;
         if (url.includes("/inbox/video/init/")) {
           initBody = JSON.parse(String(init?.body ?? "{}"));
-          return new Response(JSON.stringify({ data: { publish_id: "pub_p" }, error: { code: "ok" } }), {
+          return new Response(JSON.stringify({ ...TT_INIT, data: { publish_id: TT_ID } }), {
             status: 200,
           });
         }
@@ -132,7 +136,7 @@ describe("tiktok provider", () => {
       mediaUrls: ["https://cdn/x.mp4"],
       mediaDurationsSec: [30],
     });
-    expect(h.providerHandle).toBe("pub_p");
+    expect(h.providerHandle).toBe(TT_ID);
     expect(initBody.source_info).toMatchObject({ source: "PULL_FROM_URL", video_url: "https://cdn/x.mp4" });
     expect(putCalled).toBe(false);
   });
@@ -147,7 +151,7 @@ describe("tiktok provider", () => {
         if (String(input).includes("creator_info/query/")) return Response.json({ data: creatorInfo, error: { code: "ok" } });
         url = String(input);
         body = JSON.parse(String(init?.body ?? "{}"));
-        return new Response(JSON.stringify({ data: { publish_id: "pub_2" }, error: { code: "ok" } }), {
+        return new Response(JSON.stringify({ ...TT_INIT, data: { publish_id: TT_ID } }), {
           status: 200,
         });
       }),
@@ -180,7 +184,7 @@ describe("tiktok provider", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).includes("creator_info/query/")) return Response.json({ data: creatorInfo, error: { code: "ok" } });
         body = JSON.parse(String(init?.body ?? "{}"));
-        return new Response(JSON.stringify({ data: { publish_id: "pub_ai" }, error: { code: "ok" } }), {
+        return new Response(JSON.stringify({ ...TT_INIT, data: { publish_id: TT_ID } }), {
           status: 200,
         });
       }),
@@ -208,7 +212,7 @@ describe("tiktok provider", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).includes("creator_info/query/")) return Response.json({ data: creatorInfo, error: { code: "ok" } });
         body = JSON.parse(String(init?.body ?? "{}"));
-        return new Response(JSON.stringify({ data: { publish_id: "pub_noai" }, error: { code: "ok" } }), {
+        return new Response(JSON.stringify({ ...TT_INIT, data: { publish_id: TT_ID } }), {
           status: 200,
         });
       }),
@@ -237,7 +241,7 @@ describe("tiktok provider", () => {
         if (url.includes("/inbox/video/init/")) {
           body = JSON.parse(String(init?.body ?? "{}"));
           return new Response(
-            JSON.stringify({ data: { publish_id: "pub_inbox", upload_url: "https://upload.tiktok/u2" }, error: { code: "ok" } }),
+            JSON.stringify({ ...TT_INIT, data: { ...TT_INIT.data, upload_url: "https://upload.tiktok/u2" } }),
             { status: 200 },
           );
         }
@@ -266,7 +270,7 @@ describe("TikTok Direct Post settings", () => {
       const target = String(input);
       calls.push({ url: target, init });
       if (target.includes("creator_info/query/")) return Response.json({ data: creator, error: { code: "ok" } });
-      if (target.includes("/video/init/")) return Response.json({ data: { publish_id: "pub", upload_url: "https://upload.example.com/chunk" }, error: { code: "ok" } });
+      if (target.includes("/video/init/")) return Response.json({ ...TT_INIT, data: { ...TT_INIT.data, upload_url: "https://upload.example.com/chunk" } });
       if (target === url) return new Response(bytes);
       if (target === "https://upload.example.com/chunk") return new Response(null, { status: 201 });
       throw new Error(`Unexpected request: ${target}`);
@@ -316,7 +320,7 @@ describe("TikTok Direct Post settings", () => {
   });
   it("accepts duration equal to the creator limit", async () => {
     mockPublishing();
-    await expect(publish({ privacyLevel: "SELF_ONLY" }, 300)).resolves.toEqual({ providerHandle: "pub", processing: true });
+    await expect(publish({ privacyLevel: "SELF_ONLY" }, 300)).resolves.toEqual({ providerHandle: TT_ID, processing: true });
   });
   it("keeps the catalog ceiling when the creator allows longer videos", async () => {
     mockPublishing({ ...creatorInfo, max_video_post_duration_sec: 1200 });

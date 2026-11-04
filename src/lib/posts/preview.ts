@@ -41,7 +41,7 @@ export async function deliveryPostCard(workspaceId: string, deliveryId: string):
     .where(and(eq(deliveries.id, deliveryId), eq(deliveries.workspace_id, workspaceId))).orderBy(posts.id).limit(1);
   if (!row) return undefined;
   const { delivery, channel, post } = row;
-  const payload = delivery.payload as { caption?: string; title?: string; media?: Array<{ mediaId?: string }> };
+  const payload = delivery.payload as { caption?: string; title?: string; media?: Array<{ mediaId?: string }>; options?: { published?: unknown } };
   const mediaId = payload.media?.[0]?.mediaId;
   const [first] = mediaId
     ? await db.select({ url: media.url, kind: media.kind }).from(media).where(and(eq(media.workspace_id, workspaceId), sql`${media.id}::text = ${mediaId}`))
@@ -52,7 +52,9 @@ export async function deliveryPostCard(workspaceId: string, deliveryId: string):
     text: post?.description || payload.caption || post?.title || payload.title || null,
     imageUrl: first?.kind === "image" ? httpUrl(first.url) : null,
     video: first?.kind === "video",
-    url: httpUrl(post?.published_url) ?? httpUrl(delivery.provider_handle) ?? postUrlFor(channel.platform, delivery.provider_handle, channel.username),
+    // An unpublished (published=false) post has no public page to open.
+    url: httpUrl(post?.published_url) ?? httpUrl(delivery.provider_handle)
+      ?? (payload.options?.published === false ? null : postUrlFor(channel.platform, delivery.provider_handle, channel.username, { format: delivery.format, pageId: channel.platform_id })),
     at: post?.published_at ?? delivery.sent_at ?? (delivery.status === "sent" ? delivery.updated_at : null),
   };
 }

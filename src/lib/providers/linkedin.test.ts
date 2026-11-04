@@ -10,6 +10,7 @@ vi.mock("@/lib/net/safe-fetch", async (original) => {
 import { linkedinProvider } from "./linkedin";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
+import docs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 
 afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "AT", refreshToken: "RT" };
@@ -37,9 +38,9 @@ describe("linkedin provider", () => {
   });
 
   it("publish a text post returns the ugcPost id", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "urn:li:share:1" }), { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(docs.linkedin.ugcPost.body, { status: docs.linkedin.ugcPost.status, headers: docs.linkedin.ugcPost.headers })));
     const h = await linkedinProvider.publish({ tokens, accountId: "li_1", request: { format: "text", media: [], caption: "hi" }, mediaUrls: [] });
-    expect(h.providerHandle).toBe("urn:li:share:1");
+    expect(h.providerHandle).toBe(docs.linkedin.ugcPost.body.id);
   });
 
   // LIPUB1 (Fix B): media publishing via the Assets API — registerUpload → upload bytes → ugcPost.
@@ -64,7 +65,7 @@ describe("linkedin provider", () => {
         }
         if (u.startsWith("https://cdn/")) return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); // media bytes
         if (u.startsWith("https://www.linkedin.com/dms-uploads/")) return new Response(null, { status: 201 }); // upload accepted
-        if (u.endsWith("/ugcPosts")) return new Response(JSON.stringify({ id: "urn:li:share:MEDIA" }), { status: 200 });
+        if (u.endsWith("/ugcPosts")) return Response.json(docs.linkedin.ugcPost.body, { status: docs.linkedin.ugcPost.status, headers: docs.linkedin.ugcPost.headers });
         return new Response("{}", { status: 404 });
       }),
     );
@@ -79,7 +80,7 @@ describe("linkedin provider", () => {
       request: { format: "image", media: [{ mediaId: "m" }], caption: "pic!" },
       mediaUrls: ["https://cdn/pic.jpg"],
     });
-    expect(h.providerHandle).toBe("urn:li:share:MEDIA");
+    expect(h.providerHandle).toBe(docs.linkedin.ugcPost.body.id);
 
     const reg = calls.find((c) => c.url.includes("registerUpload"))!;
     expect(reg.body).toContain("feedshare-image");

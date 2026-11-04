@@ -1,0 +1,96 @@
+{
+  "path": "tiktok inbox upload (FILE_UPLOAD) -> SEND_TO_USER_INBOX",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live TikTok sandbox app (PostStack TEST) through tiktokProvider.publish + publishStatus. Inbox draft, never public.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
+      "status": 200,
+      "body": {
+        "data": {
+          "publish_id": "v_inbox_file~v2.5417296820414507553",
+          "upload_url": "https://open-upload-i18n.tiktokapis.com/upload?upload_id=<UPLOAD_ID>&upload_token=00000000-0000-0000-0000-145910640651"
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "32035698304656BE94FD53628C435BCE62"
+        }
+      }
+    }
+  ],
+  "providerHandle": "v_inbox_file~v2.5417296820414507553",
+  "verified": {
+    "get": null,
+    "commentAccepted": false,
+    "commentRequest": null,
+    "postUrlFor": null,
+    "linkCheck": null
+  },
+  "statusPolls": [
+    {
+      "method": "POST",
+      "url": "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+      "status": 200,
+      "body": {
+        "data": {
+          "status": "PROCESSING_UPLOAD",
+          "uploaded_bytes": 5064218
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "29406310864101E89EA5BC8084315B7DC6"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+      "status": 200,
+      "body": {
+        "data": {
+          "status": "PROCESSING_UPLOAD",
+          "uploaded_bytes": 5064218
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "84029490247188C09E3E25F5A0CC5A6259"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+      "status": 200,
+      "body": {
+        "data": {
+          "status": "PROCESSING_UPLOAD",
+          "uploaded_bytes": 5064218
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "46121901070542C5620491C649235CA625"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+      "status": 200,
+      "body": {
+        "data": {
+          "status": "SEND_TO_USER_INBOX"
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "40326727144706EF80B5CE8D9F215B2906"
+        }
+      }
+    }
+  ]
+}

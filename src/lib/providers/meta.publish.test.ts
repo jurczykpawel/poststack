@@ -18,11 +18,39 @@ vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
 });
 
 import { metaProvider } from "./meta";
+import reelRec from "./__fixtures__/recorded/facebook-reel-published.json";
+import photoRec from "./__fixtures__/recorded/facebook-photo-published.json";
+import videoRec from "./__fixtures__/recorded/facebook-video-post-handle.json";
+import storyRec from "./__fixtures__/recorded/facebook-story.json";
+import igRec from "./__fixtures__/recorded/instagram-containers.json";
+import prodRec from "./__fixtures__/recorded/prod-stored-handles.json";
 import { PermanentError } from "./errors";
 import { GRAPH_API_BASE, IG_GRAPH_BASE } from "@/lib/platforms/constants";
 
 afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "T" };
+
+// PROVFIX1: response bodies Meta returned on 2026-11-04 (see __fixtures__/recorded/README.md).
+const body = (b: unknown) => JSON.stringify(b);
+const igPosts = igRec.exchanges.filter((e) => e.method === "POST");
+const REC = {
+  igContainer: body(igPosts[1]!.body),
+  igContainerId: (igPosts[1]!.body as { id: string }).id,
+  igFinished: body(igRec.exchanges.find((e) => (e.body as { status_code?: string }).status_code === "FINISHED")!.body),
+  igMedia: body({ id: prodRec.handles.find((h) => h.platform === "instagram")!.handle }), // stored on PROD from media_publish
+  igMediaId: prodRec.handles.find((h) => h.platform === "instagram")!.handle,
+  fbPhoto: body(photoRec.exchanges[0]!.body),
+  fbVideo: body(videoRec.exchanges[0]!.body),
+  fbVideoId: (videoRec.exchanges[0]!.body as { id: string }).id,
+  fbVideoPostId: body(videoRec.postIdLookup.body),
+  fbReelStart: reelRec.exchanges[0]!.body as { video_id: string; upload_url: string },
+  fbReelUpload: body(reelRec.exchanges[1]!.body),
+  fbReelFinish: body(reelRec.exchanges[2]!.body),
+  fbStoryPhoto: body(storyRec.exchanges[0]!.body),
+  fbStoryPhotoId: (storyRec.exchanges[0]!.body as { id: string }).id,
+  fbStory: body(storyRec.exchanges[1]!.body),
+};
+const postOf = (b: string) => (JSON.parse(b) as { post_id: string }).post_id;
 
 describe("meta.publish", () => {
   it("IG feed image sends image_url (not a bare url) to the media container", async () => {
@@ -32,11 +60,11 @@ describe("meta.publish", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/media_publish"))
-          return new Response(JSON.stringify({ id: "ig_post_1" }), { status: 200 });
+          return new Response(REC.igMedia, { status: 200 });
         if (url.includes("?fields=status_code"))
-          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+          return new Response(REC.igFinished, { status: 200 });
         createBody = String(init?.body ?? ""); // container-create POST
-        return new Response(JSON.stringify({ id: "container_img" }), { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     await metaProvider.publish({
@@ -59,10 +87,10 @@ describe("meta.publish", () => {
         const url = String(input);
         calls.push(url);
         if (url.includes("/media_publish"))
-          return new Response(JSON.stringify({ id: "post_123" }), { status: 200 });
+          return new Response(REC.igMedia, { status: 200 });
         if (url.includes("?fields=status_code"))
-          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "container_1" }), { status: 200 });
+          return new Response(REC.igFinished, { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     const handle = await metaProvider.publish({
@@ -71,7 +99,7 @@ describe("meta.publish", () => {
       request: { format: "reel", media: [{ mediaId: "m" }], caption: "hi" },
       mediaUrls: ["https://cdn/x.mp4"],
     });
-    expect(handle.providerHandle).toBe("post_123");
+    expect(handle.providerHandle).toBe(REC.igMediaId);
     expect(calls.some((u) => u.includes("/ACCT/media"))).toBe(true);
   });
 
@@ -82,11 +110,11 @@ describe("meta.publish", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/media_publish"))
-          return new Response(JSON.stringify({ id: "post_9" }), { status: 200 });
+          return new Response(REC.igMedia, { status: 200 });
         if (url.includes("?fields=status_code"))
-          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+          return new Response(REC.igFinished, { status: 200 });
         createBody = String(init?.body ?? ""); // the container-create POST
-        return new Response(JSON.stringify({ id: "container_9" }), { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     await metaProvider.publish({
@@ -110,9 +138,10 @@ describe("meta.publish", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("fields=post_id")) return new Response(REC.fbVideoPostId, { status: 200 });
         url = String(input);
         body = String(init?.body ?? "");
-        return new Response(JSON.stringify({ id: "fbvid_1" }), { status: 200 });
+        return new Response(REC.fbVideo, { status: 200 });
       }),
     );
     const h = await metaProvider.publish({
@@ -126,7 +155,7 @@ describe("meta.publish", () => {
       },
       mediaUrls: ["https://cdn/x.mp4"],
     });
-    expect(h.providerHandle).toBe("fbvid_1");
+    expect(h.providerHandle).toBe(`PAGE123_${postOf(REC.fbVideoPostId)}`); // the video's Page post (webhook post_id)
     expect(url).toContain("/PAGE123/videos");
     const decoded = decodeURIComponent(body);
     expect(decoded).toContain("file_url=https://cdn/x.mp4");
@@ -142,10 +171,10 @@ describe("meta.publish", () => {
         const u = String(input);
         calls.push(u);
         if (u.includes("/video_reels") && u.includes("upload_phase=start"))
-          return new Response(JSON.stringify({ video_id: "r1", upload_url: "https://rupload.facebook.com/r1" }), { status: 200 });
-        if (u === "https://rupload.facebook.com/r1") return new Response(JSON.stringify({ success: true }), { status: 200 });
+          return new Response(body(REC.fbReelStart), { status: 200 });
+        if (u === REC.fbReelStart.upload_url) return new Response(REC.fbReelUpload, { status: 200 });
         if (u.includes("/video_reels") && u.includes("upload_phase=finish"))
-          return new Response(JSON.stringify({ success: true, post_id: "1404974398513782" }), { status: 200 });
+          return new Response(REC.fbReelFinish, { status: 200 });
         return new Response("{}", { status: 200 });
       }),
     );
@@ -156,7 +185,7 @@ describe("meta.publish", () => {
       mediaUrls: ["https://cdn/x.mp4"],
       channelMetadata: { subKind: "facebook_page" },
     });
-    expect(h.providerHandle).toBe("PAGE_1404974398513782"); // bare Reel post id gets the page prefix
+    expect(h.providerHandle).toBe(`PAGE_${postOf(REC.fbReelFinish)}`); // bare Reel post id gets the page prefix
     expect(calls.some((u) => u.includes("upload_phase=start"))).toBe(true);
     expect(calls.some((u) => u.includes("upload_phase=finish"))).toBe(true);
   });
@@ -169,7 +198,8 @@ describe("meta.publish", () => {
         const u = String(input);
         calls.push(u);
         if (u.includes("/video_reels") && u.includes("upload_phase=start"))
-          return new Response(JSON.stringify({ video_id: "r1", upload_url: "http://169.254.169.254/exfil" }), { status: 200 });
+          // recorded start response with a hostile upload_url swapped in (the attack under test)
+          return new Response(body({ ...REC.fbReelStart, upload_url: "http://169.254.169.254/exfil" }), { status: 200 });
         return new Response("{}", { status: 200 });
       }),
     );
@@ -191,7 +221,7 @@ describe("meta.publish", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         url = String(input);
-        return new Response(JSON.stringify({ post_id: "ph1" }), { status: 200 });
+        return new Response(REC.fbPhoto, { status: 200 });
       }),
     );
     const h = await metaProvider.publish({
@@ -201,7 +231,7 @@ describe("meta.publish", () => {
       mediaUrls: ["https://cdn/x.jpg"],
       channelMetadata: { subKind: "facebook_page" },
     });
-    expect(h.providerHandle).toBe("ph1");
+    expect(h.providerHandle).toBe(postOf(REC.fbPhoto)); // Graph returns the full <page>_<post>
     expect(url).toContain("/PAGE/photos");
   });
 
@@ -212,9 +242,10 @@ describe("meta.publish", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const u = String(input);
         calls.push(u);
-        if (u.includes("/PAGE/videos")) return new Response(JSON.stringify({ id: "v1" }), { status: 200 });
+        if (u.includes("/PAGE/videos")) return new Response(REC.fbVideo, { status: 200 });
+        if (u.includes("fields=post_id")) return new Response(REC.fbVideoPostId, { status: 200 });
         if (u === "https://cdn/cover.png") return new Response(new Uint8Array([1]), { status: 200 });
-        if (u.includes("/v1/thumbnails")) return new Response(JSON.stringify({ success: true }), { status: 200 });
+        if (u.includes(`/${REC.fbVideoId}/thumbnails`)) return new Response(JSON.stringify({ success: true }), { status: 200 });
         return new Response("{}", { status: 200 });
       }),
     );
@@ -224,8 +255,8 @@ describe("meta.publish", () => {
       request: { format: "feed_post", media: [{ mediaId: "m" }], caption: "c", options: { target: "facebook", coverUrl: "https://cdn/cover.png" } },
       mediaUrls: ["https://cdn/x.mp4"],
     });
-    expect(h.providerHandle).toBe("v1");
-    expect(calls.some((u) => u.includes("/v1/thumbnails"))).toBe(true);
+    expect(h.providerHandle).toBe(`PAGE_${postOf(REC.fbVideoPostId)}`);
+    expect(calls.some((u) => u.includes(`/${REC.fbVideoId}/thumbnails`))).toBe(true); // the thumbnail belongs to the video
   });
 
   it("subKind=instagram routes to the IG container flow (not Facebook)", async () => {
@@ -235,9 +266,9 @@ describe("meta.publish", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const u = String(input);
         calls.push(u);
-        if (u.includes("/media_publish")) return new Response(JSON.stringify({ id: "ig1" }), { status: 200 });
-        if (u.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "cont1" }), { status: 200 });
+        if (u.includes("/media_publish")) return new Response(REC.igMedia, { status: 200 });
+        if (u.includes("?fields=status_code")) return new Response(REC.igFinished, { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     const h = await metaProvider.publish({
@@ -247,7 +278,7 @@ describe("meta.publish", () => {
       mediaUrls: ["https://cdn/x.mp4"],
       channelMetadata: { subKind: "instagram" },
     });
-    expect(h.providerHandle).toBe("ig1");
+    expect(h.providerHandle).toBe(REC.igMediaId);
     expect(calls.some((u) => u.includes("/IGID/media") || u.includes("/media_publish"))).toBe(true);
     expect(calls.every((u) => !u.includes("/video_reels"))).toBe(true);
   });
@@ -259,11 +290,11 @@ describe("meta.publish", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/media_publish"))
-          return new Response(JSON.stringify({ id: "ig_post_ai" }), { status: 200 });
+          return new Response(REC.igMedia, { status: 200 });
         if (url.includes("?fields=status_code"))
-          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+          return new Response(REC.igFinished, { status: 200 });
         createBody = String(init?.body ?? "");
-        return new Response(JSON.stringify({ id: "container_ai" }), { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     await metaProvider.publish({
@@ -283,11 +314,11 @@ describe("meta.publish", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/media_publish"))
-          return new Response(JSON.stringify({ id: "ig_post_noai" }), { status: 200 });
+          return new Response(REC.igMedia, { status: 200 });
         if (url.includes("?fields=status_code"))
-          return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+          return new Response(REC.igFinished, { status: 200 });
         createBody = String(init?.body ?? "");
-        return new Response(JSON.stringify({ id: "container_noai" }), { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     await metaProvider.publish({
@@ -304,9 +335,10 @@ describe("meta.publish", () => {
     let body = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("fields=post_id")) return new Response(REC.fbVideoPostId, { status: 200 });
         body = String(init?.body ?? "");
-        return new Response(JSON.stringify({ id: "fbvid_ai" }), { status: 200 });
+        return new Response(REC.fbVideo, { status: 200 });
       }),
     );
     await metaProvider.publish({
@@ -343,9 +375,9 @@ describe("meta.publishStory (STORY1)", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         calls.push({ url, body: String(init?.body ?? "") });
-        if (url.includes("/media_publish")) return new Response(JSON.stringify({ id: "story_ig_1" }), { status: 200 });
-        if (url.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "container_s1" }), { status: 200 });
+        if (url.includes("/media_publish")) return new Response(REC.igMedia, { status: 200 });
+        if (url.includes("?fields=status_code")) return new Response(REC.igFinished, { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     const h = await metaProvider.publishStory!({
@@ -354,7 +386,7 @@ describe("meta.publishStory (STORY1)", () => {
       mediaUrl: "https://cdn/card.jpg",
       channelMetadata: { subKind: "instagram" },
     });
-    expect(h.providerHandle).toBe("story_ig_1");
+    expect(h.providerHandle).toBe(REC.igMediaId);
     const create = calls.find((c) => c.url.includes("/IGID/media") && !c.url.includes("media_publish"));
     expect(create?.body).toContain("media_type=STORIES");
     expect(create?.body).toContain("image_url=");
@@ -368,8 +400,8 @@ describe("meta.publishStory (STORY1)", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         calls.push({ url, body: String(init?.body ?? "") });
-        if (url.includes("/photo_stories")) return new Response(JSON.stringify({ success: true, post_id: "fb_story_9" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "photo_77" }), { status: 200 });
+        if (url.includes("/photo_stories")) return new Response(REC.fbStory, { status: 200 });
+        return new Response(REC.fbStoryPhoto, { status: 200 });
       }),
     );
     const h = await metaProvider.publishStory!({
@@ -378,11 +410,11 @@ describe("meta.publishStory (STORY1)", () => {
       mediaUrl: "https://cdn/card.jpg",
       channelMetadata: { subKind: "facebook_page" },
     });
-    expect(h.providerHandle).toBe("fb_story_9");
+    expect(h.providerHandle).toBe(postOf(REC.fbStory));
     const photo = calls.find((c) => c.url.includes("/PAGE/photos"));
     expect(photo?.body).toContain("published=false");
     const story = calls.find((c) => c.url.includes("/photo_stories"));
-    expect(story?.body).toContain("photo_id=photo_77");
+    expect(story?.body).toContain(`photo_id=${REC.fbStoryPhotoId}`);
   });
 
   it("IG: surfaces a container ERROR as a permanent failure", async () => {
@@ -391,7 +423,7 @@ describe("meta.publishStory (STORY1)", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "ERROR" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "container_err" }), { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     await expect(
@@ -414,9 +446,9 @@ describe("meta.publish — IG-Login single-login routing (IGFU1)", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         calls.push({ url, body: String(init?.body ?? "") });
-        if (url.includes("/media_publish")) return new Response(JSON.stringify({ id: "ig_post_1" }), { status: 200 });
-        if (url.includes("?fields=status_code")) return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "container_1" }), { status: 200 });
+        if (url.includes("/media_publish")) return new Response(REC.igMedia, { status: 200 });
+        if (url.includes("?fields=status_code")) return new Response(REC.igFinished, { status: 200 });
+        return new Response(REC.igContainer, { status: 200 });
       }),
     );
     return calls;
@@ -430,7 +462,7 @@ describe("meta.publish — IG-Login single-login routing (IGFU1)", () => {
       request: { format: "reel", media: [{ mediaId: "m" }], caption: "hi" },
       mediaUrls: ["https://cdn/x.mp4"],
     });
-    expect(handle.providerHandle).toBe("ig_post_1");
+    expect(handle.providerHandle).toBe(REC.igMediaId);
     // every publish-flow edge must be on the IG host (with the configured IG version), never on graph.facebook.com
     expect(calls.every((c) => c.url.startsWith(IG_GRAPH_BASE))).toBe(true);
     expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)).toBe(true);
@@ -464,7 +496,7 @@ describe("meta.publish — IG-Login single-login routing (IGFU1)", () => {
       mediaUrl: "https://cdn/card.jpg",
       channelMetadata: { subKind: "instagram" },
     });
-    expect(h.providerHandle).toBe("ig_post_1");
+    expect(h.providerHandle).toBe(REC.igMediaId);
     expect(calls.every((c) => c.url.startsWith(IG_GRAPH_BASE))).toBe(true);
     expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media`)).toBe(true);
     expect(calls.some((c) => c.url === `${IG_GRAPH_BASE}/IGID/media_publish`)).toBe(true);

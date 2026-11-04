@@ -7,3 +7,9 @@
 export function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
 }
+
+/** Graph addresses a Page post only as `<pageId>_<postId>`; a bare post id is read as a deprecated
+ *  "status" (error #12). Reels finish and video `post_id` both come back bare (recorded 2026-11-04). */
+export function pagePostHandle(pageId: string, postId: string): string {
+  return postId.includes("_") ? postId : `${pageId}_${postId}`;
+}

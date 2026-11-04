@@ -1,0 +1,67 @@
+{
+  "path": "facebook feed_post image, published=false",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live publish on the PostStack TEST Page (0 followers) through metaProvider.publish, Graph v26.0; deleted right after.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/photos",
+      "status": 200,
+      "body": {
+        "id": "554158337282822679"
+      }
+    }
+  ],
+  "providerHandle": "554158337282822679",
+  "verified": {
+    "get": {
+      "status": 400,
+      "body": {
+        "error": {
+          "message": "(#100) Tried accessing nonexisting field (permalink_url)",
+          "type": "OAuthException",
+          "code": 100,
+          "fbtrace_id": "AFww1qE10ur05uCTm4gOIlI"
+        }
+      }
+    },
+    "commentAccepted": true,
+    "commentRequest": {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/554158337282822679/comments",
+      "status": 200,
+      "body": {
+        "id": "554158337282822679_2108158609412993"
+      }
+    },
+    "postUrlFor": "https://www.facebook.com/watch/?v=554158337282822679",
+    "linkCheck": {
+      "status": 200,
+      "location": null
+    }
+  },
+  "commentWebhook": {
+    "field": "feed",
+    "value": {
+      "from": {
+        "id": "125730403827906",
+        "name": "Test Page"
+      },
+      "item": "comment",
+      "post": {
+        "id": "125730403827906_554158337282822679",
+        "status_type": "added_photos",
+        "is_published": false,
+        "updated_time": "2026-11-04T14:40:55+0000",
+        "permalink_url": "https://www.facebook.com/photo.php?fbid=554158337282822679&set=p.554158337282822679&type=3",
+        "promotion_status": "ineligible"
+      },
+      "verb": "add",
+      "message": "g44 probe (deleted right away)",
+      "post_id": "125730403827906_554158337282822679",
+      "parent_id": "1174451321194112_554158337282822679",
+      "comment_id": "554158337282822679_2108158609412993",
+      "created_time": 1793803255
+    }
+  }
+}

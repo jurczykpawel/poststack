@@ -1,0 +1,79 @@
+{
+  "path": "read-only Graph GET of handles PostStack stored on PROD (one per platform x format x shape)",
+  "recordedAt": "2026-11-04",
+  "provenance": "Read-only GET from the PROD web container; nothing written. Documents that IG media_publish ids address the media (permalink), that <page>_<post> FB handles resolve, and that the legacy bare FB reel id fails with #12.",
+  "handles": [
+    {
+      "platform": "facebook",
+      "format": "feed_post",
+      "handle": "2749812223808678_6443480081124714",
+      "status": 200,
+      "body": {
+        "id": "2749812223808678_6443480081124714",
+        "permalink_url": "https://www.facebook.com/3118391114754877/posts/6443480081124714"
+      }
+    },
+    {
+      "platform": "facebook",
+      "format": "reel",
+      "handle": "9352453763801277",
+      "status": 400,
+      "body": {
+        "error": {
+          "message": "(#12) singular statuses API is deprecated for versions v2.4 and higher",
+          "type": "OAuthException",
+          "code": 12,
+          "fbtrace_id": "ApCLs6v5kZMZixfXVGeWv16"
+        }
+      }
+    },
+    {
+      "platform": "facebook",
+      "format": "reel",
+      "handle": "2749812223808678_9629614331486833",
+      "status": 200,
+      "body": {
+        "id": "2749812223808678_9629614331486833",
+        "permalink_url": "https://www.facebook.com/reel/7641884639196682/"
+      }
+    },
+    {
+      "platform": "instagram",
+      "format": "feed_post",
+      "handle": "27382621022305074",
+      "status": 200,
+      "body": {
+        "id": "27382621022305074",
+        "media_product_type": "FEED",
+        "media_type": "IMAGE",
+        "permalink": "https://www.instagram.com/p/nJdWwU-lC8W/"
+      }
+    },
+    {
+      "platform": "instagram",
+      "format": "reel",
+      "handle": "88260917114313311",
+      "status": 200,
+      "body": {
+        "id": "88260917114313311",
+        "media_product_type": "REELS",
+        "media_type": "VIDEO",
+        "permalink": "https://www.instagram.com/reel/m50Gi7v5X2a/"
+      }
+    }
+  ],
+  "legacyReelLinkCheck": {
+    "note": "Logged-out fetch (same UA as linkCheck elsewhere) of the two links a bare legacy reel post id can make; result is the page's og:url.",
+    "handle": "9352453763801277",
+    "watch": {
+      "url": "https://www.facebook.com/watch/?v=9352453763801277",
+      "ogUrl": "https://www.facebook.com/watch/",
+      "resolvesToPost": false
+    },
+    "pagePosts": {
+      "url": "https://www.facebook.com/2749812223808678/posts/9352453763801277",
+      "ogUrl": "https://www.facebook.com/test-page/posts/9352453763801277/",
+      "resolvesToPost": true
+    }
+  }
+}
