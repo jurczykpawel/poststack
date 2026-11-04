@@ -1,3 +1,5 @@
+import tiktokDocs from "../../../tests/fixtures/provider-docs/tiktok.json";
+import tiktokRecorded from "@/lib/providers/__fixtures__/recorded/tiktok-direct-self-only.json";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import type { JobHelpers } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
@@ -928,6 +930,22 @@ describe("TikTok delivery lifecycle", () => {
     vi.stubGlobal("fetch", fn);
     return fn;
   }
+  it("stores the public TikTok video URL while retaining the recorded publish handle for polling", async () => {
+    const { postId, channelId } = await direct();
+    await linkEditorial(postId, "scheduled");
+    await db.update(schema.channels).set({ username: "test_creator" }).where(eq(schema.channels.id, channelId));
+    await db.update(schema.deliveries).set({ status: "processing", provider_handle: tiktokRecorded.providerHandle }).where(eq(schema.deliveries.id, postId));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(tiktokDocs.status.complete.body)));
+    await processPublish({ postId }, helpers);
+    expect(await db.query.posts.findFirst({ where: eq(schema.posts.delivery_id, postId) })).toMatchObject({
+      published_url: "https://www.tiktok.com/@test_creator/video/7300000000000000000",
+      platform_post_id: tiktokRecorded.providerHandle,
+    });
+    const { deliveryPostCard } = await import("@/lib/posts/preview");
+    expect(await deliveryPostCard(WS, postId)).toMatchObject({ url: "https://www.tiktok.com/@test_creator/video/7300000000000000000" });
+    await db.delete(schema.posts).where(eq(schema.posts.delivery_id, postId));
+    expect(await deliveryPostCard(WS, postId)).toMatchObject({ url: "https://www.tiktok.com/@test_creator/video/7300000000000000000" });
+  });
   it("keeps accepted media processing, then records publication without another init", async () => {
     const { postId } = await direct();
     http();

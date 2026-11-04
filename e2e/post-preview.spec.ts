@@ -1,3 +1,7 @@
+import tiktokDocs from "../tests/fixtures/provider-docs/tiktok.json";
+import tiktokRecorded from "../src/lib/providers/__fixtures__/recorded/tiktok-direct-self-only.json";
+import tiktokInbox from "../src/lib/providers/__fixtures__/recorded/tiktok-inbox.json";
+import publishDocs from "../tests/fixtures/provider-docs/publish-responses.json";
 import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { setPro, gotoOk, watchConsole } from "./helpers";
@@ -100,3 +104,35 @@ for (const viewport of [{ label: "desktop", width: 1440, height: 900 }, { label:
     expect(errors).toEqual([]);
   });
 }
+
+
+test("TikTok and X cards expose the right destination and label", async ({ page }, testInfo) => {
+  await setPro(page.request);
+  const { rows: [original] } = await db.query("SELECT platform, username FROM channels WHERE id=$1", [channelId]);
+  try {
+    for (const sample of [
+      { platform: "tiktok", handle: tiktokRecorded.providerHandle, url: "https://www.tiktok.com/@test_creator", label: "View channel profile", publishedUrl: null },
+      { platform: "tiktok", handle: tiktokInbox.providerHandle, url: "https://www.tiktok.com/@test_creator", label: "View channel profile", publishedUrl: null },
+      // No recorded X channel: this id comes from the documented create-post response.
+      { platform: "twitter", handle: publishDocs.x.createPost.body.data.id, url: `https://x.com/i/web/status/${publishDocs.x.createPost.body.data.id}`, label: "View on X", publishedUrl: null },
+      // Sandbox recordings are SELF_ONLY; the public id shape is documented, not recorded.
+      { platform: "tiktok", handle: tiktokRecorded.providerHandle, url: `https://www.tiktok.com/@test_creator/video/${tiktokDocs.status.complete.body.data.publicaly_available_post_id[0]}`, label: "View on TikTok", publishedUrl: `https://www.tiktok.com/@test_creator/video/${tiktokDocs.status.complete.body.data.publicaly_available_post_id[0]}` },
+    ]) {
+      await db.query("UPDATE channels SET platform=$1, username='test_creator' WHERE id=$2", [sample.platform, channelId]);
+      await db.query("UPDATE deliveries SET provider_handle=$1 WHERE id=$2", [sample.handle, deliveryId]);
+      await db.query("UPDATE posts SET published_url=$1 WHERE delivery_id=$2", [sample.publishedUrl, deliveryId]);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await gotoOk(page, `/queue?open=${deliveryId}`);
+        const link = page.locator(".post-preview-link");
+        await expect(link).toHaveAttribute("href", sample.url);
+        await expect(link).toContainText(sample.label);
+        await shoot(page, testInfo.outputPath(`${sample.platform}-${sample.label.replaceAll(" ", "-")}-${width}`));
+      }
+    }
+  } finally {
+    await db.query("UPDATE channels SET platform=$1, username=$2 WHERE id=$3", [original.platform, original.username, channelId]);
+    await db.query("UPDATE deliveries SET provider_handle='pp_ours_1' WHERE id=$1", [deliveryId]);
+    await db.query("UPDATE posts SET published_url='https://www.facebook.com/fb_e2e_1/posts/1' WHERE delivery_id=$1", [deliveryId]);
+  }
+});

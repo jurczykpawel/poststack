@@ -15,7 +15,7 @@ export function postPreview(c: PostCardData) {
       <p class="post-preview-meta">${platformGlyph(c.platform, 14)}<span>${c.channelName}</span></p>
       ${c.at ? html`<p class="post-preview-meta">${localTime(c.at)}</p>` : ""}
       <p class="post-preview-text">${c.text ?? html`<span class="muted">No text to show</span>`}</p>
-      ${c.url ? html`<a class="post-preview-link" href="${c.url}" target="_blank" rel="noopener">View on ${platform} ↗</a>` : ""}
+      ${c.url ? html`<a class="post-preview-link" href="${c.url}" target="_blank" rel="noopener">${c.urlLabel ?? `View on ${platform}`} ↗</a>` : ""}
     </div>
   </article>`;
 }

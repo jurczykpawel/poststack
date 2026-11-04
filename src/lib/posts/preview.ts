@@ -21,6 +21,7 @@ export interface PostCardData {
   imageUrl: string | null;
   video: boolean;
   url: string | null;
+  urlLabel?: string;
   at: Date | null;
 }
 
@@ -41,20 +42,23 @@ export async function deliveryPostCard(workspaceId: string, deliveryId: string):
     .where(and(eq(deliveries.id, deliveryId), eq(deliveries.workspace_id, workspaceId))).orderBy(posts.id).limit(1);
   if (!row) return undefined;
   const { delivery, channel, post } = row;
-  const payload = delivery.payload as { caption?: string; title?: string; media?: Array<{ mediaId?: string }>; options?: { published?: unknown } };
+  const payload = delivery.payload as { _publishedUrl?: string; caption?: string; title?: string; media?: Array<{ mediaId?: string }>; options?: { published?: unknown } };
   const mediaId = payload.media?.[0]?.mediaId;
   const [first] = mediaId
     ? await db.select({ url: media.url, kind: media.kind }).from(media).where(and(eq(media.workspace_id, workspaceId), sql`${media.id}::text = ${mediaId}`))
     : [];
+  const profileUrl = channel.platform === "tiktok" && delivery.provider_handle && channel.username
+    ? `https://www.tiktok.com/@${encodeURIComponent(channel.username.replace(/^@/, ""))}` : null;
+  const postUrl = httpUrl(post?.published_url) ?? httpUrl(payload._publishedUrl) ?? httpUrl(delivery.provider_handle)
+    ?? (payload.options?.published === false ? null : postUrlFor(channel.platform, delivery.provider_handle, channel.username, { format: delivery.format, pageId: channel.platform_id }));
   return {
     platform: channel.platform,
     channelName: nameOf(channel),
     text: post?.description || payload.caption || post?.title || payload.title || null,
     imageUrl: first?.kind === "image" ? httpUrl(first.url) : null,
     video: first?.kind === "video",
-    // An unpublished (published=false) post has no public page to open.
-    url: httpUrl(post?.published_url) ?? httpUrl(delivery.provider_handle)
-      ?? (payload.options?.published === false ? null : postUrlFor(channel.platform, delivery.provider_handle, channel.username, { format: delivery.format, pageId: channel.platform_id })),
+    url: postUrl ?? profileUrl,
+    ...(!postUrl && profileUrl ? { urlLabel: "View channel profile" } : {}),
     at: post?.published_at ?? delivery.sent_at ?? (delivery.status === "sent" ? delivery.updated_at : null),
   };
 }

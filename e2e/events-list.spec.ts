@@ -102,8 +102,24 @@ test("filter, page, open and go back on /activity?source=events without leaving 
   await expect(page.locator(`tr[data-row="${id}"]`)).toHaveAttribute("aria-current", "true");
   await expectNoReload(page);
 
+  // Keep the close response pending while a previous swap finishes settling.
+  await wired(page);
+  let releaseClose!: () => void;
+  let closeRequested!: () => void;
+  const closeGate = new Promise<void>((resolve) => { releaseClose = resolve; });
+  const requested = new Promise<void>((resolve) => { closeRequested = resolve; });
+  await page.route("**/activity?**", async (route) => {
+    closeRequested();
+    await closeGate;
+    await route.continue();
+  });
   await page.keyboard.press("Escape");
+  await requested;
+  await page.evaluate(() => document.getElementById("data-list")!.dispatchEvent(new CustomEvent("htmx:afterSettle", { bubbles: true })));
+  await expect(panel).toBeVisible();
+  releaseClose();
   await expect(panel).toHaveCount(0);
+  await page.unroute("**/activity?**");
   await expect(page).not.toHaveURL(/open=/);
   await expect(page.locator(`tr[data-row="${id}"] a.dl-rowlink`)).toBeFocused();
 

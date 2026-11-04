@@ -26,8 +26,8 @@
       var close = e.target.closest && e.target.closest(".dl-close");
       if (close) returnTo = close.getAttribute("data-row-return");
     });
-    document.body.addEventListener("htmx:afterSettle", function () {
-      if (!returnTo) return;
+    document.body.addEventListener("htmx:afterSettle", function (e) {
+      if (!returnTo || e.target !== document.getElementById("data-list") || document.querySelector(".dl-detail")) return;
       var id = returnTo;
       returnTo = null;
       var row = Array.from(document.querySelectorAll("[data-row]")).find(function (r) { return r.getAttribute("data-row") === id; });

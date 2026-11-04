@@ -1,3 +1,6 @@
+import tiktokRecorded from "@/lib/providers/__fixtures__/recorded/tiktok-direct-self-only.json";
+import tiktokInbox from "@/lib/providers/__fixtures__/recorded/tiktok-inbox.json";
+import publishDocs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
@@ -127,6 +130,26 @@ describe("deliveryPostCard (a post PostStack published)", () => {
       workspace_id: WS, delivery_id: DELIVERY, platform: "facebook", description: "Our caption", status: "published",
       published_url: "https://www.facebook.com/PG1/posts/1", published_at: new Date("2026-10-29T10:01:00Z"), platform_post_id: "PG1_1",
     });
+  });
+
+  it.each([tiktokRecorded.providerHandle, tiktokInbox.providerHandle])("labels a recorded TikTok upload's profile fallback (%s)", async (handle) => {
+    await db.update(s.channels).set({ platform: "tiktok", username: "test_creator" }).where(eq(s.channels.id, CH));
+    await db.update(s.deliveries).set({ provider_handle: handle }).where(eq(s.deliveries.id, DELIVERY));
+    await db.update(s.posts).set({ published_url: null }).where(eq(s.posts.delivery_id, DELIVERY));
+    const card = await preview.deliveryPostCard(WS, DELIVERY);
+    expect(card).toMatchObject({ url: "https://www.tiktok.com/@test_creator", urlLabel: "View channel profile" });
+    const { postPreview } = await import("@/server/ui/components/post-preview");
+    expect(String(await postPreview(card!))).toContain("View channel profile ↗");
+    await db.update(s.channels).set({ username: null }).where(eq(s.channels.id, CH));
+    expect(await preview.deliveryPostCard(WS, DELIVERY)).toMatchObject({ url: null });
+  });
+
+  it("links an X post using the documented response (no recorded X channel)", async () => {
+    const id = publishDocs.x.createPost.body.data.id;
+    await db.update(s.channels).set({ platform: "twitter" }).where(eq(s.channels.id, CH));
+    await db.update(s.deliveries).set({ provider_handle: id }).where(eq(s.deliveries.id, DELIVERY));
+    await db.update(s.posts).set({ published_url: null }).where(eq(s.posts.delivery_id, DELIVERY));
+    expect(await preview.deliveryPostCard(WS, DELIVERY)).toMatchObject({ url: `https://x.com/i/web/status/${id}` });
   });
 
   it("builds the card from our own rows without calling the platform", async () => {

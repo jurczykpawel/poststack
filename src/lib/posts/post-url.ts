@@ -8,6 +8,7 @@ export const httpUrl = (u: string | null | undefined): string | null => (u && /^
 export function postUrlFor(platform: string, postId: string | null | undefined, handle?: string | null, context?: { format?: string; pageId?: string }): string | null {
   if (!postId || /^https?:\/\//i.test(postId)) return null;
   const id = encodeURIComponent(postId);
+  if (platform === "twitter" && /^\d+$/.test(postId)) return `https://x.com/i/web/status/${id}`;
   if (platform === "youtube") return `https://www.youtube.com/watch?v=${id}`;
   if (platform === "facebook") {
     // Graph ids: `<pageId>_<postId>` (feed/photo/reel posts) or a bare numeric video id; a bare id is not a profile URL.

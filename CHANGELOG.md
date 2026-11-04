@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Closing list details restores focus to its row after the close response settles.
+- Post cards link to X posts and TikTok public videos; TikTok uploads without a public video link offer a clearly labelled channel profile link.
+
 ## [0.17.3] - 2026-11-04
 
 ### Changed

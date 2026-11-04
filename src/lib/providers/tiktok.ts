@@ -128,15 +128,19 @@ export const tiktokProvider: Provider = {
         method: "POST", headers: { Authorization: `Bearer ${tokens.accessToken}`, "Content-Type": "application/json; charset=UTF-8" },
         body: JSON.stringify({ publish_id: handle.providerHandle }), redirect: "error", signal: AbortSignal.timeout(10_000),
       });
-      json = await res.json();
+      // TikTok returns int64 ids as JSON numbers; preserve their decimal digits before parsing.
+      const body = await res.text();
+      json = JSON.parse(body.replace(/("publicaly_available_post_id"\s*:\s*\[)([\d\s,]*)(\])/g,
+        (_match, start: string, ids: string, end: string) => start + ids.replace(/\d+/g, '"$&"') + end));
     } catch { throw new TransientError("TikTok status unavailable. Try again later."); }
-    const parsed = z.object({ data: z.object({ status: z.string(), fail_reason: z.string().optional() }).optional(), error: z.object({ code: z.string() }) }).safeParse(json);
+    const parsed = z.object({ data: z.object({ status: z.string(), publicaly_available_post_id: z.array(z.string().regex(/^\d+$/)).optional(), fail_reason: z.string().optional() }).optional(), error: z.object({ code: z.string() }) }).safeParse(json);
     if (parsed.success && parsed.data.error.code === "access_token_invalid") throw new TokenInvalidError("Reconnect the TikTok channel");
     if (!res.ok) throw classifyHttp(res.status, "TikTok status unavailable");
     if (!parsed.success || parsed.data.error.code !== "ok" || !parsed.data.data) throw new TransientError("TikTok status unavailable. Try again later.");
     const data = parsed.data.data;
     if (data.status === "FAILED") return { state: "failed", error: data.fail_reason || "TikTok processing failed" };
-    if (data.status === "PUBLISH_COMPLETE" || data.status === "SEND_TO_USER_INBOX") return { state: "published" };
+    if (data.status === "PUBLISH_COMPLETE") return { state: "published", ...(data.publicaly_available_post_id?.[0] ? { postId: data.publicaly_available_post_id[0] } : {}) };
+    if (data.status === "SEND_TO_USER_INBOX") return { state: "published" };
     return { state: "accepted" };
   },
 

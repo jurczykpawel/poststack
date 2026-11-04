@@ -67,7 +67,7 @@ describe("TikTok status responses as documented", () => {
     await expect(status(docs.status.failed)).resolves.toEqual({ state: "failed", error: "picture_size_check_failed" });
   });
   it("reports completion with the provider's post id list present", async () => {
-    await expect(status(docs.status.complete)).resolves.toEqual({ state: "published" });
+    await expect(status(docs.status.complete)).resolves.toEqual({ state: "published", postId: "7300000000000000000" });
   });
   it("classifies an unknown publish id, an invalid token and a rate limit distinctly", async () => {
     await expect(status(docs.status.invalidPublishId)).rejects.toBeInstanceOf(PermanentError);
