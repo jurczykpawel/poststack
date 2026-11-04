@@ -282,3 +282,18 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
     }
   });
 });
+
+it("returns 404 for unavailable webhook delivery history", async () => {
+  const ep = await endpoints.createEndpoint(OTHER_WS, { url: "https://hooks.example.com/other-history" });
+  expect((await app.request(`/webhooks/outbound/${ep.id}/deliveries`, { headers: withCookie() })).status).toBe(404);
+});
+it("returns 422 for an invalid delivery cursor", async () => {
+  const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/cursor" });
+  expect((await app.request(`/webhooks/outbound/${ep.id}/deliveries?cursor=invalid`, { headers: withCookie() })).status).toBe(422);
+});
+it("styles invalid extra fields as an error", async () => {
+  const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/invalid-extra" });
+  const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, extra: "{bad json" });
+  expect(res.status).toBe(422);
+  expect(await res.text()).toMatch(/notice-err[^>]*>Extra payload fields/);
+});

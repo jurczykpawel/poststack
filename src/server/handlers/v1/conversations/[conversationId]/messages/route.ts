@@ -1,13 +1,14 @@
 import { randomUUID } from "crypto";
-import { and, eq, lt, desc, sql, type SQL } from "drizzle-orm";
+import { and, eq, lt, desc, type SQL } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { messages, conversations, contactChannels } from "@/db/schema";
+import { messages, conversations, contactChannels, commentLogs } from "@/db/schema";
 import { ok, created, err, ApiErrors } from "@/lib/api/response";
 import { env } from "@/lib/env";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { proGate } from "@/lib/api/pro-gate";
 import { addJobTx } from "@/lib/queue/client";
+import { can } from "@/lib/channels/capabilities";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -73,7 +74,7 @@ export async function GET(
 }
 
 const sendSchema = z.object({
-  text: z.string().min(1).max(2000),
+  text: z.string().trim().min(1, "Reply text is required").max(2000, "Reply text must be at most 2000 characters"),
 });
 
 // POST /api/v1/conversations/:id/messages — manual reply
@@ -91,7 +92,7 @@ export async function POST(
   const { conversationId } = await params;
   const conversation = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.workspace_id, auth.workspaceId)),
-    columns: { id: true, channel_id: true, contact_id: true, platform: true, thread_type: true, last_inbound_at: true },
+    columns: { id: true, channel_id: true, contact_id: true, platform: true, thread_type: true, last_inbound_at: true, last_message_at: true },
   });
   if (!conversation) return ApiErrors.notFound();
 
@@ -109,6 +110,17 @@ export async function POST(
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error);
   }
+
+  const publicReply = conversation.thread_type === "comment";
+  if (!can({ platform: conversation.platform }, publicReply ? "comment_reply" : "dm")) {
+    return err("reply_unavailable", "This channel does not support this type of reply.", 422);
+  }
+  const parent = publicReply ? await db.query.commentLogs.findFirst({
+    where: and(eq(commentLogs.workspace_id, auth.workspaceId), eq(commentLogs.conversation_id, conversation.id), eq(commentLogs.channel_id, conversation.channel_id)),
+    orderBy: [desc(commentLogs.created_at), desc(commentLogs.id)],
+    columns: { platform_comment_id: true },
+  }) : undefined;
+  if (publicReply && !parent) return err("reply_unavailable", "The original comment is unavailable — reply on the platform.", 422);
 
   const contactChannel = await db.query.contactChannels.findFirst({
     where: and(
@@ -136,19 +148,16 @@ export async function POST(
     ? `manual-reply:${auth.workspaceId}:${conversation.id}:${idemHeader}`
     : randomUUID();
 
-  // Clear the manual-attention flag and enqueue the reply in ONE transaction: if
-  // the enqueue fails, the flag stays set so the operator still sees the conversation needs
-  // a reply, instead of clearing the alert for a message that never went out.
-  //
-  // Also advance last_message_at NOW (the human just acted), not later when the reply is
-  // sent: that timestamp is the "is this still the latest activity" marker the inbound
-  // worker uses, so without this a stale old-inbound final-retry could re-raise the flag in
-  // the window before the outgoing job runs. GREATEST keeps it monotonic.
   await db.transaction(async (tx) => {
-    await tx.update(conversations)
-      .set({ needs_manual_reply: false, last_message_at: sql`GREATEST(${conversations.last_message_at}, now())` })
-      // workspace_id alongside the PK keeps the update tenant-scoped.
-      .where(and(eq(conversations.id, conversation.id), eq(conversations.workspace_id, auth.workspaceId)));
+    const manualReplyAt = (conversation.last_message_at ?? new Date(0)).toISOString();
+    if (parent) {
+      await addJobTx(tx, "outgoing-comment", {
+        workspaceId: auth.workspaceId, channelId: conversation.channel_id, contactId: conversation.contact_id, conversationId: conversation.id,
+        commentId: parent.platform_comment_id, text: parsed.data.text, manualReplyAt,
+        idempotencyKey: replyKey,
+      }, { jobKey: idemHeader ? replyKey : undefined });
+      return;
+    }
     await addJobTx(tx, "outgoing-message", {
       channelId: conversation.channel_id,
       conversationId: conversation.id,
@@ -160,6 +169,7 @@ export async function POST(
       // doesn't silently drop/hold an operator's reply sent via the API (the primary interface).
       sentByUserId: auth.userId.startsWith("api-key:") ? undefined : auth.userId,
       isManual: true,
+      manualReplyAt,
       idempotencyKey: replyKey,
     }, { jobKey: idemHeader ? replyKey : undefined });
   });

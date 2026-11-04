@@ -134,9 +134,9 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
  */
 export function renderOutboundWebhooks(
   endpoints: WebhookEndpoint[],
-  opts: { canManage: boolean; upgradeUrl: string; notice?: string; highlightId?: string },
+  opts: { canManage: boolean; upgradeUrl: string; notice?: string; noticeError?: boolean; highlightId?: string },
 ): Html {
-  const notice = opts.notice ? html`<div class="notice notice-ok">${opts.notice}</div>` : html``;
+  const notice = opts.notice ? html`<div class="notice ${opts.noticeError ? "notice-err" : "notice-ok"}">${opts.notice}</div>` : html``;
   if (!opts.canManage) {
     return html`<div id="wh-outbound">${notice}
       <div class="callout">${icon("lock", "ico", 15)}<div>Outbound webhook endpoints are a <a href="${opts.upgradeUrl}">PRO</a> feature. Subscribe an external URL (n8n, Zapier, your own service) to events — each delivery is HMAC-signed with a per-endpoint secret.</div></div>
@@ -179,7 +179,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     return { a, canManage: features.has("outbound_webhooks"), upgradeUrl };
   }
 
-  async function renderPanel(workspaceId: string, canManage: boolean, upgradeUrl: string, extra?: { notice?: string; highlightId?: string }) {
+  async function renderPanel(workspaceId: string, canManage: boolean, upgradeUrl: string, extra?: { notice?: string; noticeError?: boolean; highlightId?: string }) {
     const endpoints = canManage ? await listEndpoints(workspaceId) : [];
     return renderOutboundWebhooks(endpoints, { canManage, upgradeUrl, ...extra });
   }
@@ -234,7 +234,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     } catch (err) {
       if (err instanceof ApiError) {
         toastHeader(c, "bad", err.message);
-        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }), err.status === 422 ? 422 : 200);
+        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message, noticeError: true }), err.status === 422 ? 422 : 200);
       }
       throw err;
     }
@@ -259,7 +259,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
       if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
       if (err instanceof ApiError) {
         toastHeader(c, "bad", err.message);
-        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message }), err.status === 422 ? 422 : 200);
+        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message, noticeError: true }), err.status === 422 ? 422 : 200);
       }
       throw err;
     }

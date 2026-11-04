@@ -10,6 +10,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Fixed
+- Inbox replies in comment threads are public replies to the latest comment; unsupported reply types are explained before sending, and Needs reply stays until delivery succeeds.
+- New YouTube comments keep their video links, Inbox preview and originating comment in Approvals.
+- Validation preserves Compose drafts, explains reply and rule errors, and improves approval editor labels and keyboard focus.
+- Unavailable detail panels and webhook history use consistent response statuses; long rule values keep actions reachable and mobile New post keeps its plus visible.
 - Closing list details restores focus to its row after the close response settles.
 - Post cards link to X posts and TikTok public videos; TikTok uploads without a public video link offer a clearly labelled channel profile link.
 - Compose guides unassigned channels through brand setup in one click, opens the relevant channel assignments on mobile and links back to Compose.

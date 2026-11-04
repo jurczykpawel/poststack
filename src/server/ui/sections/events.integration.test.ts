@@ -159,7 +159,9 @@ describe("events source of /activity", () => {
     if (!TEST_DB) return;
     await seed([{ type: "post.failed" }]);
     const [foreign] = await seed([{ type: "post.failed", payload: { displayName: "Foreign brand", platform: "telegram" } }], OTHER_WS);
-    const body = await get(`/events?open=${foreign!.id}`);
+    const missing = await app.request(`/activity?source=events&open=${foreign!.id}`, { headers: { cookie } });
+    expect(missing.status).toBe(404);
+    const body = await get("/events");
     expect(rowIds(body)).toHaveLength(1);
     expect(chipCount(body, "All")).toBe(1);
     expect(body).not.toContain("Foreign brand");
@@ -195,10 +197,11 @@ describe("events source of /activity", () => {
   it("survives hand-edited URLs by falling back to the plain list", async () => {
     if (!TEST_DB) return;
     await seed([{ type: "post.failed" }]);
-    for (const qs of ["after=garbage", "before=%00", "open=not-a-uuid", "severity=nonsense", "area=" + encodeURIComponent("'; DROP TABLE events; --")]) {
+    for (const qs of ["after=garbage", "before=%00", "severity=nonsense", "area=" + encodeURIComponent("'; DROP TABLE events; --")]) {
       const body = await get(`/events?${qs}`);
       expect(body, qs).not.toContain('class="dl-detail');
     }
+    expect((await app.request("/activity?source=events&open=not-a-uuid", { headers: { cookie } })).status).toBe(404);
     expect(rowIds(await get("/events?after=garbage"))).toHaveLength(1);
     expect(rowIds(await get("/events?severity=nonsense"))).toHaveLength(1);
   });

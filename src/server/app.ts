@@ -74,6 +74,7 @@ export function buildApp(): Hono {
       console.error(`Unhandled API error on ${c.req.method} ${sanitizeForLog(c.req.path)}: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
       return ApiErrors.internal();
     }
+    if (e instanceof ApiError && (e.status === 404 || e.status === 422)) return c.text(e.message, e.status);
     console.error(`Unhandled error: ${sanitizeForLog(e instanceof Error ? e.message : String(e))}`);
     return c.html(errorPage(500), 500);
   });

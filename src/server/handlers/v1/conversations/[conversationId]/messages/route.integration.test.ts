@@ -76,12 +76,12 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
     expect(await flag()).toBe(true);
   });
 
-  it("clears the flag and queues the reply when the enqueue succeeds", async () => {
+  it("keeps the flag until the queued reply is delivered", async () => {
     if (!TEST_DB) return;
     const res = await POST(postReq(), ctx);
     expect(res.status).toBe(201);
     expect(addJobTx).toHaveBeenCalledTimes(1);
-    expect(await flag()).toBe(false);
+    expect(await flag()).toBe(true);
   });
 
   // an over-long Idempotency-Key would overflow graphile's 512-char job_key cap and
@@ -100,15 +100,15 @@ describe("manual reply — clear-flag + enqueue is atomic", () => {
 
   // clearing the flag must advance last_message_at NOW (the resolution marker), so a
   // stale old-inbound final-retry can't re-raise the flag before the outgoing job runs.
-  it("advances last_message_at on manual reply so a later stale retry cannot re-raise the flag", async () => {
+  it("keeps the last activity unchanged while a manual reply is queued", async () => {
     if (!TEST_DB) return;
     const past = new Date("2020-01-01T00:00:00.000Z");
     await db.update(s.conversations).set({ last_message_at: past }).where(eq(s.conversations.id, CONV));
     const res = await POST(postReq(), ctx);
     expect(res.status).toBe(201);
     const [c] = await db.select().from(s.conversations).where(eq(s.conversations.id, CONV));
-    expect(c.needs_manual_reply).toBe(false);
-    expect(c.last_message_at!.getTime()).toBeGreaterThan(past.getTime());
+    expect(c.needs_manual_reply).toBe(true);
+    expect(c.last_message_at!.getTime()).toBe(past.getTime());
   });
 });
 
@@ -172,4 +172,71 @@ describe("manual reply — Meta 24h window closed (Human Agent not approved)", (
     expect((await POST(postReq(), ctx)).status).toBe(201);
     expect(addJobTx).toHaveBeenCalledTimes(1);
   });
+});
+
+for (const platform of ["youtube", "tiktok", "linkedin"] as const) {
+  it(`refuses unsupported ${platform} direct messages before enqueue`, async () => {
+    await db.update(s.conversations).set({ platform }).where(eq(s.conversations.id, CONV));
+    const res = await POST(postReq(), ctx);
+    expect(res.status).toBe(422);
+    expect(addJobTx).not.toHaveBeenCalled();
+    expect(await flag()).toBe(true);
+  });
+}
+it("queues a public reply addressed to the latest comment", async () => {
+  await db.update(s.channels).set({ platform: "youtube" }).where(eq(s.channels.id, CH));
+  await db.update(s.conversations).set({ platform: "youtube", thread_type: "comment", thread_ref: "video" }).where(eq(s.conversations.id, CONV));
+  await db.insert(s.commentLogs).values({ workspace_id: WS, channel_id: CH, conversation_id: CONV, platform_comment_id: "parent-comment", author_id: "PSID-M", comment_text: "Question" });
+  expect((await POST(postReq(), ctx)).status).toBe(201);
+  expect(addJobTx).toHaveBeenCalledWith(expect.anything(), "outgoing-comment", expect.objectContaining({ commentId: "parent-comment", text: "thanks!", conversationId: CONV }), expect.anything());
+  expect(await flag()).toBe(true);
+});
+it("refuses a comment reply without its parent context", async () => {
+  await db.update(s.conversations).set({ platform: "youtube", thread_type: "comment" }).where(eq(s.conversations.id, CONV));
+  expect((await POST(postReq(), ctx)).status).toBe(422);
+  expect(addJobTx).not.toHaveBeenCalled();
+});
+
+it.each(["sent", "failed", "new inbound"])("keeps attention aligned with a public reply: %s", async (outcome) => {
+  const { encryptTokens } = await import("@/lib/crypto");
+  const { YouTubeProvider } = await import("@/lib/platforms/youtube");
+  const { processOutgoingComment } = await import("@/lib/workers/outgoing-comment-worker");
+  await db.update(s.channels).set({ platform: "youtube", token_encrypted: encryptTokens({ access_token: "test" }) }).where(eq(s.channels.id, CH));
+  await db.update(s.conversations).set({ platform: "youtube", thread_type: "comment", thread_ref: "video" }).where(eq(s.conversations.id, CONV));
+  await db.insert(s.commentLogs).values({ workspace_id: WS, channel_id: CH, conversation_id: CONV, platform_comment_id: "delivery-parent", author_id: "PSID-M", comment_text: "Question" });
+  expect((await POST(postReq(), ctx)).status).toBe(201);
+  const job = addJobTx.mock.calls[0][2] as import("@/lib/queue/types").OutgoingCommentJob;
+  const send = vi.spyOn(YouTubeProvider.prototype, "sendComment");
+  if (outcome === "failed") send.mockRejectedValueOnce(new Error("Provider unavailable"));
+  else send.mockImplementationOnce(async () => {
+    if (outcome === "new inbound") await db.update(s.conversations).set({ last_message_at: new Date(Date.parse(job.manualReplyAt!) + 1000) }).where(eq(s.conversations.id, CONV));
+    return { platformMessageId: "public-sent" };
+  });
+  const delivery = processOutgoingComment(job, { job: { id: "481", attempts: 1, max_attempts: 3 }, logger: { info() {}, error() {}, warn() {} } } as unknown as import("graphile-worker").JobHelpers);
+  try {
+    if (outcome === "failed") await expect(delivery).rejects.toThrow("Provider unavailable"); else await delivery;
+    expect(send).toHaveBeenCalledWith(expect.anything(), "delivery-parent", "thanks!");
+    expect(await flag()).toBe(outcome !== "sent");
+    const sent = await db.query.messages.findMany({ where: eq(s.messages.conversation_id, CONV) });
+    expect(sent).toHaveLength(outcome === "failed" ? 0 : 1);
+  } finally { send.mockRestore(); }
+});
+
+it.each([false, true])("clears delivered DM attention only without newer activity (newer=%s)", async (newer) => {
+  const { encryptTokens } = await import("@/lib/crypto");
+  const { FacebookProvider } = await import("@/lib/platforms/facebook");
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  await db.update(s.channels).set({ token_encrypted: encryptTokens({ access_token: "test" }) }).where(eq(s.channels.id, CH));
+  await db.update(s.conversations).set({ last_message_at: new Date() }).where(eq(s.conversations.id, CONV));
+  expect((await POST(postReq(), ctx)).status).toBe(201);
+  const job = addJobTx.mock.calls[0][2] as import("@/lib/queue/types").OutgoingMessageJob;
+  const send = vi.spyOn(FacebookProvider.prototype, "sendMessage").mockImplementationOnce(async () => {
+    if (newer) await db.update(s.conversations).set({ last_message_at: new Date(Date.parse(job.manualReplyAt!) + 1000) }).where(eq(s.conversations.id, CONV));
+    return { platformMessageId: "dm-sent" };
+  });
+  try {
+    await processOutgoingMessage(job, { job: { id: "482", attempts: 1, max_attempts: 3 }, logger: { info() {}, error() {}, warn() {} } } as unknown as import("graphile-worker").JobHelpers);
+    expect(send).toHaveBeenCalledOnce();
+    expect(await flag()).toBe(newer);
+  } finally { send.mockRestore(); }
 });

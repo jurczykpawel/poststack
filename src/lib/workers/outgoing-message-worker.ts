@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
 import type { OutgoingMessageJob } from "@/lib/queue/types";
 import { truncateCodePoints } from "@/lib/text";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, conversations, contacts, outboundDeliveries } from "@/db/schema";
 import { redactSecrets } from "@/lib/redact";
@@ -176,6 +176,7 @@ export async function processOutgoingMessage(
       await tx
         .update(conversations)
         .set({
+          ...(payload.manualReplyAt ? { needs_manual_reply: sql`CASE WHEN date_trunc('milliseconds', ${conversations.last_message_at}) > ${payload.manualReplyAt}::timestamptz THEN ${conversations.needs_manual_reply} ELSE false END` } : {}),
           last_message_at: new Date(),
           last_message_preview: content.text ? truncateCodePoints(content.text, 255) : null,
           ...(armCapture ? { awaiting_capture: armCapture } : {}),

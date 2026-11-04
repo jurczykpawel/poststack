@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api/response";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
@@ -114,6 +115,8 @@ async function renderContacts(workspaceId: string, url: string, multiBrand: bool
     countBy(contacts, statusExpr, withoutStatus),
     openedContact(workspaceId, state.open),
   ]);
+
+  if (state.open && !opened) throw new ApiError("not_found", "Not found", 404);
 
   const select = (key: string, label: string, options: Array<{ value: string; label: string }>) => (options.length > 1 || f[key] ? [{ key, label, options }] : []);
   return dataList<Row>({

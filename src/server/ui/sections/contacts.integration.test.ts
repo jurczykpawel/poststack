@@ -156,7 +156,7 @@ describe("/contacts list", () => {
     expect(b).toBeTruthy();
   });
 
-  it("opens a contact in the panel with channels, tags and an inbox link, and ignores foreign or malformed ids", async () => {
+  it("opens a contact in the panel with channels, tags and an inbox link, and returns 404 for unavailable ids", async () => {
     if (!TEST_DB) return;
     const [mine] = await seed([{ display_name: "Panel Person", email: "panel@example.com", phone: "+48123", last_interaction_at: new Date() }]);
     const [foreign] = await seed([{ display_name: "Foreign Person" }], OTHER_WS);
@@ -169,10 +169,13 @@ describe("/contacts list", () => {
     for (const text of ["panel@example.com", "+48123", "@panelp", "lead", `/inbox?contact=${mine!.id}`]) expect(open).toContain(text);
     expect(open).not.toContain("PS1"); // platform sender ids are not shown
 
-    const foreignOpen = await get(`/contacts?open=${foreign!.id}`);
+    const missing = await app.request(`/contacts?open=${foreign!.id}`, { headers: { cookie } });
+    expect(missing.status).toBe(404);
+    const foreignOpen = await missing.text();
     expect(foreignOpen).not.toContain("Foreign Person");
     expect(foreignOpen).not.toContain('class="dl-detail"');
-    const broken = await get("/contacts?open=not-a-uuid&after=%25%25&channel=nope&platform=nope");
+    expect((await app.request("/contacts?open=not-a-uuid", { headers: { cookie } })).status).toBe(404);
+    const broken = await get("/contacts?after=%25%25&channel=nope&platform=nope");
     expect(broken).toContain("Panel Person"); // bad cursor and filters fall back to the plain first page
     expect(broken).not.toContain('class="dl-detail"');
   });
