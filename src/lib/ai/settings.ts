@@ -40,6 +40,7 @@ export function aiErrorMessage(code: AiErrorCode, host: string, status?: number)
     case "invalid_key": return "The API key is invalid or has no access. Check that you copied all of it.";
     case "model_not_found": return "This model does not exist at the provider, or the key has no access to it.";
     case "rate_limited": return "The provider rejected the request (rate limit). Try again shortly.";
+    case "no_credits": return "The provider account has no credits left. Add credits in the provider's billing settings, then test again.";
     case "timeout": return "The provider did not answer in time.";
     case "unreachable": return `Could not connect to ${host}. Check the Base URL.`;
     case "blocked_target": return blockedTargetHint(host);

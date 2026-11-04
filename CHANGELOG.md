@@ -10,6 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Fixed
+- AI provider: an account with no credits left (OpenAI `insufficient_quota`) is reported as `no_credits` with a billing hint, instead of a rate limit to retry.
 - Problem alerts: a malformed custom header returns 422 with the reason next to the field (was HTTP 500).
 - Text fields with a NUL character are rejected with 422 instead of HTTP 500.
 - A failed AI draft (e.g. provider rate limit) shows its reason in the Inbox instead of "generating" forever; Settings → AI counts generations and failures over the same week.

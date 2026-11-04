@@ -78,6 +78,13 @@ describe("listModels", () => {
     await listModels(openai, { fetchImpl }).catch((e: AiError) => expect(JSON.stringify(e) + e.message).not.toContain("sk-leak"));
   });
 
+  it("a 429 with OpenAI's out-of-credits body is no_credits, not a rate limit (recorded PROD 2026-11-04)", async () => {
+    const body = JSON.stringify({ error: { message: "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.", type: "insufficient_quota", param: null, code: "credit_balance_exhausted" } });
+    expect(await code(listModels(openai, { fetchImpl: fakeFetch(() => new Response(body, { status: 429 })).fetchImpl }))).toBe("no_credits:429");
+    const t = await testConnection({ ...openai, model: "gpt-5.6-terra" }, { fetchImpl: fakeFetch(() => new Response(body, { status: 429 })).fetchImpl });
+    expect(t).toEqual({ ok: false, error: { code: "no_credits", http_status: 429 } });
+  });
+
   it("a custom server without /models answers no_models_endpoint; a non-JSON body is bad_response", async () => {
     const custom = { provider: "custom" as const, baseUrl: "http://ollama:11434/v1", apiKey: "x" };
     expect(await code(listModels(custom, { fetchImpl: fakeFetch(() => new Response("nf", { status: 404 })).fetchImpl }))).toBe("no_models_endpoint:404");

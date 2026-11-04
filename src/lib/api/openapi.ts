@@ -283,7 +283,7 @@ export const openApiSpec = {
         },
       },
       AiProviderId: { type: "string", enum: ["openai", "anthropic", "openrouter", "groq", "custom"] },
-      AiErrorCode: { type: "string", enum: ["invalid_key", "model_not_found", "rate_limited", "timeout", "unreachable", "blocked_target", "no_models_endpoint", "bad_response"] },
+      AiErrorCode: { type: "string", enum: ["invalid_key", "model_not_found", "rate_limited", "no_credits", "timeout", "unreachable", "blocked_target", "no_models_endpoint", "bad_response"] },
       AiModel: {
         type: "object",
         required: ["id"],

@@ -5,7 +5,7 @@ import { chatRequest, chatFinishedByLength, isChatModel, isReasoningModel, model
 // AIPROVIDER1: the provider model list (cached in memory) and the "check connection" probe. Errors carry
 // only a code and the HTTP status — never the provider's response body (no key echo, no network oracle).
 
-export type AiErrorCode = "invalid_key" | "model_not_found" | "rate_limited" | "timeout" | "unreachable" | "blocked_target" | "no_models_endpoint" | "bad_response";
+export type AiErrorCode = "invalid_key" | "model_not_found" | "rate_limited" | "no_credits" | "timeout" | "unreachable" | "blocked_target" | "no_models_endpoint" | "bad_response";
 
 export class AiError extends Error {
   constructor(public code: AiErrorCode, public httpStatus?: number) {
@@ -29,10 +29,13 @@ function fromThrown(e: unknown): AiError {
   return new AiError("unreachable");
 }
 
-function fromStatus(status: number, notFound: AiErrorCode): AiError {
+/** OpenAI-style 429 bodies say whether the account is out of credits rather than throttled. */
+const NO_CREDITS = /insufficient_quota|credit_balance|billing/i;
+
+function fromStatus(status: number, notFound: AiErrorCode, body = ""): AiError {
   if (status === 401 || status === 403) return new AiError("invalid_key", status);
   if (status === 404) return new AiError(notFound, status);
-  if (status === 429) return new AiError("rate_limited", status);
+  if (status === 429) return new AiError(NO_CREDITS.test(body) ? "no_credits" : "rate_limited", status);
   return new AiError("bad_response", status);
 }
 
@@ -50,7 +53,7 @@ async function fetchPages(a: ProviderAccess, fetchImpl: FetchImpl): Promise<AiMo
   for (let page = 0; page < 3; page++) {
     let res: Response;
     try { res = await fetchImpl(url, { method: "GET", headers: req.headers, redirect: "error" }); } catch (e) { throw fromThrown(e); }
-    if (!res.ok) throw fromStatus(res.status, a.provider === "custom" ? "no_models_endpoint" : "bad_response");
+    if (!res.ok) throw fromStatus(res.status, a.provider === "custom" ? "no_models_endpoint" : "bad_response", await res.text().catch(() => ""));
     const json = (await res.json().catch(() => null)) as { data?: unknown; has_more?: boolean; last_id?: string } | null;
     if (!json || !Array.isArray(json.data)) throw new AiError("bad_response", res.status);
     models.push(...parseModels(a.provider, json));
@@ -90,7 +93,7 @@ export async function testConnection(c: ProviderCall, o: { fetchImpl?: FetchImpl
   try {
     const req = chatRequest(c, { system: "Reply with OK.", user: "Reply with OK.", maxTokens: isReasoningModel(c.model) ? 64 : 16, temperature: 0 });
     const res = await (o.fetchImpl ?? testFetch)(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(req.body), redirect: "error" }).catch((e) => { throw fromThrown(e); });
-    if (!res.ok) throw fromStatus(res.status, "model_not_found");
+    if (!res.ok) throw fromStatus(res.status, "model_not_found", await res.text().catch(() => ""));
     const json = await res.json().catch(() => null);
     if (parseChatText(c.provider, json)) return { ok: true, latency_ms: Date.now() - started, model: c.model };
     if (chatFinishedByLength(c.provider, json)) return { ok: true, latency_ms: Date.now() - started, model: c.model, truncated: true };
