@@ -100,10 +100,40 @@ jobs:
       - name: Browser tests
         run: npm run test:e2e
 
+  dependabot-gate:
+    name: Dependabot PRs handled
+    # A final release (vX.Y.Z, not an rc) is refused while a Dependabot PR is red or has been
+    # waiting more than 14 days (a major nobody reviewed). Green patch/minor PRs merge by
+    # themselves (dependabot-auto-merge.yml), so this only stops on what needs a human.
+    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Check open Dependabot PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --author app/dependabot --state open \
+            --json number,title,createdAt,url,statusCheckRollup)
+          blocking=$(jq -r --arg cutoff "$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)" '
+            .[] | select(
+              (.createdAt < $cutoff) or
+              ([.statusCheckRollup[]? | select(.conclusion | IN("FAILURE","CANCELLED","TIMED_OUT"))] | length > 0)
+            ) | "#\(.number) \(.title) — \(.url)"' <<<"$prs")
+          if [ -n "$blocking" ]; then
+            echo "::error::Handle these Dependabot PRs before a final release (merge, fix, or close with @dependabot ignore):"
+            echo "$blocking"
+            exit 1
+          fi
+          echo "Dependabot PRs OK: $(jq length <<<"$prs") open, none red or older than 14 days."
+
   build:
     name: Build & push images
-    if: github.event_name == 'push'
-    needs: verify
+    # rc tags skip dependabot-gate; a skipped gate must not skip the build.
+    if: "!cancelled() && github.event_name == 'push' && needs.verify.result == 'success' && contains(fromJSON('[\"success\",\"skipped\"]'), needs.dependabot-gate.result)"
+    needs: [verify, dependabot-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -145,7 +175,7 @@ jobs:
   github-release:
     name: GitHub Release
     # Final versions only (vX.Y.Z); release candidates stay tags. Notes come from CHANGELOG.md.
-    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    if: "!cancelled() && github.event_name == 'push' && !contains(github.ref_name, '-') && needs.build.result == 'success'"
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -162,7 +192,7 @@ jobs:
 
   deploy-test:
     name: Auto-deploy to TEST
-    if: github.event_name == 'push'
+    if: "!cancelled() && github.event_name == 'push' && needs.build.result == 'success'"
     needs: build
     runs-on: ubuntu-latest
     steps:
