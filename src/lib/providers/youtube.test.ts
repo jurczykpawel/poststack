@@ -25,6 +25,10 @@ vi.mock("@/lib/net/safe-fetch", async (importOriginal) => {
 });
 
 import { youtubeProvider } from "./youtube";
+import ytRec from "./__fixtures__/recorded/youtube-upload-unlisted.json";
+// PROVFIX1: the videos.insert resource YouTube returned on 2026-11-04 (resumable upload, final PUT).
+const YT_VIDEO = JSON.stringify(ytRec.exchanges.find((e) => e.method === "PUT")!.body);
+const YT_ID = ytRec.providerHandle;
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
 
@@ -116,7 +120,7 @@ describe("youtube provider", () => {
           return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess1" } });
         }
         if (url === "https://upload.googleapis.com/sess1") {
-          return new Response(JSON.stringify({ id: "vid_1" }), { status: 200 }); // PUT result
+          return new Response(YT_VIDEO, { status: 200 }); // PUT result
         }
         return new Response("{}", { status: 200 });
       }),
@@ -127,7 +131,7 @@ describe("youtube provider", () => {
       request: { format: "short", media: [{ mediaId: "m" }], title: "T", options: { privacyStatus: "unlisted" } },
       mediaUrls: ["https://cdn/x.mp4"],
     });
-    expect(h.providerHandle).toBe("vid_1");
+    expect(h.providerHandle).toBe(YT_ID);
     expect(calls.some((c) => c.url.includes("/upload/youtube/v3/videos") && c.method === "POST")).toBe(true);
     expect(calls.some((c) => c.url === "https://upload.googleapis.com/sess1" && c.method === "PUT")).toBe(true);
   });
@@ -144,7 +148,7 @@ describe("youtube provider", () => {
         init = { url, body: JSON.parse(String(req?.body)) };
         return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess1" } });
       }
-      if (url === "https://upload.googleapis.com/sess1") return new Response(JSON.stringify({ id: "vid_1" }), { status: 200 });
+      if (url === "https://upload.googleapis.com/sess1") return new Response(YT_VIDEO, { status: 200 });
       return new Response("{}", { status: 200 });
     }));
     const run = youtubeProvider.publish({ tokens, accountId: "UC", request: { format: "video", media: [{ mediaId: "m" }], title: "T", options }, mediaUrls: ["https://cdn/x.mp4"] });
@@ -247,7 +251,7 @@ describe("youtube provider", () => {
         if (url === "https://cdn/x.mp4") return new Response(new Uint8Array([1, 2]), { status: 200 });
         if (url.includes("/upload/youtube/v3/videos"))
           return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess" } });
-        if (url === "https://upload.googleapis.com/sess") return new Response(JSON.stringify({ id: "vid_9" }), { status: 200 });
+        if (url === "https://upload.googleapis.com/sess") return new Response(YT_VIDEO, { status: 200 });
         if (url === "https://cdn/cover.png")
           return new Response(new Uint8Array([9]), { status: 200, headers: { "content-type": "image/png" } });
         if (url.includes("/upload/youtube/v3/thumbnails/set"))
@@ -266,8 +270,8 @@ describe("youtube provider", () => {
       },
       mediaUrls: ["https://cdn/x.mp4"],
     });
-    expect(h.providerHandle).toBe("vid_9");
-    expect(calls.some((u) => u.includes("/upload/youtube/v3/thumbnails/set?videoId=vid_9"))).toBe(true);
+    expect(h.providerHandle).toBe(YT_ID);
+    expect(calls.some((u) => u.includes(`/upload/youtube/v3/thumbnails/set?videoId=${YT_ID}`))).toBe(true);
   });
 
   it("sets status.containsSyntheticMedia from options.aiDisclosed when it is a boolean [AIDISC1]", async () => {
@@ -281,7 +285,7 @@ describe("youtube provider", () => {
           initBody = JSON.parse(String(init?.body ?? "{}"));
           return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess" } });
         }
-        if (url === "https://upload.googleapis.com/sess") return new Response(JSON.stringify({ id: "vid_ai" }), { status: 200 });
+        if (url === "https://upload.googleapis.com/sess") return new Response(YT_VIDEO, { status: 200 });
         return new Response("{}", { status: 200 });
       }),
     );
@@ -305,7 +309,7 @@ describe("youtube provider", () => {
           initBody = JSON.parse(String(init?.body ?? "{}"));
           return new Response("{}", { status: 200, headers: { location: "https://upload.googleapis.com/sess" } });
         }
-        if (url === "https://upload.googleapis.com/sess") return new Response(JSON.stringify({ id: "vid_noai" }), { status: 200 });
+        if (url === "https://upload.googleapis.com/sess") return new Response(YT_VIDEO, { status: 200 });
         return new Response("{}", { status: 200 });
       }),
     );

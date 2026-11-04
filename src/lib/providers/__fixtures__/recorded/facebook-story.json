@@ -1,0 +1,58 @@
+{
+  "path": "facebook Page photo story (unpublished photo -> photo_stories)",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live publish on the PostStack TEST Page (0 followers) through metaProvider.publish, Graph v26.0; deleted right after. The Story itself cannot be deleted through the Graph API (expires after 24 h).",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/photos",
+      "status": 200,
+      "body": {
+        "id": "225544734739279030"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/photo_stories",
+      "status": 200,
+      "body": {
+        "success": true,
+        "post_id": "2817734129993180"
+      }
+    }
+  ],
+  "providerHandle": "2817734129993180",
+  "verified": {
+    "get": {
+      "status": 400,
+      "body": {
+        "error": {
+          "message": "(#100) Tried accessing nonexisting field (id)",
+          "type": "OAuthException",
+          "code": 100,
+          "fbtrace_id": "Az4UW0n7KNsGPLCVvL-r9ZZ"
+        }
+      }
+    },
+    "commentAccepted": false,
+    "commentRequest": {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/2817734129993180/comments",
+      "status": 400,
+      "body": {
+        "error": {
+          "message": "Unsupported post request. Object with ID '2817734129993180' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API documentation at https://developers.facebook.com/docs/graph-api",
+          "type": "GraphMethodException",
+          "code": 100,
+          "error_subcode": 33,
+          "fbtrace_id": "AfAN7zwpvmf8FTLlZboJF8P"
+        }
+      }
+    },
+    "postUrlFor": "https://www.facebook.com/watch/?v=2817734129993180",
+    "linkCheck": {
+      "status": 200,
+      "location": null
+    }
+  }
+}

@@ -2,6 +2,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import type { JobHelpers } from "graphile-worker";
 import { eq, sql } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
+import { replayFetch, pageOf, type RecordedExchange } from "@/lib/providers/__fixtures__/recorded/replay";
+import fbReelRec from "@/lib/providers/__fixtures__/recorded/facebook-reel-published.json";
+import fbVideoRec from "@/lib/providers/__fixtures__/recorded/facebook-video-post-handle.json";
+import fbPhotoRec from "@/lib/providers/__fixtures__/recorded/facebook-photo-published.json";
+import ytPrivateRec from "@/lib/providers/__fixtures__/recorded/youtube-upload-private.json";
+import { matchRule, type RuleCandidate } from "@/lib/rules/matcher";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -174,6 +180,17 @@ async function linkEditorial(
     .values({ workspace_id: WS, content_id: content!.id, platform: "instagram", status: postStatus, delivery_id: deliveryId, ...extra })
     .returning();
   return p!.id;
+}
+
+// Capture the enqueue at the queue boundary (version-independent — the graphile `jobs` view does
+// not expose the payload column) and skip the real add so no stray job leaks into later suites.
+async function spyFirstCommentEnqueue() {
+  const qc = await import("@/lib/queue/client");
+  return vi.spyOn(qc, "addJob").mockResolvedValue(undefined);
+}
+function firstCommentCall(spy: ReturnType<typeof vi.fn>) {
+  const call = spy.mock.calls.find((c) => c[0] === "outgoing-first-comment");
+  return call ? { payload: call[1], opts: call[2] } : null;
 }
 
 describe("publish worker (AUD27)", () => {
@@ -685,16 +702,6 @@ describe("publish worker (AUD27)", () => {
   });
 
   // ── FIRSTCOMMENT1: auto first-comment on publish ────────────────────────────────────────────
-  // Capture the enqueue at the queue boundary (version-independent — the graphile `jobs` view does
-  // not expose the payload column) and skip the real add so no stray job leaks into later suites.
-  async function spyFirstCommentEnqueue() {
-    const qc = await import("@/lib/queue/client");
-    return vi.spyOn(qc, "addJob").mockResolvedValue(undefined);
-  }
-  function firstCommentCall(spy: ReturnType<typeof vi.fn>) {
-    const call = spy.mock.calls.find((c) => c[0] === "outgoing-first-comment");
-    return call ? { payload: call[1], opts: call[2] } : null;
-  }
 
   function storyCall(spy: ReturnType<typeof vi.fn>) {
     const call = spy.mock.calls.find((c) => c[0] === "publish-story");
@@ -1068,4 +1075,71 @@ describe("TikTok delivery lifecycle", () => {
     } finally { read.mockRestore(); }
   });
 
+
+  // ── PROVFIX1: real provider code on recorded Graph responses (no provider mock) ───────────────
+  // The handle PostStack stores must be what the first-comment job comments on AND what Facebook's
+  // comment webhook reports as post_id, or per-post auto-replies never fire.
+  describe("recorded Facebook publish → stored handle drives first comment and auto-reply (PROVFIX1)", () => {
+    const cases = [
+      ["reel", "reel", fbReelRec.exchanges, fbReelRec.providerHandle, fbReelRec.commentWebhook],
+      ["video", "feed_post", [...fbVideoRec.exchanges, fbVideoRec.postIdLookup], fbVideoRec.derivedHandle, fbVideoRec.commentWebhook],
+      ["photo", "feed_post", fbPhotoRec.exchanges, fbPhotoRec.providerHandle, fbPhotoRec.commentWebhook],
+    ] as const;
+
+    it.each(cases)("%s", async (kind, format, exchanges, handle, webhook) => {
+      if (!TEST_DB) return;
+      const page = pageOf((exchanges as readonly RecordedExchange[])[0]!.url);
+      const [c] = await db.insert(schema.channels).values({
+        workspace_id: WS, platform: "facebook", platform_id: page, connection_mode: "derived", status: "active",
+        token_encrypted: encryptTokens({ access_token: "T" }), webhook_secret: "wh", default_first_comment: "Link 👇",
+      }).returning();
+      const [m] = await db.insert(schema.media).values({ workspace_id: WS, checksum: `c${Math.random()}`, storage_key: "k", url: "https://cdn/x.mp4", kind: kind === "photo" ? "image" : "video" }).returning();
+      const [d] = await db.insert(schema.deliveries).values({
+        workspace_id: WS, channel_id: c!.id, format, status: "scheduled", scheduled_at: sql`now()`, run_at: sql`now()`,
+        payload: { format, media: [{ mediaId: m!.id }], caption: "hi", options: { mediaKind: kind === "photo" ? "image" : "video" } },
+      }).returning();
+      await db.insert(schema.posts).values({
+        workspace_id: WS, platform: "facebook", delivery_id: d!.id, status: "scheduled",
+        auto_reply: { keywords: [{ value: "link", matchType: "contains" }], dmText: "Here you go!", replyMode: "dm" },
+      });
+      replayFetch([...(exchanges as readonly RecordedExchange[])]);
+      const enqueue = await spyFirstCommentEnqueue();
+      try {
+        await processPublish({ postId: d!.id }, helpers);
+        expect(await status(d!.id)).toBe("sent");
+        const row = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, d!.id) });
+        expect(row!.provider_handle).toBe(handle);
+        expect(row!.provider_handle).toBe(webhook.value.post_id);
+        expect((firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>)?.payload as { postId: string }).postId).toBe(handle);
+        const rule = await db.query.autoReplyRules.findFirst({ where: eq(schema.autoReplyRules.workspace_id, WS) });
+        const comment = { text: "link please", eventType: "comment" as const, postId: webhook.value.post_id };
+        expect(matchRule(rule as unknown as RuleCandidate, comment)).toBe(true);
+      } finally {
+        enqueue.mockRestore();
+      }
+    });
+
+    it("a private YouTube upload gets no first-comment job (YouTube answered 403 to it live)", async () => {
+      if (!TEST_DB) return;
+      const [c] = await db.insert(schema.channels).values({
+        workspace_id: WS, platform: "youtube", platform_id: `UC-${Math.random()}`, connection_mode: "oauth", status: "active",
+        token_encrypted: encryptTokens({ access_token: "T", refresh_token: "R" }), webhook_secret: "wh", default_first_comment: "Link 👇",
+      }).returning();
+      const [m] = await db.insert(schema.media).values({ workspace_id: WS, checksum: `c${Math.random()}`, storage_key: "k", url: "https://cdn/x.mp4", kind: "video", duration_sec: 6, width: 1080, height: 1920 }).returning();
+      const [d] = await db.insert(schema.deliveries).values({
+        workspace_id: WS, channel_id: c!.id, format: "short", status: "scheduled", scheduled_at: sql`now()`, run_at: sql`now()`,
+        payload: { format: "short", media: [{ mediaId: m!.id }], title: "t", options: { privacyStatus: "private" } },
+      }).returning();
+      const enqueue = await spyFirstCommentEnqueue();
+      const spy = vi.spyOn((await import("@/lib/providers/youtube")).youtubeProvider, "publish").mockResolvedValue({ providerHandle: ytPrivateRec.providerHandle });
+      try {
+        await processPublish({ postId: d!.id }, helpers);
+        expect(await status(d!.id)).toBe("sent");
+        expect(firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+      } finally {
+        spy.mockRestore();
+        enqueue.mockRestore();
+      }
+    });
+  });
 });

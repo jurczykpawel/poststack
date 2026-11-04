@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { xProvider } from "./x";
 import { isProvider } from "./index";
 import { TokenInvalidError } from "./errors";
+import docs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 
 afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "AT", refreshToken: "RT" };
@@ -54,9 +55,9 @@ describe("x provider", () => {
   });
 
   it("publish a text post returns the tweet id", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { id: "tw_1" } }), { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(docs.x.createPost.body, { status: docs.x.createPost.status })));
     const h = await xProvider.publish({ tokens, accountId: "u1", request: { format: "text", media: [], caption: "hi" }, mediaUrls: [] });
-    expect(h.providerHandle).toBe("tw_1");
+    expect(h.providerHandle).toBe(docs.x.createPost.body.data.id);
   });
 
   it("rejects a non-string id instead of coercing it into the handle [PSA51]", async () => {
@@ -73,7 +74,7 @@ describe("x provider", () => {
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         body = JSON.parse(String(init?.body ?? "{}"));
-        return new Response(JSON.stringify({ data: { id: "tw_ai" } }), { status: 200 });
+        return Response.json(docs.x.createPost.body, { status: docs.x.createPost.status });
       }),
     );
     await xProvider.publish({
@@ -91,7 +92,7 @@ describe("x provider", () => {
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         body = JSON.parse(String(init?.body ?? "{}"));
-        return new Response(JSON.stringify({ data: { id: "tw_noai" } }), { status: 200 });
+        return Response.json(docs.x.createPost.body, { status: docs.x.createPost.status });
       }),
     );
     await xProvider.publish({
@@ -106,7 +107,7 @@ describe("x provider", () => {
   // LIPUB1: chunked media upload isn't implemented — a media post must FAIL LOUDLY, never silently drop
   // the image/video and post text only (which is what the old code path did once a media format reached it).
   it.each(["image", "video"])("a %s post fails loudly (media upload not implemented) — never a silent text-only tweet", async (format) => {
-    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ data: { id: "tw_x" } }), { status: 200 }));
+    const fetchSpy = vi.fn(async () => Response.json(docs.x.createPost.body, { status: docs.x.createPost.status }));
     vi.stubGlobal("fetch", fetchSpy);
     await expect(
       xProvider.publish({ tokens, accountId: "u1", request: { format, media: [{ mediaId: "m" }], caption: "c" }, mediaUrls: ["https://cdn/x"] }),

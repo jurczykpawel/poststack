@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { youtubeProvider } from "./youtube";
 import { tiktokProvider } from "./tiktok";
 import { linkedinProvider } from "./linkedin";
+import docs from "../../../tests/fixtures/provider-docs/publish-responses.json";
+import ttInbox from "./__fixtures__/recorded/tiktok-inbox.json";
+import ytRec from "./__fixtures__/recorded/youtube-upload-unlisted.json";
+const ytVideo = ytRec.exchanges.find((e) => e.method === "PUT")!.body as { id: string }; // recorded videos.insert resource
 
 vi.mock("@/lib/media/ssrf", () => ({ safeFetch: (url: string, init?: RequestInit) => fetch(url, init) }));
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -35,11 +39,11 @@ describe("documented media transfer contracts", () => {
       expect(saved).toBe(session);
       ranges.push(range);
       if (ranges.length === 2 && !interrupted) { interrupted = true; throw new Error("connection reset"); }
-      if (range.endsWith(`-${size - 1}/${size}`)) return Response.json({ id: "video-once" }, { status: 201 });
+      if (range.endsWith(`-${size - 1}/${size}`)) return Response.json(ytVideo, { status: 201 });
       return new Response(null, { status: 308, headers: { range: `bytes=0-${/-(\d+)\//.exec(range)![1]}` } });
     }));
     const first = await youtubeProvider.publish({ ...args, saveUploadSession: async (url) => { saved = url; } });
-    expect(first.providerHandle).toBe("video-once");
+    expect(first.providerHandle).toBe(ytVideo.id);
     expect(ranges).toContain(`bytes ${16 * MiB + 256 * 1024}-${32 * MiB + 256 * 1024 - 1}/${size}`);
     expect(statusCount).toBe(1);
     // A retry after the final response was lost must ask for status, never POST another video.
@@ -47,9 +51,9 @@ describe("documented media transfer contracts", () => {
       if (url === source) return mediaResponse(init, size);
       expect(url).toBe(saved);
       expect(new Headers(init?.headers).get("content-range")).toBe(`bytes */${size}`);
-      return Response.json({ id: "video-once" }, { status: 201 });
+      return Response.json(ytVideo, { status: 201 });
     }));
-    expect((await youtubeProvider.publish({ ...args, uploadSession: saved })).providerHandle).toBe("video-once");
+    expect((await youtubeProvider.publish({ ...args, uploadSession: saved })).providerHandle).toBe(ytVideo.id);
     expect(initCount).toBe(1);
   });
 
@@ -60,12 +64,12 @@ describe("documented media transfer contracts", () => {
       if (url === source) return mediaResponse(init, size);
       if (url.includes("/init/")) {
         expect(JSON.parse(String(init?.body)).source_info).toEqual({ source: "FILE_UPLOAD", video_size: size, chunk_size: 16 * MiB, total_chunk_count: 4 });
-        return Response.json({ data: { publish_id: "v_inbox_file~1", upload_url: "https://upload.us.tiktokapis.com/video/?upload_id=1&upload_token=example" }, error: { code: "ok", message: "", log_id: "example" } });
+        return Response.json({ ...ttInbox.exchanges[0]!.body, data: { ...ttInbox.exchanges[0]!.body.data, upload_url: "https://upload.us.tiktokapis.com/video/?upload_id=1&upload_token=example" } });
       }
       ranges.push(new Headers(init?.headers).get("content-range")!);
       return new Response(null, { status: ranges.length === 4 ? 201 : 206 });
     }));
-    expect((await tiktokProvider.publish(args)).providerHandle).toBe("v_inbox_file~1");
+    expect((await tiktokProvider.publish(args)).providerHandle).toBe(ttInbox.providerHandle);
     expect(ranges).toEqual([`bytes 0-${16 * MiB - 1}/${size}`, `bytes ${16 * MiB}-${32 * MiB - 1}/${size}`, `bytes ${32 * MiB}-${48 * MiB - 1}/${size}`, `bytes ${48 * MiB}-${size - 1}/${size}`]);
   });
 
@@ -88,9 +92,9 @@ describe("documented media transfer contracts", () => {
       expect(finalized).toBe(true);
       expect(url).toBe("https://api.linkedin.com/rest/posts");
       expect(JSON.parse(String(init?.body)).content.media.id).toBe(video);
-      return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
+      return new Response(null, { status: docs.linkedin.restPostVideo.status, headers: docs.linkedin.restPostVideo.headers });
     }));
-    expect((await linkedinProvider.publish(args)).providerHandle).toBe("urn:li:share:1");
+    expect((await linkedinProvider.publish(args)).providerHandle).toBe(docs.linkedin.restPostVideo.headers["x-restli-id"]);
     expect(uploaded).toEqual([4 * MiB, MiB]);
   });
 
@@ -98,13 +102,13 @@ describe("documented media transfer contracts", () => {
     const size = 2 * MiB;
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === source) return mediaResponse(init, size);
-      if (url.includes("/init/")) return Response.json({ data: { publish_id: "tiktok-small", upload_url: "https://upload.us.tiktokapis.com/video/?upload_id=1" }, error: { code: "ok", message: "", log_id: "example" } });
+      if (url.includes("/init/")) return Response.json({ ...ttInbox.exchanges[0]!.body, data: { ...ttInbox.exchanges[0]!.body.data, upload_url: "https://upload.us.tiktokapis.com/video/?upload_id=1" } });
       if (url.includes("upload.us.tiktokapis.com")) return new Response(null, { status: 201 });
       if (init?.method === "POST") return new Response(null, { headers: { location: session } });
-      return Response.json({ id: "youtube-small" }, { status: 201 });
+      return Response.json(ytVideo, { status: 201 });
     }));
-    expect((await tiktokProvider.publish(args)).providerHandle).toBe("tiktok-small");
-    expect((await youtubeProvider.publish(args)).providerHandle).toBe("youtube-small");
+    expect((await tiktokProvider.publish(args)).providerHandle).toBe(ttInbox.providerHandle);
+    expect((await youtubeProvider.publish(args)).providerHandle).toBe(ytVideo.id);
   });
 
   it("refuses a source ignoring Range without consuming its body", async () => {

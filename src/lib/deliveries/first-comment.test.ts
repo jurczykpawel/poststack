@@ -26,6 +26,16 @@ describe("firstCommentEligibility", () => {
       text: "default", reason: "unsupported_platform",
     });
   });
+  // PROVFIX1: YouTube refuses comments on a private video (recorded 403, __fixtures__/recorded/youtube-upload-private.json)
+  // and the provider uploads as private unless told otherwise — the comment could only fail and alert.
+  it.each([[undefined], ["private"]])("skips a YouTube video published as private (privacyStatus=%s)", async (privacyStatus) => {
+    expect(await firstCommentEligibility({ ...channel, platform: "youtube" }, { options: privacyStatus ? { privacyStatus } : {} })).toEqual({
+      text: "default", reason: "private_post",
+    });
+  });
+  it.each(["unlisted", "public"])("comments on a YouTube video published as %s (recorded: accepted on unlisted)", async (privacyStatus) => {
+    expect(await firstCommentEligibility({ ...channel, platform: "youtube" }, { options: { privacyStatus } })).toEqual({ text: "default" });
+  });
   it("treats absent text as empty", async () => {
     expect(await firstCommentEligibility({ ...channel, default_first_comment: null }, {})).toEqual({
       text: "", reason: "no_text",

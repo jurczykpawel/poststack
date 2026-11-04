@@ -27,6 +27,11 @@ const CAPS: FormatCapability[] = [
   },
 ];
 
+/** The privacy a YouTube upload gets: the requested one, else private (safe default). */
+export function youtubePrivacy(options: Record<string, unknown> | undefined): string {
+  return typeof options?.privacyStatus === "string" ? options.privacyStatus : "private";
+}
+
 export const youtubeProvider: Provider = {
   id: "youtube",
   label: "YouTube",
@@ -112,8 +117,7 @@ export const youtubeProvider: Provider = {
     const size = await sourceSize(videoUrl);
 
     const opts = request.options ?? {};
-    const privacyStatus =
-      typeof opts.privacyStatus === "string" ? opts.privacyStatus : "private"; // safe default
+    const privacyStatus = youtubePrivacy(opts);
     const localizations = opts.localizations && typeof opts.localizations === "object" ? opts.localizations : undefined;
     const defaultLanguage = typeof opts.defaultLanguage === "string" ? opts.defaultLanguage : undefined;
     // YouTube rejects localizations when the video has no default language to translate from.

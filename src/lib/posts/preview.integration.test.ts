@@ -140,6 +140,25 @@ describe("deliveryPostCard (a post PostStack published)", () => {
     expect(await preview.deliveryPostCard(OTHER_WS, DELIVERY)).toBeUndefined();
   });
 
+  // PROVFIX1 (recorded 2026-11-04, __fixtures__/recorded/prod-stored-handles.json): a reel stored before FBREEL1 kept
+  // a bare post id; watch/?v=<it> opens Facebook's generic Watch page, /<page>/posts/<it> opens the reel.
+  it("links a legacy bare-id Facebook reel through its Page, not the Watch page", async () => {
+    if (!TEST_DB) return;
+    await db.delete(s.posts).where(eq(s.posts.delivery_id, DELIVERY));
+    await db.update(s.deliveries).set({ format: "reel", provider_handle: "9352453763801277" }).where(eq(s.deliveries.id, DELIVERY));
+    expect((await preview.deliveryPostCard(WS, DELIVERY))?.url).toBe("https://www.facebook.com/PG1/posts/9352453763801277");
+  });
+
+  it("gives an unpublished (published=false) post no link — it has no public page", async () => {
+    if (!TEST_DB) return;
+    await db.delete(s.posts).where(eq(s.posts.delivery_id, DELIVERY));
+    await db.update(s.deliveries).set({
+      provider_handle: "554158337282822679",
+      payload: { format: "post", media: [{ mediaId: MEDIA }], caption: "draft", options: { mediaKind: "image", published: false } },
+    }).where(eq(s.deliveries.id, DELIVERY));
+    expect((await preview.deliveryPostCard(WS, DELIVERY))?.url).toBeNull();
+  });
+
   it("without a posts row the time is when it was published (sent_at), not the last row update", async () => {
     if (!TEST_DB) return;
     await db.delete(s.posts).where(eq(s.posts.delivery_id, DELIVERY));

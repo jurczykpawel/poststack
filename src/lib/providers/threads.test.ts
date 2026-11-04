@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { threadsProvider } from "./threads";
 import { isProvider, listProviders } from "./index";
 import { TokenInvalidError } from "./errors";
+import docs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 
 afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "AT" };
@@ -34,12 +35,12 @@ describe("threads provider", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes("/threads_publish")) return new Response(JSON.stringify({ id: "post_th" }), { status: 200 });
-        return new Response(JSON.stringify({ id: "container_th" }), { status: 200 });
+        if (url.includes("/threads_publish")) return Response.json(docs.threads.publish.body);
+        return Response.json(docs.threads.createContainer.body);
       }),
     );
     const h = await threadsProvider.publish({ tokens, accountId: "th_1", request: { format: "text", media: [], caption: "hi" }, mediaUrls: [] });
-    expect(h.providerHandle).toBe("post_th");
+    expect(h.providerHandle).toBe(docs.threads.publish.body.id);
   });
 
   it("all six v1 providers are registered", () => {

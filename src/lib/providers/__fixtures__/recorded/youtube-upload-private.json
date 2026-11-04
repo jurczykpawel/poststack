@@ -1,0 +1,96 @@
+{
+  "path": "youtube short, privacyStatus=private (comment rejected 403)",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live resumable upload through youtubeProvider.publish on the PostStack TEST YouTube channel; video deleted right after.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&notifySubscribers=false",
+      "status": 200,
+      "body": "",
+      "headers": {
+        "location": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&notifySubscribers=false&upload_id=<UPLOAD_ID>"
+      }
+    },
+    {
+      "method": "PUT",
+      "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&notifySubscribers=false&upload_id=<UPLOAD_ID>",
+      "status": 200,
+      "body": {
+        "kind": "youtube#video",
+        "etag": "fjwxAb4Y4t-53XAuToRdPy4QfBU",
+        "id": "5dibLwAmKaE",
+        "snippet": {
+          "publishedAt": "2026-11-04T14:46:26Z",
+          "channelId": "F3YQQkDKQ_1I5sCY-J9Ay2vS",
+          "title": "g44 probe (deleted right away)",
+          "description": "g44",
+          "thumbnails": {
+            "default": {
+              "url": "https://i9.ytimg.com/vi/5dibLwAmKaE/default.jpg",
+              "width": 120,
+              "height": 90
+            },
+            "medium": {
+              "url": "https://i9.ytimg.com/vi/5dibLwAmKaE/mqdefault.jpg",
+              "width": 320,
+              "height": 180
+            },
+            "high": {
+              "url": "https://i9.ytimg.com/vi/5dibLwAmKaE/hqdefault.jpg",
+              "width": 480,
+              "height": 360
+            }
+          },
+          "channelTitle": "Test Channel",
+          "categoryId": "22",
+          "liveBroadcastContent": "none",
+          "localized": {
+            "title": "g44 probe (deleted right away)",
+            "description": "g44"
+          }
+        },
+        "status": {
+          "uploadStatus": "uploaded",
+          "privacyStatus": "private",
+          "license": "youtube",
+          "embeddable": true,
+          "publicStatsViewable": true,
+          "selfDeclaredMadeForKids": false
+        }
+      }
+    }
+  ],
+  "providerHandle": "5dibLwAmKaE",
+  "verified": {
+    "get": {
+      "status": 200
+    },
+    "commentAccepted": false,
+    "commentRequest": {
+      "method": "POST",
+      "url": "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "The comment thread could not be created due to insufficient permissions. The request might not be properly authorized.",
+          "errors": [
+            {
+              "message": "The comment thread could not be created due to insufficient permissions. The request might not be properly authorized.",
+              "domain": "youtube.commentThread",
+              "reason": "forbidden",
+              "location": "body",
+              "locationType": "other"
+            }
+          ]
+        }
+      }
+    },
+    "postUrlFor": "https://www.youtube.com/watch?v=5dibLwAmKaE",
+    "linkCheck": {
+      "status": 200,
+      "location": null
+    }
+  }
+}

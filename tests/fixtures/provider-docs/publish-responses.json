@@ -1,0 +1,14 @@
+{
+  "source": "Publish responses for platforms with no connected TEST channel on 2026-11-04 (PROVFIX1), so nothing could be recorded live. X: docs.x.com create-post (POST /2/tweets, 201). Threads: developers.facebook.com/documentation/threads/posts (POST /threads, POST /threads_publish). LinkedIn: learn.microsoft.com share-on-linkedin (POST /v2/ugcPosts, 201, id also in X-RestLi-Id); the body id was confirmed live on 2026-07-03 (LIPUB1, urn:li:share, 19 digits), and PROD stores urn:li:ugcPost:<19 digits> for the /rest/posts video path (x-restli-id header). Identifiers are inert placeholders of the documented shape.",
+  "x": {
+    "createPost": { "status": 201, "body": { "data": { "id": "1445880548472328192", "text": "Hello world!", "edit_history_tweet_ids": ["1445880548472328192"] } } }
+  },
+  "threads": {
+    "createContainer": { "status": 200, "body": { "id": "17889615691921648" } },
+    "publish": { "status": 200, "body": { "id": "18027939643135016" } }
+  },
+  "linkedin": {
+    "ugcPost": { "status": 201, "headers": { "x-restli-id": "urn:li:share:6844785523593134080" }, "body": { "id": "urn:li:share:6844785523593134080" } },
+    "restPostVideo": { "status": 201, "headers": { "x-restli-id": "urn:li:ugcPost:7390000000000000000" } }
+  }
+}

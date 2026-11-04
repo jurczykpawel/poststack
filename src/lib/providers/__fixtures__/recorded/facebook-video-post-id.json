@@ -1,0 +1,39 @@
+{
+  "path": "facebook /videos -> GET /{video}?fields=post_id (available 0.8 s after publish)",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live publish on the PostStack TEST Page (0 followers) through metaProvider.publish, Graph v26.0; deleted right after.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/videos",
+      "status": 200,
+      "body": {
+        "id": "5546088171893707"
+      }
+    }
+  ],
+  "postIdLookup": {
+    "method": "GET",
+    "url": "https://graph.facebook.com/v26.0/5546088171893707?fields=id%2Cpost_id%2Cpermalink_url%2Cpublished%2Cstatus&access_token=<TOKEN>",
+    "status": 200,
+    "body": {
+      "id": "5546088171893707",
+      "post_id": "759118562301211771",
+      "permalink_url": "/reel/5546088171893707/",
+      "published": true,
+      "status": {
+        "video_status": "processing",
+        "processing_progress": 0,
+        "uploading_phase": {
+          "status": "complete"
+        },
+        "processing_phase": {
+          "status": "in_progress"
+        },
+        "publishing_phase": {
+          "status": "not_started"
+        }
+      }
+    }
+  }
+}

@@ -22,6 +22,27 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 // IP so these unit tests never hit the network for fake hostnames (mirrors meta.publish.test.ts).
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
 import { metaProvider } from "./meta";
+import reelRec from "./__fixtures__/recorded/facebook-reel-published.json";
+import photoRec from "./__fixtures__/recorded/facebook-photo-published.json";
+import videoRec from "./__fixtures__/recorded/facebook-video-post-handle.json";
+import storyRec from "./__fixtures__/recorded/facebook-story.json";
+import igRec from "./__fixtures__/recorded/instagram-containers.json";
+import prodRec from "./__fixtures__/recorded/prod-stored-handles.json";
+
+// PROVFIX1: Meta's own response bodies, recorded 2026-11-04 (see __fixtures__/recorded/README.md).
+const igPosts = igRec.exchanges.filter((e) => e.method === "POST");
+const REC = {
+  igContainer: igPosts[0]!.body as { id: string },
+  igFinished: igRec.exchanges.find((e) => (e.body as { status_code?: string }).status_code === "FINISHED")!.body,
+  igMedia: { id: prodRec.handles.find((h) => h.platform === "instagram")!.handle }, // stored on PROD from media_publish
+  reelStart: reelRec.exchanges[0]!.body as { video_id: string; upload_url: string },
+  reelUpload: reelRec.exchanges[1]!.body,
+  reelFinish: reelRec.exchanges[2]!.body as { post_id: string },
+  photo: photoRec.exchanges[0]!.body,
+  video: videoRec.exchanges[0]!.body,
+  storyPhoto: storyRec.exchanges[0]!.body,
+  story: storyRec.exchanges[1]!.body,
+};
 import { GRAPH_API_BASE, META_API_VERSION } from "@/lib/platforms/constants";
 
 const tokens = { accessToken: "T-publish" };
@@ -76,9 +97,9 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
   describe("every publish-flow graph.facebook.com call uses GRAPH_API_BASE", () => {
     it("IG image feed_post (container → status poll → media_publish) — all on GRAPH_API_BASE", async () => {
       installPublishFetch((url) => {
-        if (url.includes("/media_publish")) return Response.json({ id: "ig_img_1" });
-        if (url.includes("?fields=status_code")) return Response.json({ status_code: "FINISHED" });
-        return Response.json({ id: "container_img" }); // POST /{ig}/media
+        if (url.includes("/media_publish")) return Response.json(REC.igMedia);
+        if (url.includes("?fields=status_code")) return Response.json(REC.igFinished);
+        return Response.json(REC.igContainer); // POST /{ig}/media
       });
 
       const h = await metaProvider.publish({
@@ -88,7 +109,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
         mediaUrls: ["https://cdn/x.jpg"],
         channelMetadata: { subKind: "instagram" },
       });
-      expect(h.providerHandle).toBe("ig_img_1");
+      expect(h.providerHandle).toBe(REC.igMedia.id);
 
       for (const c of graphCalls()) {
         expect(c.url.startsWith(GRAPH_API_BASE), `not on GRAPH_API_BASE: ${c.url}`).toBe(true);
@@ -99,10 +120,10 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
     it("FB reel (video_reels start → upload → finish) — every graph call on GRAPH_API_BASE", async () => {
       installPublishFetch((url) => {
         if (url.includes("/video_reels") && url.includes("upload_phase=start"))
-          return Response.json({ video_id: "r1", upload_url: "https://rupload.facebook.com/r1" });
-        if (url === "https://rupload.facebook.com/r1") return Response.json({ success: true });
+          return Response.json(REC.reelStart);
+        if (url === REC.reelStart.upload_url) return Response.json(REC.reelUpload);
         if (url.includes("/video_reels") && url.includes("upload_phase=finish"))
-          return Response.json({ success: true, post_id: "fbr1" });
+          return Response.json(REC.reelFinish);
         return Response.json({});
       });
 
@@ -113,7 +134,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
         mediaUrls: ["https://cdn/x.mp4"],
         channelMetadata: { subKind: "facebook_page" },
       });
-      expect(h.providerHandle).toBe("PAGE_fbr1");
+      expect(h.providerHandle).toBe(`PAGE_${REC.reelFinish.post_id}`);
 
       // The resumable-upload host is intentionally unversioned; assert ONLY the graph.facebook.com calls.
       const graph = graphCalls();
@@ -122,13 +143,13 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
         expect(c.url.startsWith(GRAPH_API_BASE), `not on GRAPH_API_BASE: ${c.url}`).toBe(true);
       }
       // sanity: the upload step did target the non-graph resumable host (so the filter is meaningful)
-      expect(calls.some((c) => c.url === "https://rupload.facebook.com/r1")).toBe(true);
+      expect(calls.some((c) => c.url === REC.reelStart.upload_url)).toBe(true);
     });
 
     it("IG story (STORIES container → poll → media_publish) — all on GRAPH_API_BASE", async () => {
       installPublishFetch((url) => {
         if (url.includes("/media_publish")) return Response.json({ id: "story_1" });
-        if (url.includes("?fields=status_code")) return Response.json({ status_code: "FINISHED" });
+        if (url.includes("?fields=status_code")) return Response.json(REC.igFinished);
         return Response.json({ id: "container_s" });
       });
 
@@ -171,7 +192,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
     it("hits both edges on the configured version, container before publish", async () => {
       installPublishFetch((url) => {
         if (url.includes("/media_publish")) return Response.json({ id: "ig_img_2" });
-        if (url.includes("?fields=status_code")) return Response.json({ status_code: "FINISHED" });
+        if (url.includes("?fields=status_code")) return Response.json(REC.igFinished);
         return Response.json({ id: "cont_x" });
       });
 
@@ -206,7 +227,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
     it("creates a REELS container on the configured version", async () => {
       installPublishFetch((url) => {
         if (url.includes("/media_publish")) return Response.json({ id: "ig_reel_1" });
-        if (url.includes("?fields=status_code")) return Response.json({ status_code: "FINISHED" });
+        if (url.includes("?fields=status_code")) return Response.json(REC.igFinished);
         return Response.json({ id: "cont_reel" });
       });
 
@@ -230,10 +251,10 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
     it("start and finish phases both target /{page}/video_reels on the configured version", async () => {
       installPublishFetch((url) => {
         if (url.includes("/video_reels") && url.includes("upload_phase=start"))
-          return Response.json({ video_id: "v9", upload_url: "https://rupload.facebook.com/v9" });
-        if (url === "https://rupload.facebook.com/v9") return Response.json({ success: true });
+          return Response.json(REC.reelStart);
+        if (url === REC.reelStart.upload_url) return Response.json(REC.reelUpload);
         if (url.includes("/video_reels") && url.includes("upload_phase=finish"))
-          return Response.json({ success: true, post_id: "fbr9" });
+          return Response.json(REC.reelFinish);
         return Response.json({});
       });
 
@@ -251,7 +272,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
 
       const finish = calls.find((c) => c.url.includes("/video_reels") && c.url.includes("upload_phase=finish"))!;
       expect(finish.url.startsWith(`${GRAPH_API_BASE}/PAGE/video_reels`)).toBe(true);
-      expect(finish.url).toContain("video_id=v9");
+      expect(finish.url).toContain(`video_id=${REC.reelStart.video_id}`);
       expect(finish.url).toContain("video_state=PUBLISHED");
       expect(finish.init?.method).toBe("POST");
     });
@@ -259,7 +280,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
 
   describe("FB photo: POST /{page}/photos", () => {
     it("posts to /{page}/photos on the configured version with url + published", async () => {
-      installPublishFetch(() => Response.json({ post_id: "ph9" }));
+      installPublishFetch(() => Response.json(REC.photo));
 
       await metaProvider.publish({
         tokens,
@@ -280,7 +301,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
 
   describe("FB video: POST /{page}/videos", () => {
     it("posts to /{page}/videos on the configured version with file_url", async () => {
-      installPublishFetch(() => Response.json({ id: "fbvid_9" }));
+      installPublishFetch(() => Response.json(REC.video));
 
       await metaProvider.publish({
         tokens,
@@ -299,9 +320,9 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
   describe("IG container status poll: GET /{container}?fields=status_code", () => {
     it("polls the container on the configured version", async () => {
       installPublishFetch((url) => {
-        if (url.includes("/media_publish")) return Response.json({ id: "ig_done" });
-        if (url.includes("?fields=status_code")) return Response.json({ status_code: "FINISHED" });
-        return Response.json({ id: "cont_poll" });
+        if (url.includes("/media_publish")) return Response.json(REC.igMedia);
+        if (url.includes("?fields=status_code")) return Response.json(REC.igFinished);
+        return Response.json(REC.igContainer);
       });
 
       await metaProvider.publish({
@@ -313,7 +334,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
       });
 
       const status = calls.find((c) => c.url.includes("?fields=status_code"))!;
-      expect(status.url.startsWith(`${GRAPH_API_BASE}/cont_poll?fields=status_code`)).toBe(true);
+      expect(status.url.startsWith(`${GRAPH_API_BASE}/${REC.igContainer.id}?fields=status_code`)).toBe(true);
       // status poll is a GET (no method / undefined)
       expect(status.init?.method ?? "GET").toBe("GET");
     });
@@ -322,8 +343,8 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
   describe("FB story: POST /{page}/photos (unpublished) → POST /{page}/photo_stories", () => {
     it("both story edges target the configured version", async () => {
       installPublishFetch((url) => {
-        if (url.includes("/photo_stories")) return Response.json({ success: true, post_id: "fb_story_1" });
-        return Response.json({ id: "photo_1" });
+        if (url.includes("/photo_stories")) return Response.json(REC.story);
+        return Response.json(REC.storyPhoto);
       });
 
       await metaProvider.publishStory!({

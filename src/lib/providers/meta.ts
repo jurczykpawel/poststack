@@ -13,7 +13,7 @@ import { getConfig } from "@/lib/settings/config";
 import { safeFetch } from "@/lib/media/ssrf";
 import { assertAllowedHost } from "./follow";
 import { readProviderCover } from "./download";
-import { asString } from "./util";
+import { asString, pagePostHandle } from "./util";
 
 // PSA50: hosts Meta returns for paging + resumable uploads (graph.facebook.com, rupload.facebook.com, …).
 const META_HOSTS = ["facebook.com", "fbcdn.net"];
@@ -119,6 +119,19 @@ async function setFacebookThumbnail(
     await fetch(`${GRAPH}/${videoId}/thumbnails`, { method: "POST", body: form });
   } catch {
     /* best-effort */
+  }
+}
+
+/** A /videos upload returns the video id, but comment webhooks (and so auto-reply rules) carry the
+ *  video's Page post `<page>_<post>`; Graph has `post_id` right after the upload (recorded 0.8 s).
+ *  Best-effort: the video is already created, so a failed lookup keeps the (commentable) video id. */
+async function facebookVideoPostHandle(pageId: string, videoId: string, encodedToken: string): Promise<string> {
+  try {
+    const res = await fetch(`${GRAPH}/${videoId}?fields=post_id&access_token=${encodedToken}`);
+    const postId = res.ok ? asString(((await res.json().catch(() => ({}))) as { post_id?: unknown }).post_id) : undefined;
+    return postId ? pagePostHandle(pageId, postId) : videoId;
+  } catch {
+    return videoId;
   }
 }
 
@@ -299,10 +312,8 @@ export const metaProvider: Provider = {
           error?: { code?: number; message?: string };
         };
         if (!fin.ok || fj.success === false) throw classifyMetaError(fin.status, fj.error);
-        // Reels finish returns a bare post id; Graph only resolves page posts as <page>_<post>
-        // (a bare id is read as a deprecated "status" -> error #12 on comments and lookups).
         const reelPost = asString(fj.post_id);
-        const handle = reelPost ? (reelPost.includes("_") ? reelPost : `${accountId}_${reelPost}`) : asString(sj.video_id); // PSA51
+        const handle = reelPost ? pagePostHandle(accountId, reelPost) : asString(sj.video_id); // PSA51
         if (!handle) throw classifyMetaError(fin.status, fj.error);
         await setFacebookThumbnail(sj.video_id, coverUrl, tokens.accessToken);
         return { providerHandle: handle };
@@ -338,10 +349,10 @@ export const metaProvider: Provider = {
         id?: unknown;
         error?: { code?: number; message?: string };
       };
-      const handle = asString(j.id); // PSA51
-      if (!res.ok || !handle) throw classifyMetaError(res.status, j.error);
-      await setFacebookThumbnail(handle, coverUrl, tokens.accessToken); // best-effort cover
-      return { providerHandle: handle };
+      const videoId = asString(j.id); // PSA51
+      if (!res.ok || !videoId) throw classifyMetaError(res.status, j.error);
+      await setFacebookThumbnail(videoId, coverUrl, tokens.accessToken); // best-effort cover
+      return { providerHandle: await facebookVideoPostHandle(accountId, videoId, token) };
     }
 
     if (request.format === "reel" || request.format === "feed_post") {

@@ -2,13 +2,14 @@ import type { Platform } from "@/db/schema";
 import type { PublishRequest } from "@/lib/providers/types";
 import { hasFeature } from "@/lib/license/gate";
 import { getProvider, getSupportedPlatforms } from "@/lib/platforms/registry";
+import { youtubePrivacy } from "@/lib/providers/youtube";
 
-export type FirstCommentSkipReason = "no_text" | "unlicensed" | "unsupported_platform";
+export type FirstCommentSkipReason = "no_text" | "unlicensed" | "unsupported_platform" | "private_post";
 
 /** Shared eligibility for enqueue and read-time explanation; an empty override suppresses defaults. */
 export async function firstCommentEligibility(
   channel: { platform: Platform; default_first_comment: string | null },
-  request: Pick<PublishRequest, "firstComment">,
+  request: Pick<PublishRequest, "firstComment" | "options">,
 ): Promise<{ text: string; reason?: FirstCommentSkipReason }> {
   const text = (request.firstComment ?? channel.default_first_comment ?? "").trim();
   if (!text) return { text, reason: "no_text" };
@@ -16,5 +17,7 @@ export async function firstCommentEligibility(
   if (!getSupportedPlatforms().includes(channel.platform) || !getProvider(channel.platform).commentOnPost) {
     return { text, reason: "unsupported_platform" };
   }
+  // YouTube refuses comments on a private video (403), so the comment could only fail and alert.
+  if (channel.platform === "youtube" && youtubePrivacy(request.options) === "private") return { text, reason: "private_post" };
   return { text };
 }

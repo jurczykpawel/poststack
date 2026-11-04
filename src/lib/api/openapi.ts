@@ -85,11 +85,11 @@ export const openApiSpec = {
               updatedAt: { type: "string", format: "date-time" },
               firstComment: {
                 type: "object",
-                description: "Existing outbound ledger status takes precedence. Without a row, eligibility is evaluated NOW, not recorded at publish time: awaiting_publish unless sent, then no_text, unlicensed, unsupported_platform in that order. A sent, eligible delivery awaiting its comment worker has not_attempted with no reason.",
+                description: "Existing outbound ledger status takes precedence. Without a row, eligibility is evaluated NOW, not recorded at publish time: awaiting_publish unless sent, then no_text, unlicensed, unsupported_platform, private_post in that order. A sent, eligible delivery awaiting its comment worker has not_attempted with no reason.",
                 required: ["status", "commentId", "attempts", "lastError"],
                 properties: {
                   status: { type: "string", enum: ["pending", "sending", "sent", "failed", "held", "expired", "unknown", "not_attempted"] },
-                  reason: { type: "string", enum: ["no_text", "unlicensed", "unsupported_platform", "awaiting_publish"], description: "Only present for not_attempted when a reason applies; based on current request text, channel default, license and provider support." },
+                  reason: { type: "string", enum: ["no_text", "unlicensed", "unsupported_platform", "private_post", "awaiting_publish"], description: "Only present for not_attempted when a reason applies; based on current request text, channel default, license, provider support and post privacy (private_post: a private YouTube video cannot take comments)." },
                   commentId: { type: ["string", "null"] },
                   attempts: { type: "integer" },
                   lastError: { type: ["string", "null"], description: "Redacted outbound error." },
@@ -1712,7 +1712,7 @@ Every event includes data.id and data.type. Fields below are additional data fie
 
 | Event | Subject and data fields |
 | --- | --- |
-| \`post.published\` | post: workspaceId, channelId, platform, status=published, deliveryId, providerHandle (platform post ID), publishedAt (UTC), firstComment {status, commentId, attempts, lastError, reason?}. firstComment is a snapshot at emission; not_attempted without a reason means the comment is eligible and awaiting its worker. Skip reasons: no_text, unlicensed, unsupported_platform. |
+| \`post.published\` | post: workspaceId, channelId, platform, status=published, deliveryId, providerHandle (platform post ID), publishedAt (UTC), firstComment {status, commentId, attempts, lastError, reason?}. firstComment is a snapshot at emission; not_attempted without a reason means the comment is eligible and awaiting its worker. Skip reasons: no_text, unlicensed, unsupported_platform, private_post (private YouTube video). |
 | \`post.first_comment\` | post: workspaceId, channelId, platform, status (publication status), deliveryId, providerHandle, firstComment {status=sent or failed, commentId, reason}. Emitted after comment success or terminal failure; intermediate retries do not emit failed. Published events and this result may arrive out of order. |
 | \`post.failed\` | post: workspaceId, channelId, platform, status=failed, deliveryId, error (existing provider error), reason (same error). |
 | \`post.held\` | post: workspaceId, channelId, platform, status=held, deliveryId, reason; confirmationUrl when renewed confirmation is required. |

@@ -1,0 +1,112 @@
+{
+  "path": "instagram media containers (image / REELS / STORIES): create + status polling",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live container create + status on the PostStack TEST Instagram account through Graph v26.0. Never published (no media_publish call), so nothing became public; containers expire after 24 h.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media",
+      "status": 200,
+      "body": {
+        "id": "68221501448095333"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/68221501448095333?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "68221501448095333",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/68221501448095333?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "68221501448095333",
+        "status_code": "FINISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "FINISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media",
+      "status": 200,
+      "body": {
+        "id": "57368691656400039"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/57368691656400039?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "57368691656400039",
+        "status_code": "FINISHED"
+      }
+    }
+  ]
+}

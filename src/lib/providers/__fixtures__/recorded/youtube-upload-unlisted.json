@@ -1,0 +1,115 @@
+{
+  "path": "youtube short, privacyStatus=unlisted (comment accepted)",
+  "recordedAt": "2026-11-04",
+  "provenance": "Live resumable upload through youtubeProvider.publish on the PostStack TEST YouTube channel; video deleted right after.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&notifySubscribers=false",
+      "status": 200,
+      "body": "",
+      "headers": {
+        "location": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&notifySubscribers=false&upload_id=<UPLOAD_ID>"
+      }
+    },
+    {
+      "method": "PUT",
+      "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&notifySubscribers=false&upload_id=<UPLOAD_ID>",
+      "status": 200,
+      "body": {
+        "kind": "youtube#video",
+        "etag": "oi1j8MRkDJ7Jrgo9c7luQJH1xrM",
+        "id": "9r1ejUqKh5M",
+        "snippet": {
+          "publishedAt": "2026-11-04T14:47:07Z",
+          "channelId": "F3YQQkDKQ_1I5sCY-J9Ay2vS",
+          "title": "g44 probe (deleted right away)",
+          "description": "g44",
+          "thumbnails": {
+            "default": {
+              "url": "https://i.ytimg.com/vi/9r1ejUqKh5M/default.jpg",
+              "width": 120,
+              "height": 90
+            },
+            "medium": {
+              "url": "https://i.ytimg.com/vi/9r1ejUqKh5M/mqdefault.jpg",
+              "width": 320,
+              "height": 180
+            },
+            "high": {
+              "url": "https://i.ytimg.com/vi/9r1ejUqKh5M/hqdefault.jpg",
+              "width": 480,
+              "height": 360
+            }
+          },
+          "channelTitle": "Test Channel",
+          "categoryId": "22",
+          "liveBroadcastContent": "none",
+          "localized": {
+            "title": "g44 probe (deleted right away)",
+            "description": "g44"
+          }
+        },
+        "status": {
+          "uploadStatus": "uploaded",
+          "privacyStatus": "unlisted",
+          "license": "youtube",
+          "embeddable": true,
+          "publicStatsViewable": true,
+          "selfDeclaredMadeForKids": false
+        }
+      }
+    }
+  ],
+  "providerHandle": "9r1ejUqKh5M",
+  "verified": {
+    "get": {
+      "status": 200
+    },
+    "commentAccepted": true,
+    "commentRequest": {
+      "method": "POST",
+      "url": "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+      "status": 200,
+      "body": {
+        "kind": "youtube#commentThread",
+        "etag": "xIoSyjE3UrTQV1mwF6C7XrF6WfM",
+        "id": "cgAAKkgw792IAeIO7Bi7CyTmBH",
+        "snippet": {
+          "channelId": "F3YQQkDKQ_1I5sCY-J9Ay2vS",
+          "videoId": "9r1ejUqKh5M",
+          "topLevelComment": {
+            "kind": "youtube#comment",
+            "etag": "ODCsyICstx_tcv1af0-oKYmX-rM",
+            "id": "cgAAKkgw792IAeIO7Bi7CyTmBH",
+            "snippet": {
+              "channelId": "F3YQQkDKQ_1I5sCY-J9Ay2vS",
+              "videoId": "9r1ejUqKh5M",
+              "textDisplay": "g44 probe (deleted right away)",
+              "textOriginal": "g44 probe (deleted right away)",
+              "authorDisplayName": "@test-channel",
+              "authorProfileImageUrl": "https://yt3.ggpht.example/avatar.jpg",
+              "authorChannelUrl": "http://www.youtube.com/@test-channel",
+              "authorChannelId": {
+                "value": "F3YQQkDKQ_1I5sCY-J9Ay2vS"
+              },
+              "canRate": true,
+              "viewerRating": "none",
+              "likeCount": 0,
+              "publishedAt": "2026-11-04T14:47:11Z",
+              "updatedAt": "2026-11-04T14:47:11Z"
+            }
+          },
+          "canReply": true,
+          "totalReplyCount": 0,
+          "isPublic": true
+        }
+      }
+    },
+    "postUrlFor": "https://www.youtube.com/watch?v=9r1ejUqKh5M",
+    "linkCheck": {
+      "status": 200,
+      "location": null
+    }
+  }
+}
