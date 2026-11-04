@@ -225,4 +225,56 @@ describe("events source of /activity", () => {
     expect(none).toContain("No events match");
     expect(none).not.toContain("No events yet");
   });
+
+  describe("inbound message / comment rows (ACTEVT1)", () => {
+    const CH = "eeeeeeee-0000-4000-8000-0000000000c1";
+    const CONTACT = "eeeeeeee-0000-4000-8000-0000000000c2";
+    const CONV = "eeeeeeee-0000-4000-8000-0000000000c3";
+    const base = async () => {
+      await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "youtube", platform_id: "yt1", display_name: "My channel", token_encrypted: "x", webhook_secret: "x" });
+      await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS, display_name: "Ann <b>Lee</b>" });
+      await db.insert(s.conversations).values({ id: CONV, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "youtube" });
+    };
+
+    it("shows contact, channel and an escaped text snippet from our own tables, linking to the conversation", async () => {
+      if (!TEST_DB) return;
+      await base();
+      const [m] = await db.insert(s.messages).values({ conversation_id: CONV, direction: "inbound", text: "hello <script>x</script> there" }).returning({ id: s.messages.id });
+      const [c] = await db.insert(s.commentLogs).values({ workspace_id: WS, channel_id: CH, platform_comment_id: "pc1", author_name: "Bob", comment_text: "great <i>video</i>", conversation_id: CONV, post_url: "https://youtu.be/abc" }).returning({ id: s.commentLogs.id });
+      const [em, ec] = await seed([
+        { type: "message.received", subject_type: "message", subject_id: m!.id, payload: { platform: "youtube" } },
+        { type: "comment.received", subject_type: "comment", subject_id: c!.id, payload: { platform: "youtube" } },
+      ]);
+      const list = await get("/events");
+      expect(list).toContain("Ann &lt;b&gt;Lee&lt;/b&gt;");
+      expect(list).toContain("hello &lt;script&gt;x&lt;/script&gt; there");
+      expect(list).toContain("My channel");
+      expect(list).toContain("great &lt;i&gt;video&lt;/i&gt;");
+      expect(list).not.toContain("<script>x</script>");
+      expect(list).not.toContain(`message · ${m!.id}`);
+      const detail = await get(`/events?open=${ec!.id}`);
+      expect(detail).toContain(`href="/inbox/${CONV}"`);
+      expect(detail).toContain("https://youtu.be/abc");
+      expect(await get(`/events?open=${em!.id}`)).toContain(`href="/inbox/${CONV}"`);
+    });
+
+    it("shows a dash, not an error, when the row is gone, and never reads another workspace's row", async () => {
+      if (!TEST_DB) return;
+      await base();
+      const otherCh = "eeeeeeee-0000-4000-8000-0000000000d1";
+      await db.insert(s.channels).values({ id: otherCh, workspace_id: OTHER_WS, platform: "youtube", platform_id: "yt2", token_encrypted: "x", webhook_secret: "x" });
+      const [foreign] = await db.insert(s.commentLogs).values({ workspace_id: OTHER_WS, channel_id: otherCh, platform_comment_id: "pc2", comment_text: "SECRET-OTHER" }).returning({ id: s.commentLogs.id });
+      const gone = "eeeeeeee-0000-4000-8000-0000000000e1";
+      const [a, b] = await seed([
+        { type: "comment.received", subject_type: "comment", subject_id: gone },
+        { type: "comment.received", subject_type: "comment", subject_id: foreign!.id },
+      ]);
+      const list = await get("/events");
+      expect(rowIds(list).sort()).toEqual([a!.id, b!.id].sort());
+      expect(list).not.toContain("SECRET-OTHER");
+      expect(list).not.toContain(gone);
+      const detail = await get(`/events?open=${a!.id}`);
+      expect(detail).not.toContain("Open conversation");
+    });
+  });
 });
