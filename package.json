@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
-    "altcha-lib": "^1.4.1",
+    "altcha-lib": "^2.8.0",
     "aws4fetch": "^1.0.20",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.4",
