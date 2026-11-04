@@ -299,7 +299,10 @@ export const metaProvider: Provider = {
           error?: { code?: number; message?: string };
         };
         if (!fin.ok || fj.success === false) throw classifyMetaError(fin.status, fj.error);
-        const handle = asString(fj.post_id) ?? asString(sj.video_id); // PSA51
+        // Reels finish returns a bare post id; Graph only resolves page posts as <page>_<post>
+        // (a bare id is read as a deprecated "status" -> error #12 on comments and lookups).
+        const reelPost = asString(fj.post_id);
+        const handle = reelPost ? (reelPost.includes("_") ? reelPost : `${accountId}_${reelPost}`) : asString(sj.video_id); // PSA51
         if (!handle) throw classifyMetaError(fin.status, fj.error);
         await setFacebookThumbnail(sj.video_id, coverUrl, tokens.accessToken);
         return { providerHandle: handle };

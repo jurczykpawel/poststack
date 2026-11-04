@@ -145,7 +145,7 @@ describe("meta.publish", () => {
           return new Response(JSON.stringify({ video_id: "r1", upload_url: "https://rupload.facebook.com/r1" }), { status: 200 });
         if (u === "https://rupload.facebook.com/r1") return new Response(JSON.stringify({ success: true }), { status: 200 });
         if (u.includes("/video_reels") && u.includes("upload_phase=finish"))
-          return new Response(JSON.stringify({ success: true, post_id: "r1" }), { status: 200 });
+          return new Response(JSON.stringify({ success: true, post_id: "1404974398513782" }), { status: 200 });
         return new Response("{}", { status: 200 });
       }),
     );
@@ -156,7 +156,7 @@ describe("meta.publish", () => {
       mediaUrls: ["https://cdn/x.mp4"],
       channelMetadata: { subKind: "facebook_page" },
     });
-    expect(h.providerHandle).toBe("r1");
+    expect(h.providerHandle).toBe("PAGE_1404974398513782"); // bare Reel post id gets the page prefix
     expect(calls.some((u) => u.includes("upload_phase=start"))).toBe(true);
     expect(calls.some((u) => u.includes("upload_phase=finish"))).toBe(true);
   });

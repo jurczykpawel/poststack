@@ -113,7 +113,7 @@ describe("MetaProvider publishing layer — Graph API version contract (VPROBE1-
         mediaUrls: ["https://cdn/x.mp4"],
         channelMetadata: { subKind: "facebook_page" },
       });
-      expect(h.providerHandle).toBe("fbr1");
+      expect(h.providerHandle).toBe("PAGE_fbr1");
 
       // The resumable-upload host is intentionally unversioned; assert ONLY the graph.facebook.com calls.
       const graph = graphCalls();
