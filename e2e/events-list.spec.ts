@@ -140,3 +140,34 @@ test("details take the whole phone screen and nothing scrolls sideways", async (
   await expect(panel).toBeVisible();
   await shoot(page, testInfo.outputPath("events-phone-detail"));
 });
+
+test("inbound message and comment rows show who and what, and the panel links to the conversation (ACTEVT1)", async ({ page }, testInfo) => {
+  const { errors } = watchConsole(page);
+  await setPro(page.request);
+  const { rows: [ch] } = await db.query<{ id: string }>("SELECT id FROM channels WHERE workspace_id = $1 LIMIT 1", [workspaceId]);
+  const { rows: [contact] } = await db.query<{ id: string }>("INSERT INTO contacts (workspace_id, display_name) VALUES ($1, 'Ada Nowak') RETURNING id", [workspaceId]);
+  const { rows: [conv] } = await db.query<{ id: string }>("INSERT INTO conversations (workspace_id, channel_id, contact_id, platform) VALUES ($1, $2, $3, 'facebook') RETURNING id", [workspaceId, ch!.id, contact!.id]);
+  try {
+    const { rows: [m] } = await db.query<{ id: string }>("INSERT INTO messages (conversation_id, direction, text) VALUES ($1, 'inbound', 'Hi, is the course still available? I would like to buy it today.') RETURNING id", [conv!.id]);
+    const { rows: [c] } = await db.query<{ id: string }>("INSERT INTO comment_logs (workspace_id, channel_id, platform_comment_id, comment_text, conversation_id, post_url) VALUES ($1, $2, 'acte2e-1', 'Great video, thanks!', $3, 'https://example.com/watch') RETURNING id", [workspaceId, ch!.id, conv!.id]);
+    await db.query("INSERT INTO events (workspace_id, type, subject_type, subject_id, payload) VALUES ($1,'message.received','message',$2,'{\"platform\":\"facebook\"}'),($1,'comment.received','comment',$3,'{\"platform\":\"facebook\"}')", [workspaceId, m!.id, c!.id]);
+    for (const [w, h] of [[1440, 900], [390, 844]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await gotoOk(page, "/activity?source=events&q=received");
+      await expect(rows(page).first()).toContainText("Ada Nowak");
+      await expect(rows(page).first()).toContainText("is the course still available");
+      await expect(rows(page).first()).not.toContainText(c!.id);
+      await shoot(page, testInfo.outputPath(`inbound-row-${w}`));
+      await gotoOk(page, `/activity?source=events&q=received&open=${(await db.query<{ id: string }>("SELECT id FROM events WHERE subject_id = $1", [c!.id])).rows[0]!.id}`);
+      await expect(page.getByRole("link", { name: "Open conversation" })).toHaveAttribute("href", `/inbox/${conv!.id}`);
+      await expect(page.locator(".dl-facts").getByText("Great video, thanks!")).toBeVisible();
+      await shoot(page, testInfo.outputPath(`inbound-panel-${w}`));
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await db.query("DELETE FROM events WHERE workspace_id = $1 AND type IN ('message.received','comment.received')", [workspaceId]);
+    await db.query("DELETE FROM comment_logs WHERE platform_comment_id = 'acte2e-1'");
+    await db.query("DELETE FROM conversations WHERE id = $1", [conv!.id]);
+    await db.query("DELETE FROM contacts WHERE id = $1", [contact!.id]);
+  }
+});

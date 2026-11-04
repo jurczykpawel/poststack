@@ -1,7 +1,7 @@
 import { html } from "hono/html";
 import { and, eq, inArray, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { events } from "@/db/schema";
+import { events, messages, commentLogs, conversations, contacts, channels } from "@/db/schema";
 import { containsPattern, countBy, listPage } from "@/lib/list-page";
 import { isUuid } from "@/lib/api/identifiers";
 import { redactSecrets } from "@/lib/redact";
@@ -52,8 +52,35 @@ const SEVERITIES = [
 type EventRow = Pick<typeof events.$inferSelect, "id" | "type" | "subject_type" | "subject_id" | "payload" | "created_at">;
 type Payload = { displayName?: string; platform?: string; error?: string; reason?: string; providerHandle?: string; deliveryId?: string };
 
+/** message.received / comment.received carry ids only; the panel adds who and what from our own rows (ACTEVT1). */
+type Inbound = { who: string; text: string; conversationId: string | null; postUrl: string | null };
+type Row = EventRow & { inbound?: Inbound };
+const INBOUND_TYPES = ["message.received", "comment.received"];
+
+async function withInbound(workspaceId: string, rows: EventRow[]): Promise<Row[]> {
+  const ids = (type: string) => rows.filter((e) => e.type === type && isUuid(e.subject_id)).map((e) => e.subject_id!);
+  const [msgIds, commentIds] = [ids("message.received"), ids("comment.received")];
+  const found = new Map<string, Inbound>();
+  const label = (contact: string | null, channel: string | null, author?: string | null) =>
+    [contact ?? author, channel].filter(Boolean).join(" · ") || "—";
+  const [msgs, comments] = await Promise.all([
+    msgIds.length ? db.select({ id: messages.id, text: messages.text, conv: conversations.id, contact: contacts.display_name, channel: channels.display_name })
+      .from(messages).innerJoin(conversations, eq(conversations.id, messages.conversation_id))
+      .leftJoin(contacts, eq(contacts.id, conversations.contact_id)).leftJoin(channels, eq(channels.id, conversations.channel_id))
+      .where(and(eq(conversations.workspace_id, workspaceId), inArray(messages.id, msgIds))) : [],
+    commentIds.length ? db.select({ id: commentLogs.id, text: commentLogs.comment_text, conv: commentLogs.conversation_id, author: commentLogs.author_name, postUrl: commentLogs.post_url, contact: contacts.display_name, channel: channels.display_name })
+      .from(commentLogs).leftJoin(conversations, eq(conversations.id, commentLogs.conversation_id))
+      .leftJoin(contacts, eq(contacts.id, conversations.contact_id)).leftJoin(channels, eq(channels.id, commentLogs.channel_id))
+      .where(and(eq(commentLogs.workspace_id, workspaceId), inArray(commentLogs.id, commentIds))) : [],
+  ]);
+  for (const m of msgs) found.set(m.id, { who: label(m.contact, m.channel), text: m.text ?? "", conversationId: m.conv, postUrl: null });
+  for (const c of comments) found.set(c.id, { who: label(c.contact, c.channel, c.author), text: c.text, conversationId: c.conv, postUrl: c.postUrl });
+  return rows.map((e) => ({ ...e, inbound: e.subject_id ? found.get(e.subject_id) : undefined }));
+}
+
+const snippet = (t: string) => (t.length > 120 ? `${t.slice(0, 120)}…` : t);
 const payloadOf = (e: EventRow) => (e.payload ?? {}) as Payload;
-const subjectOf = (e: EventRow) => payloadOf(e).displayName ?? (e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—");
+const subjectOf = (e: Row) => INBOUND_TYPES.includes(e.type) ? (e.inbound?.who ?? "—") : payloadOf(e).displayName ?? (e.subject_type ? `${e.subject_type}${e.subject_id ? ` · ${e.subject_id}` : ""}` : "—");
 const areaExpr = sql<string>`split_part(${events.type}, '.', 1)`;
 const platformExpr = sql<string>`${events.payload}->>'platform'`;
 const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -82,7 +109,8 @@ function when(at: Date) {
 }
 
 /** Where the event's subject can be opened. Posts are skipped: their subject id may be a delivery. */
-function subjectLink(e: EventRow) {
+function subjectLink(e: Row) {
+  if (INBOUND_TYPES.includes(e.type)) return e.inbound?.conversationId ? { href: `/inbox/${e.inbound.conversationId}`, label: "Open conversation" } : null;
   if (e.subject_type === "conversation" && isUuid(e.subject_id)) return { href: `/inbox/${e.subject_id}`, label: "Open conversation" };
   if (e.subject_type === "channel") return { href: "/channels", label: "Open channels" };
   return null;
@@ -94,7 +122,7 @@ async function postCardFor(workspaceId: string, e: EventRow): Promise<PostCardDa
   return e.type.startsWith("post.") && isUuid(id) ? deliveryPostCard(workspaceId, id) : undefined;
 }
 
-function eventDetail(e: EventRow, card?: PostCardData) {
+function eventDetail(e: Row, card?: PostCardData) {
   const p = payloadOf(e);
   // `channels` holds platform sender ids, which this log has never displayed.
   const { workspaceId: _ws, channels: _ids, ...shown } = (e.payload ?? {}) as Record<string, unknown>;
@@ -107,18 +135,20 @@ function eventDetail(e: EventRow, card?: PostCardData) {
         ${p.platform ? html`<dt>Platform</dt><dd>${platformLabel(p.platform)}</dd>` : ""}
         <dt>When</dt><dd>${localTime(e.created_at)}</dd>
         <dt>Type</dt><dd class="mono">${e.type}</dd>
+        ${e.inbound?.text ? html`<dt>Text</dt><dd>${e.inbound.text}</dd>` : ""}
         ${problem ? html`<dt>Detail</dt><dd class="dl-problem">${problem}</dd>` : p.providerHandle ? html`<dt>Detail</dt><dd>${p.providerHandle}</dd>` : ""}
       </dl>
       ${Object.keys(shown).length ? html`<p class="dl-label">Payload</p><pre class="dl-json">${redactSecrets(JSON.stringify(shown, null, 2))}</pre>` : ""}
-      ${link ? html`<a class="btn btn-secondary btn-sm dl-action" href="${link.href}">${link.label}</a>` : ""}`,
+      ${link ? html`<a class="btn btn-secondary btn-sm dl-action" href="${link.href}">${link.label}</a>` : ""}
+      ${e.inbound?.postUrl ? html`<a class="btn btn-secondary btn-sm dl-action" href="${e.inbound.postUrl}" target="_blank" rel="noopener noreferrer">Open video / post</a>` : ""}`,
   };
 }
 
-const COLUMNS: ListColumn<EventRow>[] = [
+const COLUMNS: ListColumn<Row>[] = [
   { label: "Event", width: "26%", main: true, cell: eventBadge },
   { label: "Subject", width: "26%", cell: subjectOf },
   { label: "Platform", width: "12%", cell: (e) => { const p = payloadOf(e).platform; return p ? platformLabel(p) : "—"; } },
-  { label: "Detail", width: "26%", cell: (e) => { const p = payloadOf(e); return p.error ?? p.reason ?? p.providerHandle ?? "—"; } },
+  { label: "Detail", width: "26%", cell: (e) => { const p = payloadOf(e); if (INBOUND_TYPES.includes(e.type)) return e.inbound?.text ? snippet(e.inbound.text) : "—"; return p.error ?? p.reason ?? p.providerHandle ?? "—"; } },
   { label: "When", width: "10%", cell: (e) => when(e.created_at) },
 ];
 
@@ -157,7 +187,9 @@ export async function renderEvents(workspaceId: string, url: string, path: strin
   const counts = [...chipCounts];
   const areas = [...new Set([...typeCounts.keys()].map((type) => type.split(".")[0]!))].sort();
 
-  return dataList<EventRow>({
+  const rows = await withInbound(workspaceId, page.rows);
+
+  return dataList<Row>({
     path,
     noun: "events",
     state,
@@ -177,11 +209,11 @@ export async function renderEvents(workspaceId: string, url: string, path: strin
       { key: "platform", label: "Platform", options: [...platforms.keys()].sort().map((p) => ({ value: p, label: platformLabel(p) })) },
     ],
     columns: COLUMNS,
-    rows: page.rows,
+    rows,
     rowId: (e) => e.id,
-    sub: (e) => html`${subjectOf(e)} · ${timeAgo(e.created_at)}`,
+    sub: (e) => html`${subjectOf(e)}${e.inbound?.text ? html` · “${snippet(e.inbound.text)}”` : ""} · ${timeAgo(e.created_at)}`,
     page,
-    detail: opened ? eventDetail(opened, await postCardFor(workspaceId, opened)) : undefined,
+    detail: opened ? eventDetail((await withInbound(workspaceId, [opened]))[0]!, await postCardFor(workspaceId, opened)) : undefined,
     emptyTitle: "No events yet",
     emptyBody: "Activity shows up here as channels connect, posts publish, and tokens expire.",
   });
