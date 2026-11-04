@@ -118,7 +118,9 @@ test("OVSENT1: Sent cards open the list and the number of rows equals the number
       const n = (await card.locator(".kpi-n").innerText()).trim();
       await card.click();
       await expect(page).toHaveURL(new RegExp(`/activity\\?source=sent${query ? `&${query}` : ""}$`));
-      await expect(page.locator("#data-list")).toContainText(new RegExp(`of ${n}\\b`));
+      // An empty range shows the empty state instead of a pager ("of 0").
+      if (n === "0") await expect(page.locator("#data-list tbody tr[data-row]")).toHaveCount(0);
+      else await expect(page.locator("#data-list")).toContainText(new RegExp(`of ${n}\\b`));
       await shoot(page, testInfo.outputPath(`sent-${query ? "today" : "all"}-${tag}`));
     }
   }

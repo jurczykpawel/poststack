@@ -297,7 +297,7 @@ test.describe("publishing guidance", () => {
       await page.getByRole("option", { name: "Empty guidance", exact: true }).click();
       const empty = page.getByRole("status").filter({ hasText: "This brand has no channels" });
       await expect(empty).toBeVisible();
-      await expect(empty.getByRole("link", { name: "Brands", exact: true })).toHaveAttribute("href", "/brands");
+      await expect(empty.getByRole("link", { name: "Assign channels", exact: true })).toHaveAttribute("href", /^\/brands\?compose=1&open=/); // g46: one click to the brand's channel assignment
       await page.screenshot({ path: testInfo.outputPath("empty-brand.png"), fullPage: true, animations: "disabled" });
       await page.getByRole("button", { name: "Brand", exact: true }).click();
       await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
