@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
@@ -63,6 +63,13 @@ beforeEach(async () => {
     { id: CH, workspace_id: WS, platform: "facebook", platform_id: "FB-C", display_name: "FB Shop", token_encrypted: "x", webhook_secret: "s1", status: "active" },
     { id: CH_IG, workspace_id: WS, platform: "instagram", platform_id: "IG-C", display_name: "IG Shop", token_encrypted: "x", webhook_secret: "s2", status: "active" },
   ]);
+});
+
+// Leave nothing behind: channel ids here are reused by other files on the same database.
+afterAll(async () => {
+  if (!TEST_DB) return;
+  for (const id of [WS, OTHER_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, id));
+  await db.delete(s.users).where(eq(s.users.id, USER));
 });
 
 describe("/contacts list", () => {
