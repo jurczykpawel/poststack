@@ -154,9 +154,11 @@ test("inbound message and comment rows show who and what, and the panel links to
     for (const [w, h] of [[1440, 900], [390, 844]] as const) {
       await page.setViewportSize({ width: w, height: h });
       await gotoOk(page, "/activity?source=events&q=received");
-      await expect(rows(page).first()).toContainText("Ada Nowak");
-      await expect(rows(page).first()).toContainText("is the course still available");
-      await expect(rows(page).first()).not.toContainText(c!.id);
+      // Both events share one timestamp, so their order is not fixed: find each row by its text.
+      const msgRow = rows(page).filter({ hasText: "is the course still available" });
+      await expect(msgRow).toHaveCount(1);
+      await expect(msgRow).toContainText("Ada Nowak");
+      await expect(rows(page).filter({ hasText: "Great video, thanks!" })).not.toContainText(c!.id);
       await shoot(page, testInfo.outputPath(`inbound-row-${w}`));
       await gotoOk(page, `/activity?source=events&q=received&open=${(await db.query<{ id: string }>("SELECT id FROM events WHERE subject_id = $1", [c!.id])).rows[0]!.id}`);
       await expect(page.getByRole("link", { name: "Open conversation" })).toHaveAttribute("href", `/inbox/${conv!.id}`);
