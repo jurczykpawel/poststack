@@ -9,7 +9,7 @@ import { casKey } from "@/lib/media/cas";
 import { readBodyCapped } from "@/lib/media/read-capped";
 import { sniffMime } from "@/lib/media/sniff";
 import { safeFetch } from "@/lib/media/ssrf";
-import { postUrlFor } from "@/lib/posts/post-url";
+import { httpUrl, postUrlFor } from "@/lib/posts/post-url";
 import { getStorage } from "@/lib/storage";
 import type { Storage } from "@/lib/storage/types";
 
@@ -31,7 +31,6 @@ export interface PreviewDeps {
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const RETRY_FAILED_MS = 24 * 3600_000;
-const httpUrl = (u: string | null | undefined) => (u && /^https?:\/\//i.test(u) ? u : null);
 const nameOf = (c: { display_name: string | null; username: string | null; platform_id: string }) => c.display_name ?? c.username ?? c.platform_id;
 
 /** A post PostStack published: everything comes from our rows, the platform is never asked. */

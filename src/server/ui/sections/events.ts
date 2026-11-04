@@ -12,6 +12,7 @@ import { timeAgo } from "../components/time";
 import type { Tone } from "../components/status";
 import { postPreview } from "../components/post-preview";
 import { deliveryPostCard, type PostCardData } from "@/lib/posts/preview";
+import { httpUrl } from "@/lib/posts/post-url";
 
 const PAGE_SIZE = 50;
 
@@ -74,7 +75,7 @@ async function withInbound(workspaceId: string, rows: EventRow[]): Promise<Row[]
       .where(and(eq(commentLogs.workspace_id, workspaceId), inArray(commentLogs.id, commentIds))) : [],
   ]);
   for (const m of msgs) found.set(m.id, { who: label(m.contact, m.channel), text: m.text ?? "", conversationId: m.conv, postUrl: null });
-  for (const c of comments) found.set(c.id, { who: label(c.contact, c.channel, c.author), text: c.text, conversationId: c.conv, postUrl: c.postUrl });
+  for (const c of comments) found.set(c.id, { who: label(c.contact, c.channel, c.author), text: c.text, conversationId: c.conv, postUrl: httpUrl(c.postUrl) });
   return rows.map((e) => ({ ...e, inbound: e.subject_id ? found.get(e.subject_id) : undefined }));
 }
 

@@ -1,3 +1,6 @@
+/** A URL safe for href: only http(s), anything else (javascript:, data:, bare ids) becomes null. */
+export const httpUrl = (u: string | null | undefined): string | null => (u && /^https?:\/\//i.test(u) ? u : null);
+
 /** Public URL of a post built from its platform id alone, for rows that stored no permalink.
  *  Instagram media ids carry no shortcode, so IG gets no fallback; TikTok needs the account handle. */
 export function postUrlFor(platform: string, postId: string | null | undefined, handle?: string | null): string | null {

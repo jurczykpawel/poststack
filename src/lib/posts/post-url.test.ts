@@ -15,3 +15,13 @@ describe("postUrlFor", () => {
   });
 });
 
+
+describe("httpUrl", () => {
+  it("keeps http(s) and drops other schemes", async () => {
+    const { httpUrl } = await import("./post-url");
+    expect(httpUrl("https://youtu.be/x")).toBe("https://youtu.be/x");
+    expect(httpUrl("javascript:alert(1)")).toBeNull();
+    expect(httpUrl("data:text/html,x")).toBeNull();
+    expect(httpUrl(null)).toBeNull();
+  });
+});

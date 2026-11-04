@@ -73,7 +73,7 @@ import { aiUnconfiguredBanner } from "../ui/components/ai-notice";
 import { gatherAttention, attentionTotal, upcomingScheduled, recentEvents, type AttentionRow, type UpcomingPost, type RecentEvent } from "../ui/sections/dashboard-data";
 import { dot, statusBadge, type Tone } from "../ui/components/status";
 import { kpi } from "../ui/components/kpi";
-import { postUrlFor } from "@/lib/posts/post-url";
+import { httpUrl, postUrlFor } from "@/lib/posts/post-url";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -895,7 +895,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
   const items: ThreadItem[] = [
     ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, attachments: (m.attachments as StoredAttachments | null) ?? null, quickReplyPayload: m.quick_reply_payload, postbackPayload: m.postback_payload, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at, status: m.status, failureReason: m.failure_reason })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
-    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postTitle: c.post_id ? postTitleById.get(c.post_id) ?? null : null, postUrl: c.post_url ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
+    ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postTitle: c.post_id ? postTitleById.get(c.post_id) ?? null : null, postUrl: httpUrl(c.post_url) ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];
   // Chronological ascending; interleaves comments, reactions and messages by time.
   return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
