@@ -1304,6 +1304,8 @@ export const deliveries = pgTable("deliveries", {
 	attempts: integer("attempts").default(0).notNull(),
 	attempt_started_at: timestamp("attempt_started_at", { precision: 3, mode: 'date' }),
 	last_error: text("last_error"),
+	/** When the platform confirmed the publish. updated_at keeps moving afterwards, so a card must not use it. */
+	sent_at: timestamp("sent_at", { precision: 3, mode: 'date' }),
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updated_at: timestamp("updated_at", { precision: 3, mode: "date" }).defaultNow().$onUpdate(() => new Date()).notNull(),
 }, (table) => [

@@ -47,7 +47,8 @@ export interface DataListProps<R> {
   /** Plural, lower case: "events". */
   noun: string;
   state: ListState;
-  searchPlaceholder: string;
+  /** Omit for a list with nothing to search: the search box is not drawn. */
+  searchPlaceholder?: string;
   /** Sits above the toolbar, inside the swapped list: a switch between views of the same data. */
   tabs?: Html;
   /** One filter shown as counter chips above the list. */
@@ -117,7 +118,7 @@ function toolbar<R>(p: DataListProps<R>): Html {
   const active = !!st.q || Object.values(st.filters).some(Boolean);
   const chipValue = p.chips ? st.filters[p.chips.key] : "";
   return html`<form class="filter-bar dl-tools" method="get" action="${path}" role="search">
-    <label class="filter-search"><span class="sr-only">Search ${p.noun}</span>${icon("search", "ico", 14)}<input id="dl-search" type="search" name="q" value="${st.q}" placeholder="${p.searchPlaceholder}" autocomplete="off" /></label>
+    ${p.searchPlaceholder === undefined ? "" : html`<label class="filter-search"><span class="sr-only">Search ${p.noun}</span>${icon("search", "ico", 14)}<input id="dl-search" type="search" name="q" value="${st.q}" placeholder="${p.searchPlaceholder}" autocomplete="off" /></label>`}
     ${p.selects?.map((s) => html`<select name="${s.key}" aria-label="${s.label}">
       <option value="">${s.label}: all</option>
       ${s.options.map((o) => html`<option value="${o.value}"${st.filters[s.key] === o.value ? raw(" selected") : raw("")}>${o.label}</option>`)}

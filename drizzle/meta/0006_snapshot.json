@@ -2801,6 +2801,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp (3)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3)",

@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Problem alerts: a malformed custom header returns 422 with the reason next to the field (was HTTP 500).
+- Text fields with a NUL character are rejected with 422 instead of HTTP 500.
+- A failed AI draft (e.g. provider rate limit) shows its reason in the Inbox instead of "generating" forever; Settings → AI counts generations and failures over the same week.
+- Any htmx save that fails (no connection, server error) shows a visible error instead of looking saved.
+- Side menu scrolls on short windows, so Settings stays reachable.
+- Add brand, Edit rule and the alert fallback keep the form open with your data and show the reason next to the field (htmx now swaps 422 responses).
+- The post card shows when the post was published (`deliveries.sent_at`), not the last row update; Facebook post links use the `page/posts/id` or `watch/?v=` form.
+- Settings tabs on a phone no longer draw a stray divider; Inbox comments link to "view post" instead of a raw video id.
+
+### Added
+- Overview "Sent today" / "Sent (all time)" open Activity → Sent replies with the same rows the cards count.
+
 ## [0.17.2] - 2026-11-04
 
 ### Fixed

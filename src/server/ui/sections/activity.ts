@@ -7,6 +7,7 @@ import { isHtmx } from "../components/toast";
 import { dashboardDoc } from "../layout";
 import { renderEvents } from "./events";
 import { renderWebhooksLog } from "./webhooks-log";
+import { renderSentLog } from "./sent-log";
 import { aiLogLocked, renderAiLog } from "./ai-generation-logs";
 
 /**
@@ -19,6 +20,7 @@ const SOURCES = [
   { key: "events", label: "Events" },
   { key: "webhooks", label: "Webhooks" },
   { key: "ai", label: "AI log" },
+  { key: "sent", label: "Sent replies" },
 ] as const;
 type SourceKey = (typeof SOURCES)[number]["key"];
 
@@ -45,6 +47,7 @@ export function registerActivity(r: Hono, guard: MiddlewareHandler): void {
     const url = u.toString();
     const list =
       source === "webhooks" ? await renderWebhooksLog(a.workspaceId, url, PATH)
+      : source === "sent" ? await renderSentLog(a.workspaceId, url, PATH)
       : source === "ai" ? (features.has("ai_draft") || features.has("ai_rephrase") ? await renderAiLog(a.workspaceId, url, PATH) : aiLogLocked(upgradeUrl))
       : await renderEvents(a.workspaceId, url, PATH);
     return c.html(

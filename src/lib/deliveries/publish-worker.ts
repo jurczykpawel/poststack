@@ -227,12 +227,13 @@ async function enqueueAutoStory(
 async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string) {
   const request = post.payload as PublishRequest;
   const aiDisclosureSent = await buildAiDisclosureSent(post.id, post.workspace_id, request);
+  const sentAt = new Date();
   const changed = await db.transaction(async (tx) => {
     await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id))).orderBy(posts.id).for("update");
-    const rows = await tx.update(deliveries).set({ status: "sent", provider_handle: providerHandle, payload: sql`${deliveries.payload} - '_youtubeUploadSession'`, last_error: null, updated_at: new Date() })
+    const rows = await tx.update(deliveries).set({ status: "sent", sent_at: sentAt, provider_handle: providerHandle, payload: sql`${deliveries.payload} - '_youtubeUploadSession'`, last_error: null, updated_at: new Date() })
       .where(and(eq(deliveries.id, post.id), eq(deliveries.workspace_id, post.workspace_id), inArray(deliveries.status, ["sending", "processing"]))).returning({ id: deliveries.id });
     if (!rows.length) return false;
-    await tx.update(posts).set({ status: "published", published_at: new Date(), platform_post_id: providerHandle, updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
+    await tx.update(posts).set({ status: "published", published_at: sentAt, platform_post_id: providerHandle, updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
       .where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id)));
     return true;
   });

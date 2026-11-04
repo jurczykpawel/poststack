@@ -88,6 +88,7 @@ ALTER TABLE "posts" ADD COLUMN "youtube_localizations" jsonb;--> statement-break
 CREATE INDEX "message_reactions_workspace_id_created_at_idx" ON "message_reactions" USING btree ("workspace_id","created_at");--> statement-breakpoint
 CREATE INDEX "deliveries_workspace_status_scheduled_idx" ON "deliveries" USING btree ("workspace_id","status","scheduled_at","id");--> statement-breakpoint
 ALTER TABLE "messages" ADD COLUMN "failure_reason" text;--> statement-breakpoint
+ALTER TABLE "deliveries" ADD COLUMN "sent_at" timestamp (3);--> statement-breakpoint
 CREATE TYPE "public"."post_preview_status" AS ENUM('ready', 'failed');--> statement-breakpoint
 CREATE TABLE "post_previews" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

@@ -452,7 +452,7 @@ export function renderMessages(items: ThreadItem[], threadType: ConversationThre
       // The post the comment was on — prefer a clickable link to the permalink. Label with the
       // published post's content title when we can resolve it (platform_post_id → posts → content),
       // falling back to the raw platform post id.
-      const postLabel = it.postTitle ?? it.postId;
+      const postLabel = it.postTitle ?? (it.postUrl ? "view post" : it.postId);
       const link = it.postId
         ? it.postUrl
           ? html`<a class="cmt-link" href="${it.postUrl}" target="_blank" rel="noopener">${postLabel} ↗</a>`
@@ -1891,12 +1891,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       requires_approval: form.requires_approval === "true",
     };
     const res = await rule.PATCH(jsonReqMethod(c, "PATCH", payload), { params: Promise.resolve({ ruleId: id }) }).catch(() => null);
-    const list = renderRules(await loadRules(a.workspaceId));
     if (!res || res.status >= 400) {
       const body = res ? await res.json().catch(() => ({})) : {};
-      return c.html(html`<div class="notice notice-err">${(body as { error?: { message?: string } })?.error?.message ?? "Could not update the rule."}</div>${list}`);
+      // The edit form stays open with its data: the message goes to the form's own slot (422 is swapped by htmx).
+      const e = (body as { error?: { message?: string; details?: Array<{ path?: unknown; message?: string }> } })?.error;
+      const fields = (e?.details ?? []).filter((d) => d?.message).map((d) => `${Array.isArray(d.path) ? d.path.join(".") : d.path ?? "field"}: ${d.message}`);
+      c.header("HX-Retarget", `#rule-err-${id}`);
+      c.header("HX-Reswap", "innerHTML");
+      return c.html(html`<div class="notice notice-err" role="alert">${fields.length ? fields.join(". ") : e?.message ?? "Could not update the rule."}</div>`, 422);
     }
-    return c.html(list);
+    return c.html(renderRules(await loadRules(a.workspaceId)));
   });
 
   // Approvals (human-in-the-loop review queue)
@@ -2343,8 +2347,8 @@ function renderOverview(ov: Awaited<ReturnType<typeof loadOverview>>, features: 
     <h1>Overview</h1>
     <p class="section-intro">Your automation at a glance.${locked ? html` Replying to conversations by hand is ${proLink(upgradeUrl, "PRO")} — your rules auto-reply for free.` : html``}</p>
     <div class="kpis" style="margin:14px 0">
-      ${kpi({ label: "Sent today (UTC)", value: ov.today, tone: "neutral", sub: "Queued today, now sent" })}
-      ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok" })}
+      ${kpi({ label: "Sent today (UTC)", value: ov.today, tone: "neutral", sub: "Queued today, now sent", href: "/activity?source=sent&range=today" })}
+      ${kpi({ label: "Sent (all time)", value: ov.sent, tone: "ok", href: "/activity?source=sent" })}
       ${kpi({ label: "Failed", value: ov.failed + ov.posts.failed, tone: ov.failed + ov.posts.failed > 0 ? "bad" : "neutral", sub: `${ov.posts.failed} posts · ${ov.failed} replies`, href: ov.posts.failed > 0 ? "/queue?status=attention" : undefined })}
       ${kpi({ label: "Held", value: ov.held + ov.posts.held, tone: ov.held + ov.posts.held > 0 ? "warn" : "neutral", sub: `${ov.posts.held} posts · ${ov.held} replies${ov.posts.unknown ? ` · ${ov.posts.unknown} posts unknown` : ""}`, href: ov.posts.held + ov.posts.unknown > 0 ? "/queue?status=attention" : undefined })}
       ${kpi({ label: "Contacts", value: ov.contactCount, tone: "neutral" })}
@@ -2624,6 +2628,7 @@ function renderRuleEditForm(
   return html`<section class="panel" style="margin-bottom:1rem">
     <div class="panel-head"><h3>Edit rule</h3><span class="panel-sub">${r.trigger_type} → ${r.response_type}</span></div>
     <form hx-post="/rules/${r.id}" hx-ext="json-enc" hx-target="#rules-list" hx-swap="innerHTML" class="stack" style="max-width:none;padding:14px 16px;background:transparent;border:0;border-radius:0;gap:12px"${xData}>
+      <div id="rule-err-${r.id}"></div>
       <div><label class="label">Name</label><input class="input" name="name" value="${r.name}" required /></div>
       ${ruleChannelSelect(channels, r.channel_id)}
       ${isKeyword ? html`<div><label class="label">Keywords (comma-separated)</label><input class="input" name="keywords" value="${keywords}" placeholder="hello, hi, info" /></div>` : ""}
