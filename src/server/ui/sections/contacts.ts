@@ -147,6 +147,7 @@ export function registerContacts(r: Hono, guard: MiddlewareHandler, proLock: (ti
   r.get("/contacts", guard, async (c: Context) => {
     const a = await authenticate(c.req.raw).catch(() => null);
     if (!a) return isHtmx(c) ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
+    c.header("Cache-Control", "private, no-store, no-transform");
     const { features, upgradeUrl, products } = await getInstanceLicense();
     const title = t("title.suffix", { section: "Contacts" });
     if (!features.has("contacts_crm")) {

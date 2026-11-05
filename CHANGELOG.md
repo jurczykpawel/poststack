@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Invalid brand colours show an inline error while keeping the editor open and preserving entered values.
+- Draft edits containing NUL show a validation message without replacing the Inbox thread or changing the saved draft.
+- Long approval replies wrap inside their cards on mobile and desktop.
+- Contact email addresses remain readable after htmx navigation behind Cloudflare.
+
 ### Added
 - Facebook video carousels are available when channel ads permissions are confirmed. Channels show availability and explain missing access; Facebook OAuth can optionally request `pages_manage_ads` with `META_REQUEST_ADS_SCOPE=true`.
 

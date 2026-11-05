@@ -185,3 +185,11 @@ describe("/contacts list", () => {
     expect((await app.request("/contacts/list", { headers: { cookie } })).status).toBe(404);
   });
 });
+
+it.each([false, true])("keeps contact HTML readable through proxies (htmx=%s)", async (htmx) => {
+  const [contact] = await seed([{ display_name: "Anna", email: "anna@example.invalid" }]);
+  const res = await app.request(`/contacts?open=${contact.id}`, { headers: { cookie, ...(htmx ? { "HX-Request": "true" } : {}) } });
+  expect(res.status).toBe(200);
+  expect(res.headers.get("Cache-Control")).toContain("no-transform");
+  expect((await res.text()).match(/anna@example.invalid/g)?.length).toBeGreaterThanOrEqual(2);
+});
