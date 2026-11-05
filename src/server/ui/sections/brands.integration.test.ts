@@ -252,6 +252,31 @@ describe("Brands section", () => {
     expect((await app.request("/brands/ok/edit", form({ name: "Ok", accent: css }))).status).toBe(400);
   });
 
+  it("keeps invalid accent edits in the form error slot without saving", async () => {
+    await createBrandSvc({ key: "retained", name: "Original", accent: "#123456" }, workspaceId);
+    const req = form({ name: "Unsaved name", accent: "red" });
+    const res = await app.request("/brands/retained/edit", { ...req, headers: { ...req.headers, "HX-Request": "true" } });
+    expect(res.status).toBe(422);
+    expect(res.headers.get("HX-Retarget")).toBe("#edit-error-retained");
+    expect(await res.text()).toContain("Accent colour must be a hex colour");
+    const row = await db.query.brands.findFirst({ where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, "retained")) });
+    expect(row).toMatchObject({ name: "Original", accent: "#123456" });
+    const page = await (await app.request("/brands", { headers: { cookie } })).text();
+    expect(page).toContain('hx-post="/brands/retained/edit"');
+    expect(page).toContain('id="edit-error-retained"');
+  });
+
+  it("retains submitted values on a plain invalid brand edit", async () => {
+    await createBrandSvc({ key: "plain", name: "Original" }, workspaceId);
+    const res = await app.request("/brands/plain/edit", form({ name: "Unsaved name", accent: "red", icon: "🚀", story_template: "phone", default_ai_disclosure: "ai_generated", default_ai_disclosure_note: "Unsaved note" }));
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    for (const value of ["Unsaved name", "red", "🚀", "Unsaved note"]) expect(body).toContain(`value="${value}"`);
+    expect(body).toContain('x-init="$el.showModal()"');
+    expect(body).toContain('<option value="phone" selected>');
+    expect(body).toContain('<option value="ai_generated" selected>');
+  });
+
   // MQA13-B01: brands created before validation keep working — the key is encoded in URLs and never
   // spliced into an Alpine/JS expression; a stored non-hex accent never reaches a style attribute.
   it("keeps a legacy brand with an unsafe key and accent usable and inert", async () => {

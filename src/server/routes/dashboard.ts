@@ -591,7 +591,8 @@ function renderDraftBubble(d: DraftBubble): Html {
         </div>
       </div>
       <form class="draft-edit" x-show="editing" x-cloak hx-post="/inbox/approval/${d.id}/edit" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
-        <textarea class="textarea" name="text" rows="3" required x-ref="ta">${prefill}</textarea>
+        <textarea class="textarea" name="text" rows="3" required x-ref="ta" aria-describedby="draft-error-${d.id}">${prefill}</textarea>
+        <div id="draft-error-${d.id}" aria-live="polite"></div>
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
           <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue; $nextTick(() => $refs.edit.focus())">Cancel</button>
@@ -1541,6 +1542,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!appr) return c.notFound();
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const text = typeof form.text === "string" ? form.text.trim() : "";
+    if (!text || text.includes("\u0000")) return formError(c, `draft-error-${id}`, !text ? "Reply text is required" : "Text must not contain NUL (\\u0000) characters.");
     await updateProposedText(a.workspaceId, id, appr.proposed_content, text);
     return reRenderThreadForConv(c, a, appr.conversation_id);
   });
@@ -1966,6 +1968,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!existing) return c.notFound();
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const text = typeof form.text === "string" ? form.text.trim() : "";
+    if (text.includes("\u0000")) return formError(c, `draft-error-${id}`, "Text must not contain NUL (\\u0000) characters.");
     if (!text) return c.html(await renderApprovalsView(a.workspaceId, undefined, id), 422);
     await updateProposedText(a.workspaceId, id, existing.proposed_content, text);
     return c.html(await renderApprovalsView(a.workspaceId));
@@ -2947,6 +2950,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
       </div>
       <form class="draft-edit" x-show="editing" x-cloak hx-post="/approvals/${a.id}/edit" hx-ext="json-enc" hx-target="#approvals-list" hx-swap="innerHTML">
         <textarea class="textarea" name="text" rows="3" required aria-label="Reply text" aria-invalid="${String(a.id === invalidId)}" x-ref="ta">${editPrefill}</textarea>
+        <div id="draft-error-${a.id}" aria-live="polite"></div>
         ${a.id === invalidId ? html`<p class="notice notice-err" role="alert">Reply text is required</p>` : ""}
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>

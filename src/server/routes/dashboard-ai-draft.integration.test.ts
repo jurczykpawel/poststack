@@ -409,3 +409,15 @@ describe("Inbox filter and thread feedback", () => {
     expect(await res.text()).toContain("AI draft did not finish");
   });
 });
+
+describe("draft edit validation", () => {
+  it.each(["inbox/approval", "approvals"])("preserves the draft and targets its error slot on %s", async (route) => {
+    const [draft] = await db.insert(s.pendingApprovals).values({ workspace_id: WS, channel_id: CH, contact_id: CONTACT, conversation_id: CONV_DM, recipient_platform_id: "PSID-E", source: "ai_auto", proposed_content: { content: { text: "Original draft" } } }).returning();
+    const res = await app.request(`/${route}/${draft.id}/edit`, { method: "POST", headers: { cookie, "content-type": "application/json", "HX-Request": "true" }, body: JSON.stringify({ text: "before\u0000after" }) });
+    expect(res.status).toBe(422);
+    expect(res.headers.get("HX-Retarget")).toBe(`#draft-error-${draft.id}`);
+    expect(await res.text()).toContain("Text must not contain NUL");
+    expect((await db.query.pendingApprovals.findFirst({ where: eq(s.pendingApprovals.id, draft.id) }))?.proposed_content).toEqual({ content: { text: "Original draft" } });
+    expect(await db.query.messages.findMany({ where: eq(s.messages.conversation_id, CONV_DM) })).toHaveLength(1);
+  });
+});

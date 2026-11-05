@@ -46,13 +46,13 @@ async function channelsForPlatform(workspaceId: string, platform: string): Promi
 }
 
 // ── form fields ─────────────────────────────────────────────────────────────────
-function accentField(value = ""): Html {
+function accentField(value = "", errorId = ""): Html {
   return html`<div class="brand-fld" x-data>
     <span>Accent colour <small>(optional)</small></span>
     <span class="accent-field">
-      <input type="color" aria-label="Accent colour picker" value="${value || "#7aa2f7"}"
+      <input type="color" aria-label="Accent colour picker" value="${BRAND_ACCENT_RE.test(value) ? value : "#7aa2f7"}"
         @input="$refs.hex.value = $event.target.value" />
-      <input name="accent" x-ref="hex" value="${value}" placeholder="#7aa2f7" aria-label="Accent colour hex" />
+      <input name="accent" x-ref="hex" value="${value}" placeholder="#7aa2f7" aria-label="Accent colour hex" aria-describedby="${errorId}" />
     </span>
   </div>`;
 }
@@ -200,16 +200,18 @@ function brandInitials(name: string): string {
 }
 
 /** Right-hand edit panel (native <dialog>): the fields that used to sit in every card, Delete at the bottom. */
-function editPanel(brand: BrandRow): Html {
-  return html`<dialog class="sheet" x-ref="dlg" @click="if ($event.target === $el) $el.close()" aria-label="Edit ${brand.name}">
+function editPanel(brand: BrandRow, error?: string): Html {
+  return html`<dialog class="sheet"${error ? raw(' x-init="$el.showModal()"') : raw("")} x-ref="dlg" @click="if ($event.target === $el) $el.close()" aria-label="Edit ${brand.name}">
     <div class="sheet-h"><h4>Edit ${brand.name}</h4>
       <button type="button" class="btn btn-ghost btn-sm" @click="$refs.dlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
     <div class="sheet-b">
       <form class="brand-edit-form" id="edit-${domSafe(brand.key)}" method="post" action="${keyPath(brand.key)}/edit"
+        hx-post="${keyPath(brand.key)}/edit" hx-target="#edit-error-${domSafe(brand.key)}" hx-swap="innerHTML"
         x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
         <label class="brand-fld"><span>Brand name</span>
           <input name="name" value="${brand.name}" required /></label>
-        ${accentField(brand.accent ?? "")}
+        ${accentField(brand.accent ?? "", `edit-error-${domSafe(brand.key)}`)}
+        <div id="edit-error-${domSafe(brand.key)}" aria-live="polite">${error ? html`<div class="notice notice-err" role="alert">${error}</div>` : ""}</div>
         ${iconField(brand.icon ?? "")}
         ${storyTemplateField(brand)}
         ${storyPreview(brand)}
@@ -231,7 +233,7 @@ function editPanel(brand: BrandRow): Html {
 }
 
 /** One brand = one table row (desktop) / one collapsible card (phone) — same markup, CSS decides. */
-function brandRow(brand: BrandRow, slots: SlotsView, locked = false, open = false): Html {
+function brandRow(brand: BrandRow, slots: SlotsView, locked = false, open = false, edited = brand, error?: string): Html {
   const mark = brand.icon ? brand.icon : brandInitials(brand.name);
   const avatar = brand.accent && BRAND_ACCENT_RE.test(brand.accent)
     ? html`<span class="brand-glyph brand-avatar" style="background:${brand.accent}">${mark}</span>`
@@ -256,11 +258,11 @@ function brandRow(brand: BrandRow, slots: SlotsView, locked = false, open = fals
       <button type="button" class="btn btn-sm bm-edit" @click="$refs.dlg.showModal()">Edit</button>
     </div>
     <div class="bm-cells">${slots.rows}</div>
-    ${editPanel(brand)}
+    ${editPanel(edited, error)}
   </div>`;
 }
 
-async function brandsPage(c: Context, notice?: string, status = 200): Promise<Response> {
+async function brandsPage(c: Context, notice?: string, status = 200, failedEdit?: { key: string; form: Record<string, unknown> }): Promise<Response> {
   const a = await auth(c);
   if (!a) return c.redirect("/login");
   const ws = a.workspaceId;
@@ -271,7 +273,17 @@ async function brandsPage(c: Context, notice?: string, status = 200): Promise<Re
     lockedBrandKeys(ws),
   ]);
   const views = await Promise.all(brands.map(async (b) => ({ b, v: await brandSlotsView(ws, b, candidates) })));
-  const rows = views.map(({ b, v }) => brandRow(b, v, locked.has(b.key), c.req.query("open") === b.key));
+  const rows = views.map(({ b, v }) => {
+    const f = failedEdit?.key === b.key ? failedEdit.form : undefined;
+    const disclosure = String(f?.default_ai_disclosure ?? "");
+    const edited: BrandRow = f ? {
+      ...b, name: String(f.name ?? ""), accent: String(f.accent ?? ""), icon: String(f.icon ?? ""),
+      story_template: Object.hasOwn(STORY_TEMPLATES, String(f.story_template)) ? String(f.story_template) : null,
+      default_ai_disclosure: disclosure === "none" || disclosure === "ai_assisted" || disclosure === "ai_generated" ? disclosure : null,
+      default_ai_disclosure_note: String(f.default_ai_disclosure_note ?? ""),
+    } : b;
+    return brandRow(b, v, locked.has(b.key), c.req.query("open") === b.key, edited, f ? notice : undefined);
+  });
   const ambiguous = views.flatMap(({ v }) => v.ambiguous);
   const empty = brands.length === 0;
   const composing = c.req.query("compose") === "1";
@@ -459,9 +471,15 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
           : null,
       });
     } catch (err) {
-      if (err instanceof ApiError) return c.text(err.message, err.status as 400);
+      if (err instanceof ApiError) {
+        if (!isHtmx(c)) return brandsPage(c, err.message, err.status, { key, form });
+        c.header("HX-Retarget", `#edit-error-${domSafe(key)}`);
+        c.header("HX-Reswap", "innerHTML");
+        return c.html(html`<div class="notice notice-err" role="alert">${err.message}</div>`, 422);
+      }
       throw err;
     }
+    if (isHtmx(c)) return c.body(null, 200, { "HX-Redirect": "/brands" });
     return c.redirect("/brands", 303);
   });
 

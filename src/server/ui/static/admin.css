@@ -1589,7 +1589,7 @@ a.msg-chip.msg-media:hover { border-color: var(--accent); }
 .appr-reply { display: flex; flex-direction: column; gap: 4px; padding: 8px 11px; background: var(--surface); border-radius: var(--radius-control); }
 .appr-reply-head { display: flex; align-items: center; gap: 8px; }
 .appr-reply-extra { font-size: 0.7rem; color: var(--text-3); }
-.appr-reply-text { color: var(--text-1); font-size: 0.9rem; white-space: pre-wrap; }
+.appr-reply-text { color: var(--text-1); font-size: 0.9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .appr-reply-text.is-empty { color: var(--text-3); font-style: italic; }
 @media (max-width: 640px) { .appr-top { flex-direction: column; } .appr-actions { width: 100%; } }
 .appr-resolved { margin-top: 14px; }
