@@ -25,20 +25,49 @@ function htmxRedirect(from: Response, to: string): Response {
 
 async function captchaWidget() {
   if (!(await getConfig("ALTCHA_HMAC_KEY"))) return null;
-  // Invisible: auto-solves its proof-of-work in the background when the form gains focus (no checkbox
-  // to click). The widget stays in the DOM (hidden) so it still contributes captchaToken to the form.
+  // Keep the invisible widget form-associated so htmx receives its solved token.
   return html`
-    <altcha-widget name="captchaToken" challenge="/api/captcha/challenge" auto="onfocus" display="invisible" style="display:none"></altcha-widget>
+    <altcha-widget name="captchaToken" challenge="/api/captcha/challenge" auto="onload" display="invisible" style="display:none"></altcha-widget>
     <script type="module" src="https://cdn.jsdelivr.net/npm/altcha@3.5.0/dist/main/altcha.min.js"></script>
     <script type="module">
       const widget = document.querySelector("altcha-widget");
       const form = widget.closest("form");
       const submit = form.querySelector('button[type="submit"]');
+      // The widget marks its hidden checkbox invalid during PoW; handle validation inline.
+      form.noValidate = true;
+      const label = submit.textContent;
+      const error = form.querySelector("#auth-error");
+      let state = "unverified", pending = false, sending = false;
+      const restore = () => { submit.disabled = false; submit.textContent = label; };
+      form.addEventListener("submit", (event) => {
+        const valid = Array.from(form.querySelectorAll("input")).every((input) => widget.contains(input) || input.reportValidity());
+        if (valid && state === "verified" && !sending) { sending = true; return; }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!valid || pending || sending) return;
+        pending = true;
+        error.textContent = "";
+        submit.disabled = true;
+        submit.textContent = "Verifying…";
+        if (state === "error" || state === "expired") widget.verify();
+      }, true);
       widget.addEventListener("statechange", (event) => {
-        submit.disabled = event.detail.state !== "verified";
+        state = event.detail.state;
+        if (state === "verified" && pending) {
+          pending = false;
+          restore();
+          // Let the widget flush its form value before htmx reads FormData.
+          setTimeout(() => form.requestSubmit(submit), 0);
+        } else if (state === "error" || state === "expired") {
+          pending = false;
+          restore();
+          error.textContent = "Verification failed. Please try again.";
+        }
       });
       form.addEventListener("htmx:afterRequest", (event) => {
         if (event.detail.elt !== form || event.detail.xhr.getResponseHeader("HX-Redirect")) return;
+        sending = false;
+        restore();
         widget.reset();
         widget.verify();
       });
@@ -58,8 +87,8 @@ async function authPage(opts: { title: string; subtitle: string; action: string;
     <div class="fld"><span>Email</span><input type="email" name="email" autocomplete="email" required /></div>
     <div class="fld"><span>Password</span><input type="password" name="password" autocomplete="${opts.nameField ? "new-password" : "current-password"}" required /></div>
     <div class="row" style="justify-content:center">${captcha ?? ""}</div>
-    <div id="auth-error"></div>
-    <button class="btn btn-primary" type="submit"${captcha ? raw(" disabled") : ""}>${opts.submit}</button>
+    <div id="auth-error" role="alert"></div>
+    <button class="btn btn-primary" type="submit">${opts.submit}</button>
   </form>
   <p class="muted" style="margin-top:1rem;text-align:center">${opts.alt}</p>
 </div></div>`,

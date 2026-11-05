@@ -1,13 +1,19 @@
 import { test, expect } from "@playwright/test";
 import { watchConsole } from "./helpers";
 
-// Regression guard for the login captcha. The widget is INVISIBLE and auto-solves its proof-of-work
-// in a blob: web worker when the form gains focus (no checkbox to click). Two things must hold and
-// both are exercised in a real browser against a captcha-enabled server:
-//   1. the widget renders but is not visible (invisible mode), and
-//   2. focusing the form produces a captchaToken the form will submit — which only happens if the CSP
-//      lets the blob: worker run. A CSP that blocks the worker leaves the token empty (the regression).
-test("invisible login captcha auto-solves on focus and submits a token", async ({ page }) => {
+// Each browser context is a separate login attempt scenario, but the server sees one test IP.
+// Reset only its login bucket; CAPTCHA single-use counters remain intact.
+test.beforeEach(async () => {
+  const { Client } = await import("pg");
+  const { E2E_DATABASE_URL } = await import("./env");
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  try { await client.query("DELETE FROM rate_limit_counters WHERE key = $1", ["rl:login:unknown"]); }
+  finally { await client.end(); }
+});
+
+// Exercise the real invisible widget and worker under the application CSP.
+test("invisible login captcha auto-solves on load without interaction", async ({ page }) => {
   const { errors } = watchConsole(page);
 
   await page.goto("/login", { waitUntil: "domcontentloaded" });
@@ -17,10 +23,8 @@ test("invisible login captcha auto-solves on focus and submits a token", async (
   await expect(widget, "captcha must be invisible (no checkbox)").toBeHidden();
   await page.waitForFunction(() => customElements.get("altcha-widget") !== undefined);
 
-  await expect(page.getByRole("button", { name: "Sign in" })).toBeDisabled();
 
-  // Focus the form — this is what triggers the background proof-of-work (auto="onfocus").
-  await page.locator('input[name="email"]').click();
+
 
   // The solved token lands on the form (form-associated), so it submits with the credentials. Reading
   // it via FormData is implementation-agnostic (light DOM or shadow). Empty under a worker-blocking CSP.
@@ -82,6 +86,13 @@ test("registration submits a widget solution and creates an account", async ({ p
   const email = `captcha-${Date.now()}@e2e.test`;
   const admin = await requestFactory.newContext({ baseURL: CAPTCHA_E2E_BASE_URL, storageState: "./e2e/.auth/state.json" });
   try { await setPro(admin); } finally { await admin.dispose(); }
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/captcha/challenge", async (route) => { await held; await route.continue(); });
+  let posts = 0;
+  page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname === "/register") posts++; });
+  const dialogs: string[] = [];
+  page.on("dialog", async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   try {
     await page.goto("/register");
     await page.locator('input[name="name"]').fill("Captcha registration");
@@ -90,9 +101,15 @@ test("registration submits a widget solution and creates an account", async ({ p
     await expect(page.getByRole("button", { name: "Create account" })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath("registration-captcha.png"), fullPage: true });
     await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("button", { name: "Verifying…" })).toBeDisabled();
+    expect(posts).toBe(0);
+    release();
     await expect(page).toHaveURL(/\/inbox$/);
+    expect(posts).toBe(1);
+    expect(dialogs).toEqual([]);
     expect(errors).toEqual([]);
   } finally {
+    release();
     const client = new Client({ connectionString: E2E_DATABASE_URL });
     await client.connect();
     try {
@@ -102,4 +119,69 @@ test("registration submits a widget solution and creates an account", async ({ p
       await client.end();
     }
   }
+});
+
+for (const theme of ["dark", "light"]) {
+  for (const width of [390, 1440]) {
+    test(`early login waits inline and posts once (${theme} ${width})`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.addInitScript((theme) => { document.cookie = `ps_theme=${theme}; path=/`; }, theme);
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      await page.route("**/api/captcha/challenge", async (route) => { await held; await route.continue(); });
+      const dialogs: string[] = [];
+      page.on("dialog", async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+      let posts = 0;
+      page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname === "/login") posts++; });
+      try {
+        await page.goto("/login");
+        await page.locator('[name="email"]').fill("admin@e2e.test");
+        await page.locator('[name="password"]').fill("e2e-password-123");
+        await page.getByRole("button", { name: "Sign in" }).click({ timeout: 3000 });
+        await expect(page.getByRole("button", { name: "Verifying…" })).toBeDisabled();
+        expect(posts).toBe(0);
+        expect(dialogs).toEqual([]);
+        await page.screenshot({ path: testInfo.outputPath(`verifying-${theme}-${width}.png`), fullPage: true });
+        await page.locator('[name="password"]').press("Enter");
+        release();
+        await expect(page).toHaveURL(/\/inbox$/);
+        expect(posts).toBe(1);
+        expect(dialogs).toEqual([]);
+      } finally { release(); }
+    });
+  }
+}
+
+test("challenge failure restores submit and allows retry inline", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/captcha/challenge", async (route) => {
+    await held;
+    await route.fulfill({ status: 503, body: "unavailable" });
+  });
+  try {
+    await page.goto("/login");
+    await page.locator('[name="email"]').fill("admin@e2e.test");
+    await page.locator('[name="password"]').fill("e2e-password-123");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("button", { name: "Verifying…" })).toBeDisabled();
+    release();
+    await expect(page.locator("#auth-error")).toContainText("Verification failed");
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+    await page.unroute("**/api/captcha/challenge");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/inbox$/);
+  } finally { release(); }
+});
+
+test("captcha waiting flow still validates credential fields before submitting", async ({ page }) => {
+  let posts = 0;
+  page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname === "/login") posts++; });
+  await page.goto("/login");
+  await page.locator('[name="email"]').fill("invalid-email");
+  await page.locator('[name="password"]').fill("e2e-password-123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.locator('[name="email"]')).toBeFocused();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  expect(posts).toBe(0);
 });
