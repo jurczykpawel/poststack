@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.6] - 2026-11-06
+
 ### Fixed
 - Invalid brand colours show an inline error while keeping the editor open and preserving entered values.
 - Draft edits containing NUL show a validation message without replacing the Inbox thread or changing the saved draft.
