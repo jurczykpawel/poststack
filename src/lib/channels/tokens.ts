@@ -1,4 +1,4 @@
-import { decryptTokens, type TokenData } from "@/lib/crypto";
+import { decryptTokens, type SecretContext, type TokenData } from "@/lib/crypto";
 import { TokenInvalidError } from "@/lib/platforms/errors";
 
 /**
@@ -17,10 +17,11 @@ import { TokenInvalidError } from "@/lib/platforms/errors";
  * clean failure (e.g. the posts picker returns a 400, the refresh SCAN skips and continues) keep
  * calling `decryptTokens` directly.
  */
-export function decryptChannelToken(encrypted: string): TokenData {
+export function decryptChannelToken(encrypted: string, context?: SecretContext): TokenData {
   try {
-    return decryptTokens(encrypted);
-  } catch {
+    return decryptTokens(encrypted, context);
+  } catch (error) {
+    if (encrypted.startsWith("ps2.")) throw error;
     throw new TokenInvalidError("Channel token cannot be decrypted — reconnect the channel");
   }
 }

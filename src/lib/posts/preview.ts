@@ -93,7 +93,7 @@ export async function externalPostCard(workspaceId: string, channelId: string, p
     try {
       const provider = getProvider(channel.platform as Platform);
       if (provider.getPostPreview) {
-        const p = await provider.getPostPreview(decryptChannelToken(channel.token_encrypted), postId);
+        const p = await provider.getPostPreview(decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]), postId);
         const image = httpUrl(p.imageUrl);
         const imageUrl = image ? await copyImage(image, deps.storage ?? getStorage(), deps.fetchImage ?? ((u) => safeFetch(u, { signal: AbortSignal.timeout(15_000) }))) : null;
         values = { status: "ready", text: p.text, image_url: imageUrl, permalink: httpUrl(p.url), posted_at: p.postedAt, fetched_at: new Date() };

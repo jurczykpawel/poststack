@@ -107,14 +107,14 @@ async function igLoginSubResult(
 
 /** Status for one channel (also used by the per-row "Fix" re-render). */
 export async function channelSubscriptionStatus(
-  ch: { id: string; platform: string; platform_id: string; display_name: string | null; token_encrypted: string },
+  ch: { workspace_id?: string; id: string; platform: string; platform_id: string; display_name: string | null; token_encrypted: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<ChannelSubscriptionStatus> {
   // channelSubscriptionStatus is only ever called for subscribable (facebook/instagram) channels.
   const wfPlatform = ch.platform as "facebook" | "instagram";
   const base = { channelId: ch.id, platform: ch.platform, displayName: ch.display_name };
   try {
-    const token = decryptChannelToken(ch.token_encrypted) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
+    const token = decryptChannelToken(ch.token_encrypted, ch.workspace_id ? [`ws:${ch.workspace_id}`, "channels.token_encrypted", ch.platform, ch.platform_id] : undefined) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
     // IG-Login-only channel: an Instagram Business Login token with no linked Facebook Page. Its inbound
     // path is the per-account `instagram` object subscription on graph.instagram.com, NOT a Page sub.
     if (ch.platform === "instagram" && typeof token.messaging_token === "string" && !token.page_id) {
@@ -161,7 +161,7 @@ export async function loadSubscriptionStatuses(
 ): Promise<ChannelSubscriptionStatus[]> {
   const rows = await db.query.channels.findMany({
     where: and(eq(channels.workspace_id, workspaceId), isNull(channels.deleted_at), inArray(channels.platform, SUBSCRIBABLE)),
-    columns: { id: true, platform: true, platform_id: true, display_name: true, token_encrypted: true },
+    columns: { workspace_id: true, id: true, platform: true, platform_id: true, display_name: true, token_encrypted: true },
   });
   return Promise.all(rows.map((ch) => channelSubscriptionStatus(ch, fetchImpl)));
 }
@@ -201,7 +201,7 @@ async function applySubscription(
   platformId: string,
   tokenEncrypted: string,
 ): Promise<boolean> {
-  const token = decryptChannelToken(tokenEncrypted) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
+  const token = decryptChannelToken(tokenEncrypted, [`ws:${workspaceId}`, "channels.token_encrypted", platform, platformId]) as { access_token?: string; page_id?: unknown; messaging_token?: unknown };
   // IG-Login-only channel: re-subscribe the per-account `instagram` object subscription (E2). Reuses
   // subscribeInstagramMessaging — it re-subscribes AND keeps the channel status truthful, exactly what
   // a "Fix" should do. (No circular import: subscribe.ts doesn't import subscription-status.ts.)

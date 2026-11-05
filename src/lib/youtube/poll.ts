@@ -45,8 +45,8 @@ type YtChannel = {
  * one is within 2 min of expiry. Exported so the reply path can mint a fresh token at send time too —
  * Google access tokens live ~1h, far shorter than the poll/reply cadence.
  */
-export async function freshYouTubeAccessToken(channel: { id: string; token_encrypted: string }): Promise<string> {
-  const tokens = decryptTokens(channel.token_encrypted);
+export async function freshYouTubeAccessToken(channel: { id: string; token_encrypted: string; workspace_id?: string; platform?: string; platform_id?: string }): Promise<string> {
+  const tokens = decryptTokens(channel.token_encrypted, channel.workspace_id && channel.platform && channel.platform_id ? [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id] : undefined);
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = typeof tokens.expires_at === "number" ? tokens.expires_at : 0;
   if (tokens.access_token && expiresAt > now + 120) return tokens.access_token;

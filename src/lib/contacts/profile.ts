@@ -15,7 +15,7 @@ import { getProvider } from "@/lib/platforms/registry";
  *  - a no-op for platforms without `getUserProfile` (e.g. Telegram, whose inbound carries the name).
  */
 export async function resolveContactProfile(
-  channel: { id: string; platform: Platform; token_encrypted: string },
+  channel: { id: string; platform: Platform; token_encrypted: string; workspace_id?: string; platform_id?: string },
   contactId: string,
   senderId: string,
 ): Promise<void> {
@@ -23,7 +23,7 @@ export async function resolveContactProfile(
     const provider = getProvider(channel.platform);
     if (!provider.getUserProfile) return;
 
-    const profile = await provider.getUserProfile(decryptChannelToken(channel.token_encrypted), senderId);
+    const profile = await provider.getUserProfile(decryptChannelToken(channel.token_encrypted, channel.workspace_id && channel.platform && channel.platform_id ? [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id] : undefined), senderId);
     if (!profile) return;
 
     if (profile.name) {

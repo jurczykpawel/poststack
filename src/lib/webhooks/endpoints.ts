@@ -27,9 +27,9 @@ function newSecret(): string {
 function decryptEndpoint(row: typeof webhookEndpoints.$inferSelect): WebhookEndpoint {
   return {
     ...row,
-    secret: decryptString(row.secret),
-    secret_secondary: row.secret_secondary ? decryptString(row.secret_secondary) : null,
-    headers: decryptHeaderMap(row.custom_headers_encrypted),
+    secret: decryptString(row.secret, [`ws:${row.workspace_id}`, "webhook_endpoints.secret", row.id]),
+    secret_secondary: row.secret_secondary ? decryptString(row.secret_secondary, [`ws:${row.workspace_id}`, "webhook_endpoints.secret_secondary", row.id]) : null,
+    headers: decryptHeaderMap(row.custom_headers_encrypted, [`ws:${row.workspace_id}`, "webhook_endpoints.custom_headers_encrypted", row.id]),
   };
 }
 

@@ -37,13 +37,13 @@ export async function resolveLocalPostCaption(
 async function fetchPostCaptionLive(channelId: string, platformPostId: string): Promise<string | undefined> {
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, channelId),
-    columns: { platform: true, token_encrypted: true },
+    columns: { platform_id: true, workspace_id: true, platform: true, token_encrypted: true },
   });
   if (!channel) return undefined;
   const provider = getProvider(channel.platform);
   if (!provider.getPostText) return undefined;
   try {
-    const text = await provider.getPostText(decryptTokens(channel.token_encrypted), platformPostId);
+    const text = await provider.getPostText(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]), platformPostId);
     return text?.trim() || undefined;
   } catch {
     return undefined;

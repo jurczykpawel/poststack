@@ -34,7 +34,7 @@ export async function pollEmailChannel(channelId: string): Promise<{ ingested: n
   const provider = getProvider(ch.platform) as EmailProvider;
   // Refresh the token on-demand if near expiry so the poll never hits the API with a dead token
   // (Gmail's access token lives ~1h; the hourly scan + send-path refresh otherwise leave a window).
-  const { tokens } = await refreshIfNearExpiry(ch.id, provider, decryptTokens(ch.token_encrypted));
+  const { tokens } = await refreshIfNearExpiry(ch.id, provider, decryptTokens(ch.token_encrypted, [`ws:${ch.workspace_id}`, "channels.token_encrypted", ch.platform, ch.platform_id]));
   const chApi = { ...ch, token_encrypted: encryptTokens(tokens) };
   const ids = await provider.listNewMessages(chApi, ch.gmail_sync_cursor);
 

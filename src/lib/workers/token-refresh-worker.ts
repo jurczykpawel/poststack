@@ -4,7 +4,7 @@ import type { TokenRefreshJob } from "@/lib/queue/types";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
-import { encryptTokens, decryptTokens } from "@/lib/crypto";
+import { encryptTokens, decryptTokens, type SecretContext } from "@/lib/crypto";
 import { decryptChannelToken } from "@/lib/channels/tokens";
 import { getProvider } from "@/lib/platforms/registry";
 import { getTokenRefreshProvider } from "@/lib/channels/refresh-provider";
@@ -27,13 +27,15 @@ export async function processTokenRefresh(
 
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, channelId),
-    columns: { id: true, platform: true, token_encrypted: true, status: true, connection_mode: true },
+    columns: { platform_id: true, workspace_id: true, id: true, platform: true, token_encrypted: true, status: true, connection_mode: true },
   });
 
   if (!channel || channel.status === "disabled") {
     helpers.logger.info(`Channel ${channelId} not found or disabled, skipping`);
     return;
   }
+
+  const context: SecretContext = [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id];
 
   // IGML6: the Instagram-Login messaging token runs on its OWN 60-day clock, refreshed via a separate
   // provider method and persisted to its own column. Branch here BEFORE the manual_token gate AND the
@@ -42,7 +44,7 @@ export async function processTokenRefresh(
   // token (connection_mode = "manual_token") can still acquire a messaging_token via Instagram Business
   // Login, and that IGQW token MUST be refreshed on its own clock or IG DMs die silently after 60 days.
   if (payload.kind === "messaging") {
-    await refreshMessagingToken(channelId, channel.platform, channel.token_encrypted, helpers);
+    await refreshMessagingToken(channelId, channel.platform, channel.token_encrypted, helpers, context);
     return;
   }
 
@@ -64,7 +66,7 @@ export async function processTokenRefresh(
     // Decrypt INSIDE the catch: an undecryptable stored token (corrupt / rotated key) throws
     // TokenInvalidError and is flagged for re-auth here, exactly like a dead token the provider
     // rejects — not left to escape and dead-letter the refresh job per-channel with no flag.
-    const currentTokens = decryptChannelToken(channel.token_encrypted);
+    const currentTokens = decryptChannelToken(channel.token_encrypted, context);
     refreshedTokens = await provider.refreshToken(currentTokens);
   } catch (err) {
     if (err instanceof TokenInvalidError) {
@@ -98,7 +100,7 @@ export async function processTokenRefresh(
       .from(channels)
       .where(eq(channels.id, channelId))
       .for("update");
-    const merged = mergeFbTokenFields(row?.token_encrypted, refreshedTokens);
+    const merged = mergeFbTokenFields(row?.token_encrypted, refreshedTokens, context);
     await tx
       .update(channels)
       .set({ token_encrypted: encryptTokens(merged), token_expires_at: refreshedExpiresAt })
@@ -126,6 +128,7 @@ async function refreshMessagingToken(
   platform: Platform,
   tokenEncrypted: string,
   helpers: JobHelpers,
+  context?: SecretContext,
 ): Promise<void> {
   const provider = getProvider(platform);
   if (typeof provider.refreshMessagingToken !== "function") {
@@ -138,7 +141,7 @@ async function refreshMessagingToken(
   try {
     // Decrypt INSIDE the catch (see processTokenRefresh): a corrupt/rotated-key token throws
     // TokenInvalidError and is flagged here, not left to dead-letter the job with no signal.
-    blob = decryptChannelToken(tokenEncrypted);
+    blob = decryptChannelToken(tokenEncrypted, context);
     const messagingToken = typeof blob.messaging_token === "string" ? blob.messaging_token : "";
     if (!messagingToken) {
       // The expiry column was set but the secret is gone (shouldn't happen) — nothing to refresh.
@@ -169,7 +172,7 @@ async function refreshMessagingToken(
       .from(channels)
       .where(eq(channels.id, channelId))
       .for("update");
-    const latest = row ? decryptTokens(row.token_encrypted) : blob;
+    const latest = row ? decryptTokens(row.token_encrypted, context) : blob;
     latest.messaging_token = refreshed.token;
     latest.messaging_token_expires_at = refreshed.expiresAt;
     await tx
@@ -199,13 +202,15 @@ async function refreshMessagingToken(
 function mergeFbTokenFields(
   latestEncrypted: string | undefined,
   refreshedTokens: import("@/lib/platforms/base").TokenData,
+  context?: SecretContext,
 ): import("@/lib/platforms/base").TokenData {
   const merged = { ...refreshedTokens };
   if (!latestEncrypted) return merged;
   let latest;
   try {
-    latest = decryptTokens(latestEncrypted);
-  } catch {
+    latest = decryptTokens(latestEncrypted, context);
+  } catch (error) {
+    if (latestEncrypted.startsWith("ps2.")) throw error;
     return merged;
   }
   if ("messaging_token" in latest) merged.messaging_token = latest.messaging_token;

@@ -33,7 +33,7 @@ export async function getAlertWebhook(workspaceId: string): Promise<AlertWebhook
   return {
     url: row.url,
     enabled: row.enabled,
-    headers: decryptHeaderMap(row.custom_headers_encrypted),
+    headers: decryptHeaderMap(row.custom_headers_encrypted, [`ws:${row.workspace_id}`, "alert_webhooks.custom_headers_encrypted"]),
     extraFields: (row.extra_payload_fields as Record<string, unknown>) ?? {},
     fieldSelection: (row.field_selection as string[] | null) ?? null,
   };

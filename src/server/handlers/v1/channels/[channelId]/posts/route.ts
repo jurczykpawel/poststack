@@ -56,7 +56,7 @@ export async function GET(
   // must surface as a clean 400, not an uncaught 500.
   let accessToken: string;
   try {
-    accessToken = decryptTokens(channel.token_encrypted).access_token;
+    accessToken = decryptTokens(channel.token_encrypted, [`ws:${auth.workspaceId}`, "channels.token_encrypted", channel.platform, channel.platform_id]).access_token;
   } catch {
     return ApiErrors.badRequest("Channel token cannot be decrypted — reconnect the channel");
   }

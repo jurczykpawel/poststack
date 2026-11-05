@@ -149,7 +149,7 @@ export async function syncAccountSource(sourceId: string): Promise<SyncSourceRes
     return { connected: 0, byPlatform: { facebook: 0, instagram: 0 } };
   }
 
-  const token = decryptTokens(source.token_encrypted).access_token;
+  const token = decryptTokens(source.token_encrypted, [`ws:${source.workspace_id}`, "account_sources.token_encrypted", source.provider, source.provider_account_id]).access_token;
   const info = await inspectMetaToken(token); // throws MetaTokenError if the master went invalid
   const dataAccessExpiresAt = info?.dataAccessExpiresAt ? new Date(info.dataAccessExpiresAt * 1000) : null;
   const { facebook, instagram } = await enumerateAll(token);

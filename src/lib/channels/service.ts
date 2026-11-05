@@ -387,7 +387,7 @@ export async function runHealthCheck(workspaceId: string, id: string): Promise<C
     return "active";
   }
   try {
-    const blob = decryptTokens(ch.token_encrypted);
+    const blob = decryptTokens(ch.token_encrypted, [`ws:${ch.workspace_id}`, "channels.token_encrypted", ch.platform, ch.platform_id]);
     const token = blob.access_token;
     // A10: an IG-Login-only channel (no FB access_token, but a messaging_token) has NO FB token to
     // validate — its access_token is "" and inspectMetaToken("") only returns null by luck. Its

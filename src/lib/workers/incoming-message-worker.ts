@@ -52,7 +52,7 @@ export async function processIncomingMessage(
       eq(channels.platform, platform as typeof channels.platform.enumValues[number]),
       ne(channels.status, "disabled"),
     ),
-    columns: { id: true, workspace_id: true, platform: true, status: true, token_encrypted: true },
+    columns: { id: true, workspace_id: true, platform: true, platform_id: true, status: true, token_encrypted: true },
   });
 
   if (!channel) {

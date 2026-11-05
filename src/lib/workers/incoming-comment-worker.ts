@@ -23,7 +23,7 @@ import { emitCommentReceived } from "@/lib/webhooks/inbound-events";
  * failed/absent permalink just means no link, which must not block logging the comment.
  */
 async function resolvePostUrl(
-  channel: { id: string; platform: Platform; token_encrypted: string },
+  channel: { id: string; platform: Platform; token_encrypted: string; workspace_id?: string; platform_id?: string },
   postId: string,
   helpers: JobHelpers,
 ): Promise<string | null> {
@@ -39,7 +39,7 @@ async function resolvePostUrl(
   });
   if (existing?.post_url) return existing.post_url;
   try {
-    return await provider.getPostUrl(decryptTokens(channel.token_encrypted), postId);
+    return await provider.getPostUrl(decryptTokens(channel.token_encrypted, channel.workspace_id && channel.platform && channel.platform_id ? [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id] : undefined), postId);
   } catch (err) {
     helpers.logger.info(`post-url resolve failed post=${sanitizeForLog(postId)}: ${err instanceof Error ? err.message : String(err)}`);
     return null;

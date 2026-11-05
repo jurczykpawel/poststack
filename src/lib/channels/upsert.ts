@@ -144,7 +144,7 @@ export async function upsertChannels(
       let messagingTokenExpiresAt: Date | null = null;
       if (live && platform === "instagram") {
         try {
-          const liveBlob = decryptTokens(live.token_encrypted);
+          const liveBlob = decryptTokens(live.token_encrypted, [`ws:${workspaceId}`, "channels.token_encrypted", platform, account.platformId]);
           if (liveBlob.messaging_token) {
             tokens.messaging_token = liveBlob.messaging_token;
             if (liveBlob.messaging_token_expires_at != null) {
@@ -153,7 +153,8 @@ export async function upsertChannels(
               messagingTokenExpiresAt = Number.isFinite(unix) && unix > 0 ? new Date(unix * 1000) : null;
             }
           }
-        } catch {
+        } catch (error) {
+          if (live.token_encrypted.startsWith("ps2.")) throw error;
           // Unreadable live blob (shouldn't happen) → write the FB-only tokens rather than fail.
         }
       }
@@ -273,7 +274,7 @@ async function augmentMessagingTokens(
 
       if (live) {
         // Merge the messaging token INTO the existing blob — never clobber the FB page token.
-        const blob = decryptTokens(live.token_encrypted);
+        const blob = decryptTokens(live.token_encrypted, [`ws:${workspaceId}`, "channels.token_encrypted", platform, account.platformId]);
         blob.messaging_token = augment.token;
         blob.messaging_token_expires_at = expiresAtUnix;
 

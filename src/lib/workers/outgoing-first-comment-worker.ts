@@ -45,7 +45,7 @@ export async function processOutgoingFirstComment(
       helpers,
       send: async (channel: DeliveryChannel) => {
         workspaceId = channel.workspace_id;
-        const tokens = decryptChannelToken(channel.token_encrypted);
+        const tokens = decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
         const provider = getProvider(channel.platform);
         if (!provider.commentOnPost) {
           throw new Error(`Platform ${channel.platform} cannot post a comment on a post`);
