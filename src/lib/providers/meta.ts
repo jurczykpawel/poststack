@@ -143,18 +143,91 @@ async function pollContainerFinished(containerId: string, encodedToken: string, 
   const delayMs = Number(process.env.META_PUBLISH_POLL_DELAY_MS ?? 3000);
   for (let i = 0; i < attempts; i++) {
     const st = await fetch(`${base}/${containerId}?fields=status_code&access_token=${encodedToken}`);
-    const stj = (await st.json().catch(() => ({}))) as { status_code?: string };
+    const stj = (await st.json().catch(() => ({}))) as { status_code?: string; error?: { code?: number; message?: string } };
+    if (!st.ok) throw classifyMetaError(st.status, stj.error, "pre_commit");
     if (stj.status_code === "FINISHED") return;
-    if (stj.status_code === "ERROR") throw new PermanentError("Meta story container processing failed");
+    if (stj.status_code === "ERROR" || stj.status_code === "EXPIRED") throw new PermanentError("Meta container processing failed");
     await new Promise((r) => setTimeout(r, delayMs));
   }
-  throw new TransientError("Meta story container still processing after poll window", "pre_commit");
+  throw new TransientError("Meta container still processing after poll window", "pre_commit");
+}
+
+/** Children remain unpublished until the final call; Instagram containers expire automatically. */
+async function publishCarousel(args: Parameters<Provider["publish"]>[0], facebook: boolean): Promise<PublishHandle> {
+  const { request, mediaUrls, mediaKinds, accountId, tokens } = args;
+  if (mediaUrls.length < 2 || mediaUrls.length > 10 || request.media.length !== mediaUrls.length) {
+    throw new PermanentError("Meta carousel requires 2–10 media items");
+  }
+  if (mediaKinds?.length !== mediaUrls.length || mediaKinds.some(kind => kind !== "image" && kind !== "video")) {
+    throw new PermanentError("Meta carousel requires a registry kind for every media item");
+  }
+  if (facebook && mediaKinds.some(kind => kind !== "image")) throw new PermanentError("Facebook carousel supports images only");
+  const { base, token } = facebook ? { base: GRAPH, token: tokens.accessToken } : igPublishTransport(tokens);
+  const ids: string[] = [];
+  const cleanup = async () => {
+    if (!facebook) return;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`${base}/${id}`, { method: "DELETE", body: new URLSearchParams({ access_token: token }) });
+        await res.body?.cancel();
+      } catch { /* Unpublished photos also expire automatically. */ }
+    }
+  };
+  const create = async (path: string, values: Record<string, string>, phase: PublishPhase): Promise<string> => {
+    const res = await fetch(`${base}/${path}`, { method: "POST", body: new URLSearchParams({ ...values, access_token: token }) });
+    const data = (await res.json().catch(() => ({}))) as { id?: unknown; error?: { code?: number; message?: string } };
+    if (!res.ok) throw classifyMetaError(res.status, data.error, phase);
+    const id = asString(data.id);
+    if (!id) throw new TransientError("Meta carousel returned no id", phase);
+    return id;
+  };
+  let parent: string | undefined;
+  try {
+    for (const [index, url] of mediaUrls.entries()) {
+      const id = await create(`${accountId}/${facebook ? "photos" : "media"}`, facebook
+        ? { url, published: "false" }
+        : { is_carousel_item: "true", ...(mediaKinds[index] === "video" ? { media_type: "VIDEO", video_url: url } : { image_url: url }) }, "pre_commit");
+      ids.push(id);
+      if (!facebook) await pollContainerFinished(id, encodeURIComponent(token), base);
+    }
+    if (!facebook) {
+      parent = await create(`${accountId}/media`, {
+        media_type: "CAROUSEL", children: ids.join(","),
+        ...(request.caption ? { caption: request.caption } : {}),
+        ...(typeof request.options?.aiDisclosed === "boolean" ? { is_ai_generated: String(request.options.aiDisclosed) } : {}),
+      }, "pre_commit");
+      await pollContainerFinished(parent, encodeURIComponent(token), base);
+    }
+  } catch (error) {
+    await cleanup();
+    if (error instanceof PermanentError || error instanceof TokenInvalidError || error instanceof TransientError) throw error;
+    throw new TransientError("Meta carousel preparation interrupted", "pre_commit");
+  }
+  let handle: string;
+  try {
+    handle = await create(`${accountId}/${facebook ? "feed" : "media_publish"}`, facebook
+      ? { attached_media: JSON.stringify(ids.map(id => ({ media_fbid: id }))), published: String(request.options?.published !== false), ...(request.caption ? { message: request.caption } : {}) }
+      : { creation_id: parent! }, "commit_uncertain");
+  } catch (error) {
+    // Keep attachments after an uncertain commit; deleting them could alter an accepted post.
+    if (error instanceof PermanentError || error instanceof TokenInvalidError) await cleanup();
+    throw error;
+  }
+  if (facebook) return { providerHandle: pagePostHandle(accountId, handle) };
+  let url: string | undefined;
+  try {
+    const res = await fetch(`${base}/${handle}?fields=permalink&access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(10_000) });
+    const data = (await res.json().catch(() => ({}))) as { permalink?: unknown };
+    if (res.ok && typeof data.permalink === "string" && /^https?:\/\//i.test(data.permalink)) url = data.permalink;
+  } catch { /* Publication already succeeded. */ }
+  return { providerHandle: handle, ...(url ? { url } : {}) };
 }
 
 export const metaProvider: Provider = {
   id: "meta",
   label: "Meta (Facebook / Instagram)",
-  capabilities: () => CAPABILITIES,
+  capabilities: (platform) => CAPABILITIES.map(cap => platform === "facebook" && cap.format === "carousel"
+    ? { ...cap, media: { ...cap.media, kinds: ["image"] } } : cap),
   connectionModes: () => ["manual_token", "oauth"],
   // Meta long-lived / System User tokens are not refreshed via a grant; reconnect instead.
   requiresTokenRefresh: () => false,
@@ -278,6 +351,7 @@ export const metaProvider: Provider = {
       sub === "facebook_page" ||
       request.options?.target === "facebook" ||
       request.options?.target === "facebook_page";
+    if (request.format === "carousel") return publishCarousel(args, isFacebook);
     if (isFacebook) {
       const published = request.options?.published !== false; // default true
       const coverUrl = typeof request.options?.coverUrl === "string" ? request.options.coverUrl : undefined;
@@ -370,9 +444,7 @@ export const metaProvider: Provider = {
       // `video_url` with media_type REELS.
       // AIDISC1: Instagram's self-disclosure field, published-worker-normalized to one boolean (see
       // lib/ai-disclosure/mapping.ts). Facebook Page publishing has no equivalent field, so this only
-      // ever runs on the IG branch below — never add it to the isFacebook block above. NOTE for a
-      // future carousel implementation: Meta's docs say this parameter is "not available for carousel
-      // children" — it belongs on the PARENT container only, never on a child item container.
+      // ever runs on the IG branch below. Carousel disclosure is set on its parent container.
       const aiDisclosed =
         typeof request.options?.aiDisclosed === "boolean" ? request.options.aiDisclosed : undefined;
       const createBody = new URLSearchParams({

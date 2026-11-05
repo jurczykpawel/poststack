@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Instagram carousels publish 2–10 images or videos in order, including accounts connected through Instagram Login, with AI disclosure on the parent post.
+- Facebook Page carousels publish 2–10 photos as one post; video items are rejected by destination-specific media validation. Editorial `mediaUrls` publishes the full list and preserves it when editing pending posts.
+
+
 ## [0.17.4] - 2026-11-05
 
 ### Fixed

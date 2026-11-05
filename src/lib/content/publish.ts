@@ -243,6 +243,14 @@ export async function preparePublishRequest(
   const pickUrl = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v : undefined);
   const mediaUrl = pickUrl(post.video_url) ?? pickUrl(post.media_url) ?? pickUrl(urls[0]);
 
+  const carousel = (post.platform === "facebook" || post.platform === "instagram") && urls.length > 1;
+  const publishUrls = carousel ? urls.map(value => {
+    const url = pickUrl(value);
+    if (!url) throw new ApiError("invalid_request", "Carousel media URLs must not be blank", 422);
+    return url;
+  }) : mediaUrl ? [mediaUrl] : [];
+  if (carousel && urls.length > 10) throw new ApiError("invalid_request", "Carousel allows at most 10 media items", 422);
+
   const content = post.content_id
     ? await db.query.content.findFirst({ where: and(eq(contentTable.id, post.content_id), eq(contentTable.workspace_id, workspaceId)) })
     : undefined;
@@ -274,13 +282,14 @@ export async function preparePublishRequest(
   };
 
   let request: PublishRequest;
-  if (mediaUrl) {
+  if (publishUrls.length) {
     // Register media BEFORE the tx — createDelivery validates media on a separate connection.
-    const media = await deps.registerMedia(mediaUrl, workspaceId);
-    const resolved = resolveFormat(post.platform, content?.content_type, mediaUrl);
+    const media = [];
+    for (const url of publishUrls) media.push(await deps.registerMedia(url, workspaceId));
+    const resolved = resolveFormat(post.platform, content?.content_type, publishUrls[0]);
     request = {
-      format: format ?? resolved.format,
-      media: [{ mediaId: media.id }],
+      format: format ?? (carousel ? "carousel" : resolved.format),
+      media: media.map(m => ({ mediaId: m.id })),
       ...(title ? { title } : {}),
       ...(caption ? { caption } : {}),
       options: { ...(post.platform === "youtube" && !format ? { youtubeFormatMode: "auto" } : {}), mediaKind: resolved.kind, ...(post.cover_url ? { coverUrl: post.cover_url } : {}), ...extraOptions },

@@ -1,0 +1,157 @@
+{
+  "provenance": "Replay, not a live carousel recording. IG child create/status bodies and first FB unpublished photo body copied from recorded/ (2026-11-04); parent create reuses the recorded IG create shape. Final publish, permalink, second FB photo and feed use documented response shapes with inert identifiers. No real accounts were used. Error tests alter transport/status explicitly.",
+  "sources": [
+    "https://developers.facebook.com/docs/instagram-platform/content-publishing/",
+    "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/",
+    "https://developers.facebook.com/docs/graph-api/reference/page/photos/",
+    "https://developers.facebook.com/docs/graph-api/reference/page/feed/"
+  ],
+  "instagram": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media",
+      "status": 200,
+      "body": {
+        "id": "68221501448095333"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/68221501448095333?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "68221501448095333",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/68221501448095333?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "68221501448095333",
+        "status_code": "FINISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "IN_PROGRESS"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/22647568134938113?fields=status_code&access_token=<TOKEN>",
+      "status": 200,
+      "body": {
+        "id": "22647568134938113",
+        "status_code": "FINISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media",
+      "status": 200,
+      "body": {
+        "id": "57368691656400039"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/57368691656400039?fields=status_code",
+      "status": 200,
+      "body": {
+        "status_code": "FINISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/60596468270350638/media_publish",
+      "status": 200,
+      "body": {
+        "id": "17895695668004550"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/17895695668004550?fields=permalink",
+      "status": 200,
+      "body": {
+        "permalink": "https://www.instagram.com/p/ABC123/"
+      }
+    }
+  ],
+  "facebook": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/photos",
+      "status": 200,
+      "body": {
+        "id": "554158337282822679"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/photos",
+      "status": 200,
+      "body": {
+        "id": "1002088840149"
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/feed",
+      "status": 200,
+      "body": {
+        "id": "125730403827906_1002088850000"
+      }
+    }
+  ]
+}

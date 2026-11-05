@@ -87,6 +87,7 @@ export interface SubAccount {
 
 export interface PublishHandle {
   processing?: boolean;
+  url?: string;
   providerHandle: string;
 }
 
@@ -101,7 +102,7 @@ export interface PublishStatus {
 export interface Provider {
   id: string;
   label: string;
-  capabilities(): FormatCapability[];
+  capabilities(platform?: string): FormatCapability[];
   connectionModes(): ("oauth" | "manual_token")[];
   requiresTokenRefresh(): boolean;
   /** Liveness check. Returns account info when healthy; throws TokenInvalidError (dead)
@@ -115,6 +116,8 @@ export interface Provider {
     accountId: string;
     request: PublishRequest;
     mediaUrls: string[];
+    /** Workspace media registry kinds, in mediaUrls order. */
+    mediaKinds?: string[];
     uploadSession?: string;
     saveUploadSession?: (url: string) => Promise<void>;
     /** Duration from the workspace-scoped media registry, in mediaUrls order. */

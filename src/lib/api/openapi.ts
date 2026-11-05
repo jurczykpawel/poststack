@@ -453,6 +453,8 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Create an editorial post",
         description:
+          "For Instagram and Facebook, mediaUrls with 2–10 URLs publishes every item in order as a carousel. " +
+          "Instagram accepts images and videos; Facebook accepts images only. The list takes precedence over mediaUrl/videoUrl. " +
           "Body accepts tiktokPublishMode/tiktokPrivacyLevel/tiktokDisableComment/tiktokDisableDuet/tiktokDisableStitch/" +
           "tiktokBrandContentToggle/tiktokBrandOrganicToggle/tiktokCoverTimestampMs (saved TikTok choices), and youtubePrivacy/youtubeTags/youtubeCategoryId/youtubeMadeForKids (YouTube publish " +
           "options), youtubeChapters ([{start: \"00:00\" or seconds, title}]; at least 3, first at 00:00, 10 s apart — appended to the " +
@@ -518,7 +520,7 @@ export const openApiSpec = {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Publish or schedule a post through the delivery engine",
-        description: "Returns the existing delivery + post envelope immediately. Unregistered URL media are ingested in the background. The scheduled delivery waits without consuming publish attempts, never sends before its scheduled time, and fails with the media error if ingestion fails. Registered media are reused.",
+        description: "Returns the existing delivery + post envelope immediately. For Instagram/Facebook, 2–10 mediaUrls select carousel automatically (or set format=carousel explicitly). Facebook carousels require ready image media; video or still-ingesting items return 422 (wait for GET /media/{id} to report ready, then retry). Unregistered URL media are ingested in the background. The scheduled delivery waits without consuming publish attempts, never sends before its scheduled time, and fails with the media error if ingestion fails. Registered media are reused.",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string" } } } } } },
         responses: { "200": { description: "Delivery created + linked" }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
