@@ -244,6 +244,7 @@ v1.delete("/posts/:postId", validateIds, (c) =>
 v1.post("/posts/:postId/publish", validateIds, (c) =>
   postPublish.POST(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
 );
+v1.get("/media", (c) => mediaRegister.LIST(c.req.raw));
 v1.post("/media", (c) => mediaRegister.POST(c.req.raw));
 v1.get("/media/:id", (c) => mediaRegister.GET(c.req.raw, c.req.param("id")));
 v1.get("/brands", (c) => brandsList.GET(c.req.raw));

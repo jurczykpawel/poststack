@@ -1,8 +1,9 @@
+import { uploadMedia } from "@/lib/media/upload";
 import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
 import { created, ok, ApiErrors, ApiError, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
-import { getMedia, registerKnownMedia } from "@/lib/media/service";
+import { getMedia, registerKnownMedia, listReadyMedia } from "@/lib/media/service";
 import { getStorage } from "@/lib/storage";
 import { enqueueIngest } from "@/lib/media/async-ingest";
 import { setTimeout as delay } from "node:timers/promises";
@@ -34,6 +35,9 @@ const registerBody = z
 export async function POST(request: Request): Promise<Response> {
   const auth = await authenticateWithScope(request, "media:write");
   if (!auth) return ApiErrors.unauthorized();
+  if (/^(image\/|video\/|application\/octet-stream)/i.test(request.headers.get("content-type") ?? "")) {
+    return created(camelizeKeys(await uploadMedia(request, auth.workspaceId)));
+  }
   const body = await request.json().catch(() => ({}));
   const parsed = registerBody.safeParse(body);
   if (!parsed.success) return ApiErrors.validationError(zodDetails(parsed.error));
@@ -74,4 +78,10 @@ export async function GET(request: Request, id: string): Promise<Response> {
   const row = await getMedia(id, auth.workspaceId);
   if (!row) return ApiErrors.notFound("Media");
   return ok(row.status === "ready" ? camelizeKeys(row) : { id: row.id, status: row.status, error: row.error });
+}
+
+export async function LIST(request: Request): Promise<Response> {
+  const auth = await authenticateWithScope(request, "media:write");
+  if (!auth) return ApiErrors.unauthorized();
+  return ok(await listReadyMedia(auth.workspaceId));
 }

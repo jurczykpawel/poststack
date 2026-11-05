@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { media } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
@@ -184,4 +184,8 @@ export async function registerKnownMedia(
   return (await db.query.media.findFirst({
     where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum)),
   }))!;
+}
+
+export function listReadyMedia(workspaceId: string) {
+  return db.query.media.findMany({ where: and(eq(media.workspace_id, workspaceId), eq(media.status, "ready"), isNull(media.canonical_id)), orderBy: [desc(media.created_at), desc(media.id)], limit: 100, columns: { id: true, url: true, kind: true } });
 }
