@@ -16,7 +16,7 @@ export default defineConfig({
     // spurious failures (count drift, wrong-schema SQL from a feature branch, "module is not a
     // function") that don't exist in any single checkout. e2e/ is the Playwright suite (own runner)
     // and landing/ is the Astro site — neither holds vitest specs.
-    exclude: [...configDefaults.exclude, ".claude/**", "e2e/**", "landing/**"],
+    exclude: [...configDefaults.exclude, ".claude/**", "e2e/**", "landing/**", "priv/**"],
     // Install the graphile_worker schema once before any suite: emitEvent now enqueues a dispatch job
     // transactionally (WHOUT1), so emitting an event / creating a contact needs the queue schema present.
     globalSetup: ["./tests/integration-setup.ts"],
