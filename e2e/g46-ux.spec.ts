@@ -23,7 +23,14 @@ for (const timezoneId of ["Europe/Warsaw", "Pacific/Auckland"]) {
         const second = (await db.query("INSERT INTO conversations (workspace_id,channel_id,contact_id,platform,thread_ref,last_message_at) VALUES ($1,$2,$3,'facebook','second',now()) RETURNING id", [ws, channel, contact])).rows[0].id;
         await db.query("INSERT INTO messages (conversation_id,direction,text,created_at) VALUES ($1,'inbound','Second thread','2026-10-26T18:00:00Z')", [second]);
         await gotoOk(page, "/inbox");
-        await page.locator(`.conv-item[hx-get="/inbox/${conv}"]`).click();
+        const row = page.locator(`.conv-item[hx-get="/inbox/${conv}"]`);
+        await row.focus();
+        await row.press("Enter");
+        await expect(page.locator(".thread-back")).toBeVisible();
+        await page.locator(".thread-back").click();
+        await expect(page).toHaveURL(/\/inbox$/);
+        await expect(row).toBeFocused();
+        await row.press("Enter");
         await expect(page).toHaveURL(new RegExp(`open=${conv}`));
         await expect(page.locator("#thread .msg-meta")).toContainText(timezoneId === "Europe/Warsaw" ? "19:00" : "07:00");
         await expect(page.locator("#thread .daysep:visible")).toContainText(timezoneId === "Europe/Warsaw" ? "26" : "27");
