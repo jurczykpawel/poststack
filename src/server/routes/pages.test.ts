@@ -50,7 +50,9 @@ describe("public pages", () => {
       const res = await app.request("/login");
       const body = await res.text();
       expect(body).toContain('<altcha-widget name="captchaToken"');
-      expect(body).toContain('<script type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>');
+      expect(body).toContain('<script type="module" src="https://cdn.jsdelivr.net/npm/altcha@3.5.0/dist/main/altcha.min.js"></script>');
+      expect(body).toContain('challenge="/api/captcha/challenge"');
+      expect(body).toContain('display="invisible"');
       expect(body).not.toContain("<script async");
     } finally {
       delete process.env.ALTCHA_HMAC_KEY;

@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createChallenge, solveChallenge } from "altcha-lib";
+import { CAPTCHA_HMAC as HMAC, encodeCaptcha, solvedCaptcha } from "../../../tests/fixtures/captcha";
 import { sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
-const HMAC = "test-altcha-hmac-key-0123456789";
 
 let db: typeof import("@/lib/db").db;
 let verifyCaptcha: typeof import("./verify").verifyCaptcha;
@@ -29,26 +28,11 @@ afterAll(async () => {
   if (closeQueue) await closeQueue();
 });
 
-async function solvedPayload(): Promise<string> {
-  const ch = await createChallenge({ hmacKey: HMAC, maxNumber: 1000 });
-  const sol = await solveChallenge(ch.challenge, ch.salt, ch.algorithm, 1000).promise;
-  if (!sol) throw new Error("could not solve test challenge");
-  return Buffer.from(
-    JSON.stringify({
-      algorithm: ch.algorithm,
-      challenge: ch.challenge,
-      number: sol.number,
-      salt: ch.salt,
-      signature: ch.signature,
-    }),
-  ).toString("base64");
-}
-
 describe("verifyCaptcha (real Postgres)", () => {
   it("accepts a valid solution once, then rejects a second use of the same payload", async () => {
     if (!TEST_DB) return;
     await db.execute(sql`delete from rate_limit_counters where key like 'altcha:%'`);
-    const payload = await solvedPayload();
+    const payload = encodeCaptcha(await solvedCaptcha());
 
     const first = await verifyCaptcha(payload);
     expect(first.success).toBe(true);
@@ -59,20 +43,21 @@ describe("verifyCaptcha (real Postgres)", () => {
 
   it("rejects an expired challenge solution", async () => {
     if (!TEST_DB) return;
-    const ch = await createChallenge({ hmacKey: HMAC, maxNumber: 100, expires: new Date(Date.now() - 1000) });
-    const sol = await solveChallenge(ch.challenge, ch.salt, ch.algorithm, 100).promise;
-    if (!sol) throw new Error("could not solve test challenge");
-    const payload = Buffer.from(
-      JSON.stringify({ algorithm: ch.algorithm, challenge: ch.challenge, number: sol.number, salt: ch.salt, signature: ch.signature }),
-    ).toString("base64");
+    const payload = encodeCaptcha(await solvedCaptcha(new Date(Date.now() - 1000)));
     expect((await verifyCaptcha(payload)).success).toBe(false);
   });
 
-  it("rejects a tampered payload", async () => {
+  it("rejects an invalid payload", async () => {
     if (!TEST_DB) return;
     const bad = Buffer.from(
       JSON.stringify({ algorithm: "SHA-256", challenge: "deadbeef", number: 1, salt: "x", signature: "nope" }),
     ).toString("base64");
     expect((await verifyCaptcha(bad)).success).toBe(false);
   });
+  it("accepts only one of simultaneous submissions", async () => {
+    const payload = encodeCaptcha(await solvedCaptcha());
+    const results = await Promise.all([verifyCaptcha(payload), verifyCaptcha(payload)]);
+    expect(results.filter((result) => result.success)).toHaveLength(1);
+  });
+
 });

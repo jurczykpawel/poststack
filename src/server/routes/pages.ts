@@ -28,8 +28,8 @@ async function captchaWidget() {
   // Invisible: auto-solves its proof-of-work in the background when the form gains focus (no checkbox
   // to click). The widget stays in the DOM (hidden) so it still contributes captchaToken to the form.
   return html`
-    <altcha-widget name="captchaToken" challengeurl="/api/captcha/challenge" auto="onfocus" hidelogo hidefooter style="display:none"></altcha-widget>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/altcha@2.0.0/dist/altcha.min.js"></script>
+    <altcha-widget name="captchaToken" challenge="/api/captcha/challenge" auto="onfocus" display="invisible" style="display:none"></altcha-widget>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/altcha@3.5.0/dist/main/altcha.min.js"></script>
     <script type="module">
       const widget = document.querySelector("altcha-widget");
       const form = widget.closest("form");

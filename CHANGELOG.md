@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- Login and registration captcha use ALTCHA library 2 and widget 3.
+
 ## [0.17.4] - 2026-11-05
 
 ### Fixed
