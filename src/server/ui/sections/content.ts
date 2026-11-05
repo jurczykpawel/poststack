@@ -257,6 +257,7 @@ function postCard(contentId: string, v: PostView): Html {
   const { post } = v;
   const editHref = `/content/${contentId}/posts/${post.id}/edit`;
   const description = post.description ?? "";
+  const mediaCount = Array.isArray(post.media_urls) ? post.media_urls.length : 0;
   return html`<article class="post-card" id="${cardId(post.id)}">
     <header class="post-card-head">
       ${platformCell(post.platform)} ${statusBadge(post.status)}
@@ -270,6 +271,7 @@ function postCard(contentId: string, v: PostView): Html {
       ${copyRow("Hashtags", post.hashtags, "Copy")}
       ${copyRow("Cover", post.cover_url, "Copy cover")}
       ${copyRow("Media", post.video_url ?? post.media_url, "Copy media")}
+      ${mediaCount > 1 ? html`<div class="card-field" data-media-count><span class="card-field-k">Media</span><span class="panel-count">${mediaCount}</span></div>` : ""}
     </div>
     ${publishControl(contentId, v)}
   </article>`;

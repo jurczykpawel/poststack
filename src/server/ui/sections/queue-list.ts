@@ -158,6 +158,7 @@ async function panel(workspaceId: string, st: ListState): Promise<{ detail?: Dat
   const { post, channel, channelName } = item;
   const payload = post.payload as { caption?: string; title?: string; media?: unknown[] } | null;
   const [linked, card] = await Promise.all([linkedPostText(workspaceId, post.id), post.status === "sent" ? deliveryPostCard(workspaceId, post.id) : undefined]);
+  const mediaCount = Array.isArray(payload?.media) ? payload.media.length : 0;
   const review = post.tiktok_confirmation === "required";
   const editable = isPending(post.status) && !review;
   const act = `/queue/${post.id}`;
@@ -168,6 +169,7 @@ async function panel(workspaceId: string, st: ListState): Promise<{ detail?: Dat
     detail: {
       title: html`<span class="q-chan">${platformGlyph(channel.platform, 15, channel.metadata)}<span>${channelName}</span></span>`,
       body: html`<p class="q-panel-status">${statusBadge(post.status)} <span class="q-fmt">${post.format}</span></p>
+        ${mediaCount > 1 ? html`<p class="q-panel-status" data-media-count>Media <span class="panel-count">${mediaCount}</span></p>` : ""}
         ${post.last_error ? html`<p class="dl-problem q-panel-error">${post.last_error}</p>` : ""}
         ${editable
           ? html`<form class="q-edit" method="post" action="${act}/text" hx-post="${act}/text" ${STAY} hx-disabled-elt="find button">
