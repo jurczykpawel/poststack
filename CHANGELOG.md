@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-11-05
+
 ### Fixed
 - Inbox replies in comment threads are public replies to the latest comment; unsupported reply types are explained before sending, and Needs reply stays until delivery succeeds.
 - New YouTube comments keep their video links, Inbox preview and originating comment in Approvals.
@@ -20,6 +22,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Dashboard dates, message clocks and timestamp tooltips use the browser's time zone; Overview and Activity count today's replies in that same calendar day.
 - Inbox threads keep their address on refresh; browser Back closes the thread and Forward restores it. The command palette also works after restoring history.
 - Channel connection shows one advanced token entry point.
+- On mobile, going Back from an Inbox thread returns keyboard focus to its row.
 
 ## [0.17.3] - 2026-11-04
 
