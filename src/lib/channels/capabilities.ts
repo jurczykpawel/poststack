@@ -5,13 +5,14 @@ import { getProvider as getInboundProvider, getSupportedPlatforms } from "@/lib/
 /**
  * CHANNELS-ARCHITECTURE (Task 6) — the one unifying idea: a channel is an account with a set of
  * CAPABILITIES, NOT a "publish channel" vs a "reply channel". Capabilities are COMPUTED from
- * `platform × connection_mode × provider`, never stored as the source of truth (a display copy may
+ * `platform × connection_mode × provider × checked access state` (a display copy may
  * be cached in `channels.metadata.capabilities`). The engine asks `can(channel, "publish")` /
  * `can(channel, "dm")` and never branches on platform — adding a platform or a capability never
  * forks the model.
  */
 export const CAPABILITIES = [
   "publish",
+  "video_carousel",
   "comment_reply",
   "dm",
   "poll_comments",
@@ -23,6 +24,7 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 export interface ChannelCapabilityCtx {
   platform: string;
+  video_carousel?: string;
   connection_mode?: "oauth" | "manual_token" | "derived";
   /** Granted token scopes, when available. */
   metadata?: unknown;
@@ -40,6 +42,7 @@ const inboundPlatforms = (): Set<string> => new Set<string>(getSupportedPlatform
  */
 export function channelCapabilities(ctx: ChannelCapabilityCtx): Capability[] {
   const caps = new Set<Capability>();
+  if (ctx.platform === "facebook" && ctx.video_carousel === "available") caps.add("video_carousel");
 
   if (isPublishablePlatform(ctx.platform)) {
     if (!missingPublishScopes(ctx).length) caps.add("publish");

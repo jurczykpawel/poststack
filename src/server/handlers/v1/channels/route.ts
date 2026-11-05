@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     columns: {
       id: true,
       platform: true,
+      video_carousel: true,
       platform_id: true,
       display_name: true,
       username: true,

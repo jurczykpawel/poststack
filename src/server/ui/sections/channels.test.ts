@@ -239,3 +239,14 @@ it("does not claim publishing is active when its permission is missing", () => {
     expect(out).not.toContain("comments and publishing are active");
   }
 });
+
+it("keeps Facebook video carousel visible with its availability and permission explanation", async () => {
+  const { publishingHint } = await import("./channels");
+  for (const state of ["unknown", "unavailable", "available"] as const) {
+    const channel = ch({ platform: "facebook", video_carousel: state });
+    const badges = s(capabilityBadges(channel));
+    expect(badges).toContain("video carousel");
+    expect(badges).toContain(`aria-disabled="${state !== "available"}"`);
+    expect(s(publishingHint(channel)).includes("Video in Facebook carousels requires a verified Meta app with ads permission (pages_manage_ads) for this Page.")).toBe(state !== "available");
+  }
+});

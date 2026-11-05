@@ -319,6 +319,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const channelMetadata: Record<string, unknown> = {
     subKind: subKindForPlatform(channel.platform),
     ...(channel.metadata as Record<string, unknown>),
+    video_carousel: channel.video_carousel,
   };
 
   // Pre-publish freshness guard (§5C): refresh a soon-to-expire refreshable token inline.

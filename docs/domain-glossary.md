@@ -85,3 +85,5 @@ Measured 2026-10-20: occurrences include comments and string literals in `src`, 
 | `"instagram_login"` **13** / `instagram-login` **16** (literal / substring) | **Instagram Business Login** has existing context-specific spellings: `instagram_login` is a messaging-connection classification, `/api/oauth/instagram-login` is a route, and the channel platform remains `instagram`; the route-count majority does not rename the classification. |
 
 Reproduce a count with `rg -o --no-filename` plus the exclusions above and the corresponding regex, piping to `wc -l` (product regexes: `(?i)\bpoststack\b` / `(?i)\breplystack\b`; identifiers: `\bprofile\b`, etc.). Do not mechanically merge different concepts just because a shorter spelling has more hits.
+
+- **Video carousel capability (`video_carousel`)** — per-channel Facebook permission state (`unknown`, `unavailable`, `available`). Video in a carousel is enabled only after the token grants `pages_manage_ads` for the Page and its tasks include `ADVERTISE`.

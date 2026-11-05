@@ -26,6 +26,7 @@ import {
   type ChannelStatus,
   type PublicChannel,
 } from "@/lib/channels/service";
+import { FACEBOOK_VIDEO_CAROUSEL_HINT } from "@/lib/platforms/facebook-video-carousel";
 import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
@@ -81,7 +82,7 @@ export function capabilityBadges(ch: PublicChannel): Html {
   // structural caps + `messaging_connection` to interpret).
   if (ch.messaging_connection === "facebook_only") on = on.filter((c) => c.cap !== "dm");
   if (on.length === 0) return html`<small>—</small>`;
-  return html`<span class="pill-row">${on.map((c) => pill(c.label, "info"))}</span>`;
+  return html`<span class="pill-row">${on.map((c) => pill(c.label, "info"))}${ch.platform === "facebook" ? html`<span aria-disabled="${String(ch.video_carousel !== "available")}" title="${ch.video_carousel === "available" ? "Video in Facebook carousels is available" : FACEBOOK_VIDEO_CAROUSEL_HINT}">${pill("video carousel", ch.video_carousel === "available" ? "info" : "neutral")}</span>` : ""}</span>`;
 }
 
 // ── IG messaging connection visibility (IGML: "make it visible when/what works") ─────────────────
@@ -95,9 +96,10 @@ export function messagingConnectionBadge(ch: PublicChannel): Html {
 
 export function publishingHint(ch: PublicChannel): Html {
   const missing = missingPublishScopes(ch);
-  if (!missing.length) return html``;
+  const videoHint = ch.platform === "facebook" && ch.video_carousel !== "available" ? html`<div class="notice notice-warn">${FACEBOOK_VIDEO_CAROUSEL_HINT}</div>` : html``;
+  if (!missing.length) return videoHint;
   const href = reconnectHref({ ...ch, messaging_connection: null });
-  return html`<div class="notice notice-warn">Missing publishing permission (${missing.join(", ")}). <a href="${href}">Reconnect to publish.</a></div>`;
+  return html`${videoHint}<div class="notice notice-warn">Missing publishing permission (${missing.join(", ")}). <a href="${href}">Reconnect to publish.</a></div>`;
 }
 
 /** B2: a per-channel capability note, rendered for BOTH messaging-connection states. A

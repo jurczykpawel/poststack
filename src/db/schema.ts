@@ -23,6 +23,7 @@ export const accountSourceStatus = pgEnum("account_source_status", ['active', 'n
 // touching the inbox: a new channel plugs in as dm-style (ref '') or topic-style (ref = some id).
 export const conversationThreadType = pgEnum("conversation_thread_type", ['dm', 'comment', 'email'])
 export type ConversationThreadType = (typeof conversationThreadType.enumValues)[number]
+export const videoCarouselState = pgEnum("video_carousel_state", ["unknown", "unavailable", "available"])
 export const channelStatus = pgEnum("channel_status", ['active', 'needs_reauth', 'paused', 'disabled'])
 export const conversationStatus = pgEnum("conversation_status", ['open', 'closed', 'snoozed'])
 export const flowSessionStatus = pgEnum("flow_session_status", ['active', 'completed', 'expired', 'cancelled'])
@@ -196,6 +197,7 @@ export const alertWebhooks = pgTable("alert_webhooks", {
 ]);
 
 export const channels = pgTable("channels", {
+	video_carousel: videoCarouselState("video_carousel").notNull().default("unknown"),
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),
 	platform: platform().notNull(),

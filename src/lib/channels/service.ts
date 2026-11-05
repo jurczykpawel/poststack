@@ -34,6 +34,7 @@ export function isChannelSort(v: string | undefined): v is ChannelSort {
 export interface PublicChannel {
   id: string;
   platform: string;
+  video_carousel?: "unknown" | "unavailable" | "available";
   provider_account_id: string;
   display_name: string | null;
   username: string | null;
@@ -83,6 +84,7 @@ export function toPublic(r: ChannelRow): PublicChannel {
   return {
     id: r.id,
     platform: r.platform,
+    video_carousel: r.video_carousel,
     provider_account_id: r.platform_id,
     display_name: r.display_name,
     username: r.username,

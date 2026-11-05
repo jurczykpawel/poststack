@@ -245,8 +245,10 @@ async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostW
     if (!mediaChanged) request.media = previous.media;
     const payload = { ...request, options: { ...(delivery.payload as PublishRequest).options, ...request.options } };
     if (patch.coverUrl !== undefined && !updated.cover_url) delete payload.options.coverUrl;
-    if (payload.format === "carousel") await validateDeliveryRequest(payload, workspaceId, updated.platform, true);
-    else {
+    if (payload.format === "carousel") {
+      const channel = await tx.query.channels.findFirst({ where: and(eq(channels.id, delivery.channel_id), eq(channels.workspace_id, workspaceId)) });
+      await validateDeliveryRequest(payload, workspaceId, updated.platform, true, channel);
+    } else {
       const checked = validate(getProviderForPlatform(updated.platform), payload);
       if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
     }

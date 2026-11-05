@@ -71,7 +71,7 @@ describe("Meta carousel replay", () => {
   it("refuses video in a FB carousel before any upload", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const input = args(true); input.mediaKinds![1] = "video";
-    await expect(metaProvider.publish(input)).rejects.toThrow(/Facebook.*images only/i);
+    await expect(metaProvider.publish(input)).rejects.toThrow(/Video in Facebook carousels requires a verified Meta app/);
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -156,4 +156,45 @@ it("keeps the accepted IG publication when permalink lookup times out", async ()
   }));
   expect(await metaProvider.publish(args())).toMatchObject({ providerHandle: "17895695668004550" });
   expect(timeout).toHaveBeenCalledWith(10_000);
+});
+
+it("enables video only for a confirmed Facebook channel", () => {
+  const request = args().request;
+  for (const state of [undefined, "unknown", "unavailable", "available"]) {
+    const result = validate(metaProvider, request, { platform: "facebook", channel: { video_carousel: state }, mediaKinds: ["image", "video"] });
+    expect(result.ok).toBe(state === "available");
+    if (!result.ok) expect(result.errors).toContain("Video in Facebook carousels requires a verified Meta app with ads permission (pages_manage_ads) for this Page.");
+  }
+});
+
+it("uploads an unpublished video, waits until ready and commits one ordered carousel", async () => {
+  const video = (await import("./__fixtures__/facebook-video-carousel.json")).default;
+  const { calls, unused } = replay([fixture.facebook[0], ...video.videoReady, fixture.facebook[2]]);
+  const input = args(true); input.mediaKinds![1] = "video"; input.channelMetadata!.video_carousel = "available";
+  await expect(metaProvider.publish(input)).resolves.toHaveProperty("providerHandle");
+  const upload = new URLSearchParams(calls.find(c => c.url.endsWith("/videos"))!.body);
+  expect(upload.get("file_url")).toBe(input.mediaUrls[1]);
+  expect(upload.get("published")).toBe("false");
+  const feed = calls.filter(c => c.url.endsWith("/feed"));
+  expect(feed).toHaveLength(1);
+  expect(JSON.parse(new URLSearchParams(feed[0].body).get("attached_media")!)).toEqual([{ media_fbid: "554158337282822679" }, { media_fbid: "2002088840149" }]);
+  expect(unused()).toEqual([]);
+});
+
+it("handles the recorded 403/code200 upload rejection and cleans the prior photo", async () => {
+  const video = (await import("./__fixtures__/facebook-video-carousel.json")).default;
+  const { calls } = replay([fixture.facebook[0], video.uploadDenied, { method: "DELETE", url: "https://graph.facebook.com/v26.0/554158337282822679", status: 200, body: { success: true } }]);
+  const input = args(true); input.mediaKinds![1] = "video"; input.channelMetadata!.video_carousel = "available";
+  await expect(metaProvider.publish(input)).rejects.toBeInstanceOf(PermanentError);
+  expect(calls.map(c => c.method)).toEqual(["POST", "POST", "DELETE"]);
+});
+
+it.each(["processing", "error"])("cleans the video and photo on processing state %s", async status => {
+  const video = (await import("./__fixtures__/facebook-video-carousel.json")).default;
+  vi.stubEnv("META_PUBLISH_POLL_ATTEMPTS", "1");
+  const { calls } = replay([fixture.facebook[0], video.videoReady[0], { ...video.videoReady[1], body: { status: { video_status: status } } }, ...["554158337282822679", "2002088840149"].map(id => ({ method: "DELETE", url: `https://graph.facebook.com/v26.0/${id}`, status: 200, body: { success: true } }))]);
+  const input = args(true); input.mediaKinds![1] = "video"; input.channelMetadata!.video_carousel = "available";
+  await expect(metaProvider.publish(input)).rejects.toThrow();
+  expect(calls.filter(c => c.method === "DELETE")).toHaveLength(2);
+  expect(calls.some(c => c.url.endsWith("/feed"))).toBe(false);
 });

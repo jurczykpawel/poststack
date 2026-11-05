@@ -10,6 +10,7 @@ export interface TokenData {
 }
 
 export interface ConnectedAccount {
+  videoCarousel?: "unknown" | "unavailable" | "available";
   platformId: string;
   displayName: string;
   username?: string;

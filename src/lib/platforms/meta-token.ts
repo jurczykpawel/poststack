@@ -22,6 +22,7 @@ export interface MetaTokenInfo {
   /** Unix seconds; undefined → no 90-day data-access wall (System User). */
   dataAccessExpiresAt?: number;
   scopes: string[];
+  granularScopes?: Array<{ scope: string; target_ids?: string[] }>;
   /** For a PAGE token, the Page id it is scoped to. */
   profileId?: string;
 }
@@ -44,6 +45,7 @@ interface DebugTokenData {
   expires_at?: number;
   data_access_expires_at?: number;
   scopes?: string[];
+  granular_scopes?: Array<{ scope: string; target_ids?: string[] }>;
   profile_id?: string;
 }
 
@@ -108,10 +110,11 @@ export async function inspectMetaToken(token: string): Promise<MetaTokenInfo | n
   return {
     kind: classifyKind(data),
     appId: data.app_id ? String(data.app_id) : undefined,
-    isValid: data.is_valid ?? true, // narrowed: the is_valid === false case already threw above
+    isValid: data.is_valid === true,
     expiresAt: normalizeExpiry(data.expires_at),
     dataAccessExpiresAt: normalizeExpiry(data.data_access_expires_at),
     scopes: Array.isArray(data.scopes) ? data.scopes : [],
+    granularScopes: data.granular_scopes,
     profileId: data.profile_id ? String(data.profile_id) : undefined,
   };
 }

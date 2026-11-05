@@ -26,7 +26,7 @@ const caps = (platform: string, extra: Partial<{ connection_mode: "oauth" | "man
 describe("channel capabilities — derived from provider, not stored", () => {
   it("the capability set is a small closed enum", () => {
     expect([...CAPABILITIES].sort()).toEqual(
-      ["comment_reply", "dm", "enumerate_subaccounts", "poll_comments", "publish", "receive_webhooks"].sort(),
+      ["comment_reply", "dm", "enumerate_subaccounts", "poll_comments", "publish", "receive_webhooks", "video_carousel"].sort(),
     );
   });
 
@@ -103,4 +103,10 @@ describe("publishing scopes", () => {
       expect(can(ctx, "dm")).toBe(true);
     }
   });
+});
+
+it("exposes the video carousel capability only for an available Facebook channel", () => {
+  expect(channelCapabilities({ platform: "facebook", video_carousel: "available" })).toContain("video_carousel");
+  expect(channelCapabilities({ platform: "facebook", video_carousel: "unknown" })).not.toContain("video_carousel");
+  expect(channelCapabilities({ platform: "instagram", video_carousel: "available" })).not.toContain("video_carousel");
 });
