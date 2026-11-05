@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mockUtilsAddJob = vi.fn().mockResolvedValue({});
 const mockMakeWorkerUtils = vi.fn().mockResolvedValue({ addJob: mockUtilsAddJob });
@@ -6,15 +6,19 @@ vi.mock("graphile-worker", () => ({
   makeWorkerUtils: (...args: unknown[]) => mockMakeWorkerUtils(...args),
 }));
 
-beforeAll(() => {
-  process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 });
 
-// Imported once; the module holds a singleton WorkerUtils promise we want to observe.
-import { addJob } from "./client";
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("addJob", () => {
   it("delegates to WorkerUtils.addJob with task name, payload, and the computed spec", async () => {
+    const { addJob } = await import("./client");
     const payload = { channelId: "c1", conversationId: "cv1" };
 
     await addJob("outgoing-message", payload as never, { jobKey: "k1" });
@@ -28,10 +32,12 @@ describe("addJob", () => {
   });
 
   it("reuses a single WorkerUtils instance across calls (singleton pool)", async () => {
+    const { addJob } = await import("./client");
+
     await addJob("incoming-message", {} as never);
     await addJob("incoming-message", {} as never);
 
-    // makeWorkerUtils created the instance during the first test and is never called again.
+    expect(mockUtilsAddJob).toHaveBeenCalledTimes(2);
     expect(mockMakeWorkerUtils).toHaveBeenCalledTimes(1);
     expect(mockMakeWorkerUtils).toHaveBeenCalledWith(
       expect.objectContaining({ connectionString: expect.any(String) }),
