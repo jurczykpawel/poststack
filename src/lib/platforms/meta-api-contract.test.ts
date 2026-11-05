@@ -446,6 +446,7 @@ describe("Meta Graph API Contract Tests", () => {
 
       expect(accounts).toHaveLength(2);
       expect(accounts[0]).toEqual({
+        videoCarousel: "unavailable",
         platformId: "111222333444",
         displayName: "Test Page",
         profilePicture: "https://graph.facebook.com/111222333444/picture",

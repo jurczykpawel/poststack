@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Facebook video carousels are available when channel ads permissions are confirmed. Channels show availability and explain missing access; Facebook OAuth can optionally request `pages_manage_ads` with `META_REQUEST_ADS_SCOPE=true`.
+
 ## [0.17.5] - 2026-11-05
 
 ### Fixed

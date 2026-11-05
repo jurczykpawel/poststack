@@ -82,6 +82,7 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 | `ENCRYPTION_READ_MODE` | Optional. `legacy-readable` (default) reads both the original and the `ps2` secret format. `v2-only` rejects the original format; set it only after a completed migration, and keep it when rolling back. Any other value fails startup. |
 | `JWT_SECRET` | `openssl rand -hex 32` |
 | `CRON_SECRET` | `openssl rand -hex 32` |
+| `META_REQUEST_ADS_SCOPE` | **Optional**, default `false`. Set `true` to request `pages_manage_ads` in Facebook OAuth after Meta business verification/App Review grants ads access. Reconnect existing channels. Video in Facebook carousels also requires the Page task `ADVERTISE` and a matching granular grant, checked on connect/reconnect/managed sync. A pasted Page token cannot verify Page tasks; connect via OAuth or a User/System User token. Ordinary video posts and photo carousels do not need this scope. |
 | `META_APP_ID`, `META_APP_SECRET` | From [Meta for Developers](https://developers.facebook.com). |
 | `META_WEBHOOK_VERIFY_TOKEN` | Any random string you choose; you re-enter it in the Meta App Dashboard. |
 | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | **Optional.** Only needed to connect an Instagram account via **Instagram Business Login** (DMs + comments + follow-gate + publishing on one account, no Facebook page, at Standard Access). These are the **Instagram** app's id/secret (Meta app → Instagram product → "API setup with Instagram login") — **distinct** from `META_APP_ID`/`META_APP_SECRET`. |

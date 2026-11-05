@@ -347,3 +347,19 @@ describe("sweepAccountSources (real Postgres)", () => {
     expect(source?.needs_reauth_reason).toBeTruthy();
   });
 });
+
+it("refreshes the Facebook video carousel state on managed connect, sync and reconnect", async () => {
+  const fixture = (await import("@/lib/providers/__fixtures__/facebook-video-carousel.json")).default;
+  const page = { id: fixture.debugWithAds.profile_id, name: "Video Page", access_token: "PAGE_TOKEN", tasks: ["ADVERTISE"] };
+  const debug = { ...fixture.debugWithAds, type: "SYSTEM_USER" };
+  const state = async () => (await db.query.channels.findFirst({ where: eq(s.channels.workspace_id, WS), columns: { video_carousel: true } }))!.video_carousel;
+  mockGraph({ debug, fbPages: [page], igPages: [] });
+  const connected = await svc.connectAccountSource(WS, "MASTER_TOKEN");
+  expect(await state()).toBe("available");
+  mockGraph({ debug, fbPages: [{ ...page, tasks: ["CREATE_CONTENT"] }], igPages: [] });
+  await svc.syncAccountSource(connected.sourceId);
+  expect(await state()).toBe("unavailable");
+  mockGraph({ debug, fbPages: [{ ...page, tasks: undefined }], igPages: [] });
+  await svc.connectAccountSource(WS, "MASTER_TOKEN");
+  expect(await state()).toBe("unknown");
+});

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { JobHelpers } from "graphile-worker";
 import type { Hono } from "hono";
+import videoFixture from "@/lib/providers/__fixtures__/facebook-video-carousel.json";
 import fixture from "@/lib/providers/__fixtures__/meta-carousel.json";
 import { replayFetch } from "@/lib/providers/__fixtures__/recorded/replay";
 
@@ -58,13 +59,15 @@ async function scenario(platform: "facebook" | "instagram", kinds = ["image", "i
 const delivery = (id: string) => db.query.deliveries.findFirst({ where: and(eq(s.deliveries.id, id), eq(s.deliveries.workspace_id, workspaceId)) });
 
 describe("carousel API and publish worker", () => {
-  it.each(["facebook", "instagram"] as const)("publishes all %s slides once through API → worker", async platform => {
-    const input = await scenario(platform, platform === "instagram" ? ["image", "video"] : undefined);
+  it.each(["facebook", "instagram", "facebook_video"] as const)("publishes all %s slides once through API → worker", async mode => {
+    const platform = mode === "facebook_video" ? "facebook" : mode;
+    const input = await scenario(platform, platform === "instagram" || mode === "facebook_video" ? ["image", "video"] : undefined);
+    if (mode === "facebook_video") await db.update(s.channels).set({ video_carousel: "available" }).where(and(eq(s.channels.id, input.channelId), eq(s.channels.workspace_id, workspaceId)));
     const published = await post(`/posts/${input.postId}/publish`, { channelId: input.channelId });
     expect(published.status).toBe(200);
     const d = (await published.json()).data.delivery;
     expect(d.format).toBe("carousel"); expect(d.payload.media).toHaveLength(2);
-    const { calls } = replayFetch(platform === "facebook" ? fixture.facebook : fixture.instagram.map(e => ({ ...e, url: e.url.replace("graph.facebook.com", "graph.instagram.com") })));
+    const { calls } = replayFetch(platform === "facebook" ? (mode === "facebook_video" ? [fixture.facebook[0], ...videoFixture.videoReady, fixture.facebook[2]] : fixture.facebook) : fixture.instagram.map(e => ({ ...e, url: e.url.replace("graph.facebook.com", "graph.instagram.com") })));
     await processPublish({ postId: d.id }, helpers);
     expect((await delivery(d.id))!.status).toBe("sent");
     const p = await db.query.posts.findFirst({ where: and(eq(s.posts.workspace_id, workspaceId), eq(s.posts.id, input.postId)) });
@@ -86,7 +89,7 @@ describe("carousel API and publish worker", () => {
     const input = await scenario("facebook", ["image", "video"]);
     const response = await post(`/posts/${input.postId}/publish`, { channelId: input.channelId, format: "carousel" });
     expect(response.status).toBe(422);
-    expect(JSON.stringify(await response.json())).toMatch(/facebook.*image/i);
+    expect(JSON.stringify(await response.json())).toContain("Video in Facebook carousels requires a verified Meta app with ads permission (pages_manage_ads) for this Page.");
     expect(await db.query.deliveries.findMany({ where: eq(s.deliveries.workspace_id, workspaceId) })).toEqual([]);
   });
 
@@ -131,11 +134,13 @@ describe("carousel API and publish worker", () => {
     expect(second.calls.filter(c => c.url.endsWith("/feed"))).toHaveLength(1);
   });
 
-  it.each(["facebook", "instagram"] as const)("does not repeat an uncertain %s commit", async platform => {
-    const input = await scenario(platform);
+  it.each(["facebook", "instagram", "facebook_video"] as const)("does not repeat an uncertain %s commit", async mode => {
+    const platform = mode === "facebook_video" ? "facebook" : mode;
+    const input = await scenario(platform, mode === "facebook_video" ? ["image", "video"] : undefined);
+    if (mode === "facebook_video") await db.update(s.channels).set({ video_carousel: "available" }).where(and(eq(s.channels.id, input.channelId), eq(s.channels.workspace_id, workspaceId)));
     const response = await post(`/posts/${input.postId}/publish`, { channelId: input.channelId });
     const d = (await response.json()).data.delivery;
-    const exchanges = platform === "facebook" ? fixture.facebook : fixture.instagram.map(e => ({ ...e, url: e.url.replace("graph.facebook.com", "graph.instagram.com") }));
+    const exchanges = platform === "facebook" ? (mode === "facebook_video" ? [fixture.facebook[0], ...videoFixture.videoReady, fixture.facebook[2]] : fixture.facebook) : fixture.instagram.map(e => ({ ...e, url: e.url.replace("graph.facebook.com", "graph.instagram.com") }));
     const { calls } = replayFetch(exchanges.map(e => /\/(feed|media_publish)$/.test(e.url) ? { ...e, status: 503, body: {} } : e));
     await expect(processPublish({ postId: d.id }, helpers)).rejects.toThrow();
     expect((await delivery(d.id))!.status).toBe("sending");
@@ -144,4 +149,27 @@ describe("carousel API and publish worker", () => {
     expect((await delivery(d.id))!.status).toBe("unknown");
     expect(calls).toHaveLength(count);
   });
+});
+
+it("schedules Facebook video for an available channel and validates edits with that channel", async () => {
+  const input = await scenario("facebook", ["image", "video"]);
+  await db.update(s.channels).set({ video_carousel: "available" }).where(and(eq(s.channels.id, input.channelId), eq(s.channels.workspace_id, workspaceId)));
+  const response = await post(`/posts/${input.postId}/publish`, { channelId: input.channelId, when: new Date(Date.now() + 3600_000).toISOString() });
+  expect(response.status).toBe(200);
+  const patch = await app.request(`/api/v1/posts/${input.postId}`, { method: "PATCH", headers: auth, body: JSON.stringify({ description: "Updated video carousel" }) });
+  expect(patch.status).toBe(200);
+});
+
+it("stops a scheduled video carousel if the channel no longer has access", async () => {
+  const input = await scenario("facebook", ["image", "video"]);
+  const channelWhere = and(eq(s.channels.id, input.channelId), eq(s.channels.workspace_id, workspaceId));
+  await db.update(s.channels).set({ video_carousel: "available" }).where(channelWhere);
+  const response = await post(`/posts/${input.postId}/publish`, { channelId: input.channelId });
+  expect(response.status).toBe(200);
+  const d = (await response.json()).data.delivery;
+  await db.update(s.channels).set({ video_carousel: "unavailable" }).where(channelWhere);
+  const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+  await processPublish({ postId: d.id }, helpers);
+  expect((await delivery(d.id))!.status).toBe("failed");
+  expect(fetch).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { FACEBOOK_VIDEO_CAROUSEL_HINT } from "@/lib/platforms/facebook-video-carousel";
 import type { TokenSet } from "./types";
 import type {
   AccountInfo,
@@ -152,6 +153,20 @@ async function pollContainerFinished(containerId: string, encodedToken: string, 
   throw new TransientError("Meta container still processing after poll window", "pre_commit");
 }
 
+async function pollFacebookVideo(id: string, token: string): Promise<void> {
+  const attempts = Number(process.env.META_PUBLISH_POLL_ATTEMPTS ?? 60);
+  const delayMs = Number(process.env.META_PUBLISH_POLL_DELAY_MS ?? 3000);
+  for (let i = 0; i < attempts; i++) {
+    const res = await fetch(`${GRAPH}/${id}?fields=status&access_token=${encodeURIComponent(token)}`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+    const data = (await res.json().catch(() => ({}))) as { status?: { video_status?: string }; error?: { code?: number; message?: string } };
+    if (!res.ok) throw classifyMetaError(res.status, data.error, "pre_commit");
+    if (data.status?.video_status === "ready") return;
+    if (data.status?.video_status === "error") throw new PermanentError("Meta video processing failed");
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+  throw new TransientError("Meta video still processing after poll window", "pre_commit");
+}
+
 /** Children remain unpublished until the final call; Instagram containers expire automatically. */
 async function publishCarousel(args: Parameters<Provider["publish"]>[0], facebook: boolean): Promise<PublishHandle> {
   const { request, mediaUrls, mediaKinds, accountId, tokens } = args;
@@ -161,7 +176,7 @@ async function publishCarousel(args: Parameters<Provider["publish"]>[0], faceboo
   if (mediaKinds?.length !== mediaUrls.length || mediaKinds.some(kind => kind !== "image" && kind !== "video")) {
     throw new PermanentError("Meta carousel requires a registry kind for every media item");
   }
-  if (facebook && mediaKinds.some(kind => kind !== "image")) throw new PermanentError("Facebook carousel supports images only");
+  if (facebook && mediaKinds.includes("video") && args.channelMetadata?.video_carousel !== "available") throw new PermanentError(FACEBOOK_VIDEO_CAROUSEL_HINT);
   const { base, token } = facebook ? { base: GRAPH, token: tokens.accessToken } : igPublishTransport(tokens);
   const ids: string[] = [];
   const cleanup = async () => {
@@ -184,10 +199,11 @@ async function publishCarousel(args: Parameters<Provider["publish"]>[0], faceboo
   let parent: string | undefined;
   try {
     for (const [index, url] of mediaUrls.entries()) {
-      const id = await create(`${accountId}/${facebook ? "photos" : "media"}`, facebook
-        ? { url, published: "false" }
+      const id = await create(`${accountId}/${facebook ? (mediaKinds[index] === "video" ? "videos" : "photos") : "media"}`, facebook
+        ? { ...(mediaKinds[index] === "video" ? { file_url: url } : { url }), published: "false" }
         : { is_carousel_item: "true", ...(mediaKinds[index] === "video" ? { media_type: "VIDEO", video_url: url } : { image_url: url }) }, "pre_commit");
       ids.push(id);
+      if (facebook && mediaKinds[index] === "video") await pollFacebookVideo(id, token);
       if (!facebook) await pollContainerFinished(id, encodeURIComponent(token), base);
     }
     if (!facebook) {
@@ -226,7 +242,7 @@ async function publishCarousel(args: Parameters<Provider["publish"]>[0], faceboo
 export const metaProvider: Provider = {
   id: "meta",
   label: "Meta (Facebook / Instagram)",
-  capabilities: (platform) => CAPABILITIES.map(cap => platform === "facebook" && cap.format === "carousel"
+  capabilities: (platform, channel) => CAPABILITIES.map(cap => platform === "facebook" && channel?.video_carousel !== "available" && cap.format === "carousel"
     ? { ...cap, media: { ...cap.media, kinds: ["image"] } } : cap),
   connectionModes: () => ["manual_token", "oauth"],
   // Meta long-lived / System User tokens are not refreshed via a grant; reconnect instead.

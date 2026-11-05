@@ -150,7 +150,8 @@ export const openApiSpec = {
           held_count: { type: "integer", description: "Outbound messages parked (held) while the channel was down, awaiting drain" },
           messaging_token_expires_at: { type: "string", format: "date-time", nullable: true, description: "Instagram-Login messaging token expiry (IG channels with Instagram Business Login)." },
           messaging_connection: { type: "string", enum: ["instagram_login", "facebook_only"], nullable: true, description: "IG messaging credential shape: instagram_login (DMs via Instagram Login) or facebook_only (IG DM receipt not guaranteed at Standard Access)." },
-          capabilities: { type: "array", items: { type: "string", enum: ["publish", "comment_reply", "dm", "poll_comments", "receive_webhooks", "enumerate_subaccounts"] }, description: "Computed capabilities for this channel." },
+          video_carousel: { type: "string", enum: ["unknown", "unavailable", "available"], description: "Facebook video carousel permission, checked on connect/reconnect/managed sync. Only available enables video; unknown requires connection with a User/System User token to verify Page tasks." },
+          capabilities: { type: "array", items: { type: "string", enum: ["publish", "comment_reply", "dm", "poll_comments", "receive_webhooks", "enumerate_subaccounts", "video_carousel"] }, description: "Computed capabilities for this channel." },
           missing_publish_scopes: { type: "array", items: { type: "string" }, description: "Known missing publishing permissions; reconnect the channel to grant them. Empty when scopes are unknown or sufficient." },
           can_publish: { type: "boolean", description: "Whether this channel can publish posts (true when capabilities include 'publish'). False for inbox-only channels such as Telegram." },
           created_at: { type: "string", format: "date-time" },
@@ -454,7 +455,7 @@ export const openApiSpec = {
         summary: "Create an editorial post",
         description:
           "For Instagram and Facebook, mediaUrls with 2–10 URLs publishes every item in order as a carousel. " +
-          "Instagram accepts images and videos; Facebook accepts images only. The list takes precedence over mediaUrl/videoUrl. " +
+          "Instagram accepts images and videos; Facebook video requires channel.video_carousel=available. The list takes precedence over mediaUrl/videoUrl. " +
           "Body accepts tiktokPublishMode/tiktokPrivacyLevel/tiktokDisableComment/tiktokDisableDuet/tiktokDisableStitch/" +
           "tiktokBrandContentToggle/tiktokBrandOrganicToggle/tiktokCoverTimestampMs (saved TikTok choices), and youtubePrivacy/youtubeTags/youtubeCategoryId/youtubeMadeForKids (YouTube publish " +
           "options), youtubeChapters ([{start: \"00:00\" or seconds, title}]; at least 3, first at 00:00, 10 s apart — appended to the " +
@@ -520,7 +521,7 @@ export const openApiSpec = {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Publish or schedule a post through the delivery engine",
-        description: "Returns the existing delivery + post envelope immediately. For Instagram/Facebook, 2–10 mediaUrls select carousel automatically (or set format=carousel explicitly). Facebook carousels require ready image media; video or still-ingesting items return 422 (wait for GET /media/{id} to report ready, then retry). Unregistered URL media are ingested in the background. The scheduled delivery waits without consuming publish attempts, never sends before its scheduled time, and fails with the media error if ingestion fails. Registered media are reused.",
+        description: "Returns the existing delivery + post envelope immediately. For Instagram/Facebook, 2–10 mediaUrls select carousel automatically (or set format=carousel explicitly). Facebook carousels require ready media. Video requires channel.video_carousel=available (pages_manage_ads for this Page and ADVERTISE task); missing access or still-ingesting items return 422. Wait for GET /media/{id} to report ready before retrying. Unregistered URL media are ingested in the background. The scheduled delivery waits without consuming publish attempts, never sends before its scheduled time, and fails with the media error if ingestion fails. Registered media are reused.",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string" } } } } } },
         responses: { "200": { description: "Delivery created + linked" }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },

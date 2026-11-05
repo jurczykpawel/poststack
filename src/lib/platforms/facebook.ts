@@ -15,6 +15,7 @@ import { inspectMetaToken, assertMetaScopes } from "./meta-token";
 import { fetchAllManagedPages } from "./meta-graph";
 import { assertMetaOk } from "./errors";
 import { buildMessageObject } from "./message-payload";
+import { facebookVideoCarouselState } from "./facebook-video-carousel";
 import { asString } from "@/lib/providers/util";
 
 const GRAPH_API = GRAPH_API_BASE;
@@ -23,6 +24,7 @@ interface FbPage {
   id: string;
   name: string;
   access_token: string;
+  tasks?: string[];
   picture?: { data: { url: string } };
 }
 
@@ -66,7 +68,7 @@ export class FacebookProvider extends SocialProvider {
       client_id: await getConfig("META_APP_ID"),
       redirect_uri: redirectUri,
       state,
-      scope: FACEBOOK_OAUTH_SCOPES.join(","),
+      scope: [...FACEBOOK_OAUTH_SCOPES, ...(process.env.META_REQUEST_ADS_SCOPE === "true" ? ["pages_manage_ads"] : [])].join(","),
       response_type: "code",
     });
     return `${META_OAUTH_BASE}/dialog/oauth?${params.toString()}`;
@@ -135,12 +137,13 @@ export class FacebookProvider extends SocialProvider {
    *  me/accounts edge so a managed connection with many Pages isn't truncated to the first response
    *  page, and skips an entry we can't mint (no page token) or a malformed id (PSA55). */
   private async fetchPageAccounts(userToken: string): Promise<ConnectedAccount[]> {
-    const pages = await fetchAllManagedPages<FbPage>(userToken, "id,name,access_token,picture");
+    const pages = await fetchAllManagedPages<FbPage>(userToken, "id,name,access_token,picture,tasks");
     const accounts: ConnectedAccount[] = [];
     for (const page of pages) {
       const id = asString(page.id);
       if (!id || !page.access_token) continue;
       accounts.push({
+        videoCarousel: facebookVideoCarouselState(await inspectMetaToken(page.access_token).catch(() => null), id, page.tasks),
         platformId: id,
         displayName: page.name,
         profilePicture: page.picture?.data?.url,

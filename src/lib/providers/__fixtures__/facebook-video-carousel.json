@@ -1,0 +1,186 @@
+{
+  "provenance": "Negative debug_token and HTTP 403/code 200 responses recorded 2026-11-05 on TEST, sanitized identifiers and removed trace id. Positive permission, video create, processing and ready bodies are documented-shape variations, not a successful live mixed carousel recording. No live publication performed.",
+  "sources": [
+    "https://developers.facebook.com/docs/graph-api/reference/debug_token/",
+    "https://developers.facebook.com/docs/graph-api/reference/user/accounts/",
+    "https://developers.facebook.com/docs/graph-api/reference/page/videos/",
+    "https://developers.facebook.com/docs/graph-api/reference/video/"
+  ],
+  "debugWithoutAds": {
+    "app_id": "111",
+    "type": "PAGE",
+    "data_access_expires_at": 0,
+    "expires_at": 0,
+    "is_valid": true,
+    "profile_id": "125730403827906",
+    "scopes": [
+      "pages_show_list",
+      "business_management",
+      "pages_messaging",
+      "instagram_basic",
+      "instagram_manage_comments",
+      "instagram_content_publish",
+      "instagram_manage_messages",
+      "pages_read_engagement",
+      "pages_manage_metadata",
+      "pages_read_user_content",
+      "pages_manage_posts",
+      "pages_manage_engagement",
+      "public_profile"
+    ],
+    "granular_scopes": [
+      {
+        "scope": "pages_show_list"
+      },
+      {
+        "scope": "business_management"
+      },
+      {
+        "scope": "pages_messaging"
+      },
+      {
+        "scope": "instagram_basic"
+      },
+      {
+        "scope": "instagram_manage_comments"
+      },
+      {
+        "scope": "instagram_content_publish"
+      },
+      {
+        "scope": "instagram_manage_messages"
+      },
+      {
+        "scope": "pages_read_engagement"
+      },
+      {
+        "scope": "pages_manage_metadata"
+      },
+      {
+        "scope": "pages_read_user_content"
+      },
+      {
+        "scope": "pages_manage_posts"
+      },
+      {
+        "scope": "pages_manage_engagement"
+      }
+    ]
+  },
+  "debugWithAds": {
+    "app_id": "111",
+    "type": "PAGE",
+    "data_access_expires_at": 0,
+    "expires_at": 0,
+    "is_valid": true,
+    "profile_id": "125730403827906",
+    "scopes": [
+      "pages_show_list",
+      "business_management",
+      "pages_messaging",
+      "instagram_basic",
+      "instagram_manage_comments",
+      "instagram_content_publish",
+      "instagram_manage_messages",
+      "pages_read_engagement",
+      "pages_manage_metadata",
+      "pages_read_user_content",
+      "pages_manage_posts",
+      "pages_manage_engagement",
+      "public_profile",
+      "pages_manage_ads"
+    ],
+    "granular_scopes": [
+      {
+        "scope": "pages_show_list"
+      },
+      {
+        "scope": "business_management"
+      },
+      {
+        "scope": "pages_messaging"
+      },
+      {
+        "scope": "instagram_basic"
+      },
+      {
+        "scope": "instagram_manage_comments"
+      },
+      {
+        "scope": "instagram_content_publish"
+      },
+      {
+        "scope": "instagram_manage_messages"
+      },
+      {
+        "scope": "pages_read_engagement"
+      },
+      {
+        "scope": "pages_manage_metadata"
+      },
+      {
+        "scope": "pages_read_user_content"
+      },
+      {
+        "scope": "pages_manage_posts"
+      },
+      {
+        "scope": "pages_manage_engagement"
+      },
+      {
+        "scope": "pages_manage_ads",
+        "target_ids": [
+          "125730403827906"
+        ]
+      }
+    ]
+  },
+  "pageTasks": [
+    "MODERATE",
+    "MESSAGING",
+    "ANALYZE",
+    "CREATE_CONTENT"
+  ],
+  "uploadDenied": {
+    "method": "POST",
+    "url": "https://graph.facebook.com/v26.0/125730403827906/videos",
+    "status": 403,
+    "body": {
+      "error": {
+        "message": "(#200) User does not have sufficient administrative permission for this action on this page. If the page business requires Two Factor Authentication, the user also needs to enable Two Factor Authentication.",
+        "type": "OAuthException",
+        "code": 200
+      }
+    }
+  },
+  "videoReady": [
+    {
+      "method": "POST",
+      "url": "https://graph.facebook.com/v26.0/125730403827906/videos",
+      "status": 200,
+      "body": {
+        "id": "2002088840149"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/2002088840149",
+      "status": 200,
+      "body": {
+        "status": {
+          "video_status": "processing"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://graph.facebook.com/v26.0/2002088840149",
+      "status": 200,
+      "body": {
+        "status": {
+          "video_status": "ready"
+        }
+      }
+    }
+  ]
+}

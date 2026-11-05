@@ -1,16 +1,18 @@
+import { FACEBOOK_VIDEO_CAROUSEL_HINT, type VideoCarouselChannel } from "@/lib/platforms/facebook-video-carousel";
 import type { Provider, PublishRequest } from "./types";
 
 export type ValidateResult = { ok: true } | { ok: false; errors: string[] };
 
-export function validate(provider: Provider, request: PublishRequest, context?: { platform?: string; mediaKinds?: string[] }): ValidateResult {
-  const cap = provider.capabilities(context?.platform).find((c) => c.format === request.format);
+export function validate(provider: Provider, request: PublishRequest, context?: { platform?: string; channel?: VideoCarouselChannel; mediaKinds?: string[] }): ValidateResult {
+  const cap = provider.capabilities(context?.platform, context?.channel).find((c) => c.format === request.format);
   if (!cap) {
     return { ok: false, errors: [`unsupported format '${request.format}' for ${provider.id}`] };
   }
   const errors: string[] = [];
   const n = request.media.length;
   if (context?.mediaKinds?.some(kind => !cap.media.kinds.some(allowed => allowed === kind))) {
-    errors.push(`${context.platform ?? provider.id} format '${request.format}' supports ${cap.media.kinds.join(" and ")} media only`);
+    if (context.platform === "facebook" && request.format === "carousel" && context.mediaKinds.includes("video") && context.channel?.video_carousel !== "available") errors.push(FACEBOOK_VIDEO_CAROUSEL_HINT);
+    else errors.push(`${context.platform ?? provider.id} format '${request.format}' supports ${cap.media.kinds.join(" and ")} media only`);
   }
   if (n < cap.media.min) errors.push(`format '${request.format}' needs >= ${cap.media.min} media`);
   if (n > cap.media.max) errors.push(`format '${request.format}' allows <= ${cap.media.max} media`);

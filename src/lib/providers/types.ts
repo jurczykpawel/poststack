@@ -102,7 +102,7 @@ export interface PublishStatus {
 export interface Provider {
   id: string;
   label: string;
-  capabilities(platform?: string): FormatCapability[];
+  capabilities(platform?: string, channel?: { video_carousel?: string }): FormatCapability[];
   connectionModes(): ("oauth" | "manual_token")[];
   requiresTokenRefresh(): boolean;
   /** Liveness check. Returns account info when healthy; throws TokenInvalidError (dead)

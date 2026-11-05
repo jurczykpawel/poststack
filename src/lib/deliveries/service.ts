@@ -28,7 +28,7 @@ export interface CreateDeliveryInput {
 export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Validate registry media against the destination before a delivery is queued or edited. */
-export async function validateDeliveryRequest(request: PublishRequest, workspaceId: string, platform: string, waitForMedia = false) {
+export async function validateDeliveryRequest(request: PublishRequest, workspaceId: string, platform: string, waitForMedia = false, channel?: { video_carousel?: string }) {
   const v = validate(getProviderForPlatform(platform), request, { platform });
   if (!v.ok) throw new ApiError("invalid_request", v.errors.join("; "), 422);
 
@@ -43,7 +43,7 @@ export async function validateDeliveryRequest(request: PublishRequest, workspace
     assets.push(exists);
   }
   if (request.format === "carousel") {
-    const checked = validate(getProviderForPlatform(platform), request, { platform, mediaKinds: assets.filter(m => m.status === "ready").map(m => m.kind) });
+    const checked = validate(getProviderForPlatform(platform), request, { platform, channel, mediaKinds: assets.filter(m => m.status === "ready").map(m => m.kind) });
     if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
   }
   return assets;
@@ -74,7 +74,7 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
     throw new ApiError("unsupported", `Channel '${channel.platform}' cannot publish`, 400);
   }
 
-  const assets = await validateDeliveryRequest(input.request, workspaceId, channel.platform, input.waitForMedia);
+  const assets = await validateDeliveryRequest(input.request, workspaceId, channel.platform, input.waitForMedia, channel);
   try {
     if (channel.platform === "youtube") input.request.format = youtubeFormat(input.request, assets.map(m => ({ durationSec: m.duration_sec, width: m.width, height: m.height, status: m.status })));
   } catch (err) {

@@ -108,3 +108,10 @@ ALTER TABLE "post_previews" ADD CONSTRAINT "post_previews_channel_id_fkey" FOREI
 CREATE UNIQUE INDEX "post_previews_workspace_channel_post_key" ON "post_previews" USING btree ("workspace_id","channel_id","post_id");--> statement-breakpoint
 ALTER TABLE "api_keys" ADD COLUMN "created_by_user_id" uuid;--> statement-breakpoint
 ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_created_by_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE cascade;
+
+--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."video_carousel_state" AS ENUM ('unknown', 'unavailable', 'available');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TABLE "channels" ADD COLUMN IF NOT EXISTS "video_carousel" "public"."video_carousel_state" DEFAULT 'unknown' NOT NULL;
