@@ -198,7 +198,7 @@ function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>
     const kind = isComment ? { cls: "comment", ic: "comment" as const, t: "Comment" } : isEmail ? { cls: "email", ic: "mail" as const, t: "Email" } : { cls: "dm", ic: "comment" as const, t: "DM" };
     const name = contactName(conv);
     const initials = (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
-    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" hx-get="/inbox/${conv.id}" hx-push-url="/inbox?open=${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
+    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" data-row="${conv.id}" hx-get="/inbox/${conv.id}" hx-push-url="/inbox?open=${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
       <span class="conv-av"><span class="conv-av-i">${initials}</span><span class="conv-pg" style="background:${platformColor(conv.platform)}">${raw(platformGlyphString(conv.platform, 9))}</span></span>
       <span class="conv-body">
         <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time-wrap">${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}<span class="conv-time">${timeAgo(conv.last_message_at)}</span></span></span>
@@ -691,7 +691,7 @@ export function renderThread(
       </div>`
     : html``;
   return html`<div class="thread-head">
-      <button class="btn btn-sm thread-back" type="button" x-data @click="if (history.state?.htmx) history.back(); else { history.replaceState(null, '', '/inbox'); $el.closest('#thread').replaceChildren(); document.querySelector('#conv-panel .conv-item')?.focus(); }">← Back</button>
+      <button class="btn btn-sm thread-back" data-row-return="${conv.id}" type="button" x-data @click="if (history.state?.htmx) history.back(); else { history.replaceState(null, '', '/inbox'); $el.closest('#thread').replaceChildren(); }">← Back</button>
       <div class="th-top">
         <span class="th-av">${initialsOf(name)}</span>
         <span class="th-id"><div class="th-nm">${title}</div><div class="th-via">${platformVia(conv)}</div></span>

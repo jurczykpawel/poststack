@@ -2,6 +2,14 @@
 (function () {
   var returnTo = null;
 
+  function restoreFocus(clear) {
+    if (!returnTo || document.querySelector(".dl-detail, #thread .thread-head")) return;
+    var row = Array.from(document.querySelectorAll("[data-row]")).find(function (r) { return r.getAttribute("data-row") === returnTo; });
+    var link = row && (row.matches(".conv-item") ? row : row.querySelector("a.dl-rowlink"));
+    if (link) link.focus({ preventScroll: true });
+    if (clear) returnTo = null;
+  }
+
   function ready() {
     // Empty filter fields would otherwise end up in the pushed address.
     document.body.addEventListener("htmx:configRequest", function (e) {
@@ -21,18 +29,19 @@
       if (q !== box.value.trim()) e.detail.shouldSwap = false;
     });
 
+    document.body.addEventListener("htmx:historyRestore", function () { restoreFocus(false); });
+
     // Closing details hands focus back to the row they belong to.
     document.body.addEventListener("click", function (e) {
-      var close = e.target.closest && e.target.closest(".dl-close");
-      if (close) returnTo = close.getAttribute("data-row-return");
+      var close = e.target.closest && e.target.closest(".dl-close, .thread-back");
+      if (close) {
+        returnTo = close.getAttribute("data-row-return");
+        if (close.matches(".thread-back") && !window.history.state?.htmx) requestAnimationFrame(function () { restoreFocus(true); });
+      }
     });
     document.body.addEventListener("htmx:afterSettle", function (e) {
-      if (!returnTo || e.target !== document.getElementById("data-list") || document.querySelector(".dl-detail")) return;
-      var id = returnTo;
-      returnTo = null;
-      var row = Array.from(document.querySelectorAll("[data-row]")).find(function (r) { return r.getAttribute("data-row") === id; });
-      var link = row && row.querySelector("a.dl-rowlink");
-      if (link) link.focus({ preventScroll: true });
+      if (e.target !== document.getElementById("data-list") && e.target !== document.getElementById("conv-panel")) return;
+      restoreFocus(true);
     });
   }
 

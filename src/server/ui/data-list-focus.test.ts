@@ -11,10 +11,10 @@ it("returns focus only after the close response settles, preserving it across an
     body: { addEventListener: (name: string, fn: (event: unknown) => void) => listeners.set(name, fn) },
     querySelector: () => detailsOpen ? {} : null,
     getElementById: () => list,
-    querySelectorAll: () => [{ getAttribute: () => "row-1", querySelector: () => ({ focus }) }],
+    querySelectorAll: () => [{ getAttribute: () => "row-1", matches: () => false, querySelector: () => ({ focus }) }],
   };
   runInNewContext(readFileSync("src/server/ui/static/data-list.js", "utf8"), { document });
-  listeners.get("click")!({ target: { closest: () => ({ getAttribute: () => "row-1" }) } });
+  listeners.get("click")!({ target: { closest: () => ({ getAttribute: () => "row-1", matches: () => false }) } });
   listeners.get("htmx:afterSettle")!({ target: list });
   expect(focus).not.toHaveBeenCalled();
   detailsOpen = false;
