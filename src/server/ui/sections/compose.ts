@@ -1,3 +1,7 @@
+import { validateComposeCarousel } from "./compose-media";
+import { ApiError } from "@/lib/api/response";
+import { getProviderForPlatform } from "@/lib/providers";
+import { FACEBOOK_VIDEO_CAROUSEL_HINT } from "@/lib/platforms/facebook-video-carousel";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { z } from "zod";
@@ -12,7 +16,7 @@ import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
 import { autoReplyInput, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
 import { db } from "@/lib/db";
-import { sequences as sequencesTbl, auditLogs } from "@/db/schema";
+import { sequences as sequencesTbl, auditLogs, channels } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { renderPage } from "../layout";
 import { platformLabel, platformColor, platformGlyphString } from "../components/platform";
@@ -36,6 +40,7 @@ const composeSchema = z.object({
   title: z.string().min(1).max(LIMITS.name),
   contentType: z.string().max(LIMITS.line).optional(),
   mediaUrl: httpUrl,
+  mediaUrls: z.array(httpUrl).max(100).optional(),
   coverUrl: httpUrl.optional().or(z.literal("")),
   baseDescription: z.string().max(LIMITS.text).optional(),
   baseHashtags: z.string().max(LIMITS.hashtags).optional(),
@@ -64,6 +69,7 @@ const composeSchema = z.object({
 const CONTENT_TYPES: [string, string][] = [
   ["video", "Video"],
   ["image", "Image"],
+  ["carousel", "Carousel (2–10 media)"],
 ];
 
 async function auth(c: Context): Promise<AuthContext | null> {
@@ -78,9 +84,10 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
   });
 }
 
-type PlatformOpt = { channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
+type PlatformOpt = { carousel: boolean; providerId: string; videoCarousel?: boolean; channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
 async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
   const brands = await listBrands(workspaceId);
+  const channelRows = await db.query.channels.findMany({ where: eq(channels.workspace_id, workspaceId), columns: { id: true, video_carousel: true } });
   const locked = await lockedBrandKeys(workspaceId);
   const out: Record<string, { name: string; platforms: PlatformOpt[] }> = {};
   for (const b of brands) {
@@ -92,6 +99,9 @@ async function brandsData(workspaceId: string): Promise<Record<string, { name: s
         .filter((s) => s.channel)
         .map((s) => ({
           channelId: s.channel!.id,
+          carousel: getProviderForPlatform(s.platform).capabilities().some(c => c.format === "carousel"),
+          providerId: getProviderForPlatform(s.platform).id,
+          videoCarousel: channelRows.find(c => c.id === s.channel!.id)?.video_carousel === "available",
           platform: s.platform,
           name: platformLabel(s.platform),
           label: s.channel!.label,
@@ -121,7 +131,7 @@ function composeScript(): Html {
           if (!d.brand || !data[d.brand]) return;
           this.brand = d.brand; this.onBrandChange();
           this.title = d.title || ""; this.type = d.contentType || "video";
-          this.mediaUrl = d.mediaUrl || ""; this.coverUrl = d.coverUrl || "";
+          this.mediaUrl = d.mediaUrls?.[0] || d.mediaUrl || ""; this.extraMedia = (d.mediaUrls || []).slice(1); this.coverUrl = d.coverUrl || "";
           this.baseDescription = d.baseDescription || ""; this.baseHashtags = d.baseHashtags || "";
           this.publishMode = d.publish?.mode || "draft";
           if (d.publish?.at) { var at = new Date(d.publish.at); this.scheduleAt = new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
@@ -147,6 +157,36 @@ function composeScript(): Html {
         licAutoStory: seqCfg.canAutoStory,
         hasSequences() { return this.canSequence && this.sequences.length > 0; },
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
+        videoCarouselHint: seqCfg.videoCarouselHint,
+        extraMedia: [], addOpen: false, additionalUrl: "", library: [], mediaKinds: {}, mediaNotice: "", mediaBusy: false, slideMenu: -1,
+        allMedia() { return [this.mediaUrl.trim(), ...this.extraMedia].filter(Boolean); },
+        setMedia(urls) { this.mediaUrl = urls[0] || ""; this.extraMedia = urls.slice(1); this.slideMenu = -1; if (urls.length > 1) this.type = "carousel"; else if (urls.length === 1) this.type = this.mediaVideo(urls[0]) ? "video" : "image"; },
+        addMedia(url, kind) {
+          if (!url || this.allMedia().length >= 10) return;
+          if (kind) this.mediaKinds[url] = kind;
+          this.setMedia([...this.allMedia(), url.trim()]); this.addOpen = false; this.additionalUrl = ""; this.mediaNotice = "";
+        },
+        moveMedia(i, step) { var urls = this.allMedia(), j = i + step; if (j < 0 || j >= urls.length) return; [urls[i], urls[j]] = [urls[j], urls[i]]; this.setMedia(urls); },
+        removeMedia(i) { this.setMedia(this.allMedia().filter((_, n) => n !== i)); },
+        mediaImage(url) { return this.mediaKinds[url] ? this.mediaKinds[url] === "image" : /\\.(png|jpe?g|gif|webp|avif)(\\?|$)/i.test(url); },
+        mediaVideo(url) { return this.mediaKinds[url] ? this.mediaKinds[url] === "video" : /\\.(mp4|mov|webm|m4v)(\\?|$)/i.test(url); },
+        fbVideoBlocked() { return this.allMedia().length > 0 && this.isOn("facebook") && !this.availPlatforms.find(p => p.platform === "facebook")?.videoCarousel; },
+        carouselNotice(p) {
+          if (this.allMedia().length < 2 && this.type !== "carousel") return "";
+          if (!p.carousel) return "unsupported format 'carousel' for " + p.providerId;
+          if (p.platform === "facebook" && !p.videoCarousel && this.allMedia().some(u => this.mediaVideo(u))) return seqCfg.videoCarouselHint;
+          return "";
+        },
+        async loadLibrary() {
+          this.mediaBusy = true;
+          try { var r = await fetch("/api/v1/media"); if (!r.ok) throw new Error("Could not load media library."); var b = await r.json(); this.library = b.data; this.library.forEach(m => this.mediaKinds[m.url] = m.kind); }
+          catch (e) { this.mediaNotice = e.message; } finally { this.mediaBusy = false; }
+        },
+        async uploadMedia(file) {
+          if (!file) return; this.mediaBusy = true;
+          try { var r = await fetch("/api/v1/media", { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file }); var b = await r.json(); if (!r.ok) throw new Error(b.error?.message || "Upload failed."); this.addMedia(b.data.url, b.data.kind); }
+          catch (e) { this.mediaNotice = e.message; } finally { this.mediaBusy = false; }
+        },
         brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
         sel: {}, publishMode: "draft", scheduleAt: "", capTab: "base", pvTab: "",
         minAt() { var d = new Date(Date.now() + 60000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); },
@@ -195,8 +235,7 @@ function composeScript(): Html {
           return { n: t.length, lim: lim, over: t.length > lim };
         },
         selectedPlatforms() { return this.availPlatforms.filter((p) => this.sel[p.platform] && this.sel[p.platform].on); },
-        isImage() { return /\\.(png|jpe?g|gif|webp|avif)(\\?|$)/i.test(this.mediaUrl); },
-        previewImg() { return this.coverUrl || (this.isImage() ? this.mediaUrl : ""); },
+        previewImg() { var first = this.allMedia()[0]; return this.allMedia().length > 1 ? (this.mediaImage(first) ? first : "") : this.coverUrl || (this.mediaImage(first) ? first : ""); },
         pvPlatform() { var sp = this.selectedPlatforms(); return sp.find((p) => p.platform === this.pvTab) || sp[0]; },
         pvKey() { var pp = this.pvPlatform(); return pp ? pp.platform : ""; },
         hasOverride(p) { return !!(this.sel[p] && (this.sel[p].override || "").length); },
@@ -218,6 +257,8 @@ function composeScript(): Html {
           return l.join(" \\u00b7 ");
         },
         canSubmit() {
+          if (this.mediaBusy || this.selectedPlatforms().some(p => this.carouselNotice(p))) return false;
+          if (this.type === "carousel" && this.allMedia().length < 2) return false;
           if (this.isOn("youtube") && !this.yt.valid(this.publishMode !== "draft")) return false;
           if (this.isOn("tiktok")) {
             if (this.type !== "video" || this.over("tiktok")) return false;
@@ -226,7 +267,8 @@ function composeScript(): Html {
           return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
         buildPayload() {
           return {
-            brand: this.brand, title: this.title.trim(), contentType: this.type,
+            brand: this.brand, title: this.title.trim(), contentType: this.allMedia().length > 1 ? "carousel" : this.type,
+            mediaUrls: this.allMedia().length > 1 || this.type === "carousel" ? this.allMedia() : undefined,
             mediaUrl: this.mediaUrl.trim(), coverUrl: this.coverUrl.trim() || undefined,
             baseDescription: this.baseDescription || undefined, baseHashtags: this.baseHashtags || undefined,
             posts: this.selectedPlatforms().map((p) => {
@@ -270,6 +312,7 @@ async function composePage(
 ): Promise<Html> {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   const seqJson = JSON.stringify({
+    videoCarouselHint: FACEBOOK_VIDEO_CAROUSEL_HINT,
     tiktokConfirmAtSend: (await getConfig("TIKTOK_CONFIRM_AT_SEND")) === "true",
     canSequence: features.has("sequences"),
     sequences,
@@ -316,7 +359,7 @@ async function composePage(
                 <template x-for="p in availPlatforms" :key="p.platform">
                   <div class="target" :class="isOn(p.platform) ? 'on' : ''" @click="toggleTarget(p.platform)" role="button" tabindex="0" @keydown.enter.prevent="toggleTarget(p.platform)" @keydown.space.prevent="toggleTarget(p.platform)">
                     <span class="t-pic" :style="'background:'+p.color" x-html="p.glyph"></span>
-                    <span class="t-meta"><span class="t-nm" x-text="p.name"></span><span class="t-hd" x-text="p.label"></span></span>
+                    <span class="t-meta"><span class="t-nm" x-text="p.name"></span><span class="t-hd" x-text="p.label"></span><small class="carousel-notice" x-show="carouselNotice(p)" x-text="carouselNotice(p)"></small></span>
                     <span class="t-tick">${icon("check", "ico", 12)}</span>
                   </div>
                 </template>
@@ -325,7 +368,7 @@ async function composePage(
           </section>
 
           <section class="panel">
-            <div class="panel-head"><h3>Media</h3></div>
+            <div class="panel-head"><h3>Media</h3><span class="panel-count" x-text="allMedia().length + ' / 10'" aria-live="polite"></span></div>
             <div class="compose-body">
               <div class="media-row">
                 <div class="media-thumb">
@@ -334,12 +377,40 @@ async function composePage(
                 </div>
                 <div class="media-fields">
                   <div class="fld-row">
-                    <label class="fld"><span>Type</span><select x-model="type" aria-label="Content type">${typeOpts}</select></label>
+                    <label class="fld" x-show="allMedia().length&lt;2"><span>Type</span><select x-model="type" x-ref="contentType" x-effect="type; $nextTick(() => $refs.contentType.dispatchEvent(new Event('change', {bubbles:true})))" aria-label="Content type">${typeOpts}</select></label>
+                    <div class="fld" x-show="allMedia().length>1" x-cloak><span>Type</span><strong>Carousel (2–10 media)</strong></div>
                     <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" aria-invalid="${mediaError ? "true" : "false"}" aria-describedby="compose-media-error" placeholder="https://cdn…/reel.mp4" required />${mediaError ? html`<span id="compose-media-error" role="alert" class="notice-err">${error}</span>` : ""}</label>
                   </div>
                   <label class="fld"><span>Cover URL <small>(optional)</small></span><input type="url" x-model="coverUrl" placeholder="https://cdn…/cover.png" /></label>
                 </div>
               </div>
+              <div class="carousel-slides" role="list" aria-label="Media order" @keydown.escape.window="slideMenu=-1">
+                <template x-for="(url, i) in allMedia()" :key="i">
+                  <div class="carousel-slide" role="listitem" data-compose-slide>
+                    <span class="media-thumb"><template x-if="mediaImage(url)"><img :src="url" alt="" /></template><template x-if="!mediaImage(url)">${icon("video", "ico", 22)}</template></span>
+                    <span class="carousel-url"><b x-text="'Media ' + (i+1)"></b><small x-text="url"></small></span>
+                    <div class="carousel-actions" @click.outside="if (slideMenu===i) slideMenu=-1" :class="slideMenu===i ? 'open' : ''">
+                      <button type="button" class="btn btn-sm carousel-more" aria-label="Media actions" :aria-expanded="slideMenu===i" @click="slideMenu=slideMenu===i ? -1 : i">⋯</button>
+                      <div class="carousel-controls">
+                        <button type="button" class="btn btn-sm" :aria-label="'Move media '+(i+1)+' up'" :disabled="i===0" @click="moveMedia(i,-1)">↑</button>
+                        <button type="button" class="btn btn-sm" :aria-label="'Move media '+(i+1)+' down'" :disabled="i===allMedia().length-1" @click="moveMedia(i,1)">↓</button>
+                        <button type="button" class="btn btn-sm" :aria-label="'Remove media '+(i+1)" @click="removeMedia(i)">Remove</button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <button type="button" class="btn btn-sm" :disabled="allMedia().length>=10 || mediaBusy" @click="addOpen=!addOpen">Add media</button>
+              <div x-show="addOpen" x-cloak class="compose-media-add">
+                <label class="fld"><span>Additional media URL</span><input type="url" x-model="additionalUrl" /></label>
+                <button type="button" class="btn btn-sm" :disabled="!additionalUrl.trim() || mediaBusy" @click="addMedia(additionalUrl)">Add URL</button>
+                <label class="fld"><span>Upload media</span><input type="file" :accept="fbVideoBlocked() ? 'image/*' : 'image/*,video/*'" :disabled="mediaBusy" @change="uploadMedia($event.target.files[0]); $event.target.value=''" /></label>
+                <button type="button" class="btn btn-sm" :disabled="mediaBusy" @click="loadLibrary()">Media library</button>
+                <p class="card-hint" x-show="fbVideoBlocked()" x-text="videoCarouselHint"></p>
+                <div class="carousel-library"><template x-for="m in library" :key="m.id"><button type="button" class="btn btn-sm" data-library-media :disabled="mediaBusy || allMedia().length>=10 || (m.kind==='video' &amp;&amp; fbVideoBlocked())" :title="m.kind==='video' &amp;&amp; fbVideoBlocked() ? videoCarouselHint : ''" @click="addMedia(m.url,m.kind)"><span x-text="m.kind + ': ' + m.url"></span></button></template></div>
+              </div>
+              <p class="notice notice-info" role="status" x-show="mediaBusy" x-cloak>Preparing media…</p>
+              <p class="notice notice-warn" role="status" x-show="mediaNotice || (type==='carousel' &amp;&amp; allMedia().length&lt;2)" x-text="mediaNotice || &quot;format 'carousel' needs >= 2 media&quot;" x-cloak></p>
             </div>
           </section>
 
@@ -450,9 +521,11 @@ async function composePage(
                 </header>
                 <div class="pv-media">
                   <template x-if="previewImg()"><img :src="previewImg()" alt="" onerror="this.style.display='none'" /></template>
-                  <template x-if="!previewImg() && mediaUrl">${icon("video", "ico", 30)}</template>
+                  <template x-if="allMedia().length>1 &amp;&amp; mediaVideo(allMedia()[0])"><video :src="allMedia()[0]" controls muted playsinline preload="metadata"></video></template>
+                  <template x-if="!previewImg() &amp;&amp; mediaUrl &amp;&amp; !(allMedia().length>1 &amp;&amp; mediaVideo(allMedia()[0]))">${icon("video", "ico", 30)}</template>
                   <template x-if="!previewImg() && !mediaUrl">${icon("image", "ico", 30)}</template>
                 </div>
+                <div class="carousel-preview" x-show="allMedia().length>1"><span data-carousel-count x-text="'1 / ' + allMedia().length"></span><div class="carousel-strip"><template x-for="(url,i) in allMedia()" :key="i"><span class="media-thumb"><template x-if="mediaImage(url)"><img :src="url" alt="" /></template><template x-if="!mediaImage(url)">${icon("video", "ico", 16)}</template></span></template></div></div>
                 <p class="pv-cap" x-text="captionFor(pvKey()) || 'No caption'"></p>
                 <div class="pv-foot">${heartGlyph}${icon("comment", "ico", 17)}${icon("send", "ico", 17)}<span class="compose-counter ct" :class="over(pvKey()) ? 'over' : ''"><span x-text="count(pvKey())"></span> / <span x-text="limit(pvKey())"></span></span></div>
               </article>
@@ -490,9 +563,14 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
       // Anything else (unreadable or structurally wrong payload) stays a 400.
       const fixable = json !== null && result.error.issues.every((i) => i.code === "too_big" || i.message === MEDIA_URL_MSG);
       const msg = fixable ? formErrorText({ error: { details: result.error.issues } }, "Check the form and try again.") : "Could not read the form — please try again.";
-      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg, fixable ? json : undefined, result.error.issues.some(i => i.path[0] === "mediaUrl")), fixable ? 422 : 400);
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg, fixable ? json : undefined, result.error.issues.some(i => ["mediaUrl", "mediaUrls"].includes(String(i.path[0])))), fixable ? 422 : 400);
     }
     const parsed = result.data;
+    try { await validateComposeCarousel(parsed, a.workspaceId); }
+    catch (e) {
+      if (!(e instanceof ApiError)) throw e;
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), e.message, parsed), 422);
+    }
     const mode = parsed.publish?.mode ?? "draft";
     const tik = parsed.posts.find((p) => p.platform === "tiktok");
     let consentChannelId: string | undefined;

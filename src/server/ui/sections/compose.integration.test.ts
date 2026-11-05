@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { users, workspaces, channels, brands, content, posts, rateLimitCounters, sequences, auditLogs, media, deliveries } from "@/db/schema";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
@@ -171,7 +171,7 @@ describe("unified Compose section", () => {
     const row = await db.query.content.findFirst({ where: eq(content.id, id) });
     expect(row!.status).toBe("draft");
     expect(row!.profile).toBe("techskills.academy");
-    const ps = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    const ps = await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) });
     expect(ps).toHaveLength(2);
     expect(ps.every((p) => p.status === "planned")).toBe(true);
     expect(ps.find((p) => p.platform === "youtube")!.description).toBe("YT caption");
@@ -212,7 +212,7 @@ describe("unified Compose section", () => {
     });
     expect(res.status).toBe(303);
     const id = res.headers.get("location")!.split("/").pop()!;
-    const p = (await db.query.posts.findMany({ where: eq(posts.content_id, id) }))[0];
+    const p = (await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) }))[0];
     expect(p.first_comment).toBe("👇 Comment LINK");
     expect(p.auto_story).toBe(true);
     expect((p.auto_reply as { dmText?: string } | null)?.dmText).toBe("Here you go!");
@@ -246,7 +246,7 @@ describe("unified Compose section", () => {
     });
     expect(res.status).toBe(303);
     const id = res.headers.get("location")!.split("/").pop()!;
-    const p = (await db.query.posts.findMany({ where: eq(posts.content_id, id) }))[0];
+    const p = (await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) }))[0];
     const ar = p.auto_reply as { responseType?: string; sequenceId?: string } | null;
     expect(ar?.responseType).toBe("sequence");
     expect(ar?.sequenceId).toBe(seq!.id);
@@ -279,7 +279,7 @@ describe("unified Compose section", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toMatch(/^\/content\/[0-9a-f-]+$/);
     const id = res.headers.get("location")!.split("/").pop()!;
-    expect((await db.query.posts.findMany({ where: eq(posts.content_id, id) }))).toHaveLength(1);
+    expect((await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) }))).toHaveLength(1);
   });
 
   it("rejects a malformed payload with 400", async () => {
@@ -339,7 +339,7 @@ describe("TikTok Compose controls", () => {
     const res = await app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }) });
     expect(res.status).toBe(303);
     const id = res.headers.get("location")!.split("/").pop()!;
-    const [post] = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    const [post] = await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) });
     expect(post).toMatchObject({ youtube_privacy: "unlisted", youtube_made_for_kids: false, youtube_license: "creativeCommon",
       youtube_embeddable: false, youtube_notify_subscribers: false, youtube_default_language: "pl",
       youtube_chapters: [{ start: 0, title: "A" }, { start: 30, title: "B" }, { start: 90, title: "C" }],
@@ -362,7 +362,7 @@ describe("TikTok Compose controls", () => {
     const res = await app.request("/compose", { method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }) });
     expect(res.status).toBe(303);
     const id = res.headers.get("location")!.split("/").pop()!;
-    const [post] = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    const [post] = await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) });
     expect(post).toMatchObject({ tiktok_publish_mode: "direct", tiktok_privacy_level: "PUBLIC_TO_EVERYONE",
       tiktok_disable_comment: true, tiktok_disable_duet: false, tiktok_disable_stitch: true,
       tiktok_brand_content_toggle: true, tiktok_brand_organic_toggle: false });
@@ -393,7 +393,7 @@ describe("TikTok Compose submission", () => {
     const p = await payload(); p.publish.mode = mode;
     const res = await submit(p); expect(res.status).toBe(303);
     const id = res.headers.get("location")!.split("/").pop()!;
-    const [post] = await db.query.posts.findMany({ where: eq(posts.content_id, id) });
+    const [post] = await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) });
     expect(post.tiktok_brand_organic_toggle).toBe(true);
     expect(post.status).toBe("scheduled");
     if (mode === "schedule") expect(post.scheduled_date!.toISOString()).toBe(p.publish.at);
@@ -431,6 +431,9 @@ it("visually distinguishes unavailable TikTok interactions", () => {
 });
 
 interface ComposeState {
+  extraMedia: string[]; mediaKinds: Record<string, string>;
+  allMedia(): string[]; moveMedia(index: number, step: number): void;
+  mediaImage(url: string): boolean; mediaVideo(url: string): boolean;
   tiktokScheduleText(): string;
   brand: string; title: string; type: string; mediaUrl: string; baseDescription: string; baseHashtags: string;
   publishMode: string; scheduleAt: string;
@@ -484,4 +487,98 @@ it("shows that scheduled TikTok will require send-time confirmation when enabled
     expect(c.tiktokScheduleText()).toContain("wymaga potwierdzenia");
     expect(c.tiktokScheduleText()).not.toContain("Opublikujemy automatycznie");
   } finally { await clearConfig("TIKTOK_CONFIRM_AT_SEND"); }
+});
+
+it.each([1, 11])("rejects a Compose carousel with %s slides before authoring", async count => {
+  const response = await app.request("/compose", { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ payload: JSON.stringify({ brand: "techskills.academy", title: "Invalid carousel", contentType: "carousel", mediaUrl: "https://cdn.example.test/tt3.mp4", mediaUrls: Array(count).fill("https://cdn.example.test/tt3.mp4"), posts: [{ platform: "instagram" }] }) }) });
+  expect(response.status).toBe(422);
+  expect(await response.text()).toContain(count === 1 ? "format &#39;carousel&#39; needs &gt;= 2 media" : "format &#39;carousel&#39; allows &lt;= 10 media");
+});
+
+it("rejects unsupported Compose carousel destinations without creating content", async () => {
+  const before = await db.select().from(content).where(eq(content.workspace_id, workspaceId));
+  const response = await app.request("/compose", { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ payload: JSON.stringify({ brand: "techskills.academy", title: "Unsupported carousel", mediaUrl: "https://cdn.example.test/tt3.mp4", mediaUrls: Array(2).fill("https://cdn.example.test/tt3.mp4"), posts: [{ platform: "tiktok" }] }) }) });
+  expect(response.status).toBe(422);
+  expect(await response.text()).toContain("unsupported format");
+  expect(await db.select().from(content).where(eq(content.workspace_id, workspaceId))).toHaveLength(before.length);
+});
+
+it("lists only ready workspace media for the Compose library", async () => {
+  const [other] = await db.insert(workspaces).values({ name: "Other library", slug: "other-compose-library" }).returning();
+  const [pending] = await db.insert(media).values({ workspace_id: workspaceId, checksum: "compose-library-pending", storage_key: "", url: "", kind: "", status: "ingesting" }).returning();
+  try {
+    await db.insert(media).values({ workspace_id: other.id, checksum: "compose-library-other", storage_key: "other.png", url: "https://cdn.example.test/other.png", kind: "image" });
+    const ready = await db.query.media.findFirst({ where: and(eq(media.workspace_id, workspaceId), eq(media.url, "https://cdn.example.test/tt3.mp4")) });
+    await db.update(media).set({ status: "ready", canonical_id: ready!.id }).where(and(eq(media.workspace_id, workspaceId), eq(media.id, pending.id)));
+    const response = await app.request("/api/v1/media", { headers: { cookie } });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.some((m: { url: string }) => m.url === "https://cdn.example.test/tt3.mp4")).toBe(true);
+    expect(body.data.some((m: { url: string }) => m.url === "https://cdn.example.test/other.png")).toBe(false);
+    expect(body.data.every((m: { kind: string }) => ["image", "video"].includes(m.kind))).toBe(true);
+  } finally {
+    await db.delete(media).where(and(eq(media.workspace_id, workspaceId), eq(media.id, pending.id)));
+    await db.delete(workspaces).where(eq(workspaces.id, other.id));
+  }
+});
+
+it("checks the Facebook channel permission before authoring a mixed carousel", async () => {
+  await db.insert(channels).values({ workspace_id: workspaceId, platform: "facebook", platform_id: "compose-fb", brand_key: "techskills.academy", token_encrypted: encryptTokens({ access_token: "t" }), webhook_secret: "w" });
+  const response = await app.request("/compose", { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ payload: JSON.stringify({ brand: "techskills.academy", title: "Mixed carousel", mediaUrl: "https://cdn.example.test/tt3.mp4", mediaUrls: Array(2).fill("https://cdn.example.test/tt3.mp4"), posts: [{ platform: "facebook" }] }) }) });
+  expect(response.status).toBe(422);
+  expect(await response.text()).toContain("Video in Facebook carousels requires a verified Meta app with ads permission (pages_manage_ads) for this Page.");
+});
+
+it("keeps the complete ordered draft when a carousel URL is invalid", async () => {
+  const mediaUrls = ["https://cdn.example.test/a.png", "file:///slide.png", "https://cdn.example.test/c.png"];
+  const response = await app.request("/compose", { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ payload: JSON.stringify({ brand: "techskills.academy", title: "Retained carousel", mediaUrl: mediaUrls[0], mediaUrls, posts: [{ platform: "instagram" }] }) }) });
+  expect(response.status).toBe(422);
+  const out = await response.text();
+  const draft = JSON.parse(out.match(/<script id="ps-compose-draft"[^>]*>([\s\S]*?)<\/script>/)![1]);
+  expect(draft.mediaUrls).toEqual(mediaUrls);
+});
+
+it("authors a video carousel for an eligible Facebook channel with ordered mediaUrls", async () => {
+  await db.update(channels).set({ video_carousel: "available" }).where(and(eq(channels.workspace_id, workspaceId), eq(channels.platform_id, "compose-fb")));
+  const urls = ["https://cdn.example.test/tt3.mp4", "https://cdn.example.test/tt3.mp4"];
+  try {
+    const response = await app.request("/compose", { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ payload: JSON.stringify({ brand: "techskills.academy", title: "Eligible carousel", mediaUrl: urls[0], mediaUrls: urls, posts: [{ platform: "facebook" }] }) }) });
+    expect(response.status).toBe(303);
+    const id = response.headers.get("location")!.split("/").pop()!;
+    const saved = await db.query.posts.findFirst({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) });
+    expect(saved?.media_urls).toEqual(urls);
+  } finally {
+    await db.update(channels).set({ video_carousel: "unknown" }).where(and(eq(channels.workspace_id, workspaceId), eq(channels.platform_id, "compose-fb")));
+  }
+});
+
+it("uploads a probed image into the Compose library and reuses its stored reference", async () => {
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  const upload = () => app.request("/api/v1/media", { method: "POST", headers: { cookie, "content-type": "image/png" }, body: bytes });
+  const first = await upload();
+  expect(first.status).toBe(201);
+  const stored = (await first.json()).data;
+  expect(stored).toMatchObject({ kind: "image", status: "ready", workspaceId });
+  expect(stored.url).toMatch(/^https?:\/\//);
+  const second = await upload();
+  expect(second.status).toBe(201);
+  expect((await second.json()).data.id).toBe(stored.id);
+});
+
+it("rejects unrecognized Compose uploads without adding library entries", async () => {
+  const before = await db.select().from(media).where(eq(media.workspace_id, workspaceId));
+  const response = await app.request("/api/v1/media", { method: "POST", headers: { cookie, "content-type": "image/png" }, body: "not an image" });
+  expect(response.status).toBe(400);
+  expect(await db.select().from(media).where(eq(media.workspace_id, workspaceId))).toHaveLength(before.length);
+});
+
+it("previews registered media by kind and keeps the moved slide order", async () => {
+  const c = await composeState();
+  const video = "https://cdn.example.test/video.png", image = "https://cdn.example.test/image.mp4";
+  c.mediaKinds[video] = "video"; c.mediaKinds[image] = "image";
+  expect(c.mediaImage(video)).toBe(false); expect(c.mediaVideo(video)).toBe(true);
+  expect(c.mediaImage(image)).toBe(true); expect(c.mediaVideo(image)).toBe(false);
+  c.mediaUrl = image; c.extraMedia = [video, "https://cdn.example.test/third.png"];
+  c.moveMedia(2, -1);
+  expect(Array.from(c.allMedia())).toEqual([image, "https://cdn.example.test/third.png", video]);
 });

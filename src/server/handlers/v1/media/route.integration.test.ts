@@ -256,3 +256,17 @@ describe("remote media polling contract", () => {
     } finally { upload?.mockRestore(); }
   });
 });
+
+it("lists and uploads media with the publishing scope and standard response envelope", async () => {
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  const upload = (key: string) => app.request("/api/v1/media", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/octet-stream" }, body: bytes });
+  expect((await app.request("/api/v1/media", { headers: { authorization: `Bearer ${UNRELATED_KEY}` } })).status).toBe(403);
+  expect((await upload(UNRELATED_KEY)).status).toBe(403);
+  const created = await upload(WRITE_KEY);
+  expect(created.status).toBe(201);
+  const stored = await created.json();
+  expect(stored).toMatchObject({ error: null, data: { kind: "image", status: "ready", workspaceId: WS } });
+  const library = await app.request("/api/v1/media", { headers: { authorization: `Bearer ${WRITE_KEY}` } });
+  expect(library.status).toBe(200);
+  expect(await library.json()).toMatchObject({ error: null, data: [{ id: stored.data.id, url: stored.data.url, kind: "image" }] });
+});

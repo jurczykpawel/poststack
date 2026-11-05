@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Compose Instagram and Facebook carousels with 2–10 media items from URLs, uploads or the media library. Reorder and remove slides, preview thumbnails, and check channel support before scheduling. The media API also lists ready files and accepts binary uploads.
+
 ## [0.17.6] - 2026-11-06
 
 ### Fixed

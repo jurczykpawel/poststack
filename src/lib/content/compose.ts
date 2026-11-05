@@ -19,6 +19,7 @@ export interface ComposeInput {
   title: string;
   contentType?: string;
   mediaUrl: string;
+  mediaUrls?: string[];
   coverUrl?: string;
   baseDescription?: string;
   baseHashtags?: string;
@@ -42,16 +43,18 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
   if (!input.mediaUrl?.trim()) throw new Error("mediaUrl is required");
   if (!input.posts?.length) throw new Error("at least one platform is required");
 
+  const urls = input.mediaUrls ?? [input.mediaUrl];
+  const carousel = urls.length > 1 || input.contentType === "carousel";
   const video = isVideoMedia(input.mediaUrl, input.contentType);
 
   const content = await createContent(
     {
       title: input.title.trim(),
-      contentType: input.contentType,
+      contentType: carousel ? "carousel" : input.contentType,
       profile: input.brand.trim(),
       baseDescription: input.baseDescription,
       baseHashtags: input.baseHashtags,
-      mediaUrls: [input.mediaUrl, ...(input.coverUrl ? [input.coverUrl] : [])],
+      mediaUrls: carousel ? urls : [input.mediaUrl, ...(input.coverUrl ? [input.coverUrl] : [])],
       status: "draft",
     },
     workspaceId,
@@ -67,7 +70,7 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
         platform: p.platform,
         description: p.description?.trim() || input.baseDescription,
         hashtags: p.hashtags?.trim() || input.baseHashtags,
-        ...(video ? { videoUrl: input.mediaUrl } : { mediaUrl: input.mediaUrl }),
+        ...(carousel ? { mediaUrls: urls } : video ? { videoUrl: input.mediaUrl } : { mediaUrl: input.mediaUrl }),
         coverUrl: input.coverUrl,
         status: "planned",
         // COMPOSE2: per-post automation. Omit when absent so the column stays NULL (inherit default);

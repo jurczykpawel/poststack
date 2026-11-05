@@ -38,6 +38,7 @@ vi.mock("@/lib/brands/service", () => ({
 vi.mock("@/lib/brands/resolve", () => ({ resolveBrandSlots: vi.fn() }));
 vi.mock("@/lib/media/service", () => ({
   registerByUrl: vi.fn(),
+  listReadyMedia: vi.fn(),
   registerKnownMedia: vi.fn(),
 }));
 vi.mock("@/lib/storage", () => ({ getStorage: vi.fn() }));
@@ -83,6 +84,7 @@ const cases: ScopeCase[] = [
   { method: "PATCH", path: "/brands/brand-1", scope: "brands:write", invoke: (request) => brandItem.PATCH(request, brandContext) },
   { method: "DELETE", path: "/brands/brand-1", scope: "brands:write", invoke: (request) => brandItem.DELETE(request, brandContext) },
   { method: "GET", path: "/brands/brand-1/channels", scope: "brands:read", invoke: (request) => brandChannels.GET(request, brandContext) },
+  { method: "GET", path: "/media", scope: "media:write", invoke: media.LIST },
   { method: "POST", path: "/media", scope: "media:write", invoke: media.POST },
 ];
 
