@@ -78,6 +78,8 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 |-----|-------------------------------|
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Any values; the bundled Postgres is initialized with them. |
 | `ENCRYPTION_KEY` | Passphrase ≥ 32 chars — `openssl rand -base64 32`. **Encrypts OAuth tokens. Never change it after channels are connected** (existing tokens become undecryptable). |
+| `ENCRYPTION_KEY_PREVIOUS` | Optional. JSON array of up to 16 previous `ENCRYPTION_KEY` passphrases, used only to read secrets stored in the newer `ps2` format after a key rotation. Unset = none. |
+| `ENCRYPTION_READ_MODE` | Optional. `legacy-readable` (default) reads both the original and the `ps2` secret format. `v2-only` rejects the original format; set it only after a completed migration, and keep it when rolling back. Any other value fails startup. |
 | `JWT_SECRET` | `openssl rand -hex 32` |
 | `CRON_SECRET` | `openssl rand -hex 32` |
 | `META_APP_ID`, `META_APP_SECRET` | From [Meta for Developers](https://developers.facebook.com). |
