@@ -12,6 +12,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Added
 - Stored secrets can be read in the upcoming `ps2` format bound to their workspace and record, so a later version can migrate secrets without blocking a rollback. New optional `ENCRYPTION_KEY_PREVIOUS` and `ENCRYPTION_READ_MODE` settings (see docs/DEPLOY.md); writing is unchanged.
 
+### Changed
+- Login and registration captcha use ALTCHA library 2 and widget 3.
+
 ## [0.17.4] - 2026-11-05
 
 ### Fixed

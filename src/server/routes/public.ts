@@ -3,6 +3,8 @@ import { html } from "hono/html";
 import { Hono } from "hono";
 import { sql } from "drizzle-orm";
 import { createChallenge } from "altcha-lib";
+import { deriveKey } from "altcha-lib/algorithms/pbkdf2";
+import { randomInt } from "node:crypto";
 import { db } from "@/lib/db";
 import { openApiSpec } from "@/lib/api/openapi";
 import { getConfig } from "@/lib/settings/config";
@@ -65,10 +67,11 @@ publicRoutes.get("/api/captcha/challenge", async (c) => {
     return c.json({ error: "Captcha not configured" }, 503);
   }
   try {
-    // Expire the challenge in 10 minutes so a solution cannot be redeemed long
-    // after issuance (verifySolution rejects an expired salt). This is shorter
-    // than the single-use record's lifetime, so there is no reuse window.
-    const challenge = await createChallenge({ hmacKey, maxNumber: 100_000, expires: new Date(Date.now() + 10 * 60_000) });
+    const challenge = await createChallenge({
+      algorithm: "PBKDF2/SHA-256", cost: 5000, counter: randomInt(50, 101),
+      deriveKey, hmacSignatureSecret: hmacKey, expiresAt: new Date(Date.now() + 10 * 60_000),
+    });
+    c.header("Cache-Control", "no-store");
     return c.json(challenge);
   } catch (err) {
     console.error("[captcha/challenge] Failed:", err);
