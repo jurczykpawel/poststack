@@ -47,7 +47,7 @@ export async function processTokenRefresh(
   const provider = getProvider(channel.platform);
   if (!provider.requiresTokenRefresh()) return;
 
-  const currentBlob = decryptTokens(channel.token_encrypted);
+  const currentBlob = decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
   const current = toTokenSet(currentBlob);
   let refreshed;
   try {

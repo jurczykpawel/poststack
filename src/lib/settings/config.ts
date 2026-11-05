@@ -36,17 +36,20 @@ export function invalidateConfigCache(): void {
 async function loadAll(fresh = false): Promise<Map<string, string>> {
   if (!fresh && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.values;
   const values = new Map<string, string>();
+  let readingV2 = false;
   try {
     const rows = await (await getDb()).select().from(instanceSettings);
     for (const r of rows) {
       try {
-        values.set(r.key, decryptString(r.value_encrypted));
-      } catch {
+        readingV2 = r.value_encrypted.startsWith("ps2.");
+        values.set(r.key, decryptString(r.value_encrypted, ["instance", "instance_settings.value_encrypted", r.key]));
+      } catch (error) {
+        if (readingV2) throw error;
         /* undecryptable (wrong/rotated key) → treat as unset */
       }
     }
   } catch (error) {
-    if (fresh) throw error;
+    if (fresh || readingV2) throw error;
     // DB unreachable / table missing (e.g. pre-migration, or a unit test with no DB) → every key
     // simply falls back to its env var. Don't cache a failed read, so it retries next time.
     return values;

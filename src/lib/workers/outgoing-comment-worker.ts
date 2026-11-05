@@ -26,7 +26,7 @@ export async function processOutgoingComment(
     helpers,
     allowWhenPaused: !!payload.manualReplyAt,
     send: async (channel: DeliveryChannel) => {
-      const tokens = decryptChannelToken(channel.token_encrypted);
+      const tokens = decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
       const provider = getProvider(channel.platform);
       if (!provider.sendComment) {
         throw new Error(`Platform ${channel.platform} does not support comments`);

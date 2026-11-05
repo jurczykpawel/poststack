@@ -66,7 +66,7 @@ export async function processFollowGate(
 
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, channelId),
-    columns: { id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
+    columns: { platform_id: true, id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
   });
 
   if (!channel || channel.status === "disabled") {
@@ -108,7 +108,7 @@ export async function processFollowGate(
     // Decrypt INSIDE the catch: an undecryptable token (corrupt / rotated key) throws
     // TokenInvalidError and is handled here as re-auth, exactly like a live token rejection —
     // not left to escape as a generic transient and crash-loop to dead-letter.
-    const tokens = decryptChannelToken(channel.token_encrypted);
+    const tokens = decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
     if (provider.checkFollowsBusiness) {
       follows = await provider.checkFollowsBusiness(tokens, recipientPlatformId);
     }

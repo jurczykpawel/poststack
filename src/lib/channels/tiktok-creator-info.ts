@@ -27,7 +27,7 @@ export async function getTikTokCreatorInfo(
   return cache.getOrCompute(key, async () => {
     let accessToken: string;
     try {
-      accessToken = decryptTokens(channel.token_encrypted).access_token;
+      accessToken = decryptTokens(channel.token_encrypted, [`ws:${workspaceId}`, "channels.token_encrypted", channel.platform, channel.platform_id]).access_token;
       if (!accessToken) throw new Error("Missing credentials");
     } catch {
       throw new ApiError("bad_request", "Channel token cannot be decrypted — reconnect the channel", 400);

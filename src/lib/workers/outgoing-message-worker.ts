@@ -133,7 +133,7 @@ export async function processOutgoingMessage(
     allowWhenPaused: isHumanReply,
     onHeld: persistHeld,
     send: async (channel: DeliveryChannel) => {
-      let tokens = decryptChannelToken(channel.token_encrypted);
+      let tokens = decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
       const provider = getProvider(channel.platform);
 
       // On-demand token refresh if near expiry (shared helper, also used by the email poll).

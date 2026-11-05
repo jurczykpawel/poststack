@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "crypto";
 import type { TokenData } from "@/lib/platforms/base";
 
 export type { TokenData };
@@ -46,11 +46,46 @@ export function encryptString(plaintext: string): string {
   ].join(":");
 }
 
+export type SecretContext = readonly [scope: string, field: string, ...binding: string[]];
+
+function readV2(encrypted: string, context?: SecretContext): string {
+  if (encrypted.length > 1398153) throw new Error("Invalid encrypted value length");
+  const parts = encrypted.split(".");
+  if (parts.length !== 4 || parts[0] !== "ps2" || !/^[A-Za-z0-9_-]{8}$/.test(parts[1])) throw new Error("Invalid encrypted value format");
+  if (!context || context.length < 2 || !context.every((v) => typeof v === "string" && v.length > 0) || !/^(instance|ws:.+)$/.test(context[0])) throw new Error("Encryption context required");
+  const decode = (value: string): Buffer => {
+    const bytes = Buffer.from(value, "base64url");
+    if (bytes.toString("base64url") !== value) throw new Error("Invalid encrypted value encoding");
+    return bytes;
+  };
+  const iv = decode(parts[2]), body = decode(parts[3]);
+  if (iv.length !== 12 || body.length < 16 || body.length > 1048592) throw new Error("Invalid encrypted value length");
+  const previous: unknown = process.env.ENCRYPTION_KEY_PREVIOUS ? JSON.parse(process.env.ENCRYPTION_KEY_PREVIOUS) : [];
+  if (!Array.isArray(previous) || previous.length > 16 || !previous.every((v) => typeof v === "string" && v.length >= MIN_KEY_LEN)) throw new Error("Invalid previous encryption keys");
+  const keys = new Map<string, Buffer>();
+  for (const secret of [requireEncryptionKey(), ...previous]) {
+    const derived = Buffer.from(hkdfSync("sha256", Buffer.from(secret, "utf8"), Buffer.from("poststack:ps2"), Buffer.from("aes-256-gcm"), 32));
+    const kid = createHmac("sha256", derived).update("kid").digest("base64url").slice(0, 8);
+    if (keys.has(kid) && !keys.get(kid)!.equals(derived)) throw new Error("Encryption key identifier collision");
+    keys.set(kid, derived);
+  }
+  const selected = keys.get(parts[1]);
+  if (!selected) throw new Error("Encryption key unavailable");
+  const decipher = createDecipheriv(ALGORITHM, selected, iv, { authTagLength: 16 });
+  decipher.setAAD(Buffer.from(JSON.stringify(["ps2", parts[1], ...context]), "utf8"));
+  decipher.setAuthTag(body.subarray(-16));
+  return Buffer.concat([decipher.update(body.subarray(0, -16)), decipher.final()]).toString("utf8");
+}
+
 /**
  * Decrypt a string produced by encryptString.
  * Throws if decryption fails (tampered data or wrong key).
  */
-export function decryptString(encrypted: string): string {
+export function decryptString(encrypted: string, context?: SecretContext): string {
+  const mode = process.env.ENCRYPTION_READ_MODE || "legacy-readable";
+  if (mode !== "legacy-readable" && mode !== "v2-only") throw new Error("Invalid encryption read mode");
+  if (encrypted.startsWith("ps2.")) return readV2(encrypted, context);
+  if (encrypted.startsWith("ps") || mode === "v2-only") throw new Error("Unsupported encrypted value format");
   const parts = encrypted.split(":");
 
   if (parts.length !== 3) {
@@ -79,8 +114,8 @@ export function encryptTokens(data: TokenData): string {
  * Decrypt stored OAuth token data.
  * Throws if decryption fails (tampered data or wrong key).
  */
-export function decryptTokens(encrypted: string): TokenData {
-  return JSON.parse(decryptString(encrypted)) as TokenData;
+export function decryptTokens(encrypted: string, context?: SecretContext): TokenData {
+  return JSON.parse(decryptString(encrypted, context)) as TokenData;
 }
 
 /**

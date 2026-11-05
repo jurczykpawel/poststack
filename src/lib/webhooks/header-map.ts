@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/api/response";
-import { encryptString, decryptString } from "@/lib/crypto";
+import { encryptString, decryptString, type SecretContext } from "@/lib/crypto";
 
 /** Custom HTTP header name → value, as entered by the operator. */
 export type HeaderMap = Record<string, string>;
@@ -28,11 +28,12 @@ export function encryptHeaderMap(map: HeaderMap | undefined): string | null {
 }
 
 /** Decrypt stored header text back into a map. Null/garbage -> {} (never throws into a send path). */
-export function decryptHeaderMap(stored: string | null): HeaderMap {
+export function decryptHeaderMap(stored: string | null, context?: SecretContext): HeaderMap {
   if (!stored) return {};
   try {
-    return JSON.parse(decryptString(stored)) as HeaderMap;
-  } catch {
+    return JSON.parse(decryptString(stored, context)) as HeaderMap;
+  } catch (error) {
+    if (stored.startsWith("ps2.")) throw error;
     return {};
   }
 }

@@ -15,11 +15,11 @@ export async function checkGrantedScopes(workspaceId: string, channelIds: string
   if (!channelIds.length) return;
   const rows = await db.query.channels.findMany({
     where: and(eq(channels.workspace_id, workspaceId), inArray(channels.id, channelIds)),
-    columns: { id: true, token_encrypted: true },
+    columns: { platform_id: true, platform: true, workspace_id: true, id: true, token_encrypted: true },
   });
   for (const ch of rows) {
     try {
-      const token = decryptTokens(ch.token_encrypted).access_token;
+      const token = decryptTokens(ch.token_encrypted, [`ws:${workspaceId}`, "channels.token_encrypted", ch.platform, ch.platform_id]).access_token;
       if (!token) continue;
       const info = await inspectMetaToken(token);
       await recordGrantedScopes(ch.id, info?.scopes, workspaceId, ch.token_encrypted);

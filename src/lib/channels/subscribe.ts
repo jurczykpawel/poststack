@@ -109,7 +109,7 @@ export async function subscribeInstagramMessaging(
     columns: { id: true, token_encrypted: true, last_error: true, display_name: true },
   });
   if (channel) {
-    const blob = decryptTokens(channel.token_encrypted);
+    const blob = decryptTokens(channel.token_encrypted, [`ws:${workspaceId}`, "channels.token_encrypted", "instagram", igUserId]);
     const receivesViaPage = Boolean(blob.access_token || blob.page_id);
     if (!receivesViaPage) {
       await markChannelNeedsReauth(channel.id, MESSAGING_SUBSCRIBE_FAILED_REASON);

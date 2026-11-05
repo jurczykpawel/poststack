@@ -32,6 +32,7 @@ export interface DeliveryChannel {
   id: string;
   workspace_id: string;
   platform: Platform;
+  platform_id: string;
   token_encrypted: string;
   status: "active" | "needs_reauth" | "paused" | "disabled";
 }
@@ -152,7 +153,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
   // 2. Load the channel and gate on its health.
   const channel = await db.query.channels.findFirst({
     where: eq(channels.id, channelId),
-    columns: { id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
+    columns: { platform_id: true, id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
   });
   if (!channel || channel.status === "disabled") {
     throw new Error(`Channel ${channelId} not found or disabled`);

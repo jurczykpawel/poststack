@@ -51,8 +51,9 @@ export async function resolveTokenSource(): Promise<{
     // check — that would brick publishing, which now resolves through it. Treat it as no usable token
     // and fall back to env/free, the same as a missing license.
     try {
-      return { token: decryptString(row.token), source: "db" };
-    } catch {
+      return { token: decryptString(row.token, ["instance", "instance_license.token", "singleton"]), source: "db" };
+    } catch (error) {
+      if (row.token.startsWith("ps2.")) throw error;
       // fall through
     }
   }

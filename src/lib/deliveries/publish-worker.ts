@@ -267,7 +267,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   }
 
   const encryptedSession = (post.payload as Record<string, unknown>)._youtubeUploadSession;
-  const uploadSession = channel.platform === "youtube" && typeof encryptedSession === "string" ? decryptString(encryptedSession) : undefined;
+  const uploadSession = channel.platform === "youtube" && typeof encryptedSession === "string" ? decryptString(encryptedSession, [`ws:${ws}`, "deliveries.payload._youtubeUploadSession", post.id]) : undefined;
 
   // A persisted publish handle is polled only; never initialize another upload.
   if (post.status === "processing" && !uploadSession) {
@@ -279,7 +279,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
         if (fresh) channel.token_encrypted = fresh.token_encrypted;
       }
       if (!post.provider_handle || !provider.publishStatus) throw new Error("Publish status unavailable");
-      const outcome = await provider.publishStatus(toTokenSet(decryptTokens(channel.token_encrypted)), { providerHandle: post.provider_handle });
+      const outcome = await provider.publishStatus(toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id])), { providerHandle: post.provider_handle });
       if (outcome.state === "published") { await completePublish(post, channel, post.provider_handle, outcome.postId); return; }
       if (outcome.state === "failed") { await failDelivery(postId, ws, outcome.error || "TikTok processing failed"); return; }
       await db.update(deliveries).set({ last_error: null, updated_at: new Date() })
@@ -343,7 +343,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   // Crash recovery (AUD27): a retry that finds 'sending' may have sent without recording.
   if (post.status === "sending" && !uploadSession) {
     if (provider.reconcile) {
-      const outcome = await provider.reconcile(toTokenSet(decryptTokens(channel.token_encrypted)), {
+      const outcome = await provider.reconcile(toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id])), {
         providerHandle: post.provider_handle ?? "",
       });
       if (outcome === "sent") {
@@ -426,7 +426,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       }
     }
     const handle = await provider.publish({
-      tokens: toTokenSet(decryptTokens(channel.token_encrypted)),
+      tokens: toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id])),
       accountId: channel.platform_id,
       request,
       mediaUrls,

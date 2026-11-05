@@ -95,7 +95,7 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
         subKind: subKindForPlatform(channel.platform),
         ...(channel.metadata as Record<string, unknown>),
       };
-      const tokens = toTokenSet(decryptTokens(channel.token_encrypted));
+      const tokens = toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]));
       const handle = await provider.publishStory({ tokens, accountId: channel.platform_id, mediaUrl, channelMetadata });
       return { platformMessageId: handle.providerHandle };
     },

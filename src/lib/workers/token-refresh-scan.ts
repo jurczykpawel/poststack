@@ -21,7 +21,7 @@ import { sanitizeForLog } from "@/lib/api/safe-log";
 export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
   const rows = await db.query.channels.findMany({
     where: and(eq(channels.status, "active"), eq(channels.connection_mode, "oauth")),
-    columns: { id: true, platform: true, token_encrypted: true, token_expires_at: true },
+    columns: { platform_id: true, workspace_id: true, id: true, platform: true, token_encrypted: true, token_expires_at: true },
   });
 
   let enqueued = 0;
@@ -31,7 +31,7 @@ export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
       const provider = getTokenRefreshProvider(channel.platform);
       if (!provider.requiresTokenRefresh()) continue;
 
-      const tokens = decryptTokens(channel.token_encrypted);
+      const tokens = decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
       const expiresAt = channel.token_expires_at
         ? channel.token_expires_at.getTime() / 1000
         : tokens.expires_at as number | undefined;
