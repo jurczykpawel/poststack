@@ -1,4 +1,4 @@
-import { postUrlFor } from "@/lib/posts/post-url";
+import { httpUrl, postUrlFor } from "@/lib/posts/post-url";
 import type { JobHelpers } from "graphile-worker";
 import { and, count, eq, gte, lte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -225,8 +225,8 @@ async function enqueueAutoStory(
   );
 }
 
-async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string, publicPostId?: string) {
-  const publishedUrl = publicPostId ? postUrlFor(channel.platform, publicPostId, channel.username) : null;
+async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string, publicPostId?: string, providerUrl?: string) {
+  const publishedUrl = httpUrl(providerUrl) ?? (publicPostId ? postUrlFor(channel.platform, publicPostId, channel.username) : null);
   const request = post.payload as PublishRequest;
   const aiDisclosureSent = await buildAiDisclosureSent(post.id, post.workspace_id, request);
   const sentAt = new Date();
@@ -392,6 +392,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const request = post.payload as PublishRequest;
   let mediaUrls: string[];
   let mediaDurationsSec: (number | null)[];
+  let mediaKinds: string[];
   try {
     const media = await resolveMediaDetails(request.media, ws);
     if (channel.platform === "youtube") {
@@ -399,6 +400,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       await setStatus(postId, ws, "sending", { format: request.format, payload: request });
     }
     mediaUrls = media.map(m => m.url);
+    mediaKinds = media.map(m => m.kind);
     mediaDurationsSec = media.map(m => m.durationSec);
   } catch (err) {
     if (err instanceof MediaIngestingError) {
@@ -431,6 +433,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       request,
       mediaUrls,
       mediaDurationsSec,
+      mediaKinds,
       channelMetadata,
       uploadSession,
       saveUploadSession: channel.platform === "youtube" ? async (url) => {
@@ -447,7 +450,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       });
       return;
     }
-    await completePublish(post, channel, handle.providerHandle);
+    await completePublish(post, channel, handle.providerHandle, request.format === "carousel" && request.options?.published !== false ? handle.providerHandle : undefined, handle.url);
   } catch (err) {
     if (err instanceof ConfirmationRequiredError) {
       const reason = redactSecrets(err.message);

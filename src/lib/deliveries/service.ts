@@ -27,6 +27,28 @@ export interface CreateDeliveryInput {
 /** A Drizzle transaction handle (the arg passed to `db.transaction(cb)`). */
 export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+/** Validate registry media against the destination before a delivery is queued or edited. */
+export async function validateDeliveryRequest(request: PublishRequest, workspaceId: string, platform: string, waitForMedia = false) {
+  const v = validate(getProviderForPlatform(platform), request, { platform });
+  if (!v.ok) throw new ApiError("invalid_request", v.errors.join("; "), 422);
+
+  const assets = [];
+  const allowIngesting = waitForMedia && !(platform === "facebook" && request.format === "carousel");
+  for (const m of request.media) {
+    const exists = await getMedia(m.mediaId, workspaceId).catch(() => undefined);
+    if (exists && exists.status !== "ready" && !(allowIngesting && exists.status === "ingesting")) throw new ApiError("invalid_request", `Media ${m.mediaId} is ${exists.status}; wait until ready before publishing`, 422);
+    if (!exists) {
+      throw new ApiError("invalid_request", `Unknown media: ${m.mediaId}`, 422);
+    }
+    assets.push(exists);
+  }
+  if (request.format === "carousel") {
+    const checked = validate(getProviderForPlatform(platform), request, { platform, mediaKinds: assets.filter(m => m.status === "ready").map(m => m.kind) });
+    if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
+  }
+  return assets;
+}
+
 /**
  * Create a scheduled delivery + enqueue its publish job, scoped to a workspace. Idempotency is per
  * workspace (unique(workspace_id, idempotency_key)). When `tx` is given, the insert + outbox enqueue
@@ -52,18 +74,7 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
     throw new ApiError("unsupported", `Channel '${channel.platform}' cannot publish`, 400);
   }
 
-  const v = validate(getProviderForPlatform(channel.platform), input.request);
-  if (!v.ok) throw new ApiError("invalid_request", v.errors.join("; "), 422);
-
-  const assets = [];
-  for (const m of input.request.media) {
-    const exists = await getMedia(m.mediaId, workspaceId).catch(() => undefined);
-    if (exists && exists.status !== "ready" && !(input.waitForMedia && exists.status === "ingesting")) throw new ApiError("invalid_request", `Media ${m.mediaId} is ${exists.status}; wait until ready before publishing`, 422);
-    if (!exists) {
-      throw new ApiError("invalid_request", `Unknown media: ${m.mediaId}`, 422);
-    }
-    assets.push(exists);
-  }
+  const assets = await validateDeliveryRequest(input.request, workspaceId, channel.platform, input.waitForMedia);
   try {
     if (channel.platform === "youtube") input.request.format = youtubeFormat(input.request, assets.map(m => ({ durationSec: m.duration_sec, width: m.width, height: m.height, status: m.status })));
   } catch (err) {

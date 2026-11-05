@@ -360,7 +360,7 @@ describe("meta.publish", () => {
       metaProvider.publish({
         tokens,
         accountId: "A",
-        request: { format: "carousel", media: [] },
+        request: { format: "unsupported", media: [] },
         mediaUrls: [],
       }),
     ).rejects.toBeInstanceOf(PermanentError);

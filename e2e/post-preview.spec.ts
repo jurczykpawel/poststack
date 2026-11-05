@@ -8,7 +8,7 @@ import { setPro, gotoOk, watchConsole } from "./helpers";
 import { E2E_BASE_URL, E2E_DATABASE_URL } from "./env";
 
 // POSTPREVIEW1: one published-post card in Engagement, Queue, Content and Activity. The thumbnail is an
-// image the app serves itself, so the run makes no request outside the e2e server.
+// checked-in image served by the browser fixture, independent of the marketing-site build.
 const IMAGE = `${E2E_BASE_URL}/og.png`;
 const OURS = "Our autumn workshop is live: three evenings of hands-on n8n, recordings included for everyone who signs up.";
 const THEIRS = "Posted by hand on the Page: behind the scenes of the new studio.";
@@ -19,6 +19,10 @@ let channelId: string;
 let deliveryId: string;
 let contentId: string;
 let eventId: string;
+
+test.beforeEach(async ({ page }) => {
+  await page.route(IMAGE, route => route.fulfill({ path: "landing/public/og.png", contentType: "image/png" }));
+});
 
 test.beforeAll(async () => {
   db = new Client({ connectionString: E2E_DATABASE_URL });
