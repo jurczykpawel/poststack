@@ -9,8 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-11-05
+
 ### Fixed
 - Login and registration now start CAPTCHA verification on load, wait inline when submitted early, and submit automatically once verified without a popup. Verification failures allow an inline retry.
+- Queue details and Content cards show how many media a scheduled post has.
+- The landing page headline keeps the space between its words.
 
 ### Added
 - Stored secrets can be read in the upcoming `ps2` format bound to their workspace and record, so a later version can migrate secrets without blocking a rollback. New optional `ENCRYPTION_KEY_PREVIOUS` and `ENCRYPTION_READ_MODE` settings (see docs/DEPLOY.md); writing is unchanged.
