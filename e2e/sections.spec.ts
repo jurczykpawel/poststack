@@ -105,7 +105,7 @@ test("compose media URL fills the phone form", async ({ page }) => {
   await setPro(page.request);
   await page.setViewportSize({ width: 390, height: 844 });
   await gotoOk(page, "/compose");
-  const input = page.getByLabel("Media URL");
+  const input = page.getByLabel("Media URL", { exact: true });
   await expect(input).toBeVisible();
   const geometry = await input.evaluate((el) => ({
     input: el.getBoundingClientRect().width,
