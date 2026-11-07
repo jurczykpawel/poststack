@@ -12,7 +12,7 @@ import { listModels, testConnection } from "./models";
 
 export const providerInput = z.object({
   provider: z.enum(AI_PROVIDER_IDS).optional(),
-  api_key: z.string().min(1).max(500).regex(/^\S+$/).optional(),
+  api_key: z.string().min(1).max(500, "API key must be at most 500 characters").regex(/^\S+$/).optional(),
   base_url: z.string().max(300).optional(),
   model: z.string().min(1).max(200).optional(),
 }).strict();

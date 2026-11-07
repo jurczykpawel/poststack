@@ -88,6 +88,7 @@ for (const width of [1440, 390]) test(`AI provider list: connect, order, edit, r
     await rows.nth(1).locator("summary").click();
     await rows.nth(1).getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(rows.nth(1).getByRole("button", { name: "Edit", exact: true })).toBeFocused();
     await page.getByRole("button", { name: "+ Connect provider", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Connect AI provider", exact: true })).toBeVisible();
     await expect(page.locator("#ai-key")).toHaveValue("");
@@ -134,4 +135,43 @@ test("API keys: the operator sees the Instance group in the Custom table", async
   await expect(sheet.locator("table.scope-mx")).toContainText("Instance (operator only)");
   await expect(sheet.getByLabel("View AI provider settings")).not.toBeChecked();
   await page.screenshot({ path: testInfo.outputPath("api-keys-instance-group.png") });
+});
+
+for (const close of ["Escape", "Close"]) test(`AI connect restores focus after ${close}`, async ({ page }) => {
+  await gotoOk(page, "/settings/integrations/ai");
+  const trigger = page.getByRole("button", { name: "+ Connect provider", exact: true });
+  await trigger.focus(); await trigger.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Connect AI provider", exact: true });
+  await expect(dialog).toBeVisible();
+  if (close === "Escape") await page.keyboard.press("Escape");
+  else await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+});
+
+test("AI connect identifies an overlong key and preserves the form", async ({ page }, testInfo) => {
+  await clearSavedAiConfig();
+  try {
+    await gotoOk(page, "/settings/integrations/ai");
+    await page.getByRole("button", { name: "+ Connect provider", exact: true }).click();
+    await page.locator("#ai-key").fill("x".repeat(501));
+    await page.locator("#ai-model").fill("gpt-4o-mini");
+    await page.getByRole("button", { name: "Connect provider", exact: true }).click();
+    await expect(page.locator("#ai-key-error")).toHaveText("API key must be at most 500 characters");
+    await expect(page.locator("#ai-key")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#ai-key")).toHaveAttribute("aria-describedby", "ai-key-error");
+    await expect(page.locator("#ai-key")).toHaveValue("x".repeat(501));
+    await expect(page.locator("#ai-model")).toHaveValue("gpt-4o-mini");
+    await expect(page.locator(".ai-provider-row")).toHaveCount(0);
+    for (const width of [1440, 390]) for (const theme of ["dark", "light"]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(theme => document.documentElement.setAttribute("data-theme", theme), theme);
+      await expect(page.locator("#ai-key-error")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`key-error-${width}-${theme}.png`), fullPage: true, animations: "disabled" });
+    }
+    await page.locator("#ai-key").fill("x".repeat(500));
+    await expect(page.locator("#ai-key-error")).not.toBeVisible();
+    await expect(page.locator("#ai-key")).not.toHaveAttribute("aria-invalid", "true");
+  } finally { await clearSavedAiConfig(); }
 });

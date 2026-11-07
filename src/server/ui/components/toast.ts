@@ -156,7 +156,10 @@ export function uiBehaviorScript(): Html {
           requestAnimationFrame(function () { var f = nodes(); if (f.length) f[0].focus(); });
         } else {
           el.removeEventListener('keydown', onKey);
-          if (prev && prev.focus) prev.focus();
+          if (el.dataset.focusReturn && prev) {
+            var target = document.querySelector(el.dataset.focusReturn);
+            if (target) requestAnimationFrame(function () { target.focus(); });
+          } else if (prev && prev.focus) prev.focus();
           prev = null;
         }
       });

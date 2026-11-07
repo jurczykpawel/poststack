@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- AI provider dialogs restore focus to their opening button when closed. Overlong API keys show the 500-character limit beside the field while preserving the form.
+
 ### Added
 - AI providers can be connected, tested and reordered in Settings, with automatic replacement, Main and Answering now indicators, and a shared JSON/API list. Existing AI settings migrate automatically.
 - Compose Instagram and Facebook carousels with 2–10 media items from URLs, uploads or the media library. Reorder and remove slides, preview thumbnails, and check channel support before scheduling. The media API also lists ready files and accepts binary uploads.
