@@ -1,3 +1,4 @@
+import { postUrlFor } from "@/lib/posts/post-url";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
 import { PermanentError } from "./errors";
@@ -82,6 +83,21 @@ export const xProvider: Provider = {
     const json = (await res.json().catch(() => ({}))) as { data?: { id?: unknown }; detail?: string };
     const handle = asString(json.data?.id); // PSA51: narrow before trusting
     if (!res.ok || !handle) throw classifyHttp(res.status, json.detail);
-    return { providerHandle: handle };
+    return { providerHandle: handle, url: postUrlFor("twitter", handle) ?? undefined };
   },
 };
+
+/** Read or remove an already published X post. */
+export async function xPlatformPost(tokens: TokenSet, id: string, method: "GET" | "DELETE") {
+  if (!/^\d+$/.test(id)) throw new PermanentError("Invalid X post ID");
+  const res = await fetch(`${API}/tweets/${id}`, {
+    method, redirect: "error", signal: AbortSignal.timeout(10_000),
+    headers: { authorization: `Bearer ${tokens.accessToken}` },
+  });
+  if (method === "GET" && res.status === 404) return { exists: false, providerStatus: 404, platformPostId: id };
+  if (!res.ok) throw classifyHttp(res.status, `X HTTP ${res.status}`);
+  const json = await res.json() as { data?: { id?: string; deleted?: boolean } };
+  if (method === "DELETE" && json.data?.deleted === true) return { deleted: true };
+  if (method === "GET" && json.data?.id === id) return { exists: true, providerStatus: 200, platformPostId: id };
+  throw new PermanentError("Unexpected X post response");
+}
