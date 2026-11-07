@@ -18,7 +18,7 @@ const notice = (tone: "ok" | "err" | "warn" | "info", body: Html | string) => ht
 
 export function aiProviderForm(v: AiSettingsView, id?: string): Html {
   const presets = Object.fromEntries(PROVIDERS.map((p) => [p.id, { url: p.baseUrl, key: p.keyUrl ?? "", needKey: p.modelsNeedKey }]));
-  const state = JSON.stringify({ provider: v.provider, baseUrl: v.provider === "custom" ? v.base_url : "", model: v.model, keySet: v.api_key.set, saved: v.provider, open: false, presets });
+  const state = JSON.stringify({ provider: v.provider, baseUrl: v.provider === "custom" ? v.base_url : "", model: v.model, keySet: v.api_key.set, saved: v.provider, keyError: false, open: false, presets });
   return html`<form id="ai-form" class="ai-form" x-data="${state}" hx-post="/settings/ai/providers/save" hx-ext="json-enc" hx-target="#ai-provider-list" hx-swap="outerHTML">
     ${id ? html`<input type="hidden" name="id" value="${id}" />` : ""}
     <p class="muted int-note">Your own key. Used for AI drafts and rephrasing. Never shown again after saving.</p>
@@ -39,7 +39,8 @@ export function aiProviderForm(v: AiSettingsView, id?: string): Html {
     </div>
     <div class="int-field">
       <label class="label" for="ai-key">API key ${v.api_key.set ? html`<span class="badge tone-${v.api_key.source === "db" ? "ok" : "info"}" x-show="keySet && provider === saved">${v.api_key.source === "db" ? "set here" : "from env"}</span>` : ""}</label>
-      <input class="input" id="ai-key" name="api_key" type="password" autocomplete="off" :placeholder="keySet && provider === saved ? '•••• set (paste to change)' : 'Paste your key'" @change="$dispatch('reload-models')" />
+      <input class="input" id="ai-key" name="api_key" type="password" :aria-invalid="keyError ? 'true' : null" :aria-describedby="keyError ? 'ai-key-error' : null" @input="keyError = false" autocomplete="off" :placeholder="keySet && provider === saved ? '•••• set (paste to change)' : 'Paste your key'" @change="$dispatch('reload-models')" />
+      <div id="ai-key-error" class="notice-err" role="alert" x-show="keyError" x-cloak></div>
       <div class="int-help"><template x-if="presets[provider].key"><span>Get one at <a :href="presets[provider].key" target="_blank" rel="noopener" x-text="presets[provider].key"></a>. </span></template>Never shown again after saving.</div>
     </div>
     <div class="int-step"><i>3</i><h3><label for="ai-model">Model</label></h3></div>
@@ -79,7 +80,7 @@ export async function renderProviderList(scope: string | null, editId?: string, 
   const ids = rows.map(r => r.id);
   const orderButton = (label: string, reordered: string[], disabled = false) => html`<button class="btn btn-ghost btn-sm" type="button" aria-label="${label}" title="${label}" ${disabled ? raw("disabled") : ""} hx-post="/settings/ai/providers/reorder" hx-vals="${JSON.stringify({ ids: reordered })}" hx-target="#ai-provider-list" hx-swap="outerHTML">${label === "Move up" ? "↑" : label === "Move down" ? "↓" : label}</button>`;
   return html`<section class="card set-card ai-providers" id="ai-provider-list" hx-ext="json-enc" x-data="${JSON.stringify({ connecting: connect || !!edit })}">
-    <div class="row" style="justify-content:space-between;flex-wrap:wrap"><h2>AI providers</h2><button class="btn btn-primary btn-sm" type="button" hx-get="/settings/ai/providers/connect" hx-target="#ai-provider-list" hx-swap="outerHTML">+ Connect provider</button></div>
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap"><h2>AI providers</h2><button id="ai-connect-provider" class="btn btn-primary btn-sm" type="button" hx-get="/settings/ai/providers/connect" hx-target="#ai-provider-list" hx-swap="outerHTML">+ Connect provider</button></div>
     <p class="muted">Drafts and rephrasing use the main provider. If it fails, the next one in the list answers.</p>
     ${message ? notice("info", message) : ""}
     ${rows.length ? rows.map((r, i) => {
@@ -87,16 +88,16 @@ export async function renderProviderList(scope: string | null, editId?: string, 
       return html`<div class="ai-provider-row" data-provider-id="${r.id}"><span class="ai-number ${i === 0 ? "main" : ""}">${i + 1}</span><div class="ai-provider-who"><b>${PROVIDERS.find(p => p.id === r.provider)?.label} ${i === 0 ? html`<span class="badge tone-info">Main</span>` : ""} ${r.answering_now ? html`<span class="badge tone-ok">Answering now</span>` : ""}</b><span class="muted">${r.model} · key …${r.api_key_hint}</span></div>
         <span class="badge tone-${r.last_test_status === "ok" ? "ok" : "warn"}">${r.last_test_status === "ok" ? "Tested" : r.last_test_status.replaceAll("_", " ")}${r.last_test_at ? html` · ${localTime(new Date(r.last_test_at), "clock")}` : ""}</span>
         <div class="ai-arrows">${orderButton("Move up", i > 0 ? swap(i - 1) : ids, i === 0)}${orderButton("Move down", i < rows.length - 1 ? swap(i + 1) : ids, i === rows.length - 1)}</div>
-        <details class="ai-more"><summary class="btn btn-ghost btn-sm" aria-label="Actions for ${r.model}">⋯</summary><div class="ai-provider-menu">
+        <details class="ai-more" ${edit?.id === r.id ? raw("open") : ""}><summary class="btn btn-ghost btn-sm" aria-label="Actions for ${r.model}">⋯</summary><div class="ai-provider-menu">
           ${orderButton("Make main", [r.id, ...ids.filter(id => id !== r.id)], i === 0)}
-          <button class="btn btn-ghost btn-sm" hx-get="/settings/ai/providers/edit/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML">Edit</button>
+          <button id="ai-edit-${r.id}" class="btn btn-ghost btn-sm" hx-get="/settings/ai/providers/edit/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML">Edit</button>
           <button class="btn btn-ghost btn-sm" hx-post="/settings/ai/providers/test-again/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML">Test again</button>
           <button class="btn btn-ghost btn-sm" hx-post="/settings/ai/providers/remove/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML" hx-confirm="Remove this AI provider?" data-confirm-label="Remove">Remove</button>
         </div></details></div>`;
     }) : html`<p class="ai-provider-empty">No AI provider connected. ${scope === null ? "Environment settings apply when this list is empty." : "AI drafts and rephrasing are off."}</p>`}
     <details class="ai-advanced"><summary>Advanced: edit as JSON</summary><p class="muted">Same list and order. Omitted keys keep their saved values. New providers need api_key. Every change is tested.</p>
       <form hx-post="/settings/ai/providers/json" hx-ext="json-enc" hx-target="#ai-provider-list" hx-swap="outerHTML"><textarea class="input" name="providers" rows="6" aria-label="Provider JSON">${JSON.stringify(rows.map(r => ({ id: r.id, provider: r.provider, model: r.model, ...(r.provider === "custom" ? { base_url: r.base_url } : {}) })), null, 2)}</textarea><button class="btn btn-sm" type="submit">Apply JSON</button></form></details><div id="ai-list-result" role="status"></div>
-    <dialog class="ai-provider-sheet" aria-label="${edit ? "Edit" : "Connect"} AI provider" x-effect="if(connecting && !$el.open) $el.showModal(); if(!connecting && $el.open) $el.close()" @close="connecting = false"><div class="row" style="justify-content:space-between"><h2>${edit ? "Edit" : "Connect"} AI provider</h2><button type="button" class="btn btn-ghost btn-sm" aria-label="Close" @click="connecting = false">×</button></div>${aiProviderForm(view, edit?.id)}</dialog>
+    <dialog class="ai-provider-sheet" x-pstrap="connecting" data-focus-return="${edit ? `#ai-edit-${edit.id}` : "#ai-connect-provider"}" aria-label="${edit ? "Edit" : "Connect"} AI provider" x-effect="if(connecting && !$el.open) $el.showModal(); if(!connecting && $el.open) $el.close()" @close="connecting = false"><div class="row" style="justify-content:space-between"><h2>${edit ? "Edit" : "Connect"} AI provider</h2><button type="button" class="btn btn-ghost btn-sm" aria-label="Close" @click="connecting = false">×</button></div>${aiProviderForm(view, edit?.id)}</dialog>
   </section>`;
 }
 
@@ -137,12 +138,17 @@ export function registerAiProvider(app: Hono, guard: MiddlewareHandler): void {
     try {
       const response = await providerOperation(new Request(c.req.url, { method: "POST", headers: c.req.raw.headers, body: JSON.stringify(fields) }), action, action === "save" ? id : undefined);
       const result = await response.json();
-      if (result.error) throw new ApiError(result.error.code, result.error.message, response.status);
+      if (result.error) throw new ApiError(result.error.code, result.error.message, response.status, result.error.details);
       if (action === "models") return c.html(modelList(result.data.models, result.data, f.all === "1"));
       if (action === "test") return c.html(result.data.ok ? notice("ok", "Test passed") : notice("err", `Test failed: ${result.data.error.code}`));
       return c.html(await renderProviderList(scope));
     } catch (e) {
       if (!(e instanceof ApiError)) throw e;
+      const keyError = e.details?.find(d => d.path === "api_key");
+      if (keyError) {
+        c.header("HX-Retarget", "#ai-key-error"); c.header("HX-Reswap", "innerHTML");
+        return c.html(html`<span x-init="keyError = true">${keyError.message}</span>`);
+      }
       c.header("HX-Retarget", action === "models" ? "#ai-models" : action === "reorder" ? "#ai-list-result" : "#ai-result"); c.header("HX-Reswap", "innerHTML");
       return c.html(notice("err", e.message));
     }

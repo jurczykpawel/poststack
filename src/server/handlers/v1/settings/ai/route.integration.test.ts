@@ -110,6 +110,17 @@ afterAll(async () => {
 });
 
 describe("access control", () => {
+  it("reports the API key length limit through API and dashboard", async () => {
+    const fields = { provider: "openai", model: "gpt-4o-mini", api_key: "x".repeat(501) };
+    const { status, body } = await call("POST", "/providers", bearer("op"), fields);
+    expect(status).toBe(422);
+    expect(body.error.details).toContainEqual({ path: "api_key", message: "API key must be at most 500 characters" });
+    const response = await app.request("/settings/ai/providers/save", { method: "POST", headers: { ...operatorCookie, "content-type": "application/json" }, body: JSON.stringify(fields) });
+    expect(response.headers.get("HX-Retarget")).toBe("#ai-key-error");
+    expect(await response.text()).toContain("API key must be at most 500 characters");
+    expect(await db.select().from(s.aiProviders).where(isNull(s.aiProviders.workspace_id))).toHaveLength(0);
+  });
+
   it("needs authentication", async () => {
     if (!TEST_DB) return;
     expect((await call("GET", "", {})).status).toBe(401);
