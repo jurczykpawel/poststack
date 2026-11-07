@@ -69,15 +69,15 @@ jobs:
           # upstream fix in the linter chain must not stop a release.
           npm audit --omit=dev --audit-level=moderate
           npm audit --audit-level=high
-          # npm registry intermittently misses attestation keys (EMISSINGSIGNATUREKEY); a real bad signature fails all attempts
-          for i in 1 2 3; do npm audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
+          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with pinned npm 11
+          for i in 1 2 3; do npx -y npm@11.20.0 audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
       - name: Install and audit landing dependencies
         run: |
           npm --prefix landing ci
           npm --prefix landing audit --audit-level=moderate
-          # npm registry intermittently misses attestation keys (EMISSINGSIGNATUREKEY); a real bad signature fails all attempts
-          for i in 1 2 3; do npm --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
+          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with pinned npm 11
+          for i in 1 2 3; do npx -y npm@11.20.0 --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
       - name: Lint
         run: npm run lint
