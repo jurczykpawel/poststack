@@ -43,9 +43,8 @@ test.describe.serial("instance branding", () => {
     await page.locator("#branding-msg").scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("branding-validation.png") });
     await gotoOk(page, "/settings/integrations/ai");
-    // AI_FALLBACKS lives under the collapsed "Advanced: backup providers" section (AIPROVIDER1).
-    await page.locator("details.ai-adv > summary").click();
-    const help = page.locator(".int-field").filter({ hasText: "AI_FALLBACKS" }).locator(".int-help");
+    await page.locator("details.ai-advanced > summary").click();
+    const help = page.locator(".ai-advanced > p");
     await help.scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(await help.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -55,9 +54,8 @@ test.describe.serial("instance branding", () => {
   test("integration help fits a phone", async ({ page }) => {
     await gotoOk(page, "/settings/integrations/ai");
     await page.setViewportSize({ width: 390, height: 844 });
-    // AI_FALLBACKS lives under the collapsed "Advanced: backup providers" section (AIPROVIDER1).
-    await page.locator("details.ai-adv > summary").click();
-    const help = page.locator(".int-field").filter({ hasText: "AI_FALLBACKS" }).locator(".int-help");
+    await page.locator("details.ai-advanced > summary").click();
+    const help = page.locator(".ai-advanced > p");
     await expect(help).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(await help.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);

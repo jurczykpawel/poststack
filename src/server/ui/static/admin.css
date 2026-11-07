@@ -1873,3 +1873,15 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
   .carousel-controls { display: none; }
   .carousel-actions.open .carousel-controls { display: flex; }
 }
+.ai-provider-row{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:12px;margin:8px 0;background:var(--bg)}
+.ai-number{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--surface-2)}
+.ai-number.main{background:var(--accent);color:var(--accent-contrast)}
+.ai-provider-who{min-width:0;flex:1}.ai-provider-who b{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.ai-provider-who>span{display:block;font-size:12px;overflow-wrap:anywhere}
+.ai-arrows{display:flex;gap:4px}.ai-arrows .btn,.ai-more summary{min-width:40px;min-height:40px}.ai-more{position:relative}.ai-more summary{list-style:none}.ai-more summary::-webkit-details-marker{display:none}
+.ai-provider-menu{position:absolute;right:0;top:44px;z-index:5;display:flex;flex-direction:column;min-width:160px;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-pop)}
+.ai-provider-menu .btn{justify-content:flex-start}.ai-provider-empty{padding:20px;border:1px dashed var(--border);border-radius:12px}.ai-advanced{margin-top:16px}.ai-advanced textarea{font-family:var(--font-mono);max-width:100%;margin:10px 0}
+.ai-provider-sheet{position:fixed;inset:0 0 0 auto;margin:0;width:min(520px,100%);height:100dvh;max-height:100dvh;max-width:100%;overflow:auto;padding:20px;background:var(--surface);color:var(--text-1);border:1px solid var(--border);border-radius:0}.ai-provider-sheet::backdrop{background:color-mix(in srgb,var(--bg) 70%,transparent)}
+@media(max-width:600px){.ai-provider-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px}.ai-provider-who{grid-column:2}.ai-provider-row>.badge{grid-column:2;justify-self:start}.ai-arrows{grid-row:3;grid-column:1/3}.ai-more{grid-row:3;grid-column:2;justify-self:end}.ai-provider-sheet{padding:16px}.ai-providers{min-width:0}}
+.ai-provider-row>.badge{white-space:nowrap;gap:4px;max-width:100%}.ai-provider-sheet .ai-custom{display:block;overflow-wrap:anywhere}.ai-provider-sheet .int-step{margin:18px 0 10px}.ai-provider-sheet>.row .btn{min-width:40px;min-height:40px}
+.ai-provider-sheet .prov{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:600px){.ai-provider-sheet .prov{grid-template-columns:repeat(2,minmax(0,1fr))}}

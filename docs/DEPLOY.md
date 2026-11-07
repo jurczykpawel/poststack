@@ -92,6 +92,14 @@ Edit `.env`. **Required** (the app validates env with zod at boot — a missing/
 | `AI_ALLOWED_PRIVATE_TARGETS` | **Optional**, default empty. AI provider calls (model list, connection test, drafts, rephrasing) are public-internet only. A **custom Base URL on loopback/private/CGNAT** (Ollama, LM Studio) must be listed here: comma-separated hosts, IPs or IPv4 CIDRs, each with an optional `:port`, e.g. `ollama:11434,10.0.0.0/8`. Cloud metadata / link-local (`169.254.0.0/16`) is always blocked, even when listed. **Upgrading an install that uses a local model:** add its address here, otherwise AI replies stop with a `refused … address` entry in the generation log. |
 | `AI_DRAFT_DAILY_LIMIT` | **Optional**, default `0`. Caps AI-drafted reply generations per workspace over a rolling 24h window; `0` = unlimited (intended for BYOK / self-hosted). The `ai_draft` feature is **PRO** and reuses the existing `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` config (**BYOK**) — see §2.4 for automatic schema reconciliation. |
 
+### AI provider list
+
+Settings → Integrations → AI provider manages one ordered instance list. The first provider is Main; later entries replace it on outages, timeouts, rate limits, no credits, invalid key/model or empty answers. Request validation errors (400/413/422), blocked targets and unreadable stored keys stop the chain. Claude uses its native Messages API, including as a replacement. The draft daily limit stays per workspace.
+
+The release migration and `drizzle/reconcile/0025_ai_providers.sql` create `ai_providers`. On first access the app imports existing encrypted AI settings and `AI_FALLBACKS` atomically, preserving order and legacy aliases. Keys use the existing `ENCRYPTION_KEY` format. Web and worker must upgrade together. When the saved list is empty, environment defaults still apply.
+
+`/api/v1/settings/ai/providers` supports list/connect/atomic JSON replacement, with `/reorder`, `/models`, `/test` and per-provider edit/remove/test operations. Access uses the existing `instance_ai:read` and `instance_ai:write` permissions and instance operator rules. Keys are write-only; responses contain a hint. Every save tests the connection first. The older `/settings/ai` API edits Main while preserving backups; DELETE removes Main and promotes the next entry. `verify:false` is rejected.
+
 `latest` always points at the newest **stable** release (`vX.Y.Z`); pre-release tags such as
 `v0.14.0-rc.1` are published only under their own tag and never move `latest`.
 

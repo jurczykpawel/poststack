@@ -1,3 +1,4 @@
+vi.mock("@/lib/ai/provider-store", () => ({ storedProviderChain: async () => null, hasStoredProviders: async () => null }));
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { resolveRephrasePrompt, defaultRephrasePrompt, DEFAULT_REPHRASE_PROMPT, DEFAULT_REPHRASE_TONE } from "./rephrase";
 

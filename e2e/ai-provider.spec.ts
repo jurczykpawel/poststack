@@ -1,8 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
+import { execFile } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { setPro, gotoOk, watchConsole } from "./helpers";
 import { Client } from "pg";
-import { E2E_AI_PORT, E2E_DATABASE_URL } from "./env";
+import { E2E_AI_PORT, E2E_DATABASE_URL, serverEnv } from "./env";
 import openaiModels from "../src/lib/ai/__fixtures__/openai-models.json";
 import openaiChat from "../src/lib/ai/__fixtures__/openai-chat.json";
 
@@ -17,7 +18,11 @@ test.beforeAll(async () => {
     const json = (status: number, body: unknown) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
     if (req.headers.authorization !== `Bearer ${GOOD}`) return json(401, { error: { message: "bad key" } });
     if (req.url === "/v1/models") return json(200, openaiModels);
-    req.resume().on("end", () => json(200, openaiChat));
+    let raw = ""; req.on("data", b => raw += b); req.on("end", () => {
+      const body = JSON.parse(raw || "{}");
+      if (body.model === "no-credits") return json(429, { error: { code: "insufficient_quota" } });
+      json(200, openaiChat);
+    });
   });
   await new Promise<void>((r) => server.listen(E2E_AI_PORT, "127.0.0.1", r));
 });
@@ -27,7 +32,7 @@ test.afterAll(() => { server.close(); });
 async function clearSavedAiConfig() {
   const client = new Client({ connectionString: E2E_DATABASE_URL });
   await client.connect();
-  try { await client.query("DELETE FROM instance_settings WHERE key LIKE 'AI\\_%'"); } finally { await client.end(); }
+  try { await client.query("DELETE FROM rate_limit_counters WHERE key LIKE 'rl:ai-providers:%'"); await client.query("DELETE FROM ai_providers WHERE workspace_id IS NULL"); await client.query("DELETE FROM instance_settings WHERE key LIKE 'AI\\_%'"); } finally { await client.end(); }
 }
 
 async function shoot(page: Page, base: string) {
@@ -40,80 +45,84 @@ async function shoot(page: Page, base: string) {
   await page.context().clearCookies({ name: "ps_theme" });
 }
 
-test("AI provider: pick, list models, test, save, reload, revert", async ({ page }, testInfo) => {
-  test.setTimeout(60_000);
+for (const width of [1440, 390]) test(`AI provider list: connect, order, edit, replace and remove at ${width}`, async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   try {
-  await setPro(page.request);
-  const { errors } = watchConsole(page);
-  await gotoOk(page, "/settings/integrations/ai");
-
-  // Presets show their own Base URL; no key yet, so the list explains what to do.
-  await expect(page.locator(".prov label")).toHaveCount(5);
-  await expect(page.locator(".ai-ro code")).toHaveText("https://api.openai.com/v1");
-  await expect(page.locator("#ai-models")).toContainText("Paste your key");
-
-  // Custom provider → own Base URL; the key loads the model list (chat models only).
-  await page.locator(".prov label", { hasText: "Custom" }).click();
-  await page.locator("#ai-base-url").fill(BASE);
-  await page.locator("#ai-key").fill(GOOD);
-  await page.locator("#ai-key").press("Tab");
-  await expect(page.locator(".ai-foot").first()).toContainText("2 models · 5 non-chat hidden");
-  await page.locator("#ai-model").fill("");
-  await page.locator("#ai-model").focus();
-  await expect(page.locator(".ai-opt[data-id]:visible")).toHaveCount(2);
-  await page.locator(".ai-opt[data-id='gpt-4o-mini']").click();
-  await expect(page.locator("#ai-model")).toHaveValue("gpt-4o-mini");
-
-  // A name that is not on the list can be used as is.
-  await page.locator("#ai-model").fill("my-fine-tune");
-  await expect(page.locator(".ai-custom")).toContainText("Use custom name: my-fine-tune");
-  await page.locator("#ai-model").fill("gpt-4o-mini");
-
-  // Tests: success, wrong key, blocked target.
-  await page.getByRole("button", { name: "Test connection" }).click();
-  await expect(page.locator("#ai-result")).toContainText("Works");
-  await page.locator("#ai-key").fill("sk-wrong-0123456789abcdefghij");
-  await page.getByRole("button", { name: "Test connection" }).click();
-  await expect(page.locator("#ai-result")).toContainText("invalid_key");
-  await page.locator("#ai-key").fill(GOOD);
-  await page.locator("#ai-base-url").fill("http://127.0.0.1:9/v1");
-  await page.getByRole("button", { name: "Test connection" }).click();
-  await expect(page.locator("#ai-result")).toContainText("AI_ALLOWED_PRIVATE_TARGETS");
-  await page.locator("#ai-base-url").fill(BASE);
-
-  // Save verifies first; the grid comes back with the new state.
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.locator(".notice-ok").first()).toContainText("Saved");
-  await expect(page.locator(".int-detail-head .int-state")).toContainText("Set up");
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator(".prov input:checked")).toHaveValue("custom");
-  await expect(page.locator("#ai-base-url")).toHaveValue(BASE);
-  await expect(page.locator("#ai-model")).toHaveValue("gpt-4o-mini");
-  await expect(page.locator("#ai-key")).toHaveAttribute("placeholder", /set \(paste to change\)/);
-
-  // Evidence with data in it: list open, both themes, desktop and phone.
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 1100 });
-    await page.locator("#ai-model").fill("");
-    await page.locator("#ai-model").focus();
-    await expect(page.locator(".ai-opt[data-id]:visible").first()).toBeVisible();
-    await shoot(page, testInfo.outputPath(`ai-provider-${width}`));
-    await page.locator("#ai-model").fill("gpt-4o-mini");
-  }
-
-  // Changing only the provider keeps nothing of the old key in the field.
-  await page.locator(".prov label", { hasText: "Groq" }).click();
-  await expect(page.locator("#ai-key")).toHaveValue("");
-  await expect(page.locator(".ai-ro code")).toHaveText("https://api.groq.com/openai/v1");
-
-  // Revert to environment values.
-  await page.getByRole("button", { name: "Use environment values" }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Use environment", exact: true }).click();
-  await expect(page.locator(".notice-ok").first()).toContainText("Reverted");
-  expect(errors, errors.join("\n")).toEqual([]);
-  } finally {
-    await clearSavedAiConfig();
-  }
+    await clearSavedAiConfig(); await setPro(page.request);
+    const { errors } = watchConsole(page);
+    await page.setViewportSize({ width, height: 1000 });
+    await gotoOk(page, "/settings/integrations/ai");
+    for (const model of ["first", "second", "third"]) {
+      await page.getByRole("button", { name: "+ Connect provider", exact: true }).click();
+      await expect(page.getByRole("dialog", { name: "Connect AI provider", exact: true })).toBeVisible();
+      await page.locator(".prov label", { hasText: "Custom" }).click();
+      await page.locator("#ai-base-url").fill(BASE); await page.locator("#ai-key").fill(GOOD);
+      await page.locator("#ai-key").press("Tab");
+      await expect(page.locator(".ai-foot").first()).toContainText("2 models");
+      await page.locator("#ai-model").fill(model);
+      if (model === "first") {
+        await page.locator("#ai-key").fill("sk-invalid-fixture-key");
+        await page.getByRole("button", { name: "Test connection", exact: true }).click();
+        await expect(page.locator("#ai-result")).toContainText("invalid_key");
+        await page.getByRole("button", { name: "Connect provider", exact: true }).click();
+        await expect(page.locator("#ai-result")).toContainText("Connection test failed");
+        await expect(page.locator(".ai-provider-row")).toHaveCount(0);
+        await page.locator("#ai-key").fill(GOOD);
+      }
+      await page.getByRole("button", { name: "Test connection", exact: true }).click();
+      await expect(page.locator("#ai-result")).toContainText("Test passed");
+      if (model === "first") {
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`connect-${width}.png`), fullPage: true, animations: "disabled" });
+      }
+      await page.getByRole("button", { name: "Connect provider", exact: true }).click();
+      await expect(page.locator(".ai-provider-row")).toHaveCount(["first", "second", "third"].indexOf(model) + 1);
+    }
+    const rows = page.locator(".ai-provider-row");
+    await rows.nth(1).locator("summary").click();
+    await rows.nth(1).getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Edit AI provider", exact: true })).toBeVisible();
+    await page.locator("#ai-model").fill("second-edited");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(rows.nth(1)).toContainText("second-edited");
+    await rows.nth(1).locator("summary").click();
+    await rows.nth(1).getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "+ Connect provider", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Connect AI provider", exact: true })).toBeVisible();
+    await expect(page.locator("#ai-key")).toHaveValue("");
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await rows.nth(2).getByRole("button", { name: "Move up", exact: true }).click();
+    await expect(rows.nth(1)).toContainText("third");
+    await rows.nth(1).getByRole("button", { name: "Move down", exact: true }).click();
+    await expect(rows.nth(2)).toContainText("third");
+    await rows.nth(2).locator("summary").click(); await rows.nth(2).getByRole("button", { name: "Make main", exact: true }).click();
+    await expect(rows.first()).toContainText("third"); await expect(rows.first()).toContainText("Main");
+    await rows.first().locator("summary").click(); await rows.first().getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Edit AI provider", exact: true })).toBeVisible();
+    await expect(page.locator("#ai-key")).toHaveValue(""); await page.locator("#ai-model").fill("edited");
+    await page.getByRole("button", { name: "Save", exact: true }).click(); await expect(rows.first()).toContainText("edited");
+    const pg = new Client({ connectionString: E2E_DATABASE_URL }); await pg.connect();
+    try {
+      await pg.query("UPDATE ai_providers SET model='no-credits' WHERE workspace_id IS NULL AND position=1");
+      const ws = (await pg.query("SELECT id FROM workspaces LIMIT 1")).rows[0].id;
+      const script = `import { chatComplete } from './src/lib/ai/client'; const r = await chatComplete({workspaceId:${JSON.stringify(ws)},kind:'draft',system:'Reply',user:'Hi'}); if(!r) process.exit(1);`;
+      await new Promise<void>((resolve, reject) => execFile("bun", ["--no-env-file", "-e", script], { env: serverEnv() }, error => error ? reject(error) : resolve()));
+    } finally { await pg.end(); }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(rows.first()).toContainText("no credits"); await expect(rows.nth(1)).toContainText("Answering now");
+    await shoot(page, testInfo.outputPath(`providers-${width}`));
+    await rows.nth(1).locator("summary").click(); await rows.nth(1).getByRole("button", { name: "Test again", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Test passed" }).first()).toBeVisible();
+    await rows.nth(2).locator("summary").click(); await rows.nth(2).getByRole("button", { name: "Remove", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Remove", exact: true }).click(); await expect(rows).toHaveCount(2);
+    await page.locator(".ai-advanced summary").click();
+    const json = JSON.parse(await page.getByRole("textbox", { name: "Provider JSON" }).inputValue());
+    expect(JSON.stringify(json)).not.toContain(GOOD);
+    await page.getByRole("textbox", { name: "Provider JSON" }).fill(JSON.stringify([json[1]]));
+    await page.getByRole("button", { name: "Apply JSON", exact: true }).click(); await expect(rows).toHaveCount(1);
+    expect(await page.content()).not.toContain(GOOD); expect(errors, errors.join("\n")).toEqual([]);
+  } finally { await clearSavedAiConfig(); }
 });
 
 test("API keys: the operator sees the Instance group in the Custom table", async ({ page }, testInfo) => {

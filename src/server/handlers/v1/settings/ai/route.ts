@@ -15,7 +15,7 @@ export const candidateSchema = z.object({
   base_url: z.string().max(300).nullish().transform((v) => v || undefined),
   model: z.string().max(200).optional(),
 });
-const putSchema = candidateSchema.extend({ provider: z.enum(AI_PROVIDER_IDS), model: z.string().min(1).max(200), verify: z.boolean().default(true) });
+const putSchema = candidateSchema.extend({ provider: z.enum(AI_PROVIDER_IDS), model: z.string().min(1).max(200), verify: z.literal(true).default(true) });
 
 // GET /api/v1/settings/ai — effective AI provider config (never the key)
 export async function GET(request: Request) {
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   return ok(await aiSettingsView());
 }
 
-// PUT /api/v1/settings/ai — choose provider + model (+ key / custom URL); verifies the connection first by default
+// PUT /api/v1/settings/ai — choose provider + model (+ key / custom URL); always verifies the connection first
 export async function PUT(request: Request) {
   const auth = await authenticateInstanceScope(request, "instance_ai:write");
   if (!auth) return ApiErrors.unauthorized();
@@ -36,7 +36,7 @@ export async function PUT(request: Request) {
   return ok(await aiSettingsView());
 }
 
-// DELETE /api/v1/settings/ai — remove the values stored here (environment values apply again)
+// DELETE /api/v1/settings/ai — remove Main and promote the next saved provider, or use environment defaults
 export async function DELETE(request: Request) {
   const auth = await authenticateInstanceScope(request, "instance_ai:write");
   if (!auth) return ApiErrors.unauthorized();

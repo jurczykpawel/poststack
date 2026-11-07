@@ -25,6 +25,17 @@ const cursorResponse = (items: Record<string, unknown>, location: "data" | "meta
   } } },
 });
 
+const providerFields = { provider: { type: "string", enum: ["openai", "anthropic", "openrouter", "groq", "custom"] }, model: { type: "string", minLength: 1, maxLength: 200 }, base_url: { type: "string", maxLength: 300 }, api_key: { type: "string", minLength: 1, maxLength: 500, writeOnly: true } };
+const providerInputSchema = { type: "object", additionalProperties: false, properties: providerFields };
+const providerPublicSchema = { type: "object", properties: { id: { type: "string", format: "uuid" }, position: { type: "integer", minimum: 1 }, provider: providerFields.provider, model: providerFields.model, base_url: providerFields.base_url, api_key_hint: { type: "string", maxLength: 4 }, last_test_status: { type: "string", enum: ["untested", "ok", "invalid_key", "model_not_found", "rate_limited", "no_credits", "timeout", "unreachable", "blocked_target", "bad_response", "invalid_request"] }, last_test_at: { type: ["string", "null"], format: "date-time" }, answering_now: { type: "boolean" } } };
+const providerEndpoint = (summary: string, write: boolean, schema?: object, result: object = { type: "array", items: providerPublicSchema }, row = false) => ({
+  ...requiresScope(write ? "instance_ai:write" : "instance_ai:read"), tags: ["AI providers"], summary,
+  description: "Instance operator session or explicit instance_ai permission on an operator-created key. Keys are never returned, only their final four characters. Every saved provider must pass its connection test. Presets use their catalog URL; changing a saved target requires a new key. Each outbound request uses the server AI_ALLOWED_PRIVATE_TARGETS policy. Order starts at 1; the first provider is Main. Generation tries each provider on outage, timeout, rate limit, no credits, invalid key/model or empty response. Request validation errors stop the chain. answering_now marks the most recent successful generation, never a connection test.",
+  ...(row ? { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }] } : {}),
+  ...(schema ? { requestBody: { required: true, content: { "application/json": { schema } } } } : {}),
+  responses: { "200": { description: "Result", content: { "application/json": { schema: { type: "object", properties: { data: result, error: { type: "null" } } } } } }, "201": { description: "Provider connected", content: { "application/json": { schema: { type: "object", properties: { data: providerPublicSchema, error: { type: "null" } } } } } }, "401": { $ref: "#/components/responses/Unauthorized" }, "403": { $ref: "#/components/responses/Forbidden" }, "404": { description: "Provider not found in this scope" }, "409": { description: "The list changed; reload and retry" }, "422": { description: "Invalid input or connection test failed; nothing saved" }, "429": { description: "Too many provider requests" } },
+});
+
 export const openApiSpec = {
   openapi: "3.1.0",
   info: {
@@ -311,7 +322,7 @@ export const openApiSpec = {
           model: { type: "string", maxLength: 200, description: "Any model id the provider accepts; it does not have to be in the list." },
           api_key: { type: "string", description: "Required for a first save and whenever the provider or Base URL host changes." },
           base_url: { type: "string", nullable: true, description: "Only for `custom` (http/https, no credentials/query)." },
-          verify: { type: "boolean", default: true },
+          verify: { type: "boolean", enum: [true], default: true },
         },
       },
       AiTestResult: {
@@ -1474,11 +1485,24 @@ export const openApiSpec = {
         },
       },
     },
+    "/settings/ai/providers": {
+      get: providerEndpoint("List AI providers in replacement order", false),
+      post: providerEndpoint("Connect a tested provider at the end", true, { ...providerInputSchema, required: ["provider", "model", "api_key"] }, providerPublicSchema),
+      put: providerEndpoint("Replace the entire list atomically after testing all entries", true, { type: "object", additionalProperties: false, required: ["providers"], properties: { providers: { type: "array", maxItems: 1000, items: { ...providerInputSchema, properties: { ...providerFields, id: { type: "string", format: "uuid" } } } } } }),
+    },
+    "/settings/ai/providers/{id}": {
+      patch: providerEndpoint("Edit and test a provider", true, providerInputSchema, providerPublicSchema, true),
+      delete: providerEndpoint("Remove a provider and close its position", true, undefined, undefined, true),
+    },
+    "/settings/ai/providers/reorder": { put: providerEndpoint("Apply a complete provider ID permutation atomically", true, { type: "object", required: ["ids"], additionalProperties: false, properties: { ids: { type: "array", maxItems: 1000, uniqueItems: true, items: { type: "string", format: "uuid" } } } }) },
+    "/settings/ai/providers/test": { post: providerEndpoint("Test candidate or saved provider without saving", true, { ...providerInputSchema, properties: { ...providerFields, id: { type: "string", format: "uuid" } } }, { $ref: "#/components/schemas/AiTestResult" }) },
+    "/settings/ai/providers/models": { post: providerEndpoint("List models for candidate or saved provider", true, { ...providerInputSchema, properties: { ...providerFields, id: { type: "string", format: "uuid" }, refresh: { type: "boolean" }, all: { type: "boolean" } } }, { type: "object", properties: { models: { type: "array", items: { $ref: "#/components/schemas/AiModel" } }, fetched_at: { type: "string", format: "date-time" }, cached: { type: "boolean" }, filtered_out: { type: "integer" } } }) },
+    "/settings/ai/providers/{id}/test": { post: providerEndpoint("Test a saved provider again", true, undefined, { $ref: "#/components/schemas/AiTestResult" }, true) },
     "/settings/ai": {
       get: {
         ...requiresScope("instance_ai:read"),
         tags: ["Instance settings"],
-        summary: "Get the instance AI provider settings (never the API key)",
+        summary: "Get Main AI provider settings (never the API key)",
         description: "Requires an API key created by the instance operator with the instance_ai permissions (an empty permission list never grants them), or an operator session. The key is bound to its creator: it stops working when they are no longer an operator. `providers` is the catalog to pick from; `api_key.hint` is the last 4 characters of a key of 20+ characters, otherwise null.",
         responses: {
           "200": { description: "Effective AI settings", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiSettings" }, error: { type: "null" } } } } } },
@@ -1490,7 +1514,7 @@ export const openApiSpec = {
         ...requiresScope("instance_ai:write"),
         tags: ["Instance settings"],
         summary: "Choose the AI provider and model",
-        description: "Typical agent flow: GET this → POST /settings/ai/models with the key → PUT here → GET /license shows `ai_configured: true`. By default (`verify: true`) a minimal chat request is sent first and nothing is saved if it fails (422 with the error code). `base_url` is allowed only for `custom`. When the provider or the host of the Base URL changes, `api_key` is required (422 `API_KEY_REQUIRED`): the saved key is never sent to a different provider or host. Private/loopback targets are blocked unless the server lists them in AI_ALLOWED_PRIVATE_TARGETS (`blocked_target`).",
+        description: "Typical agent flow: GET this → POST /settings/ai/models with the key → PUT here → GET /license shows `ai_configured: true`. Edits update Main and preserve every backup and its ID. A minimal chat request is always sent first; `verify: false` is rejected and nothing is saved if the test fails (422 with the error code). `base_url` is allowed only for `custom`. When the provider or the host of the Base URL changes, `api_key` is required (422 `API_KEY_REQUIRED`): the saved key is never sent to a different provider or host. Private/loopback targets are blocked unless the server lists them in AI_ALLOWED_PRIVATE_TARGETS (`blocked_target`).",
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AiSettingsUpdate" } } } },
         responses: {
           "200": { description: "Saved; the new effective settings", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiSettings" }, error: { type: "null" } } } } } },
@@ -1501,7 +1525,7 @@ export const openApiSpec = {
       delete: {
         ...requiresScope("instance_ai:write"),
         tags: ["Instance settings"],
-        summary: "Remove the values stored here (environment values apply again)",
+        summary: "Remove Main and promote the next provider, or use environment defaults",
         responses: {
           "200": { description: "Effective settings after removal", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/AiSettings" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },

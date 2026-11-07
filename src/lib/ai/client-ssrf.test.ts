@@ -1,3 +1,4 @@
+vi.mock("@/lib/ai/provider-store", () => ({ storedProviderChain: async () => null, hasStoredProviders: async () => null }));
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // AIPROVIDER1: the production call path enforces the private-target policy (no mocked aiFetch here).
@@ -21,20 +22,20 @@ describe("chatComplete — private target policy", () => {
   it("refuses a loopback Base URL by default and logs why", async () => {
     process.env.AI_BASE_URL = "http://127.0.0.1:9/v1";
     expect(await ask()).toBeNull();
-    expect(logGeneration.mock.calls[0]![0].error).toMatch(/refused loopback address/);
+    expect(logGeneration.mock.calls[0]![0].error).toBe("blocked_target");
   });
 
   it("refuses cloud metadata even when listed", async () => {
     process.env.AI_BASE_URL = "http://169.254.169.254/v1";
     process.env.AI_ALLOWED_PRIVATE_TARGETS = "169.254.169.254";
     expect(await ask()).toBeNull();
-    expect(logGeneration.mock.calls[0]![0].error).toMatch(/refused link_local address/);
+    expect(logGeneration.mock.calls[0]![0].error).toBe("blocked_target");
   });
 
   it("lets a listed loopback target through to the network (here: nothing listens on the port)", async () => {
     process.env.AI_BASE_URL = "http://127.0.0.1:9/v1";
     process.env.AI_ALLOWED_PRIVATE_TARGETS = "127.0.0.1:9";
     expect(await ask()).toBeNull();
-    expect(logGeneration.mock.calls[0]![0].error).not.toMatch(/refused loopback address/);
+    expect(logGeneration.mock.calls[0]![0].error).not.toBe("blocked_target");
   });
 });

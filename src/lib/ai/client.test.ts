@@ -1,3 +1,4 @@
+vi.mock("@/lib/ai/provider-store", () => ({ storedProviderChain: async () => null, hasStoredProviders: async () => null }));
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
 // Mirrors rephrase.test.ts: pure-unit test (no DB), so mock getConfig to read straight from
@@ -190,7 +191,7 @@ describe("chatComplete — ADLOG1 generation logging", () => {
       throw new Error("network boom");
     }) as typeof fetch;
     await chatComplete({ workspaceId: "WS-log", kind: "draft", system: "sys", user: "usr" });
-    expect(logGeneration.mock.calls[0][0]).toMatchObject({ response: null, error: "network boom" });
+    expect(logGeneration.mock.calls[0][0]).toMatchObject({ response: null, error: "unreachable" });
   });
 
   it("logs response=null + 'empty completion' as error when the model returns nothing usable", async () => {
@@ -263,14 +264,14 @@ describe("buildProviderChain — primary + fallbacks", () => {
   }
   it("is just the primary when no fallbacks are set (defaults applied)", async () => {
     process.env.AI_API_KEY = "prim";
-    expect(await chain()).toEqual([{ apiKey: "prim", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" }]);
+    expect(await chain()).toEqual([{ apiKey: "prim", provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" }]);
   });
   it("orders the primary first, then each fallback", async () => {
     process.env.AI_API_KEY = "prim";
     process.env.AI_MODEL = "primary-model";
     process.env.AI_FALLBACKS = '[{"apiKey":"k2","baseUrl":"https://fb/v1","model":"fb1"}]';
     expect(await chain()).toEqual([
-      { apiKey: "prim", baseUrl: "https://api.openai.com/v1", model: "primary-model" },
+      { apiKey: "prim", provider: "openai", baseUrl: "https://api.openai.com/v1", model: "primary-model" },
       { apiKey: "k2", baseUrl: "https://fb/v1", model: "fb1" },
     ]);
   });
@@ -343,7 +344,7 @@ describe("chatComplete — provider fallback chain", () => {
     expect(await chatComplete({ workspaceId: "WS", kind: "draft", system: "s", user: "u" })).toBeNull();
     expect(calls.map((c) => c.model)).toEqual(["primary", "fb1", "fb2"]);
     expect(logGeneration).toHaveBeenCalledTimes(3);
-    expect(logGeneration.mock.calls.map((c) => (c[0] as { error: string }).error)).toEqual(["HTTP 500", "HTTP 503", "network down"]);
+    expect(logGeneration.mock.calls.map((c) => (c[0] as { error: string }).error)).toEqual(["HTTP 500", "HTTP 503", "unreachable"]);
   });
 
   it("applies each provider's own model params — reasoning params for a GPT-5 fallback", async () => {
@@ -412,5 +413,22 @@ describe("chatComplete — AIPROVIDER1 providers", () => {
     process.env.AI_BASE_URL = "http://ollama:11434/v1/";
     await ask();
     expect(lastUrl).toBe("http://ollama:11434/v1/chat/completions");
+  });
+});
+
+describe("provider replacement request boundaries", () => {
+  for (const status of [400, 413, 422]) it(`stops the chain for request status ${status}`, async () => {
+    process.env.AI_MODEL = "primary"; process.env.AI_FALLBACKS = '[{"apiKey":"k2","model":"backup"}]';
+    routes = { primary: { status } }; mockRouted();
+    const chatComplete = await loadChatComplete();
+    expect(await chatComplete({ workspaceId: "WS", kind: "draft", system: "Help", user: "Hello" })).toBeNull();
+    expect(calls.map(c => c.model)).toEqual(["primary"]);
+  });
+  it("does not advance after a blocked target", async () => {
+    process.env.AI_FALLBACKS = '[{"apiKey":"k2","model":"backup"}]';
+    globalThis.fetch = vi.fn(async () => { throw new Error("refused loopback address"); });
+    const chatComplete = await loadChatComplete();
+    expect(await chatComplete({ workspaceId: "WS", kind: "draft", system: "Help", user: "Hello" })).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 });

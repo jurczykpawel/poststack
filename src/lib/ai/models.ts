@@ -20,7 +20,7 @@ const listFetch: FetchImpl = (url, init) => aiFetch(url, init, { deadlineMs: 8_0
 const testFetch: FetchImpl = (url, init) => aiFetch(url, init, { deadlineMs: 20_000, maxResponseBytes: 65_536 });
 
 /** Map a thrown network/SSRF error to a code. */
-function fromThrown(e: unknown): AiError {
+export function fromThrown(e: unknown): AiError {
   if (e instanceof AiError) return e;
   const m = e instanceof Error ? e.message : String(e);
   if (/refused \w+ address/.test(m)) return new AiError("blocked_target");
@@ -30,9 +30,10 @@ function fromThrown(e: unknown): AiError {
 }
 
 /** OpenAI-style 429 bodies say whether the account is out of credits rather than throttled. */
-const NO_CREDITS = /insufficient_quota|credit_balance|billing/i;
+const NO_CREDITS = /insufficient_quota|credit.?balance|billing/i;
 
-function fromStatus(status: number, notFound: AiErrorCode, body = ""): AiError {
+export function fromStatus(status: number, notFound: AiErrorCode, body = ""): AiError {
+  if (status === 402 || (status === 400 && NO_CREDITS.test(body))) return new AiError("no_credits", status);
   if (status === 401 || status === 403) return new AiError("invalid_key", status);
   if (status === 404) return new AiError(notFound, status);
   if (status === 429) return new AiError(NO_CREDITS.test(body) ? "no_credits" : "rate_limited", status);

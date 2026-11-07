@@ -8,6 +8,8 @@ export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 
 export const approvalSource = pgEnum("approval_source", ['rule', 'ai_auto', 'ai_manual'])
 // ADLOG1: which caller made a `chatComplete` call — the AI-drafted-reply generator or the rule
 // rephrase step. Lets the log panel and any future per-feature stats filter by origin.
+export const aiProviderKind = pgEnum("ai_provider_kind", ['openai', 'anthropic', 'openrouter', 'groq', 'custom'])
+export const aiProviderStatus = pgEnum("ai_provider_status", ['untested', 'ok', 'invalid_key', 'model_not_found', 'rate_limited', 'no_credits', 'timeout', 'unreachable', 'blocked_target', 'bad_response', 'invalid_request'])
 export const aiGenerationKind = pgEnum("ai_generation_kind", ['draft', 'rephrase'])
 // `system` is reserved/forward-looking: actorFromAuth only ever emits user/api_key, and no
 // cron/worker/maintenance path audits yet, so it's currently unreachable. Kept for when system
@@ -1628,4 +1630,28 @@ export const telemetryState = pgTable("telemetry_state", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	check("telemetry_state_singleton", sql`${table.id} = 'singleton'`),
+]);
+
+export const aiProviders = pgTable("ai_providers", {
+  id: uuid().primaryKey().defaultRandom().notNull(),
+  workspace_id: uuid("workspace_id"),
+  position: integer().notNull(),
+  provider: aiProviderKind().notNull(),
+  base_url: text().notNull(),
+  model: text().notNull(),
+  api_key_encrypted: text().notNull(),
+  api_key_hint: text().notNull(),
+  last_test_status: aiProviderStatus().default('untested').notNull(),
+  last_test_at: timestamp({ precision: 3, mode: 'date' }),
+  last_success_at: timestamp({ precision: 3, mode: 'date' }),
+  created_by_user_id: uuid("created_by_user_id"),
+  created_at: timestamp({ precision: 3, mode: 'date' }).defaultNow().notNull(),
+  updated_at: timestamp({ precision: 3, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: 'ai_providers_workspace_fk' }).onDelete('cascade'),
+  foreignKey({ columns: [table.created_by_user_id], foreignColumns: [users.id], name: 'ai_providers_creator_fk' }).onDelete('set null'),
+  uniqueIndex('ai_providers_workspace_position').on(table.workspace_id, table.position).where(sql`${table.workspace_id} IS NOT NULL`),
+  uniqueIndex('ai_providers_instance_position').on(table.position).where(sql`${table.workspace_id} IS NULL`),
+  index('ai_providers_creator_idx').on(table.created_by_user_id),
+  check('ai_providers_position_check', sql`${table.position} >= 1`),
 ]);
