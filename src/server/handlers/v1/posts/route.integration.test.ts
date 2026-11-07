@@ -90,6 +90,35 @@ async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null 
 }
 
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
+  it("reads and removes only a sent X post in its workspace", async () => {
+    const f = await deliveryFixture();
+    const { encryptTokens } = await import("@/lib/crypto");
+    await db.update(s.channels).set({ platform: "twitter", token_encrypted: encryptTokens({ access_token: "fixture-x" }) }).where(eq(s.channels.id, f.channelId));
+    await db.update(s.deliveries).set({ status: "sent", provider_handle: "123" }).where(eq(s.deliveries.id, f.delivery.id));
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ data: { id: "123" } }))
+      .mockResolvedValueOnce(Response.json({ data: { deleted: true } })).mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const path = `/posts/${f.postId}/platform`;
+      expect((await call("GET", path, undefined, null)).status).toBe(401);
+      expect((await call("DELETE", path, undefined, READ_KEY)).status).toBe(403);
+      expect((await call("GET", path, undefined, WRITE_KEY)).status).toBe(403);
+      expect((await call("DELETE", path, undefined, OTHER_KEY)).status).toBe(404);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect((await (await call("GET", path)).json()).data).toMatchObject({ exists: true, platformPostId: "123" });
+      expect((await (await call("DELETE", path)).json()).data).toEqual({ deleted: true });
+      expect((await (await call("GET", path)).json()).data).toMatchObject({ exists: false, providerStatus: 404 });
+      expect((await call("GET", `/posts/${f.postId}`)).status).toBe(200);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("rejects platform operations on pending and non-X posts", async () => {
+    const f = await deliveryFixture();
+    expect((await call("DELETE", `/posts/${f.postId}/platform`)).status).toBe(409);
+    await db.update(s.deliveries).set({ status: "sent", provider_handle: "123" }).where(eq(s.deliveries.id, f.delivery.id));
+    expect((await call("DELETE", `/posts/${f.postId}/platform`)).status).toBe(409);
+  });
+
   it.each(["scheduled", "held"] as const)("PATCH updates the %s publish payload consumed by the worker", async (status) => {
     const { postId, delivery } = await deliveryFixture();
     const [asset] = await db.insert(s.media).values({ workspace_id: WS, checksum: "original", storage_key: "old", url: "https://example.com/old.mp4", kind: "video" }).returning();

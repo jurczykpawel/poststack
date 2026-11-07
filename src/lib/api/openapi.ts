@@ -527,6 +527,15 @@ export const openApiSpec = {
         responses: { "200": { description: "Rescheduled delivery in data" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { description: "Delivery not found" }, "409": { description: "Already publishing or no longer pending" }, "422": { description: "Invalid or past date (same five-minute skew as creation)" } },
       },
     },
+    "/posts/{postId}/platform": {
+      ...Object.fromEntries((["get", "delete"] as const).map((method) => [method, {
+        ...requiresScope(method === "get" ? "posts:read" : "posts:write"), tags: ["Publishing"],
+        summary: method === "get" ? "Read a sent X post on the platform" : "Delete a sent X post from the platform",
+        description: "X only. Keeps local history. GET returns data.exists, providerStatus (200 or 404), platformPostId. DELETE requires X acknowledgement and returns data.deleted=true; follow with GET to confirm providerStatus=404.",
+        parameters: [{ name: "postId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { "200": { description: "Platform result in data" }, "401": { description: "Authentication required" }, "403": { description: "Missing scope" }, "404": { description: "Published post not found" }, "409": { description: "Requires a sent X post" }, "502": { description: "X operation failed" } },
+      }])),
+    },
     "/posts/{postId}/publish": {
       post: {
         ...requiresScope("posts:write"),

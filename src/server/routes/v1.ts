@@ -1,3 +1,4 @@
+import * as postPlatform from "@/server/handlers/v1/posts/[postId]/platform/route";
 import * as deliveryActions from "@/server/handlers/v1/deliveries/[deliveryId]/actions";
 import * as deliveryReschedule from "@/server/handlers/v1/deliveries/[deliveryId]/reschedule/route";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -240,6 +241,10 @@ v1.get("/posts/:postId", validateIds, (c) =>
 v1.patch("/posts/:postId", validateIds, (c) =>
   postItem.PATCH(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
 );
+for (const method of ["get", "delete"] as const) {
+  v1[method]("/posts/:postId/platform", validateIds, (c) =>
+    postPlatform.handle(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }));
+}
 v1.delete("/posts/:postId", validateIds, (c) =>
   postItem.DELETE(c.req.raw, { params: Promise.resolve({ postId: c.req.param("postId") }) }),
 );

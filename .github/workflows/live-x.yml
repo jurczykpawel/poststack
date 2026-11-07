@@ -1,0 +1,26 @@
+name: Live X smoke (paid, approval required)
+on:
+  schedule:
+    - cron: "0 9 1 * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: live-x
+  cancel-in-progress: false
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: live-paid
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+      - name: Publish, read and delete test post
+        env:
+          LIVE_X_API_KEY: ${{ secrets.LIVE_X_API_KEY }}
+          LIVE_X_CHANNEL_ID: ${{ vars.LIVE_X_CHANNEL_ID }}
+          TEST_BASE_URL: ${{ vars.TEST_BASE_URL }}
+        run: bun scripts/ci/live-x-smoke.ts
