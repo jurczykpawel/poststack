@@ -59,10 +59,10 @@ describe("CI release gates", () => {
     const source = workflows[name];
     expect(source).toContain("npm audit --omit=dev --audit-level=moderate");
     expect(source).toContain("npm audit --audit-level=high");
-    expect(source).toMatch(/npx -y npm@11\.[0-9.]+ audit signatures/);
+    expect(source).toMatch(/npx -y npm@latest audit signatures/);
     expect(source).toContain("npm --prefix landing ci");
     expect(source).toContain("npm --prefix landing audit --audit-level=moderate");
-    expect(source).toMatch(/npx -y npm@11\.[0-9.]+ --prefix landing audit signatures/);
+    expect(source).toMatch(/npx -y npm@latest --prefix landing audit signatures/);
     expect(source).toContain("npm run test:e2e");
     expect(source).not.toMatch(/npm audit[^\n]*\|\| true/);
   });
