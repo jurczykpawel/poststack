@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.7] - 2026-11-07
+
 ### Fixed
 - AI provider dialogs restore focus to their opening button when closed. Overlong API keys show the 500-character limit beside the field while preserving the form.
 
