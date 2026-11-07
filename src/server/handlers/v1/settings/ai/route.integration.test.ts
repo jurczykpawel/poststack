@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { decryptString } from "@/lib/crypto";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { createHash } from "node:crypto";
-import { eq, like } from "drizzle-orm";
+import { eq, like, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import openaiModels from "@/lib/ai/__fixtures__/openai-models.json";
 import openaiChat from "@/lib/ai/__fixtures__/openai-chat.json";
@@ -44,7 +45,11 @@ const call = async (method: string, path: string, headers: Record<string, string
 };
 const putCustom = (extra: Record<string, unknown> = {}, who = "op") =>
   call("PUT", "", bearer(who), { provider: "custom", base_url: BASE, model: "gpt-4o-mini", api_key: GOOD, ...extra });
-const stored = async (key: string) => cfg.getConfig(key as "AI_MODEL", { fresh: true });
+const stored = async (key: string) => {
+  const row = await db.query.aiProviders.findFirst({ where: isNull(s.aiProviders.workspace_id), orderBy: s.aiProviders.position });
+  if (!row) return cfg.getConfig(key as "AI_MODEL", { fresh: true });
+  return key === "AI_API_KEY" ? decryptString(row.api_key_encrypted, ["instance", "ai_providers.api_key_encrypted", row.id]) : key === "AI_PROVIDER" ? row.provider : key === "AI_MODEL" ? row.model : row.provider === "custom" ? row.base_url : "";
+};
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -85,6 +90,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!TEST_DB) return;
   seen = [];
+  await db.delete(s.aiProviders).where(isNull(s.aiProviders.workspace_id));
   await db.delete(s.instanceSettings).where(like(s.instanceSettings.key, "AI_%"));
   await db.delete(s.rateLimitCounters).where(like(s.rateLimitCounters.key, "rl:ai-%"));
   cfg.invalidateConfigCache();
@@ -94,6 +100,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (!TEST_DB) return;
+  await db.delete(s.aiProviders).where(isNull(s.aiProviders.workspace_id));
   await db.delete(s.instanceSettings).where(like(s.instanceSettings.key, "AI_%"));
   await db.delete(s.workspaces).where(eq(s.workspaces.id, WS));
   for (const id of [OP, OTHER]) await db.delete(s.users).where(eq(s.users.id, id));
@@ -175,11 +182,11 @@ describe("PUT /settings/ai", () => {
     expect(await stored("AI_PROVIDER")).toBe("");
   });
 
-  it("reports model_not_found for an unknown model, and skips the test with verify:false", async () => {
+  it("reports unknown models and declines unverified saves", async () => {
     if (!TEST_DB) return;
     expect((await putCustom({ model: "missing-model" })).body.error.code).toBe("model_not_found");
-    expect((await putCustom({ model: "missing-model", verify: false })).status).toBe(200);
-    expect(await stored("AI_MODEL")).toBe("missing-model");
+    expect((await putCustom({ model: "missing-model", verify: false })).status).toBe(422);
+    expect(await stored("AI_MODEL")).toBe("");
   });
 
   it("changing only the model reuses the saved key (it goes to the same host)", async () => {
@@ -213,15 +220,17 @@ describe("PUT /settings/ai", () => {
 
   it("presets take no Base URL; custom needs a valid one", async () => {
     if (!TEST_DB) return;
-    expect((await call("PUT", "", bearer("op"), { provider: "groq", base_url: BASE, model: "m", api_key: GOOD, verify: false })).body.error.code).toBe("BASE_URL_NOT_ALLOWED");
-    expect((await call("PUT", "", bearer("op"), { provider: "custom", model: "m", api_key: GOOD, verify: false })).body.error.code).toBe("BASE_URL_REQUIRED");
-    expect((await call("PUT", "", bearer("op"), { provider: "custom", base_url: "https://u:p@x.example/v1", model: "m", api_key: GOOD, verify: false })).body.error.code).toBe("INVALID_BASE_URL");
+    expect((await call("PUT", "", bearer("op"), { provider: "groq", base_url: BASE, model: "m", api_key: GOOD })).body.error.code).toBe("BASE_URL_NOT_ALLOWED");
+    expect((await call("PUT", "", bearer("op"), { provider: "custom", model: "m", api_key: GOOD })).body.error.code).toBe("BASE_URL_REQUIRED");
+    expect((await call("PUT", "", bearer("op"), { provider: "custom", base_url: "https://u:p@x.example/v1", model: "m", api_key: GOOD })).body.error.code).toBe("INVALID_BASE_URL");
   });
 
   it("a preset ignores and clears a stored custom URL; its catalog URL is used", async () => {
     if (!TEST_DB) return;
     await putCustom();
-    const { body } = await call("PUT", "", bearer("op"), { provider: "groq", model: "llama-3.3-70b-versatile", api_key: GOOD, verify: false });
+    const probe = vi.spyOn(models, "testConnection").mockResolvedValueOnce({ ok: true, latency_ms: 1, model: "llama-3.3-70b-versatile" });
+    const { body } = await call("PUT", "", bearer("op"), { provider: "groq", model: "llama-3.3-70b-versatile", api_key: GOOD });
+    probe.mockRestore();
     expect(body.data).toMatchObject({ provider: "groq", base_url: "https://api.groq.com/openai/v1" });
     expect(await stored("AI_BASE_URL")).toBe("");
   });

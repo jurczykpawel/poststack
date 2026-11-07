@@ -87,3 +87,5 @@ Measured 2026-10-20: occurrences include comments and string literals in `src`, 
 Reproduce a count with `rg -o --no-filename` plus the exclusions above and the corresponding regex, piping to `wc -l` (product regexes: `(?i)\bpoststack\b` / `(?i)\breplystack\b`; identifiers: `\bprofile\b`, etc.). Do not mechanically merge different concepts just because a shorter spelling has more hits.
 
 - **Video carousel capability (`video_carousel`)** — per-channel Facebook permission state (`unknown`, `unavailable`, `available`). Video in a carousel is enabled only after the token grants `pages_manage_ads` for the Page and its tasks include `ADVERTISE`.
+
+- **AI provider** — an entry in the instance AI list. **Main** is position #1; **Answering now** marks the provider with the latest successful generation. List order is replacement order.
