@@ -118,11 +118,13 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
 }
 
 export const instagramInsightsConnector: InsightsConnector = {
+  source: "meta_instagram",
+  requiredPermissions: (transport) => transport === "instagram_business"
+    ? ["instagram_business_basic", "instagram_business_manage_insights"] : ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"],
   catalog: () => instagramCatalog,
   fetch: fetchInsights,
   async access(credential): Promise<InsightAccess> {
-    const requiredPermissions = credential.transport === "instagram_business"
-      ? ["instagram_business_basic", "instagram_business_manage_insights"] : ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"];
+    const requiredPermissions = [...instagramInsightsConnector.requiredPermissions!(credential.transport)];
     const access: InsightAccess = { state: "unknown", transport: credential.transport, credentialRevision: credential.revision, requiredPermissions, missingPermissions: [], checkedAt: new Date().toISOString() };
     const to = new Date(); to.setUTCHours(0, 0, 0, 0);
     try {
