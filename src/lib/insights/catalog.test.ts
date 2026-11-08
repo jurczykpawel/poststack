@@ -54,17 +54,17 @@ describe("platform insights connector", () => {
     expect(insights).toHaveBeenCalledWith("twitter");
   });
 
-  it("does not declare a Meta connector before its implementation is registered", () => {
-    expect(catalog.getInsightsConnector("instagram")).toBeUndefined();
+  it("registers the implemented Instagram connector only", () => {
+    expect(catalog.getInsightsConnector("instagram")).toBeDefined();
     expect(catalog.getInsightsConnector("facebook")).toBeUndefined();
   });
 });
 
 describe("metric catalog", () => {
-  it("keeps active Instagram recipes empty until confirmed", async () => {
+  it("activates only the documented reach definition", async () => {
     const { instagramCatalog } = await import("./instagram/catalog");
-    expect(instagramCatalog).toEqual([]);
-    expect(catalog.getMetric(instagramCatalog, "reach")).toBeUndefined();
+    expect(instagramCatalog.map((m) => m.key)).toEqual(["reach"]);
+    expect(catalog.getMetric(instagramCatalog, "reach")?.additive).toBe(false);
     expect(catalog.getMetric(instagramCatalog, "followers")).toBeUndefined();
   });
 

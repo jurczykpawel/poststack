@@ -121,8 +121,8 @@ describe("insights platform support", () => {
     }
   });
 
-  it("does not report support until a platform has an implemented connector", () => {
-    expect(can({ platform: "instagram" }, "insights")).toBe(false);
+  it("reports implemented Instagram support independently of Facebook", () => {
+    expect(can({ platform: "instagram" }, "insights")).toBe(true);
     expect(can({ platform: "facebook" }, "insights")).toBe(false);
   });
 });

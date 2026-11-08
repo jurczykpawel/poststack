@@ -1,0 +1,14 @@
+{
+  "provenance": "recorded",
+  "login": "instagram_business",
+  "apiVersion": "v26.0",
+  "response": {
+    "error": {
+      "message": "[REDACTED]",
+      "type": "IGApiException",
+      "code": 10,
+      "fbtrace_id": "[REDACTED]"
+    }
+  },
+  "note": "Read-only probe, identifying fields redacted; code 10 alone is unknown."
+}

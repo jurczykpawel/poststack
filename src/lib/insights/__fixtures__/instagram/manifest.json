@@ -1,0 +1,66 @@
+{
+  "fixtures": [
+    {
+      "file": "account-series.json",
+      "provenance": "documentation",
+      "url": "https://developers.facebook.com/docs/instagram-platform/insights/",
+      "readAt": "2026-11-08",
+      "note": "Exact Meta example; deprecated sibling metrics are not activated.",
+      "quote": "\"value\": 12",
+      "apiVersion": "unspecified in response example; runtime uses repository constants",
+      "liveVerified": false
+    },
+    {
+      "file": "account-total-example.json",
+      "provenance": "documentation",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/",
+      "readAt": "2026-11-08",
+      "note": "Exact Meta example is missing the final closing brace; retained verbatim. Total-value recipe remains inactive.",
+      "quote": "\"value\": 224",
+      "apiVersion": "unspecified in response example; runtime uses repository constants",
+      "liveVerified": false
+    },
+    {
+      "file": "facebook-denied.json",
+      "provenance": "recorded",
+      "note": "Read-only probe; identifying values redacted. Code 10 alone does not establish the missing permission.",
+      "readAt": "2026-11-08",
+      "quote": "\"code\": 10"
+    },
+    {
+      "file": "instagram_business-denied.json",
+      "provenance": "recorded",
+      "note": "Read-only probe, identifying fields redacted; code 10 alone is unknown.",
+      "readAt": "2026-11-08",
+      "quote": "\"code\": 10"
+    }
+  ],
+  "recipes": {
+    "reach.time_series": "documentation; current reference supports both logins, no live success",
+    "reach.total_value": "inactive: exact official example is malformed JSON",
+    "views": "inactive: no concrete account response example",
+    "total_interactions": "inactive: no concrete account response example",
+    "accounts_engaged": "inactive: no concrete account response example",
+    "followers": "inactive: no profile field evidence"
+  },
+  "limitations": [
+    "DST transition not measured or exemplified",
+    "Total request boundaries unconfirmed"
+  ],
+  "documentationRules": [
+    {
+      "provenance": "documentation",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/",
+      "readAt": "2026-11-08",
+      "quote": "The API will only include data created within this range (inclusive).",
+      "mapping": "internal [from,to) maps to since=from and until=to-1 second; not live verified"
+    },
+    {
+      "provenance": "documentation",
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/",
+      "readAt": "2026-11-08",
+      "quote": "Available for the Instagram API with Facebook Login and Instagram API with Instagram Login.",
+      "scope": "Common account endpoint response contract; no separate successful Instagram Login payload in T0."
+    }
+  ]
+}
