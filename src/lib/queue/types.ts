@@ -297,7 +297,14 @@ export interface AiDraftJob {
 }
 
 /** graphile-worker task identifiers → their payload type. */
+export interface InsightsSyncJob {
+  workspaceId: string;
+  channelId: string;
+  credentialRevision?: string;
+}
+
 export type TaskPayloadMap = {
+  "insights-sync": InsightsSyncJob;
   "media-ingest": { id: string; workspaceId: string };
   "incoming-message": IncomingMessageJob;
   "incoming-comment": IncomingCommentJob;

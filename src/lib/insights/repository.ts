@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { and, eq, gte, lte, inArray, isNull, sql } from "drizzle-orm";
 import { channels, accountSources, insightConnections, insightObservations } from "@/db/schema";
 import { db } from "@/lib/db";
-import { requireFeature } from "@/lib/license/gate";
 import { resolveInsightCredential } from "./credentials";
 import type { ChannelRef, CollectionMode, InsightBatch, InsightObservation, InsightQuery } from "./types";
 
@@ -38,7 +37,7 @@ export async function changeCollectionMode(ref: ChannelRef, mode: CollectionMode
   await db.transaction(async (tx) => {
     const [channel] = await tx.select().from(channels).where(and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), sql`${channels.deleted_at} IS NULL`)).for("update");
     if (!channel) throw new Error("Channel not found");
-    await requireFeature("insights");
+    await (await import("@/lib/license/gate")).requireFeature("insights");
     await tx.insert(insightConnections).values({ workspace_id: ref.workspaceId, channel_id: ref.channelId, platform: channel.platform, collection_mode: mode,
       reason: mode === "off" ? "collection_off" : "first_sync" })
       .onConflictDoUpdate({ target: [insightConnections.workspace_id, insightConnections.channel_id],
@@ -65,7 +64,9 @@ export function insightQueryKey(o: InsightObservation): string {
   ])).digest("hex");
 }
 
-export async function upsertInsightBatch(ref: ChannelRef, revision: string, batch: InsightBatch, claimToken?: string): Promise<number> {
+export type InsightProgress = { checkpoint: typeof insightConnections.$inferSelect["checkpoint"]; next_due_at: Date; access_state?: typeof insightConnections.$inferSelect["access_state"]; access_checked_at?: Date; failure_count?: number; reason?: typeof insightConnections.$inferSelect["reason"] };
+
+export async function upsertInsightBatch(ref: ChannelRef, revision: string, batch: InsightBatch, claimToken?: string, progress?: InsightProgress): Promise<number> {
   return db.transaction(async (tx) => {
     const [initial] = await tx.select({ sourceId: channels.source_id }).from(channels).where(and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId)));
     if (!initial) return 0;
@@ -81,7 +82,7 @@ export async function upsertInsightBatch(ref: ChannelRef, revision: string, batc
       const credential = await resolveInsightCredential(ref, connection.transport);
       if (!credential || credential.revision !== revision) return 0;
     }
-    await requireFeature("insights");
+    await (await import("@/lib/license/gate")).requireFeature("insights");
     let count = 0;
     let latest: Date | null = null;
     for (const o of batch.observations) {
@@ -105,6 +106,7 @@ export async function upsertInsightBatch(ref: ChannelRef, revision: string, batc
     if (latest) await tx.update(insightConnections).set({ access_state: "ready", reason: "none",
       last_success_at: sql`greatest(${insightConnections.last_success_at}, ${latest})`,
     }).where(and(eq(insightConnections.workspace_id, ref.workspaceId), eq(insightConnections.channel_id, ref.channelId), eq(insightConnections.credential_revision, revision), eq(insightConnections.collection_mode, "on")));
+    if (progress && claimToken) await tx.update(insightConnections).set(progress).where(and(eq(insightConnections.workspace_id, ref.workspaceId), eq(insightConnections.channel_id, ref.channelId), eq(insightConnections.claim_token, claimToken)));
     return count;
   });
 }

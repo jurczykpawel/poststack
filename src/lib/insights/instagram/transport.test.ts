@@ -90,3 +90,11 @@ it("also aborts a stalled body stream at 15 seconds", async () => {
   await pending;
   expect(cancel).toHaveBeenCalledTimes(1);
 });
+it.each([[80,900],[90,3600]])("retains usage %s deferral on recorded denied responses",async(percent,seconds)=>{
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(denied.response),{status:400,headers:{"x-app-usage":JSON.stringify({call_count:percent})}})));
+  await expect(instagramInsightsConnector.fetch(credential,query)).rejects.toMatchObject({retryAfterSeconds:seconds});
+});
+it("retains usage deferral when the body cannot be parsed",async()=>{
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response("unavailable",{headers:{"x-app-usage":'{"call_count":90}'}})));
+  await expect(instagramInsightsConnector.fetch(credential,query)).rejects.toMatchObject({retryAfterSeconds:3600});
+});

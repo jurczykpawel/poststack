@@ -24,7 +24,10 @@ vi.mock("@/lib/media/async-ingest", () => ({ processMediaIngest: vi.fn() }));
 
 import { createTaskList } from "./tasks";
 
+vi.mock("@/lib/workers/insights-worker", () => ({ processInsightsSync: vi.fn() }));
+
 const EXPECTED_TASKS = [
+  "insights-sync",
   "media-ingest",
   "incoming-message",
   "incoming-comment",

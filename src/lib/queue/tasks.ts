@@ -1,3 +1,4 @@
+import { processInsightsSync } from "@/lib/workers/insights-worker";
 import { processMediaIngest } from "@/lib/media/async-ingest";
 import type { TaskList } from "graphile-worker";
 import { processIncomingMessage } from "@/lib/workers/incoming-message-worker";
@@ -27,6 +28,7 @@ import type { TaskPayloadMap } from "./types";
  */
 export function createTaskList(): TaskList {
   return {
+    "insights-sync": p => processInsightsSync(p as TaskPayloadMap["insights-sync"]),
     "media-ingest": p => processMediaIngest(p as TaskPayloadMap["media-ingest"]),
     "incoming-message": (p, h) =>
       processIncomingMessage(p as TaskPayloadMap["incoming-message"], h),
