@@ -45,6 +45,7 @@ for (const state of STATES) {
           }
         }
         if (route.key === "settings") await expect(pageHeading).toContainText("Settings");
+        if (route.key === "insights") await expect(pageHeading).toContainText("Insights");
 
         // Gating: pages that lock the WHOLE page when their feature is locked.
         if (route.feature && PAGE_LOCKED_WHEN_LOCKED.has(route.key)) {
