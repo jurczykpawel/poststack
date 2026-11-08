@@ -1,3 +1,4 @@
+import { scheduleInsightCredentialCheck } from "@/lib/insights/lifecycle";
 import type { JobHelpers } from "graphile-worker";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -75,5 +76,6 @@ export async function processTokenRefresh(
     })
     .where(eq(channels.id, payload.channelId));
   await markChannelHealthy(payload.channelId); // recovers needs_reauth; leaves paused/active (AUD40)
+  if (channel.platform === "instagram") await scheduleInsightCredentialCheck({ workspaceId: channel.workspace_id, channelId: channel.id });
   helpers.logger.info(`token refreshed for channel ${payload.channelId}`);
 }

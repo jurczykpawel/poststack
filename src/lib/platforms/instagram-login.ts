@@ -1,3 +1,4 @@
+import type { OAuthPurpose } from "@/lib/oauth/state";
 /**
  * Instagram Business Login (IGML5) — direct OAuth on `instagram.com` / `api.instagram.com` /
  * `graph.instagram.com`, separate from the Facebook-Login-derived Instagram flow in `instagram.ts`.
@@ -43,11 +44,11 @@ export interface InstagramLoginResult {
 const IG_LONG_LIVED_TOKEN_TTL_SECONDS = 60 * 24 * 60 * 60;
 
 /** Build the Instagram Business Login authorize URL. */
-export async function buildInstagramLoginAuthUrl(state: string, redirectUri: string): Promise<string> {
+export async function buildInstagramLoginAuthUrl(state: string, redirectUri: string, purpose?: OAuthPurpose): Promise<string> {
   const params = new URLSearchParams({
     client_id: await getConfig("INSTAGRAM_APP_ID"),
     redirect_uri: redirectUri,
-    scope: IG_LOGIN_SCOPES.join(","),
+    scope: [...IG_LOGIN_SCOPES, ...(purpose?.kind === "insights" ? ["instagram_business_manage_insights"] : [])].join(","),
     response_type: "code",
     state,
   });

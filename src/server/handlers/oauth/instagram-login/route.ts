@@ -1,3 +1,4 @@
+import { beginInsightConsent } from "@/lib/insights/consent";
 import { authenticateSession } from "@/lib/auth";
 import { generateOAuthState, OAUTH_FLOWS } from "@/lib/oauth/state";
 import { env } from "@/lib/env";
@@ -13,6 +14,10 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const auth = await authenticateSession(request).catch(() => null);
   if (!auth) return ApiErrors.unauthorized();
+  const params = new URL(request.url).searchParams;
+  if (params.get("purpose") === "insights") {
+    return beginInsightConsent({ workspaceId: auth.workspaceId, channelId: params.get("channel") ?? "" }, auth);
+  }
 
   // Guard: if IG-Login isn't configured (self-hoster hasn't set the app credentials), don't proceed
   // into a broken OAuth (empty client_id → inbound webhooks 403). getConfig returns "" when unset.
