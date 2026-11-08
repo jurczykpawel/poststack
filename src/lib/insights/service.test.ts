@@ -4,12 +4,12 @@ import { instagramCatalog } from "./instagram/catalog";
 import { entitledFeatures, ProRequiredError } from "@/lib/license/gate";
 vi.hoisted(() => { Object.assign(process.env, {DATABASE_URL:"postgres://test:test@localhost:55684/test",ENCRYPTION_KEY:"test-encryption-key-at-least-32-characters",JWT_SECRET:"test-secret-at-least-32-characters",CRON_SECRET:"test-cron-at-least-32-characters-long",APP_URL:"http://localhost:3472"}); });
 vi.mock("@/lib/license/gate", async (original) => ({ ...await original<typeof import("@/lib/license/gate")>(), requireFeature: vi.fn() }));
-vi.mock("./repository", () => ({ loadInsightContext: vi.fn(), readObservations: vi.fn(), changeCollectionMode: vi.fn(), upsertInsightBatch: vi.fn() }));
+vi.mock("./repository", () => ({ findInsightChannel: vi.fn(), loadInsightContext: vi.fn(), readObservations: vi.fn(), changeCollectionMode: vi.fn(), upsertInsightBatch: vi.fn() }));
 vi.mock("./catalog", () => ({ getInsightsConnector: vi.fn() }));
 import { requireFeature } from "@/lib/license/gate";
 import * as repository from "./repository";
 import { getInsightsConnector } from "./catalog";
-import { buildAccountReport, getInsightStatus, readAccountInsights, storeInsightBatch } from "./service";
+import { buildAccountReport, getInsightStatus, readAccountInsights, readAccountReport, storeInsightBatch } from "./service";
 const metric: InsightMetric = { ...instagramCatalog[0], key: "views", aggregation: "sum", additive: true, definitionVersion: "views-v1", coverageBasis: "provider_end_time" };
 const query: InsightQuery = { level: "account", subjectKey: "account", from: "2026-10-03T08:00:00Z", to: "2026-10-05T08:00:00Z", metrics: ["views"], grain: "day" };
 function point(day: number, value: string | null, overrides: Partial<InsightObservation> = {}): InsightObservation {
@@ -107,4 +107,20 @@ it("rejects available day observations with inconsistent provider dates or windo
     const o=point(3,"12",{metricKey:"reach",definitionVersion:reach.definitionVersion,...change});
     await expect(storeInsightBatch({workspaceId:"ws",channelId:"ch"},"rev",{observations:[o],usage:{percent:null,regainAfterSeconds:null}})).rejects.toThrow("Invalid insights observation");
   }
+});
+
+it("maps provider calendar days to the connector's day boundaries, including 90 days across a clock change",async()=>{
+  vi.mocked(requireFeature).mockResolvedValue(undefined);
+  vi.mocked(repository.findInsightChannel).mockResolvedValue({platform:"instagram",platform_id:"account"});
+  vi.mocked(repository.loadInsightContext).mockResolvedValue({channel:{platform:"instagram",platform_id:"account",status:"active"},connection:null});
+  vi.mocked(repository.readObservations).mockResolvedValue([]);
+  vi.mocked(getInsightsConnector).mockReturnValue({dayTimeZone:"America/Los_Angeles",catalog:()=>instagramCatalog,fetch:vi.fn(),access:vi.fn(),consentTransport:vi.fn()});
+  const ref={workspaceId:"ws",channelId:"ch"};
+  await readAccountReport(ref,{from:"2018-01-10",to:"2018-01-12"});
+  expect(vi.mocked(repository.readObservations).mock.lastCall?.[1]).toMatchObject({from:"2018-01-10T08:00:00.000Z",to:"2018-01-12T08:00:00.000Z",metrics:["reach"],grain:"day"});
+  await readAccountReport(ref,{from:"2026-09-01",to:"2026-11-30"});
+  expect(vi.mocked(repository.readObservations).mock.lastCall?.[1]).toMatchObject({from:"2026-09-01T07:00:00.000Z",to:"2026-11-30T08:00:00.000Z"});
+  vi.mocked(getInsightsConnector).mockReturnValue({catalog:()=>instagramCatalog,fetch:vi.fn(),access:vi.fn(),consentTransport:vi.fn()});
+  await readAccountReport(ref,{from:"2026-10-03",to:"2026-10-04"});
+  expect(vi.mocked(repository.readObservations).mock.lastCall?.[1]).toMatchObject({from:"2026-10-03T00:00:00.000Z",to:"2026-10-04T00:00:00.000Z"});
 });

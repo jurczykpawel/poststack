@@ -2,14 +2,24 @@ import { createHash } from "node:crypto";
 import { and, eq, gte, lte, inArray, isNull, sql } from "drizzle-orm";
 import { channels, accountSources, insightConnections, insightObservations } from "@/db/schema";
 import { db } from "@/lib/db";
+import { ApiError } from "@/lib/api/response";
 import { reconcileInsightCredentials } from "./lifecycle";
 import { resolveInsightCredential } from "./credentials";
 import type { ChannelRef, CollectionMode, InsightBatch, InsightObservation, InsightQuery } from "./types";
 
+const channelNotFound = () => new ApiError("not_found", "Channel not found", 404);
+
+/** Read-only, workspace-scoped channel lookup; never reconciles or contacts the provider. */
+export async function findInsightChannel(ref: ChannelRef): Promise<Pick<typeof channels.$inferSelect, "platform" | "platform_id"> | null> {
+  const [channel] = await db.select({ platform: channels.platform, platform_id: channels.platform_id })
+    .from(channels).where(and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), sql`${channels.deleted_at} IS NULL`));
+  return channel ?? null;
+}
+
 export async function loadInsightContext(ref: ChannelRef): Promise<{ channel: Pick<typeof channels.$inferSelect, "platform" | "platform_id" | "status">; connection: typeof insightConnections.$inferSelect | null }> {
   const [channel] = await db.select({ platform: channels.platform, platform_id: channels.platform_id, status: channels.status })
     .from(channels).where(and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), sql`${channels.deleted_at} IS NULL`));
-  if (!channel) throw new Error("Channel not found");
+  if (!channel) throw channelNotFound();
   if (channel.platform === "instagram") await reconcileInsightCredentials(ref);
   const [connection] = await db.select().from(insightConnections).where(and(eq(insightConnections.workspace_id, ref.workspaceId), eq(insightConnections.channel_id, ref.channelId)));
   return { channel, connection: connection ?? null };
@@ -38,7 +48,7 @@ export async function readObservations(ref: ChannelRef, query: InsightQuery): Pr
 export async function changeCollectionMode(ref: ChannelRef, mode: CollectionMode): Promise<void> {
   await db.transaction(async (tx) => {
     const [channel] = await tx.select().from(channels).where(and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), sql`${channels.deleted_at} IS NULL`)).for("update");
-    if (!channel) throw new Error("Channel not found");
+    if (!channel) throw channelNotFound();
     await (await import("@/lib/license/gate")).requireFeature("insights");
     if (mode === "off") await tx.update(channels).set({ metadata: sql`${channels.metadata} - 'insight_consent' - 'insight_consent_completion'` }).where(and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId)));
     await tx.insert(insightConnections).values({ workspace_id: ref.workspaceId, channel_id: ref.channelId, platform: channel.platform, collection_mode: mode,

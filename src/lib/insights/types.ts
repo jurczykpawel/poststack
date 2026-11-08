@@ -98,6 +98,8 @@ export type InsightFailure = {
 
 export interface InsightsConnector {
   readonly source?: string;
+  /** IANA zone of the provider's calendar day boundaries; UTC when absent. */
+  readonly dayTimeZone?: string;
   requiredPermissions?(transport: string): readonly string[];
   catalog(): readonly InsightMetric[];
   /** Bounded Insights GET; no speculative permissions endpoint. */
