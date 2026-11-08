@@ -1,3 +1,4 @@
+import type { OAuthPurpose } from "@/lib/oauth/state";
 import type { Platform } from "@/db/schema";
 import type { Capability } from "@/lib/channels/capabilities";
 
@@ -109,7 +110,7 @@ export abstract class SocialProvider {
    * @param state - Opaque state prepared by the shared interactive OAuth boundary
    * @param redirectUri - The callback URL registered in the platform's developer console
    */
-  abstract generateAuthUrl(state: string, redirectUri: string): string | Promise<string>;
+  abstract generateAuthUrl(state: string, redirectUri: string, purpose?: OAuthPurpose): string | Promise<string>;
 
   /**
    * Exchange authorization code for tokens and fetch account info.

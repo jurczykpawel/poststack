@@ -14,6 +14,8 @@ export const OAUTH_FLOWS = {
   gmail: "gmail",
 } as const;
 
+export type OAuthPurpose = { kind: "insights"; channelId: string; transport: string } | { kind: "connect" };
+
 export type OAuthFlow = (typeof OAUTH_FLOWS)[keyof typeof OAUTH_FLOWS] | `connect:${string}`;
 
 export function connectOAuthFlow(platform: string): `connect:${string}` {
@@ -28,7 +30,7 @@ function oauthCookie(name: string, value: string, maxAge: number): string {
   return `${name}=${value}; HttpOnly;${secureAttribute()} SameSite=Lax; Path=${COOKIE_PATH}; Max-Age=${maxAge}`;
 }
 
-function signature(state: string, auth: SessionAuthContext, flow: OAuthFlow): string {
+function signature(state: string, auth: SessionAuthContext, flow: OAuthFlow, context: string): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("JWT_SECRET is required for OAuth state");
   const payload = JSON.stringify([
@@ -38,11 +40,12 @@ function signature(state: string, auth: SessionAuthContext, flow: OAuthFlow): st
     auth.workspaceId,
     auth.sessionId,
     flow,
+    context,
   ]);
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-function safeEqual(left: string, right: string): boolean {
+export function safeEqual(left: string, right: string): boolean {
   if (!left || !right) return false;
   const a = Buffer.from(left);
   const b = Buffer.from(right);
@@ -56,11 +59,14 @@ function safeEqual(left: string, right: string): boolean {
 export function generateOAuthState(
   auth: SessionAuthContext,
   flow: OAuthFlow,
+  purpose: OAuthPurpose = { kind: "connect" },
 ): { state: string; setCookie: string } {
+  validatePurpose(purpose, flow);
   const state = randomBytes(16).toString("hex");
+  const context = Buffer.from(JSON.stringify({ purpose, expiresAt: Date.now() + COOKIE_MAX_AGE * 1000 })).toString("base64url");
   const setCookie = oauthCookie(
     COOKIE_NAME,
-    `${state}.${signature(state, auth, flow)}`,
+    `${state}.${context}.${signature(state, auth, flow, context)}`,
     COOKIE_MAX_AGE,
   );
   return { state, setCookie };
@@ -99,13 +105,24 @@ export function verifyOAuthState(
   cookieHeader: string | null,
   auth: SessionAuthContext,
   flow: OAuthFlow,
-): void {
+): OAuthPurpose {
   verifyOAuthStateCookie(state, cookieHeader);
   const stored = readStateCookie(cookieHeader)!;
-  const storedSignature = stored.slice(stored.indexOf(".") + 1);
-  if (!safeEqual(storedSignature, signature(state, auth, flow))) {
+  const [, context, storedSignature, extra] = stored.split(".");
+  if (!context || !storedSignature || extra || !safeEqual(storedSignature, signature(state, auth, flow, context))) {
     throw new Error("Invalid OAuth state");
   }
+  const parsed = JSON.parse(Buffer.from(context, "base64url").toString());
+  if (!Number.isFinite(parsed.expiresAt) || parsed.expiresAt <= Date.now() || parsed.expiresAt > Date.now() + COOKIE_MAX_AGE * 1000) throw new Error("Invalid OAuth state");
+  validatePurpose(parsed.purpose, flow);
+  return parsed.purpose;
+}
+
+function validatePurpose(purpose: OAuthPurpose, flow: OAuthFlow): void {
+  if (purpose?.kind === "connect" && Object.keys(purpose).length === 1) return;
+  if (purpose?.kind !== "insights" || Object.keys(purpose).length !== 3 ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purpose.channelId) ||
+    !((flow === "instagram" && purpose.transport === "facebook") || (flow === "instagram-login" && purpose.transport === "instagram_business"))) throw new Error("Invalid OAuth purpose");
 }
 
 // ── PKCE verifier transport (publish-side OAuth, e.g. X) ──────────────────────────────────────────

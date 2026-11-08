@@ -1,3 +1,4 @@
+import type { OAuthPurpose } from "@/lib/oauth/state";
 import { getConfig } from "@/lib/settings/config";
 import {
   SocialProvider,
@@ -98,12 +99,13 @@ export class InstagramProvider extends SocialProvider {
       : { base: GRAPH_API, token: tokens.access_token };
   }
 
-  async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
+  async generateAuthUrl(state: string, redirectUri: string, purpose?: OAuthPurpose): Promise<string> {
     const params = new URLSearchParams({
       client_id: await getConfig("META_APP_ID"),
       redirect_uri: redirectUri,
       state,
-      scope: INSTAGRAM_OAUTH_SCOPES.join(","),
+      scope: [...INSTAGRAM_OAUTH_SCOPES, ...(purpose?.kind === "insights" ? ["instagram_manage_insights"] : [])].join(","),
+      ...(purpose?.kind === "insights" ? { auth_type: "rerequest" } : {}),
       response_type: "code",
     });
     return `${META_OAUTH_BASE}/dialog/oauth?${params.toString()}`;

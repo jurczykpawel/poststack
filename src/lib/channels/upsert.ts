@@ -1,3 +1,4 @@
+import { scheduleInsightCredentialCheck } from "@/lib/insights/lifecycle";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, platform as platformEnum, channelConnectionMode as connModeEnum } from "@/db/schema";
@@ -231,6 +232,10 @@ export async function upsertChannels(
     ).catch(() => {});
   }
 
+  if (platform === "instagram") for (const result of results) {
+    await scheduleInsightCredentialCheck({ workspaceId, channelId: result.channelId });
+  }
+
   const recoveredChannelIds = results.filter((r) => r.recovered).map((r) => r.channelId);
   return { recoveredChannelIds };
 }
@@ -351,6 +356,10 @@ async function augmentMessagingTokens(
       { type: "channel", id: r.channelId },
       { platform, displayName: r.displayName },
     ).catch(() => {});
+  }
+
+  if (platform === "instagram") for (const result of results) {
+    await scheduleInsightCredentialCheck({ workspaceId, channelId: result.channelId });
   }
 
   const recoveredChannelIds = results.filter((r) => r.recovered).map((r) => r.channelId);
