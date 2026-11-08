@@ -15,7 +15,8 @@ export async function reconcileInsightCredentials(ref: ChannelRef): Promise<bool
     if (!channel || channel.source_id !== initial.source_id) return false;
     const [connection]=await tx.select().from(insightConnections).where(and(eq(insightConnections.workspace_id,ref.workspaceId),eq(insightConnections.channel_id,ref.channelId))).for("update");
     if (!connection) return false;
-    const [fb,ig]=await Promise.all([resolveInsightCredential(ref,"facebook"),resolveInsightCredential(ref,"instagram_business")]);
+    const fb=await resolveInsightCredential(ref,"facebook",tx);
+    const ig=await resolveInsightCredential(ref,"instagram_business",tx);
     let fbRevision=fb?.revision ?? null;
     // Source availability does not change the version of its stored credential.
     if (!fbRevision && source?.provider === "meta" && source.kind === "user") {

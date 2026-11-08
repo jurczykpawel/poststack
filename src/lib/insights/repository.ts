@@ -92,7 +92,7 @@ export async function upsertInsightBatch(ref: ChannelRef, revision: string, batc
     )).for("update");
     if (!connection || connection.collection_mode !== "on" || connection.credential_revision !== revision || !connection.transport) return 0;
     if (channel.platform === "instagram") {
-      const credential = await resolveInsightCredential(ref, connection.transport);
+      const credential = await resolveInsightCredential(ref, connection.transport, tx);
       if (!credential || credential.revision !== revision) return 0;
     }
     await (await import("@/lib/license/gate")).requireFeature("insights");
