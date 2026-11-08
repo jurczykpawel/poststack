@@ -9,6 +9,7 @@ import type { TaskName } from "./types";
  * retained by graphile as a permanently-failed (dead-letter) row.
  */
 export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
+  "insights-sync": 3,
   "media-ingest": 3,
   "incoming-message": 3,
   "incoming-comment": 3,
@@ -40,6 +41,8 @@ export const TASK_MAX_ATTEMPTS: Record<TaskName, number> = {
 };
 
 export interface AddJobOptions {
+  queueName?: string;
+  priority?: number;
   /** Dedup key — replaces an existing pending job with the same key (was BullMQ `jobId`). */
   jobKey?: string;
   /** Delay before the job becomes runnable, in milliseconds (was BullMQ `delay`). */
@@ -56,6 +59,8 @@ export function buildTaskSpec(
   const spec: TaskSpec = {
     maxAttempts: opts.maxAttempts ?? TASK_MAX_ATTEMPTS[taskName],
   };
+  if (opts.queueName !== undefined) spec.queueName = opts.queueName;
+  if (opts.priority !== undefined) spec.priority = opts.priority;
   if (opts.jobKey) spec.jobKey = opts.jobKey;
   if (opts.delayMs && opts.delayMs > 0) {
     spec.runAt = new Date(now.getTime() + opts.delayMs);

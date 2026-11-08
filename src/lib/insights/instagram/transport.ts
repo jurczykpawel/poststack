@@ -79,6 +79,11 @@ async function readBody(response: Response, signal: AbortSignal): Promise<string
   } finally { signal.removeEventListener("abort", abort); reader.releaseLock(); }
 }
 
+function withUsage(failure: InsightFailure, usage: InsightBatch["usage"]): InsightFailure {
+  const percent=usage.percent ?? 0;
+  return {...failure,retryAfterSeconds:Math.max(failure.retryAfterSeconds ?? 0,usage.regainAfterSeconds ?? 0,percent>=90?3600:percent>=80?900:0)||null};
+}
+
 async function fetchInsights(credential: InsightCredential, query: InsightQuery): Promise<InsightBatch> {
   validateQuery(credential, query);
   const base = credential.transport === "facebook" ? GRAPH_API_BASE : IG_GRAPH_BASE;
@@ -87,20 +92,21 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
   url.search = new URLSearchParams(queryParams).toString();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
+  let responseUsage: InsightBatch["usage"] = {percent:null,regainAfterSeconds:null};
   try {
     const response = await fetch(url, { method: "GET", redirect: "error", signal: controller.signal, headers: { Authorization: `Bearer ${credential.token}` } });
     const usage = readUsage(response.headers);
+    responseUsage = usage;
     const text = await readBody(response, controller.signal);
     let body: Record<string, unknown>;
     try { body = object(parseInsightJson(text)); }
     catch {
-      if (!response.ok) throw classifyInsightError(response.status, {}, response.headers.get("retry-after"));
+      if (!response.ok) throw withUsage(classifyInsightError(response.status, {}, response.headers.get("retry-after")),usage);
       throw new Error("Invalid insights response");
     }
     if (!response.ok || body.error) {
       const failure = classifyInsightError(response.status, body.error ? object(body.error) : {}, response.headers.get("retry-after"));
-      failure.retryAfterSeconds = Math.max(failure.retryAfterSeconds ?? 0, usage.regainAfterSeconds ?? 0) || null;
-      throw failure;
+      throw withUsage(failure,usage);
     }
     const fetchedAt = new Date().toISOString();
     const observations = parseInstagramInsights(body, query, {
@@ -112,8 +118,8 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
     });
     return { observations, usage };
   } catch (error) {
-    if (error && typeof error === "object" && "kind" in error) throw error;
-    throw { kind: controller.signal.aborted || error instanceof TypeError ? "transient" : "unknown", retryAfterSeconds: null } satisfies InsightFailure;
+    if (error && typeof error === "object" && "kind" in error) throw withUsage(error as InsightFailure,responseUsage);
+    throw withUsage({ kind: controller.signal.aborted || error instanceof TypeError ? "transient" : "unknown", retryAfterSeconds: null },responseUsage);
   } finally { clearTimeout(timer); }
 }
 

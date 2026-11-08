@@ -89,7 +89,7 @@ function validTimestamp(value: string): boolean {
 }
 
 /** Worker batches carry their current claim; unclaimed writes retain the three-argument form. */
-export async function storeInsightBatch(ref: ChannelRef, revision: string, batch: InsightBatch, claimToken?: string): Promise<number> {
+export async function storeInsightBatch(ref: ChannelRef, revision: string, batch: InsightBatch, claimToken?: string, progress?: repository.InsightProgress): Promise<number> {
   await requireFeature("insights");
   const { channel } = await repository.loadInsightContext(ref);
   const catalog = getInsightsConnector(channel.platform)?.catalog() ?? [];
@@ -106,7 +106,7 @@ export async function storeInsightBatch(ref: ChannelRef, revision: string, batch
       ![o.transport,o.apiVersion,o.definitionVersion,o.boundaryBasis,o.coverageBasis].every(s=>typeof s === "string" && s.length > 0 && s.length <= 128)) throw new Error("Invalid insights observation");
     validateMap(o.dimensions); validateMap(o.queryParams);
   }
-  return repository.upsertInsightBatch(ref, revision, batch, claimToken);
+  return repository.upsertInsightBatch(ref, revision, batch, claimToken, progress);
 }
 
 /** Integer arithmetic keeps stored decimal strings exact; comparisons round to six decimal places. */

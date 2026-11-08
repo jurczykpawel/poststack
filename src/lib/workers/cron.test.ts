@@ -50,3 +50,9 @@ describe("worker cron schedule", () => {
     }
   });
 });
+
+it("sweeps Insights every fifteen minutes",async()=>{
+  const {CRONTAB,cronTaskList}=await import("./cron");
+  expect(CRONTAB.split("\n")).toContain("*/15 * * * * insights-sweep");
+  expect(cronTaskList).toHaveProperty("insights-sweep");
+});

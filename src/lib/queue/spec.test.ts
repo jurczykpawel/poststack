@@ -3,6 +3,7 @@ import { buildTaskSpec, TASK_MAX_ATTEMPTS } from "./spec";
 import type { TaskName } from "./types";
 
 const ALL_TASKS: TaskName[] = [
+  "insights-sync",
   "media-ingest",
   "incoming-message",
   "incoming-comment",
@@ -76,4 +77,8 @@ describe("buildTaskSpec", () => {
     expect(buildTaskSpec("sequence-step", { delayMs: 0 }, now).runAt).toBeUndefined();
     expect(buildTaskSpec("sequence-step", {}, now).runAt).toBeUndefined();
   });
+});
+
+it("routes Insights to a background lane",()=>{
+  expect(buildTaskSpec("insights-sync",{queueName:"insights:0",priority:100})).toMatchObject({queueName:"insights:0",priority:100});
 });
