@@ -10,9 +10,10 @@ export function insightCredentialRevision(transport: string, token: string): str
   return createHmac("sha256", requireEncryptionKey()).update(JSON.stringify(["insights-v1", transport, token])).digest("hex");
 }
 
-export async function resolveInsightCredential(ref: ChannelRef, transport: string | null): Promise<InsightCredential | null> {
+/** Pass the open transaction as `executor` when called inside one, so no second pooled connection is taken. */
+export async function resolveInsightCredential(ref: ChannelRef, transport: string | null, executor: Pick<typeof db, "query"> = db): Promise<InsightCredential | null> {
   if (transport !== null && transport !== "facebook" && transport !== "instagram_business") return null;
-  const ch = await db.query.channels.findFirst({ where: and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), eq(channels.platform, "instagram")) });
+  const ch = await executor.query.channels.findFirst({ where: and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), eq(channels.platform, "instagram")) });
   if (!ch || ch.workspace_id !== ref.workspaceId || ch.platform !== "instagram") return null;
   try {
     const blob = decryptTokens(ch.token_encrypted, [`ws:${ref.workspaceId}`, "channels.token_encrypted", ch.platform, ch.platform_id]);
@@ -24,7 +25,7 @@ export async function resolveInsightCredential(ref: ChannelRef, transport: strin
     };
     add("instagram_business", blob.messaging_token);
     if (ch.source_id) {
-      const source = await db.query.accountSources.findFirst({ where: and(
+      const source = await executor.query.accountSources.findFirst({ where: and(
         eq(accountSources.workspace_id, ref.workspaceId), eq(accountSources.id, ch.source_id),
         eq(accountSources.provider, "meta"), eq(accountSources.kind, "user"), eq(accountSources.status, "active"),
       ) });

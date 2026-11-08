@@ -103,7 +103,7 @@ export async function declineInsightConsent(ref: ChannelRef, auth: SessionAuthCo
     await requireFeature("insights");
     delete metadata.insight_consent_completion;
     await tx.update(channels).set({metadata}).where(channelWhere(ref));
-    const credential=await resolveInsightCredential(ref,context.transport);
+    const credential=await resolveInsightCredential(ref,context.transport,tx);
     await tx.update(insightConnections).set({transport:context.transport,access_state:"missing_permission",reason:"permission_required",credential_revision:credential?.revision ?? null,access_checked_at:null,claim_token:null,claim_until:null}).where(connectionWhere(ref));
   });
 }
