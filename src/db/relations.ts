@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { workspaces, conversations, channels, contacts, users, contactChannels, tags, auditLogs, flows, flowTriggers, messages, autoReplyRules, flowSessions, sequences, sequenceEnrollments, broadcasts, broadcastRecipients, commentLogs, flowVersions, apiKeys, pendingApprovals, contactTags, workspaceMembers, webhookEvents, outboundDeliveries, content, posts } from "./schema";
+import { workspaces, conversations, channels, contacts, users, contactChannels, tags, auditLogs, flows, flowTriggers, messages, autoReplyRules, flowSessions, sequences, sequenceEnrollments, broadcasts, broadcastRecipients, commentLogs, flowVersions, apiKeys, pendingApprovals, contactTags, workspaceMembers, webhookEvents, outboundDeliveries, content, posts, insightConnections, insightObservations } from "./schema";
 
 // Editorial content ↔ its per-platform posts (publishing layer), so db.query.content can eager-load posts.
 export const contentRelations = relations(content, ({ many }) => ({
@@ -32,6 +32,8 @@ export const conversationsRelations = relations(conversations, ({one, many}) => 
 }));
 
 export const workspacesRelations = relations(workspaces, ({many}) => ({
+	insightConnections: many(insightConnections),
+	insightObservations: many(insightObservations),
 	conversations: many(conversations),
 	channels: many(channels),
 	contacts: many(contacts),
@@ -47,6 +49,8 @@ export const workspacesRelations = relations(workspaces, ({many}) => ({
 }));
 
 export const channelsRelations = relations(channels, ({one, many}) => ({
+	insightConnection: one(insightConnections),
+	insightObservations: many(insightObservations),
 	conversations: many(conversations),
 	workspace: one(workspaces, {
 		fields: [channels.workspace_id],
@@ -313,4 +317,13 @@ export const webhookEventsRelations = relations(webhookEvents, ({one}) => ({
 		fields: [webhookEvents.outbound_delivery_id],
 		references: [outboundDeliveries.id]
 	}),
+}));
+
+export const insightConnectionsRelations = relations(insightConnections, ({one}) => ({
+	workspace: one(workspaces, {fields: [insightConnections.workspace_id], references: [workspaces.id]}),
+	channel: one(channels, {fields: [insightConnections.workspace_id, insightConnections.channel_id, insightConnections.platform], references: [channels.workspace_id, channels.id, channels.platform]}),
+}));
+export const insightObservationsRelations = relations(insightObservations, ({one}) => ({
+	workspace: one(workspaces, {fields: [insightObservations.workspace_id], references: [workspaces.id]}),
+	channel: one(channels, {fields: [insightObservations.workspace_id, insightObservations.channel_id, insightObservations.platform], references: [channels.workspace_id, channels.id, channels.platform]}),
 }));
