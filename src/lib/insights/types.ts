@@ -97,6 +97,8 @@ export type InsightFailure = {
 }[InsightFailureKind];
 
 export interface InsightsConnector {
+  readonly source?: string;
+  requiredPermissions?(transport: string): readonly string[];
   catalog(): readonly InsightMetric[];
   /** Bounded Insights GET; no speculative permissions endpoint. */
   access(credential: InsightCredential): Promise<InsightAccess>;

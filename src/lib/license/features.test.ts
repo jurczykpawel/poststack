@@ -27,6 +27,12 @@ describe("feature registry", () => {
     expect(featureArea("webhook_filtering")).toBe("publishing");
   });
 
+  it("registers account insights as a live publishing PRO feature", () => {
+    expect(getFeature("insights")).toMatchObject({ area: "publishing", minTier: "pro", status: "live" });
+    expect(tierFeatures("free").has("insights")).toBe(false);
+    expect(tierFeatures("pro").has("insights")).toBe(true);
+  });
+
   it("getFeature returns undefined for an unknown key", () => {
     expect(getFeature("nope")).toBeUndefined();
   });
