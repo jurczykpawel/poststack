@@ -153,3 +153,33 @@ it("checks a renewed credential after an earlier declined consent",async()=>{
   const {reconcileInsightCredentials}=await import("./lifecycle");expect(await reconcileInsightCredentials(ref)).toBe(true);
   expect((await service.getInsightStatus(ref)).displayStatus).toBe("checking");
 });
+it("retains additional access required while the same User source awaits reauthentication",async()=>{
+  const sourceId=randomUUID(), derivedId=randomUUID();
+  const {insightCredentialRevision}=await import("./credentials");
+  const revision=insightCredentialRevision("facebook","pending-source");
+  await db.insert(s.accountSources).values({id:sourceId,workspace_id:ws,provider:"meta",provider_account_id:"pending-source-user",kind:"user",status:"active",token_encrypted:encrypt({access_token:"pending-source"})});
+  await db.insert(s.channels).values({id:derivedId,workspace_id:ws,platform:"instagram",platform_id:"pending-derived-account",connection_mode:"derived",source_id:sourceId,token_encrypted:encrypt({access_token:"pending-page"}),webhook_secret:"test"});
+  const derivedRef={workspaceId:ws,channelId:derivedId};
+  await service.setCollectionMode(derivedRef,"on");
+  await db.update(s.insightConnections).set({transport:"facebook",credential_revision:revision,access_state:"needs_reauth",reason:"token_required"}).where(and(eq(s.insightConnections.workspace_id,ws),eq(s.insightConnections.channel_id,derivedId)));
+  await db.update(s.accountSources).set({status:"needs_reauth"}).where(and(eq(s.accountSources.workspace_id,ws),eq(s.accountSources.id,sourceId)));
+  await db.update(s.channels).set({status:"needs_reauth"}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,derivedId)));
+  expect(await service.getInsightStatus(derivedRef)).toMatchObject({displayStatus:"additional_access_required",state:"needs_reauth",credentialRevision:revision});
+  await db.update(s.insightConnections).set({credential_revision:null}).where(and(eq(s.insightConnections.workspace_id,ws),eq(s.insightConnections.channel_id,derivedId)));
+  expect((await service.getInsightStatus(derivedRef)).displayStatus).toBe("additional_access_required");
+  await db.update(s.accountSources).set({status:"active"}).where(and(eq(s.accountSources.workspace_id,ws),eq(s.accountSources.id,sourceId)));
+  expect((await service.getInsightStatus(derivedRef)).displayStatus).toBe("checking");
+});
+it("reports additional access required after enabling a channel without a User credential",async()=>{
+  await service.setCollectionMode({workspaceId:ws,channelId:pageId},"on");
+  expect(await service.getInsightStatus({workspaceId:ws,channelId:pageId})).toMatchObject({collectionMode:"on",displayStatus:"additional_access_required",state:"needs_reauth",reason:"token_required"});
+  await db.update(s.channels).set({token_encrypted:encrypt({access_token:"page",user_access_token:"restored-user"})}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,pageId)));
+  expect((await service.getInsightStatus({workspaceId:ws,channelId:pageId})).displayStatus).toBe("checking");
+});
+it("reports a removed selected credential as requiring additional access",async()=>{
+  const {insightCredentialRevision}=await import("./credentials");
+  await db.update(s.channels).set({token_encrypted:encrypt({access_token:"page",user_access_token:"removing-user"})}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,channelId)));
+  await db.update(s.insightConnections).set({transport:"facebook",credential_revision:insightCredentialRevision("facebook","removing-user"),access_state:"ready"}).where(and(eq(s.insightConnections.workspace_id,ws),eq(s.insightConnections.channel_id,channelId)));
+  await db.update(s.channels).set({token_encrypted:encrypt({access_token:"page"})}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,channelId)));
+  expect(await service.getInsightStatus(ref)).toMatchObject({displayStatus:"additional_access_required",state:"needs_reauth",reason:"token_required"});
+});
