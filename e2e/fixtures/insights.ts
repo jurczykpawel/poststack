@@ -50,7 +50,23 @@ export const REACH: Record<number, string> = {
 
 export type InsightsFixture = { channelId: string; cleanup: () => Promise<void> };
 
-export async function seedInsights(state: "ready" | "missing_permission" = "ready"): Promise<InsightsFixture> {
+/** What the stored connection looks like. Defaults describe a healthy, recently synced channel with data. */
+export type SeedOptions = {
+  state?: "ready" | "missing_permission" | "unknown";
+  mode?: "on" | "off";
+  reason?: string;
+  /** Hours since the last successful sync; null = never synced. */
+  lastSuccessHoursAgo?: number | null;
+  lastAttemptMinutesAgo?: number;
+  /** Provider backoff / quota hold: minutes until the next attempt. */
+  backoffInMinutes?: number;
+  withData?: boolean;
+};
+
+export async function seedInsights(options: "ready" | "missing_permission" | SeedOptions = {}): Promise<InsightsFixture> {
+  const opts: SeedOptions = typeof options === "string" ? { state: options } : options;
+  const state = opts.state ?? "ready";
+  const lastSuccessHoursAgo = opts.lastSuccessHoursAgo === undefined ? 2 : opts.lastSuccessHoursAgo;
   const db = new Client({ connectionString: E2E_DATABASE_URL });
   await db.connect();
   const { rows: [ws] } = await db.query<{ workspace_id: string }>("SELECT workspace_id FROM channels WHERE platform_id = 'fb_e2e_1'");
@@ -61,12 +77,17 @@ export async function seedInsights(state: "ready" | "missing_permission" = "read
     [ws.workspace_id, platformId, encryptTokens({ access_token: "e2e-insights-page-token", user_access_token: USER_TOKEN }), randomBytes(16).toString("hex")],
   );
   const now = Date.now();
+  const lastSuccess = lastSuccessHoursAgo === null ? null : new Date(now - lastSuccessHoursAgo * 3600000);
+  const lastAttempt = opts.lastAttemptMinutesAgo === undefined ? null : new Date(now - opts.lastAttemptMinutesAgo * 60000);
+  const backoff = opts.backoffInMinutes === undefined ? null : new Date(now + opts.backoffInMinutes * 60000);
+  const reason = opts.reason ?? (state === "ready" ? "none" : state === "missing_permission" ? "permission_required" : "first_sync");
   await db.query(
-    `INSERT INTO insight_connections (workspace_id, channel_id, platform, collection_mode, access_state, transport, credential_revision, reason, last_success_at, access_checked_at)
-     VALUES ($1, $2, 'instagram', 'on', $3, 'facebook', $4, $5, $6, $6)`,
-    [ws.workspace_id, channel.id, state, revision("facebook", USER_TOKEN), state === "ready" ? "none" : "permission_required", new Date(now - 2 * 3600000)],
+    `INSERT INTO insight_connections (workspace_id, channel_id, platform, collection_mode, access_state, transport, credential_revision, reason,
+       last_success_at, last_attempt_at, backoff_until, access_checked_at)
+     VALUES ($1, $2, 'instagram', $3, $4, 'facebook', $5, $6, $7, $8, $9, $10)`,
+    [ws.workspace_id, channel.id, opts.mode ?? "on", state, revision("facebook", USER_TOKEN), reason, lastSuccess, lastAttempt, backoff, state === "unknown" ? null : lastSuccess ?? new Date(now)],
   );
-  for (const [offset, value] of Object.entries(REACH)) {
+  for (const [offset, value] of Object.entries(opts.withData === false ? {} : REACH)) {
     const day = providerDay(Number(offset));
     const next = providerDay(Number(offset) + 1);
     await db.query(
@@ -75,7 +96,7 @@ export async function seedInsights(state: "ready" | "missing_permission" = "read
          definition_version, coverage_basis, query_key)
        VALUES ($1, $2, 'instagram', 'reach', 'account', $3, 'day', 'day', 'time_series', $4, $5, $6, 'provider_end_time', $6, $7, $8, 'available',
          'facebook', 'v26.0', 'instagram-reach-v1', 'provider_end_time', $9)`,
-      [ws.workspace_id, channel.id, platformId, dayStart(day), dayStart(next), day, new Date(now - 2 * 3600000), value, createHash("sha256").update(`e2e-reach-${day}`).digest("hex")],
+      [ws.workspace_id, channel.id, platformId, dayStart(day), dayStart(next), day, lastSuccess ?? new Date(now - 2 * 3600000), value, createHash("sha256").update(`e2e-reach-${day}`).digest("hex")],
     );
   }
   return {

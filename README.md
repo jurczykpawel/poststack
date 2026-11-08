@@ -256,6 +256,8 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 > No token, not even a permanent System User token, delivers Instagram DMs on its own at Standard Access.
 > Measured, with step-by-step: [docs/META_CONNECTIONS.md → At a glance](docs/META_CONNECTIONS.md#at-a-glance--what-each-path-gives-you).
 
+> **Instagram account statistics (PRO)?** See [docs/INSIGHTS.md](docs/INSIGHTS.md): what is collected, the extra permission each login needs, and how to read the numbers.
+
 > **Want an AI agent to click through this for you?** The repo ships an agent skill,
 > [`skills/meta-app-setup`](skills/meta-app-setup/SKILL.md), that drives the whole setup below in
 > your own browser and stops only for your password, 2FA and consent screens.
