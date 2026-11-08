@@ -102,7 +102,7 @@ describe("dashboard /inbox/:id/reply — surfaces send failures", () => {
 describe("MQA13-B11: Inbox ignores or 404s malformed ids instead of 500", () => {
   it("non-UUID filters are ignored; non-UUID conversation ids 404", async () => {
     if (!TEST_DB) return;
-    for (const path of ["/inbox?contact=abc", "/inbox?contact='", "/inbox?channel=abc", "/inbox/list?channel=abc&contact=abc", "/inbox/older?channel=abc", "/inbox?open=not-uuid"]) {
+    for (const path of ["/inbox?contact=abc", "/inbox?contact='", "/inbox?channel=abc", "/inbox/list?channel=abc&contact=abc", "/inbox/older?channel=abc", "/inbox?open=not-uuid", "/inbox?pages=Infinity", "/inbox?pages=-1", "/inbox?pages=1.5", "/inbox?pages=9007199254740991"]) {
       expect((await app.request(path, { headers: { cookie } })).status, path).toBe(200);
     }
     for (const path of ["/inbox/not-uuid", "/inbox/not-uuid/messages", "/inbox/not-uuid/drafts"]) {
@@ -724,6 +724,17 @@ describe("dashboard inbox conversation controls", () => {
     expect(scoped).toContain("contact=all"); // the ✕ clears back to everyone
   });
 
+  it("preserves list parameters when opening a thread and does not push its loader again", async () => {
+    if (!TEST_DB) return;
+    const current = `http://localhost:3000/inbox?channel=${CH}&pages=2&search=hello`;
+    const opening = await app.request(`/inbox/${CONV}`, { headers: { cookie, "hx-request": "true", "hx-current-url": current } });
+    expect(opening.headers.get("HX-Push-Url")).toBe(`/inbox?channel=${CH}&pages=2&search=hello&open=${CONV}`);
+    const loading = await app.request(`/inbox/${CONV}`, { headers: { cookie, "hx-request": "true", "hx-current-url": `${current}&open=${CONV}` } });
+    expect(loading.headers.get("HX-Push-Url")).toBeNull();
+    const restoring = await app.request("/inbox/list?pages=2", { headers: { cookie, "X-Inbox-Refresh": "true" } });
+    expect(restoring.headers.get("HX-Push-Url")).toBeNull();
+  });
+
   it("pages the inbox list with an Older button: 50 rows, then the rest, no gaps or repeats (ties on the boundary)", async () => {
     if (!TEST_DB) return;
     const CHP = "dddddddd-0000-0000-0000-0000000000ca";
@@ -744,6 +755,8 @@ describe("dashboard inbox conversation controls", () => {
     expect(ids(second)).toHaveLength(5);
     expect(new Set([...ids(first), ...ids(second)]).size).toBe(55);
     expect(second).not.toContain("conv-older"); // last page: no further button
+    const restored = await (await app.request(`/inbox?channel=${CHP}&pages=2`, { headers: { cookie } })).text();
+    expect(ids(restored)).toEqual([...ids(first), ...ids(second)]);
     await db.delete(s.conversations).where(eq(s.conversations.channel_id, CHP));
     await db.delete(s.channels).where(eq(s.channels.id, CHP));
   });

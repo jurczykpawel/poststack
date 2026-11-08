@@ -187,8 +187,9 @@ export function parseConvFilter(v: string | undefined): ConvFilter {
 const CONV_PAGE = 50;
 
 /** Just the conversation rows (htmx swaps this when a filter tab is clicked). */
-function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>>[number]>, isMore = false): Html {
-  const conversations = all.slice(0, CONV_PAGE);
+function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>>[number]>, isMore = false, pages = 1): Html {
+  const size = isMore ? CONV_PAGE : pages * CONV_PAGE;
+  const conversations = all.slice(0, size);
   if (conversations.length === 0 && !isMore) {
     return html`<p class="muted" style="padding:1rem">Nothing here. Try another filter, or wait for new activity.</p>`;
   }
@@ -198,7 +199,7 @@ function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>
     const kind = isComment ? { cls: "comment", ic: "comment" as const, t: "Comment" } : isEmail ? { cls: "email", ic: "mail" as const, t: "Email" } : { cls: "dm", ic: "comment" as const, t: "DM" };
     const name = contactName(conv);
     const initials = (name.match(/\b\w/g) ?? ["?"]).slice(0, 2).join("").toUpperCase();
-    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" data-row="${conv.id}" hx-get="/inbox/${conv.id}" hx-push-url="/inbox?open=${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
+    return html`<button class="conv-item ${conv.unread_count > 0 ? "unread" : ""}" data-row="${conv.id}" hx-get="/inbox/${conv.id}" hx-target="#thread" hx-swap="innerHTML" hx-sync="#thread:replace">
       <span class="conv-av"><span class="conv-av-i">${initials}</span><span class="conv-pg" style="background:${platformColor(conv.platform)}">${raw(platformGlyphString(conv.platform, 9))}</span></span>
       <span class="conv-body">
         <span class="conv-top"><span class="conv-name">${name}</span><span class="conv-time-wrap">${conv.unread_count > 0 ? html`<span class="conv-unread" title="${conv.unread_count} unread"></span>` : html``}<span class="conv-time">${timeAgo(conv.last_message_at)}</span></span></span>
@@ -213,8 +214,8 @@ function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>
         </span>
       </span>
     </button>`;
-  })}${all.length > CONV_PAGE
-    ? html`<button type="button" class="btn btn-sm conv-older" hx-get="/inbox/older?before=${encodeURIComponent(`${(conversations[CONV_PAGE - 1]!.last_message_at ?? new Date(0)).toISOString()}|${conversations[CONV_PAGE - 1]!.id}`)}"
+  })}${all.length > size
+    ? html`<button type="button" class="btn btn-sm conv-older" hx-get="/inbox/older?before=${encodeURIComponent(`${(conversations[size - 1]!.last_message_at ?? new Date(0)).toISOString()}|${conversations[size - 1]!.id}`)}&pages=${pages + 1}"
         hx-include="#conv-filter-form" hx-target="this" hx-swap="outerHTML">Older</button>`
     : html``}`;
 }
@@ -235,6 +236,7 @@ function renderConvPanel(
   from = "",
   to = "",
   doneCount = 0,
+  pages = 1,
 ): Html {
   // One form holds every filter (pills, contact-name search, date preset/range, channel) so they
   // always compose — any change re-runs /inbox/list with the full state. Pills drive a hidden
@@ -287,7 +289,7 @@ function renderConvPanel(
             hx-target="#conv-panel" hx-swap="innerHTML">${icon("close", "ico", 13)}</button>
         </div>`
       : html``}
-    <div id="conv-list-items">${renderConvItems(conversations)}</div>`;
+    <div id="conv-list-items">${renderConvItems(conversations, false, pages)}</div>`;
 }
 
 /** Inbox channel <option>s, grouped into <optgroup>s by owning brand (brand-aware reply filter —
@@ -692,7 +694,7 @@ export function renderThread(
       </div>`
     : html``;
   return html`<div class="thread-head">
-      <button class="btn btn-sm thread-back" data-row-return="${conv.id}" type="button" x-data @click="if (history.state?.htmx) history.back(); else { history.replaceState(null, '', '/inbox'); $el.closest('#thread').replaceChildren(); }">← Back</button>
+      <button class="btn btn-sm thread-back" data-row-return="${conv.id}" type="button" x-data @click="if (history.state?.htmx) history.back(); else { const u = new URL(location.href); u.searchParams.delete('open'); history.replaceState(null, '', '/inbox' + u.search); $el.closest('#thread').replaceChildren(); }">← Back</button>
       <div class="th-top">
         <span class="th-av">${initialsOf(name)}</span>
         <span class="th-id"><div class="th-nm">${title}</div><div class="th-via">${platformVia(conv)}</div></span>
@@ -741,9 +743,18 @@ function parseYmd(v: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function inboxListUrl(c: Context): string {
+  const params = new URL(c.req.url).searchParams;
+  params.delete("before");
+  params.delete("open");
+  for (const [key, value] of [...params]) if (!value) params.delete(key);
+  return `/inbox?${params}`;
+}
+
 /** The Inbox list filter state from the query string (shared by /inbox, /inbox/list, /inbox/older). */
 async function convQuery(c: Context) {
   const q = (k: string) => c.req.query(k) || "";
+  const pages = Number(q("pages"));
   return {
     filter: parseConvFilter(c.req.query("filter")),
     channelId: isUuid(q("channel")) ? q("channel") : "all", // MQA13-B11: malformed ids are ignored, not a 500
@@ -753,6 +764,7 @@ async function convQuery(c: Context) {
     from: q("from"),
     to: q("to"),
     before: q("before"),
+    pages: Number.isSafeInteger(pages) && pages > 0 ? pages : 1,
     timeZone: await resolveZone(getCookie(c, "ps_tz")),
   };
 }
@@ -768,6 +780,7 @@ function loadConversations(
   to = "",
   before = "",
   timeZone = "UTC",
+  pages = 1,
 ) {
   const where: SQL[] = [eq(conversations.workspace_id, workspaceId)];
   // Triage: "Done" is the archive (anything not open — closed or snoozed); every other view is the
@@ -817,7 +830,7 @@ function loadConversations(
   return db.query.conversations.findMany({
     where: and(...where),
     orderBy: [desc(conversations.last_message_at), desc(conversations.id)],
-    limit: CONV_PAGE + 1, // one extra row = "there is an older page"
+    limit: CONV_PAGE * pages + 1, // one extra row = "there is an older page"
     ...CONV_QUERY,
   });
 }
@@ -1148,13 +1161,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.redirect("/login");
     const { features, products } = await getInstanceLicense();
-    const { filter, channelId, contactId, search, since, from, to, timeZone } = await convQuery(c);
+    const { filter, channelId, contactId, search, since, from, to, timeZone, pages } = await convQuery(c);
     // Deep-link to a specific thread (e.g. "open in inbox" from Approvals): the #thread pane
     // self-loads that conversation on page load. The /inbox/:id endpoint scopes it to the workspace.
     const openRaw = (c.req.query("open") || "").trim();
     const open = isUuid(openRaw) ? openRaw : "";
     const [conversations, chans, doneCount] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone, pages),
       loadInboxChannels(a.workspaceId),
       loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
@@ -1164,9 +1177,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         "/inbox",
         html`<div class="inbox" data-view-tz="${timeZone}">
           <div id="conv-panel" class="conv-list"
-            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
+            hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&pages=${pages}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount)}</div>
+            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount, pages)}</div>
           ${open
             ? html`<div id="thread" class="thread"><div class="thread-empty" hx-get="/inbox/${open}" hx-trigger="load" hx-target="#thread" hx-sync="#thread:replace" hx-swap="innerHTML">Loading…</div></div>`
             : html`<div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>`}
@@ -1181,21 +1194,23 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   app.get("/inbox/list", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const { filter, channelId, contactId, search, since, from, to, timeZone } = await convQuery(c);
+    const { filter, channelId, contactId, search, since, from, to, timeZone, pages } = await convQuery(c);
     const [conversations, chans, doneCount] = await Promise.all([
-      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone),
+      loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone, pages),
       loadInboxChannels(a.workspaceId),
       loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
-    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount));
+    if (c.req.header("X-Inbox-Refresh") !== "true") c.header("HX-Push-Url", inboxListUrl(c));
+    return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount, pages));
   });
 
   // htmx: the next page of rows (the "Older" button), same filters as the panel form.
   app.get("/inbox/older", guard, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
-    const { filter, channelId, contactId, search, since, from, to, before, timeZone } = await convQuery(c);
-    return c.html(renderConvItems(await loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, before, timeZone), true));
+    const { filter, channelId, contactId, search, since, from, to, before, timeZone, pages } = await convQuery(c);
+    c.header("HX-Push-Url", inboxListUrl(c));
+    return c.html(renderConvItems(await loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, before, timeZone), true, pages));
   });
 
   app.get("/inbox/:id", guard, async (c) => {
@@ -1217,7 +1232,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     // htmx swaps the bare thread into #thread; a DIRECT navigation (e.g. the deep-link from a webhook
     // event's "Conversation →") must render the FULL inbox page with this thread open — otherwise the
     // user lands on an unstyled fragment.
-    if (c.req.header("hx-request") === "true") return c.html(thread);
+    if (c.req.header("hx-request") === "true") {
+      const url = new URL(c.req.header("hx-current-url") || "/inbox", c.req.url);
+      if (url.searchParams.get("open") !== id) {
+        url.searchParams.set("open", id);
+        c.header("HX-Push-Url", `/inbox${url.search}`);
+      }
+      return c.html(thread);
+    }
 
     const [convList, chans, doneCount] = await Promise.all([
       loadConversations(a.workspaceId, "open", "all", "all"),
