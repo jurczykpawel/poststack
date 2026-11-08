@@ -1,9 +1,10 @@
 import type { Platform } from "@/db/schema";
+import { ApiError } from "@/lib/api/response";
 import { requireFeature } from "@/lib/license/gate";
 import { getInsightsConnector } from "./catalog";
 import { isDecimal } from "./metric-catalog";
 import * as repository from "./repository";
-import type { ChannelRef, CollectionMode, Decimal, DecimalSigned, InsightAccess, InsightBatch, InsightMetric, InsightObservation, InsightQuery, DisplayStatus } from "./types";
+import type { ChannelRef, CollectionMode, Decimal, DecimalSigned, InsightAccess, InsightBatch, InsightMetric, InsightObservation, InsightQuery, InsightsConnector, DisplayStatus } from "./types";
 
 type InsightReason = "none" | "first_sync" | "provider_unavailable" | "rate_limited" | "token_required" | "permission_required" | "channel_paused" | "collection_off" | "worker_delayed";
 export type InsightStatus = InsightAccess & {
@@ -46,6 +47,19 @@ function publicStatus(ref: ChannelRef, context: Awaited<ReturnType<typeof reposi
     lastSuccessfulSyncAt: iso(last), nextRetryAt: iso(c?.backoff_until), reason, stale };
 }
 
+const unsupported = () => new ApiError("insights_unsupported", "Insights are not available for this channel", 422);
+const invalidRange = (message: string) => new ApiError("bad_request", message, 400);
+
+/** Request boundary order: workspace channel, platform capability, then license. */
+export async function requireInsightChannel(ref: ChannelRef): Promise<{ platform: Platform; subjectKey: string; connector: InsightsConnector }> {
+  const channel = await repository.findInsightChannel(ref);
+  if (!channel) throw new ApiError("not_found", "Channel not found", 404);
+  const connector = getInsightsConnector(channel.platform);
+  if (!connector) throw unsupported();
+  await requireFeature("insights");
+  return { platform: channel.platform, subjectKey: channel.platform_id, connector };
+}
+
 export async function getInsightStatus(ref: ChannelRef): Promise<InsightStatus> {
   await requireFeature("insights");
   return publicStatus(ref, await repository.loadInsightContext(ref));
@@ -53,19 +67,20 @@ export async function getInsightStatus(ref: ChannelRef): Promise<InsightStatus> 
 
 export async function setCollectionMode(ref: ChannelRef, mode: CollectionMode): Promise<InsightStatus> {
   await requireFeature("insights");
-  if (mode !== "on" && mode !== "off") throw new Error("Invalid collection mode");
+  if (mode !== "on" && mode !== "off") throw new ApiError("invalid_request", "Invalid collection mode", 422);
   const context = await repository.loadInsightContext(ref);
-  if (mode === "on" && !getInsightsConnector(context.channel.platform)) throw new Error("Insights unavailable for this platform");
+  if (mode === "on" && !getInsightsConnector(context.channel.platform)) throw unsupported();
   await repository.changeCollectionMode(ref, mode);
   return getInsightStatus(ref);
 }
 
 function validateQuery(query: InsightQuery, catalog: readonly InsightMetric[]) {
   const from = Date.parse(query.from), to = Date.parse(query.to);
+  // One extra hour admits 90 provider days that include a daylight-saving change.
   if (query.level !== "account" || !query.subjectKey || query.subjectKey.length > 255 ||
-    !Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 90 * 86400000 ||
+    !Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 90 * 86400000 + 3600000 ||
     !["day", "range", "snapshot"].includes(query.grain) || !query.metrics.length || query.metrics.length > 64 ||
-    new Set(query.metrics).size !== query.metrics.length || query.metrics.some(key => !catalog.some(m => m.key === key && m.level === "account"))) throw new Error("Invalid account insights query");
+    new Set(query.metrics).size !== query.metrics.length || query.metrics.some(key => !catalog.some(m => m.key === key && m.level === "account"))) throw invalidRange("Invalid account insights query");
 }
 
 export async function readAccountInsights(ref: ChannelRef, query: InsightQuery): Promise<AccountReport> {
@@ -73,9 +88,44 @@ export async function readAccountInsights(ref: ChannelRef, query: InsightQuery):
   const context = await repository.loadInsightContext(ref);
   const catalog = getInsightsConnector(context.channel.platform)?.catalog() ?? [];
   validateQuery(query, catalog);
-  if (query.subjectKey !== context.channel.platform_id) throw new Error("Invalid insights subject");
+  if (query.subjectKey !== context.channel.platform_id) throw invalidRange("Invalid insights subject");
   const rows = await repository.readObservations(ref, query);
   return buildAccountReport(catalog, rows, query, publicStatus(ref, context));
+}
+
+/** Milliseconds of a YYYY-MM-DD calendar date at UTC midnight, or null for anything else. */
+function calendarDay(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? time : null;
+}
+
+/** Instant at which a provider calendar day starts in the connector's day zone. */
+function providerDayStart(day: string, timeZone = "UTC"): string {
+  const format = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const offset = (time: number) => {
+    const parts = Object.fromEntries(format.formatToParts(time).map(part => [part.type, part.value]));
+    return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second) - time;
+  };
+  const midnight = Date.parse(`${day}T00:00:00Z`);
+  return new Date(midnight - offset(midnight - offset(midnight))).toISOString();
+}
+
+export type AccountDays = { from: string; to: string; metrics?: readonly string[] };
+
+/** Account report for provider calendar days [from,to); defaults to every account metric in the catalog. */
+export async function readAccountReport(ref: ChannelRef, days: AccountDays): Promise<AccountReport> {
+  const { connector, subjectKey } = await requireInsightChannel(ref);
+  const from = calendarDay(days.from), to = calendarDay(days.to);
+  if (from === null || to === null) throw invalidRange("from and to must be calendar dates (YYYY-MM-DD)");
+  if (to <= from || to - from > 90 * 86400000) throw invalidRange("The range must cover 1 to 90 days; to is exclusive");
+  const catalog = connector.catalog().filter(m => m.level === "account");
+  const metrics = days.metrics ?? catalog.map(m => m.key);
+  if (!metrics.length || metrics.length > 16 || new Set(metrics).size !== metrics.length || metrics.some(key => key.length > 128 || !catalog.some(m => m.key === key))) {
+    throw invalidRange("metrics must list up to 16 distinct account metrics from the channel catalog");
+  }
+  return readAccountInsights(ref, { level: "account", subjectKey, grain: "day", metrics,
+    from: providerDayStart(days.from, connector.dayTimeZone), to: providerDayStart(days.to, connector.dayTimeZone) });
 }
 
 function validateMap(map: Record<string, string>) {

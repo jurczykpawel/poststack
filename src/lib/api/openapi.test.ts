@@ -281,3 +281,38 @@ it("documents insufficient_scope for every scoped operation", () => {
   }
   expect(openApiSpec.components.responses).toHaveProperty("InsufficientScope");
 });
+
+describe("account insights contract", () => {
+  type Operation = { "x-required-scope"?: string; parameters?: Array<{ name: string; in: string; required?: boolean }>; requestBody?: unknown; responses: Record<string, { headers?: Record<string, unknown>; content?: Record<string, { examples?: Record<string, unknown> }> }> };
+  const op = (path: string, method: string) => (openApiSpec.paths as unknown as Record<string, Record<string, Operation>>)[path]?.[method];
+
+  it.each([
+    ["get", "/channels/{channelId}/insights", "stats:read", ["200", "401", "402", "403", "404", "422"]],
+    ["patch", "/channels/{channelId}/insights", "channels:write", ["200", "401", "402", "403", "404", "422"]],
+    ["get", "/channels/{channelId}/insights/account", "stats:read", ["200", "400", "401", "402", "403", "404", "422"]],
+    ["post", "/channels/{channelId}/insights/refresh", "channels:write", ["202", "401", "402", "403", "404", "422", "429"]],
+  ] as const)("documents %s %s with its scope and responses", (method, path, scope, codes) => {
+    const operation = op(path, method);
+    expect(operation?.["x-required-scope"]).toBe(scope);
+    expect(Object.keys(operation?.responses ?? {})).toEqual(expect.arrayContaining([...codes]));
+  });
+
+  it("documents the account range, metrics, decimal strings and refresh limit", () => {
+    const account = op("/channels/{channelId}/insights/account", "get")!;
+    expect(account.parameters?.filter((p) => p.in === "query").map((p) => [p.name, !!p.required])).toEqual([["from", true], ["to", true], ["metrics", false]]);
+    expect(Object.keys(account.responses["200"].content!["application/json"].examples ?? {})).toEqual(expect.arrayContaining(["empty", "permission", "rangeUnavailable"]));
+    const decimal = (openApiSpec.components.schemas as unknown as Record<string, { type: unknown; pattern?: string }>).InsightDecimal;
+    expect(decimal).toMatchObject({ type: ["string", "null"] });
+    expect(new RegExp(decimal.pattern!).test("9007199254740993")).toBe(true);
+    expect(new RegExp(decimal.pattern!).test("1e3")).toBe(false);
+    expect(op("/channels/{channelId}/insights/refresh", "post")!.responses["429"].headers).toHaveProperty("Retry-After");
+    expect(op("/channels/{channelId}/insights", "patch")!.requestBody).toMatchObject({ content: { "application/json": { schema: { additionalProperties: false, required: ["collectionMode"] } } } });
+    const paths = Object.keys(openApiSpec.paths).filter((path) => path.includes("/insights"));
+    expect(paths.sort()).toEqual(["/channels/{channelId}/insights", "/channels/{channelId}/insights/account", "/channels/{channelId}/insights/refresh"]);
+  });
+
+  it("lists insights among channel capabilities", () => {
+    const channel = (openApiSpec.components.schemas as unknown as Record<string, { properties: { capabilities: { items: { enum: string[] } } } }>).Channel;
+    expect(channel.properties.capabilities.items.enum).toContain("insights");
+  });
+});

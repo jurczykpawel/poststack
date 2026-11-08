@@ -125,6 +125,8 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
 
 export const instagramInsightsConnector: InsightsConnector = {
   source: "meta_instagram",
+  // Documented daily end_time is 08:00+0000 in January (Pacific midnight); DST days are not measured.
+  dayTimeZone: "America/Los_Angeles",
   requiredPermissions: (transport) => transport === "instagram_business"
     ? ["instagram_business_basic", "instagram_business_manage_insights"] : ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"],
   catalog: () => instagramCatalog,
