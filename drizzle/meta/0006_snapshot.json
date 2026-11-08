@@ -1586,6 +1586,33 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "channels_workspace_id_id_platform_key": {
+          "name": "channels_workspace_id_id_platform_key",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -7837,6 +7864,645 @@
         }
       },
       "isRLSEnabled": false
+    },
+    "public.insight_connections": {
+      "name": "insight_connections",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "platform",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "collection_mode": {
+          "name": "collection_mode",
+          "type": "insight_collection_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'off'"
+        },
+        "access_state": {
+          "name": "access_state",
+          "type": "insight_access_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "transport": {
+          "name": "transport",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credential_revision": {
+          "name": "credential_revision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budget_key": {
+          "name": "budget_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ig_grants": {
+          "name": "ig_grants",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{\"version\":1,\"names\":[],\"checkedAt\":null,\"revision\":null}'::jsonb"
+        },
+        "fb_grants": {
+          "name": "fb_grants",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{\"version\":1,\"names\":[],\"checkedAt\":null,\"revision\":null}'::jsonb"
+        },
+        "reason": {
+          "name": "reason",
+          "type": "insight_reason",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "access_checked_at": {
+          "name": "access_checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_due_at": {
+          "name": "next_due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_success_at": {
+          "name": "last_success_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "backoff_until": {
+          "name": "backoff_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_refresh_at": {
+          "name": "last_refresh_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_count": {
+          "name": "failure_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "claim_token": {
+          "name": "claim_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claim_until": {
+          "name": "claim_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checkpoint": {
+          "name": "checkpoint",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{\"version\":1}'::jsonb"
+        },
+        "usage_budget": {
+          "name": "usage_budget",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{\"version\":1,\"requestTimes\":[],\"nextSafeAt\":null}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "insight_connections_due_idx": {
+          "name": "insight_connections_due_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "collection_mode",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "next_due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "insight_connections_budget_idx": {
+          "name": "insight_connections_budget_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "budget_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "insight_connections_workspace_fk": {
+          "name": "insight_connections_workspace_fk",
+          "tableFrom": "insight_connections",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "insight_connections_channel_fk": {
+          "name": "insight_connections_channel_fk",
+          "tableFrom": "insight_connections",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "workspace_id",
+            "channel_id",
+            "platform"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id",
+            "platform"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "insight_connections_pkey": {
+          "name": "insight_connections_pkey",
+          "columns": [
+            "workspace_id",
+            "channel_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "insight_connections_strings_check": {
+          "name": "insight_connections_strings_check",
+          "value": "length(\"insight_connections\".\"transport\") BETWEEN 1 AND 128 AND length(\"insight_connections\".\"credential_revision\") BETWEEN 1 AND 128 AND length(\"insight_connections\".\"budget_key\") BETWEEN 1 AND 128"
+        },
+        "insight_connections_failure_check": {
+          "name": "insight_connections_failure_check",
+          "value": "\"insight_connections\".\"failure_count\" >= 0"
+        },
+        "insight_connections_claim_check": {
+          "name": "insight_connections_claim_check",
+          "value": "(\"insight_connections\".\"claim_token\" IS NULL) = (\"insight_connections\".\"claim_until\" IS NULL)"
+        },
+        "insight_connections_ig_grants_check": {
+          "name": "insight_connections_ig_grants_check",
+          "value": "CASE WHEN jsonb_typeof(\"insight_connections\".\"ig_grants\") = 'object' AND jsonb_typeof(\"insight_connections\".\"ig_grants\"->'names') = 'array' THEN\n\t\t\"insight_connections\".\"ig_grants\" @> '{\"version\":1}'::jsonb AND \"insight_connections\".\"ig_grants\" ?& ARRAY['names','checkedAt','revision']\n\t\tAND \"insight_connections\".\"ig_grants\" - ARRAY['version','names','checkedAt','revision'] = '{}'::jsonb\n\t\tAND octet_length(\"insight_connections\".\"ig_grants\"::text) <= 16384 AND jsonb_array_length(\"insight_connections\".\"ig_grants\"->'names') <= 64\n\t\tAND NOT jsonb_path_exists(\"insight_connections\".\"ig_grants\", '$.names[*] ? (@.type() != \"string\" || !(@ like_regex \"^[A-Za-z0-9_:.-]{1,128}$\"))')\n\t\tAND jsonb_typeof(\"insight_connections\".\"ig_grants\"->'checkedAt') IN ('null','string') AND jsonb_typeof(\"insight_connections\".\"ig_grants\"->'revision') IN ('null','string')\n\t\tAND length(coalesce(\"insight_connections\".\"ig_grants\"->>'checkedAt','')) <= 128 AND length(coalesce(\"insight_connections\".\"ig_grants\"->>'revision','')) <= 128\n\t\tELSE false END"
+        },
+        "insight_connections_fb_grants_check": {
+          "name": "insight_connections_fb_grants_check",
+          "value": "CASE WHEN jsonb_typeof(\"insight_connections\".\"fb_grants\") = 'object' AND jsonb_typeof(\"insight_connections\".\"fb_grants\"->'names') = 'array' THEN\n\t\t\"insight_connections\".\"fb_grants\" @> '{\"version\":1}'::jsonb AND \"insight_connections\".\"fb_grants\" ?& ARRAY['names','checkedAt','revision']\n\t\tAND \"insight_connections\".\"fb_grants\" - ARRAY['version','names','checkedAt','revision'] = '{}'::jsonb\n\t\tAND octet_length(\"insight_connections\".\"fb_grants\"::text) <= 16384 AND jsonb_array_length(\"insight_connections\".\"fb_grants\"->'names') <= 64\n\t\tAND NOT jsonb_path_exists(\"insight_connections\".\"fb_grants\", '$.names[*] ? (@.type() != \"string\" || !(@ like_regex \"^[A-Za-z0-9_:.-]{1,128}$\"))')\n\t\tAND jsonb_typeof(\"insight_connections\".\"fb_grants\"->'checkedAt') IN ('null','string') AND jsonb_typeof(\"insight_connections\".\"fb_grants\"->'revision') IN ('null','string')\n\t\tAND length(coalesce(\"insight_connections\".\"fb_grants\"->>'checkedAt','')) <= 128 AND length(coalesce(\"insight_connections\".\"fb_grants\"->>'revision','')) <= 128\n\t\tELSE false END"
+        },
+        "insight_connections_checkpoint_check": {
+          "name": "insight_connections_checkpoint_check",
+          "value": "jsonb_typeof(\"insight_connections\".\"checkpoint\") = 'object'\n\t\tAND \"insight_connections\".\"checkpoint\" @> '{\"version\":1}'::jsonb AND octet_length(\"insight_connections\".\"checkpoint\"::text) <= 8192\n\t\tAND \"insight_connections\".\"checkpoint\" - ARRAY['version','from','to','cursor'] = '{}'::jsonb\n\t\tAND length(coalesce(\"insight_connections\".\"checkpoint\"->>'cursor','')) <= 4096 AND length(coalesce(\"insight_connections\".\"checkpoint\"->>'from','')) <= 128 AND length(coalesce(\"insight_connections\".\"checkpoint\"->>'to','')) <= 128\n\t\tAND NOT jsonb_path_exists(\"insight_connections\".\"checkpoint\", '$.keyvalue() ? (@.key != \"version\" && (@.value.type() != \"string\" || !(@.value like_regex \"^.+$\" flag \"s\")))')"
+        },
+        "insight_connections_usage_budget_check": {
+          "name": "insight_connections_usage_budget_check",
+          "value": "CASE WHEN jsonb_typeof(\"insight_connections\".\"usage_budget\") = 'object' AND jsonb_typeof(\"insight_connections\".\"usage_budget\"->'requestTimes') = 'array' THEN\n\t\t\"insight_connections\".\"usage_budget\" @> '{\"version\":1}'::jsonb AND \"insight_connections\".\"usage_budget\" ? 'nextSafeAt'\n\t\tAND \"insight_connections\".\"usage_budget\" - ARRAY['version','requestTimes','nextSafeAt','usagePercent'] = '{}'::jsonb\n\t\tAND octet_length(\"insight_connections\".\"usage_budget\"::text) <= 16384 AND jsonb_array_length(\"insight_connections\".\"usage_budget\"->'requestTimes') <= 120\n\t\tAND NOT jsonb_path_exists(\"insight_connections\".\"usage_budget\", '$.requestTimes[*] ? (@.type() != \"string\" || !(@ like_regex \"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+Z-]{5,40}$\"))')\n\t\tAND ((\"insight_connections\".\"usage_budget\"->'nextSafeAt') = 'null'::jsonb OR jsonb_path_exists(\"insight_connections\".\"usage_budget\", '$.nextSafeAt ? (@.type() == \"string\" && @ like_regex \"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+Z-]{5,40}$\")'))\n\t\tAND (NOT (\"insight_connections\".\"usage_budget\" ? 'usagePercent') OR \"insight_connections\".\"usage_budget\"->'usagePercent' = 'null'::jsonb OR jsonb_path_exists(\"insight_connections\".\"usage_budget\", '$.usagePercent ? (@.type() == \"number\" && @ >= 0 && @ <= 100)'))\n\t\tELSE false END"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.insight_observations": {
+      "name": "insight_observations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "platform",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metric_key": {
+          "name": "metric_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "insight_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_key": {
+          "name": "subject_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grain": {
+          "name": "grain",
+          "type": "insight_grain",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period": {
+          "name": "period",
+          "type": "insight_period",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metric_type": {
+          "name": "metric_type",
+          "type": "insight_metric_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_end": {
+          "name": "window_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_day": {
+          "name": "provider_day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "boundary_basis": {
+          "name": "boundary_basis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot_day": {
+          "name": "snapshot_day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scalar": {
+          "name": "scalar",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "response_state": {
+          "name": "response_state",
+          "type": "insight_response_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dimensions": {
+          "name": "dimensions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "query_params": {
+          "name": "query_params",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "transport": {
+          "name": "transport",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_version": {
+          "name": "api_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "definition_version": {
+          "name": "definition_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "coverage_basis": {
+          "name": "coverage_basis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "query_key": {
+          "name": "query_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "insight_observations_identity_key": {
+          "name": "insight_observations_identity_key",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "level",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subject_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "metric_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "query_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "snapshot_day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "insight_observations_channel_window_idx": {
+          "name": "insight_observations_channel_window_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "window_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "window_end",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "insight_observations_retention_idx": {
+          "name": "insight_observations_retention_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "grain",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "snapshot_day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "insight_observations_workspace_fk": {
+          "name": "insight_observations_workspace_fk",
+          "tableFrom": "insight_observations",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "insight_observations_channel_fk": {
+          "name": "insight_observations_channel_fk",
+          "tableFrom": "insight_observations",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "workspace_id",
+            "channel_id",
+            "platform"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "id",
+            "platform"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "insight_observations_window_check": {
+          "name": "insight_observations_window_check",
+          "value": "\"insight_observations\".\"window_end\" > \"insight_observations\".\"window_start\""
+        },
+        "insight_observations_scalar_check": {
+          "name": "insight_observations_scalar_check",
+          "value": "\"insight_observations\".\"scalar\" >= 0 AND \"insight_observations\".\"scalar\" NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)"
+        },
+        "insight_observations_response_check": {
+          "name": "insight_observations_response_check",
+          "value": "(\"insight_observations\".\"response_state\" = 'available' AND \"insight_observations\".\"scalar\" IS NOT NULL) OR (\"insight_observations\".\"response_state\" <> 'available' AND \"insight_observations\".\"scalar\" IS NULL)"
+        },
+        "insight_observations_strings_check": {
+          "name": "insight_observations_strings_check",
+          "value": "length(\"insight_observations\".\"metric_key\") BETWEEN 1 AND 128 AND length(\"insight_observations\".\"subject_key\") BETWEEN 1 AND 255 AND length(\"insight_observations\".\"boundary_basis\") BETWEEN 1 AND 128 AND length(\"insight_observations\".\"transport\") BETWEEN 1 AND 128 AND length(\"insight_observations\".\"api_version\") BETWEEN 1 AND 128 AND length(\"insight_observations\".\"definition_version\") BETWEEN 1 AND 128 AND length(\"insight_observations\".\"coverage_basis\") BETWEEN 1 AND 128"
+        },
+        "insight_observations_query_key_check": {
+          "name": "insight_observations_query_key_check",
+          "value": "\"insight_observations\".\"query_key\" ~ '^[0-9a-f]{64}$'"
+        },
+        "insight_observations_dimensions_check": {
+          "name": "insight_observations_dimensions_check",
+          "value": "CASE WHEN jsonb_typeof(\"insight_observations\".\"dimensions\") = 'object' THEN octet_length(\"insight_observations\".\"dimensions\"::text) <= 8192\n\t\tAND jsonb_array_length(jsonb_path_query_array(\"insight_observations\".\"dimensions\", '$.keyvalue()')) <= 32\n\t\tAND NOT jsonb_path_exists(\"insight_observations\".\"dimensions\", '$.keyvalue() ? (!(@.key like_regex \"^.{1,128}$\" flag \"s\") || @.value.type() != \"string\" || !(@.value like_regex \"^.{0,128}$\" flag \"s\"))')\n\t\tELSE false END"
+        },
+        "insight_observations_query_params_check": {
+          "name": "insight_observations_query_params_check",
+          "value": "CASE WHEN jsonb_typeof(\"insight_observations\".\"query_params\") = 'object' THEN octet_length(\"insight_observations\".\"query_params\"::text) <= 8192\n\t\tAND jsonb_array_length(jsonb_path_query_array(\"insight_observations\".\"query_params\", '$.keyvalue()')) <= 32\n\t\tAND NOT jsonb_path_exists(\"insight_observations\".\"query_params\", '$.keyvalue() ? (!(@.key like_regex \"^.{1,128}$\" flag \"s\") || @.value.type() != \"string\" || !(@.value like_regex \"^.{0,128}$\" flag \"s\"))')\n\t\tELSE false END"
+        }
+      },
+      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -8243,6 +8909,87 @@
         "blocked_target",
         "bad_response",
         "invalid_request"
+      ]
+    },
+    "public.insight_access_state": {
+      "name": "insight_access_state",
+      "schema": "public",
+      "values": [
+        "unknown",
+        "ready",
+        "missing_permission",
+        "needs_reauth",
+        "unsupported"
+      ]
+    },
+    "public.insight_collection_mode": {
+      "name": "insight_collection_mode",
+      "schema": "public",
+      "values": [
+        "off",
+        "on"
+      ]
+    },
+    "public.insight_grain": {
+      "name": "insight_grain",
+      "schema": "public",
+      "values": [
+        "day",
+        "range",
+        "snapshot",
+        "audience_window"
+      ]
+    },
+    "public.insight_level": {
+      "name": "insight_level",
+      "schema": "public",
+      "values": [
+        "account",
+        "post",
+        "audience"
+      ]
+    },
+    "public.insight_metric_type": {
+      "name": "insight_metric_type",
+      "schema": "public",
+      "values": [
+        "time_series",
+        "total_value",
+        "profile_field",
+        "media_lifetime"
+      ]
+    },
+    "public.insight_period": {
+      "name": "insight_period",
+      "schema": "public",
+      "values": [
+        "day",
+        "lifetime"
+      ]
+    },
+    "public.insight_reason": {
+      "name": "insight_reason",
+      "schema": "public",
+      "values": [
+        "none",
+        "first_sync",
+        "provider_unavailable",
+        "rate_limited",
+        "token_required",
+        "permission_required",
+        "channel_paused",
+        "collection_off",
+        "worker_delayed"
+      ]
+    },
+    "public.insight_response_state": {
+      "name": "insight_response_state",
+      "schema": "public",
+      "values": [
+        "available",
+        "not_available",
+        "insufficient_audience",
+        "unsupported"
       ]
     }
   },
