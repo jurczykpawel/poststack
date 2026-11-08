@@ -31,6 +31,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { section: "Publishing", items: [
     { key: "queue", label: "Queue", href: "/queue", icon: "queue", area: "publishing" },
     { key: "content", label: "Content", href: "/content", icon: "compose", area: "publishing" },
+    { key: "insights", label: "Insights", href: "/insights", icon: "chart", area: "publishing", feature: "insights" },
   ]},
   { section: "Conversations", items: [
     // Inbox READING is free (the human-reply box is PRO, gated in the thread + send endpoint): ungated.

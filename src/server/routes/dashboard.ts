@@ -24,6 +24,7 @@ import { registerContacts } from "../ui/sections/contacts";
 import { registerActivity, activityRedirect } from "../ui/sections/activity";
 import { WEBHOOK_STATUS_LEGEND, WEBHOOK_ENDPOINT_STATUSES, WEBHOOK_STATUS_TONE } from "../ui/sections/webhook-status";
 import { registerEngagement } from "../ui/sections/engagement";
+import { registerInsights } from "../ui/sections/insights";
 import { registerSettings } from "../ui/sections/settings";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
 import { authenticate, type AuthContext } from "@/lib/auth";
@@ -1128,6 +1129,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   registerContacts(app, guard, proLockMain);
   registerActivity(app, guard);
   registerEngagement(app, guard, proLockMain);
+  registerInsights(app, guard);
   registerSettings(app, guard, jsonReq);
   // Overview — the free landing: aggregate counters + an identity-free recent-sends log.
   app.get("/overview", guard, async (c) => {

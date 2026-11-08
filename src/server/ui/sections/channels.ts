@@ -31,6 +31,7 @@ import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
 import { renderSourcesManager, countSources } from "./sources";
+import { channelInsightsPanel } from "./insights";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
 import { aiUnconfiguredBanner } from "../components/ai-notice";
@@ -922,7 +923,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
 
   const name = ch.display_name ?? ch.provider_account_id;
   const lic = await getInstanceLicense();
-  const aiConfigured = await isAiConfigured();
+  const [aiConfigured, insightsPanel] = await Promise.all([isAiConfigured(), channelInsightsPanel(a.workspaceId, ch, lic.features.has("insights"))]);
   // Per-channel activity stats — PRO (reuses contacts_crm: knowing your audience/volume).
   const canStats = lic.features.has("contacts_crm");
   const stats = canStats
@@ -975,6 +976,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
                 <div><div class="kpi-n">${stats.comments}</div><div class="kpi-l">Comments</div></div>
               </div></section>`
           : html`<section class="panel"><div class="set-body"><p class="set-lead" style="margin:0">${icon("lock", "ico", 13)} Channel stats (posts & messages) are a PRO feature.</p></div></section>`}
+        ${insightsPanel}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
         ${aiDisclosurePanel(ch)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}

@@ -23,9 +23,9 @@ export function featureUnlocked(state: "free" | "pro", _feature: string | undefi
 }
 
 // Routes that render a full-page proLockMain upsell when their feature is locked (FREE). Discovered
-// from the route handlers: inbox/contacts/engagement/sequences gate the WHOLE page. The rest render
+// from the route handlers: inbox/contacts/engagement/sequences/insights gate the WHOLE page. The rest render
 // the page and gate individual affordances (sidebar lock link / in-form 🔒 PRO / disabled controls).
-export const PAGE_LOCKED_WHEN_LOCKED = new Set(["inbox", "contacts", "engagement", "sequences"]);
+export const PAGE_LOCKED_WHEN_LOCKED = new Set(["inbox", "contacts", "engagement", "sequences", "insights"]);
 
 // Redirecting nav targets: assert the landing URL.
 export const REDIRECTS: Record<string, string> = { "api-keys": "/settings/api-keys", settings: "/settings/account" };

@@ -1885,3 +1885,88 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .ai-provider-row>.badge{white-space:nowrap;gap:4px;max-width:100%}.ai-provider-sheet .ai-custom{display:block;overflow-wrap:anywhere}.ai-provider-sheet .int-step{margin:18px 0 10px}.ai-provider-sheet>.row .btn{min-width:40px;min-height:40px}
 .ai-provider-sheet .prov{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:600px){.ai-provider-sheet .prov{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Insights (/insights): one channel, 7/30 days, cards, one SSR SVG chart + table. */
+.ins-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.ins-head h1 { font-size: 20px; font-weight: 650; color: var(--text-1); margin: 0 0 4px; }
+.ins-head .section-intro { margin: 0; }
+.ins-head .btn, .ins-state .btn, .ins-channel-panel .btn, .ins-lock .btn { min-height: 44px; }
+.ins-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+.ins-field select { min-height: 44px; max-width: 100%; }
+.ins-channel select { min-width: 240px; }
+.ins-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-control); overflow: hidden; }
+.ins-seg button { font: inherit; font-size: 13px; border: 0; background: var(--surface); color: var(--text-2); min-height: 44px; padding: 0 16px; cursor: pointer; }
+.ins-seg button + button { border-left: 1px solid var(--border-strong); }
+.ins-seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text-1); font-weight: 600; }
+.ins-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 12px; color: var(--text-3); margin-bottom: 14px; }
+.ins-live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); margin-right: 6px; }
+.ins-live-ok { background: var(--ok); }
+.ins-poll { color: var(--text-2); }
+.ins-state { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 18px 20px; margin-bottom: 12px; }
+.ins-state-warn { border-left: 3px solid var(--warn); }
+.ins-state h2 { font-size: 16px; margin: 0 0 4px; }
+.ins-state h2:empty { display: none; }
+.ins-state p { margin: 0 0 12px; color: var(--text-2); font-size: 13px; }
+.ins-state p:last-child { margin-bottom: 0; }
+.ins-perms { margin: 8px 0 0; padding-left: 18px; }
+.ins-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.ins-cards form { display: contents; }
+.ins-card { display: flex; flex-direction: column; gap: 2px; width: 100%; min-height: 44px; text-align: left; font: inherit; color: inherit;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 12px 14px; }
+button.ins-card { cursor: pointer; }
+button.ins-card:hover { border-color: var(--border-strong); }
+.ins-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ins-card-l { color: var(--text-3); font-size: 12px; }
+.ins-card-q { font-size: 11px; }
+.ins-card-v { color: var(--text-1); font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.2; }
+.ins-card-d { font-size: 12px; color: var(--text-3); }
+.ins-up { color: var(--ok); }
+.ins-down { color: var(--bad); }
+.ins-note { font-size: 12px; color: var(--text-3); margin: 4px 0 10px; }
+.ins-panel { padding: 14px 16px; margin-bottom: 14px; }
+.ins-panel h3 { margin: 0 0 2px; font-size: 14px; }
+.ins-sub { margin: 0 0 10px; color: var(--text-3); font-size: 12px; }
+.ins-chart svg { display: block; width: 100%; height: auto; }
+.ins-axis { stroke: var(--border-strong); stroke-width: 1; }
+.ins-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+.ins-line, .ins-prov { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.ins-prov { stroke-dasharray: 5 5; }
+.ins-chart circle.ins-dot { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.ins-chart circle.ins-dot-prov { stroke-dasharray: 2 2; }
+.ins-tl text, .ins-none { fill: var(--text-3); font: 11px var(--font-sans); }
+.ins-none { font-size: 13px; }
+.ins-table summary { cursor: pointer; color: var(--accent); font-size: 12.5px; min-height: 44px; display: flex; align-items: center; }
+.ins-table table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ins-table th, .ins-table td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.ins-table th:first-child { text-align: left; }
+.ins-table thead th { color: var(--text-3); font-weight: 500; }
+.ins-table tbody th { font-weight: 500; color: var(--text-2); white-space: nowrap; }
+.ins-lock { max-width: 38rem; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ins-lock p { flex-basis: 100%; margin: 0 0 4px; }
+@media (max-width: 767.98px) {
+  .ins-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ins-filters > * { flex: 1 1 100%; }
+  .ins-channel select, .ins-field select { width: 100%; min-width: 0; }
+  .ins-seg button { flex: 1 1 0; }
+  .ins-head form, .ins-head .btn { width: 100%; }
+}
+.ins-field label { display: block; }
+.ins-field .ps-select, .ins-field .ps-trigger { min-height: 44px; }
+.ins-seg form { display: contents; }
+@media (max-width: 767.98px) {
+  .ins-field .ps-select, .ins-field .ps-trigger { width: 100%; }
+}
+/* The generic connect-form card styling does not apply to the Insights controls. */
+.ins-page form, .ins-channel-panel form { display: block; max-width: none; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.ins-page .ins-seg form, .ins-page .ins-cards form { display: contents; }
+.ins-page .ins-card { align-items: stretch; justify-content: flex-start; align-self: stretch; white-space: normal; font-weight: 400; text-align: left; }
+.ins-page .ins-seg button { white-space: nowrap; align-self: stretch; border-radius: 0; }
+.ins-chart svg { overflow: visible; }
+.ins-line, .ins-prov, .ins-axis, .ins-grid, .ins-chart circle { vector-effect: non-scaling-stroke; }
+@media (max-width: 767.98px) {
+  .ins-tl text { font-size: 20px; }
+  .ins-none { font-size: 24px; }
+  .ins-chart circle.ins-dot { r: 6px; }
+  .ins-line, .ins-prov { stroke-width: 2; }
+}
+@media (min-width: 1200px) { .ins-tl text { font-size: 8.5px; } }
