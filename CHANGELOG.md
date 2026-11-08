@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.17.8] - 2026-11-08
+
+### Fixed
+- Inbox restores every loaded page after a refresh of an "Older" view, and browser Back closes a thread opened after a refresh.
+
+### Added
+- API: read and delete a published X post from its PostStack post (`/api/v1/posts/{postId}/platform`).
+
 ## [0.17.7] - 2026-11-07
 
 ### Fixed
