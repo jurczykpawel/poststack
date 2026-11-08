@@ -255,6 +255,7 @@ export const openApiSpec = {
           transport: { type: "string" }, apiVersion: { type: "string" }, definitionVersion: { type: "string" }, coverageBasis: { type: "string" },
           stale: { type: "boolean", description: "Fetched more than 48 hours ago." },
           provisional: { type: "boolean", description: "Ends within the last 48 hours; the provider can still revise it." },
+          partial: { type: "boolean", description: "The provider sent only this day's end time, so windowStart is estimated. The value is shown but never added into a total." },
         },
       },
       AccountReport: {
@@ -1191,7 +1192,7 @@ export const openApiSpec = {
               examples: {
                 empty: { summary: "Collection on, no stored data yet", value: exampleReport({ ...exampleStatus, displayStatus: "checking", state: "unknown", lastSuccessfulSyncAt: null, reason: "first_sync" }, [], null, "unique_range_unavailable") },
                 permission: { summary: "Additional access required", value: exampleReport({ ...exampleStatus, displayStatus: "additional_access_required", state: "missing_permission", missingPermissions: ["instagram_manage_insights"], reason: "permission_required" }, [], null, "unique_range_unavailable") },
-                rangeUnavailable: { summary: "Daily values stored; no unique value for the whole range", value: exampleReport(exampleStatus, [{ platform: "instagram", metricKey: "reach", level: "account", subjectKey: "17841400000000000", grain: "day", period: "day", metricType: "time_series", windowStart: "2026-11-01T07:00:00.000Z", windowEnd: "2026-11-02T08:00:00.000Z", snapshotDay: "2026-11-01", providerDay: "2026-11-01", fetchedAt: "2026-11-04T05:00:00.000Z", boundaryBasis: "provider_end_time", value: "0", state: "available", dimensions: {}, queryParams: {}, transport: "facebook", apiVersion: "v26.0", definitionVersion: "instagram-reach-v1", coverageBasis: "provider_end_time", stale: false, provisional: false }], null, "unique_range_unavailable") },
+                rangeUnavailable: { summary: "Daily values stored; no unique value for the whole range", value: exampleReport(exampleStatus, [{ platform: "instagram", metricKey: "reach", level: "account", subjectKey: "17841400000000000", grain: "day", period: "day", metricType: "time_series", windowStart: "2026-11-01T07:00:00.000Z", windowEnd: "2026-11-02T08:00:00.000Z", snapshotDay: "2026-11-01", providerDay: "2026-11-01", fetchedAt: "2026-11-04T05:00:00.000Z", boundaryBasis: "provider_end_time", value: "0", state: "available", dimensions: {}, queryParams: {}, transport: "facebook", apiVersion: "v26.0", definitionVersion: "instagram-reach-v1", coverageBasis: "provider_end_time; first interval boundary unconfirmed", stale: false, provisional: false, partial: false }], null, "unique_range_unavailable") },
               },
             } },
           },

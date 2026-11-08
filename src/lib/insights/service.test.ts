@@ -15,6 +15,7 @@ const query: InsightQuery = { level: "account", subjectKey: "account", from: "20
 function point(day: number, value: string | null, overrides: Partial<InsightObservation> = {}): InsightObservation {
   return { platform: "instagram", metricKey: "views", level: "account", subjectKey: "account", grain: "day", period: "day", metricType: "time_series", windowStart: `2026-10-0${day}T08:00:00Z`, windowEnd: `2026-10-0${day+1}T08:00:00Z`, snapshotDay: `2026-10-0${day}`, fetchedAt: "2026-10-08T00:00:00Z", providerDay: `2026-10-0${day}`, boundaryBasis: "provider_end_time", value, state: value === null ? "not_available" : "available", dimensions: {}, queryParams: {}, transport: "facebook", apiVersion: "v26.0", definitionVersion: metric.definitionVersion, coverageBasis: metric.coverageBasis, ...overrides };
 }
+const reachPoint = { metricKey: "reach", definitionVersion: instagramCatalog[0].definitionVersion, coverageBasis: instagramCatalog[0].coverageBasis };
 const status = { channelId: "channel", platform: "instagram" as const, source: "meta_instagram", collectionMode: "on" as const, displayStatus: "connected" as const, state: "ready" as const, transport: "facebook", credentialRevision: "rev", requiredPermissions: [], missingPermissions: [], checkedAt: null, lastAttemptAt: null, lastSuccessfulSyncAt: null, nextRetryAt: null, reason: "none" as const, stale: false };
 describe("account report", () => {
   it("sums complete disjoint days and preserves decimal precision", () => {
@@ -41,6 +42,22 @@ describe("account report", () => {
     expect(buildAccountReport([metric],points,query,status).summary[0]).toMatchObject({value:"40",complete:true,comparisonPercent:"100"});
     expect(buildAccountReport([metric],points.filter(p=>p.snapshotDay!=="2026-10-02"),query,status).summary[0].comparisonPercent).toBeNull();
     expect(buildAccountReport([metric],[point(3,"0"),point(4,null)],query,status).summary[0]).toMatchObject({value:null,complete:false});
+  });
+  it("keeps first-of-batch days in the series as partial and never sums them", () => {
+    const estimated = { boundaryBasis: "provider_end_time_first_start_unconfirmed" };
+    const reach = buildAccountReport(instagramCatalog,[point(3,"10",{...reachPoint,...estimated}),point(4,"20",reachPoint)],{...query,metrics:["reach"]},status);
+    expect(reach.series.map(o=>[o.providerDay,o.value,o.partial])).toEqual([["2026-10-03","10",true],["2026-10-04","20",false]]);
+    const views = buildAccountReport([metric],[point(3,"10",estimated),point(4,"20")],query,status);
+    expect(views.series).toHaveLength(2);
+    expect(views.summary[0]).toMatchObject({value:null,complete:false});
+  });
+  it("merges one provider interval stored as a first and a follow-on point, keeping the confirmed start", () => {
+    // Same provider end_time; the estimated start is one hour off on an offset-change day.
+    const confirmed = point(3,"10",{...reachPoint,windowStart:"2026-10-03T07:00:00Z"});
+    const estimated = point(3,"11",{...reachPoint,fetchedAt:"2026-10-09T00:00:00Z",boundaryBasis:"provider_end_time_first_start_unconfirmed"});
+    const report = buildAccountReport(instagramCatalog,[confirmed,estimated],{...query,from:"2026-10-03T07:00:00Z",metrics:["reach"]},status);
+    expect(report.series).toHaveLength(1);
+    expect(report.series[0]).toMatchObject({value:"11",windowStart:"2026-10-03T07:00:00Z",providerDay:"2026-10-03",boundaryBasis:"provider_end_time",partial:false});
   });
   it("keeps provider offsets and marks recent observations provisional", () => {
     const report=buildAccountReport([metric],[point(3,"0",{fetchedAt:new Date().toISOString()})],query,status);
