@@ -3,6 +3,7 @@ import series from "../__fixtures__/instagram/account-series.json";
 import total from "../__fixtures__/instagram/account-total-example.json";
 import { parseInsightJson } from "./json";
 import { parseInstagramInsights } from "./parser";
+import { instagramCatalog } from "./catalog";
 import type { InsightObservation, InsightQuery } from "../types";
 
 const query: InsightQuery = { level: "account", subjectKey: "account", from: "2018-01-10T08:00:00Z", to: "2018-01-12T08:00:00Z", metrics: ["reach"], grain: "day" };
@@ -24,6 +25,9 @@ describe("Instagram account normalization", () => {
     const parsed = parseInstagramInsights(body(), query, context);
     expect(parsed.map((p) => p.value)).toEqual(["12", "12"]);
     expect(parsed[0]).toMatchObject({ period: "day", windowStart: "2018-01-10T08:00:00+0000", windowEnd: "2018-01-11T08:00:00+0000", providerDay: "2018-01-10" });
+    // Only the boundary differs per point; the definition-level coverage stays the catalog's.
+    expect(parsed.map((p) => p.boundaryBasis)).toEqual(["provider_end_time_first_start_unconfirmed", "provider_end_time"]);
+    expect(parsed.map((p) => p.coverageBasis)).toEqual([instagramCatalog[0].coverageBasis, instagramCatalog[0].coverageBasis]);
     expect(series.provenance).toBe("documentation");
   });
   it("keeps the malformed total example verbatim and rejects it", () => {
@@ -50,7 +54,7 @@ it("reads the total-value shape only in an explicit validation mutation, retaini
   // Validation mutation: add only the missing closing brace to Meta's exact example.
   const corrected = parseInsightJson(total.responseText + "}");
   const parsed = parseInstagramInsights(corrected, { ...query, grain: "range" }, { ...context, grain: "range", metricType: "total_value" });
-  expect(parsed[0]).toMatchObject({ value: "224", windowStart: query.from, windowEnd: query.to, providerDay: null, coverageBasis: "request_window_unconfirmed" });
+  expect(parsed[0]).toMatchObject({ value: "224", windowStart: query.from, windowEnd: query.to, providerDay: null, boundaryBasis: "request_window_unconfirmed", coverageBasis: instagramCatalog[0].coverageBasis });
 });
 
 it("uses adjacent provider endpoints across an offset change without shifting their dates", () => {
@@ -68,7 +72,7 @@ it("keeps a missing provider day as a gap instead of a two-day observation", () 
   const copy = mutated("12");
   copy.data[0].values[1].end_time = "2018-01-13T08:00:00+0000";
   const parsed = parseInstagramInsights(copy, { ...query, to: "2018-01-13T08:00:00Z" }, context);
-  expect(parsed[1]).toMatchObject({ windowStart: "2018-01-12T08:00:00+0000", providerDay: "2018-01-12", coverageBasis: "first_start_unconfirmed" });
+  expect(parsed[1]).toMatchObject({ windowStart: "2018-01-12T08:00:00+0000", providerDay: "2018-01-12", boundaryBasis: "provider_end_time_first_start_unconfirmed" });
 });
 it("rejects invalid dates and oversized series shapes", () => {
   const copy = mutated("12");

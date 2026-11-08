@@ -88,8 +88,9 @@ describe("insights chart", () => {
     vi.useFakeTimers({ now: new Date("2018-01-13T12:00:00Z") });
     const out = render(report([{ end: "2018-01-11", value: 12 }, { end: "2018-01-12", value: 14 }, { end: "2018-01-13", value: 9 }]));
     expect(out).toMatch(/<path class="ins-prov"/);
-    expect(out).toMatch(/<th scope="row">2018-01-12 \(provisional\)<\/th>/);
-    expect(out).toMatch(/<th scope="row">2018-01-10<\/th>/);
+    // Each day here is its own single-point response, so every start is also estimated (partial).
+    expect(out).toMatch(/<th scope="row">2018-01-12 \(provisional, partial\)<\/th>/);
+    expect(out).toMatch(/<th scope="row">2018-01-10 \(partial\)<\/th>/);
     expect(out).toContain("provisional");
   });
 
@@ -98,6 +99,27 @@ describe("insights chart", () => {
     const out = render(report([{ end: "2018-01-11", value: "9007199254740993" }], "2018-01-10", "2018-01-11"));
     expect(tableRow(out, "2018-01-10")).toContain(">9,007,199,254,740,993<");
     expect(out).not.toContain("NaN");
+  });
+
+  it("labels first-of-response days partial with a visible note, and only those", () => {
+    vi.useFakeTimers({ now: new Date("2018-02-01T00:00:00Z") });
+    // One documented response covering three days: only its first point has an estimated start.
+    const copy = parseInsightJson(series.responseText) as { data: Array<{ name: string; values: unknown[] }> };
+    copy.data = copy.data.filter((m) => m.name === "reach");
+    copy.data[0].values = ["2018-01-11", "2018-01-12", "2018-01-13"].map((d, i) => ({ value: 10 + i, end_time: `${d}T08:00:00+0000` }));
+    const query: InsightQuery = { level: "account", subjectKey: "account", from: "2018-01-10T08:00:00.000Z", to: "2018-01-13T08:00:00.000Z", metrics: ["reach"], grain: "day" };
+    const observations = parseInstagramInsights(copy, query, {
+      platform: "instagram", level: "account", subjectKey: "account", grain: "day", period: "day", metricType: "time_series",
+      windowStart: query.from, windowEnd: query.to, snapshotDay: "2018-01-13", fetchedAt: "2018-01-13T09:00:00Z", providerDay: null,
+      boundaryBasis: "provider_end_time", queryParams: {}, transport: "facebook", apiVersion: "v26.0",
+      definitionVersion: instagramCatalog[0].definitionVersion, coverageBasis: instagramCatalog[0].coverageBasis,
+    });
+    const out = render(buildAccountReport(instagramCatalog, observations, query, status));
+    expect(out).toMatch(/<th scope="row">2018-01-10 \(partial\)<\/th>/);
+    expect(out).toMatch(/<th scope="row">2018-01-11<\/th>/);
+    expect(out).toMatch(/<th scope="row">2018-01-12<\/th>/);
+    expect(out).toContain("start time is estimated");
+    expect(linePaths(out)).toHaveLength(1);
   });
 
   it("describes partial and stale data in the panel", () => {

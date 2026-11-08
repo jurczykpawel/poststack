@@ -44,11 +44,12 @@ const compact = (n: number) => new Intl.NumberFormat("en-US", { notation: "compa
 const round = (n: number) => Math.round(n * 10) / 10;
 
 /** Daily values of one metric keyed by provider day. */
-function dailyValues(report: AccountReport, metricKey: string): Map<string, { value: string | null; provisional: boolean; stale: boolean }> {
-  const byDay = new Map<string, { value: string | null; provisional: boolean; stale: boolean }>();
+type DayValue = { value: string | null; provisional: boolean; stale: boolean; partial: boolean };
+function dailyValues(report: AccountReport, metricKey: string): Map<string, DayValue> {
+  const byDay = new Map<string, DayValue>();
   for (const o of report.series) {
     if (o.metricKey !== metricKey || o.grain !== "day") continue;
-    byDay.set(o.providerDay ?? o.snapshotDay, { value: o.state === "available" ? o.value : null, provisional: o.provisional, stale: o.stale });
+    byDay.set(o.providerDay ?? o.snapshotDay, { value: o.state === "available" ? o.value : null, provisional: o.provisional, stale: o.stale, partial: o.partial });
   }
   return byDay;
 }
@@ -98,6 +99,7 @@ export function insightsChart(report: AccountReport, metricKey: string): Html {
   const hasGap = anyValue && points.some((p) => p.y === null);
   const provisional = points.some((p) => p.provisional && p.y !== null);
   const stale = [...values.values()].some((v) => v.stale);
+  const partial = [...values.values()].some((v) => v.partial);
   const first = days[0] ?? "", last = days.at(-1) ?? "";
   const columns = report.catalog.filter((m) => m.active && m.chartable).sort((a, b) => (a.cardOrder ?? 99) - (b.cardOrder ?? 99));
   const table = columns.map((m) => ({ metric: m, values: dailyValues(report, m.key) }));
@@ -122,14 +124,15 @@ export function insightsChart(report: AccountReport, metricKey: string): Html {
     </svg>
     ${provisional ? html`<p class="ins-note">The platform can still update the last 48 hours. Provisional days (*) use a dashed line.</p>` : ""}
     ${hasGap ? html`<p class="ins-note">Some days have no data yet, so the line breaks there. A break is missing data, not zero.</p>` : ""}
+    ${partial ? html`<p class="ins-note">For days marked partial the platform sent only the end time, so their start time is estimated. Their values are shown but not added into totals.</p>` : ""}
     ${stale ? html`<p class="ins-note">Showing the last collected data; some values were collected more than 48 hours ago.</p>` : ""}
     <details class="ins-table">
       <summary>Show data as a table</summary>
       <div class="table-wrap"><table>
         <thead><tr><th scope="col">Provider day</th>${table.map((c) => html`<th scope="col">${c.metric.label}</th>`)}</tr></thead>
         <tbody>${days.map((day) => {
-          const prov = table.some((c) => c.values.get(day)?.provisional);
-          return html`<tr><th scope="row">${day}${prov ? " (provisional)" : ""}</th>${table.map((c) => {
+          const marks = (["provisional", "partial"] as const).filter((flag) => table.some((c) => c.values.get(day)?.[flag]));
+          return html`<tr><th scope="row">${day}${marks.length ? ` (${marks.join(", ")})` : ""}</th>${table.map((c) => {
             const value = c.values.get(day)?.value;
             return html`<td>${value == null ? "—" : formatMetricValue(c.metric, value)}</td>`;
           })}</tr>`;

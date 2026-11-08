@@ -13,7 +13,8 @@ export type InsightStatus = InsightAccess & {
   reason: InsightReason; stale: boolean;
 };
 type ReportMetric = InsightMetric & { active: boolean; reason: string | null };
-type ReportObservation = InsightObservation & { stale: boolean; provisional: boolean };
+/** `partial`: the start was estimated from the provider's end time and no stored point confirms it. */
+type ReportObservation = InsightObservation & { stale: boolean; provisional: boolean; partial: boolean };
 export type AccountReport = {
   catalog: ReportMetric[]; series: ReportObservation[];
   summary: { metricKey: string; aggregation: InsightMetric["aggregation"]; value: Decimal | null; complete: boolean; comparisonPercent: DecimalSigned | null; reason: string | null }[];
@@ -179,16 +180,18 @@ function comparison(current: string, previous: string): string | null {
   const rounded = (magnitude + b/BigInt(2))/b;
   return decimal(numerator < BigInt(0) ? -rounded : rounded,6);
 }
+/** Series identity; boundaryBasis is per-point certainty, so it never splits a series. */
 function semantics(o: InsightObservation): string {
   const params = Object.entries(o.queryParams).filter(([key])=>!["since","until","from","to","metric","metric_type","period"].includes(key)).sort(([a],[b])=>a === b ? 0 : a < b ? -1 : 1);
-  return JSON.stringify([o.transport,o.apiVersion,o.definitionVersion,o.coverageBasis,o.boundaryBasis,o.metricType,o.period,o.grain,Object.entries(o.dimensions).sort(([a],[b])=>a === b ? 0 : a < b ? -1 : 1),params]);
+  return JSON.stringify([o.transport,o.apiVersion,o.definitionVersion,o.coverageBasis,o.metricType,o.period,o.grain,Object.entries(o.dimensions).sort(([a],[b])=>a === b ? 0 : a < b ? -1 : 1),params]);
 }
 function instant(value: string) { return Date.parse(value); }
+const estimated = (o: InsightObservation) => /unconfirmed/.test(o.boundaryBasis);
 function latest(rows: InsightObservation[]) {
   return [...rows].sort((a,b)=>instant(b.fetchedAt)-instant(a.fetchedAt) || semantics(a).localeCompare(semantics(b)))[0];
 }
 function aggregate(metric: InsightMetric, rows: InsightObservation[], from: number, to: number): { value: string | null; complete: boolean; basis: string | null } {
-  const relevant = rows.filter(o=>instant(o.windowStart)>=from && instant(o.windowEnd)<=to && o.state === "available" && o.value !== null && !/unconfirmed/.test(o.coverageBasis) && !/unconfirmed/.test(o.boundaryBasis) && Object.keys(o.dimensions).length === 0);
+  const relevant = rows.filter(o=>instant(o.windowStart)>=from && instant(o.windowEnd)<=to && o.state === "available" && o.value !== null && !estimated(o) && Object.keys(o.dimensions).length === 0);
   if (metric.aggregation === "unique_range") {
     const exact = latest(relevant.filter(o=>o.grain === "range" && instant(o.windowStart)===from && instant(o.windowEnd)===to));
     return {value:exact?.value ?? null,complete:!!exact,basis:exact?.boundaryBasis ?? null};
@@ -226,15 +229,19 @@ export function buildAccountReport(catalog: readonly InsightMetric[], observatio
   const bases = new Set<string>();
   const summary = entries.map(metric=>{
     let rows = observations.filter(o=>o.metricKey===metric.key && o.level===query.level && o.subjectKey===query.subjectKey && o.definitionVersion===metric.definitionVersion);
-    // Select one definition/transport/boundary series, with corrections keyed by the actual window.
-
-    const corrected = new Map<string,InsightObservation>();
+    // Select one definition/transport series; corrections replace a stored interval. A provider day is
+    // identified by its end time (the start of a first-of-response point is only estimated), so the
+    // newest value wins and a confirmed start from any stored point replaces the estimate.
+    const corrected = new Map<string,{latest:InsightObservation;confirmed?:InsightObservation}>();
     for (const o of rows) {
-      const key=JSON.stringify([o.grain,instant(o.windowStart),instant(o.windowEnd),semantics(o)]);
-      const old=corrected.get(key);
-      if (!old || (o.state === "available" && (old.state !== "available" || instant(o.fetchedAt)>instant(old.fetchedAt)))) corrected.set(key,o);
+      const key=JSON.stringify([o.grain,o.grain === "day" ? null : instant(o.windowStart),instant(o.windowEnd),semantics(o)]);
+      const entry=corrected.get(key) ?? {latest:o};
+      if (o.state === "available" && (entry.latest.state !== "available" || instant(o.fetchedAt)>instant(entry.latest.fetchedAt))) entry.latest=o;
+      if (!estimated(o) && (!entry.confirmed || instant(o.fetchedAt)>instant(entry.confirmed.fetchedAt))) entry.confirmed=o;
+      corrected.set(key,entry);
     }
-    rows=[...corrected.values()];
+    rows=[...corrected.values()].map(({latest:o,confirmed:c})=>!c || !estimated(o) ? o :
+      {...o,windowStart:c.windowStart,providerDay:c.providerDay,snapshotDay:c.snapshotDay,boundaryBasis:c.boundaryBasis});
     const cohort = (grain: InsightObservation["grain"]) => {
       const candidates=rows.filter(o=>o.grain === grain);
       const anchor=latest(candidates.filter(o=>o.state === "available" && instant(o.windowStart)>=from && instant(o.windowEnd)<=to));
@@ -242,7 +249,7 @@ export function buildAccountReport(catalog: readonly InsightMetric[], observatio
     };
     const seriesRows=cohort(query.grain);
     const aggregateRows=cohort(metric.aggregation === "unique_range" ? "range" : metric.aggregation === "latest_snapshot" ? "snapshot" : "day");
-    for (const o of seriesRows.filter(o=>instant(o.windowStart)>=from && instant(o.windowEnd)<=to)) series.push({...o,stale:now-instant(o.fetchedAt)>48*3600000,provisional:instant(o.windowEnd)>now-48*3600000});
+    for (const o of seriesRows.filter(o=>instant(o.windowStart)>=from && instant(o.windowEnd)<=to)) series.push({...o,stale:now-instant(o.fetchedAt)>48*3600000,provisional:instant(o.windowEnd)>now-48*3600000,partial:estimated(o)});
     const current=metric.active ? aggregate(metric,aggregateRows,from,to) : {value:null,complete:false,basis:null};
     const previous=aggregate(metric,aggregateRows,previousFrom,from);
     if (current.basis) bases.add(current.basis);

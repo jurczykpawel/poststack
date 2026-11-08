@@ -38,7 +38,7 @@ export function parseInstagramInsights(body: unknown, query: InsightQuery, conte
     if (entry.period !== metric.period) throw new Error("Unexpected insights period");
     if (context.metricType === "total_value") {
       const total = object(entry.total_value);
-      observations.push({ ...base, value: total.value === undefined ? null : canonicalDecimal(total.value), state: total.value === undefined ? "not_available" : "available", providerDay: null, boundaryBasis: "request_window_unconfirmed", coverageBasis: "request_window_unconfirmed" });
+      observations.push({ ...base, value: total.value === undefined ? null : canonicalDecimal(total.value), state: total.value === undefined ? "not_available" : "available", providerDay: null, boundaryBasis: "request_window_unconfirmed" });
       continue;
     }
     if (!Array.isArray(entry.values) || entry.values.length > 100) throw new Error("Invalid insights series");
@@ -54,8 +54,8 @@ export function parseInstagramInsights(body: unknown, query: InsightQuery, conte
       previous = end;
       if (Date.parse(end) <= Date.parse(query.from) || Date.parse(start) >= Date.parse(query.to)) continue;
       observations.push({ ...base, windowStart: start, windowEnd: end, providerDay: start.slice(0, 10), snapshotDay: start.slice(0, 10),
+        // The first point's start is estimated; per-point certainty lives only in boundaryBasis.
         boundaryBasis: first ? "provider_end_time_first_start_unconfirmed" : "provider_end_time",
-        coverageBasis: first ? "first_start_unconfirmed" : "provider_end_time",
         value: point.value === undefined ? null : canonicalDecimal(point.value), state: point.value === undefined ? "not_available" : "available" });
     }
   }

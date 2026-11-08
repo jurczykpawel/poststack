@@ -93,8 +93,9 @@ beforeAll(async () => {
   await db.insert(s.workspaceMembers).values([{ workspace_id: WS, user_id: USER, role: "owner" }, { workspace_id: BARE_WS, user_id: BARE_USER, role: "owner" }]);
   await db.insert(s.brands).values([{ workspace_id: WS, key: "alpha", name: "Alpha" }, { workspace_id: WS, key: "beta", name: "Beta" }]);
   const tokens = encryptTokens({ access_token: "test-page-token", user_access_token: "test-user-token" });
+  // One insert shares created_at; IG is made older so "first channel" does not depend on random ids.
   await db.insert(s.channels).values([
-    { id: IG, workspace_id: WS, platform: "instagram", platform_id: "ig-account", display_name: "IG Account", brand_key: "alpha", token_encrypted: tokens, webhook_secret: "unused" },
+    { id: IG, workspace_id: WS, platform: "instagram", platform_id: "ig-account", display_name: "IG Account", brand_key: "alpha", token_encrypted: tokens, webhook_secret: "unused", created_at: new Date(Date.now() - 60000) },
     { id: YT, workspace_id: WS, platform: "youtube", platform_id: "yt-account", display_name: "Video Account", brand_key: "beta", token_encrypted: tokens, webhook_secret: "unused" },
     { id: TG, workspace_id: WS, platform: "telegram", platform_id: "tg-account", display_name: "Chat Account", token_encrypted: tokens, webhook_secret: "unused" },
     { id: FOREIGN, workspace_id: OTHER_WS, platform: "instagram", platform_id: "foreign-account", display_name: "Foreign Account", token_encrypted: tokens, webhook_secret: "unused" },
