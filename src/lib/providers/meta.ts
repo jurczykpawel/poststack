@@ -1,3 +1,4 @@
+import { instagramInsightsConnector } from "@/lib/insights/instagram/transport";
 import { FACEBOOK_VIDEO_CAROUSEL_HINT } from "@/lib/platforms/facebook-video-carousel";
 import type { TokenSet } from "./types";
 import type {
@@ -240,6 +241,7 @@ async function publishCarousel(args: Parameters<Provider["publish"]>[0], faceboo
 }
 
 export const metaProvider: Provider = {
+  insights: (platform) => platform === "instagram" ? instagramInsightsConnector : undefined,
   id: "meta",
   label: "Meta (Facebook / Instagram)",
   capabilities: (platform, channel) => CAPABILITIES.map(cap => platform === "facebook" && channel?.video_carousel !== "available" && cap.format === "carousel"
