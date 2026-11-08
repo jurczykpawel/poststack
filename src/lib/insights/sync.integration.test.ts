@@ -207,18 +207,25 @@ it("returns the shared retry floor for a manual refresh on another derived chann
 });
 it("keeps a newly selected login when consent changes before the worker claim",async()=>{
   const credentials=await import("./credentials");const original=credentials.resolveInsightCredential;
+  const lifecycle=await import("./lifecycle");const reconcileOriginal=lifecycle.reconcileInsightCredentials;
   const selected=credentials.insightCredentialRevision("instagram_business","test-ig-token");
-  const resolver=vi.spyOn(credentials,"resolveInsightCredential").mockImplementationOnce(async(...args)=>{
+  // The consent change lands after the credential reconcile transaction commits: writing the rows it
+  // holds from inside that transaction's own resolver call would wait on itself.
+  let reconciled=false, changed=false;
+  const reconcile=vi.spyOn(lifecycle,"reconcileInsightCredentials").mockImplementation(async(...args)=>{const value=await reconcileOriginal(...args);reconciled=true;return value;});
+  const resolver=vi.spyOn(credentials,"resolveInsightCredential").mockImplementation(async(...args)=>{
     const value=await original(...args);
+    if(!reconciled || changed) return value;
+    changed=true;
     await db.update(s.channels).set({token_encrypted:encrypt({access_token:"test-page-token",user_access_token:"test-user-token",messaging_token:"test-ig-token"})}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,ids[0])));
     await db.update(s.insightConnections).set({transport:"instagram_business",credential_revision:selected,access_state:"unknown"}).where(scope());
     return value;
   });
   try {
-    await sync.processInsightsSync(ref);expect(fetcher).not.toHaveBeenCalled();
+    await sync.processInsightsSync(ref);expect(changed).toBe(true);expect(fetcher).not.toHaveBeenCalled();
     const [row]=await db.select().from(s.insightConnections).where(scope());
     expect(row).toMatchObject({transport:"instagram_business",credential_revision:selected});
-  } finally {resolver.mockRestore();}
+  } finally {resolver.mockRestore();reconcile.mockRestore();}
 });
 it("enqueues the selected login when both credentials are present",async()=>{
   const selected=(await import("./credentials")).insightCredentialRevision("instagram_business","test-ig-token");
