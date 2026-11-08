@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll, beforeEach } from "vitest";
 import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
+import { seedEngagement, clearEngagement, ENGAGEMENT_BIG_TOTAL } from "../../../../tests/fixtures/engagement";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -289,5 +290,50 @@ describe("/engagement on a free instance", () => {
     await db.delete(s.instanceLicense);
     gate.invalidateLicenseCache();
     for (const path of ["/engagement", "/engagement/messages"]) expect(await get(path)).toContain("Seeing who reacted to your posts is a PRO feature");
+  });
+});
+
+describe("/engagement realistic volume", () => {
+  it("matches additive webhook totals, type breakdowns and both brand/account scopes", async () => {
+    if (!TEST_DB) return;
+    const seed = await seedEngagement(db.$client, WS);
+    try {
+      const { rows: counts } = await db.$client.query<{ event_type: string; n: number }>(
+        "SELECT event_type, count(*)::int AS n FROM webhook_events WHERE channel_id = ANY($1::uuid[]) GROUP BY event_type", [seed.channels],
+      );
+      expect(Object.fromEntries(counts.map((r) => [r.event_type, r.n]))).toEqual({ post_reaction: 1127, reaction: 60, comment: 1, story_mention: 1 });
+      const { postFacts } = await import("./engagement-data");
+      const facts = await postFacts(WS, [{ channelId: seed.channels[0]!, postId: "991000000000000_100" }]);
+      const big = facts.get(`${seed.channels[0]}~991000000000000_100`)!;
+      expect(big.total).toBe(ENGAGEMENT_BIG_TOTAL);
+      expect(Object.fromEntries(big.byType.map((r) => [r.type, r.n]))).toEqual({ like: 151, love: 151, care: 151, haha: 151, wow: 151, sad: 151, angry: 151 });
+      for (const [query, posts, messages] of [["", 63, 60], ["brand=engdata-a", 62, 59], ["brand=engdata-b", 1, 1], [`channel=${seed.channels[0]}`, 61, 57], [`channel=${seed.channels[1]}`, 1, 2], ["brand=absent", 0, 0]] as const) {
+        const body = await get(`/engagement?${query}`);
+        expect(body).toMatch(new RegExp(`Posts\\s*<b>${posts}</b>`));
+        expect(body).toMatch(new RegExp(`Message reactions\\s*<b>${messages}</b>`));
+        const messageBody = await get(`/engagement/messages?${query}`);
+        expect(messageBody).toMatch(new RegExp(`Message reactions\\s*<b>${messages}</b>`));
+      }
+      let path: string | null = "/engagement?brand=engdata-a";
+      const ids: string[] = [];
+      let sum = 0;
+      while (path) {
+        const body = await get(path);
+        const page = rowIds(body);
+        ids.push(...page);
+        const keys = page.map((id) => { const [channelId, postId] = id.split("~"); return { channelId: channelId!, postId: postId! }; });
+        sum += [...(await postFacts(WS, keys)).values()].reduce((n, f) => n + f.total, 0);
+        path = link(body, "next");
+      }
+      expect(new Set(ids).size).toBe(62);
+      expect(ids).toHaveLength(62);
+      expect(sum).toBe(1120);
+      const first = await get(`/engagement/messages?channel=${seed.channels[0]}`);
+      const second = await get(link(first, "next")!);
+      expect(new Set([...rowIds(first), ...rowIds(second)]).size).toBe(57);
+      expect(rowIds(await get(link(second, "prev")!))).toEqual(rowIds(first));
+    } finally {
+      await clearEngagement(db.$client, WS, seed);
+    }
   });
 });
