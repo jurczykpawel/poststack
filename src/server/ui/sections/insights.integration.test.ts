@@ -185,6 +185,7 @@ describe("insights cards and chart", () => {
     const { text } = await page(`/insights?channel=${IG}`);
     expect(text).toMatch(/class="ins-card-v">—</);
     expect(text).toContain("Total not available for unique metrics");
+    expect(text).toContain("Dates follow Instagram");
     expect(text).not.toMatch(/class="ins-card-v">12</);
     expect(text).toMatch(new RegExp(`<th scope="row">${day(-5)}[^<]*</th><td>5</td>`));
     expect(text).toMatch(new RegExp(`<th scope="row">${day(-4)}[^<]*</th><td>7</td>`));

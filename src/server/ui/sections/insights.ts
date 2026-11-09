@@ -113,7 +113,7 @@ function card(metric: ReportMetric, report: Report, q: InsightsQuery, selected: 
     <button type="submit" class="ins-card" name="metric" value="${metric.key}" aria-pressed="${metric.key === selected ? "true" : "false"}">${body}</button></form>`;
 }
 
-function dataView(report: Report, q: InsightsQuery): Html {
+function dataView(report: Report, q: InsightsQuery, isInstagram: boolean): Html {
   const cards = report.catalog.filter((m) => m.active && m.cardOrder !== null).sort((a, b) => a.cardOrder! - b.cardOrder!);
   const chartable = cards.filter((m) => m.chartable);
   const metric = chartable.find((m) => m.key === q.metric) ?? chartable[0];
@@ -125,6 +125,7 @@ function dataView(report: Report, q: InsightsQuery): Html {
     ${metric ? html`<section class="panel ins-panel">
       <h3>${metric.label} per day</h3>
       <p class="ins-sub">${chartable.length > 1 ? "Select a card above to change the metric. " : ""}${metric.additive ? "" : `Daily ${metric.label.toLowerCase()} does not add up to the range total.`}</p>
+      ${isInstagram ? html`<p class="ins-note">${t("insights.dayNote")}</p>` : ""}
       ${insightsChart(report, metric.key)}
     </section>` : ""}`;
 }
@@ -179,7 +180,7 @@ function insightsRoot(data: Awaited<ReturnType<typeof loadInsightsPage>>, brands
   } else {
     const access = accessState(status, report, channel, q);
     const showData = !access || (status.collectionMode === "off" && report.series.length > 0) || status.displayStatus === "additional_access_required" && report.series.length > 0;
-    body = html`${filters(channels, q, brands, channel.id)}${syncLine(status)}${access ?? ""}${access && !showData ? "" : html`${freshnessBanners(status)}${dataView(report, q)}`}`;
+    body = html`${filters(channels, q, brands, channel.id)}${syncLine(status)}${access ?? ""}${access && !showData ? "" : html`${freshnessBanners(status)}${dataView(report, q, channel.platform === "instagram")}`}`;
   }
   return html`<div class="page ins-page" id="insights-root">${head}${notice(noticeCode)}${body}</div>`;
 }
