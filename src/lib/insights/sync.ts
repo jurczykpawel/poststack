@@ -119,7 +119,12 @@ export async function processInsightsSync(payload:InsightsSyncJob):Promise<void>
       }
       if(!await eligible(ref,credential)) return;
       const checkpoint=syncCheckpoint(claimed[0].checkpoint,advance ?? readSyncCursor(claimed[0].checkpoint).before,credential.revision,unsupported);
-      await storeInsightBatch(ref,credential.revision,batch,claim,{checkpoint,access_state:"ready",access_checked_at:new Date(),failure_count:0,reason:"none",next_due_at:i===queries.length-1?dailyDue(now):new Date(Date.now()+900000)});
+      const checkedAt=new Date();
+      // A successful Insights probe confirms access for this login and credential only.
+      const grants={version:1 as const,names:[...(connector.requiredPermissions?.(credential.transport) ?? [])],checkedAt:checkedAt.toISOString(),revision:credential.revision};
+      await storeInsightBatch(ref,credential.revision,batch,claim,{checkpoint,access_state:"ready",access_checked_at:checkedAt,failure_count:0,reason:"none",next_due_at:i===queries.length-1?dailyDue(now):new Date(Date.now()+900000),
+        ...(credential.transport==="instagram_business"?{ig_grants:grants}:{fb_grants:grants}),
+      });
       claimed[0].checkpoint=checkpoint;
       claimed[0].access_state="ready";claimed[0].failure_count=0;
       const usage=usageDue(new Date(),batch.usage.percent,batch.usage.regainAfterSeconds);

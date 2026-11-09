@@ -77,7 +77,7 @@ export function insightQueryKey(o: InsightObservation): string {
   ])).digest("hex");
 }
 
-export type InsightProgress = { checkpoint: typeof insightConnections.$inferSelect["checkpoint"]; next_due_at: Date; access_state?: typeof insightConnections.$inferSelect["access_state"]; access_checked_at?: Date; failure_count?: number; reason?: typeof insightConnections.$inferSelect["reason"] };
+export type InsightProgress = Partial<Pick<typeof insightConnections.$inferSelect, "ig_grants" | "fb_grants">> & { checkpoint: typeof insightConnections.$inferSelect["checkpoint"]; next_due_at: Date; access_state?: typeof insightConnections.$inferSelect["access_state"]; access_checked_at?: Date; failure_count?: number; reason?: typeof insightConnections.$inferSelect["reason"] };
 
 export async function upsertInsightBatch(ref: ChannelRef, revision: string, batch: InsightBatch, claimToken?: string, progress?: InsightProgress): Promise<number> {
   return db.transaction(async (tx) => {

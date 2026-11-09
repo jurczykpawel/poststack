@@ -80,7 +80,7 @@ it.each(["reconnect","downgrade"])("discards an in-flight response after %s and 
     return {observations:[],usage:{percent:null,regainAfterSeconds:null}};
   });
   await sync.processInsightsSync(ref);expect(fetcher).toHaveBeenCalledTimes(1);
-  const [row]=await db.select().from(s.insightConnections).where(scope());expect(row.access_state).toBe("unknown");
+  const [row]=await db.select().from(s.insightConnections).where(scope());expect(row.access_state).toBe("unknown");expect(row.fb_grants.revision).toBeNull();expect(row.ig_grants.revision).toBeNull();
 });
 it("limits each job, resumes durable history, and recovers an expired claim via the sweep",async()=>{
   await sync.processInsightsSync(ref);expect(fetcher).toHaveBeenCalledTimes(10);
@@ -281,8 +281,29 @@ it("persists an HTTP permission denial and stops subsequent sync attempts",async
     expect(await schedule.enqueueInsights(ref,"refresh")).toEqual({queued:false,nextRetryAt:null});
     await sync.processInsightsSync(ref);
     expect(http).toHaveBeenCalledTimes(1);
+    expect(row.ig_grants).toEqual({version:1,names:[],checkedAt:null,revision:null});
   } finally {
     vi.unstubAllGlobals();
     vi.spyOn(instagramInsightsConnector,"fetch").mockImplementation(real!);
   }
+});
+
+it.each([
+  ["facebook", ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"]],
+  ["instagram_business", ["instagram_business_basic", "instagram_business_manage_insights"]],
+] as const)("records independent %s grant evidence after a successful Insights request",async(transport,names)=>{
+  const {insightCredentialRevision}=await import("./credentials");
+  const other={version:1 as const,names:["other_permission"],checkedAt:new Date().toISOString(),revision:insightCredentialRevision(transport==="facebook"?"instagram_business":"facebook",transport==="facebook"?"test-ig-token":"test-user-token")};
+  await db.update(s.channels).set({token_encrypted:encrypt({access_token:"test-page-token",user_access_token:"test-user-token",messaging_token:"test-ig-token"})}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,ids[0])));
+  await db.update(s.insightConnections).set({transport,...(transport==="facebook"?{ig_grants:other}:{fb_grants:other})}).where(scope());
+  fetcher.mockResolvedValue({observations:[],usage:{percent:80,regainAfterSeconds:null}});
+  const before=Date.now();
+  await sync.processInsightsSync(ref);
+  const [row]=await db.select().from(s.insightConnections).where(scope());
+  const evidence=transport==="facebook"?row.fb_grants:row.ig_grants;
+  expect(row.access_state).toBe("ready");
+  expect(evidence).toMatchObject({version:1,names:[...names],revision:insightCredentialRevision(transport,transport==="facebook"?"test-user-token":"test-ig-token")});
+  expect(Date.parse(evidence.checkedAt!)).toBeGreaterThanOrEqual(before);
+  expect(evidence.checkedAt).toBe(row.access_checked_at?.toISOString());
+  expect(transport==="facebook"?row.ig_grants:row.fb_grants).toEqual(other);
 });
