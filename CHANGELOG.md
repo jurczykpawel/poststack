@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- Removing a channel (dashboard or `DELETE /api/v1/channels/{channelId}`) now disconnects it everywhere: stored credentials are cleared, Insights collection stops and background syncs no longer bring it back. Its history is kept; the API no longer hard-deletes the channel or returns 409 for channels with sequence enrollments. Reconnecting the account restores it.
+
 ## [0.18.0] - 2026-11-09
 
 ### Added
