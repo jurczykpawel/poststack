@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-09
+
 ### Added
 - Insights (PRO): opt-in account statistics for Instagram channels, starting with daily Reach. One Insights screen per channel with 7/30-day ranges, an accessible chart and data table, clear access/collection statuses and a refresh button. Data is collected by the existing worker within shared rate limits and stored locally (400 days). REST API: `/api/v1/channels/{channelId}/insights` (status, account report, collection on/off, refresh). See `docs/INSIGHTS.md`.
 
