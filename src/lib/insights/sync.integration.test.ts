@@ -264,3 +264,25 @@ it.each(["new","same"])("defers re-consent with exhausted unknown attempts for a
   expect(after.usage_budget.requestTimes.slice(0,3)).toEqual(budget.requestTimes);
   if(kind==="new") expect(after).toMatchObject({access_state:"ready",failure_count:0});
 });
+
+it("persists an HTTP permission denial and stops subsequent sync attempts",async()=>{
+  const {instagramInsightsConnector}=await import("./instagram/transport");
+  const real=vi.mocked(instagramInsightsConnector.fetch).getMockImplementation();
+  vi.mocked(instagramInsightsConnector.fetch).mockRestore();
+  const http=vi.fn().mockImplementation(async()=>new Response(JSON.stringify({error:{code:10,type:"IGApiException",message:"Application does not have permission for this action"}}),{status:403}));
+  vi.stubGlobal("fetch",http);
+  try {
+    await db.update(s.channels).set({token_encrypted:encrypt({access_token:"test-ig-token",messaging_token:"test-ig-token"})}).where(and(eq(s.channels.workspace_id,ws),eq(s.channels.id,ids[0])));
+    await sync.processInsightsSync(ref);
+    const [row]=await db.select().from(s.insightConnections).where(scope());
+    expect(row).toMatchObject({access_state:"missing_permission",reason:"permission_required",failure_count:1});
+    expect(await service.getInsightStatus(ref)).toMatchObject({displayStatus:"additional_access_required",state:"missing_permission"});
+    await db.update(s.insightConnections).set({next_due_at:new Date(0),backoff_until:null,usage_budget:sql`jsonb_set(${s.insightConnections.usage_budget}, '{nextSafeAt}', 'null'::jsonb)`}).where(scope());
+    expect(await schedule.enqueueInsights(ref,"refresh")).toEqual({queued:false,nextRetryAt:null});
+    await sync.processInsightsSync(ref);
+    expect(http).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.unstubAllGlobals();
+    vi.spyOn(instagramInsightsConnector,"fetch").mockImplementation(real!);
+  }
+});

@@ -25,9 +25,9 @@ describe("Instagram insights requests", () => {
     expect(metaProvider.insights?.("instagram")).toBe(instagramInsightsConnector);
     expect(metaProvider.insights?.("facebook")).toBeUndefined();
   });
-  it.each([denied, igDenied])("keeps an ambiguous recorded code 10 unknown", async (fixture) => {
+  it.each([denied, igDenied])("classifies recorded permission denials", async (fixture) => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(fixture.response), { status: 400 })); vi.stubGlobal("fetch", fetcher);
-    await expect(instagramInsightsConnector.fetch(credential, query)).rejects.toEqual({ kind: "unknown", retryAfterSeconds: null });
+    await expect(instagramInsightsConnector.fetch(credential, query)).rejects.toEqual({ kind: "missing_permission", retryAfterSeconds: null });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("rejects inactive recipes and bounds queries before fetching", async () => {
@@ -60,12 +60,14 @@ describe("Instagram insights requests", () => {
     expect(await instagramInsightsConnector.access(credential)).toMatchObject({ state: "ready", credentialRevision: "rev", transport: "facebook" });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"error":{"code":190}}', { status: 400 })));
     expect(await instagramInsightsConnector.access(credential)).toMatchObject({ state: "needs_reauth" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"error":{"code":10,"message":"Application does not have permission for this action"}}', { status: 403 })));
+    expect(await instagramInsightsConnector.access(credential)).toMatchObject({ state: "missing_permission" });
   });
 });
 describe("Insights error and usage metadata", () => {
   it("uses bounded known codes and leaves ambiguous denials unknown", () => {
     expect(classifyInsightError(400, { code: "190" }, null).kind).toBe("invalid_token");
-    for (const code of ["10", "100", "200"]) expect(classifyInsightError(400, { code }, null).kind).toBe("unknown");
+    expect(classifyInsightError(400, { code: "100" }, null).kind).toBe("unknown");
     expect(classifyInsightError(503, {}, null).kind).toBe("transient");
     expect(classifyInsightError(429, {}, "120")).toEqual({ kind: "rate_limited", retryAfterSeconds: 120 });
   });
@@ -97,4 +99,21 @@ it.each([[80,900],[90,3600]])("retains usage %s deferral on recorded denied resp
 it("retains usage deferral when the body cannot be parsed",async()=>{
   vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response("unavailable",{headers:{"x-app-usage":'{"call_count":90}'}})));
   await expect(instagramInsightsConnector.fetch(credential,query)).rejects.toMatchObject({retryAfterSeconds:3600});
+});
+
+it.each([
+  [403, {code:10,type:"IGApiException",message:"Application does not have permission for this action"}, "missing_permission"],
+  [403, {code:200,type:"OAuthException",message:"Permissions error"}, "missing_permission"],
+  [400, {code:299,error_subcode:0}, "missing_permission"],
+  [400, {code:"10"}, "missing_permission"],
+  [400, {code:100,message:"(#100) The value must be a valid insights metric"}, "unsupported_metric"],
+  [400, {code:100,message:"(#100) metric[0] must be one of the following values: reach"}, "unsupported_metric"],
+  [400, {code:100,error_subcode:33,message:"Unsupported get request. Object does not exist or is missing permissions"}, "unknown"],
+  [400, {code:100,message:"Invalid period parameter"}, "unknown"],
+  [400, {code:100,message:"metric_type must be time_series"}, "unknown"],
+  [400, {code:190,error_subcode:463}, "invalid_token"],
+  [400, {code:4}, "rate_limited"],
+  [503, {code:10,is_transient:true}, "transient"],
+] as const)("classifies HTTP %s %j as %s", (status,error,kind)=>{
+  expect(classifyInsightError(status,error,null)).toEqual({kind,retryAfterSeconds:null});
 });

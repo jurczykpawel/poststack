@@ -42,6 +42,11 @@ export function classifyInsightError(status: number, error: Record<string, unkno
   if (code === 190 || code === 102 || code === 467) return { kind: "invalid_token", retryAfterSeconds };
   if (status === 429 || [4, 17, 32, 613, 80002].includes(code ?? -1)) return { kind: "rate_limited", retryAfterSeconds };
   if (status >= 500 || error.is_transient === true) return { kind: "transient", retryAfterSeconds };
+  if (code === 10 || (code !== null && code >= 200 && code <= 299)) return { kind: "missing_permission", retryAfterSeconds };
+  const message = typeof error.message === "string" ? error.message : "";
+  if (code === 100 && /\bmetric(?:\[\d+\])?\b.*\b(?:invalid|unsupported|not supported|must be (?:a valid|one of))\b|\b(?:invalid|unsupported|not supported|valid insights) metric\b/i.test(message)) {
+    return { kind: "unsupported_metric", retryAfterSeconds };
+  }
   return { kind: "unknown", retryAfterSeconds };
 }
 

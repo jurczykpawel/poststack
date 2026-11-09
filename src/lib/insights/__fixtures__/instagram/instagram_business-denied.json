@@ -10,5 +10,5 @@
       "fbtrace_id": "[REDACTED]"
     }
   },
-  "note": "Read-only probe, identifying fields redacted; code 10 alone is unknown."
+  "note": "Read-only probe, identifying fields redacted; code 10 denotes a permission denial."
 }
