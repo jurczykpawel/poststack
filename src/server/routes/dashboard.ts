@@ -825,7 +825,9 @@ function loadConversations(
   const curDate = new Date(curAt ?? "");
   if (curId && !Number.isNaN(curDate.getTime())) {
     const at = sql`date_trunc('milliseconds', ${conversations.last_message_at})`;
-    where.push(sql`(${at} < ${curDate.toISOString()}::timestamptz OR (${at} = ${curDate.toISOString()}::timestamptz AND ${conversations.id} < ${curId}))`);
+    // Stored timestamps represent UTC wall time, regardless of the database session zone.
+    const cursorAt = sql`(${curDate.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
+    where.push(sql`(${at} < ${cursorAt} OR (${at} = ${cursorAt} AND ${conversations.id} < ${curId}))`);
   }
   return db.query.conversations.findMany({
     where: and(...where),
