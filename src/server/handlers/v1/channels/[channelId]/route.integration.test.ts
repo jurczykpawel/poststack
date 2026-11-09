@@ -69,9 +69,6 @@ const reqAsA = (method: string, body?: unknown) =>
   });
 const ctx = (channelId: string) => ({ params: Promise.resolve({ channelId }) });
 
-// sequence_enrollments.channel_id is ON DELETE RESTRICT and enrollment rows linger
-// after completion. Deleting a channel that ever had an enrollment must surface a clean 409,
-// not an unhandled FK-violation 500.
 describe("channel DELETE with a sequence enrollment (real Postgres)", () => {
   const SEQ = "cccccccc-0000-0000-0000-0000000000a3";
   const CONTACT = "cccccccc-0000-0000-0000-0000000000a4";
@@ -84,27 +81,28 @@ describe("channel DELETE with a sequence enrollment (real Postgres)", () => {
     });
   }
 
-  it("returns 409 (not 500) when an active enrollment references the channel", async () => {
+  it("retains an active enrollment when disconnecting its channel", async () => {
     if (!TEST_DB) return;
     await seedEnrollment("active");
     const res = await DELETE(reqAsA("DELETE"), ctx(CH_A));
-    expect(res.status).toBe(409);
-    // The channel is left intact for the operator to retry after clearing enrollments.
+    expect(res.status).toBe(204);
+    expect(await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.channel_id, CH_A) })).toBeDefined();
     expect(await db.query.channels.findFirst({ where: eq(s.channels.id, CH_A) })).toBeDefined();
   });
 
-  it("returns 409 even when the enrollment is already completed (rows are not cleaned up)", async () => {
+  it("retains completed enrollments when disconnecting their channel", async () => {
     if (!TEST_DB) return;
     await seedEnrollment("completed");
     const res = await DELETE(reqAsA("DELETE"), ctx(CH_A));
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(204);
+    expect(await db.query.sequenceEnrollments.findFirst({ where: eq(s.sequenceEnrollments.channel_id, CH_A) })).toBeDefined();
   });
 
-  it("deletes cleanly (204) when the channel has no enrollments", async () => {
+  it("disconnects cleanly (204) when the channel has no enrollments", async () => {
     if (!TEST_DB) return;
     const res = await DELETE(reqAsA("DELETE"), ctx(CH_A));
     expect(res.status).toBe(204);
-    expect(await db.query.channels.findFirst({ where: eq(s.channels.id, CH_A) })).toBeUndefined();
+    expect(await db.query.channels.findFirst({ where: eq(s.channels.id, CH_A) })).toMatchObject({ status: "disabled", token_encrypted: "" });
   });
 });
 

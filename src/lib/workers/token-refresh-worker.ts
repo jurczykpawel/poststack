@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
 import type { Platform } from "@/db/schema";
 import type { TokenRefreshJob } from "@/lib/queue/types";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { encryptTokens, decryptTokens, type SecretContext } from "@/lib/crypto";
@@ -26,7 +26,7 @@ export async function processTokenRefresh(
   const { channelId } = payload;
 
   const channel = await db.query.channels.findFirst({
-    where: eq(channels.id, channelId),
+    where: and(eq(channels.id, channelId), isNull(channels.deleted_at)),
     columns: { platform_id: true, workspace_id: true, id: true, platform: true, token_encrypted: true, status: true, connection_mode: true },
   });
 
@@ -98,13 +98,14 @@ export async function processTokenRefresh(
     const [row] = await tx
       .select({ token_encrypted: channels.token_encrypted })
       .from(channels)
-      .where(eq(channels.id, channelId))
+      .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)))
       .for("update");
-    const merged = mergeFbTokenFields(row?.token_encrypted, refreshedTokens, context);
+    if (!row) return;
+    const merged = mergeFbTokenFields(row.token_encrypted, refreshedTokens, context);
     await tx
       .update(channels)
       .set({ token_encrypted: encryptTokens(merged), token_expires_at: refreshedExpiresAt })
-      .where(eq(channels.id, channelId));
+      .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)));
     await markChannelHealthy(channelId, new Date(), tx);
   });
 
@@ -170,9 +171,10 @@ async function refreshMessagingToken(
     const [row] = await tx
       .select({ token_encrypted: channels.token_encrypted })
       .from(channels)
-      .where(eq(channels.id, channelId))
+      .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)))
       .for("update");
-    const latest = row ? decryptTokens(row.token_encrypted, context) : blob;
+    if (!row) return;
+    const latest = decryptTokens(row.token_encrypted, context);
     latest.messaging_token = refreshed.token;
     latest.messaging_token_expires_at = refreshed.expiresAt;
     await tx
@@ -181,7 +183,7 @@ async function refreshMessagingToken(
         token_encrypted: encryptTokens(latest),
         messaging_token_expires_at: new Date(refreshed.expiresAt * 1000),
       })
-      .where(eq(channels.id, channelId));
+      .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)));
   });
 
   helpers.logger.info(`Messaging token refreshed for channel=${channelId}`);

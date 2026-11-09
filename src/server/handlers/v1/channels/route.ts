@@ -1,4 +1,4 @@
-import { and, eq, asc, count, inArray } from "drizzle-orm";
+import { and, eq, asc, count, inArray, isNull } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels, messages, conversations } from "@/db/schema";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   if (!auth) return ApiErrors.unauthorized();
 
   const rows = await db.query.channels.findMany({
-    where: eq(channels.workspace_id, auth.workspaceId),
+    where: and(eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)),
     orderBy: asc(channels.created_at),
     columns: {
       id: true,

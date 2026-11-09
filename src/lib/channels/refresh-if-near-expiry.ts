@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { encryptTokens } from "@/lib/crypto";
@@ -27,7 +27,7 @@ export async function refreshIfNearExpiry(
         token_expires_at:
           typeof fresh.expires_at === "number" && fresh.expires_at > 0 ? new Date(fresh.expires_at * 1000) : null,
       })
-      .where(eq(channels.id, channelId));
+      .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)));
     return { tokens: fresh, refreshed: true };
   } catch {
     return { tokens, refreshed: false };

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, deliveries, posts } from "@/db/schema";
 import { authenticateWithScope } from "@/lib/auth";
@@ -13,7 +13,7 @@ export async function handle(request: Request, ctx: { params: Promise<{ postId: 
   const { postId } = await ctx.params;
   const [row] = await db.select({ delivery: deliveries, channel: channels }).from(posts)
     .innerJoin(deliveries, and(eq(deliveries.id, posts.delivery_id), eq(deliveries.workspace_id, auth.workspaceId)))
-    .innerJoin(channels, and(eq(channels.id, deliveries.channel_id), eq(channels.workspace_id, auth.workspaceId)))
+    .innerJoin(channels, and(eq(channels.id, deliveries.channel_id), eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)))
     .where(and(eq(posts.id, postId), eq(posts.workspace_id, auth.workspaceId)));
   if (!row) return ApiErrors.notFound("Published post");
   const { delivery: d, channel: c } = row;

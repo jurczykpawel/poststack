@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { channels, accountSources } from "@/db/schema";
 import { db } from "@/lib/db";
 import { decryptTokens, requireEncryptionKey } from "@/lib/crypto";
@@ -13,7 +13,7 @@ export function insightCredentialRevision(transport: string, token: string): str
 /** Pass the open transaction as `executor` when called inside one, so no second pooled connection is taken. */
 export async function resolveInsightCredential(ref: ChannelRef, transport: string | null, executor: Pick<typeof db, "query"> = db): Promise<InsightCredential | null> {
   if (transport !== null && transport !== "facebook" && transport !== "instagram_business") return null;
-  const ch = await executor.query.channels.findFirst({ where: and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), eq(channels.platform, "instagram")) });
+  const ch = await executor.query.channels.findFirst({ where: and(eq(channels.workspace_id, ref.workspaceId), eq(channels.id, ref.channelId), eq(channels.platform, "instagram"), isNull(channels.deleted_at)) });
   if (!ch || ch.workspace_id !== ref.workspaceId || ch.platform !== "instagram") return null;
   try {
     const blob = decryptTokens(ch.token_encrypted, [`ws:${ref.workspaceId}`, "channels.token_encrypted", ch.platform, ch.platform_id]);

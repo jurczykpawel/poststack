@@ -1089,11 +1089,11 @@ export const openApiSpec = {
         ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Disconnect a channel",
+        description: "Removes the channel from connected accounts while retaining its history and sequence enrollments.",
         responses: {
           "204": { description: "Disconnected" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { $ref: "#/components/responses/NotFound" },
-          "409": { description: "Channel has sequence enrollments — cancel or complete them first" },
         },
       },
     },

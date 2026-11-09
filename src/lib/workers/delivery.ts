@@ -1,5 +1,5 @@
 import type { JobHelpers } from "graphile-worker";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, outboundDeliveries, type Platform } from "@/db/schema";
 import { TokenInvalidError, MessagingPolicyError, RateLimitError } from "@/lib/platforms/errors";
@@ -152,7 +152,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
 
   // 2. Load the channel and gate on its health.
   const channel = await db.query.channels.findFirst({
-    where: eq(channels.id, channelId),
+    where: and(eq(channels.id, channelId), isNull(channels.deleted_at)),
     columns: { platform_id: true, id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
   });
   if (!channel || channel.status === "disabled") {
