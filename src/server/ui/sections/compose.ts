@@ -14,7 +14,7 @@ import { resolveBrandSlots } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
 import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
-import { autoReplyInput, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
+import { articleUrlInput, autoReplyInput, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
 import { db } from "@/lib/db";
 import { sequences as sequencesTbl, auditLogs, channels } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
@@ -39,7 +39,8 @@ const composeSchema = z.object({
   brand: z.string().min(1).max(LIMITS.line),
   title: z.string().min(1).max(LIMITS.name),
   contentType: z.string().max(LIMITS.line).optional(),
-  mediaUrl: httpUrl,
+  articleUrl: articleUrlInput.optional(),
+  mediaUrl: httpUrl.or(z.literal("")),
   mediaUrls: z.array(httpUrl).max(100).optional(),
   coverUrl: httpUrl.optional().or(z.literal("")),
   baseDescription: z.string().max(LIMITS.text).optional(),
@@ -64,11 +65,21 @@ const composeSchema = z.object({
   publish: z
     .object({ mode: z.enum(["draft", "now", "schedule"]).default("draft"), at: z.string().max(40).optional() })
     .optional(),
+}).superRefine((input, ctx) => {
+  if (input.contentType === "article") {
+    if (!input.articleUrl) ctx.addIssue({ code: "custom", path: ["articleUrl"], message: "Article URL is required" });
+    if (input.posts.some(p => p.platform !== "linkedin")) ctx.addIssue({ code: "custom", path: ["posts"], message: "Articles require LinkedIn" });
+    if ((input.mediaUrls?.length ?? 0) > 1) ctx.addIssue({ code: "custom", path: ["mediaUrls"], message: "Article allows one thumbnail" });
+  } else if (!input.mediaUrl) ctx.addIssue({ code: "custom", path: ["mediaUrl"], message: MEDIA_URL_MSG });
+  if (input.contentType === "story" && (input.mediaUrls?.length ?? 0) > 1) ctx.addIssue({ code: "custom", path: ["mediaUrls"], message: "Story allows one image or video" });
+  if (input.contentType === "story" && input.posts.some(p => !["facebook", "instagram"].includes(p.platform))) ctx.addIssue({ code: "custom", path: ["posts"], message: "Stories require Facebook or Instagram" });
 });
 
 const CONTENT_TYPES: [string, string][] = [
   ["video", "Video"],
   ["image", "Image"],
+  ["story", "Story"],
+  ["article", "LinkedIn article"],
   ["carousel", "Carousel (2–10 media)"],
 ];
 
@@ -124,12 +135,13 @@ function composeScript(): Html {
       var seqCfg = { canSequence: false, sequences: [], canFirstComment: false, canAutoStory: false };
       try { seqCfg = JSON.parse(document.getElementById("ps-compose-seq").textContent); } catch (e) {}
       return {
-        brands: data,
+        brands: data, articleUrl: "",
         init() {
           var d = {};
           try { d = JSON.parse(document.getElementById("ps-compose-draft").textContent) || {}; } catch (e) {}
           if (!d.brand || !data[d.brand]) return;
           this.brand = d.brand; this.onBrandChange();
+          this.articleUrl = d.articleUrl || "";
           this.title = d.title || ""; this.type = d.contentType || "video";
           this.mediaUrl = d.mediaUrls?.[0] || d.mediaUrl || ""; this.extraMedia = (d.mediaUrls || []).slice(1); this.coverUrl = d.coverUrl || "";
           this.baseDescription = d.baseDescription || ""; this.baseHashtags = d.baseHashtags || "";
@@ -264,9 +276,12 @@ function composeScript(): Html {
             if (this.type !== "video" || this.over("tiktok")) return false;
             if (this.publishMode !== "draft" && (!this.tt.valid || !this.tt.consent || this.tt.consentKey !== this.tiktokConsentKey())) return false;
           }
-          return !!(this.brand && this.title.trim() && this.mediaUrl.trim() && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
+          if (this.type === "article" && (!this.articleUrl.trim() || this.selectedPlatforms().some(p => p.platform !== "linkedin") || this.allMedia().length > 1)) return false;
+          if (this.type === "story" && this.selectedPlatforms().some(p => !["facebook", "instagram"].includes(p.platform))) return false;
+          return !!(this.brand && this.title.trim() && (this.type === "article" || this.mediaUrl.trim()) && this.selectedPlatforms().length && (this.publishMode !== "schedule" || this.scheduleAt)); },
         buildPayload() {
           return {
+            articleUrl: this.type === "article" ? this.articleUrl.trim() : undefined,
             brand: this.brand, title: this.title.trim(), contentType: this.allMedia().length > 1 ? "carousel" : this.type,
             mediaUrls: this.allMedia().length > 1 || this.type === "carousel" ? this.allMedia() : undefined,
             mediaUrl: this.mediaUrl.trim(), coverUrl: this.coverUrl.trim() || undefined,
@@ -379,7 +394,8 @@ async function composePage(
                   <div class="fld-row">
                     <label class="fld" x-show="allMedia().length&lt;2"><span>Type</span><select x-model="type" x-ref="contentType" x-effect="type; $nextTick(() => $refs.contentType.dispatchEvent(new Event('change', {bubbles:true})))" aria-label="Content type">${typeOpts}</select></label>
                     <div class="fld" x-show="allMedia().length>1" x-cloak><span>Type</span><strong>Carousel (2–10 media)</strong></div>
-                    <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" aria-invalid="${mediaError ? "true" : "false"}" aria-describedby="compose-media-error" placeholder="https://cdn…/reel.mp4" required />${mediaError ? html`<span id="compose-media-error" role="alert" class="notice-err">${error}</span>` : ""}</label>
+                    <label class="fld" x-show="type === 'article'"><span>Article URL</span><input type="url" x-model="articleUrl" :required="type === 'article'" placeholder="https://example.com/article" /></label>
+                    <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" aria-invalid="${mediaError ? "true" : "false"}" aria-describedby="compose-media-error" placeholder="https://cdn…/reel.mp4" :required="type !== 'article'" />${mediaError ? html`<span id="compose-media-error" role="alert" class="notice-err">${error}</span>` : ""}</label>
                   </div>
                   <label class="fld"><span>Cover URL <small>(optional)</small></span><input type="url" x-model="coverUrl" placeholder="https://cdn…/cover.png" /></label>
                 </div>

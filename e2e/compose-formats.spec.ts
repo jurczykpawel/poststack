@@ -1,0 +1,41 @@
+import { test, expect } from "@playwright/test";
+import { Client } from "pg";
+import { E2E_DATABASE_URL } from "./env";
+import { setPro, watchConsole } from "./helpers";
+
+test("Compose authors a LinkedIn article without a thumbnail and offers Stories", async ({ page }, info) => {
+  await setPro(page.request);
+  const { errors } = watchConsole(page);
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  let workspaceId = "";
+  try {
+    const { rows: [channel] } = await client.query("select workspace_id, brand_key from channels where platform='instagram' limit 1");
+    workspaceId = channel.workspace_id;
+    await client.query("insert into channels(workspace_id,platform,platform_id,display_name,brand_key,token_encrypted,webhook_secret,status) values($1,'linkedin','compose-article','Article profile',$2,'unused','unused','active')", [workspaceId, channel.brand_key]);
+    await page.goto("/compose");
+    await page.getByRole("button", { name: "Brand", exact: true }).click();
+    await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
+    const contentType = page.locator("label.fld").filter({ has: page.locator("select[aria-label='Content type']") });
+    await contentType.locator("button.ps-trigger").click();
+    await page.getByRole("option", { name: "Story", exact: true }).click();
+    await expect(page.locator("select[aria-label='Content type']")).toHaveValue("story");
+    await contentType.locator("button.ps-trigger").click();
+    await page.getByRole("option", { name: "LinkedIn article", exact: true }).click();
+    for (const platform of ["Instagram", "Facebook", "TikTok"]) await page.locator(".target").filter({ hasText: platform }).click();
+    await page.getByLabel("Title (internal)").fill("Documented article format");
+    await page.getByLabel("Article URL").fill("https://example.com/article");
+    const submit = page.locator("form.compose-form button[type='submit']");
+    await expect(submit).toBeEnabled();
+    await page.screenshot({ path: info.outputPath("article-compose.png"), fullPage: true });
+    await submit.click();
+    await expect(page).toHaveURL(/\/content\//);
+    const { rows } = await client.query("select title,article_url,media_url,video_url from posts where workspace_id=$1 and title='Documented article format'", [workspaceId]);
+    expect(rows).toEqual([{ title: "Documented article format", article_url: "https://example.com/article", media_url: null, video_url: null }]);
+    expect(errors).toEqual([]);
+  } finally {
+    await client.query("delete from content where workspace_id=$1 and title='Documented article format'", [workspaceId]);
+    await client.query("delete from channels where workspace_id=$1 and platform_id='compose-article'", [workspaceId]);
+    await client.end();
+  }
+});

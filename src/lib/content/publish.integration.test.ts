@@ -531,3 +531,35 @@ describe("YouTube film format at delivery and provider boundaries", () => {
     } finally { send.mockRestore(); }
   });
 });
+
+describe.skipIf(!TEST_DB)("article and Story requests", () => {
+  it("keeps image stories as images and preserves the Story format", async () => {
+    const { channelId, postId } = await fixtures({ video_url: null, media_url: "https://cdn/story.jpg" });
+    const [c] = await db.select().from(schema.posts).where(eq(schema.posts.id, postId));
+    await db.update(schema.content).set({ content_type: "story" }).where(eq(schema.content.id, c!.content_id!));
+    const result = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
+    expect(result.delivery.format).toBe("story");
+    expect((result.delivery.payload as { options: { mediaKind: string } }).options.mediaKind).toBe("image");
+  });
+  it("publishes a standalone article without media and rejects a missing source before delivery", async () => {
+    const { channelId, postId } = await fixtures({ platform: "linkedin", video_url: null, title: "Title" });
+    await db.update(schema.channels).set({ platform: "linkedin" }).where(eq(schema.channels.id, channelId));
+    await expect(publishPost({ postId, channelId, when: "now", format: "article" }, WS, fakeRegister)).rejects.toThrow("articleUrl");
+    expect(await db.select().from(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS))).toHaveLength(0);
+    await db.execute((await import("drizzle-orm")).sql`update posts set article_url = 'https://example.com/article' where id = ${postId} and workspace_id = ${WS}`);
+    const result = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
+    expect(result.delivery.format).toBe("article");
+    expect((result.delivery.payload as { options: { articleUrl: string } }).options.articleUrl).toBe("https://example.com/article");
+  });
+});
+
+it.skipIf(!TEST_DB)("rejects article content without its source and multiple article thumbnails before delivery", async () => {
+  const { channelId, postId } = await fixtures({ platform: "linkedin", title: "Title", video_url: null });
+  await db.update(schema.channels).set({ platform: "linkedin" }).where(eq(schema.channels.id, channelId));
+  const row = (await db.query.posts.findFirst({ where: eq(schema.posts.id, postId) }))!;
+  await db.update(schema.content).set({ content_type: "article" }).where(eq(schema.content.id, row.content_id!));
+  await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toThrow("articleUrl");
+  await db.update(schema.posts).set({ article_url: "https://example.com/article", media_urls: ["https://example.com/one.png", "https://example.com/two.png"] }).where(eq(schema.posts.id, postId));
+  await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toThrow("one thumbnail");
+  expect(await db.select().from(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS))).toHaveLength(0);
+});

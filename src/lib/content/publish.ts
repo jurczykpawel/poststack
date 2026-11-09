@@ -35,7 +35,7 @@ export function prependDisclosureNote(caption: string | undefined, note: string 
 }
 
 const VIDEO_RE = /\.(mp4|mov|webm|m4v)(\?|$)/i;
-const VIDEO_TYPES = new Set(["video", "reel", "short", "story"]);
+const VIDEO_TYPES = new Set(["video", "reel", "short"]);
 
 /** Delivery format: explicit override > content_type > inferred from the media URL. */
 export function deriveFormat(opts: { contentType?: string | null; override?: string; mediaUrl: string }): string {
@@ -77,7 +77,7 @@ export function resolveFormat(
 ): { format: string; kind: "video" | "image" } {
   const kind = mediaKind(contentType, mediaUrl);
   const map = PLATFORM_FORMAT[platform.trim().toLowerCase()];
-  const format = map ? map[kind] : kind === "video" ? "reel" : "image";
+  const format = contentType === "story" && ["facebook", "instagram"].includes(platform) ? "story" : map ? map[kind] : kind === "video" ? "reel" : "image";
   return { format, kind };
 }
 
@@ -255,6 +255,9 @@ export async function preparePublishRequest(
     ? await db.query.content.findFirst({ where: and(eq(contentTable.id, post.content_id), eq(contentTable.workspace_id, workspaceId)) })
     : undefined;
 
+  format ??= post.article_url || content?.content_type === "article" ? "article" : undefined;
+  if (format === "article" && urls.length > 1) throw new ApiError("invalid_request", "Article allows one thumbnail", 422);
+
   // AIDISC2: resolve the declaration down the post → channel → brand cascade. The brand row is only
   // fetched when the channel is actually assigned to one, so the common unbranded case adds no query.
   const brand = channel.brand_key
@@ -273,7 +276,7 @@ export async function preparePublishRequest(
   // Title for publish targets that require one (YouTube / LinkedIn article): the post's own title
   // wins, else the linked content's (APIFIX4). Blank normalizes to absent.
   const title = [post.title, content?.title].map((t) => t?.trim()).find((t) => !!t);
-  const extraOptions = { ...postPublishOptions(post), ...disclosureOptions(post.platform, disclosure) };
+  const extraOptions = { ...(post.article_url ? { articleUrl: post.article_url } : {}), ...postPublishOptions(post), ...disclosureOptions(post.platform, disclosure) };
   // COMPOSE1: per-post automation overrides. Only set when explicitly chosen on the post — a null
   // column leaves the field absent so the publish-worker falls back to the channel default.
   const overrides = {

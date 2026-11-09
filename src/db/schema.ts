@@ -1410,6 +1410,7 @@ export const posts = pgTable("posts", {
 	title: text("title"),
 	description: text("description"),
 	hashtags: text("hashtags"),
+	article_url: text("article_url"),
 	cta_type: text("cta_type"),
 	scheduled_date: timestamp("scheduled_date", { precision: 3, mode: 'date' }),
 	status: text("status").default('planned').notNull(),

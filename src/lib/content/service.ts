@@ -31,6 +31,7 @@ const CONTENT_MAP: Record<string, string> = {
 const CONTENT_DATES = new Set(["lastPublishedAt", "approvedAt"]);
 
 const POST_MAP: Record<string, string> = {
+  articleUrl: "article_url",
   contentId: "content_id", platform: "platform", title: "title", description: "description", hashtags: "hashtags",
   ctaType: "cta_type", scheduledDate: "scheduled_date", status: "status", postizId: "postiz_id",
   publishedUrl: "published_url", publishedAt: "published_at", notes: "notes", language: "language",
@@ -244,6 +245,7 @@ async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostW
     const request = await preparePublishRequest(updated, delivery.channel_id, workspaceId, deps, mediaChanged ? undefined : delivery.format);
     if (!mediaChanged) request.media = previous.media;
     const payload = { ...request, options: { ...(delivery.payload as PublishRequest).options, ...request.options } };
+    if (patch.articleUrl !== undefined && !updated.article_url) delete payload.options.articleUrl;
     if (patch.coverUrl !== undefined && !updated.cover_url) delete payload.options.coverUrl;
     if (payload.format === "carousel") {
       const channel = await tx.query.channels.findFirst({ where: and(eq(channels.id, delivery.channel_id), eq(channels.workspace_id, workspaceId)) });

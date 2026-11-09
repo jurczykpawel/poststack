@@ -154,15 +154,15 @@ async function pollContainerFinished(containerId: string, encodedToken: string, 
   throw new TransientError("Meta container still processing after poll window", "pre_commit");
 }
 
-async function pollFacebookVideo(id: string, token: string): Promise<void> {
+async function pollFacebookVideo(id: string, token: string, uploadOnly = false): Promise<void> {
   const attempts = Number(process.env.META_PUBLISH_POLL_ATTEMPTS ?? 60);
   const delayMs = Number(process.env.META_PUBLISH_POLL_DELAY_MS ?? 3000);
   for (let i = 0; i < attempts; i++) {
     const res = await fetch(`${GRAPH}/${id}?fields=status&access_token=${encodeURIComponent(token)}`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
-    const data = (await res.json().catch(() => ({}))) as { status?: { video_status?: string }; error?: { code?: number; message?: string } };
+    const data = (await res.json().catch(() => ({}))) as { status?: { video_status?: string; uploading_phase?: { status?: string } }; error?: { code?: number; message?: string } };
     if (!res.ok) throw classifyMetaError(res.status, data.error, "pre_commit");
-    if (data.status?.video_status === "ready") return;
-    if (data.status?.video_status === "error") throw new PermanentError("Meta video processing failed");
+    if (uploadOnly ? data.status?.uploading_phase?.status === "complete" : data.status?.video_status === "ready") return;
+    if (data.status?.video_status === "error" || data.status?.uploading_phase?.status === "error") throw new PermanentError("Meta video processing failed");
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
   throw new TransientError("Meta video still processing after poll window", "pre_commit");
@@ -369,6 +369,12 @@ export const metaProvider: Provider = {
       sub === "facebook_page" ||
       request.options?.target === "facebook" ||
       request.options?.target === "facebook_page";
+    if (request.format === "story") {
+      const kind = args.mediaKinds?.[0] ?? request.options?.mediaKind ?? "image";
+      if (request.media.length !== 1 || mediaUrls.length !== 1 || !url || (kind !== "image" && kind !== "video")) throw new PermanentError("meta: Story requires one image or video");
+      return metaProvider.publishStory!({ tokens, accountId, mediaUrl: url, mediaKind: kind,
+        channelMetadata: { ...args.channelMetadata, subKind: isFacebook ? "facebook_page" : "instagram" } });
+    }
     if (request.format === "carousel") return publishCarousel(args, isFacebook);
     if (isFacebook) {
       const published = request.options?.published !== false; // default true
@@ -524,6 +530,21 @@ export const metaProvider: Provider = {
     const { tokens, accountId, mediaUrl } = args;
     const isFacebook = args.channelMetadata?.subKind === "facebook_page";
 
+    if (isFacebook && args.mediaKind === "video") {
+      const edge = `${GRAPH}/${accountId}/video_stories`;
+      const start = await fetch(`${edge}?upload_phase=start&access_token=${encodeURIComponent(tokens.accessToken)}`, { method: "POST" });
+      const init = await start.json().catch(() => ({})) as { video_id?: string; upload_url?: string; error?: { code?: number; message?: string } };
+      if (!start.ok || !init.video_id || !init.upload_url) throw classifyMetaError(start.status, init.error, "pre_commit");
+      assertAllowedHost(init.upload_url, META_HOSTS);
+      const upload = await fetch(init.upload_url, { method: "POST", redirect: "error", headers: { authorization: `OAuth ${tokens.accessToken}`, file_url: mediaUrl } });
+      const uploaded = await upload.json().catch(() => ({})) as { success?: boolean; error?: { code?: number; message?: string } };
+      if (!upload.ok || uploaded.success === false) throw classifyMetaError(upload.status, uploaded.error, "pre_commit");
+      await pollFacebookVideo(init.video_id, tokens.accessToken, true);
+      const finish = await fetch(`${edge}?upload_phase=finish&video_state=PUBLISHED&video_id=${encodeURIComponent(init.video_id)}&access_token=${encodeURIComponent(tokens.accessToken)}`, { method: "POST" });
+      const result = await finish.json().catch(() => ({})) as { success?: boolean; post_id?: unknown; error?: { code?: number; message?: string } };
+      if (!finish.ok || result.success !== true) throw classifyMetaError(finish.status, result.error);
+      return { providerHandle: asString(result.post_id) ?? init.video_id };
+    }
     if (isFacebook) {
       // FB Page Story (photo): upload an UNPUBLISHED photo, then promote it to a photo story. The
       // story image must NOT already be in a published post — our card is a fresh, separate file.
@@ -561,7 +582,7 @@ export const metaProvider: Provider = {
     const igToken = encodeURIComponent(igRawToken);
     const create = await fetch(`${igBase}/${accountId}/media`, {
       method: "POST",
-      body: new URLSearchParams({ media_type: "STORIES", image_url: mediaUrl, access_token: igRawToken }),
+      body: new URLSearchParams({ media_type: "STORIES", [args.mediaKind === "video" ? "video_url" : "image_url"]: mediaUrl, access_token: igRawToken }),
     });
     const created = (await create.json().catch(() => ({}))) as {
       id?: unknown;

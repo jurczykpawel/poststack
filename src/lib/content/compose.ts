@@ -2,7 +2,7 @@ import { createContent, createPost } from "./service";
 import { tiktokPostSettings, youtubePostSettings, type TikTokPostSettings, type YouTubePostSettings, type AutoReplyInput } from "./schemas";
 
 const VIDEO_RE = /\.(mp4|mov|webm|m4v)(\?|$)/i;
-const VIDEO_TYPES = new Set(["reel", "short", "video", "story"]);
+const VIDEO_TYPES = new Set(["reel", "short", "video"]);
 
 export interface ComposePostInput extends TikTokPostSettings, YouTubePostSettings {
   platform: string;
@@ -18,6 +18,7 @@ export interface ComposeInput {
   brand: string; // brand key → content.profile (drives channel resolution at publish time)
   title: string;
   contentType?: string;
+  articleUrl?: string;
   mediaUrl: string;
   mediaUrls?: string[];
   coverUrl?: string;
@@ -40,7 +41,7 @@ export function isVideoMedia(mediaUrl: string, contentType?: string): boolean {
 export async function composeContent(input: ComposeInput, workspaceId: string): Promise<{ contentId: string; postIds: string[] }> {
   if (!input.brand?.trim()) throw new Error("brand is required");
   if (!input.title?.trim()) throw new Error("title is required");
-  if (!input.mediaUrl?.trim()) throw new Error("mediaUrl is required");
+  if (!input.mediaUrl?.trim() && input.contentType !== "article") throw new Error("mediaUrl is required");
   if (!input.posts?.length) throw new Error("at least one platform is required");
 
   const urls = input.mediaUrls ?? [input.mediaUrl];
@@ -68,6 +69,7 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
         ...youtubePostSettings.parse(p),
         contentId: content.id,
         platform: p.platform,
+        ...(input.contentType === "article" ? { articleUrl: input.articleUrl, title: input.title } : {}),
         description: p.description?.trim() || input.baseDescription,
         hashtags: p.hashtags?.trim() || input.baseHashtags,
         ...(carousel ? { mediaUrls: urls } : video ? { videoUrl: input.mediaUrl } : { mediaUrl: input.mediaUrl }),

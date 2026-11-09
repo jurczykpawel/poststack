@@ -140,6 +140,7 @@ export interface Provider {
     tokens: TokenSet;
     accountId: string;
     mediaUrl: string;
+    mediaKind?: "image" | "video";
     channelMetadata?: Record<string, unknown>;
   }): Promise<PublishHandle>;
   publishStatus?(tokens: TokenSet, handle: PublishHandle): Promise<PublishStatus>;

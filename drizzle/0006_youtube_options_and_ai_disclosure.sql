@@ -283,3 +283,6 @@ CREATE UNIQUE INDEX "insight_observations_identity_key" ON "insight_observations
 CREATE INDEX "insight_observations_channel_window_idx" ON "insight_observations" USING btree ("workspace_id","channel_id","window_start","window_end");
 --> statement-breakpoint
 CREATE INDEX "insight_observations_retention_idx" ON "insight_observations" USING btree ("workspace_id","grain","snapshot_day");
+
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "article_url" text;

@@ -582,3 +582,10 @@ it("previews registered media by kind and keeps the moved slide order", async ()
   c.moveMedia(2, -1);
   expect(Array.from(c.allMedia())).toEqual([image, "https://cdn.example.test/third.png", video]);
 });
+
+it("offers Story and article formats with an article URL field", async () => {
+  const out = await (await app.request("/compose", { headers: { cookie } })).text();
+  expect(out).toContain('<option value="story">');
+  expect(out).toContain('<option value="article">');
+  expect(out).toContain('x-model="articleUrl"');
+});

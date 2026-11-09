@@ -67,7 +67,14 @@ export const autoReplyInput = z
     }
   });
 
+export const articleUrlInput = z.string().max(LIMITS.url).url().refine(value => {
+  let url: URL;
+  try { url = new URL(value); } catch { return false; }
+  return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password;
+}, "articleUrl must be an http(s) URL without credentials");
+
 export const postCreate = z.object({
+  articleUrl: articleUrlInput.nullish(),
   contentId: z.string().uuid().optional(),
   platform: z.string().min(1).max(LIMITS.line),
   // Per-post title (required by YouTube / LinkedIn articles at publish; falls back to content.title).

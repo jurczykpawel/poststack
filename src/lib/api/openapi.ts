@@ -112,6 +112,7 @@ export const openApiSpec = {
       Post: {
         type: "object",
         properties: {
+          articleUrl: { type: ["string", "null"], format: "uri", description: "LinkedIn article source URL (http/https, no credentials). When set, publishes as article; title required (max 200), description optional, mediaUrl is an optional thumbnail (0–1 image)." },
           id: { type: "string", format: "uuid" },
           tiktokPublishMode: { type: ["string", "null"], enum: ["inbox", "direct", null], description: "Null uses inbox/draft. Direct Post requires an explicit privacy choice and current creator permissions." },
           tiktokPrivacyLevel: { type: ["string", "null"], enum: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY", null], description: "No default; checked against creator privacy_level_options before Direct Post." },
@@ -584,7 +585,13 @@ export const openApiSpec = {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Create an editorial post",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["platform"], properties: {
+          platform: { type: "string" }, title: { type: "string", maxLength: 200 },
+          articleUrl: { type: "string", format: "uri", description: "LinkedIn article source URL; http/https without credentials. Required to publish an article." },
+          description: { type: "string" }, mediaUrl: { type: "string", format: "uri", description: "Optional article thumbnail; one image." },
+        } } } } },
         description:
+          "LinkedIn articles: set articleUrl and title (max 200); optional description and one thumbnail mediaUrl. " +
           "For Instagram and Facebook, mediaUrls with 2–10 URLs publishes every item in order as a carousel. " +
           "Instagram accepts images and videos; Facebook video requires channel.video_carousel=available. The list takes precedence over mediaUrl/videoUrl. " +
           "Body accepts tiktokPublishMode/tiktokPrivacyLevel/tiktokDisableComment/tiktokDisableDuet/tiktokDisableStitch/" +
@@ -662,7 +669,7 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Publish or schedule a post through the delivery engine",
         description: "Returns the existing delivery + post envelope immediately. For Instagram/Facebook, 2–10 mediaUrls select carousel automatically (or set format=carousel explicitly). Facebook carousels require ready media. Video requires channel.video_carousel=available (pages_manage_ads for this Page and ADVERTISE task); missing access or still-ingesting items return 422. Wait for GET /media/{id} to report ready before retrying. Unregistered URL media are ingested in the background. The scheduled delivery waits without consuming publish attempts, never sends before its scheduled time, and fails with the media error if ingestion fails. Registered media are reused.",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now" }, format: { type: "string", description: "Optional override. Meta story accepts one image or video. LinkedIn article requires saved articleUrl and title; thumbnail optional." } } } } } },
         responses: { "200": { description: "Delivery created + linked" }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
     },

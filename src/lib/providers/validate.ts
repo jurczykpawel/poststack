@@ -20,7 +20,14 @@ export function validate(provider: Provider, request: PublishRequest, context?: 
   if (cap.caption && request.caption && request.caption.length > cap.caption.maxLength) {
     errors.push(`caption exceeds ${cap.caption.maxLength} chars`);
   }
-  if (cap.title?.required && !request.title) errors.push("title is required");
+  if (cap.title?.required && !request.title?.trim()) errors.push("title is required");
+  if (cap.title && request.title && request.title.length > cap.title.maxLength) errors.push(`title exceeds ${cap.title.maxLength} chars`);
+  if (request.format === "article") {
+    try {
+      const url = new URL(String(request.options?.articleUrl ?? ""));
+      if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.href.length > 8192) throw new Error();
+    } catch { errors.push("articleUrl must be an http(s) URL without credentials"); }
+  }
   for (const opt of cap.requiredOptions ?? []) {
     if (request.options?.[opt] === undefined) errors.push(`missing required option '${opt}'`);
   }

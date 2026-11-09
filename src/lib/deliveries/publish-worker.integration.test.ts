@@ -1161,3 +1161,20 @@ describe("TikTok delivery lifecycle", () => {
     });
   });
 });
+
+describe.skipIf(!TEST_DB)("stored article requests", () => {
+  it("retains a legacy article as failed with a readable source URL error", async () => {
+    const { channelId, postId } = await scenario();
+    await db.update(schema.channels).set({ platform: "linkedin" }).where(eq(schema.channels.id, channelId));
+    await db.update(schema.deliveries).set({ format: "article", payload: { format: "article", title: "Legacy article", media: [] } }).where(eq(schema.deliveries.id, postId));
+    const editorialId = await linkEditorial(postId, "scheduled", { platform: "linkedin" });
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await processPublish({ postId }, helpers);
+    const row = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+    expect(row?.status).toBe("failed");
+    expect(row?.last_error).toContain("articleUrl");
+    expect((await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) }))?.status).toBe("failed");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

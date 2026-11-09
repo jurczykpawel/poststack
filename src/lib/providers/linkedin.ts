@@ -4,7 +4,8 @@ import { sourceSize, sourceRange } from "./range-source";
 import { readProviderBody } from "./download";
 import { assertAllowedHost } from "./follow";
 import type { TokenSet } from "./types";
-import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
+import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
+import { validate } from "./validate";
 import { PermanentError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { asString } from "./util";
@@ -15,7 +16,7 @@ const CAPS: FormatCapability[] = [
   { format: "text", media: { min: 0, max: 0, kinds: [] }, caption: { maxLength: 3000, required: true }, mediaIngestion: "chunked_upload" },
   { format: "image", media: { min: 1, max: 9, kinds: ["image"] }, caption: { maxLength: 3000, required: false }, mediaIngestion: "chunked_upload" },
   { format: "video", media: { min: 1, max: 1, kinds: ["video"] }, caption: { maxLength: 3000, required: false }, mediaIngestion: "chunked_upload" },
-  { format: "article", media: { min: 0, max: 1, kinds: ["image"] }, title: { maxLength: 200, required: true }, caption: { maxLength: 3000, required: false }, mediaIngestion: "chunked_upload" },
+  { format: "article", requiredOptions: ["articleUrl"], media: { min: 0, max: 1, kinds: ["image"] }, title: { maxLength: 200, required: true }, caption: { maxLength: 3000, required: false }, mediaIngestion: "chunked_upload" },
 ];
 
 export const linkedinProvider: Provider = {
@@ -56,7 +57,7 @@ export const linkedinProvider: Provider = {
     return { accountId, displayName: json.name };
   },
 
-  async publish({ tokens, accountId, request, mediaUrls }): Promise<PublishHandle> {
+  async publish({ tokens, accountId, request, mediaUrls, mediaKinds }): Promise<PublishHandle> {
     const author = `urn:li:person:${accountId}`;
     const caption = request.caption ?? "";
 
@@ -64,8 +65,9 @@ export const linkedinProvider: Provider = {
       return { providerHandle: await createShare(tokens.accessToken, author, caption, "NONE", []) };
     }
     if (request.format === "article") {
-      // Article needs an external content URL + a different ShareContent shape — flagged for live work.
-      throw new PermanentError("linkedin: article publishing not implemented");
+      const checked = validate(linkedinProvider, request, { mediaKinds });
+      if (!checked.ok) throw new PermanentError(checked.errors.join("; "));
+      return publishArticle(tokens.accessToken, author, request, mediaUrls[0]);
     }
     if (request.format !== "image" && request.format !== "video") {
       throw new PermanentError(`linkedin: unsupported format '${request.format}'`);
@@ -152,9 +154,42 @@ async function uploadAsset(accessToken: string, owner: string, recipe: string, m
   return asset;
 }
 
+const REST = "https://api.linkedin.com/rest";
+const restHeaders = (accessToken: string) => ({ authorization: `Bearer ${accessToken}`, "content-type": "application/json", "LinkedIn-Version": "202610", "X-Restli-Protocol-Version": "2.0.0" });
+
+async function publishArticle(accessToken: string, author: string, request: PublishRequest, imageUrl?: string): Promise<PublishHandle> {
+  const headers = restHeaders(accessToken);
+  let thumbnail: string | undefined;
+  if (imageUrl) {
+    const init = await fetch(`${REST}/images?action=initializeUpload`, { method: "POST", headers, body: JSON.stringify({ initializeUploadRequest: { owner: author } }) });
+    const json = await init.json().catch(() => ({})) as { value?: { image?: string; uploadUrl?: string }; message?: string };
+    if (!init.ok) throw classifyHttp(init.status, json.message, "pre_commit");
+    if (!json.value?.image || !json.value.uploadUrl) throw new PermanentError("linkedin: missing image upload instructions");
+    assertAllowedHost(json.value.uploadUrl, ["linkedin.com", "licdn.com"]);
+    const src = await safeFetch(imageUrl);
+    if (!src.ok) { await src.body?.cancel(); throw new PermanentError(`linkedin: cannot fetch thumbnail (${src.status})`); }
+    const bytes = await readProviderBody(src, 16 * 1024 * 1024);
+    const put = await fetch(json.value.uploadUrl, { method: "PUT", redirect: "error", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/octet-stream" }, body: bytes });
+    await put.body?.cancel();
+    if (!put.ok) throw classifyHttp(put.status, "linkedin: thumbnail upload failed", "pre_commit");
+    thumbnail = json.value.image;
+  }
+  const post = await fetch(`${REST}/posts`, { method: "POST", headers, body: JSON.stringify({
+    author, commentary: request.caption ?? "", visibility: "PUBLIC",
+    distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+    content: { article: { source: request.options!.articleUrl, title: request.title,
+      ...(request.caption ? { description: request.caption } : {}), ...(thumbnail ? { thumbnail } : {}) } },
+    lifecycleState: "PUBLISHED", isReshareDisabledByAuthor: false,
+  }) });
+  const id = post.headers.get("x-restli-id");
+  await post.body?.cancel();
+  if (!post.ok || !id) throw classifyHttp(post.status, "linkedin: article post failed");
+  return { providerHandle: id };
+}
+
 async function publishVideo(accessToken: string, owner: string, caption: string, url: string): Promise<PublishHandle> {
   const size = await sourceSize(url, Math.min(500 * 1024 * 1024, Number(process.env.PROVIDER_DOWNLOAD_MAX_BYTES ?? process.env.MEDIA_MAX_BYTES ?? 4 * 1024 ** 3)));
-  const headers = { authorization: `Bearer ${accessToken}`, "content-type": "application/json", "LinkedIn-Version": "202610", "X-Restli-Protocol-Version": "2.0.0" };
+  const headers = restHeaders(accessToken);
   const init = await fetch("https://api.linkedin.com/rest/videos?action=initializeUpload", { method: "POST", headers, body: JSON.stringify({ initializeUploadRequest: { owner, fileSizeBytes: size, uploadCaptions: false, uploadThumbnail: false } }) });
   const json = await init.json() as { value?: { video: string; uploadToken?: string; uploadInstructions: { firstByte: number; lastByte: number; uploadUrl: string }[] } };
   if (!init.ok) throw classifyHttp(init.status, "linkedin: video initialization failed", "pre_commit");

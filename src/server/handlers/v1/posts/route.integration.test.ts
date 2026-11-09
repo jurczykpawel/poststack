@@ -469,3 +469,16 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
     expect((await call("GET", "/posts", undefined, null)).status).toBe(401);
   });
 });
+
+describe.skipIf(!TEST_DB)("article URL", () => {
+  it("round trips the source URL through create and read", async () => {
+    const { res, json } = await createOne({ platform: "linkedin", title: "Title", articleUrl: "https://example.com/article" });
+    expect(res.status).toBe(201);
+    expect(json.data.articleUrl).toBe("https://example.com/article");
+    const read = await call("GET", `/posts/${json.data.id}`);
+    expect((await read.json()).data.articleUrl).toBe("https://example.com/article");
+  });
+  it.each(["not a URL", "file:///article", "https://user:password@example.com"])("rejects invalid article URL %s", async (articleUrl) => {
+    expect((await createOne({ platform: "linkedin", articleUrl })).res.status).toBe(422);
+  });
+});

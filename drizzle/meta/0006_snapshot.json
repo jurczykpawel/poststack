@@ -5489,6 +5489,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "article_url": {
+          "name": "article_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

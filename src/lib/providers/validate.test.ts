@@ -32,3 +32,15 @@ describe("validate(provider, request)", () => {
     ).toBe(false);
   });
 });
+
+it("requires a source URL and bounded title for LinkedIn articles", async () => {
+  const { linkedinProvider } = await import("./linkedin");
+  const request = { format: "article", title: "Title", media: [], options: { articleUrl: "https://example.com/article" } };
+  expect(validate(linkedinProvider, request).ok).toBe(true);
+  for (const title of ["", " ", "a".repeat(201)]) expect(validate(linkedinProvider, { ...request, title }).ok).toBe(false);
+  for (const articleUrl of ["", "file:///article", "https://user:password@example.com", "invalid"]) {
+    expect(validate(linkedinProvider, { ...request, options: { articleUrl } }).ok).toBe(false);
+  }
+  expect(validate(linkedinProvider, { ...request, media: media(2) }).ok).toBe(false);
+  expect(validate(linkedinProvider, { ...request, media: media(1) }, { mediaKinds: ["video"] }).ok).toBe(false);
+});

@@ -42,7 +42,7 @@ export async function validateDeliveryRequest(request: PublishRequest, workspace
     }
     assets.push(exists);
   }
-  if (request.format === "carousel") {
+  if (["carousel", "article", "story"].includes(request.format)) {
     const checked = validate(getProviderForPlatform(platform), request, { platform, channel, mediaKinds: assets.filter(m => m.status === "ready").map(m => m.kind) });
     if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
   }

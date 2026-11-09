@@ -1,0 +1,58 @@
+{
+  "provenance": "documentation",
+  "retrievedAt": "2026-11-09",
+  "sources": [
+    "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+    "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10",
+    "https://developers.facebook.com/docs/pages-api/posts/stories/",
+    "https://developers.facebook.com/docs/instagram-platform/content-publishing/",
+    "https://www.postman.com/meta/facebook/documentation/r56bjfd/facebook-api?entity=request-23987686-0b79260c-96bd-49de-875b-6076213785fc",
+    "https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api?entity=request-23987686-fdf7020f-3cd0-4a5d-859b-66fb856b80b6",
+    "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/page.py"
+  ],
+  "article": {
+    "source": "https://lnkd.in/eabXpqi",
+    "thumbnail": "urn:li:image:C49klciosC89",
+    "title": "prod test title two",
+    "description": "test description"
+  },
+  "imageUpload": {
+    "value": {
+      "uploadUrlExpiresAt": 1650567510704,
+      "uploadUrl": "https://www.linkedin.com/dms-uploads/C4E10AQFoyyAjHPMQuQ/uploaded-image/0?ca=vector_ads&cn=uploads&sync=0&v=beta",
+      "image": "urn:li:image:C4E10AQFoyyAjHPMQuQ"
+    }
+  },
+  "postId": "urn:li:share:6844785523593134080",
+  "storyStart": {
+    "video_id": "video_id",
+    "upload_url": "https://rupload.facebook.com/video-upload/v26.0/video_id"
+  },
+  "success": {
+    "success": true
+  },
+  "container": {
+    "id": "container_id"
+  },
+  "finished": {
+    "status_code": "FINISHED"
+  },
+  "published": {
+    "id": "published_id"
+  },
+  "notes": "Meta examples use placeholder IDs; hosted upload/status shapes are shared with official Reels examples; the Page video_stories edge and parameters are documented in the official generated SDK. Story guide URLs were inaccessible on retrieval. No live response is claimed.",
+  "uploadStatus": {
+    "status": {
+      "video_status": "processing",
+      "uploading_phase": {
+        "status": "complete"
+      },
+      "processing_phase": {
+        "status": "not_started"
+      },
+      "publishing_phase": {
+        "status": "not_started"
+      }
+    }
+  }
+}
