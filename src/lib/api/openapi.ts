@@ -60,9 +60,9 @@ const exampleStatus = { channelId: "00000000-0000-4000-8000-000000000001", platf
 const exampleReach = { key: "reach", label: "Reach", level: "account", unit: "count", period: "day", grain: "day", aggregation: "unique_range", additive: false, definitionVersion: "instagram-reach-v1", coverageBasis: "provider_end_time; first interval boundary unconfirmed", cardOrder: 2, chartable: true, active: true, reason: null };
 const exampleReport = (status: object, series: object[], value: string | null, reason: string | null) => ({
   data: { catalog: [exampleReach], series, summary: [{ metricKey: "reach", aggregation: "unique_range", value, complete: value !== null, comparisonPercent: null, reason }],
-    coverage: { from: "2026-11-01T07:00:00.000Z", toExclusive: "2026-11-08T08:00:00.000Z", complete: value !== null, boundaryBasis: value === null ? null : "provider_end_time" }, status },
+    coverage: { from: "2026-11-01T07:00:00.000Z", toExclusive: "2026-11-08T08:00:00.000Z", complete: value !== null, boundaryBasis: value === null ? null : "request_window" }, status },
   error: null,
-  meta: { source: "meta_instagram", transport: "facebook", lastSuccessfulSyncAt: "2026-11-07T05:00:00.000Z", nextRetryAt: null, apiVersion: series.length ? "v26.0" : null, coverage: { from: "2026-11-01", toExclusive: "2026-11-08", complete: value !== null, boundaryBasis: value === null ? null : "provider_end_time" } },
+  meta: { source: "meta_instagram", transport: "facebook", lastSuccessfulSyncAt: "2026-11-07T05:00:00.000Z", nextRetryAt: null, apiVersion: series.length ? "v26.0" : null, coverage: { from: "2026-11-01", toExclusive: "2026-11-08", complete: value !== null, boundaryBasis: value === null ? null : "request_window" } },
 });
 
 export const openApiSpec = {
@@ -268,7 +268,7 @@ export const openApiSpec = {
             metricKey: { type: "string" },
             aggregation: { type: "string", enum: ["sum", "unique_range", "latest_snapshot"] },
             value: { $ref: "#/components/schemas/InsightDecimal" },
-            complete: { type: "boolean", description: "Every day of the range is covered by one consistent definition." },
+            complete: { type: "boolean", description: "A consistent definition covers every day, or an exact stored range observation supplies the unique total." },
             comparisonPercent: { type: ["string", "null"], pattern: "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$", description: "Change against the previous equal range, only when both ranges are complete and the previous value is not zero." },
             reason: { type: ["string", "null"], description: "Why the value is null or incomplete, e.g. incomplete_coverage or unique_range_unavailable." },
           } } },
@@ -1171,7 +1171,7 @@ export const openApiSpec = {
         ...requiresScope("stats:read"),
         tags: ["Insights"],
         summary: "Read stored account metrics for a range of provider days",
-        description: "Reads local data only; never contacts the provider. from and to are calendar days in the provider's day basis; to is exclusive and the range covers 1 to 90 days. Values are exact decimal strings: \"0\" is an observed zero, null or a missing day means no data. reach-like unique_range metrics are never added across days. The provider can revise the last 48 hours (provisional). Account metrics only.",
+        description: "Reads local data only; never contacts the provider. from and to are calendar days in the provider's day basis; to is exclusive and the range covers 1 to 90 days. Values are exact decimal strings: \"0\" is an observed zero, null or a missing day means no data. reach-like unique_range metrics use an exact stored [from,to) observation; otherwise the value is null with unique_range_unavailable. The worker collects the current 7/30-day windows; other API ranges require an exact stored observation. Daily reach is never added across days. The provider can revise the last 48 hours (provisional). Account metrics only.",
         parameters: [
           channelIdParameter,
           { name: "from", in: "query", required: true, schema: { type: "string", format: "date" }, example: "2026-11-01" },
@@ -1192,6 +1192,7 @@ export const openApiSpec = {
               examples: {
                 empty: { summary: "Collection on, no stored data yet", value: exampleReport({ ...exampleStatus, displayStatus: "checking", state: "unknown", lastSuccessfulSyncAt: null, reason: "first_sync" }, [], null, "unique_range_unavailable") },
                 permission: { summary: "Additional access required", value: exampleReport({ ...exampleStatus, displayStatus: "additional_access_required", state: "missing_permission", missingPermissions: ["instagram_manage_insights"], reason: "permission_required" }, [], null, "unique_range_unavailable") },
+                rangeAvailable: { summary: "Exact stored range total, including an observed zero", value: exampleReport(exampleStatus, [], "0", null) },
                 rangeUnavailable: { summary: "Daily values stored; no unique value for the whole range", value: exampleReport(exampleStatus, [{ platform: "instagram", metricKey: "reach", level: "account", subjectKey: "17841400000000000", grain: "day", period: "day", metricType: "time_series", windowStart: "2026-11-01T07:00:00.000Z", windowEnd: "2026-11-02T08:00:00.000Z", snapshotDay: "2026-11-01", providerDay: "2026-11-01", fetchedAt: "2026-11-04T05:00:00.000Z", boundaryBasis: "provider_end_time", value: "0", state: "available", dimensions: {}, queryParams: {}, transport: "facebook", apiVersion: "v26.0", definitionVersion: "instagram-reach-v1", coverageBasis: "provider_end_time; first interval boundary unconfirmed", stale: false, provisional: false, partial: false }], null, "unique_range_unavailable") },
               },
             } },

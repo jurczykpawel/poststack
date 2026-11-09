@@ -89,7 +89,7 @@ it("limits each job, resumes durable history, and recovers an expired claim via 
   await db.update(s.insightConnections).set({next_due_at:new Date(0),claim_token:randomUUID(),claim_until:new Date(0)}).where(scope());
   await schedule.sweepInsights();
   await sync.processInsightsSync(ref);
-  expect(fetcher.mock.calls[14][1].to).toBe(schedule.readSyncCursor(first.checkpoint).before);
+  expect(fetcher.mock.calls[16][1].to).toBe(schedule.readSyncCursor(first.checkpoint).before);
   expect(fetcher).toHaveBeenCalledTimes(20);
 });
 it("usage eighty stops the next request and preserves at least a fifteen minute floor",async()=>{
@@ -306,4 +306,26 @@ it.each([
   expect(Date.parse(evidence.checkedAt!)).toBeGreaterThanOrEqual(before);
   expect(evidence.checkedAt).toBe(row.access_checked_at?.toISOString());
   expect(transport==="facebook"?row.ig_grants:row.fb_grants).toEqual(other);
+});
+it("keeps daily collection available when a range recipe is unavailable",async()=>{
+  fetcher.mockImplementation(async(_credential,query)=>{
+    if(query.grain==="range") throw {kind:"unsupported_metric",retryAfterSeconds:null};
+    return {observations:[],usage:{percent:null,regainAfterSeconds:null}};
+  });
+  await sync.processInsightsSync(ref);
+  expect(fetcher).toHaveBeenCalledTimes(10);
+  expect(fetcher.mock.calls.filter(([,q])=>q.grain==="range")).toHaveLength(2);
+  const [row]=await db.select().from(s.insightConnections).where(scope());
+  expect(row.access_state).toBe("ready");
+  expect(schedule.readSyncCursor(row.checkpoint).unsupported).toEqual([]);
+});
+it("applies the shared usage floor before moving from ranges to history",async()=>{
+  fetcher.mockImplementation(async(_credential,query)=>({observations:[],usage:{percent:query.grain==="range"?90:null,regainAfterSeconds:null}}));
+  await sync.processInsightsSync(ref);
+  expect(fetcher).toHaveBeenCalledTimes(5);
+  expect(fetcher.mock.calls.at(-1)![1].grain).toBe("range");
+  const [row]=await db.select().from(s.insightConnections).where(scope());
+  expect(schedule.readSyncCursor(row.checkpoint).before).toBeUndefined();
+  expect(row.reason).toBe("none");
+  expect(row.backoff_until!.getTime()).toBeGreaterThan(Date.now()+3590000);
 });

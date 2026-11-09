@@ -300,7 +300,7 @@ describe("account insights contract", () => {
   it("documents the account range, metrics, decimal strings and refresh limit", () => {
     const account = op("/channels/{channelId}/insights/account", "get")!;
     expect(account.parameters?.filter((p) => p.in === "query").map((p) => [p.name, !!p.required])).toEqual([["from", true], ["to", true], ["metrics", false]]);
-    expect(Object.keys(account.responses["200"].content!["application/json"].examples ?? {})).toEqual(expect.arrayContaining(["empty", "permission", "rangeUnavailable"]));
+    expect(Object.keys(account.responses["200"].content!["application/json"].examples ?? {})).toEqual(expect.arrayContaining(["empty", "permission", "rangeUnavailable", "rangeAvailable"]));
     const decimal = (openApiSpec.components.schemas as unknown as Record<string, { type: unknown; pattern?: string }>).InsightDecimal;
     expect(decimal).toMatchObject({ type: ["string", "null"] });
     expect(new RegExp(decimal.pattern!).test("9007199254740993")).toBe(true);

@@ -50,11 +50,11 @@ describe("Instagram account normalization", () => {
   });
 });
 
-it("reads the total-value shape only in an explicit validation mutation, retaining uncertain coverage", () => {
+it("reads the documented total-value shape with explicit range boundaries", () => {
   // Validation mutation: add only the missing closing brace to Meta's exact example.
   const corrected = parseInsightJson(total.responseText + "}");
   const parsed = parseInstagramInsights(corrected, { ...query, grain: "range" }, { ...context, grain: "range", metricType: "total_value" });
-  expect(parsed[0]).toMatchObject({ value: "224", windowStart: query.from, windowEnd: query.to, providerDay: null, boundaryBasis: "request_window_unconfirmed", coverageBasis: instagramCatalog[0].coverageBasis });
+  expect(parsed[0]).toMatchObject({ value: "224", windowStart: query.from, windowEnd: query.to, providerDay: null, boundaryBasis: "request_window", coverageBasis: instagramCatalog[0].coverageBasis });
 });
 
 it("uses adjacent provider endpoints across an offset change without shifting their dates", () => {

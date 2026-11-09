@@ -32,7 +32,7 @@ describe("Instagram insights requests", () => {
   });
   it("rejects inactive recipes and bounds queries before fetching", async () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
-    for (const change of [{ metrics: ["views"] }, { grain: "range" as const }, { from: "invalid" }, { subjectKey: "other" }]) {
+    for (const change of [{ metrics: ["views"] }, { grain: "snapshot" as const }, { from: "invalid" }, { subjectKey: "other" }]) {
       await expect(instagramInsightsConnector.fetch(credential, { ...query, ...change })).rejects.toBeDefined();
     }
     expect(fetcher).not.toHaveBeenCalled();

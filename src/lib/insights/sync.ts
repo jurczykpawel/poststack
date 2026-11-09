@@ -90,8 +90,8 @@ export async function processInsightsSync(payload:InsightsSyncJob):Promise<void>
     const saved=readSyncCursor(claimed[0].checkpoint);
     const unsupported=saved.revision===credential.revision ? saved.unsupported : [];
     const metrics=connector.catalog().filter(m=>m.level==="account" && m.grain==="day").map(m=>m.key);
-    const queries=collectionQueries(now,credential.accountKey,metrics.filter(m=>!unsupported.includes(m)),claimed[0].checkpoint)
-      .map((query,index)=>({query,advance:index>=4 ? query.from : undefined}));
+    const queries=collectionQueries(now,credential.accountKey,metrics.filter(m=>!unsupported.includes(m)),claimed[0].checkpoint,{timeZone:connector.dayTimeZone,rangeMetrics:(connector.rangeMetrics ?? []).filter(m=>!unsupported.includes(m))})
+      .map((query,index)=>({query,advance:index>=4 && query.grain==="day" ? query.from : undefined}));
     if(!queries[0]?.query.metrics.length) return;
     if(claimed[0].access_state==="unknown" && claimed[0].failure_count>=3 && context.connection && attemptRevision(context.connection)===credential.revision) return;
     let splitUsed=false;
@@ -109,6 +109,7 @@ export async function processInsightsSync(payload:InsightsSyncJob):Promise<void>
           queries.splice(i+1,0,...query.metrics.map((metric,index)=>({query:{...query,metrics:[metric]},advance:index===query.metrics.length-1 ? advance : undefined})));
           continue;
         }
+        if(query.grain === "range") continue;
         unsupported.push(query.metrics[0]);
         const checkpoint=syncCheckpoint(claimed[0].checkpoint,readSyncCursor(claimed[0].checkpoint).before,credential.revision,unsupported);
         const allUnsupported=metrics.every(m=>unsupported.includes(m));

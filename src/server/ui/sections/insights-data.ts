@@ -1,3 +1,5 @@
+import { INSIGHT_RANGES, providerToday, shiftInsightDay } from "@/lib/insights/calendar";
+export { INSIGHT_RANGES } from "@/lib/insights/calendar";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { channels, platform as platformEnum, type Platform } from "@/db/schema";
 import { db } from "@/lib/db";
@@ -8,8 +10,6 @@ import { hasFeature } from "@/lib/license/gate";
 import { PLATFORM_LABELS } from "../components/platform";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DAY = 86400000;
-export const INSIGHT_RANGES = [7, 30] as const;
 export type InsightRange = (typeof INSIGHT_RANGES)[number];
 
 export type InsightChannelOption = { id: string; platform: Platform; label: string; brandKey: string | null };
@@ -43,12 +43,6 @@ export function insightPlatforms(): string[] {
   return platformEnum.enumValues.filter((p) => getInsightsConnector(p)).map((p) => PLATFORM_LABELS[p] ?? p);
 }
 
-/** Today's calendar date in the provider's day zone. */
-function providerToday(timeZone = "UTC"): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
-const shiftDay = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
-
 /** Workspace channels whose platform has the insights capability, regardless of current access. */
 async function insightChannels(workspaceId: string): Promise<InsightChannelOption[]> {
   const rows = await db.select({ id: channels.id, platform: channels.platform, display_name: channels.display_name, username: channels.username, platform_id: channels.platform_id, brand_key: channels.brand_key })
@@ -74,6 +68,6 @@ export async function loadInsightsPage(workspaceId: string, params: URLSearchPar
   const selected = chosen ? { workspaceId, channelId: chosen.id } : null;
   if (!chosen || !selected || !(await hasFeature("insights"))) return { channels: options, selected, report: null, query };
   const to = providerToday(getInsightsConnector(chosen.platform)?.dayTimeZone);
-  const report = await readAccountReport(selected, { from: shiftDay(to, -query.range), to });
+  const report = await readAccountReport(selected, { from: shiftInsightDay(to, -query.range), to });
   return { channels: options, selected, report, query };
 }

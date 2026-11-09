@@ -53,8 +53,8 @@ export function classifyInsightError(status: number, error: Record<string, unkno
 function validateQuery(credential: InsightCredential, query: InsightQuery): void {
   const from = Date.parse(query.from), to = Date.parse(query.to);
   if (!["facebook", "instagram_business"].includes(credential.transport) || !credential.token || /[\r\n]/.test(credential.token) || !/^[a-zA-Z0-9_-]{1,128}$/.test(credential.accountKey) ||
-      query.level !== "account" || query.subjectKey !== credential.accountKey || query.grain !== "day" ||
-      !Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 90 * 86400000 || from % 1000 || to % 1000 ||
+      query.level !== "account" || query.subjectKey !== credential.accountKey || !["day", "range"].includes(query.grain) ||
+      !Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 90 * 86400000 + 3600000 || from % 1000 || to % 1000 ||
       !query.metrics.length || new Set(query.metrics).size !== query.metrics.length ||
       query.metrics.some((key) => !instagramRecipes.some((recipe) => recipe.key === key && recipe.grain === query.grain))) {
     throw { kind: "unknown", retryAfterSeconds: null } satisfies InsightFailure;
@@ -95,7 +95,8 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
   const url = new URL(`${base}/${encodeURIComponent(credential.accountKey)}/insights`);
   // Daily values are selected by end_time, which falls on the next calendar date.
   // Read that date too; the parser keeps only intervals overlapping the requested window.
-  const queryParams = { metric: query.metrics.join(","), period: "day", metric_type: "time_series", since: String(Date.parse(query.from) / 1000), until: String(Date.parse(query.to) / 1000 + 86400 - 1) };
+  const metricType = query.grain === "range" ? "total_value" : "time_series";
+  const queryParams = { metric: query.metrics.join(","), period: "day", metric_type: metricType, since: String(Date.parse(query.from) / 1000), until: String(Date.parse(query.to) / 1000 + (query.grain === "day" ? 86400 : 0) - 1) };
   url.search = new URLSearchParams(queryParams).toString();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -117,7 +118,7 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
     }
     const fetchedAt = new Date().toISOString();
     const observations = parseInstagramInsights(body, query, {
-      platform: "instagram", level: query.level, subjectKey: query.subjectKey, grain: query.grain, period: "day", metricType: "time_series",
+      platform: "instagram", level: query.level, subjectKey: query.subjectKey, grain: query.grain, period: "day", metricType,
       windowStart: query.from, windowEnd: query.to, snapshotDay: query.from.slice(0, 10), fetchedAt, providerDay: null,
       boundaryBasis: "provider_end_time", queryParams, transport: credential.transport,
       apiVersion: credential.transport === "facebook" ? META_API_VERSION : IG_GRAPH_API_VERSION,
@@ -132,7 +133,8 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
 
 export const instagramInsightsConnector: InsightsConnector = {
   source: "meta_instagram",
-  // Documented daily end_time is 08:00+0000 in January (Pacific midnight); DST days are not measured.
+  rangeMetrics: ["reach"],
+  // Provider days follow Pacific midnight, including daylight-saving changes.
   dayTimeZone: "America/Los_Angeles",
   requiredPermissions: (transport) => transport === "instagram_business"
     ? ["instagram_business_basic", "instagram_business_manage_insights"] : ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"],

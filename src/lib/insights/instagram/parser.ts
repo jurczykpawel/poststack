@@ -37,8 +37,8 @@ export function parseInstagramInsights(body: unknown, query: InsightQuery, conte
     }
     if (entry.period !== metric.period) throw new Error("Unexpected insights period");
     if (context.metricType === "total_value") {
-      const total = object(entry.total_value);
-      observations.push({ ...base, value: total.value === undefined ? null : canonicalDecimal(total.value), state: total.value === undefined ? "not_available" : "available", providerDay: null, boundaryBasis: "request_window_unconfirmed" });
+      const total = entry.total_value === undefined ? {} : object(entry.total_value);
+      observations.push({ ...base, value: total.value === undefined ? null : canonicalDecimal(total.value), state: total.value === undefined ? "not_available" : "available", providerDay: null, boundaryBasis: query.grain === "range" ? "request_window" : "request_window_unconfirmed" });
       continue;
     }
     if (!Array.isArray(entry.values) || entry.values.length > 100) throw new Error("Invalid insights series");

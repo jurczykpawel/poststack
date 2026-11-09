@@ -22,3 +22,12 @@ it("keeps retry floors, daily jitter and usage deferrals", () => {
   expect(usageDue(now,20,120)?.getTime()).toBe(now.getTime()+120000);
   expect(insightLane("ws","shared")).toBe(insightLane("ws","shared"));
 });
+it("collects exact UI ranges before history within the ten-request budget across DST", () => {
+  const queries = collectionQueries(new Date("2026-11-07T12:00:00Z"), "account", ["reach"], {version:1}, {timeZone:"America/Los_Angeles", rangeMetrics:["reach"]});
+  expect(queries).toHaveLength(10);
+  expect(queries.slice(4,6)).toEqual([7,30].map(days => ({level:"account",subjectKey:"account",metrics:["reach"],grain:"range",from:days===7?"2026-10-31T07:00:00.000Z":"2026-10-08T07:00:00.000Z",to:"2026-11-07T08:00:00.000Z"})));
+});
+it("uses the same provider date as the UI before Pacific midnight", () => {
+  const ranges = collectionQueries(new Date("2026-11-07T04:00:00Z"), "account", ["reach"], {version:1}, {timeZone:"America/Los_Angeles",rangeMetrics:["reach"]}).filter(q=>q.grain==="range");
+  expect(ranges.map(q=>q.to)).toEqual(["2026-11-06T08:00:00.000Z","2026-11-06T08:00:00.000Z"]);
+});

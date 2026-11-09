@@ -2,6 +2,7 @@ import { defineMetricCatalog } from "../metric-catalog";
 
 /** Exact response examples and inactive recipe reasons live in the fixture manifest. */
 export const instagramRecipes = Object.freeze([
+  Object.freeze({ key: "reach", metricType: "total_value" as const, grain: "range" as const, provenance: "recorded" as const }),
   Object.freeze({ key: "reach", metricType: "time_series" as const, grain: "day" as const, provenance: "documentation" as const }),
 ]);
 

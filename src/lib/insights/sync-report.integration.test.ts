@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import rangePayload from "./__fixtures__/instagram/reach-range.json";
 import { and, eq, sql } from "drizzle-orm";
 
 // End-to-end consumer check: the real worker fetches a multi-day history from a stubbed Graph API
@@ -36,6 +37,7 @@ const graphTime = (t: number) => new Date(t).toISOString().slice(0, 19) + "+0000
  * daily end_time (Los Angeles midnight) inside the inclusive since/until range of the request.
  */
 function graphResponse(url: URL, currentDay = today()): Response {
+  if (url.searchParams.get("metric_type") === "total_value") return new Response(JSON.stringify(rangePayload));
   const since = Number(url.searchParams.get("since")) * 1000, until = Number(url.searchParams.get("until")) * 1000;
   const values: { value: number; end_time: string }[] = [];
   for (let d = shift(currentDay, -120); d <= shift(currentDay, 1); d = shift(d, 1)) {
@@ -97,6 +99,11 @@ it("returns every provider day the worker stored from multi-day and single-day f
   const { loadInsightsPage } = await import("@/server/ui/sections/insights-data");
   const page = await loadInsightsPage(WS, new URLSearchParams({ channel: CH, range: "30" }));
   expect(page.report?.series.map((o) => o.providerDay)).toEqual(expected);
+  expect(json.data.summary[0]).toMatchObject({metricKey:"reach",value:"0",complete:true,reason:null});
+  expect(page.report?.summary[0]).toMatchObject({value:"0",complete:true,reason:null});
+  const { readAccountReport } = await import("./service");
+  expect((await readAccountReport(ref,{from:shift(to,-7),to})).summary[0]).toMatchObject({value:"0",complete:true});
+  expect((await readAccountReport(ref,{from:shift(to,-29),to})).summary[0]).toMatchObject({value:null,reason:"unique_range_unavailable"});
 });
 
 it("stores every provider day through yesterday across the November DST change", async () => {
@@ -120,7 +127,7 @@ it("stores every provider day through yesterday across the November DST change",
     const { processInsightsSync } = await import("./sync");
     const storedDays = async () => {
       const rows = await db.select({ day: s.insightObservations.provider_day }).from(s.insightObservations)
-        .where(and(eq(s.insightObservations.workspace_id, WS), eq(s.insightObservations.channel_id, CH), eq(s.insightObservations.metric_key, "reach"), eq(s.insightObservations.response_state, "available")));
+        .where(and(eq(s.insightObservations.workspace_id, WS), eq(s.insightObservations.channel_id, CH), eq(s.insightObservations.metric_key, "reach"), eq(s.insightObservations.response_state, "available"), eq(s.insightObservations.grain, "day")));
       return [...new Set(rows.map(r => r.day!))].sort();
     };
     const expected = (from: string) => {

@@ -15,7 +15,7 @@
       "provenance": "documentation",
       "url": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/",
       "readAt": "2026-11-08",
-      "note": "Exact Meta example is missing the final closing brace; retained verbatim. Total-value recipe remains inactive.",
+      "note": "Exact Meta example is missing the final closing brace; retained verbatim. The range recipe uses the separate recorded reach payload.",
       "quote": "\"value\": 224",
       "apiVersion": "unspecified in response example; runtime uses repository constants",
       "liveVerified": false
@@ -33,19 +33,35 @@
       "note": "Read-only probe, identifying fields redacted; code 10 alone is unknown.",
       "readAt": "2026-11-08",
       "quote": "\"code\": 10"
+    },
+    {
+      "file": "reach-range.json",
+      "provenance": "recorded",
+      "readAt": "2026-11-09T16:35:02.610Z",
+      "host": "graph.instagram.com",
+      "apiVersion": "v26.0",
+      "params": {
+        "metric": "reach",
+        "period": "day",
+        "metric_type": "total_value",
+        "since": "1791442800",
+        "until": "1794038399"
+      },
+      "sha256": "8815b0d703dc9530b6f342ceb0a21552fc317dd64ce5693841d6cbf94a633836",
+      "note": "Account identifier redacted. Seven and thirty provider days returned total_value.value=0; zero values do not establish numerical deduplication."
     }
   ],
   "recipes": {
     "reach.time_series": "documentation; current reference supports both logins, no live success",
-    "reach.total_value": "inactive: exact official example is malformed JSON",
+    "reach.total_value": "recorded: period=day, metric_type=total_value, exact seven/thirty-day request windows",
     "views": "inactive: no concrete account response example",
     "total_interactions": "inactive: no concrete account response example",
     "accounts_engaged": "inactive: no concrete account response example",
     "followers": "inactive: no profile field evidence"
   },
   "limitations": [
-    "DST transition not measured or exemplified",
-    "Total request boundaries unconfirmed"
+    "Range totals observed only as zero; numerical deduplication remains unmeasured",
+    "Facebook range transport shares the response contract but was not live probed"
   ],
   "documentationRules": [
     {

@@ -1,3 +1,4 @@
+import { INSIGHT_RANGES, providerToday, providerDayStart, shiftInsightDay } from "./calendar";
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -43,11 +44,16 @@ export function attemptRevision(connection: {checkpoint: InsightCheckpoint; cred
 export function syncCheckpoint(checkpoint: InsightCheckpoint, before: string | undefined, revision: string, unsupported: string[]): InsightCheckpoint {
   return {...checkpoint,cursor:JSON.stringify({before,revision,unsupported})};
 }
-export function collectionQueries(now: Date, subjectKey: string, metrics: readonly string[], checkpoint: InsightCheckpoint): InsightQuery[] {
+export function collectionQueries(now: Date, subjectKey: string, metrics: readonly string[], checkpoint: InsightCheckpoint, ranges?: { timeZone?: string; rangeMetrics: readonly string[] }): InsightQuery[] {
   const end = Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate());
   const query=(from:number,to:number):InsightQuery=>({level:"account",subjectKey,metrics,grain:"day",from:new Date(from).toISOString(),to:new Date(to).toISOString()});
   const queries=[1,2,3].map(d=>query(end-d*DAY,end-(d-1)*DAY));
   queries.push(query(end-7*DAY,end-3*DAY));
+  if (ranges?.rangeMetrics.length) {
+    const today = providerToday(ranges.timeZone, now);
+    for (const days of INSIGHT_RANGES) queries.push({level:"account",subjectKey,metrics:ranges.rangeMetrics,grain:"range",
+      from:providerDayStart(shiftInsightDay(today,-days),ranges.timeZone),to:providerDayStart(today,ranges.timeZone)});
+  }
   const saved=Date.parse(readSyncCursor(checkpoint).before ?? "");
   let cursor=Number.isFinite(saved) ? Math.min(saved,end-7*DAY) : end-7*DAY;
   const floor=end-90*DAY;

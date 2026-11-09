@@ -56,7 +56,7 @@ The API can switch collection on or off (`PATCH`), but granting access is always
 
 - **Provider day.** A day is the platform's reporting day and is shown unchanged in every browser time zone. For Instagram, this is the Pacific-time day the value covers; its date can appear one day earlier than in the Instagram app. Instagram's app can also show slightly different values. Only sync timestamps ("Last sync") follow the viewer's zone.
 - **No data is not zero.** A day with no stored value is a gap (`null`, a break in the line, "—" in the table). `"0"` is a value the platform reported as zero and is a point on the axis.
-- **Reach is not additive.** Unique people reached on different days overlap, so daily reach is never summed. The card for a 7 or 30 day range shows "—" and "Total not available for unique metrics" because no unique value for the whole range is stored (`unique_range_unavailable`). The chart and table show the daily values.
+- **Reach is not additive.** Unique people reached on different days overlap, so daily reach is never summed. The card for a 7 or 30 day range uses the platform's stored unique total for that exact period. If that observation is missing, it shows "—" and "Total not available for unique metrics" (`unique_range_unavailable`). The chart and table show the daily values.
 - **Provisional.** The platform can revise the last 48 hours; those days use a dashed line and are marked "(provisional)".
 - **Partial.** A day whose start time is only estimated from the platform's end time is marked "(partial)". It stays visible but is left out of totals, so a total is never built from estimated boundaries.
 - **Comparisons.** A percentage against the previous period appears only when both periods are complete and equal in length, and never when the previous value is 0.
@@ -94,7 +94,7 @@ curl -X POST -H "Authorization: Bearer sk_live_…" "$APP_URL/api/v1/channels/$C
 
 - `from` and `to` are provider days; `to` is exclusive. The API accepts at most **90 days**; the dashboard offers 7 and 30.
 - Every value is an exact decimal string (`"1504"`), never a JSON number. `"0"` is observed zero; `null` or a missing day is no data.
-- `data.summary` gives per-metric totals only where they are valid. For reach `value` is `null` with `reason: "unique_range_unavailable"`.
+- `data.summary` gives per-metric totals only where they are valid. For reach, an exact stored `[from,to)` observation supplies `value`; otherwise it is `null` with `reason: "unique_range_unavailable"`. The worker collects the current 7 and 30 day windows; arbitrary API ranges need an exact stored match.
 - Series rows carry `provisional`, `partial` and `stale` flags, and `meta.coverage` repeats the requested days.
 - Errors: `400` invalid range or metric, `402` PRO required, `404` channel not in this workspace, `422` platform without Insights, `429` for refresh while a cooldown or provider backoff is active (`Retry-After` and `error.details.next_retry_at` say when).
 

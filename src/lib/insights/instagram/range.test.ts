@@ -1,0 +1,31 @@
+import { afterEach, expect, it, vi } from "vitest";
+import payload from "../__fixtures__/instagram/reach-range.json";
+import { instagramInsightsConnector } from "./transport";
+import type { InsightQuery } from "../types";
+const credential = { transport: "instagram_business", token: "test-token", accountKey: "account", revision: "revision", budgetKey: "budget" };
+const query: InsightQuery = { level: "account", subjectKey: "account", grain: "range", metrics: ["reach"], from: "2026-10-08T07:00:00Z", to: "2026-11-07T08:00:00Z" };
+afterEach(() => vi.unstubAllGlobals());
+it.each(["facebook", "instagram_business"])("reads recorded range totals with exact bounds via %s", async (transport) => {
+  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload)));
+  vi.stubGlobal("fetch", fetcher);
+  const batch = await instagramInsightsConnector.fetch({ ...credential, transport }, query);
+  expect(batch.observations).toHaveLength(1);
+  expect(batch.observations[0]).toMatchObject({ value: "0", state: "available", grain: "range", metricType: "total_value", windowStart: query.from, windowEnd: query.to, providerDay: null, boundaryBasis: "request_window" });
+  const url = new URL(fetcher.mock.calls[0][0]);
+  expect(url.searchParams.get("since")).toBe(String(Date.parse(query.from) / 1000));
+  expect(url.searchParams.get("until")).toBe(String(Date.parse(query.to) / 1000 - 1));
+  expect(url.searchParams.get("metric_type")).toBe("total_value");
+  expect(url.searchParams.get("period")).toBe("day");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it.each(["total_value", "value", "metadata", "metric"])("handles missing %s in the recorded range payload", async (field) => {
+  const body = structuredClone(payload);
+  const entry = body.data[0] as Record<string, unknown>;
+  if (field === "total_value") delete entry.total_value;
+  if (field === "value") entry.total_value = {};
+  if (field === "metadata") for (const key of ["title", "description", "id"]) delete entry[key];
+  if (field === "metric") body.data = [];
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(body))));
+  const batch = await instagramInsightsConnector.fetch(credential, query);
+  expect(batch.observations[0]).toMatchObject(field === "metadata" ? { value: "0", state: "available" } : { value: null, state: "not_available" });
+});

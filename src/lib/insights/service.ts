@@ -1,3 +1,4 @@
+import { providerDayStart } from "./calendar";
 import type { Platform } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { requireFeature } from "@/lib/license/gate";
@@ -99,17 +100,6 @@ function calendarDay(value: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const time = Date.parse(`${value}T00:00:00Z`);
   return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? time : null;
-}
-
-/** Instant at which a provider calendar day starts in the connector's day zone. */
-function providerDayStart(day: string, timeZone = "UTC"): string {
-  const format = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const offset = (time: number) => {
-    const parts = Object.fromEntries(format.formatToParts(time).map(part => [part.type, part.value]));
-    return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second) - time;
-  };
-  const midnight = Date.parse(`${day}T00:00:00Z`);
-  return new Date(midnight - offset(midnight - offset(midnight))).toISOString();
 }
 
 export type AccountDays = { from: string; to: string; metrics?: readonly string[] };
