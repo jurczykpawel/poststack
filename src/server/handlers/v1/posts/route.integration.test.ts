@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vites
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import missingPost from "../../../../../tests/fixtures/provider-docs/x-get-deleted-tweet.json";
 
 const { licensed } = vi.hoisted(() => ({ licensed: { value: false } }));
 vi.mock("@/lib/license/gate", async (original) => ({
@@ -92,11 +93,12 @@ async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null 
 describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
   it("reads and removes only a sent X post in its workspace", async () => {
     const f = await deliveryFixture();
+    const id = missingPost.errors[0].resource_id;
     const { encryptTokens } = await import("@/lib/crypto");
     await db.update(s.channels).set({ platform: "twitter", token_encrypted: encryptTokens({ access_token: "fixture-x" }) }).where(eq(s.channels.id, f.channelId));
-    await db.update(s.deliveries).set({ status: "sent", provider_handle: "123" }).where(eq(s.deliveries.id, f.delivery.id));
-    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ data: { id: "123" } }))
-      .mockResolvedValueOnce(Response.json({ data: { deleted: true } })).mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await db.update(s.deliveries).set({ status: "sent", provider_handle: id }).where(eq(s.deliveries.id, f.delivery.id));
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ data: { id } }))
+      .mockResolvedValueOnce(Response.json({ data: { deleted: true } })).mockResolvedValueOnce(Response.json(missingPost)).mockResolvedValueOnce(new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetcher);
     try {
       const path = `/posts/${f.postId}/platform`;
@@ -105,11 +107,27 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
       expect((await call("GET", path, undefined, WRITE_KEY)).status).toBe(403);
       expect((await call("DELETE", path, undefined, OTHER_KEY)).status).toBe(404);
       expect(fetcher).not.toHaveBeenCalled();
-      expect((await (await call("GET", path)).json()).data).toMatchObject({ exists: true, platformPostId: "123" });
+      expect((await (await call("GET", path)).json()).data).toMatchObject({ exists: true, platformPostId: id });
       expect((await (await call("DELETE", path)).json()).data).toEqual({ deleted: true });
+      expect((await (await call("GET", path)).json()).data).toMatchObject({ exists: false, providerStatus: 404 });
       expect((await (await call("GET", path)).json()).data).toMatchObject({ exists: false, providerStatus: 404 });
       expect((await call("GET", `/posts/${f.postId}`)).status).toBe(200);
     } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("reports provider failures with only class and status diagnostics", async () => {
+    const f = await deliveryFixture();
+    const { encryptTokens } = await import("@/lib/crypto");
+    await db.update(s.channels).set({ platform: "twitter", token_encrypted: encryptTokens({ access_token: "fixture-x" }) }).where(eq(s.channels.id, f.channelId));
+    await db.update(s.deliveries).set({ status: "sent", provider_handle: "123" }).where(eq(s.deliveries.id, f.delivery.id));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 429 })));
+    try {
+      const response = await call("GET", `/posts/${f.postId}/platform`);
+      expect(response.status).toBe(502);
+      expect((await response.json()).error.code).toBe("provider_error");
+      expect(log).toHaveBeenCalledWith("[posts/platform] X operation failed", { errorClass: "RateLimitedError", providerStatus: 429 });
+    } finally { vi.unstubAllGlobals(); log.mockRestore(); }
   });
 
   it("rejects platform operations on pending and non-X posts", async () => {

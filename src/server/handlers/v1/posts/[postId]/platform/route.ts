@@ -21,7 +21,11 @@ export async function handle(request: Request, ctx: { params: Promise<{ postId: 
   const tokens = toTokenSet(decryptTokens(c.token_encrypted, [`ws:${c.workspace_id}`, "channels.token_encrypted", c.platform, c.platform_id]));
   try {
     return ok(await xPlatformPost(tokens, d.provider_handle, request.method === "DELETE" ? "DELETE" : "GET"));
-  } catch {
+  } catch (error) {
+    console.error("[posts/platform] X operation failed", {
+      errorClass: error instanceof Error ? error.constructor.name : "UnknownError",
+      providerStatus: error && typeof error === "object" && "providerStatus" in error ? error.providerStatus : null,
+    });
     return err("provider_error", "X operation failed; inspect channel credentials, credits and rate limits", 502);
   }
 }

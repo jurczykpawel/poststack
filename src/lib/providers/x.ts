@@ -95,9 +95,20 @@ export async function xPlatformPost(tokens: TokenSet, id: string, method: "GET" 
     headers: { authorization: `Bearer ${tokens.accessToken}` },
   });
   if (method === "GET" && res.status === 404) return { exists: false, providerStatus: 404, platformPostId: id };
-  if (!res.ok) throw classifyHttp(res.status, `X HTTP ${res.status}`);
-  const json = await res.json() as { data?: { id?: string; deleted?: boolean } };
-  if (method === "DELETE" && json.data?.deleted === true) return { deleted: true };
-  if (method === "GET" && json.data?.id === id) return { exists: true, providerStatus: 200, platformPostId: id };
-  throw new PermanentError("Unexpected X post response");
+  try {
+    if (!res.ok) throw classifyHttp(res.status, `X HTTP ${res.status}`);
+    const json = await res.json() as {
+      data?: { id?: string; deleted?: boolean };
+      errors?: { type?: string; resource_id?: string; resource_type?: string }[];
+    };
+    if (!json.data && Array.isArray(json.errors) && json.errors.length > 0 && json.errors.every(problem =>
+      problem?.type === "https://api.x.com/2/problems/resource-not-found" &&
+      problem.resource_id === id && problem.resource_type === "tweet",
+    )) return method === "GET" ? { exists: false, providerStatus: 404, platformPostId: id } : { deleted: true };
+    if (method === "DELETE" && json.data?.deleted === true) return { deleted: true };
+    if (method === "GET" && json.data?.id === id) return { exists: true, providerStatus: 200, platformPostId: id };
+    throw new PermanentError("Unexpected X post response");
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error("X operation failed"), { providerStatus: res.status });
+  }
 }
