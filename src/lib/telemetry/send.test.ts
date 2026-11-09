@@ -67,6 +67,7 @@ const REQUIRED = {
   APP_URL: "https://app.example.com",
   CRON_SECRET: "test-cron-secret-at-least-32-characters-long",
   TELEMETRY_URL: "https://telemetry.example.com/v1/ingest",
+  POSTSTACK_TELEMETRY_DISABLED: "false",
 };
 
 const fakeDb = {} as never; // opaque: the claim/confirm helpers are mocked

@@ -1,6 +1,7 @@
+import { pruneInsights } from "@/lib/insights/repository";
 import { and, eq, lt, ne, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { ruleCooldowns, revokedTokens, rateLimitCounters, outboundDeliveries, pendingApprovals, webhookEvents } from "@/db/schema";
+import { ruleCooldowns, revokedTokens, rateLimitCounters, outboundDeliveries, pendingApprovals, webhookEvents, workspaces } from "@/db/schema";
 
 /** A JS Date rendered as its UTC wall-clock, for comparing against a genuinely DB-clock
  *  `timestamp without time zone` column (CURRENT_TIMESTAMP / now()) independent of the process
@@ -41,6 +42,7 @@ const ORPHAN_WEBHOOK_EVENT_TTL_MS = 60 * 86_400_000;
  * stale rate-limit windows. Lifetime counters (rule_send_counts) are not pruned.
  */
 export async function pruneExpired(now: Date = new Date()): Promise<void> {
+  for (const workspace of await db.select({id:workspaces.id}).from(workspaces)) await pruneInsights(workspace.id, now);
   await db.delete(ruleCooldowns).where(lt(ruleCooldowns.expires_at, now));
   await db.delete(revokedTokens).where(lt(revokedTokens.expires_at, now));
   // Rate-limit counters age by window_start (DB-clock now()), not expires_at; drop stale windows.

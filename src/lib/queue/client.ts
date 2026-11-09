@@ -41,7 +41,7 @@ export async function addJobTx<T extends TaskName>(
   tx: TxExecutor,
   taskName: T,
   payload: TaskPayloadMap[T],
-  opts: { jobKey?: string; maxAttempts?: number; runAt?: Date } = {},
+  opts: { jobKey?: string; maxAttempts?: number; runAt?: Date; queueName?: string; priority?: number } = {},
 ): Promise<void> {
   const maxAttempts = opts.maxAttempts ?? TASK_MAX_ATTEMPTS[taskName];
   await tx.execute(sql`
@@ -51,6 +51,8 @@ export async function addJobTx<T extends TaskName>(
       max_attempts => ${maxAttempts},
       job_key => ${opts.jobKey ?? null},
       run_at => ${opts.runAt ?? null},
+      queue_name => ${opts.queueName ?? null},
+      priority => ${opts.priority ?? 0},
       job_key_mode => 'replace'
     )
   `);

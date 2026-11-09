@@ -8,6 +8,7 @@ import { inspectMetaToken, MetaTokenError, type MetaTokenKind } from "@/lib/plat
 import { dispatchAlert } from "@/lib/notifications/alert";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { redactSecrets } from "@/lib/redact";
+import { readBodyCapped } from "@/lib/media/read-capped";
 import { upsertChannels } from "./upsert";
 import { subscribeChannelWebhooks } from "./subscribe";
 
@@ -28,15 +29,15 @@ interface MasterIdentity {
 }
 
 /** Resolve the account a master token belongs to (its id is the dedup key for the source row). */
-async function fetchTokenIdentity(token: string): Promise<MasterIdentity> {
+export async function fetchTokenIdentity(token: string): Promise<MasterIdentity> {
   const res = await fetch(
-    `${GRAPH_API_BASE}/me?` + new URLSearchParams({ access_token: token, fields: "id,name" }),
-    { redirect: "error", signal: AbortSignal.timeout(10_000) },
+    `${GRAPH_API_BASE}/me?` + new URLSearchParams({ fields: "id,name" }),
+    { headers: { Authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(15_000) },
   );
   if (!res.ok) {
     throw new MetaTokenError("Could not read the account this token belongs to — check the token and try again.");
   }
-  const data = (await res.json()) as { id?: string; name?: string };
+  const data = JSON.parse(new TextDecoder().decode(await readBodyCapped(res, 256 * 1024))) as { id?: string; name?: string };
   if (!data.id) {
     throw new MetaTokenError("This token did not resolve to a Meta account. Paste a User or System User token.");
   }

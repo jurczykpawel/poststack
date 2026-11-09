@@ -89,7 +89,7 @@ describe("GET /api/oauth/instagram-login/callback", () => {
   });
 
   it("redirects access_denied when error param present", async () => {
-    const res = await GET(makeRequest({ error: "access_denied" }));
+    const res = await GET(makeRequest({ error: "access_denied", state: "STATE123" }, "rs_oauth_state=STATE123"));
     expect(res.headers.get("location")).toBe("http://localhost:3000/channels?error=access_denied");
     expect(mockUpsertChannels).not.toHaveBeenCalled();
   });

@@ -190,6 +190,21 @@ webhook.
 
 ---
 
+## Instagram Insights and the two logins
+
+[Account Insights](INSIGHTS.md) reads statistics through the **same two logins** as the connection paths above, but needs one more permission than publishing, comments or DMs, and tracks it **separately per login**:
+
+| Login (paths) | Credential used | Host | Extra permission to grant |
+|---|---|---|---|
+| Facebook Login: B, a pasted User or System User token (D), managed connection (E) | The Meta **User** (or System User) token | `graph.facebook.com` | `instagram_manage_insights` (together with `instagram_basic` and `pages_read_engagement`) |
+| Instagram Business Login: C | The Instagram Login token | `graph.instagram.com` | `instagram_business_manage_insights` (together with `instagram_business_basic`) |
+
+- **User vs Page-only.** A Page access token alone cannot read Instagram account statistics. A channel that only has one (path A, or a Page-only paste) shows "Connect an Instagram Business Login or a Meta User managed connection first".
+- **Grants are not shared.** Granting statistics access on the Facebook Login does not grant it on the Instagram Business Login and the other way round. For a channel connected both ways PostStack uses the credential it has a confirmed grant for, and reconnecting a login re-checks that login's grant. A refused or missing grant never affects publishing, comments or DMs.
+- **Granting** is done from **Insights → Grant Insights access**, which starts the platform's login dialog with only the additional permission. It is never started from the API.
+- **Who can grant it (access levels).** While your app is in Standard Access the permission works for Instagram accounts that have a role in your own app (administrator, developer, Instagram Tester, depending on the login), the same as the other permissions in [Meta Access Levels](../README.md#meta-access-levels--what-needs-app-review-and-what-doesnt). Accounts of people outside your app need Advanced Access, which means Meta App Review for the Insights permission. Without it their grant is refused and the channel stays on "Insights needs additional access".
+- **No promises.** Whether a given account can obtain the permission depends on your app, its review status and Meta's current rules; PostStack reports what the platform answers and cannot grant access Meta does not give you. Insights is a PRO feature and is off until you turn it on per channel.
+
 ## Known limitation
 
 **`channelCapabilities()` (`src/lib/channels/capabilities.ts`) currently grants the `publish`

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+import type { InsightsConnector } from "@/lib/insights/types";
 
 // Importing the capability resolver pulls in the platform providers, which transitively load env.
 // Satisfy the env schema before the dynamic import (the established unit-test pattern in this repo).
@@ -26,7 +27,7 @@ const caps = (platform: string, extra: Partial<{ connection_mode: "oauth" | "man
 describe("channel capabilities — derived from provider, not stored", () => {
   it("the capability set is a small closed enum", () => {
     expect([...CAPABILITIES].sort()).toEqual(
-      ["comment_reply", "dm", "enumerate_subaccounts", "poll_comments", "publish", "receive_webhooks", "video_carousel"].sort(),
+      ["comment_reply", "dm", "enumerate_subaccounts", "insights", "poll_comments", "publish", "receive_webhooks", "video_carousel"].sort(),
     );
   });
 
@@ -88,6 +89,41 @@ describe("channel capabilities — derived from provider, not stored", () => {
   it("an unknown platform has no capabilities (never throws)", () => {
     const s: Capability[] = caps("myspace");
     expect(s).toEqual([]);
+  });
+});
+
+describe("insights platform support", () => {
+  it("reports connector support independently of collection and permission state", async () => {
+    const { providers, getProviderForPlatform } = await import("@/lib/providers");
+    const provider = getProviderForPlatform("instagram");
+    const connector: InsightsConnector = { catalog: () => [], access: vi.fn(), fetch: vi.fn(), consentTransport: vi.fn() };
+    const access = vi.spyOn(providers, "get").mockReturnValue({
+      ...provider, insights: (platform) => platform === "instagram" ? connector : undefined,
+    });
+    try {
+      for (const collectionMode of ["off", "on"]) {
+        const ctx = {
+          platform: "instagram", collectionMode, accessState: "missing_permission",
+          metadata: { granted_scopes: ["pages_messaging"] },
+        };
+        expect(can(ctx, "insights")).toBe(true);
+        expect(can(ctx, "publish")).toBe(false);
+        expect(can(ctx, "dm")).toBe(true);
+      }
+      expect(can({ platform: "facebook" }, "insights")).toBe(false);
+      expect(can({ platform: "telegram" }, "insights")).toBe(false);
+      expect(can({ platform: "myspace" }, "insights")).toBe(false);
+      expect(connector.access).not.toHaveBeenCalled();
+      expect(connector.fetch).not.toHaveBeenCalled();
+      expect(connector.consentTransport).not.toHaveBeenCalled();
+    } finally {
+      access.mockRestore();
+    }
+  });
+
+  it("reports implemented Instagram support independently of Facebook", () => {
+    expect(can({ platform: "instagram" }, "insights")).toBe(true);
+    expect(can({ platform: "facebook" }, "insights")).toBe(false);
   });
 });
 

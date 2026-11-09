@@ -1,6 +1,7 @@
 import type { Platform } from "@/db/schema";
 import { isPublishablePlatform, getProviderForPlatform, providerIdForPlatform } from "@/lib/providers";
 import { getProvider as getInboundProvider, getSupportedPlatforms } from "@/lib/platforms/registry";
+import { getInsightsConnector } from "@/lib/insights/catalog";
 
 /**
  * CHANNELS-ARCHITECTURE (Task 6) — the one unifying idea: a channel is an account with a set of
@@ -18,6 +19,7 @@ export const CAPABILITIES = [
   "poll_comments",
   "receive_webhooks",
   "enumerate_subaccounts",
+  "insights",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -42,6 +44,7 @@ const inboundPlatforms = (): Set<string> => new Set<string>(getSupportedPlatform
  */
 export function channelCapabilities(ctx: ChannelCapabilityCtx): Capability[] {
   const caps = new Set<Capability>();
+  if (getInsightsConnector(ctx.platform as Platform)) caps.add("insights");
   if (ctx.platform === "facebook" && ctx.video_carousel === "available") caps.add("video_carousel");
 
   if (isPublishablePlatform(ctx.platform)) {

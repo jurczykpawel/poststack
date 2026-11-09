@@ -36,6 +36,35 @@ const providerEndpoint = (summary: string, write: boolean, schema?: object, resu
   responses: { "200": { description: "Result", content: { "application/json": { schema: { type: "object", properties: { data: result, error: { type: "null" } } } } } }, "201": { description: "Provider connected", content: { "application/json": { schema: { type: "object", properties: { data: providerPublicSchema, error: { type: "null" } } } } } }, "401": { $ref: "#/components/responses/Unauthorized" }, "403": { $ref: "#/components/responses/Forbidden" }, "404": { description: "Provider not found in this scope" }, "409": { description: "The list changed; reload and retry" }, "422": { description: "Invalid input or connection test failed; nothing saved" }, "429": { description: "Too many provider requests" } },
 });
 
+const channelIdParameter = { name: "channelId", in: "path", required: true, schema: { type: "string", format: "uuid" } };
+const insightErrors = {
+  "401": { $ref: "#/components/responses/Unauthorized" },
+  "402": { $ref: "#/components/responses/ProRequired" },
+  "404": { $ref: "#/components/responses/NotFound" },
+  "422": { description: "The channel's platform has no insights connector (error.code insights_unsupported), or the request body is invalid (validation_error)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+};
+const insightStatusMeta = {
+  type: "object", required: ["source", "transport", "lastSuccessfulSyncAt", "nextRetryAt"], properties: {
+    source: { type: "string", example: "meta_instagram" },
+    transport: { type: ["string", "null"], description: "Login whose credential is used for collection, when known." },
+    lastSuccessfulSyncAt: { type: ["string", "null"], format: "date-time" },
+    nextRetryAt: { type: ["string", "null"], format: "date-time", description: "Earliest next collection while backoff, quota or refresh cooldown applies." },
+  },
+};
+const insightStatusResponse = (description: string, meta: object = insightStatusMeta) => ({
+  description, content: { "application/json": { schema: { type: "object", required: ["data", "error", "meta"], properties: {
+    data: { $ref: "#/components/schemas/InsightStatus" }, error: { type: "null" }, meta,
+  } } } },
+});
+const exampleStatus = { channelId: "00000000-0000-4000-8000-000000000001", platform: "instagram", source: "meta_instagram", collectionMode: "on", displayStatus: "connected", state: "ready", transport: "facebook", credentialRevision: "3f1c…", requiredPermissions: ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"], missingPermissions: [], checkedAt: "2026-11-07T05:00:00.000Z", lastAttemptAt: "2026-11-07T05:00:00.000Z", lastSuccessfulSyncAt: "2026-11-07T05:00:00.000Z", nextRetryAt: null, reason: "none", stale: false };
+const exampleReach = { key: "reach", label: "Reach", level: "account", unit: "count", period: "day", grain: "day", aggregation: "unique_range", additive: false, definitionVersion: "instagram-reach-v1", coverageBasis: "provider_end_time; first interval boundary unconfirmed", cardOrder: 2, chartable: true, active: true, reason: null };
+const exampleReport = (status: object, series: object[], value: string | null, reason: string | null) => ({
+  data: { catalog: [exampleReach], series, summary: [{ metricKey: "reach", aggregation: "unique_range", value, complete: value !== null, comparisonPercent: null, reason }],
+    coverage: { from: "2026-11-01T07:00:00.000Z", toExclusive: "2026-11-08T08:00:00.000Z", complete: value !== null, boundaryBasis: value === null ? null : "provider_end_time" }, status },
+  error: null,
+  meta: { source: "meta_instagram", transport: "facebook", lastSuccessfulSyncAt: "2026-11-07T05:00:00.000Z", nextRetryAt: null, apiVersion: series.length ? "v26.0" : null, coverage: { from: "2026-11-01", toExclusive: "2026-11-08", complete: value !== null, boundaryBasis: value === null ? null : "provider_end_time" } },
+});
+
 export const openApiSpec = {
   openapi: "3.1.0",
   info: {
@@ -162,10 +191,89 @@ export const openApiSpec = {
           messaging_token_expires_at: { type: "string", format: "date-time", nullable: true, description: "Instagram-Login messaging token expiry (IG channels with Instagram Business Login)." },
           messaging_connection: { type: "string", enum: ["instagram_login", "facebook_only"], nullable: true, description: "IG messaging credential shape: instagram_login (DMs via Instagram Login) or facebook_only (IG DM receipt not guaranteed at Standard Access)." },
           video_carousel: { type: "string", enum: ["unknown", "unavailable", "available"], description: "Facebook video carousel permission, checked on connect/reconnect/managed sync. Only available enables video; unknown requires connection with a User/System User token to verify Page tasks." },
-          capabilities: { type: "array", items: { type: "string", enum: ["publish", "comment_reply", "dm", "poll_comments", "receive_webhooks", "enumerate_subaccounts", "video_carousel"] }, description: "Computed capabilities for this channel." },
+          capabilities: { type: "array", items: { type: "string", enum: ["publish", "comment_reply", "dm", "poll_comments", "receive_webhooks", "enumerate_subaccounts", "video_carousel", "insights"] }, description: "Computed capabilities for this channel. insights means the platform supports account Insights; current access is reported by GET /channels/{channelId}/insights." },
           missing_publish_scopes: { type: "array", items: { type: "string" }, description: "Known missing publishing permissions; reconnect the channel to grant them. Empty when scopes are unknown or sufficient." },
           can_publish: { type: "boolean", description: "Whether this channel can publish posts (true when capabilities include 'publish'). False for inbox-only channels such as Telegram." },
           created_at: { type: "string", format: "date-time" },
+        },
+      },
+      InsightDecimal: {
+        type: ["string", "null"], pattern: "^(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$", example: "9007199254740993",
+        description: "Exact non-negative decimal string, never a JSON number: no exponent, no rounding. \"0\" is an observed zero; null means no data.",
+      },
+      InsightStatus: {
+        type: "object",
+        description: "Locally stored collection status. Reading it never contacts the provider.",
+        required: ["channelId", "platform", "source", "collectionMode", "displayStatus", "state", "transport", "credentialRevision", "requiredPermissions", "missingPermissions", "checkedAt", "lastAttemptAt", "lastSuccessfulSyncAt", "nextRetryAt", "reason", "stale"],
+        properties: {
+          channelId: { type: "string", format: "uuid" },
+          platform: { type: "string" },
+          source: { type: "string", example: "meta_instagram" },
+          collectionMode: { type: "string", enum: ["off", "on"] },
+          displayStatus: { type: "string", enum: ["off", "checking", "additional_access_required", "connected"] },
+          state: { type: "string", enum: ["unknown", "ready", "missing_permission", "needs_reauth", "unsupported"], description: "Access state of the current credential." },
+          transport: { type: ["string", "null"] },
+          credentialRevision: { type: ["string", "null"], description: "Opaque version of the credential the access state belongs to." },
+          requiredPermissions: { type: "array", items: { type: "string" } },
+          missingPermissions: { type: "array", items: { type: "string" }, description: "Only permissions proven missing for the current credential." },
+          checkedAt: { type: ["string", "null"], format: "date-time" },
+          lastAttemptAt: { type: ["string", "null"], format: "date-time" },
+          lastSuccessfulSyncAt: { type: ["string", "null"], format: "date-time" },
+          nextRetryAt: { type: ["string", "null"], format: "date-time" },
+          reason: { type: "string", enum: ["none", "first_sync", "provider_unavailable", "rate_limited", "token_required", "permission_required", "channel_paused", "collection_off", "worker_delayed"] },
+          stale: { type: "boolean", description: "No successful collection in the last 48 hours." },
+        },
+      },
+      InsightMetric: {
+        type: "object",
+        description: "Catalog entry of the channel's platform. Inactive entries (active=false) have no collected data and give the reason.",
+        properties: {
+          key: { type: "string", maxLength: 128 }, label: { type: "string" },
+          level: { type: "string", enum: ["account"] },
+          unit: { type: "string", enum: ["count", "percent", "milliseconds"] },
+          period: { type: "string", enum: ["day", "lifetime"] },
+          grain: { type: "string", enum: ["day", "range", "snapshot"] },
+          aggregation: { type: "string", enum: ["sum", "unique_range", "latest_snapshot"], description: "unique_range values are never added across days or channels." },
+          additive: { type: "boolean" }, definitionVersion: { type: "string" }, coverageBasis: { type: "string" },
+          cardOrder: { type: ["integer", "null"] }, chartable: { type: "boolean" },
+          active: { type: "boolean" }, reason: { type: ["string", "null"] },
+        },
+      },
+      InsightObservation: {
+        type: "object",
+        description: "One stored daily value. Window instants keep the provider's day boundaries; providerDay is the provider's calendar day.",
+        properties: {
+          platform: { type: "string" }, metricKey: { type: "string" }, level: { type: "string", enum: ["account"] }, subjectKey: { type: "string" },
+          grain: { type: "string", enum: ["day"] }, period: { type: "string", enum: ["day", "lifetime"] },
+          metricType: { type: "string", enum: ["time_series", "total_value", "profile_field", "media_lifetime"] },
+          windowStart: { type: "string", format: "date-time" }, windowEnd: { type: "string", format: "date-time" },
+          snapshotDay: { type: "string", format: "date" }, providerDay: { type: ["string", "null"], format: "date" },
+          fetchedAt: { type: "string", format: "date-time" }, boundaryBasis: { type: "string" },
+          value: { $ref: "#/components/schemas/InsightDecimal" },
+          state: { type: "string", enum: ["available", "not_available", "insufficient_audience", "unsupported"] },
+          dimensions: { type: "object", additionalProperties: { type: "string" } }, queryParams: { type: "object", additionalProperties: { type: "string" } },
+          transport: { type: "string" }, apiVersion: { type: "string" }, definitionVersion: { type: "string" }, coverageBasis: { type: "string" },
+          stale: { type: "boolean", description: "Fetched more than 48 hours ago." },
+          provisional: { type: "boolean", description: "Ends within the last 48 hours; the provider can still revise it." },
+          partial: { type: "boolean", description: "The provider sent only this day's end time, so windowStart is estimated. The value is shown but never added into a total." },
+        },
+      },
+      AccountReport: {
+        type: "object",
+        required: ["catalog", "series", "summary", "coverage", "status"],
+        properties: {
+          catalog: { type: "array", items: { $ref: "#/components/schemas/InsightMetric" } },
+          series: { type: "array", items: { $ref: "#/components/schemas/InsightObservation" }, description: "Empty when nothing is stored; missing days are absent, not zero." },
+          summary: { type: "array", items: { type: "object", required: ["metricKey", "aggregation", "value", "complete", "comparisonPercent", "reason"], properties: {
+            metricKey: { type: "string" },
+            aggregation: { type: "string", enum: ["sum", "unique_range", "latest_snapshot"] },
+            value: { $ref: "#/components/schemas/InsightDecimal" },
+            complete: { type: "boolean", description: "Every day of the range is covered by one consistent definition." },
+            comparisonPercent: { type: ["string", "null"], pattern: "^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$", description: "Change against the previous equal range, only when both ranges are complete and the previous value is not zero." },
+            reason: { type: ["string", "null"], description: "Why the value is null or incomplete, e.g. incomplete_coverage or unique_range_unavailable." },
+          } } },
+          coverage: { type: "object", properties: { from: { type: "string", format: "date-time" }, toExclusive: { type: "string", format: "date-time" }, complete: { type: "boolean" }, boundaryBasis: { type: ["string", "null"] } } },
+          status: { $ref: "#/components/schemas/InsightStatus" },
         },
       },
       Contact: {
@@ -1028,6 +1136,91 @@ export const openApiSpec = {
         },
       },
     },
+    "/channels/{channelId}/insights": {
+      get: {
+        ...requiresScope("stats:read"),
+        tags: ["Insights"],
+        summary: "Read the account Insights collection status",
+        description: "Reads locally stored status only; never contacts the provider. Requires the PRO insights feature.",
+        parameters: [channelIdParameter],
+        responses: {
+          "200": { ...insightStatusResponse("Collection status"), content: { "application/json": { ...insightStatusResponse("").content["application/json"], examples: {
+            connected: { value: { data: exampleStatus, error: null, meta: { source: "meta_instagram", transport: "facebook", lastSuccessfulSyncAt: exampleStatus.lastSuccessfulSyncAt, nextRetryAt: null } } },
+            permission: { value: { data: { ...exampleStatus, displayStatus: "additional_access_required", state: "missing_permission", missingPermissions: ["instagram_manage_insights"], reason: "permission_required" }, error: null, meta: { source: "meta_instagram", transport: "facebook", lastSuccessfulSyncAt: null, nextRetryAt: null } } },
+          } } } },
+          ...insightErrors,
+        },
+      },
+      patch: {
+        ...requiresScope("channels:write"),
+        tags: ["Insights"],
+        summary: "Switch account Insights collection on or off",
+        description: "on queues a background access check and first collection, returning checking until it completes. Granting additional access is a dashboard-only flow; the response gives a hint (meta.hint), never an authorization link. off stops collection and keeps stored data for its retention period.",
+        parameters: [channelIdParameter],
+        requestBody: { required: true, content: { "application/json": { schema: {
+          type: "object", additionalProperties: false, required: ["collectionMode"], properties: { collectionMode: { type: "string", enum: ["on", "off"] } },
+        } } } },
+        responses: {
+          "200": insightStatusResponse("Updated status", { ...insightStatusMeta, properties: { ...insightStatusMeta.properties, hint: { type: "string", description: "Present after switching on." } } }),
+          ...insightErrors,
+        },
+      },
+    },
+    "/channels/{channelId}/insights/account": {
+      get: {
+        ...requiresScope("stats:read"),
+        tags: ["Insights"],
+        summary: "Read stored account metrics for a range of provider days",
+        description: "Reads local data only; never contacts the provider. from and to are calendar days in the provider's day basis; to is exclusive and the range covers 1 to 90 days. Values are exact decimal strings: \"0\" is an observed zero, null or a missing day means no data. reach-like unique_range metrics are never added across days. The provider can revise the last 48 hours (provisional). Account metrics only.",
+        parameters: [
+          channelIdParameter,
+          { name: "from", in: "query", required: true, schema: { type: "string", format: "date" }, example: "2026-11-01" },
+          { name: "to", in: "query", required: true, schema: { type: "string", format: "date" }, example: "2026-11-08", description: "Exclusive end day." },
+          { name: "metrics", in: "query", required: false, schema: { type: "string" }, example: "reach", description: "Comma-separated, up to 16 distinct account metric keys from the channel catalog (128 characters each). Defaults to every account metric. The whole query string is limited to 2048 characters." },
+        ],
+        responses: {
+          "200": {
+            description: "Account report; meta.coverage repeats the requested provider days",
+            content: { "application/json": {
+              schema: { type: "object", required: ["data", "error", "meta"], properties: {
+                data: { $ref: "#/components/schemas/AccountReport" }, error: { type: "null" },
+                meta: { type: "object", properties: { ...insightStatusMeta.properties,
+                  apiVersion: { type: ["string", "null"], description: "Provider API version of the most recently fetched value in the series." },
+                  coverage: { type: "object", properties: { from: { type: "string", format: "date" }, toExclusive: { type: "string", format: "date" }, complete: { type: "boolean" }, boundaryBasis: { type: ["string", "null"] } } },
+                } },
+              } },
+              examples: {
+                empty: { summary: "Collection on, no stored data yet", value: exampleReport({ ...exampleStatus, displayStatus: "checking", state: "unknown", lastSuccessfulSyncAt: null, reason: "first_sync" }, [], null, "unique_range_unavailable") },
+                permission: { summary: "Additional access required", value: exampleReport({ ...exampleStatus, displayStatus: "additional_access_required", state: "missing_permission", missingPermissions: ["instagram_manage_insights"], reason: "permission_required" }, [], null, "unique_range_unavailable") },
+                rangeUnavailable: { summary: "Daily values stored; no unique value for the whole range", value: exampleReport(exampleStatus, [{ platform: "instagram", metricKey: "reach", level: "account", subjectKey: "17841400000000000", grain: "day", period: "day", metricType: "time_series", windowStart: "2026-11-01T07:00:00.000Z", windowEnd: "2026-11-02T08:00:00.000Z", snapshotDay: "2026-11-01", providerDay: "2026-11-01", fetchedAt: "2026-11-04T05:00:00.000Z", boundaryBasis: "provider_end_time", value: "0", state: "available", dimensions: {}, queryParams: {}, transport: "facebook", apiVersion: "v26.0", definitionVersion: "instagram-reach-v1", coverageBasis: "provider_end_time; first interval boundary unconfirmed", stale: false, provisional: false, partial: false }], null, "unique_range_unavailable") },
+              },
+            } },
+          },
+          "400": { description: "Invalid range, date, metric or query parameter", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          ...insightErrors,
+        },
+      },
+    },
+    "/channels/{channelId}/insights/refresh": {
+      post: {
+        ...requiresScope("channels:write"),
+        tags: ["Insights"],
+        summary: "Queue an account Insights collection run",
+        description: "Queues a deduplicated background run; never publishes or sends anything. Refresh is limited to once per 15 minutes per channel and does not reset provider backoff or quota. queued=false when collection is off or access must be granted first.",
+        parameters: [channelIdParameter],
+        responses: {
+          "202": { description: "Accepted", content: { "application/json": { schema: { type: "object", required: ["data", "error"], properties: {
+            data: { type: "object", required: ["status", "queued"], properties: { status: { $ref: "#/components/schemas/InsightStatus" }, queued: { type: "boolean" } } }, error: { type: "null" },
+          } } } } },
+          "429": {
+            description: "Cooldown, provider backoff or quota is active; error.details gives { retry_after (seconds), next_retry_at }",
+            headers: { "Retry-After": { description: "Seconds until the next refresh can be queued", schema: { type: "integer", minimum: 1 } } },
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Error" }, example: { data: null, error: { code: "rate_limited", message: "Insights refresh is not available yet", details: { retry_after: 840, next_retry_at: "2026-11-08T12:15:00.000Z" } } } } },
+          },
+          ...insightErrors,
+        },
+      },
+    },
     "/channels/{channelId}/tiktok/creator-info": {
       get: {
         ...requiresScope("channels:read"),
@@ -1740,6 +1933,7 @@ export const openApiSpec = {
     { name: "API Keys", description: "Programmatic access tokens" },
     { name: "Workspace", description: "Settings, retention, audit log" },
     { name: "Stats", description: "Aggregate metrics (response times, answer rate)" },
+    { name: "Insights", description: "Account metrics collected from supported channels (PRO). Collection is opt-in per channel; every read uses locally stored data." },
     { name: "Webhooks", description: `Outbound event webhooks require PRO. Register a URL and retain the signing secret returned once on creation. An empty event_types array subscribes to every catalog event, including future additions.
 
 ### Envelope and delivery

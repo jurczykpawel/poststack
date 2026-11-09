@@ -71,6 +71,18 @@ The definitions are read from the linked implementation. Existing API/DB spellin
 | webhook endpoint | A workspace's outbound event subscription with target URL, signing secret and selected event types. | incoming platform webhook route, account source, alert webhook configuration. | [schema](../src/db/schema.ts): `webhookEndpoints`; [endpoint service](../src/lib/webhooks/endpoints.ts). |
 | webhook delivery | A delivery attempt lifecycle for one internal event fanned out to one webhook endpoint. | publishing delivery, inbox outbound delivery, inbound webhook event. | [schema](../src/db/schema.ts): `webhookDeliveries`; [dispatcher](../src/lib/webhooks/dispatch.ts). |
 
+## Insights
+
+| Canonical term | One-sentence definition | Forbidden synonyms / confusion | Implementation evidence |
+| --- | --- | --- | --- |
+| Insights | The PRO feature (`insights`, publishing area) that collects a platform's account statistics into the database and shows them on one screen and in the REST API; see the [guide](INSIGHTS.md). | `webhook_insights` (aggregate counts of inbound webhook events), Engagement (comments, reactions, replies on content), telemetry, analytics of PostStack itself. | [feature gate](../src/lib/license/features.ts): `insights`; [screen](../src/server/ui/sections/insights.ts); [API](../src/lib/api/openapi.ts): `/channels/{channelId}/insights`. |
+| insights connector | The optional per-platform adapter, a capability of the publishing `Provider`, that fetches and normalizes account statistics; a channel reports separately whether its platform supports it and whether it has access now. | Publishing or inbox adapters (`Provider`, `SocialProvider`) as the same contract; “supported” as “connected”. | [InsightsConnector and InsightAccess](../src/lib/insights/types.ts); [Instagram connector](../src/lib/insights/instagram/transport.ts). |
+| metric | One named statistic with fixed semantics from the platform's catalog (label, unit, period, aggregation, whether it is additive and chartable). | The same key on another platform; a stored value. | [metric catalog](../src/lib/insights/metric-catalog.ts); [Instagram catalog](../src/lib/insights/instagram/catalog.ts). |
+| observation | One stored value of one metric for one subject and window (a provider day, a snapshot or a range), kept as an exact decimal with its provenance and fetch time; absence of a row means no data. | A zero (`"0"` is an observed zero), a total, a post or media item. | [schema](../src/db/schema.ts): `insightObservations`; [storage](../src/lib/insights/repository.ts). |
+| coverage | Which provider days a report or total actually covers and on what boundary basis; incomplete coverage means no total and no comparison, and a day with an estimated start is shown as partial. | Retention window, the requested range. | [report builder](../src/lib/insights/service.ts): `coverage`, `partial`. |
+| provider day | The platform's own reporting day, kept unchanged whatever the viewer's time zone. | The viewer's local day, UTC day. | [service](../src/lib/insights/service.ts); [screen](../src/server/ui/sections/insights-data.ts). |
+| platform media vs media | Platform media are a social account's own posts and Reels, a later Insights level; `media` (library) are registered assets for publishing. Insights never reads or writes the media library. | `media`, asset library, media items. | [schema](../src/db/schema.ts): `media` vs `insightLevel`. |
+
 ## Existing naming differences
 
 Measured 2026-10-20: occurrences include comments and string literals in `src`, `worker`, `landing/src`, excluding `*.test.ts`, `*.integration.test.ts`, `**/__fixtures__/**`, `**/vendor/**`, `*.css`, `*.svg`; they are occurrences, not matching-line counts.

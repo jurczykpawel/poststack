@@ -1,3 +1,4 @@
+import { declineInsightConsent, finishInsightConsent, insightConsentPath } from "@/lib/insights/consent";
 import { getProvider } from "@/lib/platforms/registry";
 import { clearOAuthStateCookie, OAUTH_FLOWS } from "@/lib/oauth/state";
 import { authenticateOAuthCallback, oauthCallbackFailurePath } from "@/lib/oauth/callback";
@@ -21,19 +22,31 @@ export async function GET(request: Request) {
   const state = searchParams.get("state");
   const error = searchParams.get("error");
 
-  if (error) return redirect("/channels?error=access_denied");
-  if (!code || !state) return redirect("/channels?error=missing_params");
+  if (!state) return redirect("/channels?error=missing_params");
 
   const callbackAuth = await authenticateOAuthCallback(request, state, OAUTH_FLOWS.instagram);
   if (!callbackAuth.ok) {
     return redirect(oauthCallbackFailurePath(callbackAuth.reason));
   }
-  const { auth } = callbackAuth;
+  const { auth, purpose } = callbackAuth;
+  const ref = purpose.kind === "insights" ? { workspaceId: auth.workspaceId, channelId: purpose.channelId } : null;
+  const consentPath = ref ? insightConsentPath(ref.channelId) : null;
+  if (error || !code) {
+    if (ref) {
+      await declineInsightConsent(ref, auth, state).catch(() => {});
+      return redirect(consentPath!);
+    }
+    return redirect(error ? "/channels?error=access_denied" : "/channels?error=missing_params");
+  }
 
   try {
     const provider = getProvider("instagram");
     const redirectUri = `${env.APP_URL}/api/oauth/instagram/callback`;
     const accounts = await provider.authenticate(code, redirectUri);
+    if (ref) {
+      await finishInsightConsent(ref, auth, accounts, state);
+      return redirect(consentPath!);
+    }
 
     if (accounts.length === 0) return redirect("/channels?error=no_ig_accounts");
 
@@ -45,6 +58,10 @@ export async function GET(request: Request) {
 
     return redirect(`/channels?connected=instagram&count=${accounts.length}`);
   } catch (e) {
+    if (ref) {
+      await declineInsightConsent(ref, auth, state).catch(() => {});
+      return redirect(consentPath!);
+    }
     if (e instanceof ProRequiredError) return redirect("/channels?error=pro_required");
     console.error("[oauth/instagram/callback]", e);
     return redirect("/channels?error=oauth_failed");

@@ -1,3 +1,4 @@
+import { sweepInsights } from "@/lib/insights/schedule";
 import { pruneExpired } from "@/lib/maintenance";
 import { pruneOldMessages } from "@/lib/retention";
 import { scanExpiringTokens } from "@/lib/workers/token-refresh-scan";
@@ -19,6 +20,7 @@ import { db } from "@/lib/db";
  * schedule is unit-testable and the entrypoint stays a thin bootstrap.
  */
 export const cronTaskList = {
+  "insights-sweep": async () => { await sweepInsights(); },
   // Hourly cleanup of expired ephemeral rows (denylist, cooldowns, idempotency, old dedup keys).
   "prune-expired": async () => {
     await pruneExpired();
@@ -87,6 +89,7 @@ export const cronTaskList = {
 
 /** graphile-worker crontab. Every line's trailing token must be a key in {@link cronTaskList}. */
 export const CRONTAB = [
+  "*/15 * * * * insights-sweep",
   "0 * * * * prune-expired",
   "30 3 * * * prune-old-messages",
   "15 * * * * token-refresh-scan",

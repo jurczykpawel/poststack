@@ -3,6 +3,9 @@
 // This model owns its own token shape (TokenSet, camelCase) — the delivery engine converts the
 // channel's stored token to it at the boundary.
 
+import type { Platform } from "@/db/schema";
+import type { InsightsConnector } from "@/lib/insights/types";
+
 /** Publish-side token shape. The engine decrypts the channel token into this before calling publish. */
 export interface TokenSet {
   accessToken: string;
@@ -102,6 +105,8 @@ export interface PublishStatus {
 export interface Provider {
   id: string;
   label: string;
+  /** Optional platform support; collection consent and credential access are separate concerns. */
+  insights?(platform: Platform): InsightsConnector | undefined;
   capabilities(platform?: string, channel?: { video_carousel?: string }): FormatCapability[];
   connectionModes(): ("oauth" | "manual_token")[];
   requiresTokenRefresh(): boolean;

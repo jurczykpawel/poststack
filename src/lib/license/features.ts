@@ -44,6 +44,7 @@ export const FEATURES = [
   { key: "multi_workspace", area: "core", minTier: "business", status: "live", label: "Multiple workspaces", description: "Run more than one isolated workspace (multi-tenant / agency)." },
 
   // ── publishing wing (PostStack feature set — placeholders wired up in Phase 1/3) ─────────────
+  { key: "insights", area: "publishing", minTier: "pro", status: "live", label: "Account Insights", description: "Read locally collected account metrics from supported channels." },
   { key: "multi_brand", area: "publishing", minTier: "pro", status: "live", label: "Multiple brands", description: "Manage more than one brand — run it as an agency or across projects." },
   { key: "webhook_filtering", area: "publishing", minTier: "pro", status: "live", label: "Webhook event filtering", description: "Restrict an outbound webhook to specific event types. An endpoint with no filter receives every event type." },
   { key: "auto_story", area: "publishing", minTier: "pro", status: "live", label: "Auto-Story", description: "Auto-publish a generated Story card about every post published to a channel." },

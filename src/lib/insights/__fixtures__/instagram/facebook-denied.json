@@ -1,0 +1,14 @@
+{
+  "provenance": "recorded",
+  "login": "facebook",
+  "apiVersion": "v26.0",
+  "response": {
+    "error": {
+      "message": "[REDACTED]",
+      "code": 10,
+      "type": "OAuthException",
+      "fbtrace_id": "[REDACTED]"
+    }
+  },
+  "note": "Read-only probe; identifying values redacted. Code 10 alone does not establish the missing permission."
+}

@@ -58,6 +58,13 @@ Instance-wide counts, summed across all workspaces — never per-record data:
 - **No per-record data** — only aggregate counts and averages; nothing that identifies an
   individual workspace, channel, conversation, or person
 
+## Account Insights are not part of the report
+
+The statistics collected by [Account Insights](INSIGHTS.md) (PRO) are aggregates the platform reports about
+your own accounts, for example reach per day. They are stored only in your database, per workspace, are
+kept for 400 days (range caches 7 days) and are removed with the channel. They are **never** included in the
+telemetry report: it does not carry them, nor their counts, nor which accounts have Insights turned on.
+
 ## Why
 
 The aggregate report gives the maintainer product and usage insight — how many instances

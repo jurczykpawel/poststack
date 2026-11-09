@@ -1,5 +1,5 @@
-import { pgTable, timestamp, text, integer, bigint, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check, date } from "drizzle-orm/pg-core"
-import { sql } from "drizzle-orm"
+import { pgTable, timestamp, text, integer, bigint, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check, date, numeric } from "drizzle-orm/pg-core"
+import { sql, type SQLWrapper } from "drizzle-orm"
 
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
 // Discriminates how a pending approval was created: `rule` = a keyword/auto-reply rule proposed it
@@ -84,6 +84,38 @@ export type WebhookDeliveryStatus = (typeof webhookDeliveryStatus.enumValues)[nu
 // would be misleading dead values. Re-add richer roles together with member invitations +
 // `requireRole()` enforcement.
 export const workspaceMemberRole = pgEnum("workspace_member_role", ['owner'])
+
+
+export const insightCollectionMode = pgEnum("insight_collection_mode", ["off", "on"])
+export const insightAccessState = pgEnum("insight_access_state", ["unknown", "ready", "missing_permission", "needs_reauth", "unsupported"])
+export const insightReason = pgEnum("insight_reason", ["none", "first_sync", "provider_unavailable", "rate_limited", "token_required", "permission_required", "channel_paused", "collection_off", "worker_delayed"])
+export const insightLevel = pgEnum("insight_level", ["account", "post", "audience"])
+export const insightGrain = pgEnum("insight_grain", ["day", "range", "snapshot", "audience_window"])
+export const insightPeriod = pgEnum("insight_period", ["day", "lifetime"])
+export const insightMetricType = pgEnum("insight_metric_type", ["time_series", "total_value", "profile_field", "media_lifetime"])
+export const insightResponseState = pgEnum("insight_response_state", ["available", "not_available", "insufficient_audience", "unsupported"])
+
+export type InsightGrantEvidence = { version: 1; names: string[]; checkedAt: string | null; revision: string | null }
+export type InsightCheckpoint = { version: 1; from?: string; to?: string; cursor?: string }
+export type InsightUsageBudget = { version: 1; requestTimes: string[]; nextSafeAt: string | null; usagePercent?: number | null }
+
+function insightGrantsValid(value: SQLWrapper) {
+	return sql`CASE WHEN jsonb_typeof(${value}) = 'object' AND jsonb_typeof(${value}->'names') = 'array' THEN
+		${value} @> '{"version":1}'::jsonb AND ${value} ?& ARRAY['names','checkedAt','revision']
+		AND ${value} - ARRAY['version','names','checkedAt','revision'] = '{}'::jsonb
+		AND octet_length(${value}::text) <= 16384 AND jsonb_array_length(${value}->'names') <= 64
+		AND NOT jsonb_path_exists(${value}, '$.names[*] ? (@.type() != "string" || !(@ like_regex "^[A-Za-z0-9_:.-]{1,128}$"))')
+		AND jsonb_typeof(${value}->'checkedAt') IN ('null','string') AND jsonb_typeof(${value}->'revision') IN ('null','string')
+		AND length(coalesce(${value}->>'checkedAt','')) <= 128 AND length(coalesce(${value}->>'revision','')) <= 128
+		ELSE false END`
+}
+
+function insightStringMapValid(value: SQLWrapper) {
+	return sql`CASE WHEN jsonb_typeof(${value}) = 'object' THEN octet_length(${value}::text) <= 8192
+		AND jsonb_array_length(jsonb_path_query_array(${value}, '$.keyvalue()')) <= 32
+		AND NOT jsonb_path_exists(${value}, '$.keyvalue() ? (!(@.key like_regex "^.{1,128}$" flag "s") || @.value.type() != "string" || !(@.value like_regex "^.{0,128}$" flag "s"))')
+		ELSE false END`
+}
 
 
 export const conversations = pgTable("conversations", {
@@ -279,6 +311,7 @@ export const channels = pgTable("channels", {
 	ai_draft_autosend_dm: boolean("ai_draft_autosend_dm").default(false).notNull(),
 	ai_draft_autosend_public: boolean("ai_draft_autosend_public").default(false).notNull(),
 }, (table) => [
+	uniqueIndex("channels_workspace_id_id_platform_key").on(table.workspace_id, table.id, table.platform),
 	index("channels_status_idx").using("btree", table.status.asc().nullsLast()),
 	index("channels_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
 	index("channels_source_id_idx").using("btree", table.source_id.asc().nullsLast()),
@@ -1654,4 +1687,97 @@ export const aiProviders = pgTable("ai_providers", {
   uniqueIndex('ai_providers_instance_position').on(table.position).where(sql`${table.workspace_id} IS NULL`),
   index('ai_providers_creator_idx').on(table.created_by_user_id),
   check('ai_providers_position_check', sql`${table.position} >= 1`),
+]);
+
+
+export const insightConnections = pgTable("insight_connections", {
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	platform: platform().notNull(),
+	collection_mode: insightCollectionMode("collection_mode").default("off").notNull(),
+	access_state: insightAccessState("access_state").default("unknown").notNull(),
+	transport: text(),
+	credential_revision: text("credential_revision"),
+	budget_key: text("budget_key"),
+	ig_grants: jsonb("ig_grants").$type<InsightGrantEvidence>().default({version: 1, names: [], checkedAt: null, revision: null}).notNull(),
+	fb_grants: jsonb("fb_grants").$type<InsightGrantEvidence>().default({version: 1, names: [], checkedAt: null, revision: null}).notNull(),
+	reason: insightReason().default("none").notNull(),
+	access_checked_at: timestamp("access_checked_at", {withTimezone: true}),
+	next_due_at: timestamp("next_due_at", {withTimezone: true}).defaultNow().notNull(),
+	last_attempt_at: timestamp("last_attempt_at", {withTimezone: true}),
+	last_success_at: timestamp("last_success_at", {withTimezone: true}),
+	backoff_until: timestamp("backoff_until", {withTimezone: true}),
+	last_refresh_at: timestamp("last_refresh_at", {withTimezone: true}),
+	failure_count: integer("failure_count").default(0).notNull(),
+	claim_token: uuid("claim_token"),
+	claim_until: timestamp("claim_until", {withTimezone: true}),
+	checkpoint: jsonb().$type<InsightCheckpoint>().default({version: 1}).notNull(),
+	usage_budget: jsonb("usage_budget").$type<InsightUsageBudget>().default({version: 1, requestTimes: [], nextSafeAt: null}).notNull(),
+	created_at: timestamp("created_at", {withTimezone: true}).defaultNow().notNull(),
+	updated_at: timestamp("updated_at", {withTimezone: true}).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, table => [
+	primaryKey({name: "insight_connections_pkey", columns: [table.workspace_id, table.channel_id]}),
+	foreignKey({name: "insight_connections_workspace_fk", columns: [table.workspace_id], foreignColumns: [workspaces.id]}).onDelete("cascade"),
+	foreignKey({name: "insight_connections_channel_fk", columns: [table.workspace_id, table.channel_id, table.platform], foreignColumns: [channels.workspace_id, channels.id, channels.platform]}).onDelete("cascade"),
+	index("insight_connections_due_idx").on(table.workspace_id, table.collection_mode, table.next_due_at),
+	index("insight_connections_budget_idx").on(table.workspace_id, table.budget_key),
+	check("insight_connections_strings_check", sql`length(${table.transport}) BETWEEN 1 AND 128 AND length(${table.credential_revision}) BETWEEN 1 AND 128 AND length(${table.budget_key}) BETWEEN 1 AND 128`),
+	check("insight_connections_failure_check", sql`${table.failure_count} >= 0`),
+	check("insight_connections_claim_check", sql`(${table.claim_token} IS NULL) = (${table.claim_until} IS NULL)`),
+	check("insight_connections_ig_grants_check", insightGrantsValid(table.ig_grants)),
+	check("insight_connections_fb_grants_check", insightGrantsValid(table.fb_grants)),
+	check("insight_connections_checkpoint_check", sql`jsonb_typeof(${table.checkpoint}) = 'object'
+		AND ${table.checkpoint} @> '{"version":1}'::jsonb AND octet_length(${table.checkpoint}::text) <= 8192
+		AND ${table.checkpoint} - ARRAY['version','from','to','cursor'] = '{}'::jsonb
+		AND length(coalesce(${table.checkpoint}->>'cursor','')) <= 4096 AND length(coalesce(${table.checkpoint}->>'from','')) <= 128 AND length(coalesce(${table.checkpoint}->>'to','')) <= 128
+		AND NOT jsonb_path_exists(${table.checkpoint}, '$.keyvalue() ? (@.key != "version" && (@.value.type() != "string" || !(@.value like_regex "^.+$" flag "s")))')`),
+	check("insight_connections_usage_budget_check", sql`CASE WHEN jsonb_typeof(${table.usage_budget}) = 'object' AND jsonb_typeof(${table.usage_budget}->'requestTimes') = 'array' THEN
+		${table.usage_budget} @> '{"version":1}'::jsonb AND ${table.usage_budget} ? 'nextSafeAt'
+		AND ${table.usage_budget} - ARRAY['version','requestTimes','nextSafeAt','usagePercent'] = '{}'::jsonb
+		AND octet_length(${table.usage_budget}::text) <= 16384 AND jsonb_array_length(${table.usage_budget}->'requestTimes') <= 120
+		AND NOT jsonb_path_exists(${table.usage_budget}, '$.requestTimes[*] ? (@.type() != "string" || !(@ like_regex "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+Z-]{5,40}$"))')
+		AND ((${table.usage_budget}->'nextSafeAt') = 'null'::jsonb OR jsonb_path_exists(${table.usage_budget}, '$.nextSafeAt ? (@.type() == "string" && @ like_regex "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+Z-]{5,40}$")'))
+		AND (NOT (${table.usage_budget} ? 'usagePercent') OR ${table.usage_budget}->'usagePercent' = 'null'::jsonb OR jsonb_path_exists(${table.usage_budget}, '$.usagePercent ? (@.type() == "number" && @ >= 0 && @ <= 100)'))
+		ELSE false END`),
+]);
+
+export const insightObservations = pgTable("insight_observations", {
+	id: uuid().primaryKey().defaultRandom().notNull(),
+	workspace_id: uuid("workspace_id").notNull(),
+	channel_id: uuid("channel_id").notNull(),
+	platform: platform().notNull(),
+	metric_key: text("metric_key").notNull(),
+	level: insightLevel().notNull(),
+	subject_key: text("subject_key").notNull(),
+	grain: insightGrain().notNull(),
+	period: insightPeriod().notNull(),
+	metric_type: insightMetricType("metric_type").notNull(),
+	window_start: timestamp("window_start", {withTimezone: true}).notNull(),
+	window_end: timestamp("window_end", {withTimezone: true}).notNull(),
+	provider_day: date("provider_day", {mode: "string"}),
+	boundary_basis: text("boundary_basis").notNull(),
+	snapshot_day: date("snapshot_day", {mode: "string"}).notNull(),
+	fetched_at: timestamp("fetched_at", {withTimezone: true}).notNull(),
+	scalar: numeric(),
+	response_state: insightResponseState("response_state").notNull(),
+	dimensions: jsonb().$type<Record<string, string>>().default({}).notNull(),
+	query_params: jsonb("query_params").$type<Record<string, string>>().default({}).notNull(),
+	transport: text().notNull(),
+	api_version: text("api_version").notNull(),
+	definition_version: text("definition_version").notNull(),
+	coverage_basis: text("coverage_basis").notNull(),
+	query_key: text("query_key").notNull(),
+}, table => [
+	foreignKey({name: "insight_observations_workspace_fk", columns: [table.workspace_id], foreignColumns: [workspaces.id]}).onDelete("cascade"),
+	foreignKey({name: "insight_observations_channel_fk", columns: [table.workspace_id, table.channel_id, table.platform], foreignColumns: [channels.workspace_id, channels.id, channels.platform]}).onDelete("cascade"),
+	uniqueIndex("insight_observations_identity_key").on(table.workspace_id, table.channel_id, table.platform, table.level, table.subject_key, table.metric_key, table.query_key, table.snapshot_day),
+	index("insight_observations_channel_window_idx").on(table.workspace_id, table.channel_id, table.window_start, table.window_end),
+	index("insight_observations_retention_idx").on(table.workspace_id, table.grain, table.snapshot_day),
+	check("insight_observations_window_check", sql`${table.window_end} > ${table.window_start}`),
+	check("insight_observations_scalar_check", sql`${table.scalar} >= 0 AND ${table.scalar} NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)`),
+	check("insight_observations_response_check", sql`(${table.response_state} = 'available' AND ${table.scalar} IS NOT NULL) OR (${table.response_state} <> 'available' AND ${table.scalar} IS NULL)`),
+	check("insight_observations_strings_check", sql`length(${table.metric_key}) BETWEEN 1 AND 128 AND length(${table.subject_key}) BETWEEN 1 AND 255 AND length(${table.boundary_basis}) BETWEEN 1 AND 128 AND length(${table.transport}) BETWEEN 1 AND 128 AND length(${table.api_version}) BETWEEN 1 AND 128 AND length(${table.definition_version}) BETWEEN 1 AND 128 AND length(${table.coverage_basis}) BETWEEN 1 AND 128`),
+	check("insight_observations_query_key_check", sql`${table.query_key} ~ '^[0-9a-f]{64}$'`),
+	check("insight_observations_dimensions_check", insightStringMapValid(table.dimensions)),
+	check("insight_observations_query_params_check", insightStringMapValid(table.query_params)),
 ]);
