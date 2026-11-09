@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Insights: the Reach summary card now shows the total for the selected 7 or 30 days. The value is Instagram's own unique-accounts count for the whole period (not a sum of daily values, which would count repeat viewers more than once), collected by the existing worker within the same rate limits.
+
+### Fixed
+- X: reading or deleting a post that no longer exists on X (`GET`/`DELETE /api/v1/posts/{postId}/platform`) now reports it as gone instead of failing with 502. X answers such requests with HTTP 200 and a "resource not found" problem rather than 404.
+
 ## [0.18.1] - 2026-11-09
 
 ### Changed
