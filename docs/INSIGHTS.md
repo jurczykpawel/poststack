@@ -54,7 +54,7 @@ The API can switch collection on or off (`PATCH`), but granting access is always
 
 ## How to read the numbers
 
-- **Provider day.** A day is the platform's reporting day and is shown unchanged in every browser time zone. Only sync timestamps ("Last sync") follow the viewer's zone.
+- **Provider day.** A day is the platform's reporting day and is shown unchanged in every browser time zone. For Instagram, this is the Pacific-time day the value covers; its date can appear one day earlier than in the Instagram app. Instagram's app can also show slightly different values. Only sync timestamps ("Last sync") follow the viewer's zone.
 - **No data is not zero.** A day with no stored value is a gap (`null`, a break in the line, "—" in the table). `"0"` is a value the platform reported as zero and is a point on the axis.
 - **Reach is not additive.** Unique people reached on different days overlap, so daily reach is never summed. The card for a 7 or 30 day range shows "—" and "Total not available for unique metrics" because no unique value for the whole range is stored (`unique_range_unavailable`). The chart and table show the daily values.
 - **Provisional.** The platform can revise the last 48 hours; those days use a dashed line and are marked "(provisional)".

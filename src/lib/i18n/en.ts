@@ -48,6 +48,7 @@ export const en = {
   "insights.noComparison": "No comparison: incomplete data",
   "insights.incomplete": "Incomplete data for this period",
   "insights.inactive": "Not collected for this channel yet: {metrics}.",
+  "insights.dayNote": "Dates follow Instagram's Pacific reporting day, the day the value covers. The Instagram app may show the same day one day later, with slightly different values.",
 
   // API docs
   "apiDocs.title": "{brand} API Docs",

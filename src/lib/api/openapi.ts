@@ -247,7 +247,7 @@ export const openApiSpec = {
           grain: { type: "string", enum: ["day"] }, period: { type: "string", enum: ["day", "lifetime"] },
           metricType: { type: "string", enum: ["time_series", "total_value", "profile_field", "media_lifetime"] },
           windowStart: { type: "string", format: "date-time" }, windowEnd: { type: "string", format: "date-time" },
-          snapshotDay: { type: "string", format: "date" }, providerDay: { type: ["string", "null"], format: "date" },
+          snapshotDay: { type: "string", format: "date" }, providerDay: { type: ["string", "null"], format: "date", description: "The provider's calendar day covered by this value. Instagram uses its Pacific reporting day (America/Los_Angeles), which can appear one calendar day earlier than the same value's date in the Instagram app; reported values can also differ slightly from the app." },
           fetchedAt: { type: "string", format: "date-time" }, boundaryBasis: { type: "string" },
           value: { $ref: "#/components/schemas/InsightDecimal" },
           state: { type: "string", enum: ["available", "not_available", "insufficient_audience", "unsupported"] },

@@ -315,4 +315,10 @@ describe("account insights contract", () => {
     const channel = (openApiSpec.components.schemas as unknown as Record<string, { properties: { capabilities: { items: { enum: string[] } } } }>).Channel;
     expect(channel.properties.capabilities.items.enum).toContain("insights");
   });
+
+  it("explains the provider calendar day on each observation", () => {
+    const observation = (openApiSpec.components.schemas as unknown as Record<string, { properties: Record<string, { description?: string }> }>).InsightObservation;
+    expect(observation.properties.providerDay.description).toContain("America/Los_Angeles");
+    expect(observation.properties.providerDay.description).toContain("Instagram app");
+  });
 });

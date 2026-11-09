@@ -57,6 +57,7 @@ test.describe.serial("insights account screen", () => {
     await expect(reach).toHaveAttribute("aria-pressed", "true");
     await expect(reach.locator(".ins-card-v")).toHaveText("—");
     await expect(reach).toContainText("Total not available for unique metrics");
+    await expect(page.locator("#insights-root .ins-note", { hasText: "Dates follow Instagram's Pacific reporting day" })).toBeVisible();
     const chart = page.locator(".ins-chart svg[role=img]");
     await expect(chart).toBeVisible();
     await expect(page.locator(".ins-chart path.ins-line")).toHaveCount(2); // the missing day splits the line
