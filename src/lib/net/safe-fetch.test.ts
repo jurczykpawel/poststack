@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { assertSafeUrl, safeFetch, SsrfError } from "./safe-fetch";
@@ -180,35 +180,49 @@ describe("pinnedConnect hardening (default connector, local server)", () => {
 });
 
 describe("pinnedConnect STREAMING mode (stream:true, local server)", () => {
-  it("finishes a fast source when a slower sink pauses beyond the socket idle timeout", async () => {
+  it("disables the socket idle timeout during backpressure and restores it when reading resumes", async () => {
     const total = 32 * 1024 * 1024;
-    await withServer((_req, res) => {
-      res.writeHead(200, { "content-length": total });
-      let sent = 0;
-      const chunk = Buffer.alloc(64 * 1024, 7);
-      const pump = () => {
-        while (sent < total) {
-          sent += chunk.length;
-          if (!res.write(chunk)) { res.once("drain", pump); return; }
-        }
-        res.end();
-      };
-      pump();
-    }, async url => {
-      const response = await safeFetch(url, {}, { allow: LOOPBACK, stream: true, idleTimeoutMs: 80 });
-      const reader = response.body!.getReader();
-      let received = 0;
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          received += value.length;
-          // A multipart sink can spend longer uploading a part than the download idle limit.
-          if (received === value.length) await new Promise(resolve => setTimeout(resolve, 250));
-        }
-        expect(received).toBe(total);
-      } finally { await reader.cancel().catch(() => {}); }
+    const paused = Promise.withResolvers<http.ClientRequest>();
+    const originalSetTimeout = http.ClientRequest.prototype.setTimeout;
+    let reading = false;
+    const timeout = vi.spyOn(http.ClientRequest.prototype, "setTimeout").mockImplementation(function (this: http.ClientRequest, ms, callback) {
+      const result = originalSetTimeout.call(this, ms, callback);
+      // Ignore the adapter's initial pause: wait for backpressure after socket reads start.
+      if (ms > 0 && this.socket) reading = true;
+      if (ms === 0 && reading) paused.resolve(this);
+      return result;
     });
+    try {
+      await withServer((_req, res) => {
+        res.writeHead(200, { "content-length": total });
+        let sent = 0;
+        const chunk = Buffer.alloc(64 * 1024, 7);
+        const pump = () => {
+          while (sent < total) {
+            sent += chunk.length;
+            if (!res.write(chunk)) { res.once("drain", pump); return; }
+          }
+          res.end();
+        };
+        pump();
+      }, async url => {
+        const response = await safeFetch(url, {}, { allow: LOOPBACK, stream: true });
+        const reader = response.body!.getReader();
+        let received = 0;
+        try {
+          const request = await paused.promise;
+          expect(request.socket?.timeout).toBe(0);
+          timeout.mockClear();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            received += value.length;
+          }
+          expect(received).toBe(total);
+          expect(timeout).toHaveBeenCalledWith(15_000);
+        } finally { await reader.cancel().catch(() => {}); }
+      });
+    } finally { timeout.mockRestore(); }
   });
 
   it("keeps the upstream paused when the consumer stops reading a large response", async () => {
