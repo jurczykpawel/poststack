@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-11-09
+
 ### Added
 - Insights: the Reach summary card now shows the total for the selected 7 or 30 days. The value is Instagram's own unique-accounts count for the whole period (not a sum of daily values, which would count repeat viewers more than once), collected by the existing worker within the same rate limits.
 
