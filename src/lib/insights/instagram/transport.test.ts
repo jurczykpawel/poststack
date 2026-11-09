@@ -15,7 +15,7 @@ describe("Instagram insights requests", () => {
     const [url, options] = fetcher.mock.calls[0];
     expect(new URL(url).hostname).toBe(host);
     expect(new URL(url).searchParams.get("metric_type")).toBe("time_series");
-    expect(new URL(url).searchParams.get("until")).toBe(String(Date.parse(query.to) / 1000 - 1));
+    expect(new URL(url).searchParams.get("until")).toBe(String(Date.parse(query.to) / 1000 + 86400 - 1));
     expect(String(url)).not.toContain(credential.token);
     expect(options).toMatchObject({ method: "GET", redirect: "error", headers: { Authorization: `Bearer ${credential.token}` } });
     expect(fetcher).toHaveBeenCalledTimes(1);

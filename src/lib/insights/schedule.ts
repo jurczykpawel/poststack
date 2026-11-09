@@ -46,7 +46,8 @@ export function syncCheckpoint(checkpoint: InsightCheckpoint, before: string | u
 export function collectionQueries(now: Date, subjectKey: string, metrics: readonly string[], checkpoint: InsightCheckpoint): InsightQuery[] {
   const end = Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate());
   const query=(from:number,to:number):InsightQuery=>({level:"account",subjectKey,metrics,grain:"day",from:new Date(from).toISOString(),to:new Date(to).toISOString()});
-  const queries=[1,2,3,7].map(d=>query(end-d*DAY,end-(d-1)*DAY));
+  const queries=[1,2,3].map(d=>query(end-d*DAY,end-(d-1)*DAY));
+  queries.push(query(end-7*DAY,end-3*DAY));
   const saved=Date.parse(readSyncCursor(checkpoint).before ?? "");
   let cursor=Number.isFinite(saved) ? Math.min(saved,end-7*DAY) : end-7*DAY;
   const floor=end-90*DAY;
