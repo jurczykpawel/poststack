@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
@@ -46,7 +46,7 @@ export async function GET(
 
   const { channelId } = await params;
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)),
     columns: { id: true, platform: true, platform_id: true, token_encrypted: true },
   });
 

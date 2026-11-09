@@ -1,5 +1,5 @@
 import { scheduleInsightCredentialCheck } from "@/lib/insights/lifecycle";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, platform as platformEnum, channelConnectionMode as connModeEnum } from "@/db/schema";
 import { encryptTokens, decryptTokens } from "@/lib/crypto";
@@ -182,6 +182,7 @@ export async function upsertChannels(
         })
         .onConflictDoUpdate({
           target: [channels.workspace_id, channels.platform, channels.platform_id],
+          setWhere: sourceId ? isNull(channels.deleted_at) : undefined,
           set: {
             display_name: account.displayName,
             username: account.username ?? null,
@@ -201,6 +202,7 @@ export async function upsertChannels(
         })
         .returning({ id: channels.id });
 
+      if (!channel) continue;
       const recovered = live?.status === "needs_reauth";
       out.push({ channelId: channel.id, recovered, isNew: !live, displayName: account.displayName });
 
@@ -272,6 +274,7 @@ async function augmentMessagingTokens(
           eq(channels.platform, platform),
           eq(channels.platform_id, account.platformId),
           ne(channels.status, "disabled"),
+          isNull(channels.deleted_at),
         ),
         columns: { id: true, status: true, workspace_id: true, token_encrypted: true },
       });
@@ -285,7 +288,7 @@ async function augmentMessagingTokens(
         blob.messaging_token = augment.token;
         blob.messaging_token_expires_at = expiresAtUnix;
 
-        await tx
+        const [updated] = await tx
           .update(channels)
           .set({
             token_encrypted: encryptTokens(blob),
@@ -295,7 +298,9 @@ async function augmentMessagingTokens(
             last_error: null,
             needs_reauth_reason: null,
           })
-          .where(eq(channels.id, live.id));
+          .where(and(eq(channels.id, live.id), eq(channels.workspace_id, workspaceId), isNull(channels.deleted_at)))
+          .returning({ id: channels.id });
+        if (!updated) continue;
 
         const recovered = live.status === "needs_reauth";
         out.push({ channelId: live.id, recovered, isNew: false, displayName: account.displayName });

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { dispatchAlert } from "@/lib/notifications/alert";
@@ -22,7 +22,7 @@ export async function markChannelNeedsReauth(
   now: Date = new Date(),
 ): Promise<void> {
   const channel = await db.query.channels.findFirst({
-    where: eq(channels.id, channelId),
+    where: and(eq(channels.id, channelId), isNull(channels.deleted_at)),
     columns: { status: true, workspace_id: true, platform: true, display_name: true },
   });
   if (!channel) return;
@@ -31,7 +31,7 @@ export async function markChannelNeedsReauth(
   // last_error / needs_reauth_reason (both named redaction targets) or emitted in the alert detail.
   const redacted = redactSecrets(error);
   const reason = redacted.slice(0, MAX_ERROR_LEN);
-  await db
+  const updated = await db
     .update(channels)
     .set({
       status: "needs_reauth",
@@ -42,11 +42,12 @@ export async function markChannelNeedsReauth(
       needs_reauth_reason: reason,
       last_health_at: now,
     })
-    .where(eq(channels.id, channelId));
+    .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)))
+    .returning({ id: channels.id });
 
   // Notify only when the channel was previously healthy (one alert per outage). The throttle in
   // dispatchAlert is a second backstop against a storm.
-  if (channel.status !== "needs_reauth") {
+  if (updated.length && channel.status !== "needs_reauth") {
     await dispatchAlert({
       type: "channel_reauth",
       workspaceId: channel.workspace_id,
@@ -87,14 +88,16 @@ export async function markChannelHealthy(
   }
 
   const channel = await tx.query.channels.findFirst({
-    where: eq(channels.id, channelId),
+    where: and(eq(channels.id, channelId), isNull(channels.deleted_at)),
     columns: { status: true },
   });
+
+  if (!channel) return;
 
   // A manual pause is operator intent and must outlive a successful health check / refresh:
   // record that the check passed, but do NOT flip status back to active.
   if (channel?.status === "paused") {
-    await tx.update(channels).set({ last_error: null, needs_reauth_reason: null, last_health_at: now }).where(eq(channels.id, channelId));
+    await tx.update(channels).set({ last_error: null, needs_reauth_reason: null, last_health_at: now }).where(and(eq(channels.id, channelId), isNull(channels.deleted_at)));
     return;
   }
 
@@ -105,7 +108,7 @@ export async function markChannelHealthy(
   await tx
     .update(channels)
     .set({ status: "active", last_error: null, needs_reauth_reason: null, last_health_at: now })
-    .where(eq(channels.id, channelId));
+    .where(and(eq(channels.id, channelId), isNull(channels.deleted_at)));
   if (channel?.status === "needs_reauth") {
     await addJobTx(tx, "drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });
   }

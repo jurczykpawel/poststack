@@ -8,7 +8,7 @@
 // are computed (never stored) via channels/capabilities.
 import { and, asc, desc, eq, isNull, isNotNull, ilike, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, channelRateState, type Platform } from "@/db/schema";
+import { channels, channelRateState, insightConnections, type Platform } from "@/db/schema";
 import { getProvider } from "@/lib/platforms/registry";
 import { MetaTokenError, inspectMetaToken } from "@/lib/platforms/meta-token";
 import { decryptTokens } from "@/lib/crypto";
@@ -369,10 +369,19 @@ export async function setChannelGmailQuery(workspaceId: string, id: string, quer
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
-/** Soft-delete a channel (row kept, excluded from every read). */
+/** Disconnect a channel while retaining its history. */
 export async function deleteChannel(workspaceId: string, id: string): Promise<void> {
-  await ownChannelOr404(workspaceId, id);
-  await db.update(channels).set({ deleted_at: new Date(), status: "disabled" }).where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+  await db.transaction(async (tx) => {
+    const [removed] = await tx.update(channels).set({
+      deleted_at: new Date(), status: "disabled", token_encrypted: "",
+      token_expires_at: null, messaging_token_expires_at: null, data_access_expires_at: null,
+    }).where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId), isNull(channels.deleted_at)))
+      .returning({ id: channels.id });
+    if (!removed) throw new ApiError("not_found", "Channel not found", 404);
+    await tx.update(insightConnections).set({
+      collection_mode: "off", reason: "collection_off", claim_token: null, claim_until: null,
+    }).where(and(eq(insightConnections.channel_id, id), eq(insightConnections.workspace_id, workspaceId)));
+  });
 }
 
 /**

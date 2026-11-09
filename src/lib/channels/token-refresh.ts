@@ -74,7 +74,7 @@ export async function processTokenRefresh(
       token_expires_at: merged.expiresAt ? new Date(merged.expiresAt) : null,
       updated_at: new Date(),
     })
-    .where(eq(channels.id, payload.channelId));
+    .where(and(eq(channels.id, payload.channelId), eq(channels.workspace_id, channel.workspace_id), isNull(channels.deleted_at)));
   await markChannelHealthy(payload.channelId); // recovers needs_reauth; leaves paused/active (AUD40)
   if (channel.platform === "instagram") await scheduleInsightCredentialCheck({ workspaceId: channel.workspace_id, channelId: channel.id });
   helpers.logger.info(`token refreshed for channel ${payload.channelId}`);

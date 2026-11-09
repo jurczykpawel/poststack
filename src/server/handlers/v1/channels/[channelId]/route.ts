@@ -1,11 +1,12 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { authenticateWithScope } from "@/lib/auth";
-import { db, isUniqueViolation, isForeignKeyViolation } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { channels } from "@/db/schema";
-import { ok, noContent, ApiErrors } from "@/lib/api/response";
+import { ok, noContent, ApiErrors, ApiError } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
+import { deleteChannel } from "@/lib/channels/service";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function GET(
 
   const { channelId } = await params;
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)),
     // webhook_secret is machine-only (the app registers + verifies it); never in the API response.
     columns: DETAIL_COLUMNS,
   });
@@ -65,7 +66,7 @@ export async function PATCH(
   }
 
   const existing = await db.query.channels.findFirst({
-    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)),
+    where: and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)),
     columns: { id: true, status: true },
   });
   if (!existing) return ApiErrors.notFound();
@@ -87,7 +88,7 @@ export async function PATCH(
         .update(channels)
         .set(data)
         // workspace_id alongside the PK keeps the update tenant-scoped.
-        .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)))
+        .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)))
         .returning({
           id: channels.id,
           platform: channels.platform,
@@ -100,6 +101,7 @@ export async function PATCH(
           last_health_at: channels.last_health_at,
           created_at: channels.created_at,
         });
+      if (!row) throw new ApiError("not_found", "Channel not found", 404);
       if (row.status === "active" && existing.status !== "active") {
         await addJobTx(tx, "drain-channel", { channelId }, { jobKey: `drain-channel:${channelId}` });
         // Resuming a PAUSED channel also resumes any drip steps deferred by the pause, at once,
@@ -115,6 +117,7 @@ export async function PATCH(
       return row;
     });
   } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return ApiErrors.notFound();
     // Reactivating an account that is already active in another workspace hits the
     // active-channel uniqueness index. The DB correctly rejects it (one live channel
     // per account) — surface that as a clean conflict, not a 500.
@@ -136,23 +139,12 @@ export async function DELETE(
   if (!auth) return ApiErrors.unauthorized();
 
   const { channelId } = await params;
-  let result;
   try {
-    result = await db
-      .delete(channels)
-      .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId)));
+    await deleteChannel(auth.workspaceId, channelId);
   } catch (err) {
-    // sequence_enrollments.channel_id is ON DELETE RESTRICT and enrollment rows linger after
-    // completion, so a channel that ever had an enrollment can't be deleted. Surface that as a
-    // clean conflict the operator can act on, not an unhandled 500.
-    if (isForeignKeyViolation(err)) {
-      return ApiErrors.conflict(
-        "Cannot disconnect a channel with sequence enrollments — cancel or complete them first",
-      );
-    }
+    if (err instanceof ApiError && err.status === 404) return ApiErrors.notFound();
     throw err;
   }
-  if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
 
   await recordAudit({
     workspaceId: auth.workspaceId,
