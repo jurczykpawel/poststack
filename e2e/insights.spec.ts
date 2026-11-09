@@ -300,9 +300,8 @@ test.describe.serial("insights consumer acceptance", () => {
       await gotoOk(page, `/insights?channel=${seeded.channelId}`);
       await expect(page.getByRole("heading", { name: "Insights needs additional access" })).toBeVisible();
       await expect(page.locator("#insights-root")).toContainText("If you declined the permission, grant it again. The data you already collected stays.");
-      // Not configured on this instance: the request fails with a stable notice, the data stays.
-      await page.getByRole("button", { name: "Grant Insights access" }).click();
-      await expect(page.locator(".notice-err")).toBeVisible();
+      // The request can be made again; following it to the platform dialog is covered by the consent test
+      // above (whether a Meta app is configured depends on the environment, so it is not exercised here).
       await expect(page.getByRole("button", { name: "Grant Insights access" })).toBeVisible();
       const from = providerDay(-7);
       const to = providerDay(0);
