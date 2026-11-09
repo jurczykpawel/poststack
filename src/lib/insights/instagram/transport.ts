@@ -93,7 +93,9 @@ async function fetchInsights(credential: InsightCredential, query: InsightQuery)
   validateQuery(credential, query);
   const base = credential.transport === "facebook" ? GRAPH_API_BASE : IG_GRAPH_BASE;
   const url = new URL(`${base}/${encodeURIComponent(credential.accountKey)}/insights`);
-  const queryParams = { metric: query.metrics.join(","), period: "day", metric_type: "time_series", since: String(Date.parse(query.from) / 1000), until: String(Date.parse(query.to) / 1000 - 1) };
+  // Daily values are selected by end_time, which falls on the next calendar date.
+  // Read that date too; the parser keeps only intervals overlapping the requested window.
+  const queryParams = { metric: query.metrics.join(","), period: "day", metric_type: "time_series", since: String(Date.parse(query.from) / 1000), until: String(Date.parse(query.to) / 1000 + 86400 - 1) };
   url.search = new URLSearchParams(queryParams).toString();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);

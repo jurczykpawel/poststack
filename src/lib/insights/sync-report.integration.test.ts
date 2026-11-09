@@ -35,10 +35,10 @@ const graphTime = (t: number) => new Date(t).toISOString().slice(0, 19) + "+0000
  * Stub of the Graph API insights endpoint: one documented `reach` entry whose `values` hold every
  * daily end_time (Los Angeles midnight) inside the inclusive since/until range of the request.
  */
-function graphResponse(url: URL): Response {
+function graphResponse(url: URL, currentDay = today()): Response {
   const since = Number(url.searchParams.get("since")) * 1000, until = Number(url.searchParams.get("until")) * 1000;
   const values: { value: number; end_time: string }[] = [];
-  for (let d = shift(today(), -120); d <= shift(today(), 1); d = shift(d, 1)) {
+  for (let d = shift(currentDay, -120); d <= shift(currentDay, 1); d = shift(d, 1)) {
     const end = dayStart(shift(d, 1));
     if (end >= since && end <= until) values.push({ value: Number(d.slice(8)) + 100, end_time: graphTime(end) });
   }
@@ -97,4 +97,52 @@ it("returns every provider day the worker stored from multi-day and single-day f
   const { loadInsightsPage } = await import("@/server/ui/sections/insights-data");
   const page = await loadInsightsPage(WS, new URLSearchParams({ channel: CH, range: "30" }));
   expect(page.report?.series.map((o) => o.providerDay)).toEqual(expected);
+});
+
+it("stores every provider day through yesterday across the November DST change", async () => {
+  const ref = { workspaceId: WS, channelId: CH };
+  const schedule = await import("./schedule");
+  const original = schedule.collectionQueries;
+  const now = new Date("2026-11-09T12:00:00Z");
+  const windows: import("./types").InsightQuery[][] = [];
+  // Pin the collection calendar, keeping leases and PG's now() on the real clock.
+  const calendar = vi.spyOn(schedule, "collectionQueries").mockImplementation((_, ...args) => {
+    const queries = original(now, ...args);
+    windows.push(queries);
+    return queries;
+  });
+  const fetcher = vi.fn(async (input: string | URL) => graphResponse(new URL(String(input)), "2026-11-09"));
+  vi.stubGlobal("fetch", fetcher);
+  try {
+    await db.delete(s.insightObservations).where(eq(s.insightObservations.workspace_id, WS));
+    await db.delete(s.insightConnections).where(eq(s.insightConnections.workspace_id, WS));
+    await (await import("./service")).setCollectionMode(ref, "on");
+    const { processInsightsSync } = await import("./sync");
+    const storedDays = async () => {
+      const rows = await db.select({ day: s.insightObservations.provider_day }).from(s.insightObservations)
+        .where(and(eq(s.insightObservations.workspace_id, WS), eq(s.insightObservations.channel_id, CH), eq(s.insightObservations.metric_key, "reach"), eq(s.insightObservations.response_state, "available")));
+      return [...new Set(rows.map(r => r.day!))].sort();
+    };
+    const expected = (from: string) => {
+      const days: string[] = [];
+      for (let day = from; day < "2026-11-09"; day = shift(day, 1)) days.push(day);
+      return days;
+    };
+    await processInsightsSync(ref);
+    expect(fetcher).toHaveBeenCalledTimes(10);
+    const firstStart = windows[0].at(-1)!.from.slice(0, 10);
+    expect((await storedDays()).filter(day => day >= firstStart)).toEqual(expected(firstStart));
+    for (let run = 0; run < 2; run++) {
+      await db.update(s.insightConnections).set({ next_due_at: new Date(0) })
+        .where(and(eq(s.insightConnections.workspace_id, WS), eq(s.insightConnections.channel_id, CH)));
+      await processInsightsSync(ref);
+    }
+    expect((await storedDays()).filter(day => day >= "2026-08-11")).toEqual(expected("2026-08-11"));
+    const points = await db.select({ day: s.insightObservations.provider_day, end: s.insightObservations.window_end })
+      .from(s.insightObservations).where(and(eq(s.insightObservations.workspace_id, WS), eq(s.insightObservations.metric_key, "reach")));
+    expect(points.some(p => p.day === "2026-10-31" && p.end.toISOString() === "2026-11-01T07:00:00.000Z")).toBe(true);
+    expect(points.some(p => p.day === "2026-11-01" && p.end.toISOString() === "2026-11-02T08:00:00.000Z")).toBe(true);
+  } finally {
+    calendar.mockRestore();
+  }
 });
