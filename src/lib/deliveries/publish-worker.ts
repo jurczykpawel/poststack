@@ -253,7 +253,8 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   if (post.tiktok_confirmation === "required") return;
   if (["sent", "failed", "canceled"].includes(post.status)) return; // terminal
   const ws = post.workspace_id;
-  if (post.status === "scheduled" && post.scheduled_at.getTime() > Date.now()) {
+  const dueAt = new Date();
+  if (post.status === "scheduled" && post.scheduled_at.getTime() > dueAt.getTime()) {
     await addJobTx(db, "publish", { postId }, { runAt: post.scheduled_at, jobKey: `publish:${postId}` });
     return;
   }
@@ -375,7 +376,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   const claimed = await db
     .update(deliveries)
     .set({ status: "sending", attempt_started_at: new Date(), attempts: post.attempts + 1, updated_at: new Date() })
-    .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, uploadSession && ["sending", "processing"].includes(post.status) ? post.status : "scheduled"), lte(deliveries.scheduled_at, sql`now()`)))
+    .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, uploadSession && ["sending", "processing"].includes(post.status) ? post.status : "scheduled"), lte(deliveries.scheduled_at, dueAt)))
     .returning({ id: deliveries.id, payload: deliveries.payload, tiktok_confirmation: deliveries.tiktok_confirmation });
   if (claimed.length === 0) return; // lost the race / not schedulable (PSA14: consumed no token)
   Object.assign(post, claimed[0]);

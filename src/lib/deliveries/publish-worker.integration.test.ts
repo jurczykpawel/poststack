@@ -310,6 +310,25 @@ describe("publish worker (AUD27)", () => {
     }
   });
 
+  it.each([0, 60_000])("uses the application clock for a delivery due in %s ms", async delayMs => {
+    const { postId } = await scenario();
+    const applicationNow = Date.now() + 60_000;
+    const when = new Date(applicationNow + delayMs);
+    await db.update(schema.deliveries).set({ scheduled_at: when, run_at: when }).where(eq(schema.deliveries.id, postId));
+    const publish = vi.spyOn((await import("@/lib/providers/tiktok")).tiktokProvider, "publish").mockResolvedValue({ providerHandle: "clock-post" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(applicationNow);
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe(delayMs ? "scheduled" : "sent");
+      expect(publish).toHaveBeenCalledTimes(delayMs ? 0 : 1);
+      if (delayMs) expect(await publishJobByKey(`publish:${postId}`)).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+      publish.mockRestore();
+    }
+  });
+
   it("UNIFY P2.2: publishing an IG post with auto_reply provisions a comment→DM rule scoped to the media id", async () => {
     if (!TEST_DB) return;
     const [c] = await db
