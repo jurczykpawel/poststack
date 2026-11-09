@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { gotoOk, setFree, setPro, watchConsole } from "./helpers";
 import { E2E_KID, signToken } from "./fixtures/keys";
@@ -7,7 +8,7 @@ import { providerDay, REACH, seedInsights, type InsightsFixture, type SeedOption
 
 // The account screen in a real browser: one channel, 7/30 days, cards, one SSR SVG chart and its
 // table, across both reference widths and both themes. Screenshots go to a private tmp directory.
-const SHOTS = process.env.E2E_INSIGHTS_SHOTS ?? "/private/tmp/poststack-insights-a8";
+const SHOTS = process.env.E2E_INSIGHTS_SHOTS ?? join(tmpdir(), "poststack-insights-shots");
 const VIEWPORTS = [{ width: 390, height: 844 }, { width: 1440, height: 900 }] as const;
 const THEMES = ["dark", "light"] as const;
 
