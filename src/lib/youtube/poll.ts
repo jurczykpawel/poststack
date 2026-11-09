@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, commentLogs, contacts, conversations } from "@/db/schema";
 import { getConfig } from "@/lib/settings/config";
@@ -61,7 +61,7 @@ export async function freshYouTubeAccessToken(channel: { id: string; token_encry
   await db
     .update(channels)
     .set({ token_encrypted: encryptTokens({ ...tokens, access_token: accessToken, expires_at: newExp }) })
-    .where(eq(channels.id, channel.id));
+    .where(and(eq(channels.id, channel.id), isNull(channels.deleted_at)));
   return accessToken;
 }
 

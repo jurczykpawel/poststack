@@ -225,7 +225,7 @@ describe("connectAccountSource (real Postgres)", () => {
 });
 
 describe("syncAccountSource (real Postgres)", () => {
-  it.each(["reconnect", "sync"] as const)("%s restores removed derived channels and preserves hidden choices", async (action) => {
+  it.each(["reconnect", "sync"] as const)("%s preserves removed derived channels and hidden choices", async (action) => {
     if (!TEST_DB) return;
     const { deleteChannel, listChannels, setChannelHidden } = await import("./service");
     mockGraph();
@@ -244,16 +244,15 @@ describe("syncAccountSource (real Postgres)", () => {
     const after = await db.query.channels.findMany({ where: eq(s.channels.workspace_id, WS) });
     expect(after.map((c) => c.id).sort()).toEqual(before.map((c) => c.id).sort());
     for (const c of after) {
-      expect(c.status).toBe("active");
-      expect(c.deleted_at).toBeNull();
+      expect(c.status).toBe("disabled");
+      expect(c.deleted_at).toBeInstanceOf(Date);
+      expect(c.token_encrypted).toBe("");
       expect(c.source_id).toBe(sourceId);
       expect(c.connection_mode).toBe("derived");
     }
-    expect((await listChannels({ workspaceId: WS })).items.map((c) => c.id))
-      .toEqual([before.find((c) => c.platform === "facebook")!.id]);
-    const hiddenAfter = await listChannels({ workspaceId: WS, showHidden: true });
-    expect(hiddenAfter.items.map((c) => c.id)).toEqual([ig.id]);
-    expect(hiddenAfter.items[0].hidden_at).toEqual(hidden.items[0].hidden_at);
+    expect((await listChannels({ workspaceId: WS })).items).toHaveLength(0);
+    expect((await listChannels({ workspaceId: WS, showHidden: true })).items).toHaveLength(0);
+    expect(after.find(c => c.id === ig.id)!.hidden_at).toEqual(hidden.items[0].hidden_at);
   });
 
   it("re-enumerates and mints a newly-added page on the next sync", async () => {

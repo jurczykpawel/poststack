@@ -160,6 +160,65 @@ describe("channel removal", () => {
     await expectRemoved(own.id);
   });
 
+  it("source sync preserves removed channels while updating siblings", async () => {
+    const [source] = await db.insert(s.accountSources).values({ workspace_id: ws, provider: "meta", kind: "user", provider_account_id: "sync-master",
+      token_encrypted: crypto.encryptTokens({ access_token: "master-token" }) }).returning();
+    const own = await channel(ws, source.id), sibling = await channel(ws, source.id);
+    await svc.deleteChannel(ws, own.id);
+    const removed = await db.query.channels.findFirst({ where: eq(s.channels.id, own.id) });
+    const { upsertChannels } = await import("./upsert");
+    for (let sync = 0; sync < 2; sync++) {
+      expect(await upsertChannels(ws, "instagram", [own, sibling].map(row => ({
+        platformId: row.platform_id, displayName: "Synced", tokens: { access_token: "fresh-page-token" },
+      })), { sourceId: source.id })).toEqual({ recoveredChannelIds: [] });
+      expect(await db.query.channels.findFirst({ where: eq(s.channels.id, own.id) })).toEqual(removed);
+      await expectRemoved(own.id);
+      const updated = await db.query.channels.findFirst({ where: eq(s.channels.id, sibling.id) });
+      expect(updated).toMatchObject({ status: "active", display_name: "Synced", source_id: source.id });
+      expect(crypto.decryptTokens(updated!.token_encrypted).access_token).toBe("fresh-page-token");
+    }
+    expect(await db.query.accountSources.findFirst({ where: eq(s.accountSources.id, source.id) })).toEqual(source);
+  });
+
+  it("keeps removal final when YouTube access refresh finishes afterwards", async () => {
+    const own = await channel();
+    const client = await import("@/lib/youtube/client");
+    vi.spyOn(client, "refreshGoogleAccessToken").mockImplementation(async () => {
+      await svc.deleteChannel(ws, own.id);
+      return { accessToken: "fresh-google-token", expiresAt: 2000000000 };
+    });
+    const { freshYouTubeAccessToken } = await import("@/lib/youtube/poll");
+    await freshYouTubeAccessToken({ ...own, token_encrypted: crypto.encryptTokens({ access_token: "old", refresh_token: "refresh", expires_at: 1 }) });
+    await expectRemoved(own.id);
+  });
+
+  it("keeps removal final when an IG-Login merge has read the channel", async () => {
+    const own = await channel();
+    const transaction = db.transaction.bind(db);
+    const transactionSpy = vi.spyOn(db, "transaction").mockImplementation((callback, config) => {
+      transactionSpy.mockRestore();
+      return transaction(async tx => {
+        const find = tx.query.channels.findFirst.bind(tx.query.channels);
+        vi.spyOn(tx.query.channels, "findFirst").mockImplementationOnce((...args) => {
+          const query = find(...args);
+          const execute = query.execute.bind(query);
+          vi.spyOn(query, "execute").mockImplementationOnce(async () => {
+            const live = await execute();
+            await svc.deleteChannel(ws, own.id);
+            return live;
+          });
+          return query;
+        });
+        return callback(tx);
+      }, config);
+    });
+    const { upsertChannels } = await import("./upsert");
+    expect(await upsertChannels(ws, "instagram", [{ platformId: own.platform_id, displayName: "IG", tokens: { access_token: "" } }], {
+      augmentMessagingToken: { token: "IGQW_new", expiresAt: new Date("2030-01-01") },
+    })).toEqual({ recoveredChannelIds: [] });
+    await expectRemoved(own.id);
+  });
+
   it("leaves foreign channels unchanged when removal is requested", async () => {
     const other = await channel(otherWs);
     await expect(svc.deleteChannel(ws, other.id)).rejects.toThrow();
