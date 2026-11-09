@@ -16,6 +16,7 @@ const TEST_DB = process.env.TEST_DATABASE_URL;
 const WS = "ff110000-0000-0000-0000-0000000000f1";
 const USER = "ff110000-0000-0000-0000-0000000000f2";
 const CH_GMAIL = "ff110000-0000-0000-0000-0000000000f3";
+const CH_TWITTER = "ff110000-0000-0000-0000-0000000000f4";
 
 let app: Hono;
 let db: typeof import("@/lib/db").db;
@@ -65,6 +66,23 @@ describe("channels page — Gmail connect affordance", () => {
     const body = await res.text();
     // On a free instance Gmail is PRO-locked but still visible.
     expect(body).toContain("Gmail");
+  });
+});
+
+describe("channels page — platform labels", () => {
+  it("shows X in the counter and filter while preserving twitter as the filter value", async () => {
+    if (!TEST_DB) return;
+    await db.insert(s.channels).values({
+      id: CH_TWITTER, workspace_id: WS, platform: "twitter", platform_id: "x-account",
+      token_encrypted: "x", webhook_secret: "s", status: "active", connection_mode: "oauth",
+    });
+    const res = await app.request("/channels", { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('href="/channels?platform=twitter">X <b>1</b>');
+    expect(body).toContain('<option value="twitter">X</option>');
+    expect(body).not.toContain(">twitter <b>1</b>");
+    expect(body).not.toContain('<option value="twitter">twitter</option>');
   });
 });
 

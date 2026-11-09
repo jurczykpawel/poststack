@@ -33,7 +33,8 @@ export function platformKey(platform: string, metadata?: unknown): string {
 }
 
 export function platformLabel(platform: string, metadata?: unknown): string {
-  return PLATFORMS[platformKey(platform, metadata)]?.label ?? platform;
+  const key = platformKey(platform, metadata);
+  return PLATFORMS[key]?.label ?? PLATFORM_LABELS[key] ?? platform;
 }
 
 /** Brand color for a platform (used as a chip/avatar background). */
