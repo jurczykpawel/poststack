@@ -12,7 +12,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Added
 - Insights: the Reach summary card now shows the total for the selected 7 or 30 days. The value is Instagram's own unique-accounts count for the whole period (not a sum of daily values, which would count repeat viewers more than once), collected by the existing worker within the same rate limits.
 
+- Settings → Integrations: OAuth client credentials for YouTube, TikTok, LinkedIn, X and Threads can now be entered in the dashboard (or via `GET`/`PUT /api/v1/settings/publishing-oauth`, operator scopes `instance_config:read`/`instance_config:write`) instead of only in `.env`. Secrets are stored encrypted and never returned; a dashboard value takes precedence over the environment variable, and clearing it falls back to `.env`. Changes apply without a restart.
+
 ### Fixed
+- Channels: platform counters and the platform filter show "X" instead of the internal name "twitter".
 - X: reading or deleting a post that no longer exists on X (`GET`/`DELETE /api/v1/posts/{postId}/platform`) now reports it as gone instead of failing with 502. X answers such requests with HTTP 200 and a "resource not found" problem rather than 404.
 
 ## [0.18.1] - 2026-11-09
