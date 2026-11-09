@@ -202,6 +202,17 @@ const isChannelId = (id: string) => id !== "" && id !== "invalid";
 const fragmentRequest = (c: Context) => c.req.header("HX-Request") === "true" && c.req.header("HX-History-Restore-Request") !== "true";
 
 /** Delegate to the shared REST handler; a refusal thrown by the boundary becomes its JSON response. */
+/** The page's CSP only lets a form submission end on this origin, so a redirect to the platform dialog is a
+ *  separate navigation: a short page that forwards there (and links there without scripting). */
+function platformDialogPage(redirect: Response): Response {
+  const to = redirect.headers.get("location") ?? "";
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+  const cookie = redirect.headers.get("set-cookie");
+  if (cookie) headers.set("set-cookie", cookie);
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${to}"><title>Continue to the login dialog</title></head><body><p><a href="${to}">Continue to the login dialog</a></p></body></html>`;
+  return new Response(String(page), { status: 200, headers });
+}
+
 async function delegate(run: () => Promise<Response>): Promise<Response> {
   try {
     return await run();
@@ -311,7 +322,7 @@ export function registerInsights(app: Hono, requireAuth: MiddlewareHandler): voi
     const q = readInsightsQuery(await formValues(c));
     if (!isChannelId(q.channel)) return c.text("not found", 404);
     const res = await delegate(() => beginInsightConsent({ workspaceId: session.workspaceId, channelId: q.channel }, session));
-    if (res.status === 302) return res;
+    if (res.status === 302) return platformDialogPage(res);
     const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
     const code = body?.error?.code ?? "";
     return c.redirect(backHref({ ...q, metric: "" }, code in NOTICES ? code : "consent_failed"), 303);

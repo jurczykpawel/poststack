@@ -280,8 +280,8 @@ test.describe.serial("insights consumer acceptance", () => {
       const reached = await interceptPlatformDialog(page);
       await gotoOk(page, `/insights?channel=${seeded.channelId}`);
       await tabTo(page, "form[action='/insights/consent'] button");
-      await Promise.all([page.waitForURL("https://www.facebook.com/**"), page.keyboard.press("Enter")]);
-      expect(reached).toHaveLength(1);
+      await page.keyboard.press("Enter");
+      await expect.poll(() => reached.length).toBe(1);
       const dialog = new URL(reached[0]);
       expect(dialog.searchParams.get("scope")).toContain("instagram_manage_insights");
       expect(dialog.href).not.toContain("e2e-insights-user-token");
@@ -334,7 +334,8 @@ test.describe.serial("insights consumer acceptance", () => {
 
       const reached = await interceptPlatformDialog(page);
       await gotoOk(page, `/insights?channel=${denied.channelId}`);
-      await Promise.all([page.waitForURL("https://www.facebook.com/**"), page.getByRole("button", { name: "Grant Insights access" }).click()]);
+      await page.getByRole("button", { name: "Grant Insights access" }).click();
+      await expect.poll(() => reached.length).toBe(1);
       expect(reached).toHaveLength(1);
       expect(new URL(reached[0]).searchParams.get("scope")).toContain("instagram_manage_insights");
     } finally {
