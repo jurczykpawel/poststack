@@ -1,3 +1,4 @@
+import { oauthCredentials } from "./oauth-credentials";
 import { postUrlFor } from "@/lib/posts/post-url";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
@@ -20,9 +21,8 @@ export const xProvider: Provider = {
   connectionModes: () => ["oauth"],
   requiresTokenRefresh: () => true,
 
-  oauthConfig() {
-    const clientId = process.env.X_CLIENT_ID;
-    const clientSecret = process.env.X_CLIENT_SECRET;
+  async oauthConfig() {
+    const { clientId, clientSecret } = await oauthCredentials("x");
     if (!clientId || !clientSecret) return undefined;
     return {
       authorizeUrl: "https://twitter.com/i/oauth2/authorize",
@@ -39,8 +39,7 @@ export const xProvider: Provider = {
     // X rotates the refresh token on each use; oauth2Refresh stores the new one.
     return oauth2Refresh({
       tokenUrl: `${API}/oauth2/token`,
-      clientId: process.env.X_CLIENT_ID ?? "",
-      clientSecret: process.env.X_CLIENT_SECRET ?? "",
+      ...await oauthCredentials("x"),
       refreshToken: tokens.refreshToken ?? "",
       tokenAuthBasic: true,
     });

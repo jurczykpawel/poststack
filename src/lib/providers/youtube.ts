@@ -1,3 +1,4 @@
+import { oauthCredentials } from "./oauth-credentials";
 import { sourceSize } from "./range-source";
 import { uploadYouTube } from "./youtube-upload";
 import type { TokenSet } from "./types";
@@ -39,9 +40,8 @@ export const youtubeProvider: Provider = {
   connectionModes: () => ["oauth"],
   requiresTokenRefresh: () => true,
 
-  oauthConfig() {
-    const clientId = process.env.YOUTUBE_CLIENT_ID;
-    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+  async oauthConfig() {
+    const { clientId, clientSecret } = await oauthCredentials("youtube");
     if (!clientId || !clientSecret) return undefined;
     return {
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -62,8 +62,7 @@ export const youtubeProvider: Provider = {
   async refreshToken(tokens: TokenSet): Promise<TokenSet> {
     return oauth2Refresh({
       tokenUrl: "https://oauth2.googleapis.com/token",
-      clientId: process.env.YOUTUBE_CLIENT_ID ?? "",
-      clientSecret: process.env.YOUTUBE_CLIENT_SECRET ?? "",
+      ...await oauthCredentials("youtube"),
       refreshToken: tokens.refreshToken ?? "",
     });
   },

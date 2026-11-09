@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -189,4 +189,73 @@ it("reads send-time confirmation changes without the settings cache", async () =
   expect(await cfg.getConfig("TIKTOK_CONFIRM_AT_SEND")).toBe("false");
   await db.execute(sql`update instance_settings set value_encrypted=${encryptString("true")} where key='TIKTOK_CONFIRM_AT_SEND'`);
   expect(await cfg.getConfig("TIKTOK_CONFIRM_AT_SEND", { fresh: true })).toBe("true");
+});
+
+
+describe("publishing OAuth settings", () => {
+  const pairs = [
+    ["x", "X_CLIENT_ID", "X_CLIENT_SECRET"],
+    ["youtube", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
+    ["tiktok", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
+    ["linkedin", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
+    ["threads", "THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET"],
+  ] as const;
+
+  it.each(pairs)("%s resolves Settings, environment and unset credentials", async (id, clientKey, secretKey) => {
+    const { getProvider } = await import("@/lib/providers");
+    const provider = getProvider(id);
+    vi.stubEnv(clientKey, "env-client");
+    vi.stubEnv(secretKey, "env-secret");
+    try {
+      expect(await provider.oauthConfig?.()).toMatchObject({ clientId: "env-client", clientSecret: "env-secret" });
+      await cfg.setConfigs([[clientKey, "db-client"], [secretKey, "db-secret"]]);
+      expect(await provider.oauthConfig?.()).toMatchObject({ clientId: "db-client", clientSecret: "db-secret" });
+      expect(JSON.stringify(await cfg.configStatus())).not.toContain("db-secret");
+      const stored = await db.select().from(instanceSettings);
+      expect(stored.every((row) => !row.value_encrypted.includes("db-secret"))).toBe(true);
+      await cfg.setConfig(secretKey, "changed-secret");
+      expect(await provider.oauthConfig?.()).toMatchObject({ clientSecret: "changed-secret" });
+      if (id !== "threads") {
+        const fetchMock = vi.fn().mockResolvedValue(Response.json({ access_token: "new" }));
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+          await provider.refreshToken({ accessToken: "old", refreshToken: "refresh" });
+          const init = fetchMock.mock.calls[0][1];
+          if (id === "x") expect(init.headers.authorization).toBe(`Basic ${Buffer.from("db-client:changed-secret").toString("base64")}`);
+          else {
+            expect(init.body.get("client_secret")).toBe("changed-secret");
+            expect(init.body.get(id === "tiktok" ? "client_key" : "client_id")).toBe("db-client");
+          }
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      }
+
+      await cfg.clearConfig(secretKey);
+      expect(await provider.oauthConfig?.()).toMatchObject({ clientSecret: "env-secret" });
+      vi.stubEnv(secretKey, "");
+      expect(await provider.oauthConfig?.()).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refresh sees a value written by another process after the config TTL", async () => {
+    const { xProvider } = await import("@/lib/providers/x");
+    await cfg.setConfigs([["X_CLIENT_ID", "client"], ["X_CLIENT_SECRET", "first"]]);
+    await xProvider.oauthConfig?.();
+    await db.execute(sql`update instance_settings set value_encrypted=${encryptString("second")} where key='X_CLIENT_SECRET'`);
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ access_token: "new", refresh_token: "next" }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await xProvider.refreshToken({ accessToken: "old", refreshToken: "refresh" });
+      const init = fetchMock.mock.calls[0][1];
+      expect(init.headers.authorization).toBe(`Basic ${Buffer.from("client:second").toString("base64")}`);
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
 });

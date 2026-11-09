@@ -1,3 +1,4 @@
+import * as publishingOAuthSettings from "@/server/handlers/v1/settings/publishing-oauth/route";
 import * as postPlatform from "@/server/handlers/v1/posts/[postId]/platform/route";
 import * as deliveryActions from "@/server/handlers/v1/deliveries/[deliveryId]/actions";
 import * as deliveryReschedule from "@/server/handlers/v1/deliveries/[deliveryId]/reschedule/route";
@@ -223,6 +224,9 @@ v1.get("/license", (c) => license.GET(c.req.raw));
 v1.post("/license", (c) => license.POST(c.req.raw));
 v1.delete("/license", (c) => license.DELETE(c.req.raw));
 registerProviderApi(v1);
+v1.get("/settings/publishing-oauth", (c) => publishingOAuthSettings.GET(c.req.raw));
+v1.put("/settings/publishing-oauth", (c) => publishingOAuthSettings.PUT(c.req.raw));
+
 v1.get("/settings/ai", (c) => aiSettings.GET(c.req.raw));
 v1.put("/settings/ai", (c) => aiSettings.PUT(c.req.raw));
 v1.delete("/settings/ai", (c) => aiSettings.DELETE(c.req.raw));

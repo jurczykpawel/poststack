@@ -51,7 +51,7 @@ describe("API scope catalog", () => {
 
   it("keeps instance-operator scopes out of every preset (they are granted explicitly, never implied)", () => {
     expect(API_SCOPES).toEqual(expect.arrayContaining(["instance_ai:read", "instance_ai:write"]));
-    expect(API_SCOPE_DEFINITIONS.filter(({ group }) => group === "instance").map(({ scope }) => scope)).toEqual(["instance_ai:read", "instance_ai:write"]);
+    expect(API_SCOPE_DEFINITIONS.filter(({ group }) => group === "instance").map(({ scope }) => scope)).toEqual(["instance_config:read", "instance_config:write", "instance_ai:read", "instance_ai:write"]);
     for (const preset of API_SCOPE_PRESETS) expect(preset.scopes.some((s) => s.startsWith("instance_")), preset.id).toBe(false);
   });
 });

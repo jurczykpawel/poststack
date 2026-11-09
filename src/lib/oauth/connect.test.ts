@@ -26,8 +26,8 @@ beforeAll(async () => {
 });
 
 describe("startPublishOAuth — generic across providers", () => {
-  it("builds a TikTok authorize URL with a state cookie (no PKCE)", () => {
-    const { url, cookies } = startPublishOAuth("tiktok", "https://app/cb", SESSION);
+  it("builds a TikTok authorize URL with a state cookie (no PKCE)", async () => {
+    const { url, cookies } = await startPublishOAuth("tiktok", "https://app/cb", SESSION);
     const u = new URL(url);
     expect(u.origin + u.pathname).toBe("https://www.tiktok.com/v2/auth/authorize/");
     expect(u.searchParams.get("client_key")).toBe("tt-key");
@@ -36,15 +36,15 @@ describe("startPublishOAuth — generic across providers", () => {
     expect(cookies.some((c) => c.startsWith("rs_oauth_pkce="))).toBe(false);
   });
 
-  it("adds a PKCE challenge + verifier cookie for X (Twitter)", () => {
-    const { url, cookies } = startPublishOAuth("twitter", "https://app/cb", SESSION);
+  it("adds a PKCE challenge + verifier cookie for X (Twitter)", async () => {
+    const { url, cookies } = await startPublishOAuth("twitter", "https://app/cb", SESSION);
     const u = new URL(url);
     expect(u.searchParams.get("code_challenge")).toBeTruthy();
     expect(u.searchParams.get("code_challenge_method")).toBe("S256");
     expect(cookies.some((c) => c.startsWith("rs_oauth_pkce="))).toBe(true);
   });
 
-  it("throws for a platform without OAuth credentials configured", () => {
-    expect(() => startPublishOAuth("linkedin", "https://app/cb", SESSION)).toThrow(/not configured for OAuth/);
+  it("throws for a platform without OAuth credentials configured", async () => {
+    await expect(startPublishOAuth("linkedin", "https://app/cb", SESSION)).rejects.toThrow(/not configured for OAuth/);
   });
 });

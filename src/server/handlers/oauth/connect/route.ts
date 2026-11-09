@@ -13,7 +13,7 @@ export async function GET(request: Request, platform: string): Promise<Response>
   if (!auth) return ApiErrors.unauthorized();
   try {
     const redirectUri = `${env.APP_URL}/api/oauth/connect/${platform}/callback`;
-    const { url, cookies } = startPublishOAuth(platform, redirectUri, auth);
+    const { url, cookies } = await startPublishOAuth(platform, redirectUri, auth);
     const headers = new Headers({ Location: url });
     for (const c of cookies) headers.append("Set-Cookie", c);
     return new Response(null, { status: 302, headers });

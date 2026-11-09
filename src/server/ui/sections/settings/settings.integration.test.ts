@@ -13,7 +13,7 @@ const WS = "dddddddd-0000-0000-0000-0000000007a1";
 const USER = "dddddddd-0000-0000-0000-0000000007a2";
 const OTHER_WS = "dddddddd-0000-0000-0000-0000000007a3";
 const OTHER_USER = "dddddddd-0000-0000-0000-0000000007a4";
-const KEYS = ["META_APP_ID", "META_APP_SECRET", "META_WEBHOOK_VERIFY_TOKEN", "ALTCHA_HMAC_KEY"];
+const KEYS = ["META_APP_ID", "META_APP_SECRET", "META_WEBHOOK_VERIFY_TOKEN", "ALTCHA_HMAC_KEY", "X_CLIENT_ID", "X_CLIENT_SECRET", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"];
 
 let app: Hono;
 let db: typeof import("@/lib/db").db;
@@ -199,4 +199,75 @@ describe("AI page and Sources on Channels", () => {
     expect(body).toContain("Connect all");
     expect(body).toContain('id="sources-list"');
   });
+});
+
+
+it("publishing OAuth is saved through the operator form and API", async () => {
+  expect((await postJson("/settings/integrations/x", { X_CLIENT_ID: "form-client", X_CLIENT_SECRET: "form-secret" })).status).toBe(200);
+  const page = await text("/settings/integrations/x");
+  expect(page).toContain("via Settings");
+  expect(page).toContain('name="X_CLIENT_SECRET"');
+  expect(page).not.toContain("form-secret");
+  const api = "/api/v1/settings/publishing-oauth";
+  const put = (as: string) => app.request(api, { method: "PUT", headers: { cookie: as, "content-type": "application/json" }, body: JSON.stringify({ X_CLIENT_SECRET: "api-secret" }) });
+  expect((await put(otherCookie)).status).toBe(403);
+  const saved = await put(cookie);
+  expect(saved.status).toBe(200);
+  expect(await saved.text()).not.toContain("api-secret");
+  const status = await get(api);
+  expect(status.status).toBe(200);
+  expect(await status.text()).not.toContain("api-secret");
+  const { getConfig } = await import("@/lib/settings/config");
+  expect(await getConfig("X_CLIENT_SECRET")).toBe("api-secret");
+});
+
+
+it("publishing OAuth API requires explicit instance permissions and accepts only credential fields", async () => {
+  const { generateApiKey } = await import("@/lib/auth");
+  const api = "/api/v1/settings/publishing-oauth";
+  for (const [creator, scopes, read, write] of [
+    [USER, [], 403, 403],
+    [USER, ["settings:write"], 403, 403],
+    [USER, ["instance_config:read"], 200, 403],
+    [USER, ["instance_config:write"], 403, 200],
+    [OTHER_USER, ["instance_config:read", "instance_config:write"], 403, 403],
+  ] as const) {
+    const key = generateApiKey();
+    await db.insert(s.apiKeys).values({ workspace_id: WS, name: "OAuth settings", key_hash: key.hash, key_prefix: key.prefix, scopes: [...scopes], created_by_user_id: creator });
+    const headers = { authorization: `Bearer ${key.plaintext}`, "content-type": "application/json" };
+    expect((await app.request(api, { headers })).status).toBe(read);
+    expect((await app.request(api, { method: "PUT", headers, body: JSON.stringify({ X_CLIENT_ID: "api-client" }) })).status).toBe(write);
+  }
+  expect((await app.request(api)).status).toBe(401);
+  for (const body of [{ AI_API_KEY: "wrong-group" }, { X_CLIENT_SECRET: "" }, { X_CLIENT_SECRET: "x".repeat(4097) }]) {
+    const response = await app.request(api, { method: "PUT", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect(response.status).toBe(422);
+  }
+  expect(await stored()).toEqual(["X_CLIENT_ID"]);
+});
+
+it("OAuth connect and channel tiles pick up saved credentials and their removal", async () => {
+  const { clearConfig } = await import("@/lib/settings/config");
+  const { xProvider } = await import("@/lib/providers/x");
+  expect(await xProvider.oauthConfig?.()).toBeUndefined();
+  expect(await text("/channels")).not.toContain('href="/api/oauth/connect/x"');
+  await postJson("/settings/integrations/x", { X_CLIENT_ID: "connect-client", X_CLIENT_SECRET: "connect-secret" });
+  expect(await text("/channels")).toContain('href="/api/oauth/connect/x"');
+  const started = await get("/api/oauth/connect/x");
+  expect(started.status).toBe(302);
+  expect(new URL(started.headers.get("location")!).searchParams.get("client_id")).toBe("connect-client");
+  await clearConfig("X_CLIENT_SECRET");
+  expect((await get("/api/oauth/connect/x")).status).toBe(400);
+});
+
+
+it("Google shows direct publishing credentials as a configured alternative", async () => {
+  const response = await postJson("/settings/integrations/google", { YOUTUBE_CLIENT_ID: "direct-client", YOUTUBE_CLIENT_SECRET: "direct-secret" });
+  expect(response.status).toBe(200);
+  const body = await response.text();
+  expect(body).toContain("Set up via Settings");
+  expect(body).toContain("/api/oauth/connect/youtube/callback");
+  expect(body).not.toContain("direct-secret");
+  const { youtubeProvider } = await import("@/lib/providers/youtube");
+  expect(await youtubeProvider.oauthConfig?.()).toMatchObject({ clientId: "direct-client", clientSecret: "direct-secret" });
 });

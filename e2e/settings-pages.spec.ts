@@ -83,3 +83,22 @@ test("old #hash links land on the new pages; AI page on a phone", async ({ page 
     await shoot(page, testInfo.outputPath(`ai-${width}`));
   }
 });
+
+
+test("X publishing credentials save in Integrations and show their source", async ({ page }, testInfo) => {
+  await gotoOk(page, "/settings/integrations/x");
+  await page.locator('[name="X_CLIENT_ID"]').fill("e2e-x-client");
+  await page.locator('[name="X_CLIENT_SECRET"]').fill("e2e-x-secret");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("#int-detail")).toContainText("Saved 2 values.");
+  await expect(page.locator(".int-detail-head")).toContainText("Set up via Settings");
+  await expect(page.locator(".int-field", { hasText: "X_CLIENT_SECRET" })).toContainText("set here");
+  expect(await page.content()).not.toContain("e2e-x-secret");
+  await page.reload();
+  await expect(page.locator(".int-detail-head")).toContainText("Set up via Settings");
+  await page.screenshot({ path: testInfo.outputPath("x-settings.png") });
+  for (const key of ["X_CLIENT_SECRET", "X_CLIENT_ID"]) {
+    await page.locator(".int-field", { hasText: key }).getByRole("button", { name: "Use environment value" }).click();
+    await expect(page.locator("#int-detail")).toContainText("Reverted to the environment variable.");
+  }
+});

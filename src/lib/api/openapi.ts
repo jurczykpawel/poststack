@@ -5,6 +5,7 @@
  * Served at GET /api/v1 (JSON) and GET /api/docs (Scalar UI).
  */
 
+import { PUBLISHING_OAUTH_KEYS } from "@/lib/settings/publishing-oauth";
 import { BRAND } from "@/lib/brand";
 import { API_SCOPES, type ApiScope } from "@/lib/auth/scopes";
 
@@ -24,6 +25,17 @@ const cursorResponse = (items: Record<string, unknown>, location: "data" | "meta
     data: { type: "object", properties: { items: { type: "array", items }, nextCursor: { type: ["string", "null"] } } }, error: { type: "null" },
   } } },
 });
+
+const publishingOAuthResponse = {
+  description: "Publishing OAuth setting statuses; secret previews are masked.",
+  content: { "application/json": { schema: { type: "object", required: ["data", "error"], properties: {
+    error: { type: "null" },
+    data: { type: "array", items: { type: "object", required: ["key", "group", "label", "secret", "source", "preview"], properties: {
+      key: { type: "string", enum: PUBLISHING_OAUTH_KEYS }, group: { type: "string" }, label: { type: "string" },
+      secret: { type: "boolean" }, source: { type: "string", enum: ["db", "env", "unset"] }, preview: { type: "string" }, help: { type: "string" },
+    } } },
+  } } } },
+};
 
 const providerFields = { provider: { type: "string", enum: ["openai", "anthropic", "openrouter", "groq", "custom"] }, model: { type: "string", minLength: 1, maxLength: 200 }, base_url: { type: "string", maxLength: 300 }, api_key: { type: "string", minLength: 1, maxLength: 500, writeOnly: true } };
 const providerInputSchema = { type: "object", additionalProperties: false, properties: providerFields };
@@ -1701,6 +1713,19 @@ export const openApiSpec = {
     "/settings/ai/providers/test": { post: providerEndpoint("Test candidate or saved provider without saving", true, { ...providerInputSchema, properties: { ...providerFields, id: { type: "string", format: "uuid" } } }, { $ref: "#/components/schemas/AiTestResult" }) },
     "/settings/ai/providers/models": { post: providerEndpoint("List models for candidate or saved provider", true, { ...providerInputSchema, properties: { ...providerFields, id: { type: "string", format: "uuid" }, refresh: { type: "boolean" }, all: { type: "boolean" } } }, { type: "object", properties: { models: { type: "array", items: { $ref: "#/components/schemas/AiModel" } }, fetched_at: { type: "string", format: "date-time" }, cached: { type: "boolean" }, filtered_out: { type: "integer" } } }) },
     "/settings/ai/providers/{id}/test": { post: providerEndpoint("Test a saved provider again", true, undefined, { $ref: "#/components/schemas/AiTestResult" }, true) },
+    "/settings/publishing-oauth": {
+      get: {
+        ...requiresScope("instance_config:read"), tags: ["Workspace"], summary: "Get publishing OAuth setting sources",
+        description: "Operator session or explicit instance_config:read on an operator-created API key. Returns config status fields (key, group, label, secret, source, preview); secret previews are masked.",
+        responses: { "200": publishingOAuthResponse },
+      },
+      put: {
+        ...requiresScope("instance_config:write"), tags: ["Workspace"], summary: "Set publishing OAuth credentials",
+        description: "Operator session or explicit instance_config:write on an operator-created API key. Omitted fields stay unchanged. Settings override env; local cache is invalidated immediately and workers refresh within 30 seconds. Clear stored fields through Settings → Integrations to restore env fallback.",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: false, properties: Object.fromEntries(PUBLISHING_OAUTH_KEYS.map((key) => [key, { type: "string", minLength: 1, maxLength: 4096, writeOnly: true }])) } } } },
+        responses: { "200": publishingOAuthResponse, "422": { description: "Unknown fields or invalid values." } },
+      },
+    },
     "/settings/ai": {
       get: {
         ...requiresScope("instance_ai:read"),

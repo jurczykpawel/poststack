@@ -18,6 +18,7 @@ const EXPECTED_API_KEY_SCOPES = [
   "posts:read", "posts:write",
   "brands:read", "brands:write",
   "media:write",
+  "instance_config:read", "instance_config:write",
   "instance_ai:read", "instance_ai:write",
 ] as const;
 
@@ -212,6 +213,8 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     ["POST", "/settings/ai/providers/models", "instance_ai:write"],
     ["POST", "/settings/ai/providers/test", "instance_ai:write"],
     ["POST", "/settings/ai/providers/{id}/test", "instance_ai:write"],
+    ["GET", "/settings/publishing-oauth", "instance_config:read"],
+    ["PUT", "/settings/publishing-oauth", "instance_config:write"],
     ["GET", "/settings/ai", "instance_ai:read"],
     ["PUT", "/settings/ai", "instance_ai:write"],
     ["DELETE", "/settings/ai", "instance_ai:write"],

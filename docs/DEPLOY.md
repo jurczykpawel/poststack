@@ -304,3 +304,21 @@ gunzip -c poststack-2026-06-16.sql.gz | \
 | Webhook handshake returns nothing / wrong value | `META_WEBHOOK_VERIFY_TOKEN` in `.env` doesn't match the token entered in the Meta dashboard. |
 | `worker` never starts | It is gated on `web` being healthy (so the schema exists first). Fix `web` health and the worker follows. |
 | Connections exhausted at scale | See [README → Database connection sizing](../README.md#database-connection-sizing). Raise Postgres `max_connections` or lower `DB_POOL_MAX` before adding replicas. |
+
+### Publishing OAuth credentials
+
+The instance operator can set YouTube direct publishing, TikTok, LinkedIn, X and Threads
+client IDs/keys and secrets in **Settings → Integrations**. Google also shows the separate
+`GOOGLE_CLIENT_*` pair used by the dedicated YouTube/Gmail connection flow; direct publishing
+uses `YOUTUBE_CLIENT_*`. Each pair must match the OAuth app that issued the channel token.
+
+Settings are stored encrypted in the existing instance settings table and override the
+matching environment variables. Blank form fields keep their current values; **Use environment
+value** clears a stored field. No restart is needed: writes invalidate the web process cache,
+and other processes, including workers, pick up changes within the existing 30-second cache TTL.
+
+Automation can use `GET` / `PUT /api/v1/settings/publishing-oauth` with an operator session or
+an operator-created API key with explicit `instance_config:read` / `instance_config:write`.
+PUT accepts an object mapping the environment key names to non-empty values; omitted fields
+stay unchanged. Responses include source (`db`, `env`, `unset`) and masked secret status only.
+See `/api/docs` for the accepted keys.

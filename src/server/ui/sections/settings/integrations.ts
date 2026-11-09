@@ -8,7 +8,7 @@ import { getInstanceLicense, requireFeature, ProRequiredError } from "@/lib/lice
 import { configStatus, setConfig, setConfigs, clearConfig, type ConfigStatus } from "@/lib/settings/config";
 import { CONFIG_KEYS, type ConfigKey } from "@/lib/settings/registry";
 import { webhookUrlError } from "@/lib/webhooks/safe-target";
-import { listProviders } from "@/lib/providers";
+import { PUBLISHING_OAUTH } from "@/lib/settings/publishing-oauth";
 import { requireInstanceOperator } from "../../../middleware/instance-operator";
 import { brandingForm } from "../../branding";
 import { renderProviderList, registerAiProvider } from "./ai-provider";
@@ -17,8 +17,7 @@ import { platformGlyph } from "../../components/platform";
 import { dot, type Tone } from "../../components/status";
 import { settingsAuth, settingsPage, managedByOperator, type Html } from "./shell";
 
-/** One integration as the operator thinks of it: what to paste at the provider, which keys to enter
- *  here (registry-backed, stored encrypted), and which ones only the server environment can set. */
+/** Provider setup URLs and registry-backed fields. */
 interface Service {
   id: string;
   name: string;
@@ -30,8 +29,7 @@ interface Service {
   /** Keys editable here; `required` decides the state shown in the list. */
   keys?: readonly ConfigKey[];
   required?: readonly ConfigKey[];
-  /** Direct-OAuth publishers read credentials from the environment only (provider id + var names). */
-  envProvider?: { id: string; label: string; vars: readonly string[] };
+  alternatives?: readonly (readonly ConfigKey[])[];
   branding?: true;
   /** The AI provider has its own form (provider picker + model list) instead of generic key fields. */
   ai?: true;
@@ -43,18 +41,16 @@ const SERVICES: readonly Service[] = [
       ["OAuth redirect (Instagram Business Login → API setup with Instagram login)", "/api/oauth/instagram-login/callback"], ["Webhook callback (Messenger + Instagram products)", "/api/webhooks/meta"]],
     keys: ["META_APP_ID", "META_APP_SECRET", "META_WEBHOOK_VERIFY_TOKEN", "INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"], required: ["META_APP_ID", "META_APP_SECRET"] },
   { id: "google", name: "Google", sub: "YouTube & Gmail", group: "Channels", platform: "youtube", where: "Google Cloud Console → Credentials",
-    urls: [["Authorized redirect URI (YouTube)", "/api/oauth/youtube/callback"], ["Authorized redirect URI (Gmail)", "/api/oauth/gmail/callback"]],
-    keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], required: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-    envProvider: { id: "youtube", label: "YouTube direct publishing", vars: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"] } },
+    urls: [["Authorized redirect URI (YouTube)", "/api/oauth/youtube/callback"], ["Authorized redirect URI (Gmail)", "/api/oauth/gmail/callback"], ["Redirect URI (YouTube direct publishing)", "/api/oauth/connect/youtube/callback"]],
+    keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", ...PUBLISHING_OAUTH.youtube.keys], required: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], alternatives: [PUBLISHING_OAUTH.youtube.keys] },
   { id: "tiktok", name: "TikTok", sub: "Publishing", group: "Channels", platform: "tiktok", where: "developers.tiktok.com → Login Kit",
-    urls: [["Redirect URI", "/api/oauth/connect/tiktok/callback"]], keys: ["TIKTOK_CONFIRM_AT_SEND"],
-    envProvider: { id: "tiktok", label: "TikTok publishing", vars: ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"] } },
+    urls: [["Redirect URI", "/api/oauth/connect/tiktok/callback"]], keys: [...PUBLISHING_OAUTH.tiktok.keys, "TIKTOK_CONFIRM_AT_SEND"], required: PUBLISHING_OAUTH.tiktok.keys },
   { id: "linkedin", name: "LinkedIn", sub: "Publishing", group: "Channels", platform: "linkedin", where: "LinkedIn Developers → Auth → Authorized redirect URLs",
-    urls: [["Authorized redirect URL", "/api/oauth/connect/linkedin/callback"]], envProvider: { id: "linkedin", label: "LinkedIn publishing", vars: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"] } },
+    urls: [["Authorized redirect URL", "/api/oauth/connect/linkedin/callback"]], keys: PUBLISHING_OAUTH.linkedin.keys, required: PUBLISHING_OAUTH.linkedin.keys },
   { id: "x", name: "X", sub: "Publishing", group: "Channels", platform: "x", where: "X developer portal → User authentication settings",
-    urls: [["Callback URI", "/api/oauth/connect/x/callback"]], envProvider: { id: "x", label: "X publishing", vars: ["X_CLIENT_ID", "X_CLIENT_SECRET"] } },
+    urls: [["Callback URI", "/api/oauth/connect/x/callback"]], keys: PUBLISHING_OAUTH.x.keys, required: PUBLISHING_OAUTH.x.keys },
   { id: "threads", name: "Threads", sub: "Publishing", group: "Channels", platform: "threads", where: "developers.facebook.com → Threads app → Redirect Callback URLs",
-    urls: [["Redirect callback URL", "/api/oauth/connect/threads/callback"]], envProvider: { id: "threads", label: "Threads publishing", vars: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET"] } },
+    urls: [["Redirect callback URL", "/api/oauth/connect/threads/callback"]], keys: PUBLISHING_OAUTH.threads.keys, required: PUBLISHING_OAUTH.threads.keys },
   { id: "ai", name: "AI provider", sub: "Drafts and rephrasing", group: "Other", ai: true, keys: [], required: ["AI_API_KEY"] },
   { id: "reelstack", name: "ReelStack", sub: "Inbound media webhook", group: "Other", keys: ["REELSTACK_WEBHOOK_SECRET"], required: ["REELSTACK_WEBHOOK_SECRET"] },
   { id: "security", name: "Login protection", sub: "Proof-of-work captcha", group: "Other", keys: ["ALTCHA_HMAC_KEY"], required: ["ALTCHA_HMAC_KEY"] },
@@ -68,21 +64,18 @@ function via(sources: ConfigStatus["source"][]): string | undefined {
   const db = sources.includes("db"), envSet = sources.includes("env");
   return db || envSet ? (db && envSet ? "Settings + environment" : db ? "Settings" : "environment") : undefined;
 }
-const envProviderReady = (s: Service) => listProviders().find((p) => p.id === s.envProvider?.id)?.oauthConfig?.() != null;
 
 function stateOf(s: Service, status: ConfigStatus[], whiteLabel: boolean): State {
   if (s.branding) {
     if (!whiteLabel) return { tone: "neutral", label: "Locked" };
     return status.find((f) => f.key === "INSTANCE_BRANDING")?.source === "db" ? { tone: "ok", label: "Customised" } : { tone: "neutral", label: "Default" };
   }
-  const req = (s.required ?? []).map((k) => status.find((f) => f.key === k)?.source ?? "unset");
+  const groups = [s.required ?? [], ...(s.alternatives ?? [])].map((keys) => keys.map((k) => status.find((f) => f.key === k)?.source ?? "unset"));
+  const req = groups.find((sources) => sources.length && sources.every((source) => source !== "unset"))
+    ?? groups.sort((a, b) => b.filter((source) => source !== "unset").length - a.filter((source) => source !== "unset").length)[0];
   if (req.length) {
     const set = req.filter((x) => x !== "unset").length;
     return set === req.length ? { tone: "ok", label: "Set up", via: via(req) } : set ? { tone: "warn", label: "Partly set", via: via(req) } : { tone: "neutral", label: "Not set" };
-  }
-  if (s.envProvider) {
-    if (envProviderReady(s)) return { tone: "ok", label: "Set up", via: "environment" };
-    return s.envProvider.vars.some((v) => process.env[v]) ? { tone: "warn", label: "Partly set", via: "environment" } : { tone: "neutral", label: "Not set" };
   }
   return { tone: "neutral", label: "Not set" };
 }
@@ -126,10 +119,6 @@ async function detail(s: Service, status: ConfigStatus[], whiteLabel: boolean, m
         <div class="int-fields">${fields.map(field)}</div>
         <div class="row" style="margin-top:12px"><button class="btn btn-primary" type="submit">Save</button></div>
       </form>` : ""}
-    ${s.envProvider ? html`${step(s.required ? `${s.envProvider.label}: set keys on the server` : "Set keys on the server")}
-      <p class="muted int-note">${s.envProvider.label} reads its credentials from environment variables:
-        ${s.envProvider.vars.map((v, i) => html`${i ? ", " : ""}<code>${v}</code>`)}.
-        ${envProviderReady(s) ? html`<strong>Both are set.</strong>` : "Not set yet; restart the server after adding them."}</p>` : ""}
   </div>`;
 }
 

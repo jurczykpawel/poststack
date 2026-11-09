@@ -1,3 +1,4 @@
+import { oauthCredentials } from "./oauth-credentials";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
 import { PermanentError, TokenInvalidError } from "./errors";
@@ -19,9 +20,8 @@ export const threadsProvider: Provider = {
   connectionModes: () => ["oauth"],
   requiresTokenRefresh: () => true,
 
-  oauthConfig() {
-    const clientId = process.env.THREADS_CLIENT_ID;
-    const clientSecret = process.env.THREADS_CLIENT_SECRET;
+  async oauthConfig() {
+    const { clientId, clientSecret } = await oauthCredentials("threads");
     if (!clientId || !clientSecret) return undefined;
     return {
       authorizeUrl: "https://threads.net/oauth/authorize",

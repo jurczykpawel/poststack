@@ -148,7 +148,7 @@ export interface Provider {
   refreshWindowSeconds?(): number;
   rateLimit?(): { perMinute?: number; perDay?: number };
   /** Optional (capability-gated): OAuth2 authorization-code config for the admin connect flow. */
-  oauthConfig?(): OAuthConfig | undefined;
+  oauthConfig?(): Promise<OAuthConfig | undefined>;
   /** Optional (capability-gated): this provider can manage sub-accounts from one master token. */
   supportsSources?(): boolean;
   /** Introspect a master token (type, data-access window, scopes). Throws TokenInvalidError if dead. */

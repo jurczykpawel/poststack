@@ -1,3 +1,4 @@
+import { oauthCredentials } from "./oauth-credentials";
 import { safeFetch } from "@/lib/media/ssrf";
 import { sourceSize, sourceRange } from "./range-source";
 import { readProviderBody } from "./download";
@@ -24,9 +25,8 @@ export const linkedinProvider: Provider = {
   connectionModes: () => ["oauth"],
   requiresTokenRefresh: () => true, // NOTE: programmatic refresh requires approval; ~1y hard cap (§16)
 
-  oauthConfig() {
-    const clientId = process.env.LINKEDIN_CLIENT_ID;
-    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+  async oauthConfig() {
+    const { clientId, clientSecret } = await oauthCredentials("linkedin");
     if (!clientId || !clientSecret) return undefined;
     return {
       authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
@@ -40,8 +40,7 @@ export const linkedinProvider: Provider = {
   async refreshToken(tokens: TokenSet): Promise<TokenSet> {
     return oauth2Refresh({
       tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
-      clientId: process.env.LINKEDIN_CLIENT_ID ?? "",
-      clientSecret: process.env.LINKEDIN_CLIENT_SECRET ?? "",
+      ...await oauthCredentials("linkedin"),
       refreshToken: tokens.refreshToken ?? "",
     });
   },

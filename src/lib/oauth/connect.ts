@@ -25,20 +25,20 @@ import {
  * managed-connection flow (different shape). State + PKCE travel in short-lived HttpOnly cookies.
  */
 
-function configFor(platform: string) {
+async function configFor(platform: string) {
   const provider = getProviderForPlatform(platform);
-  const config = provider.oauthConfig?.();
+  const config = await provider.oauthConfig?.();
   if (!config) throw new Error(`${platform} is not configured for OAuth connect (missing client credentials)`);
   return { provider, config };
 }
 
 /** Begin connect: the authorize URL to redirect to + the Set-Cookie headers (state, and PKCE for X). */
-export function startPublishOAuth(
+export async function startPublishOAuth(
   platform: string,
   redirectUri: string,
   auth: SessionAuthContext,
-): { url: string; cookies: string[] } {
-  const { config } = configFor(platform);
+): Promise<{ url: string; cookies: string[] }> {
+  const { config } = await configFor(platform);
   const { state, setCookie } = generateOAuthState(auth, connectOAuthFlow(platform));
   const cookies = [setCookie];
   let codeChallenge: string | undefined;
@@ -100,7 +100,7 @@ export async function completePublishOAuth(args: {
   redirectUri: string;
   auth: SessionAuthContext;
 }): Promise<{ channelId: string; accountId: string; clearCookies: string[] }> {
-  const { provider, config } = configFor(args.platform);
+  const { provider, config } = await configFor(args.platform);
   verifyOAuthState(
     args.state,
     args.cookieHeader,

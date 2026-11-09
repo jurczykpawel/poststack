@@ -436,14 +436,14 @@ async function channelsPage(c: Context): Promise<Response> {
           <p class="muted">${noChannels ? "No channels yet" : `${totalChannels} connected${attention ? ` · ${attention} need attention` : ""}`}</p>
           <button class="btn btn-primary ch-connect-cta" type="button" onclick="document.getElementById('connect-sheet').showModal()">${icon("plus", "ico", 14)} Connect channel</button>
         </div>
-        ${connectSheet(connect, url.searchParams.get("connect") === "1")}
+        ${await connectSheet(connect, url.searchParams.get("connect") === "1")}
         ${errorKey ? html`<div class="auth-error">${CHANNEL_ERRORS[errorKey] ?? "Something went wrong."}</div>` : ""}
         ${connected && connectedCount ? html`<div class="notice notice-ok">${connectedCount} ${platformLabel(connected)} account(s) connected.</div>` : ""}
         ${noChannels
           ? html`<section class="panel ch-empty">
               <h2>Connect your first channel</h2>
               <p>Pick a platform. You can add more at any time with “+ Connect channel”.</p>
-              ${connectGroups(connect)}
+              ${await connectGroups(connect)}
             </section>`
           : html`${countsHeader(countsByStatus, countsByPlatform, { status, platform: platformParam, showHidden }, hiddenCount)}
             ${filterBar(platformsForFilter, { platform: platformParam, status, q, sort, showHidden })}
@@ -501,8 +501,10 @@ function telegramTile(o: ConnectOpts): Html {
 
 /** Platform tiles grouped as on the mockup. Visibility/lock rules are the old connect buttons':
  *  one FB + one IG on FREE, non-Meta platforms PRO, direct-OAuth publishers only when configured. */
-function connectGroups(o: ConnectOpts): Html {
-  const generic = (["threads", "tiktok", "linkedin", "x"] as const).filter((id) => getPublishProvider(id).oauthConfig?.() != null);
+async function connectGroups(o: ConnectOpts): Promise<Html> {
+  const ids = ["threads", "tiktok", "linkedin", "x"] as const;
+  const configs = await Promise.all(ids.map((id) => getPublishProvider(id).oauthConfig?.()));
+  const generic = ids.filter((_, i) => configs[i] != null);
   const pub = (id: (typeof generic)[number], name: string, does: string): ConnectTile[] =>
     generic.includes(id) ? [{ platform: id, name, does, href: `/api/oauth/connect/${id}`, locked: !o.canNonMeta }] : [];
   const group = (label: string, tiles: Html[], after: Html | string = "") =>
@@ -529,12 +531,12 @@ function connectGroups(o: ConnectOpts): Html {
     ])}`;
 }
 
-function connectSheet(o: ConnectOpts, openOnLoad: boolean): Html {
+async function connectSheet(o: ConnectOpts, openOnLoad: boolean): Promise<Html> {
   return html`<dialog class="sheet ch-sheet" id="connect-sheet" aria-labelledby="connect-sheet-title"${openOnLoad ? raw(` x-init="$el.showModal()"`) : raw("")} @click="if ($event.target === $el) $el.close()">
     <div class="sheet-h"><div><h4 id="connect-sheet-title">Connect a channel</h4><p class="muted">Pick a platform. You will sign in on its own page and come back here.</p></div>
       <button type="button" class="btn btn-ghost btn-sm" @click="$el.closest('dialog').close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
     <div class="sheet-b">
-      ${connectGroups(o)}
+      ${await connectGroups(o)}
       <details class="ct-adv" id="ct-token"><summary>Advanced: connect with a token</summary>
         <form class="ct-form" hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML">
           <label class="label">Platform<select name="platform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option></select></label>

@@ -1,3 +1,4 @@
+import { oauthCredentials } from "./oauth-credentials";
 import { z } from "zod";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
@@ -80,9 +81,8 @@ export const tiktokProvider: Provider = {
   connectionModes: () => ["oauth"],
   requiresTokenRefresh: () => true,
 
-  oauthConfig() {
-    const clientId = process.env.TIKTOK_CLIENT_KEY;
-    const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+  async oauthConfig() {
+    const { clientId, clientSecret } = await oauthCredentials("tiktok");
     if (!clientId || !clientSecret) return undefined;
     return {
       authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
@@ -96,13 +96,12 @@ export const tiktokProvider: Provider = {
   },
 
   async refreshToken(tokens: TokenSet): Promise<TokenSet> {
-    const key = process.env.TIKTOK_CLIENT_KEY ?? "";
+    const credentials = await oauthCredentials("tiktok");
     return oauth2Refresh({
       tokenUrl: `${API}/oauth/token/`,
-      clientId: key,
-      clientSecret: process.env.TIKTOK_CLIENT_SECRET ?? "",
+      ...credentials,
       refreshToken: tokens.refreshToken ?? "",
-      extra: { client_key: key },
+      extra: { client_key: credentials.clientId },
     });
   },
 

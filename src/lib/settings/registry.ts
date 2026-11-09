@@ -1,3 +1,5 @@
+import { PUBLISHING_OAUTH } from "./publishing-oauth";
+
 // CONFIG1: the registry of operator-configurable integration credentials. Each entry maps a settings
 // key (identical to its env-var name) to its UI grouping + metadata. The resolver (config.ts) prefers
 // a DB-stored value over the matching env var, so these can be set from the dashboard instead of .env.
@@ -31,6 +33,8 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "META_WEBHOOK_VERIFY_TOKEN", group: "Meta (Facebook & Instagram)", label: "Webhook Verify Token", secret: true, help: "Any string you choose; paste the same value into the Meta webhook config." },
   { key: "INSTAGRAM_APP_ID", group: "Meta (Facebook & Instagram)", label: "Instagram App ID", secret: false, help: "Meta app → Instagram API setup with Instagram login → Instagram app ID. Required to receive and send IG DMs." },
   { key: "INSTAGRAM_APP_SECRET", group: "Meta (Facebook & Instagram)", label: "Instagram App Secret", secret: true, help: "Same screen → Instagram app secret. IG message webhooks are signed with it." },
+
+  ...Object.values(PUBLISHING_OAUTH).flatMap(({ name, keys }) => keys.map((key, i) => ({ key, group: name, label: `${name}: ${i ? "Client Secret" : "Client ID / Key"}`, secret: i === 1 }))),
 
   { key: "TIKTOK_CONFIRM_AT_SEND", group: "TikTok", label: "TikTok: always confirm at send", secret: false, help: "true = every scheduled post needs re-confirmation in Queue. false (default) = sent automatically after revalidation." },
 

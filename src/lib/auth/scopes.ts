@@ -52,6 +52,8 @@ export const API_SCOPE_DEFINITIONS = [
   { scope: "brands:read", group: "publishing", access: "read", label: "View brands", presets: ["publishing"] },
   { scope: "brands:write", group: "publishing", access: "write", label: "Manage brands", presets: [] },
   { scope: "media:write", group: "publishing", access: "write", label: "Upload media", presets: ["publishing"] },
+  { scope: "instance_config:read", group: "instance", access: "read", label: "View publishing OAuth settings", presets: [] },
+  { scope: "instance_config:write", group: "instance", access: "write", label: "Manage publishing OAuth settings", presets: [] },
   { scope: "instance_ai:read", group: "instance", access: "read", label: "View AI provider settings", presets: [] },
   { scope: "instance_ai:write", group: "instance", access: "write", label: "Manage AI provider settings", presets: [] },
 ] as const satisfies readonly ScopeDefinition[];
