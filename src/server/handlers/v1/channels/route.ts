@@ -17,6 +17,8 @@ export async function GET(request: Request) {
     where: and(eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)),
     orderBy: asc(channels.created_at),
     columns: {
+      default_auto_story: true,
+      default_auto_story_mode: true,
       id: true,
       platform: true,
       video_carousel: true,

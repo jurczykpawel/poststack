@@ -745,9 +745,6 @@ function platformSupportsStory(platform: string): boolean {
   }
 }
 
-/** STORY1: per-channel auto-Story toggle (shown only for platforms that can publish a Story). When on,
- *  every published post also auto-publishes a generated Story card. The per-post override travels on
- *  the publish request, not here. */
 function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
   if (!platformSupportsStory(ch.platform)) return html``;
   const on = ch.default_auto_story;
@@ -755,16 +752,24 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
   // out-of-band (hx-swap-oob) — the button label + status flip in place, no page reload.
   const body = licensed
     ? html`<p class="set-lead">
-        Auto-publish a generated Story card (cover + caption) about every post published to this
+        Auto-publish a Story about every post published to this
         channel. ${on ? "Currently on." : "Currently off."}
       </p>
       <form class="panel-form" method="post" action="/channels/${ch.id}/auto-story"
         hx-post="/channels/${ch.id}/auto-story" hx-target="#ch-detail-head" hx-swap="outerHTML">
         <input type="hidden" name="enabled" value="${on ? "0" : "1"}" />
         ${btn({ label: on ? "Turn off auto-Story" : "Turn on auto-Story", variant: on ? "danger" : "secondary", size: "sm" })}
+      </form>
+      <form class="panel-form" method="post" action="/channels/${ch.id}/auto-story-mode" hx-post="/channels/${ch.id}/auto-story-mode" hx-target="#ch-detail-head" hx-swap="outerHTML">
+        <label class="fld"><span>Default Story mode</span><select name="mode" aria-label="Default Story mode">
+          <option value="card" selected=${ch.default_auto_story_mode === "card"}>Generated card</option>
+          <option value="media" selected=${ch.default_auto_story_mode === "media"}>Post media (first item)</option>
+        </select></label>
+        <p class="card-hint">Post media falls back to a generated card when Story limits are not met.</p>
+        ${btn({ label: "Save Story mode", variant: "secondary", size: "sm" })}
       </form>`
     : html`<p class="set-lead">
-        Auto-publish a generated Story card (cover + caption) about every post published to this channel.
+        Auto-publish a Story about every post published to this channel.
       </p>
       <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 13)} Auto-Story (PRO)</a>`;
   return html`<section class="panel" id="story-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
@@ -1065,6 +1070,12 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     await setChannelDefaultAutoStory(ws, id, String(form.enabled ?? "") === "1");
   }, (ch) => ch.default_auto_story ? "Auto-Story turned on" : "Auto-Story turned off",
     (ch) => storyPanel(ch, true, "", true), "auto_story"));
+  r.post("/channels/:id/auto-story-mode", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    const mode = String(form.mode ?? "");
+    if (mode !== "card" && mode !== "media") throw new ApiError("validation_error", "Invalid Story mode", 422);
+    await setChannelDefaultAutoStory(ws, id, undefined, mode);
+  }, () => "Story mode saved", (ch) => storyPanel(ch, true, "", true), "auto_story"));
   r.post("/channels/:id/gmail-filter", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     const q = String(form.query ?? "").slice(0, 1000);

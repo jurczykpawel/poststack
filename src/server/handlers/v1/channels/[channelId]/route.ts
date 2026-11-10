@@ -6,11 +6,15 @@ import { ok, noContent, ApiErrors, ApiError } from "@/lib/api/response";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
+import { hasFeature } from "@/lib/license/gate";
+import { env } from "@/lib/env";
 import { deleteChannel } from "@/lib/channels/service";
 
 export const runtime = "nodejs";
 
 const DETAIL_COLUMNS = {
+  default_auto_story: true,
+  default_auto_story_mode: true,
   id: true,
   platform: true,
   platform_id: true,
@@ -43,6 +47,8 @@ export async function GET(
 }
 
 const patchSchema = z.object({
+  default_auto_story: z.boolean().optional(),
+  default_auto_story_mode: z.enum(["card", "media"]).optional(),
   display_name: z.string().min(1).max(100).optional(),
   // Manual status changes only — needs_reauth is set by the system.
   status: z.enum(["active", "paused", "disabled"]).optional(),
@@ -71,7 +77,12 @@ export async function PATCH(
   });
   if (!existing) return ApiErrors.notFound();
 
-  const data: { display_name?: string; status?: "active" | "paused" | "disabled" } = {};
+  if ((parsed.data.default_auto_story !== undefined || parsed.data.default_auto_story_mode !== undefined) && !await hasFeature("auto_story")) {
+    return ApiErrors.proRequired("auto_story", env.LICENSE_UPGRADE_URL);
+  }
+  const data: { display_name?: string; status?: "active" | "paused" | "disabled"; default_auto_story?: boolean; default_auto_story_mode?: "card" | "media" } = {};
+  if (parsed.data.default_auto_story !== undefined) data.default_auto_story = parsed.data.default_auto_story;
+  if (parsed.data.default_auto_story_mode !== undefined) data.default_auto_story_mode = parsed.data.default_auto_story_mode;
   if (parsed.data.display_name !== undefined) data.display_name = parsed.data.display_name;
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   else if (parsed.data.is_active !== undefined) data.status = parsed.data.is_active ? "active" : "disabled";
@@ -90,6 +101,8 @@ export async function PATCH(
         // workspace_id alongside the PK keeps the update tenant-scoped.
         .where(and(eq(channels.id, channelId), eq(channels.workspace_id, auth.workspaceId), isNull(channels.deleted_at)))
         .returning({
+          default_auto_story: channels.default_auto_story,
+          default_auto_story_mode: channels.default_auto_story_mode,
           id: channels.id,
           platform: channels.platform,
           platform_id: channels.platform_id,

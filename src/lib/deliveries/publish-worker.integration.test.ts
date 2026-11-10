@@ -879,6 +879,7 @@ describe("publish worker (AUD27)", () => {
     if (!TEST_DB) return;
     const gate = await import("@/lib/license/gate");
     const { channelId, postId } = await igScenario({ defaultFirstComment: "Link 👇", defaultAutoStory: true });
+    await db.update(schema.channels).set({ default_auto_story_mode: "media" }).where(eq(schema.channels.id, channelId));
     const enqueue = await spyFirstCommentEnqueue();
     const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_FREE" });
     try {

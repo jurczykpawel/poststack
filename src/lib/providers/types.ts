@@ -3,7 +3,7 @@
 // This model owns its own token shape (TokenSet, camelCase) — the delivery engine converts the
 // channel's stored token to it at the boundary.
 
-import type { Platform } from "@/db/schema";
+import type { Platform, AutoStoryMode } from "@/db/schema";
 import type { InsightsConnector } from "@/lib/insights/types";
 
 /** Publish-side token shape. The engine decrypts the channel token into this before calling publish. */
@@ -48,6 +48,7 @@ export interface PublishRequest {
   /** STORY1: per-post override for the auto-Story. `true`/`false` wins over the channel's
    *  `default_auto_story`; omitted = use the channel default. */
   autoStory?: boolean;
+  autoStoryMode?: AutoStoryMode;
 }
 
 export interface AccountInfo {

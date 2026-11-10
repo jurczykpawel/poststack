@@ -57,6 +57,7 @@ const composeSchema = z.object({
         description: z.string().max(LIMITS.text).optional(),
         firstComment: z.string().max(LIMITS.text).optional(),
         autoStory: z.boolean().optional(),
+        autoStoryMode: z.enum(["card", "media"]).nullish(),
         autoReply: autoReplyInput.optional(),
       }),
     )
@@ -148,7 +149,7 @@ function composeScript(): Html {
           this.publishMode = d.publish?.mode || "draft";
           if (d.publish?.at) { var at = new Date(d.publish.at); this.scheduleAt = new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
           Object.keys(this.sel).forEach(p => { var post = (d.posts || []).find(x => x.platform === p); this.sel[p].on = !!post;
-            if (post) Object.assign(this.sel[p], { override: post.description || "", firstComment: post.firstComment || "", autoStory: !!post.autoStory }); });
+            if (post) Object.assign(this.sel[p], { override: post.description || "", firstComment: post.firstComment || "", autoStory: !!post.autoStory, autoStoryMode: post.autoStoryMode || "" }); });
         },
         tt: window.psTikTokPanel(),
         yt: window.psYouTubePanel(),
@@ -217,7 +218,7 @@ function composeScript(): Html {
         onBrandChange() {
           var s = {};
           this.availPlatforms.forEach(function (p) {
-            s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, arEnabled: false, arKeyword: "", arDmText: "", arResponse: "dm", arSequenceId: "" };
+            s[p.platform] = { on: true, override: "", firstComment: "", autoStory: false, autoStoryMode: "", arEnabled: false, arKeyword: "", arDmText: "", arResponse: "dm", arSequenceId: "" };
           });
           this.sel = s; this.capTab = "base";
           var tik = this.availPlatforms.find((p) => p.platform === "tiktok");
@@ -294,6 +295,7 @@ function composeScript(): Html {
               var fc = (s.firstComment || "").trim();
               if (this.canComment(p.platform) && this.licFirstComment && fc) post.firstComment = fc;
               if (this.canStory(p.platform) && this.licAutoStory && s.autoStory) post.autoStory = true;
+              if (this.canStory(p.platform) && this.licAutoStory && s.autoStoryMode) post.autoStoryMode = s.autoStoryMode;
               if (this.canAutoReply(p.platform) && s.arEnabled && (s.arKeyword || "").trim()) {
                 var kw = [{ value: s.arKeyword.trim(), matchType: "contains" }];
                 if (s.arResponse === "sequence" && this.hasSequences() && s.arSequenceId) {
@@ -466,7 +468,12 @@ async function composePage(
                     </template>
                     <template x-if="canComment(p.platform) && !licFirstComment">${lockChip("First comment")}</template>
                     <template x-if="canStory(p.platform) && licAutoStory">
-                      <label class="compose-toggle"><input type="checkbox" x-model="sel[p.platform].autoStory" /><span>Auto-Story — reshare this post to your Story on publish</span></label>
+                      <div>
+                        <label class="compose-toggle"><input type="checkbox" x-model="sel[p.platform].autoStory" /><span>Auto-Story — reshare this post to your Story on publish</span></label>
+                        <label class="fld"><span>Story mode</span><select x-model="sel[p.platform].autoStoryMode" aria-label="Story mode">
+                          <option value="">Use channel default</option><option value="card">Generated card</option><option value="media">Post media (first item)</option>
+                        </select></label>
+                      </div>
                     </template>
                     <template x-if="canStory(p.platform) && !licAutoStory">${lockChip("Auto-Story")}</template>
                     <template x-if="canAutoReply(p.platform)">

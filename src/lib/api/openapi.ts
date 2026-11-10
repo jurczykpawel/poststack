@@ -112,6 +112,7 @@ export const openApiSpec = {
       Post: {
         type: "object",
         properties: {
+          autoStoryMode: { type: ["string", "null"], enum: ["card", "media", null], description: "Per-post Story mode; null inherits the channel default. card generates a branded card with a video frame; media uses the first asset, falling back to card when limits are not met. Does not enable auto-Story." },
           articleUrl: { type: ["string", "null"], format: "uri", description: "LinkedIn article source URL (http/https, no credentials). When set, publishes as article; title required (max 200), description optional, mediaUrl is an optional thumbnail (0–1 image)." },
           id: { type: "string", format: "uuid" },
           tiktokPublishMode: { type: ["string", "null"], enum: ["inbox", "direct", null], description: "Null uses inbox/draft. Direct Post requires an explicit privacy choice and current creator permissions." },
@@ -189,6 +190,8 @@ export const openApiSpec = {
       Channel: {
         type: "object",
         properties: {
+          default_auto_story: { type: "boolean" },
+          default_auto_story_mode: { type: "string", enum: ["card", "media"], default: "card" },
           id: { type: "string", format: "uuid" },
           platform: { type: "string", enum: ["facebook", "instagram", "youtube", "gmail", "telegram"] },
           platform_id: { type: "string", description: "Platform-native account id (e.g. IG business account id / FB page id)." },
@@ -586,6 +589,7 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Create an editorial post",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["platform"], properties: {
+          autoStoryMode: { type: ["string", "null"], enum: ["card", "media", null], description: "null inherits the channel default; applies only when auto-Story is enabled (PRO)." },
           platform: { type: "string" }, title: { type: "string", maxLength: 200 },
           articleUrl: { type: "string", format: "uri", description: "LinkedIn article source URL; http/https without credentials. Required to publish an article." },
           description: { type: "string" }, mediaUrl: { type: "string", format: "uri", description: "Optional article thumbnail; one image." },
@@ -1096,7 +1100,7 @@ export const openApiSpec = {
         ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Update a channel (e.g. pause/resume automation, rename)",
-        requestBody: { content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string" }, status: { type: "string", enum: ["active", "paused"] } } } } } },
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { default_auto_story: { type: "boolean", description: "Requires auto_story (PRO)." }, default_auto_story_mode: { type: "string", enum: ["card", "media"], description: "Requires auto_story (PRO); does not change the toggle." }, display_name: { type: "string" }, status: { type: "string", enum: ["active", "paused"] } } } } } },
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },

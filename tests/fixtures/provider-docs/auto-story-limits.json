@@ -1,0 +1,16 @@
+{
+  "provenance": "documentation",
+  "retrievedAt": "2026-11-10",
+  "instagram": {
+    "source": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/",
+    "video": { "minSeconds": 3, "maxSeconds": 60, "maxMB": 100, "containers": ["mov", "mp4"], "codecs": ["h264", "hevc"], "minFPS": 23, "maxFPS": 60, "maxWidth": 1920 },
+    "image": { "formats": ["jpeg"], "maxMB": 8 }
+  },
+  "facebook": {
+    "source": "https://developers.facebook.com/docs/page-stories-api/",
+    "video": { "minSeconds": 3, "maxSeconds": 60, "minWidth": 540, "minHeight": 960, "aspectRatio": "9:16", "minFPS": 24, "maxFPS": 60 },
+    "image": { "formats": ["jpeg", "bmp", "png", "gif", "tiff"], "maxMB": 10 },
+    "notes": "The specifications table says 3–90 seconds but Limitations caps video stories at 60 seconds. Media must be uploaded separately from the main post."
+  },
+  "notes": "Direct HTTPS retrieval returned Meta's documentation as Markdown. Runtime uses a conservative 100 MB download cap for video on both platforms. No live response claimed."
+}

@@ -201,6 +201,7 @@ describe("unified Compose section", () => {
           platform: "instagram",
           firstComment: "👇 Comment LINK",
           autoStory: true,
+          autoStoryMode: "media",
           autoReply: { keywords: [{ value: "LINK", matchType: "contains" }], dmText: "Here you go!", replyMode: "dm" },
         },
       ],
@@ -215,6 +216,7 @@ describe("unified Compose section", () => {
     const p = (await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) }))[0];
     expect(p.first_comment).toBe("👇 Comment LINK");
     expect(p.auto_story).toBe(true);
+    expect(p.auto_story_mode).toBe("media");
     expect((p.auto_reply as { dmText?: string } | null)?.dmText).toBe("Here you go!");
   });
 

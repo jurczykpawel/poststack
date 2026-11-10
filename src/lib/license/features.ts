@@ -47,7 +47,7 @@ export const FEATURES = [
   { key: "insights", area: "publishing", minTier: "pro", status: "live", label: "Account Insights", description: "Read locally collected account metrics from supported channels." },
   { key: "multi_brand", area: "publishing", minTier: "pro", status: "live", label: "Multiple brands", description: "Manage more than one brand — run it as an agency or across projects." },
   { key: "webhook_filtering", area: "publishing", minTier: "pro", status: "live", label: "Webhook event filtering", description: "Restrict an outbound webhook to specific event types. An endpoint with no filter receives every event type." },
-  { key: "auto_story", area: "publishing", minTier: "pro", status: "live", label: "Auto-Story", description: "Auto-publish a generated Story card about every post published to a channel." },
+  { key: "auto_story", area: "publishing", minTier: "pro", status: "live", label: "Auto-Story", description: "Auto-publish a Story from post media or a generated card after publishing to a channel." },
   { key: "first_comment", area: "publishing", minTier: "pro", status: "live", label: "Automatic first comment", description: "Auto-post a first comment (e.g. “link in the comments”) under every published post." },
   { key: "multi_api_key", area: "core", minTier: "pro", status: "live", label: "Multiple API keys", description: "Issue more than one API key (e.g. one per client/integration)." },
   { key: "outbound_webhooks", area: "core", minTier: "pro", status: "live", label: "Outbound webhooks", description: "Subscribe an external URL to events (contact.created, post.published, …), delivered HMAC-signed with retry. Like API access, this is a programmatic integration capability." },

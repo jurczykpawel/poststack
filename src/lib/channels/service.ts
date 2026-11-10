@@ -51,8 +51,8 @@ export interface PublicChannel {
   default_first_comment: string | null;
   default_ai_disclosure: "none" | "ai_assisted" | "ai_generated" | null;
   default_ai_disclosure_note: string | null;
-  /** STORY1: when true, every post published to this channel also auto-publishes a Story card. */
   default_auto_story: boolean;
+  default_auto_story_mode: "card" | "media";
   metadata: Record<string, unknown> | null;
   created_at: Date;
   /** Gmail-channel ingest filter (raw Gmail query string). NULL = use default "in:inbox". */
@@ -101,6 +101,7 @@ export function toPublic(r: ChannelRow): PublicChannel {
     default_ai_disclosure: r.default_ai_disclosure,
     default_ai_disclosure_note: r.default_ai_disclosure_note,
     default_auto_story: r.default_auto_story,
+    default_auto_story_mode: r.default_auto_story_mode,
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
     gmail_query: r.gmail_query,
@@ -313,13 +314,11 @@ export async function setChannelDefaultAiDisclosure(
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
-/** STORY1: enable / disable the per-channel default auto-Story (a generated Story card published
- *  about every post). The per-post `autoStory` on the publish request overrides this. */
-export async function setChannelDefaultAutoStory(workspaceId: string, id: string, enabled: boolean): Promise<void> {
+export async function setChannelDefaultAutoStory(workspaceId: string, id: string, enabled?: boolean, mode?: "card" | "media"): Promise<void> {
   await ownChannelOr404(workspaceId, id);
   await db
     .update(channels)
-    .set({ default_auto_story: enabled })
+    .set({ default_auto_story: enabled, default_auto_story_mode: mode })
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 

@@ -11,6 +11,7 @@ export interface ComposePostInput extends TikTokPostSettings, YouTubePostSetting
   // COMPOSE2: per-post automation set at authoring time (null/absent = inherit the channel default).
   firstComment?: string | null;
   autoStory?: boolean | null;
+  autoStoryMode?: "card" | "media" | null;
   autoReply?: AutoReplyInput | null;
 }
 
@@ -79,6 +80,7 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
         // pass an explicit value (incl. false / empty string) when the author set one.
         ...(p.firstComment != null ? { firstComment: p.firstComment } : {}),
         ...(p.autoStory != null ? { autoStory: p.autoStory } : {}),
+        ...(p.autoStoryMode != null ? { autoStoryMode: p.autoStoryMode } : {}),
         ...(p.autoReply != null ? { autoReply: p.autoReply } : {}),
       },
       workspaceId,

@@ -1469,6 +1469,14 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'unknown'"
+        },
+        "default_auto_story_mode": {
+          "name": "default_auto_story_mode",
+          "type": "auto_story_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'card'"
         }
       },
       "indexes": {
@@ -5495,6 +5503,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "auto_story_mode": {
+          "name": "auto_story_mode",
+          "type": "auto_story_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -8996,6 +9011,14 @@
         "not_available",
         "insufficient_audience",
         "unsupported"
+      ]
+    },
+    "public.auto_story_mode": {
+      "name": "auto_story_mode",
+      "schema": "public",
+      "values": [
+        "card",
+        "media"
       ]
     }
   },

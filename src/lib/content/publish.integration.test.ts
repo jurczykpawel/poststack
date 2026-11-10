@@ -224,11 +224,12 @@ describe("publishPost", () => {
   // COMPOSE1: per-post automation overrides flow into the delivery payload (PublishRequest), so the
   // publish-worker honours them instead of only the channel default.
   it("carries per-post first_comment + auto_story into the publish request", async () => {
-    const { channelId, postId } = await fixtures({ first_comment: "First! 👇", auto_story: true });
+    const { channelId, postId } = await fixtures({ first_comment: "First! 👇", auto_story: true, auto_story_mode: "media" });
     const { delivery } = await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
     const payload = delivery.payload as { firstComment?: string; autoStory?: boolean };
     expect(payload.firstComment).toBe("First! 👇");
     expect(payload.autoStory).toBe(true);
+    expect((delivery.payload as { autoStoryMode?: string }).autoStoryMode).toBe("media");
   });
 
   it("omits the overrides when null so the channel default still applies", async () => {

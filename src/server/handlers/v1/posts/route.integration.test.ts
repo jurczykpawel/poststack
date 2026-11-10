@@ -74,6 +74,17 @@ async function createOne(over: Record<string, unknown> = {}, key = KEY) {
   return { res, json: await res.json() };
 }
 
+it("stores a Story mode override and clears it back to channel inheritance", async () => {
+  const { res, json } = await createOne({ autoStoryMode: "media" });
+  expect(res.status).toBe(201);
+  expect(json.data.autoStoryMode).toBe("media");
+  const fetched = await call("GET", `/posts/${json.data.id}`);
+  expect((await fetched.json()).data.autoStoryMode).toBe("media");
+  const cleared = await call("PATCH", `/posts/${json.data.id}`, { autoStoryMode: null });
+  expect((await cleared.json()).data.autoStoryMode).toBeNull();
+  expect((await call("PATCH", `/posts/${json.data.id}`, { autoStoryMode: "other" })).status).toBe(422);
+});
+
 async function deliveryFixture(workspaceId = WS, key = KEY, text: string | null = "Comment", id?: string) {
   const { json } = await createOne({ firstComment: text }, key);
   const [channel] = await db.insert(s.channels).values({

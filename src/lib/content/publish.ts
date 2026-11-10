@@ -282,6 +282,7 @@ export async function preparePublishRequest(
   const overrides = {
     ...(post.first_comment != null ? { firstComment: post.first_comment } : {}),
     ...(post.auto_story != null ? { autoStory: post.auto_story } : {}),
+    ...(post.auto_story_mode != null ? { autoStoryMode: post.auto_story_mode } : {}),
   };
 
   let request: PublishRequest;

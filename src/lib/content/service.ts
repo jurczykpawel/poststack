@@ -37,7 +37,7 @@ const POST_MAP: Record<string, string> = {
   publishedUrl: "published_url", publishedAt: "published_at", notes: "notes", language: "language",
   mediaUrl: "media_url", videoUrl: "video_url", coverUrl: "cover_url", mediaUrls: "media_urls",
   assetStatus: "asset_status", assetNotes: "asset_notes", sourceRef: "source_ref",
-  autoReply: "auto_reply", firstComment: "first_comment", autoStory: "auto_story",
+  autoReply: "auto_reply", firstComment: "first_comment", autoStory: "auto_story", autoStoryMode: "auto_story_mode",
   tiktokPublishMode: "tiktok_publish_mode",
   tiktokPrivacyLevel: "tiktok_privacy_level",
   tiktokDisableComment: "tiktok_disable_comment",

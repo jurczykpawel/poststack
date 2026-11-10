@@ -2,6 +2,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import type { JobHelpers } from "graphile-worker";
 import type { StoryCard } from "@/lib/stories";
 import { eq, sql } from "drizzle-orm";
+import documented from "../../../tests/fixtures/provider-docs/article-story.json";
+
+const { prepareStoryMedia } = vi.hoisted(() => ({ prepareStoryMedia: vi.fn() }));
+vi.mock("@/lib/stories/media", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/stories/media")>(), prepareStoryMedia,
+}));
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -39,6 +45,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  prepareStoryMedia.mockReset().mockResolvedValue({});
   await db.delete(schema.outboundDeliveries).where(eq(schema.outboundDeliveries.workspace_id, WS));
   await db.delete(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS));
   await db.delete(schema.media).where(eq(schema.media.workspace_id, WS));
@@ -134,6 +141,46 @@ describe("publish-story worker (STORY1)", () => {
     await processPublishStory(args, helpers);
 
     expect(pub).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["image", "video"] as const)("publishes the selected %s once without rendering a card", async kind => {
+    const { channelId, deliveryId } = await seed();
+    await db.update(schema.channels).set({ default_auto_story_mode: "media" }).where(eq(schema.channels.id, channelId));
+    prepareStoryMedia.mockResolvedValue({ mediaUrl: "https://cdn.example/story", mediaKind: kind });
+    const render = fakeRenderer();
+    const pub = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
+      .mockResolvedValue({ providerHandle: documented.published.id });
+    const args = { channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` };
+    await processPublishStory(args, helpers);
+    await processPublishStory(args, helpers);
+    expect(prepareStoryMedia).toHaveBeenCalledWith(expect.anything(), WS, "instagram", "media");
+    expect(render).not.toHaveBeenCalled();
+    expect(pub).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ mediaUrl: "https://cdn.example/story", mediaKind: kind }));
+  });
+
+  it("records the card fallback reason and respects the post mode", async () => {
+    const { channelId, deliveryId } = await seed();
+    await db.update(schema.deliveries).set({ payload: { format: "video", media: [], autoStoryMode: "media" } }).where(eq(schema.deliveries.id, deliveryId));
+    prepareStoryMedia.mockResolvedValue({ fallbackReason: "video_duration", thumbnail: new Uint8Array([1]) });
+    const render = fakeRenderer();
+    vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
+      .mockResolvedValue({ providerHandle: documented.published.id });
+    await processPublishStory({ channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` }, helpers);
+    expect(prepareStoryMedia).toHaveBeenCalledWith(expect.anything(), WS, "instagram", "media");
+    expect(render.mock.calls[0]?.[0].thumbnail).toEqual(new Uint8Array([1]));
+    const row = await db.query.outboundDeliveries.findFirst({ where: eq(schema.outboundDeliveries.delivery_key, `auto-story:${deliveryId}`) });
+    expect(row?.payload).toMatchObject({ storyFallbackReason: "video_duration" });
+    expect((await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, deliveryId) }))?.status).toBe("sent");
+  });
+
+  it("keeps the published post sent when its Story fails", async () => {
+    const { channelId, deliveryId } = await seed();
+    fakeRenderer();
+    vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
+      .mockRejectedValue(new Error("Story unavailable"));
+    await expect(processPublishStory({ channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` }, helpers)).rejects.toThrow("Story unavailable");
+    expect((await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, deliveryId) }))?.status).toBe("sent");
+    expect((await db.query.outboundDeliveries.findFirst({ where: eq(schema.outboundDeliveries.delivery_key, `auto-story:${deliveryId}`) }))?.status).toBe("failed");
   });
 
   it("no-ops when the source delivery is gone", async () => {

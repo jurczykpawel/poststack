@@ -83,6 +83,7 @@ export const postCreate = z.object({
   // COMPOSE1: per-post automation overrides (null/absent = inherit the channel default).
   firstComment: z.string().max(LIMITS.text).nullish(),
   autoStory: z.boolean().nullish(),
+  autoStoryMode: z.enum(["card", "media"]).nullish(),
   description: z.string().max(LIMITS.text).optional(),
   hashtags: z.string().max(LIMITS.hashtags).optional(),
   ctaType: z.string().max(LIMITS.line).optional(),

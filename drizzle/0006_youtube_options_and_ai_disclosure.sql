@@ -286,3 +286,10 @@ CREATE INDEX "insight_observations_retention_idx" ON "insight_observations" USIN
 
 --> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "article_url" text;
+
+--> statement-breakpoint
+CREATE TYPE "auto_story_mode" AS ENUM ('card', 'media');
+--> statement-breakpoint
+ALTER TABLE "channels" ADD COLUMN "default_auto_story_mode" "auto_story_mode" NOT NULL DEFAULT 'card';
+--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "auto_story_mode" "auto_story_mode";

@@ -1,6 +1,9 @@
 import { pgTable, timestamp, text, integer, bigint, uniqueIndex, index, foreignKey, uuid, boolean, jsonb, primaryKey, pgEnum, check, date, numeric } from "drizzle-orm/pg-core"
 import { sql, type SQLWrapper } from "drizzle-orm"
 
+export const autoStoryMode = pgEnum("auto_story_mode", ["card", "media"])
+export type AutoStoryMode = (typeof autoStoryMode.enumValues)[number]
+
 export const approvalStatus = pgEnum("approval_status", ['pending', 'approved', 'rejected'])
 // Discriminates how a pending approval was created: `rule` = a keyword/auto-reply rule proposed it
 // (the legacy path, rule_id set); `ai_auto` = an AI draft generated automatically by the inbound
@@ -277,10 +280,8 @@ export const channels = pgTable("channels", {
 	// PublishRequest overrides it. Only used on publishable platforms whose provider implements
 	// commentOnPost (facebook / instagram / youtube).
 	default_first_comment: text("default_first_comment"),
-	// STORY1: when true, every post published to this channel also auto-publishes a generated Story
-	// card about it (IG/FB). Off by default. A per-post `autoStory` on the PublishRequest overrides it.
-	// Only acts on platforms whose publish provider implements publishStory (facebook / instagram).
 	default_auto_story: boolean("default_auto_story").default(false).notNull(),
+	default_auto_story_mode: autoStoryMode("default_auto_story_mode").default("card").notNull(),
 	// AIDISC1 — RESERVED, NOT WIRED YET (owner's call, 2026-07-31: land the columns now so enabling the
 	// feature later needs no second migration). The intended semantics, mirroring the
 	// default_first_comment / default_auto_story pattern above: a post whose `ai_disclosure` is NULL
@@ -1434,6 +1435,7 @@ export const posts = pgTable("posts", {
 	// post only (an empty first_comment string = explicitly "no first comment").
 	first_comment: text("first_comment"),
 	auto_story: boolean("auto_story"),
+	auto_story_mode: autoStoryMode("auto_story_mode"),
 	// Saved TikTok choices; NULL leaves privacy unselected and uses inbox mode.
 	tiktok_publish_mode: tiktokPublishMode("tiktok_publish_mode"),
 	tiktok_privacy_level: tiktokPrivacyLevel("tiktok_privacy_level"),
