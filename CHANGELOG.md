@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Story cards rendered boxes instead of text on Docker installs: the web and worker images now include fonts with full Latin (incl. Polish) coverage, and the image build fails if no such font is available.
+
 ### Added
 - Auto-Story mode (PRO): choose what the automatic Story after a post contains — `card` (the generated card; for a video post it now uses a frame from the video as its picture) or `media` (the post's own photo or video re-published as a Story; for a carousel the first item). Set the default per channel and override it per post in the composer or via the API (`autoStoryMode`, channel `default_auto_story_mode`). Media that exceeds Story limits (for example video longer than 60 s on Instagram or 90 s on Facebook) falls back to the card and the reason is recorded. Existing channels keep the card.
 
