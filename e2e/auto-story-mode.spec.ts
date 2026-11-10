@@ -42,3 +42,25 @@ test("channel Story mode persists and compose overrides it", async ({ page }) =>
     await client.end();
   }
 });
+
+test("Facebook Auto-Story panel links to the Page's reel composer; Instagram shows no hint", async ({ page }) => {
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{ id: string; platform: string; platform_id: string }>(
+      "select distinct on (platform) id, platform, platform_id from channels where platform in ('facebook','instagram') order by platform, created_at");
+    const fb = rows.find((r) => r.platform === "facebook")!;
+    const ig = rows.find((r) => r.platform === "instagram")!;
+    await page.goto(`/channels/${fb.id}`);
+    const hint = page.locator("#story-panel [data-fb-reel-story-hint]");
+    await expect(hint.getByRole("link", { name: "Check it in the reel composer" }))
+      .toHaveAttribute("href", `https://business.facebook.com/latest/reels_composer/?asset_id=${encodeURIComponent(fb.platform_id)}`);
+    await expect(hint.getByRole("link", { name: "How to turn it off" }))
+      .toHaveAttribute("href", /docs\/STORIES\.md#facebook-adds-a-shortened-reel-preview-to-your-story$/);
+    await page.goto(`/channels/${ig.id}`);
+    await expect(page.locator("#story-panel")).toBeVisible();
+    await expect(page.locator("[data-fb-reel-story-hint]")).toHaveCount(0);
+  } finally {
+    await client.end();
+  }
+});

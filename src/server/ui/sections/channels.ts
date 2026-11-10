@@ -745,6 +745,25 @@ function platformSupportsStory(platform: string): boolean {
   }
 }
 
+const FACEBOOK_REEL_STORY_DOCS_URL =
+  "https://github.com/jurczykpawel/poststack/blob/main/docs/STORIES.md#facebook-adds-a-shortened-reel-preview-to-your-story";
+
+/** FBSTORY1: Facebook can share every new reel of a Page to its Story as a cut-off preview. That is a
+ *  Page setting in Business Suite the Graph API cannot read or change, so we only point at the Page's
+ *  reel composer (built from the stored page id, no API call) and the guide. Shown regardless of the
+ *  PRO license: Facebook does it whether or not PostStack's auto-Story is on. */
+function facebookReelStoryHint(ch: PublicChannel): Html {
+  if (ch.platform !== "facebook") return html``;
+  const composerUrl = `https://business.facebook.com/latest/reels_composer/?asset_id=${encodeURIComponent(ch.provider_account_id)}`;
+  return html`<p class="card-hint" data-fb-reel-story-hint>
+    Seeing a cut-off reel with “Watch video” in this Page’s Story? Facebook adds it itself when the Page’s
+    “Share to Facebook story” setting is on.
+    <a href="${composerUrl}" target="_blank" rel="noopener">Check it in the reel composer</a>
+    (add any video, go to Share, no need to publish) ·
+    <a href="${FACEBOOK_REEL_STORY_DOCS_URL}" target="_blank" rel="noopener">How to turn it off</a>
+  </p>`;
+}
+
 function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
   if (!platformSupportsStory(ch.platform)) return html``;
   const on = ch.default_auto_story;
@@ -774,7 +793,7 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
       <a class="btn btn-secondary btn-sm" href="${upgradeUrl}" target="_blank" rel="noopener" style="opacity:.85" title="Requires a PRO license">${icon("lock", "ico", 13)} Auto-Story (PRO)</a>`;
   return html`<section class="panel" id="story-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
     <div class="panel-head"><h3>Auto-Story</h3></div>
-    <div class="set-body">${body}</div>
+    <div class="set-body">${body}${facebookReelStoryHint(ch)}</div>
   </section>`;
 }
 
