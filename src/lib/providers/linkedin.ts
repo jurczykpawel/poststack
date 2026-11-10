@@ -6,7 +6,6 @@ import { assertAllowedHost } from "./follow";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
 import { validate } from "./validate";
-
 import { PermanentError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { asString } from "./util";
