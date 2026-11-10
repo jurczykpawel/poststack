@@ -44,7 +44,7 @@ export async function prepareStoryMedia(request: PublishRequest, workspaceId: st
       const [n, d] = String(video?.avg_frame_rate ?? "0/1").split("/").map(Number);
       const fps = n! / d!;
       let reason: string | undefined;
-      if (!(duration >= 3 && duration <= 60)) reason = "video_duration";
+      if (!(duration >= 3 && duration <= (platform === "facebook" ? 90 : 60))) reason = "video_duration";
       else if (!/(^|,)(mp4|mov)(,|$)/.test(probe.format?.format_name ?? "") || !["h264", "hevc"].includes(video?.codec_name) || video?.pix_fmt !== "yuv420p") reason = "video_format";
       else if (audio && (audio.codec_name !== "aac" || !(Number(audio.sample_rate) <= 48000) || ![1, 2].includes(audio.channels))) reason = "video_audio";
       else if (!(fps >= (platform === "facebook" ? 24 : 23) && fps <= 60)) reason = "video_frame_rate";

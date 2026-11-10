@@ -56,6 +56,12 @@ describe("auto-Story media", () => {
     expect(result.mediaUrl).toBeUndefined();
     expect(result.thumbnail).toBeDefined();
   });
+  it.each([[75, false], [91, true]] as const)("Facebook accepts Story video up to 90 s (%s s → fallback %s)", async (seconds, falls) => {
+    asset("video", video);
+    getMedia.mockResolvedValue({ kind: "video", url: "https://cdn.example/asset", duration_sec: seconds, status: "ready" });
+    const result = await prepareStoryMedia(request, "ws", "facebook", "media");
+    expect(result.fallbackReason === "video_duration").toBe(falls);
+  });
   it("falls back on an unsupported image format", async () => {
     asset("image", await sharp(jpeg).png().toBuffer());
     expect((await prepareStoryMedia(request, "ws", "instagram", "media")).fallbackReason).toBe("image_format");

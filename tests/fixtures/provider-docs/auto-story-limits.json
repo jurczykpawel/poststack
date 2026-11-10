@@ -8,9 +8,9 @@
   },
   "facebook": {
     "source": "https://developers.facebook.com/docs/page-stories-api/",
-    "video": { "minSeconds": 3, "maxSeconds": 60, "minWidth": 540, "minHeight": 960, "aspectRatio": "9:16", "minFPS": 24, "maxFPS": 60 },
+    "video": { "minSeconds": 3, "maxSeconds": 90, "minWidth": 540, "minHeight": 960, "aspectRatio": "9:16", "minFPS": 24, "maxFPS": 60 },
     "image": { "formats": ["jpeg", "bmp", "png", "gif", "tiff"], "maxMB": 10 },
-    "notes": "The specifications table says 3–90 seconds but Limitations caps video stories at 60 seconds. Media must be uploaded separately from the main post."
+    "notes": "The specifications table says 3–90 seconds; Limitations says 60. Measured live 2026-11-10 (Page Stories API, TEST page): a 75 s video story was accepted (length 75) and played in full on the phone, so 90 s from the table is used. Media must be uploaded separately from the main post."
   },
   "notes": "Direct HTTPS retrieval returned Meta's documentation as Markdown. Runtime uses a conservative 100 MB download cap for video on both platforms. No live response claimed."
 }
