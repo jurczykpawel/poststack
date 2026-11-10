@@ -12,6 +12,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Added
 - Docs: [Stories](docs/STORIES.md) explains why Facebook can add a shortened preview of every new reel to the Page's Story (a Page setting in Meta Business Suite that the API cannot read or change) and how to turn it off. The Auto-Story panel of a Facebook channel links to that Page's reel composer and to the guide.
 
+### Changed
+- Story cards: the button text follows the post language (post, then its content, then English), e.g. "Zobacz całą rolkę" for Polish posts. The composer has a language select for posts.
+
 ## [0.19.0] - 2026-11-10
 
 ### Fixed
