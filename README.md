@@ -260,6 +260,8 @@ re-encrypt every `channels.token_encrypted` under the new key (in a maintenance 
 
 > **Stories and a cut-off reel in your Facebook Story?** See [docs/STORIES.md](docs/STORIES.md): Story format, auto-Story modes, and how to turn off Facebook's own shortened reel preview in Story.
 
+> **Telegram?** See [docs/TELEGRAM_CONNECTIONS.md](docs/TELEGRAM_CONNECTIONS.md): create a bot with BotFather, connect it, and the pitfalls (one webhook per bot).
+
 > **Want an AI agent to click through this for you?** The repo ships an agent skill,
 > [`skills/meta-app-setup`](skills/meta-app-setup/SKILL.md), that drives the whole setup below in
 > your own browser and stops only for your password, 2FA and consent screens.
