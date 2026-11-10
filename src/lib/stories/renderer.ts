@@ -112,9 +112,9 @@ function arrow(p0: Pt, c0: Pt, c1: Pt, tip: Pt, color: string, width = 22, headL
     <path d="M ${tip.x} ${tip.y} L ${left.x} ${left.y} L ${right.x} ${right.y} Z" fill="${color}"/>`;
 }
 const reelPill = (cx: number, y: number, label: string) =>
-  `<rect x="${cx - 195}" y="${y}" width="390" height="68" rx="34" fill="rgba(0,0,0,0.62)"/><text x="${cx}" y="${y + 45}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#fff">▶ ${escapeXml(label)}</text>`;
+  `<rect x="${cx - 195}" y="${y}" width="390" height="68" rx="34" fill="rgba(0,0,0,0.62)"/><text x="${cx}" y="${y + 45}" text-anchor="middle" font-family="DejaVu Sans,Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#fff">▶ ${escapeXml(label)}</text>`;
 const brandMark = (x: number, y: number, color: string, accent: string, name: string) =>
-  name ? `<rect x="${x}" y="${y - 26}" width="30" height="30" rx="7" fill="${accent}"/><text x="${x + 44}" y="${y}" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="${color}">${escapeXml(name.slice(0, 40))}</text>` : "";
+  name ? `<rect x="${x}" y="${y - 26}" width="30" height="30" rx="7" fill="${accent}"/><text x="${x + 44}" y="${y}" font-family="DejaVu Sans,Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="${color}">${escapeXml(name.slice(0, 40))}</text>` : "";
 
 // ── built-in templates ──────────────────────────────────────────────────────────────────────────
 /** classic — the original look: cover fills the top, caption on a bottom scrim. Back-compat default
@@ -125,8 +125,8 @@ const classic: StoryTemplate = {
     const lines = wrapLines(stripEmoji(card.caption ?? ""), 26, 5);
     const top = STORY_HEIGHT - 260 - lines.length * 74;
     const accountY = top - 70;
-    const caption = lines.length ? `<text x="80" y="${top}" font-family="Helvetica,Arial,sans-serif" font-size="58" font-weight="800" fill="#ffffff">${tspans(lines, 80, 74)}</text>` : "";
-    const account = style.brandName ? `<text x="80" y="${accountY}" font-family="Helvetica,Arial,sans-serif" font-size="34" font-weight="700" letter-spacing="2" fill="${style.accent}">${escapeXml(style.brandName.slice(0, 40).toUpperCase())}</text>` : "";
+    const caption = lines.length ? `<text x="80" y="${top}" font-family="DejaVu Sans,Helvetica,Arial,sans-serif" font-size="58" font-weight="800" fill="#ffffff">${tspans(lines, 80, 74)}</text>` : "";
+    const account = style.brandName ? `<text x="80" y="${accountY}" font-family="DejaVu Sans,Helvetica,Arial,sans-serif" font-size="34" font-weight="700" letter-spacing="2" fill="${style.accent}">${escapeXml(style.brandName.slice(0, 40).toUpperCase())}</text>` : "";
     const bgSvg = `<svg width="${STORY_WIDTH}" height="${STORY_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs>
       <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#181f3a"/><stop offset="1" stop-color="#0b1020"/></linearGradient>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1"><stop offset="0.4" stop-color="#0b1020" stop-opacity="0"/><stop offset="1" stop-color="#0b1020" stop-opacity="0.96"/></linearGradient></defs>
@@ -150,7 +150,7 @@ const framed: StoryTemplate = {
       <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef1f6"/></linearGradient></defs>
       <rect width="${STORY_WIDTH}" height="${STORY_HEIGHT}" fill="url(#bg)"/>
       <rect x="80" y="160" width="64" height="8" rx="4" fill="${style.accent}"/>
-      <text x="80" y="252" font-family="Georgia,serif" font-size="52" font-weight="700" fill="#15171c">${tspans(lines, 80, 72)}</text></svg>`;
+      <text x="80" y="252" font-family="DejaVu Serif,Georgia,serif" font-size="52" font-weight="700" fill="#15171c">${tspans(lines, 80, 72)}</text></svg>`;
     const overlaySvg = `<svg width="${STORY_WIDTH}" height="${STORY_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
       ${arrow({ x: 250, y: 660 }, { x: 200, y: 850 }, { x: 250, y: 980 }, { x: cx - 18, y: 1000 }, style.accent)}
       ${reelPill(cx + cw / 2, cy + ch - 108, style.ctaLabel)}
@@ -169,7 +169,7 @@ const phone: StoryTemplate = {
       <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b2138"/><stop offset="1" stop-color="#0b1020"/></linearGradient></defs>
       <rect width="${STORY_WIDTH}" height="${STORY_HEIGHT}" fill="url(#bg)"/>
       <rect x="80" y="180" width="64" height="8" rx="4" fill="${style.accent}"/>
-      <text x="80" y="272" font-family="Helvetica,Arial,sans-serif" font-size="54" font-weight="800" fill="#fff">${tspans(lines, 80, 72)}</text>
+      <text x="80" y="272" font-family="DejaVu Sans,Helvetica,Arial,sans-serif" font-size="54" font-weight="800" fill="#fff">${tspans(lines, 80, 72)}</text>
       <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="48" fill="#000" stroke="#2a3252" stroke-width="3"/>
       <rect x="${fx + fw / 2 - 58}" y="${fy + 16}" width="116" height="20" rx="10" fill="#0b1020"/></svg>`;
     const overlaySvg = `<svg width="${STORY_WIDTH}" height="${STORY_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -195,7 +195,7 @@ const fullbleed: StoryTemplate = {
       <rect width="${STORY_WIDTH}" height="640" fill="url(#top)"/>
       <rect y="${STORY_HEIGHT - 520}" width="${STORY_WIDTH}" height="520" fill="url(#bot)"/>
       <rect x="80" y="160" width="64" height="8" rx="4" fill="${style.accent}"/>
-      <text x="80" y="252" font-family="Helvetica,Arial,sans-serif" font-size="52" font-weight="800" fill="#fff">${tspans(lines, 80, 68)}</text>
+      <text x="80" y="252" font-family="DejaVu Sans,Helvetica,Arial,sans-serif" font-size="52" font-weight="800" fill="#fff">${tspans(lines, 80, 68)}</text>
       ${reelPill(STORY_WIDTH / 2, STORY_HEIGHT - 240, style.ctaLabel)}
       ${brandMark(80, STORY_HEIGHT - 100, "#fff", style.accent, style.brandName)}</svg>`;
     return { bg: { r: 11, g: 16, b: 32 }, bgSvg, cover: hasThumbnail ? { x: 0, y: 0, w: STORY_WIDTH, h: STORY_HEIGHT, radius: 0 } : undefined, overlaySvg };
