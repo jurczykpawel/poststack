@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-10
+
 ### Fixed
 - Story cards rendered boxes instead of text on Docker installs: the web and worker images now include fonts with full Latin (incl. Polish) coverage, and the image build fails if no such font is available.
 
