@@ -7,11 +7,12 @@ import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
 import { validate } from "./validate";
 
-/** LinkedIn REST API version (`LinkedIn-Version` header) — single source of truth; bump here only. */
-export const LINKEDIN_API_VERSION = "202610";
 import { PermanentError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { asString } from "./util";
+
+/** LinkedIn REST API version (`LinkedIn-Version` header) — single source of truth; bump here only. */
+export const LINKEDIN_API_VERSION = "202610";
 
 const API = "https://api.linkedin.com/v2";
 
