@@ -44,6 +44,7 @@ const composeSchema = z.object({
   mediaUrls: z.array(httpUrl).max(100).optional(),
   coverUrl: httpUrl.optional().or(z.literal("")),
   baseDescription: z.string().max(LIMITS.text).optional(),
+  language: z.enum(["pl", "en"]).optional(),
   baseHashtags: z.string().max(LIMITS.hashtags).optional(),
   posts: z
     .array(
@@ -145,6 +146,7 @@ function composeScript(): Html {
           this.articleUrl = d.articleUrl || "";
           this.title = d.title || ""; this.type = d.contentType || "video";
           this.mediaUrl = d.mediaUrls?.[0] || d.mediaUrl || ""; this.extraMedia = (d.mediaUrls || []).slice(1); this.coverUrl = d.coverUrl || "";
+          this.language = d.language || "";
           this.baseDescription = d.baseDescription || ""; this.baseHashtags = d.baseHashtags || "";
           this.publishMode = d.publish?.mode || "draft";
           if (d.publish?.at) { var at = new Date(d.publish.at); this.scheduleAt = new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
@@ -200,7 +202,7 @@ function composeScript(): Html {
           try { var r = await fetch("/api/v1/media", { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file }); var b = await r.json(); if (!r.ok) throw new Error(b.error?.message || "Upload failed."); this.addMedia(b.data.url, b.data.kind); }
           catch (e) { this.mediaNotice = e.message; } finally { this.mediaBusy = false; }
         },
-        brand: "", title: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
+        brand: "", title: "", language: "", type: "video", mediaUrl: "", coverUrl: "", baseDescription: "", baseHashtags: "",
         sel: {}, publishMode: "draft", scheduleAt: "", capTab: "base", pvTab: "",
         minAt() { var d = new Date(Date.now() + 60000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); },
         get scheduleNotice() { return this.publishMode === "schedule" ? window.psScheduleTime(this.scheduleAt).notice : ""; },
@@ -286,6 +288,7 @@ function composeScript(): Html {
             brand: this.brand, title: this.title.trim(), contentType: this.allMedia().length > 1 ? "carousel" : this.type,
             mediaUrls: this.allMedia().length > 1 || this.type === "carousel" ? this.allMedia() : undefined,
             mediaUrl: this.mediaUrl.trim(), coverUrl: this.coverUrl.trim() || undefined,
+            language: this.language || undefined,
             baseDescription: this.baseDescription || undefined, baseHashtags: this.baseHashtags || undefined,
             posts: this.selectedPlatforms().map((p) => {
               var s = this.sel[p.platform];
@@ -436,6 +439,9 @@ async function composePage(
             <div class="panel-head"><h3>Caption</h3><span class="panel-sub" x-text="capSub()"></span></div>
             <div class="compose-body">
               <label class="fld"><span>Title <small>(internal)</small></span><input type="text" x-model="title" maxlength="200" placeholder="Internal title" required /></label>
+              <label class="fld"><span>Post language</span><select x-model="language" aria-label="Post language">
+                <option value="">Not set</option><option value="pl">Polski</option><option value="en">English</option>
+              </select></label>
               <div class="cap-tabs">
                 <button type="button" class="cap-tab" :class="capTab==='base' ? 'on' : ''" @click="capTab='base'">Base</button>
                 <template x-for="p in selectedPlatforms()" :key="'cap-'+p.platform">

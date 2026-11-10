@@ -156,6 +156,7 @@ describe("unified Compose section", () => {
       coverUrl: "https://cdn/cover.png",
       baseDescription: "Base caption",
       baseHashtags: "#ai",
+      language: "pl",
       posts: [{ platform: "instagram" }, { platform: "youtube", description: "YT caption" }],
     };
     const res = await app.request("/compose", {
@@ -173,6 +174,7 @@ describe("unified Compose section", () => {
     expect(row!.profile).toBe("techskills.academy");
     const ps = await db.query.posts.findMany({ where: and(eq(posts.workspace_id, workspaceId), eq(posts.content_id, id)) });
     expect(ps).toHaveLength(2);
+    expect(ps.every(p => p.language === "pl")).toBe(true);
     expect(ps.every((p) => p.status === "planned")).toBe(true);
     expect(ps.find((p) => p.platform === "youtube")!.description).toBe("YT caption");
     expect(ps.find((p) => p.platform === "instagram")!.description).toBe("Base caption");
@@ -438,12 +440,12 @@ interface ComposeState {
   mediaImage(url: string): boolean; mediaVideo(url: string): boolean;
   tiktokScheduleText(): string;
   brand: string; title: string; type: string; mediaUrl: string; baseDescription: string; baseHashtags: string;
-  publishMode: string; scheduleAt: string;
+  publishMode: string; scheduleAt: string; language: string;
   sel: Record<string, { on: boolean; override: string }>;
   tt: { mode: string; privacy: string; disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean;
     consent: boolean; consentKey: string; allowDuet: boolean; videoDurationSec: number };
   onBrandChange(): void; tiktokConsentKey(): string; canSubmit(): boolean;
-  captionFor(platform: string): string; buildPayload(): { posts: Array<Record<string, unknown>>; publish: { at?: string } };
+  captionFor(platform: string): string; buildPayload(): { language?: string; posts: Array<Record<string, unknown>>; publish: { at?: string } };
 }
 async function composeState(): Promise<ComposeState> {
   const out = await pageHtml();
@@ -590,4 +592,13 @@ it("offers Story and article formats with an article URL field", async () => {
   expect(out).toContain('<option value="story">');
   expect(out).toContain('<option value="article">');
   expect(out).toContain('x-model="articleUrl"');
+});
+
+it("includes the selected language in the browser payload", async () => {
+  const c = await composeState();
+  expect(c.language).toBe("");
+  c.language = "pl";
+  expect(c.buildPayload().language).toBe("pl");
+  c.language = "";
+  expect(c.buildPayload().language).toBeUndefined();
 });

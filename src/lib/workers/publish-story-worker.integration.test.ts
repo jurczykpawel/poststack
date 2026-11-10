@@ -193,3 +193,19 @@ describe("publish-story worker (STORY1)", () => {
     expect(render).not.toHaveBeenCalled();
   });
 });
+
+describe("Story card language selection", () => {
+  it.each([
+    ["pl", "en", "pl"], ["pl-PL", null, "pl-PL"], ["en", "pl", "en"],
+    [null, null, "en"], [null, "pl-PL", "pl-PL"], ["de", "pl", "de"],
+  ])("uses post %s before content %s", async (postLanguage, contentLanguage, expected) => {
+    const { channelId, deliveryId } = await seed();
+    const [content] = await db.insert(schema.content).values({ workspace_id: WS, title: "Language", language: contentLanguage }).returning();
+    await db.insert(schema.posts).values({ workspace_id: WS, content_id: content!.id, delivery_id: deliveryId, platform: "instagram", language: postLanguage });
+    const render = fakeRenderer();
+    vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
+      .mockResolvedValue({ providerHandle: documented.published.id });
+    await processPublishStory({ channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` }, helpers);
+    expect(render.mock.calls[0]?.[0]).toMatchObject({ language: expected, format: "video" });
+  });
+});

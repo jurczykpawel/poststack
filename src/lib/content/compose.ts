@@ -25,6 +25,7 @@ export interface ComposeInput {
   coverUrl?: string;
   baseDescription?: string;
   baseHashtags?: string;
+  language?: string;
   posts: ComposePostInput[];
 }
 
@@ -69,6 +70,7 @@ export async function composeContent(input: ComposeInput, workspaceId: string): 
         ...tiktokPostSettings.parse(p),
         ...youtubePostSettings.parse(p),
         contentId: content.id,
+        language: input.language,
         platform: p.platform,
         ...(input.contentType === "article" ? { articleUrl: input.articleUrl, title: input.title } : {}),
         description: p.description?.trim() || input.baseDescription,

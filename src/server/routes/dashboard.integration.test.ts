@@ -489,6 +489,14 @@ describe("dashboard rule builder", () => {
 });
 
 describe("channel detail page", () => {
+  it.each(["card", "media"] as const)("selects only the saved Story mode %s", async mode => {
+    await db.update(s.channels).set({ default_auto_story_mode: mode }).where(eq(s.channels.id, CH));
+    const body = await (await app.request(`/channels/${CH}`, { headers: { cookie } })).text();
+    const options = body.match(/<select name="mode"[^>]*>([\s\S]*?)<\/select>/)![1]!;
+    expect(options.match(/selected/g)).toHaveLength(1);
+    expect(options).toContain(`value="${mode}" selected`);
+  });
+
   it("links to the channel's inbox and shows PRO stats", async () => {
     if (!TEST_DB) return;
     const body = await (await app.request(`/channels/${CH}`, { headers: { cookie } })).text();

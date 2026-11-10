@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import sharp from "sharp";
 import { SharpStoryRenderer, STORY_WIDTH, STORY_HEIGHT, STORY_TEMPLATES, DEFAULT_STORY_TEMPLATE, resolveStoryTemplate, registerStoryTemplate } from "./renderer";
 
@@ -101,5 +101,22 @@ describe("story template registry (STORYCFG1)", () => {
   it("registerStoryTemplate adds a custom template (the PRO extensibility seam)", () => {
     registerStoryTemplate({ id: "custom-test", plan: () => ({ bg: { r: 0, g: 0, b: 0 }, bgSvg: "<svg/>", overlaySvg: "<svg/>" }) });
     expect(resolveStoryTemplate("custom-test").id).toBe("custom-test");
+  });
+});
+
+describe("Story card language", () => {
+  it.each([
+    ["pl", "reel", "Zobacz całą rolkę"],
+    ["pl-PL", "video", "Zobacz całą rolkę"],
+    ["PL-pl", "image", "Zobacz cały post"],
+    ["en", "reel", "Watch full reel"],
+    [undefined, "image", "See full post"],
+    ["de", "image", "See full post"],
+  ])("uses %s for %s", async (language, format, expected) => {
+    const plan = vi.fn(STORY_TEMPLATES.framed!.plan);
+    registerStoryTemplate({ id: "language-test", plan });
+    await new SharpStoryRenderer().render({ caption: "Caption", language, format }, { template: "language-test" });
+    expect(plan.mock.calls[0]?.[1].ctaLabel).toBe(expected);
+    expect(plan.mock.results[0]?.value.overlaySvg).toContain(expected);
   });
 });

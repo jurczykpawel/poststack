@@ -14,6 +14,8 @@ export const STORY_HEIGHT = 1920;
 export interface StoryCard {
   /** Teaser/intro text drawn on the card (the post caption/title). */
   caption: string;
+  language?: string | null;
+  format?: string;
   /** Small label drawn as the brand mark (channel/brand name) when `style.brandName` is unset. */
   accountName?: string;
   /** Optional image bytes (the post's media / reel cover) composited as the card's visual. Non-image /
@@ -30,7 +32,7 @@ export interface StoryStyle {
   accent?: string;
   /** Brand display name for the footer mark. Falls back to card.accountName. */
   brandName?: string;
-  /** Call-to-action label on the cover pill. Defaults to "Watch full reel". */
+  /** Call-to-action label on the cover pill. Defaults to the card language and format. */
   ctaLabel?: string;
 }
 
@@ -212,11 +214,17 @@ export function registerStoryTemplate(t: StoryTemplate): void { STORY_TEMPLATES[
 export function resolveStoryTemplate(id?: string): StoryTemplate {
   return (id && STORY_TEMPLATES[id]) || STORY_TEMPLATES[DEFAULT_STORY_TEMPLATE]!;
 }
+function storyCtaLabel(language?: string | null, format = "reel"): string {
+  const polish = language?.trim().toLowerCase().split("-")[0] === "pl";
+  const video = ["reel", "video", "short"].includes(format);
+  return polish ? (video ? "Zobacz całą rolkę" : "Zobacz cały post") : (video ? "Watch full reel" : "See full post");
+}
+
 function resolveStyle(card: StoryCard, style?: StoryStyle): ResolvedStyle {
   return {
     accent: style?.accent?.trim() || DEFAULT_ACCENT,
     brandName: (style?.brandName ?? card.accountName ?? "").trim(),
-    ctaLabel: style?.ctaLabel?.trim() || "Watch full reel",
+    ctaLabel: style?.ctaLabel?.trim() || storyCtaLabel(card.language, card.format),
   };
 }
 

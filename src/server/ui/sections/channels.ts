@@ -762,8 +762,8 @@ function storyPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oo
       </form>
       <form class="panel-form" method="post" action="/channels/${ch.id}/auto-story-mode" hx-post="/channels/${ch.id}/auto-story-mode" hx-target="#ch-detail-head" hx-swap="outerHTML">
         <label class="fld"><span>Default Story mode</span><select name="mode" aria-label="Default Story mode">
-          <option value="card" selected=${ch.default_auto_story_mode === "card"}>Generated card</option>
-          <option value="media" selected=${ch.default_auto_story_mode === "media"}>Post media (first item)</option>
+          <option value="card" ${ch.default_auto_story_mode === "card" ? "selected" : ""}>Generated card</option>
+          <option value="media" ${ch.default_auto_story_mode === "media" ? "selected" : ""}>Post media (first item)</option>
         </select></label>
         <p class="card-hint">Post media falls back to a generated card when Story limits are not met.</p>
         ${btn({ label: "Save Story mode", variant: "secondary", size: "sm" })}

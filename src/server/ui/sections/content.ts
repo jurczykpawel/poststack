@@ -284,6 +284,12 @@ function postCardEdit(contentId: string, post: PostRow): Html {
     <header class="post-card-head">${platformCell(post.platform)} ${statusBadge(post.status)}</header>
     <form method="post" action="${save}" hx-post="${save}" ${hxCard(post.id)}>
       <textarea maxlength="${LIMITS.text}" name="description" class="card-edit-area" rows="5" aria-label="Description">${post.description ?? ""}</textarea>
+      <label class="fld"><span>Post language</span><select name="language" aria-label="Post language">
+        <option value="" ${!post.language ? "selected" : ""}>Not set</option>
+        <option value="pl" ${post.language === "pl" ? "selected" : ""}>Polski</option>
+        <option value="en" ${post.language === "en" ? "selected" : ""}>English</option>
+        ${post.language && !["pl", "en"].includes(post.language) ? html`<option value="${post.language}" selected>${post.language}</option>` : ""}
+      </select></label>
       <div class="card-edit-actions">
         ${btn({ label: "Save", variant: "primary", size: "sm", attrs: 'type="submit"' })}
         <button class="btn btn-ghost btn-sm" type="button" hx-get="${cancel}" ${hxCard(post.id)}>Cancel</button>
@@ -467,7 +473,7 @@ export function registerContent(r: Hono, guard: MiddlewareHandler): void {
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const { id, postId } = c.req.param();
     const form = await c.req.parseBody();
-    const parsed = postPatch.safeParse({ description: String(form.description ?? "") });
+    const parsed = postPatch.safeParse({ description: String(form.description ?? ""), ...(form.language !== undefined ? { language: String(form.language) } : {}) });
     if (!parsed.success) {
       const frag = await cardFragment(a.workspaceId, id, postId, true);
       if (!frag) return c.text("not found", 404);

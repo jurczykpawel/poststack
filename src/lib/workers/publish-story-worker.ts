@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { deliveries, channels, brands, outboundDeliveries } from "@/db/schema";
+import { deliveries, channels, brands, outboundDeliveries, posts, content } from "@/db/schema";
 import type { PublishStoryJob } from "@/lib/queue/types";
 import type { PublishRequest } from "@/lib/providers/types";
 import { decryptTokens } from "@/lib/crypto";
@@ -52,8 +52,18 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
         const brand = channel.brand_key
           ? await db.query.brands.findFirst({ where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, channel.brand_key)), columns: { name: true, accent: true, story_template: true } })
           : undefined;
+        const post = await db.query.posts.findFirst({
+          where: and(eq(posts.workspace_id, workspaceId), eq(posts.delivery_id, deliveryId)),
+          columns: { language: true, content_id: true },
+        });
+        const source = !post?.language?.trim() && post?.content_id
+          ? await db.query.content.findFirst({
+            where: and(eq(content.workspace_id, workspaceId), eq(content.id, post.content_id)),
+            columns: { language: true },
+          }) : undefined;
+        const language = post?.language?.trim() || source?.language?.trim() || "en";
         const bytes = await getStoryRenderer().render(
-          { caption, accountName, thumbnail: selected.thumbnail },
+          { caption, accountName, thumbnail: selected.thumbnail, language, format: request.format },
           { template: brand?.story_template ?? undefined, accent: brand?.accent ?? undefined, brandName: brand?.name ?? accountName },
         );
 

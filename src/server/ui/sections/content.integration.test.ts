@@ -184,13 +184,20 @@ describe("content cockpit", () => {
     const edit = await (await app.request(`/content/${contentId}/posts/${postId}/edit`, { headers: { cookie } })).text();
     expect(edit).toContain("<textarea");
     expect(edit).toContain("weak llm caption");
+    expect(edit).toContain('name="language"');
 
     const res = await app.request(`/content/${contentId}/posts/${postId}/description`, {
-      method: "POST", headers: htmx, body: new URLSearchParams({ description: "polished caption" }),
+      method: "POST", headers: htmx, body: new URLSearchParams({ description: "polished caption", language: "pl" }),
     });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("polished caption");
     expect((await db.query.posts.findFirst({ where: eq(posts.id, postId) }))!.description).toBe("polished caption");
+    expect((await db.query.posts.findFirst({ where: eq(posts.id, postId) }))!.language).toBe("pl");
+    const reopened = await (await app.request(`/content/${contentId}/posts/${postId}/edit`, { headers: { cookie } })).text();
+    const languageOptions = reopened.match(/<select name="language"[^>]*>([\s\S]*?)<\/select>/)![1]!;
+    expect(languageOptions.match(/selected/g)).toHaveLength(1);
+    expect(languageOptions).toMatch(/value="pl" selected/);
+
   });
 
   it("shows the brand-resolved publish control (checkbox + target), not a channel picker", async () => {
