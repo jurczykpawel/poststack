@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { metaProvider } from "./meta";
-import { linkedinProvider } from "./linkedin";
+import { linkedinProvider, LINKEDIN_API_VERSION } from "./linkedin";
 import fixture from "../../../tests/fixtures/provider-docs/article-story.json";
 
 vi.mock("@/lib/media/ssrf", () => ({ safeFetch: (...args: Parameters<typeof fetch>) => fetch(...args) }));
@@ -53,7 +53,7 @@ it.each([false, true])("publishes LinkedIn article with thumbnail=%s", async (th
     source: fixture.article.source, title: fixture.article.title, description: fixture.article.description,
     ...(thumbnail ? { thumbnail: fixture.imageUpload.value.image } : {}),
   } } });
-  expect(new Headers(post.init!.headers).get("LinkedIn-Version")).toBe("202610");
+  expect(new Headers(post.init!.headers).get("LinkedIn-Version")).toBe(LINKEDIN_API_VERSION);
   expect(calls.some(c => c.url.includes("/rest/images?action=initializeUpload"))).toBe(thumbnail);
 });
 

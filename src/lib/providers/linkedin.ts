@@ -6,6 +6,9 @@ import { assertAllowedHost } from "./follow";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
 import { validate } from "./validate";
+
+/** LinkedIn REST API version (`LinkedIn-Version` header) — single source of truth; bump here only. */
+export const LINKEDIN_API_VERSION = "202610";
 import { PermanentError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { asString } from "./util";
@@ -155,7 +158,7 @@ async function uploadAsset(accessToken: string, owner: string, recipe: string, m
 }
 
 const REST = "https://api.linkedin.com/rest";
-const restHeaders = (accessToken: string) => ({ authorization: `Bearer ${accessToken}`, "content-type": "application/json", "LinkedIn-Version": "202610", "X-Restli-Protocol-Version": "2.0.0" });
+const restHeaders = (accessToken: string) => ({ authorization: `Bearer ${accessToken}`, "content-type": "application/json", "LinkedIn-Version": LINKEDIN_API_VERSION, "X-Restli-Protocol-Version": "2.0.0" });
 
 async function publishArticle(accessToken: string, author: string, request: PublishRequest, imageUrl?: string): Promise<PublishHandle> {
   const headers = restHeaders(accessToken);
