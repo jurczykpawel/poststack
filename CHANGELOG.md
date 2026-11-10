@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-10
+
 ### Fixed
 - Stories: posts with the Story format on Facebook (photo and video) and Instagram (both login types) are now published as Stories. Previously Facebook sent them as regular videos and Instagram rejected them. The automatic Story after a feed post is unchanged.
 - LinkedIn: the Article format now publishes a link post with title, optional description and an optional thumbnail (Posts and Images API). Posts and the API accept an `articleUrl`; a previously scheduled article without one fails with a clear reason.
