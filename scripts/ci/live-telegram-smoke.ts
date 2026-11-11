@@ -15,7 +15,9 @@ export async function runSmoke(env: Env, pause = () => new Promise<void>(resolve
     for (const [format, mediaUrls, mediaKinds] of [
       ["text", [], []], ["image", [`${base}.jpg`], ["image"]],
       ["video", [`${base}.mp4`], ["video"]],
-      ["carousel", [`${base}.jpg`, `${base}.mp4`], ["image", "video"]],
+      // Album = 2 photos: raw.githubusercontent serves MP4 as application/octet-stream and Telegram rejects a
+      // video by such URL inside sendMediaGroup (single sendVideo accepts it). Measured 2026-11-11.
+      ["carousel", [`${base}.jpg`, `${base}.jpg`], ["image", "image"]],
     ] as const) {
       if (ids.size) await pause();
       const handle = await telegramProvider.publish({
@@ -52,8 +54,9 @@ export async function runSmoke(env: Env, pause = () => new Promise<void>(resolve
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runSmoke(process.env).then(() => console.log("Telegram smoke passed; all five messages deleted")).catch((error: unknown) => {
     // Provider errors may contain external descriptions; keep console output predictable.
-    const message = error instanceof Error && /^(LIVE_TG_|GITHUB_SHA|Cleanup failed)/.test(error.message)
-      ? error.message : "Telegram smoke failed; inspect the test channel. No automatic publish retry.";
+    // Show the provider error (the bot token is redacted) so a failed gate says why.
+    const raw = error instanceof Error ? error.message : String(error);
+    const message = `Telegram smoke failed: ${raw.replace(/bot\d+:[\w-]+/g, "bot***").slice(0, 300)}. No automatic publish retry.`;
     console.error(message);
     process.exitCode = 1;
   });
