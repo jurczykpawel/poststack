@@ -23,6 +23,11 @@ describe("CI release gates", () => {
       const actions = [...source.matchAll(/\buses:\s*([^\s#]+)/g)].map((match) => match[1]);
       expect(actions.length, name).toBeGreaterThan(0);
       for (const action of actions) {
+        if (action.startsWith("./")) {
+          expect(action).toMatch(/^\.\/\.github\/workflows\/[a-z0-9-]+\.yml$/);
+          expect(workflows[action.slice("./.github/workflows/".length)]).toBeDefined();
+          continue;
+        }
         expect(action, `${name}: ${action}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
       }
     }

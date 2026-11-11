@@ -1,0 +1,36 @@
+name: Live Telegram smoke
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+    secrets:
+      LIVE_TG_BOT_TOKEN:
+        required: true
+      LIVE_TG_CHAT_ID:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: live-telegram
+  cancel-in-progress: false
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+      - name: Resolve fixture commit
+        run: echo "GITHUB_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Validate, publish and delete Telegram messages
+        env:
+          LIVE_TG_BOT_TOKEN: ${{ secrets.LIVE_TG_BOT_TOKEN }}
+          LIVE_TG_CHAT_ID: ${{ secrets.LIVE_TG_CHAT_ID }}
+        run: bun scripts/ci/live-telegram-smoke.ts

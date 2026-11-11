@@ -23,6 +23,15 @@ env:
   WORKER_IMAGE: ghcr.io/jurczykpawel/poststack-worker
 
 jobs:
+  live-telegram:
+    name: Telegram live gate
+    uses: ./.github/workflows/live-telegram.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+    secrets:
+      LIVE_TG_BOT_TOKEN: ${{ secrets.LIVE_TG_BOT_TOKEN }}
+      LIVE_TG_CHAT_ID: ${{ secrets.LIVE_TG_CHAT_ID }}
+
   verify:
     name: Lint, Type Check, Test
     if: github.event_name == 'push'
@@ -134,8 +143,8 @@ jobs:
   build:
     name: Build & push images
     # rc tags skip dependabot-gate; a skipped gate must not skip the build.
-    if: "!cancelled() && github.event_name == 'push' && needs.verify.result == 'success' && contains(fromJSON('[\"success\",\"skipped\"]'), needs.dependabot-gate.result)"
-    needs: [verify, dependabot-gate]
+    if: "!cancelled() && github.event_name == 'push' && needs.verify.result == 'success' && needs.live-telegram.result == 'success' && contains(fromJSON('[\"success\",\"skipped\"]'), needs.dependabot-gate.result)"
+    needs: [verify, dependabot-gate, live-telegram]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -224,6 +233,7 @@ jobs:
 
   deploy-prod:
     name: Manual deploy to PROD
+    needs: live-telegram
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
