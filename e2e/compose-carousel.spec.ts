@@ -115,3 +115,60 @@ test("Compose adds library and uploaded media, removes slides, and explains chan
   const overflow = await page.evaluate(() => Array.from(document.querySelectorAll("main *")).filter(el => el.getBoundingClientRect().right > innerWidth + 1).map(el => ({ tag: el.tagName, cls: el.className, right: el.getBoundingClientRect().right })).slice(0, 10));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), JSON.stringify(overflow)).toBe(true);
 });
+
+test("Compose schedules twenty mixed Threads items and explains smaller destination limits", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  await setPro(page.request);
+  const { errors } = watchConsole(page);
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  let workspaceId = "", channelId = "", contentId = "", deliveryId = "";
+  const urls = Array.from({ length: 20 }, (_, i) => `https://cdn.example/threads-compose-${i}.${i % 2 ? "mp4" : "png"}`);
+  await page.route("https://cdn.example/**", route => route.fulfill({ contentType: "image/png", body: uploadPng }));
+  try {
+    const { rows: [channel] } = await client.query("insert into channels(workspace_id,platform,platform_id,display_name,token_encrypted,webhook_secret,status,connection_mode,brand_key) select workspace_id,'threads','threads-compose','E2E Threads',token_encrypted,'fixture','active','manual_token',brand_key from channels where platform='instagram' limit 1 returning id,workspace_id");
+    workspaceId = channel.workspace_id; channelId = channel.id;
+    for (const [i, url] of urls.entries()) await client.query("insert into media(workspace_id,checksum,storage_key,url,kind) values($1,$2,$2,$3,$4)", [workspaceId, `threads-compose-${i}`, url, i % 2 ? "video" : "image"]);
+    await page.goto("/compose");
+    await page.getByRole("button", { name: "Brand", exact: true }).click();
+    await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
+    for (const name of ["Facebook", "Instagram", "TikTok"]) await page.locator(".target").filter({ hasText: name }).click();
+    await page.getByLabel("Title (internal)").fill("Threads twenty mixed items");
+    await page.getByLabel("Media URL", { exact: true }).fill(urls[0]);
+    for (const url of urls.slice(1)) {
+      await page.getByRole("button", { name: "Add media", exact: true }).click();
+      await page.getByLabel("Additional media URL").fill(url);
+      await page.getByRole("button", { name: "Add URL", exact: true }).click();
+    }
+    await expect(page.locator("[data-compose-slide]")).toHaveCount(20);
+    await expect(page.getByRole("button", { name: "Add media", exact: true })).toBeDisabled();
+    await expect(page.getByText("Carousel (2–20 media)", { exact: true })).toBeVisible();
+    await page.locator(".target").filter({ hasText: "Instagram" }).click();
+    await expect(page.locator(".target").filter({ hasText: "Instagram" })).toContainText("Carousel allows at most 10 media items");
+    await expect(page.locator(".compose-pubbar button[type=submit]")).toBeDisabled();
+    await page.locator(".target").filter({ hasText: "Instagram" }).click();
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: info.outputPath(`threads-${width}.png`), fullPage: true });
+    }
+    await page.getByRole("button", { name: "Schedule", exact: true }).click();
+    await page.locator('input[type="datetime-local"]').fill("2035-01-15T14:30");
+    await page.locator(".compose-pubbar button[type=submit]").click();
+    await expect(page).toHaveURL(/\/content\/[0-9a-f-]+$/);
+    contentId = new URL(page.url()).pathname.split("/").pop()!;
+    const { rows: [post] } = await client.query("select media_urls,delivery_id from posts where content_id=$1 and platform='threads'", [contentId]);
+    deliveryId = post.delivery_id;
+    expect(post.media_urls).toEqual(urls);
+    const { rows: [delivery] } = await client.query("select format,payload,status from deliveries where id=$1", [deliveryId]);
+    expect(delivery).toMatchObject({ format: "carousel", status: "scheduled" });
+    expect(delivery.payload.media).toHaveLength(20);
+    expect(errors).toEqual([]);
+  } finally {
+    if (contentId) await client.query("delete from content where id=$1", [contentId]);
+    if (deliveryId) { await client.query("select graphile_worker.remove_job($1)", [`publish:${deliveryId}`]); await client.query("delete from deliveries where id=$1", [deliveryId]); }
+    if (channelId) await client.query("delete from channels where id=$1", [channelId]);
+    if (workspaceId) await client.query("delete from media where workspace_id=$1 and checksum like 'threads-compose-%'", [workspaceId]);
+    await client.end();
+  }
+});

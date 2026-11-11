@@ -1328,3 +1328,70 @@ describe("Telegram publishing", () => {
     expect(await row(id)).toMatchObject({ status: "failed", last_error: expect.stringContaining("Add the bot as an administrator") });
   });
 });
+
+describe("Threads durable publication", () => {
+  async function threadsScenario() {
+    const ids = await scenario();
+    await db.update(schema.channels).set({ platform: "threads" }).where(eq(schema.channels.id, ids.channelId));
+    const [editorial] = await db.insert(schema.posts).values({ workspace_id: WS, platform: "threads", delivery_id: ids.postId, status: "planned" }).returning();
+    return { ...ids, editorialId: editorial!.id };
+  }
+  function threadsHttp(status = "FINISHED", timeout = false) {
+    let id = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("threads_publish")) {
+        if (timeout) throw new Error("publish timeout");
+        return Response.json({ id: "threads-published" });
+      }
+      if (init?.method === "POST") return Response.json({ id: `container-${++id}` });
+      return Response.json({ status, ...(status === "ERROR" ? { error_message: "FAILED_DOWNLOADING_VIDEO" } : {}) });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+  it("persists processing, waits, finalizes once and records the public id", async () => {
+    const { postId, editorialId } = await threadsScenario();
+    let fetcher = threadsHttp("IN_PROGRESS");
+    await processPublish({ postId }, helpers);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await status(postId)).toBe("processing");
+    await processPublish({ postId }, helpers); // create
+    await processPublish({ postId }, helpers); // not ready
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect((await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) }))!.status).toBe("publishing");
+    expect(await publishJobByKey(`publish:${postId}`)).toBeTruthy();
+    fetcher = threadsHttp();
+    await processPublish({ postId }, helpers);
+    await processPublish({ postId }, helpers);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect(await status(postId)).toBe("sent");
+    expect(await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) })).toMatchObject({ status: "published", platform_post_id: "threads-published" });
+  });
+  it("checks an uncertain publish without creating or publishing again", async () => {
+    const { postId } = await threadsScenario();
+    threadsHttp();
+    await processPublish({ postId }, helpers);
+    await processPublish({ postId }, helpers);
+    threadsHttp("FINISHED", true);
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("processing");
+    let fetcher = threadsHttp();
+    await processPublish({ postId }, helpers);
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+    fetcher = threadsHttp("PUBLISHED");
+    await processPublish({ postId }, helpers);
+    await processPublish({ postId }, helpers);
+    expect(await status(postId)).toBe("sent");
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+    expect((await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) }))!.provider_handle).toBe("container-1");
+  });
+  it("records the container error on both delivery and editorial post", async () => {
+    const { postId, editorialId } = await threadsScenario();
+    threadsHttp("ERROR");
+    await processPublish({ postId }, helpers);
+    await processPublish({ postId }, helpers);
+    await processPublish({ postId }, helpers);
+    expect(await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) })).toMatchObject({ status: "failed", last_error: expect.stringContaining("FAILED_DOWNLOADING_VIDEO") });
+    expect((await db.query.posts.findFirst({ where: eq(schema.posts.id, editorialId) }))!.status).toBe("failed");
+  });
+});

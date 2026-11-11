@@ -97,6 +97,7 @@ export interface PublishHandle {
 
 export type PublishState = "accepted" | "published" | "failed";
 export interface PublishStatus {
+  providerHandle?: string;
   postId?: string;
   state: PublishState;
   url?: string;
@@ -144,7 +145,7 @@ export interface Provider {
     mediaKind?: "image" | "video";
     channelMetadata?: Record<string, unknown>;
   }): Promise<PublishHandle>;
-  publishStatus?(tokens: TokenSet, handle: PublishHandle): Promise<PublishStatus>;
+  publishStatus?(tokens: TokenSet, handle: PublishHandle, saveHandle?: (handle: string) => Promise<void>): Promise<PublishStatus>;
   /** Optional crash-recovery: did a prior attempt land? Engine prefers it; absence -> unknown. */
   reconcile?(tokens: TokenSet, handle: PublishHandle): Promise<"sent" | "not_sent" | "unknown">;
   refreshWindowSeconds?(): number;

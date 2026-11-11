@@ -83,7 +83,7 @@ const CONTENT_TYPES: [string, string][] = [
   ["image", "Image"],
   ["story", "Story"],
   ["article", "LinkedIn article"],
-  ["carousel", "Carousel (2–10 media)"],
+  ["carousel", "Carousel (2–20 media; destination limits apply)"],
 ];
 
 async function auth(c: Context): Promise<AuthContext | null> {
@@ -98,7 +98,7 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
   });
 }
 
-type PlatformOpt = { autoStory?: boolean; autoStoryMode?: string; carousel: boolean; providerId: string; videoCarousel?: boolean; channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
+type PlatformOpt = { autoStory?: boolean; autoStoryMode?: string; carousel: boolean; carouselMax: number; providerId: string; videoCarousel?: boolean; channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
 type BrandOpt = { name: string; platforms: PlatformOpt[]; hints: { text: string; href: string }[] };
 async function brandsData(workspaceId: string): Promise<Record<string, BrandOpt>> {
   const brands = await listBrands(workspaceId);
@@ -120,6 +120,7 @@ async function brandsData(workspaceId: string): Promise<Record<string, BrandOpt>
           autoStoryMode: channelRows.find(c => c.id === s.channel!.id)?.default_auto_story_mode,
           channelId: s.channel!.id,
           carousel: getProviderForPlatform(s.platform).capabilities().some(c => c.format === "carousel"),
+          carouselMax: getProviderForPlatform(s.platform).capabilities().find(c => c.format === "carousel")?.media.max ?? 0,
           providerId: getProviderForPlatform(s.platform).id,
           videoCarousel: channelRows.find(c => c.id === s.channel!.id)?.video_carousel === "available",
           platform: s.platform,
@@ -183,8 +184,9 @@ function composeScript(): Html {
         extraMedia: [], addOpen: false, additionalUrl: "", library: [], mediaKinds: {}, mediaNotice: "", mediaBusy: false, slideMenu: -1,
         allMedia() { return [this.mediaUrl.trim(), ...this.extraMedia].filter(Boolean); },
         setMedia(urls) { this.mediaUrl = urls[0] || ""; this.extraMedia = urls.slice(1); this.slideMenu = -1; if (urls.length > 1) this.type = "carousel"; else if (urls.length === 1) this.type = this.mediaVideo(urls[0]) ? "video" : "image"; },
+        mediaLimit() { var targets = this.selectedPlatforms().filter(p => p.carousel); return targets.length ? Math.min(...targets.map(p => p.carouselMax)) : 20; },
         addMedia(url, kind) {
-          if (!url || this.allMedia().length >= 10) return;
+          if (!url || this.allMedia().length >= this.mediaLimit()) return;
           if (kind) this.mediaKinds[url] = kind;
           this.setMedia([...this.allMedia(), url.trim()]); this.addOpen = false; this.additionalUrl = ""; this.mediaNotice = "";
         },
@@ -202,6 +204,7 @@ function composeScript(): Html {
         fbVideoBlocked() { return this.allMedia().length > 0 && this.isOn("facebook") && !this.availPlatforms.find(p => p.platform === "facebook")?.videoCarousel; },
         carouselNotice(p) {
           if (this.allMedia().length < 2 && this.type !== "carousel") return "";
+          if (p.carousel && this.allMedia().length > p.carouselMax) return "Carousel allows at most " + p.carouselMax + " media items";
           if (!p.carousel) return "unsupported format 'carousel' for " + p.providerId;
           if (p.platform === "facebook" && !p.videoCarousel && this.allMedia().some(u => this.mediaVideo(u))) return seqCfg.videoCarouselHint;
           return "";
@@ -415,7 +418,7 @@ async function composePage(
                 <div class="media-fields">
                   <div class="fld-row">
                     <label class="fld" x-show="allMedia().length&lt;2"><span>Type</span><select x-model="type" x-ref="contentType" x-effect="type; $nextTick(() => $refs.contentType.dispatchEvent(new Event('change', {bubbles:true})))" aria-label="Content type">${typeOpts}</select></label>
-                    <div class="fld" x-show="allMedia().length>1" x-cloak><span>Type</span><strong>Carousel (2–10 media)</strong></div>
+                    <div class="fld" x-show="allMedia().length>1" x-cloak><span>Type</span><strong x-text="'Carousel (2–' + mediaLimit() + ' media)'"></strong></div>
                     <label class="fld" x-show="type === 'article'"><span>Article URL</span><input type="url" x-model="articleUrl" :required="type === 'article'" placeholder="https://example.com/article" /></label>
                     <label class="fld grow"><span>Media URL</span><input type="url" x-model="mediaUrl" aria-invalid="${mediaError ? "true" : "false"}" aria-describedby="compose-media-error" placeholder="https://cdn…/reel.mp4" :required="type !== 'article'" />${mediaError ? html`<span id="compose-media-error" role="alert" class="notice-err">${error}</span>` : ""}</label>
                   </div>
@@ -438,14 +441,14 @@ async function composePage(
                   </div>
                 </template>
               </div>
-              <button type="button" class="btn btn-sm" :disabled="allMedia().length>=10 || mediaBusy" @click="addOpen=!addOpen">Add media</button>
+              <button type="button" class="btn btn-sm" :disabled="allMedia().length>=mediaLimit() || mediaBusy" @click="addOpen=!addOpen">Add media</button>
               <div x-show="addOpen" x-cloak class="compose-media-add">
                 <label class="fld"><span>Additional media URL</span><input type="url" x-model="additionalUrl" /></label>
                 <button type="button" class="btn btn-sm" :disabled="!additionalUrl.trim() || mediaBusy" @click="addMedia(additionalUrl)">Add URL</button>
                 <label class="fld"><span>Upload media</span><input type="file" :accept="fbVideoBlocked() ? 'image/*' : 'image/*,video/*'" :disabled="mediaBusy" @change="uploadMedia($event.target.files[0]); $event.target.value=''" /></label>
                 <button type="button" class="btn btn-sm" :disabled="mediaBusy" @click="loadLibrary()">Media library</button>
                 <p class="card-hint" x-show="fbVideoBlocked()" x-text="videoCarouselHint"></p>
-                <div class="carousel-library"><template x-for="m in library" :key="m.id"><button type="button" class="btn btn-sm" data-library-media :disabled="mediaBusy || allMedia().length>=10 || (m.kind==='video' &amp;&amp; fbVideoBlocked())" :title="m.kind==='video' &amp;&amp; fbVideoBlocked() ? videoCarouselHint : ''" @click="addMedia(m.url,m.kind)"><span x-text="m.kind + ': ' + m.url"></span></button></template></div>
+                <div class="carousel-library"><template x-for="m in library" :key="m.id"><button type="button" class="btn btn-sm" data-library-media :disabled="mediaBusy || allMedia().length>=mediaLimit() || (m.kind==='video' &amp;&amp; fbVideoBlocked())" :title="m.kind==='video' &amp;&amp; fbVideoBlocked() ? videoCarouselHint : ''" @click="addMedia(m.url,m.kind)"><span x-text="m.kind + ': ' + m.url"></span></button></template></div>
               </div>
               <p class="notice notice-info" role="status" x-show="mediaBusy" x-cloak>Preparing media…</p>
               <template x-if="mediaVideo(mediaUrl.trim())"><video hidden preload="metadata" :src="mediaUrl.trim()" @loadedmetadata="videoSec = $el.duration" @emptied="videoSec = 0"></video></template>

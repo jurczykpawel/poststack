@@ -282,9 +282,16 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
         if (fresh) channel.token_encrypted = fresh.token_encrypted;
       }
       if (!post.provider_handle || !provider.publishStatus) throw new Error("Publish status unavailable");
-      const outcome = await provider.publishStatus(toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id])), { providerHandle: post.provider_handle });
-      if (outcome.state === "published") { await completePublish(post, channel, post.provider_handle, outcome.postId); return; }
-      if (outcome.state === "failed") { await failDelivery(postId, ws, outcome.error || "TikTok processing failed"); return; }
+      let savedHandle = post.provider_handle;
+      const saveHandle = async (handle: string) => {
+        const changed = await db.update(deliveries).set({ provider_handle: handle, updated_at: new Date() })
+          .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "processing"), eq(deliveries.provider_handle, savedHandle!))).returning({ id: deliveries.id });
+        if (!changed.length) throw new Error("Publish checkpoint changed; waiting for the next poll");
+        savedHandle = handle;
+      };
+      const outcome = await provider.publishStatus(toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id])), { providerHandle: post.provider_handle }, saveHandle);
+      if (outcome.state === "published") { await completePublish(post, channel, outcome.providerHandle ?? post.provider_handle, outcome.postId, outcome.url); return; }
+      if (outcome.state === "failed") { await failDelivery(postId, ws, outcome.error || "Provider processing failed"); return; }
       await db.update(deliveries).set({ last_error: null, updated_at: new Date() })
         .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "processing")));
     } catch (err) {

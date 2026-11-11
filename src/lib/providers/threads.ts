@@ -1,13 +1,16 @@
 import { oauthCredentials } from "./oauth-credentials";
 import type { TokenSet } from "./types";
-import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
+import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishStatus } from "./types";
 import { PermanentError, TokenInvalidError } from "./errors";
 import { classifyHttp } from "./http";
 import { asString } from "./util";
 
 const GRAPH = "https://graph.threads.net";
 
+// Meta collection (checked 2026-11-11): 2–20 images/videos, including mixed media.
+// https://github.com/fbsamples/threads_api/blob/main/postman/threads-api.postman_collection.json
 const CAPS: FormatCapability[] = [
+  { format: "carousel", media: { min: 2, max: 20, kinds: ["image", "video"] }, caption: { maxLength: 500, required: false }, mediaIngestion: "pull_url" },
   { format: "text", media: { min: 0, max: 0, kinds: [] }, caption: { maxLength: 500, required: true }, mediaIngestion: "pull_url" },
   { format: "image", media: { min: 1, max: 1, kinds: ["image"] }, caption: { maxLength: 500, required: false }, mediaIngestion: "pull_url" },
   { format: "video", media: { min: 1, max: 1, kinds: ["video"] }, caption: { maxLength: 500, required: false }, mediaIngestion: "pull_url" },
@@ -72,32 +75,87 @@ export const threadsProvider: Provider = {
     return { accountId, displayName: username, handle: username };
   },
 
-  async publish({ tokens, accountId, request, mediaUrls }): Promise<PublishHandle> {
-    if (!["text", "image", "video"].includes(request.format)) {
-      throw new PermanentError(`threads: unsupported format '${request.format}'`);
-    }
-    const mediaType = request.format === "text" ? "TEXT" : request.format.toUpperCase();
-    const createBody = new URLSearchParams({
-      media_type: mediaType,
-      ...(request.caption ? { text: request.caption } : {}),
-      ...(mediaUrls[0]
-        ? { [request.format === "video" ? "video_url" : "image_url"]: mediaUrls[0] }
-        : {}),
-      access_token: tokens.accessToken,
-    });
-    const create = await fetch(`${GRAPH}/v1.0/${accountId}/threads`, { method: "POST", body: createBody });
-    const created = (await create.json().catch(() => ({}))) as { id?: unknown; error?: { message?: string } };
-    // PSA36: container-create is pre-commit — the thread isn't public until threads_publish below.
-    const creationId = asString(created.id); // PSA51
-    if (!create.ok || !creationId) throw classifyHttp(create.status, created.error?.message, "pre_commit", { headers: create.headers, provider: "threads", body: created });
-
-    const pub = await fetch(`${GRAPH}/v1.0/${accountId}/threads_publish`, {
-      method: "POST",
-      body: new URLSearchParams({ creation_id: creationId, access_token: tokens.accessToken }),
-    });
-    const pubj = (await pub.json().catch(() => ({}))) as { id?: unknown; error?: { message?: string } };
-    const handle = asString(pubj.id); // PSA51
-    if (!pub.ok || !handle) throw classifyHttp(pub.status, pubj.error?.message, "commit_uncertain", { headers: pub.headers, provider: "threads", body: pubj });
-    return { providerHandle: handle };
+  async publish({ accountId, request, mediaUrls, mediaKinds }): Promise<PublishHandle> {
+    if (!["text", "image", "video", "carousel"].includes(request.format)) throw new PermanentError(`threads: unsupported format '${request.format}'`);
+    if (request.format === "carousel" && (mediaUrls.length < 2 || mediaUrls.length > 20)) throw new PermanentError("Threads carousel requires 2–20 media items");
+    if (request.format === "carousel" && (mediaKinds?.length !== mediaUrls.length || mediaKinds.some(k => !["image", "video"].includes(k)))) throw new PermanentError("Threads carousel requires a registry kind for every item");
+    const state: ThreadsPublish = { accountId, format: request.format, caption: request.caption, urls: mediaUrls, kinds: mediaKinds ?? [], children: [], stage: "ready" };
+    // The worker persists this handle before the first external mutation.
+    return { processing: true, providerHandle: JSON.stringify(state) };
   },
+  publishStatus: pollThreads,
 };
+
+type ThreadsPublish = {
+  accountId: string; format: string; caption?: string; urls: string[]; kinds: string[];
+  children: string[]; container?: string; postId?: string;
+  stage: "ready" | "creating" | "publishing" | "published";
+};
+
+async function pollThreads(tokens: TokenSet, handle: PublishHandle, saveHandle?: (handle: string) => Promise<void>): Promise<PublishStatus> {
+  const state = JSON.parse(handle.providerHandle) as ThreadsPublish;
+  const checkpoint = async () => {
+    if (!saveHandle) throw new Error("Threads processing requires durable checkpoints");
+    await saveHandle(JSON.stringify(state));
+  };
+  const published = (): PublishStatus => ({ state: "published", providerHandle: state.postId ?? state.container, postId: state.postId });
+  if (state.stage === "published") return published();
+  if (state.stage === "creating") return { state: "failed", error: "Threads container creation was interrupted; review before publishing again" };
+  const call = async (path: string, body?: Record<string, string>) => {
+    const res = await fetch(`${GRAPH}/v1.0/${path}`, {
+      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      ...(body ? { method: "POST", body: new URLSearchParams(body) } : {}),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const json = await res.json().catch(() => ({})) as { id?: unknown; status?: string; error_message?: string; error?: { message?: string } };
+    if (!res.ok || json.error) throw classifyHttp(res.status, json.error?.message, "commit_uncertain", { headers: res.headers, provider: "threads", body: json });
+    return json;
+  };
+  const create = async (body: Record<string, string>) => {
+    state.stage = "creating";
+    await checkpoint();
+    const json = await call(`${encodeURIComponent(state.accountId)}/threads`, body);
+    const id = asString(json.id);
+    if (!id) throw new PermanentError("Threads container response has no id");
+    state.stage = "ready";
+    return id;
+  };
+  const status = async (id: string) => {
+    const json = await call(`${encodeURIComponent(id)}?fields=status,error_message`);
+    if (json.status === "ERROR" || json.status === "EXPIRED") throw new PermanentError(`Threads container ${json.status}: ${json.error_message || "media processing failed"}`);
+    if (!["FINISHED", "IN_PROGRESS", "PUBLISHED"].includes(json.status ?? "")) throw new PermanentError("Threads container returned an unknown status");
+    return json.status;
+  };
+  try {
+    if (!state.container) {
+      if (state.format === "carousel") {
+        for (let i = state.children.length; i < state.urls.length; i++) {
+          const video = state.kinds[i] === "video";
+          state.children.push(await create({ media_type: video ? "VIDEO" : "IMAGE", [video ? "video_url" : "image_url"]: state.urls[i]!, is_carousel_item: "true" }));
+          await checkpoint();
+        }
+        for (const id of state.children) if (await status(id) !== "FINISHED") return { state: "accepted" };
+      }
+      state.container = await create({ media_type: state.format.toUpperCase(),
+        ...(state.caption ? { text: state.caption } : {}),
+        ...(state.format === "carousel" ? { children: state.children.join(",") } : state.urls[0] ? { [state.format === "video" ? "video_url" : "image_url"]: state.urls[0] } : {}),
+      });
+      await checkpoint();
+      return { state: "accepted" };
+    }
+    const current = await status(state.container);
+    if (current === "PUBLISHED") { state.stage = "published"; await checkpoint(); return published(); }
+    if (current !== "FINISHED" || state.stage === "publishing") return { state: "accepted" };
+    state.stage = "publishing";
+    await checkpoint();
+    const json = await call(`${encodeURIComponent(state.accountId)}/threads_publish`, { creation_id: state.container });
+    state.postId = asString(json.id) || undefined;
+    if (!state.postId) return { state: "accepted" };
+    state.stage = "published";
+    await checkpoint();
+    return published();
+  } catch (err) {
+    if (err instanceof PermanentError) return { state: "failed", error: err.message };
+    throw err;
+  }
+}

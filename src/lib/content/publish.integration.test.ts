@@ -564,3 +564,20 @@ it.skipIf(!TEST_DB)("rejects article content without its source and multiple art
   await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toThrow("one thumbnail");
   expect(await db.select().from(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS))).toHaveLength(0);
 });
+
+it.each([2, 20])("publishes all %s Threads carousel media in order", async count => {
+  const { channelId, postId } = await fixtures({ platform: "threads", media_urls: Array.from({ length: count }, (_, i) => `https://cdn.example/threads-${i}.mp4`) });
+  await db.update(schema.channels).set({ platform: "threads" }).where(eq(schema.channels.id, channelId));
+  const result = await publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, fakeRegister);
+  expect(result.delivery.format).toBe("carousel");
+  const refs = (result.delivery.payload as { media: { mediaId: string }[] }).media;
+  expect(refs).toHaveLength(count);
+  const rows = await db.query.media.findMany({ where: eq(schema.media.workspace_id, WS) });
+  expect(refs.map(ref => rows.find(row => row.id === ref.mediaId)?.url)).toEqual(Array.from({ length: count }, (_, i) => `https://cdn.example/threads-${i}.mp4`));
+});
+it("rejects more than twenty Threads carousel media before scheduling", async () => {
+  const { channelId, postId } = await fixtures({ platform: "threads", media_urls: Array(21).fill("https://cdn.example/slide.png") });
+  await db.update(schema.channels).set({ platform: "threads" }).where(eq(schema.channels.id, channelId));
+  await expect(publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, fakeRegister)).rejects.toThrow("20");
+  expect(await db.query.deliveries.findMany({ where: eq(schema.deliveries.workspace_id, WS) })).toHaveLength(0);
+});

@@ -2,7 +2,6 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { threadsProvider } from "./threads";
 import { isProvider, listProviders } from "./index";
 import { TokenInvalidError } from "./errors";
-import docs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 
 afterEach(() => vi.unstubAllGlobals());
 const tokens = { accessToken: "AT" };
@@ -30,17 +29,10 @@ describe("threads provider", () => {
     await expect(threadsProvider.healthCheck(tokens)).rejects.toBeInstanceOf(TokenInvalidError);
   });
 
-  it("publish: container -> publish returns the id", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/threads_publish")) return Response.json(docs.threads.publish.body);
-        return Response.json(docs.threads.createContainer.body);
-      }),
-    );
+  it("publish persists a workflow before creating a text container", async () => {
     const h = await threadsProvider.publish({ tokens, accountId: "th_1", request: { format: "text", media: [], caption: "hi" }, mediaUrls: [] });
-    expect(h.providerHandle).toBe(docs.threads.publish.body.id);
+    expect(h.processing).toBe(true);
+    expect(JSON.parse(h.providerHandle)).toMatchObject({ accountId: "th_1", format: "text" });
   });
 
   it("all seven v1 providers are registered", () => {
