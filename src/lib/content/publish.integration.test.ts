@@ -591,7 +591,7 @@ it.skipIf(!TEST_DB)("schedules TikTok photo posts only from the verified URL pre
   await db.update(schema.channels).set({ platform: "tiktok" }).where(eq(schema.channels.id, channelId));
   const row = (await db.query.posts.findFirst({ where: eq(schema.posts.id, postId) }))!;
   await db.update(schema.content).set({ content_type: "carousel" }).where(eq(schema.content.id, row.content_id!));
-  await expect(publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, registerImage)).rejects.toMatchObject({ status: 422, message: expect.stringContaining("verified domain") });
+  await expect(publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, registerImage)).rejects.toMatchObject({ status: 422, message: expect.stringContaining("TIKTOK_PULL_URL_PREFIX") });
   expect(await db.query.deliveries.findMany({ where: eq(schema.deliveries.workspace_id, WS) })).toHaveLength(0);
 
   await db.update(schema.posts).set({ media_urls: ["https://media.example/ok/1.jpg", "https://media.example/ok/2.webp"] }).where(eq(schema.posts.id, postId));

@@ -15,7 +15,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
   const { postId } = await ctx.params;
   const row = await getPost(postId, auth.workspaceId);
   if (!row) return ApiErrors.notFound("Post");
-  return ok(camelizeKeys((await withPostDeliveries([row], auth.workspaceId))[0]));
+  return ok(camelizeKeys((await withPostDeliveries([row], auth.workspaceId, { storySegments: true }))[0]));
 }
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {

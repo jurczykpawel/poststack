@@ -57,7 +57,10 @@ const CAPS: FormatCapability[] = [
 ];
 
 export const isTikTokPhotoFormat = (format: string) => format === "image" || format === "carousel";
-export const TIKTOK_PHOTO_DOMAIN_MSG = "TikTok photos require media from a verified domain or URL prefix (TIKTOK_PULL_URL_PREFIX); see docs/DEPLOY.md.";
+/** Our own pre-check: the media URL is outside the configured prefix. */
+export const TIKTOK_PHOTO_DOMAIN_MSG = "TikTok photos require media hosted under the configured TIKTOK_PULL_URL_PREFIX; this media URL is outside it (see docs/DEPLOY.md).";
+/** TikTok's refusal: the prefix itself is not verified for the app's current mode (Sandbox and Production verify separately). */
+export const TIKTOK_URL_UNVERIFIED_MSG = "TikTok rejected the media URL (url_ownership_unverified): verify this URL prefix in the TikTok developer portal under URL properties, for the app mode in use (Sandbox and Production are verified separately).";
 
 /** Photo posts only support PULL_FROM_URL; reject before any TikTok call. */
 export function assertTikTokPhotoUrls(urls: string[]) {
@@ -254,7 +257,7 @@ async function initPost(endpoint: string, headers: Record<string, string>, body:
     if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap", "privacy_level_option_mismatch"].includes(code)) {
       throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
     }
-    if (code === "url_ownership_unverified") throw new PermanentError(TIKTOK_PHOTO_DOMAIN_MSG);
+    if (code === "url_ownership_unverified") throw new PermanentError(TIKTOK_URL_UNVERIFIED_MSG);
     const msg = initJson.error?.message || code || `tiktok init failed (${init.status})`;
     throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit", { provider: "tiktok", headers: init.headers, body: initJson }); // PSA36: init creates no post yet
   }

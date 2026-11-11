@@ -8,13 +8,14 @@ import {
 
 export type OAuthCallbackAuth =
   | { ok: true; auth: SessionAuthContext; purpose: OAuthPurpose }
-  | { ok: false; reason: "invalid_state" | "session_required" };
+  | { ok: false; reason: OAuthCallbackFailure };
+type OAuthCallbackFailure = "invalid_state" | "oauth_expired" | "session_required";
 
-export function oauthCallbackFailurePath(reason: "invalid_state" | "session_required"): string {
-  return reason === "invalid_state"
-    ? "/channels?error=invalid_state"
-    : "/login?redirect=/channels";
+export function oauthCallbackFailurePath(reason: OAuthCallbackFailure): string {
+  return reason === "session_required" ? "/login?redirect=/channels" : `/channels?error=${reason}`;
 }
+
+const stateFailure = (error: unknown): OAuthCallbackFailure => ((error as Error)?.name === "OAuthStateExpiredError" ? "oauth_expired" : "invalid_state");
 
 /** Apply the shared authentication boundary for an interactive OAuth callback. */
 export async function authenticateOAuthCallback(
@@ -25,8 +26,8 @@ export async function authenticateOAuthCallback(
   const cookieHeader = request.headers.get("cookie");
   try {
     verifyOAuthStateCookie(state, cookieHeader);
-  } catch {
-    return { ok: false, reason: "invalid_state" };
+  } catch (error) {
+    return { ok: false, reason: stateFailure(error) };
   }
 
   const auth = await authenticateSession(request).catch(() => null);
@@ -39,8 +40,8 @@ export async function authenticateOAuthCallback(
       const { consumeInsightConsent } = await import("@/lib/insights/consent");
       await consumeInsightConsent({ workspaceId: auth.workspaceId, channelId: purpose.channelId }, auth, state, purpose.transport);
     }
-  } catch {
-    return { ok: false, reason: "invalid_state" };
+  } catch (error) {
+    return { ok: false, reason: stateFailure(error) };
   }
 
   return { ok: true, auth, purpose };

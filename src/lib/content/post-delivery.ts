@@ -4,12 +4,13 @@ import { channels, deliveries, outboundDeliveries } from "@/db/schema";
 import type { PublishRequest } from "@/lib/providers/types";
 import { firstCommentEligibility } from "@/lib/deliveries/first-comment";
 import { redactSecrets } from "@/lib/redact";
+import { storySegmentInfo } from "./publish";
 import type { PostRow } from "./service";
 
 const errorText = (error: string | null) => error === null ? null : redactSecrets(error);
 
-/** Load both ledgers once per page, including workspace scope on every table. */
-export async function withPostDeliveries<T extends Pick<PostRow, "delivery_id">>(rows: T[], workspaceId: string) {
+/** Load both ledgers once per page, including workspace scope on every table. `storySegments` adds the Instagram Story clip count (single-post read only; list and webhook shapes stay unchanged). */
+export async function withPostDeliveries<T extends Pick<PostRow, "delivery_id">>(rows: T[], workspaceId: string, opts: { storySegments?: boolean } = {}) {
   const ids = rows.flatMap((row) => row.delivery_id ? [row.delivery_id] : []);
   const linked = ids.length ? await db.select({
     delivery: deliveries,
@@ -34,8 +35,10 @@ export async function withPostDeliveries<T extends Pick<PostRow, "delivery_id">>
     // A sent, eligible delivery may still be waiting for its first-comment worker; no skip reason then.
     const reason = comment ? undefined : d.status !== "sent" ? "awaiting_publish"
       : (await firstCommentEligibility(channel, d.payload as PublishRequest)).reason;
+    const story = opts.storySegments && channel.platform === "instagram" ? await storySegmentInfo(d.payload as PublishRequest, d.channel_id, workspaceId) : undefined;
     return [d.id, {
       id: d.id,
+      ...story,
       channelId: d.channel_id,
       status: d.status,
       scheduledFor: d.scheduled_at.toISOString(),

@@ -52,7 +52,7 @@ export function tiktokPanel() {
       <p class="card-hint" x-show="tt.photo">TikTok photos are pulled from your media URL, so it must be in the verified domain or URL prefix. The first photo is the cover.</p>
       <video x-show="mediaUrl &amp;&amp; !tt.photo" :src="isOn('tiktok') &amp;&amp; !tt.photo ? mediaUrl : ''" :poster="coverUrl" controls preload="metadata" aria-label="TikTok video preview"
         style="width:100%;max-height:360px" @loadedmetadata="tt.videoDurationSec = $el.duration" @emptied="tt.videoDurationSec = 0"></video>
-      <label class="fld"><span>TikTok caption</span><textarea rows="3" aria-label="TikTok caption" x-model="sel.tiktok.override" :placeholder="captionFor('tiktok')" maxlength="2200"></textarea></label>
+      <label class="fld"><span>TikTok caption</span><textarea rows="3" aria-label="TikTok caption" x-model="sel.tiktok.override" :placeholder="captionFor('tiktok')"  :maxlength="tt.photo ? 4000 : 2200"></textarea></label>
       <p class="card-hint" x-text="captionFor('tiktok')"></p>
       <p>Processing may take a few minutes. Check the post's delivery status after submission.</p>
       <div x-show="publishMode !== 'draft'">

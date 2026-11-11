@@ -15,8 +15,9 @@ test("channel Story mode persists and compose overrides it", async ({ page }) =>
     const panel = page.locator("#story-panel");
     await panel.getByRole("button", { name: "Default Story mode", exact: true }).click();
     await panel.getByRole("option", { name: "Post media (first item)", exact: true }).click();
+    const saved = page.waitForResponse((r) => r.request().method() !== "GET" && r.url().includes(`/channels/${ch.id}`));
     await panel.getByRole("button", { name: "Save Story mode" }).click();
-    await expect(panel.locator("select[name=mode]")).toHaveValue("media");
+    await saved; // reload only after the save completed, otherwise it can race the request
     await page.reload();
     await expect(panel.locator("select[name=mode]")).toHaveValue("media");
     expect((await (await page.request.get(`/api/v1/channels/${ch.id}`)).json()).data).toMatchObject({ default_auto_story_mode: "media", default_auto_story: false });

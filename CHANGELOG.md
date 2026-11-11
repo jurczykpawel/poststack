@@ -17,6 +17,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Stories: an Instagram Story video over 60 s (Story format or auto-Story in `media` mode) is split into consecutive 60 s clips and published as separate Stories in order; a retry never repeats a published clip. The composer shows the number of Stories before publishing, `POST /api/v1/posts/{postId}/publish` returns `storySegments`, and the post in Queue shows the split and the auto-Story card-fallback reason. See [Stories](docs/STORIES.md#video-length).
 
 ### Changed
+- `POST /api/v1/posts/{postId}/publish` returns `storySegmentsPending: true` while a Story video from a URL is still being ingested; `GET /api/v1/posts/{postId}` then reports `delivery.storySegments` (Instagram) once its length is known.
+- TikTok photo captions allow 4000 characters in the composer (video stays 2200), the carousel label shows the real media limit of the selected channels (TikTok photos 35), and the two TikTok media-URL errors are distinct: outside `TIKTOK_PULL_URL_PREFIX` vs TikTok's `url_ownership_unverified` (verify the prefix in the TikTok portal for the app mode in use).
+- Channel connection: an OAuth session that timed out (state cookie gone after 10 min, e.g. a slow provider login) now shows "The connection session expired — please try again" instead of the generic invalid-state message.
 - Auto-Story `media` mode accepts Facebook Story video up to 120 s (was 90 s), as measured on a live Page.
 
 ### Fixed

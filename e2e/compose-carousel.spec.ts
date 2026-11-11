@@ -143,7 +143,7 @@ test("Compose schedules twenty mixed Threads items and explains smaller destinat
     }
     await expect(page.locator("[data-compose-slide]")).toHaveCount(20);
     await expect(page.getByRole("button", { name: "Add media", exact: true })).toBeDisabled();
-    await expect(page.getByText("Carousel (2–20 media)", { exact: true })).toBeVisible();
+    await expect(page.getByText("Carousel (2–20 media)", { exact: true }).filter({ visible: true })).toBeVisible();
     await page.locator(".target").filter({ hasText: "Instagram" }).click();
     await expect(page.locator(".target").filter({ hasText: "Instagram" })).toContainText("Carousel allows at most 10 media items");
     await expect(page.locator(".compose-pubbar button[type=submit]")).toBeDisabled();

@@ -48,7 +48,7 @@ beforeAll(async () => {
   const { encryptTokens } = await import("@/lib/crypto");
   const [channel] = await db.insert(s.channels).values({ workspace_id: ws, platform: "instagram", platform_id: "async-publish", connection_mode: "manual_token", token_encrypted: encryptTokens({ access_token: "fixture" }), webhook_secret: "fixture", status: "active" }).returning();
   channelId = channel.id;
-  await db.insert(s.apiKeys).values({ workspace_id: ws, name: "publish", key_prefix: "sk_live_publish", key_hash: createHash("sha256").update(key).digest("hex"), scopes: ["posts:write"] });
+  await db.insert(s.apiKeys).values({ workspace_id: ws, name: "publish", key_prefix: "sk_live_publish", key_hash: createHash("sha256").update(key).digest("hex"), scopes: ["posts:write", "posts:read"] });
   app = (await import("@/server/app")).buildApp();
   source = createServer((_req, res) => {
     downloads++;
@@ -73,17 +73,18 @@ afterAll(async () => {
   await (await import("@/lib/queue/client")).closeQueue();
   await db.$client.end();
 });
-async function publish(when = "now", url = "https://example.com/editorial.mp4") {
+async function publish(when = "now", url = "https://example.com/editorial.mp4", format?: string) {
   const [post] = await db.insert(s.posts).values({ workspace_id: ws, platform: "instagram", video_url: url, description: "Ready for publication", status: "planned" }).returning();
-  const response = await app.request(`/api/v1/posts/${post.id}/publish`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ channelId, when }) });
+  const response = await app.request(`/api/v1/posts/${post.id}/publish`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ channelId, when, format }) });
   expect(response.status).toBe(200);
   const body = await response.json();
   expect(Object.keys(body).sort()).toEqual(["data", "error"]);
-  expect(Object.keys(body.data).sort()).toEqual(["delivery", "post", "storySegments"]);
+  expect(Object.keys(body.data).sort()).toEqual(["delivery", "post", "storySegments", "storySegmentsPending"]);
   expect(body.data.storySegments).toBeNull();
+  expect(body.data.storySegmentsPending).toBe(format === "story");
   expect(body.error).toBeNull();
   expect(body.data.post.deliveryId).toBe(body.data.delivery.id);
-  return body.data.delivery as { id: string; payload: { media: { mediaId: string }[] } };
+  return { ...body.data.delivery, postId: body.data.post.id } as { id: string; postId: string; payload: { media: { mediaId: string }[] } };
 }
 async function tasks() { return (await import("@/lib/queue/tasks")).createTaskList(); }
 async function drain(task: "publish" | "media-ingest") {
@@ -91,6 +92,16 @@ async function drain(task: "publish" | "media-ingest") {
 }
 const delivery = (id: string) => db.query.deliveries.findFirst({ where: and(eq(s.deliveries.id, id), eq(s.deliveries.workspace_id, ws)) });
 async function due(id: string) { await db.execute(sql`update graphile_worker._private_jobs set run_at=now() where key=${`publish:${id}`}`); }
+
+describe("Story segments for URL media", () => {
+  it("publish reports pending; the post shows the count once ingest has measured the video", async () => {
+    const d = await publish("2099-01-01T00:00:00.000Z", "https://example.com/story.mp4", "story");
+    const read = async () => (await (await app.request(`/api/v1/posts/${d.postId}`, { headers: { authorization: `Bearer ${key}`, "content-type": "application/json" } })).json()).data.delivery;
+    expect(await read()).toMatchObject({ storySegments: null, storySegmentsPending: true });
+    await drain("media-ingest");
+    expect(await read()).toMatchObject({ storySegments: 1, storySegmentsPending: false });
+  });
+});
 
 describe("editorial publish waits for remote media", () => {
   it("returns within two seconds for a 20-second HTTP source, defers without an attempt, and publishes once", async () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import docs from "../../../tests/fixtures/provider-docs/tiktok.json";
-import { tiktokProvider, TIKTOK_PHOTO_DOMAIN_MSG } from "./tiktok";
+import { tiktokProvider, TIKTOK_PHOTO_DOMAIN_MSG, TIKTOK_URL_UNVERIFIED_MSG } from "./tiktok";
 import { validate } from "./validate";
 import { ConfirmationRequiredError, PermanentError, PermissionError, RateLimitedError, TokenInvalidError } from "./errors";
 
@@ -93,7 +93,7 @@ describe("TikTok photo posts", () => {
     const err = await publish().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PermanentError);
     expect(err).not.toBeInstanceOf(TokenInvalidError);
-    expect((err as Error).message).toBe(TIKTOK_PHOTO_DOMAIN_MSG);
+    expect((err as Error).message).toBe(TIKTOK_URL_UNVERIFIED_MSG);
   });
 
   it("maps documented scope, rate limit and token errors", async () => {

@@ -333,7 +333,7 @@ describe.skipIf(!TEST_DB)("/api/v1/posts", () => {
     expect(detail.data.delivery).toEqual({
       id: "c0ffee08-0000-4000-8000-000000000d03", channelId: f.channelId, status: "sent", scheduledFor: "2030-01-02T08:30:00.000Z",
       attempts: 1, lastError: "access_token=[REDACTED]", platformPostId: "platform-post-1",
-      updatedAt: "2030-01-02T09:00:00.000Z",
+      updatedAt: "2030-01-02T09:00:00.000Z", storySegments: null, storySegmentsPending: false,
       firstComment: { status: "sent", commentId: "comment-1", attempts: 1, lastError: null },
     });
     await db.update(s.outboundDeliveries).set({

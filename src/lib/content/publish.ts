@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/response";
 import { createDelivery } from "@/lib/deliveries/service";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
 import { enqueueIngest } from "@/lib/media/async-ingest";
+import { getMedia } from "@/lib/media/service";
 import type { PublishRequest } from "@/lib/providers/types";
 import { getProviderForPlatform } from "@/lib/providers";
 import { disclosureFlag } from "@/lib/ai-disclosure/mapping";
@@ -190,7 +191,7 @@ export async function publishPost(
   input: PublishPostInput,
   workspaceId: string,
   deps: PublishPostDeps = defaultDeps,
-): Promise<{ delivery: typeof deliveries.$inferSelect; post: typeof posts.$inferSelect; storySegments: number | null }> {
+): Promise<{ delivery: typeof deliveries.$inferSelect; post: typeof posts.$inferSelect } & StorySegmentInfo> {
   const post = await db.query.posts.findFirst({
     where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)),
   });
@@ -224,21 +225,26 @@ export async function publishPost(
   });
 
   const updated = await db.query.posts.findFirst({ where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)) });
-  return { delivery, post: updated!, storySegments: await storySegments(request, input.channelId, workspaceId) };
+  return { delivery, post: updated!, ...(await storySegmentInfo(request, input.channelId, workspaceId)) };
 }
+
+export type StorySegmentInfo = { storySegments: number | null; storySegmentsPending: boolean };
 
 /**
  * How many Instagram Stories a Story video (format `story`, or auto-Story in `media` mode) goes out
- * as — over 60 s it is split into consecutive clips. Null when no Instagram Story video is involved
- * or its length is not known yet.
+ * as — over 60 s it is split into consecutive clips. `storySegments` is null when no Instagram Story
+ * video is involved or its length is not known yet; `storySegmentsPending` is true while a media URL
+ * is still being ingested (the count appears on the post once ingest has measured the video).
  */
-async function storySegments(request: PublishRequest, channelId: string, workspaceId: string): Promise<number | null> {
+export async function storySegmentInfo(request: PublishRequest, channelId: string, workspaceId: string): Promise<StorySegmentInfo> {
+  const none = { storySegments: null, storySegmentsPending: false };
   const channel = await db.query.channels.findFirst({ where: and(eq(channels.id, channelId), eq(channels.workspace_id, workspaceId)), columns: { platform: true, default_auto_story: true, default_auto_story_mode: true } });
   const autoStory = (request.autoStory ?? channel?.default_auto_story) && resolveAutoStoryMode(request.autoStoryMode, channel?.default_auto_story_mode) === "media";
-  const first = request.media[0];
-  if (channel?.platform !== "instagram" || !first || !(request.format === "story" || autoStory)) return null;
-  const asset = await db.query.media.findFirst({ where: and(eq(media.id, first.mediaId), eq(media.workspace_id, workspaceId)), columns: { kind: true, duration_sec: true } });
-  return asset?.kind === "video" && asset.duration_sec != null ? storySegmentCount(asset.duration_sec) : null;
+  const first = request.media?.[0];
+  if (channel?.platform !== "instagram" || !first || !(request.format === "story" || autoStory)) return none;
+  const asset = await getMedia(first.mediaId, workspaceId); // follows the CAS handle once ingest finished
+  if (asset?.status === "ingesting") return { storySegments: null, storySegmentsPending: true };
+  return asset?.kind === "video" && asset.duration_sec != null ? { storySegments: storySegmentCount(asset.duration_sec), storySegmentsPending: false } : none;
 }
 
 export async function preparePublishRequest(

@@ -34,8 +34,8 @@ export async function GET(request: Request, platform: string): Promise<Response>
 
   const callbackAuth = await authenticateOAuthCallback(request, state, connectOAuthFlow(platform));
   if (!callbackAuth.ok) {
-    if (callbackAuth.reason === "invalid_state") {
-      console.error(`[oauth-connect] ${platform} invalid_state`);
+    if (callbackAuth.reason !== "session_required") {
+      console.error(`[oauth-connect] ${platform} ${callbackAuth.reason}`);
     }
     return redirect(oauthCallbackFailurePath(callbackAuth.reason));
   }

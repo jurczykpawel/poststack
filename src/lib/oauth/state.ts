@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { SessionAuthContext } from "@/lib/auth";
 
 const COOKIE_NAME = "rs_oauth_state";
-const COOKIE_MAX_AGE = 10 * 60; // 10 minutes
+const COOKIE_MAX_AGE = 10 * 60; // 10 minutes (owner decision 2026-11-11: keep; an expiry gets its own message)
 const COOKIE_PATH = "/api/oauth";
 const STATE_VERSION = "oauth-state-v1";
 
@@ -52,6 +52,12 @@ function signature(state: string, auth: SessionAuthContext, flow: OAuthFlow, con
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
+/** The state cookie is gone (browser dropped it after Max-Age) or its signed expiry passed — not a forged/mismatched state. */
+export class OAuthStateExpiredError extends Error {
+  override readonly name = "OAuthStateExpiredError";
+  constructor() { super("OAuth state expired"); }
+}
+
 export function safeEqual(left: string, right: string): boolean {
   if (!left || !right) return false;
   const a = Buffer.from(left);
@@ -92,8 +98,9 @@ const readStateCookie = (cookieHeader: string | null) => readCookie(cookieHeader
  */
 export function verifyOAuthStateCookie(state: string, cookieHeader: string | null): void {
   const stored = readStateCookie(cookieHeader);
-  const separator = stored?.indexOf(".") ?? -1;
-  const storedState = separator > 0 ? stored!.slice(0, separator) : "";
+  if (stored === null) throw new OAuthStateExpiredError();
+  const separator = stored.indexOf(".");
+  const storedState = separator > 0 ? stored.slice(0, separator) : "";
   if (!safeEqual(storedState, state)) {
     throw new Error("Invalid OAuth state");
   }
@@ -113,7 +120,8 @@ export function verifyOAuthState(
     throw new Error("Invalid OAuth state");
   }
   const parsed = JSON.parse(Buffer.from(context, "base64url").toString());
-  if (!Number.isFinite(parsed.expiresAt) || parsed.expiresAt <= Date.now() || parsed.expiresAt > Date.now() + COOKIE_MAX_AGE * 1000) throw new Error("Invalid OAuth state");
+  if (!Number.isFinite(parsed.expiresAt) || parsed.expiresAt > Date.now() + COOKIE_MAX_AGE * 1000) throw new Error("Invalid OAuth state");
+  if (parsed.expiresAt <= Date.now()) throw new OAuthStateExpiredError(); // signature already verified, so this is a genuine timeout
   validatePurpose(parsed.purpose, flow);
   return parsed.purpose;
 }

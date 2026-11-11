@@ -376,6 +376,7 @@ function channelGroups(items: PublicChannel[], brands: BrandRow[]): Html {
 const CHANNEL_ERRORS: Record<string, string> = {
   access_denied: "Access denied — you cancelled the connection.",
   missing_params: "The provider returned an incomplete connection response. Please try again.",
+  oauth_expired: "The connection session expired — please try again.",
   invalid_state: "This connection attempt expired or is no longer valid. Please start again.",
   no_pages: "No Facebook Pages found. Make sure you manage at least one Page.",
   no_ig_accounts: "No Instagram Business accounts found linked to your Pages.",

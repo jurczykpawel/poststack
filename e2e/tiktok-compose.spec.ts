@@ -215,6 +215,7 @@ test("TikTok photo post: photo settings, verified prefix and scheduled consent",
       await expect(panel.getByLabel("Allow Stitch", { exact: true })).toBeHidden();
       await expect(panel.getByLabel("TikTok video preview")).toBeHidden();
       await expect(panel.getByAltText("TikTok photo cover preview")).toHaveAttribute("src", url);
+      await expect(panel.getByLabel("TikTok caption", { exact: true })).toHaveAttribute("maxlength", "4000"); // photo posts: 4000 (video: 2200)
       await page.getByLabel("TikTok privacy").selectOption("SELF_ONLY");
       await page.getByRole("button", { name: "Schedule", exact: true }).click();
       await page.locator('input[type="datetime-local"]').fill("2030-01-15T14:30");
@@ -223,7 +224,7 @@ test("TikTok photo post: photo settings, verified prefix and scheduled consent",
       await page.locator('button[type="submit"]').click();
     };
     await fill("https://elsewhere.example.test/photo-out.png");
-    await expect(page.getByText(/TikTok photos require media from a verified domain/)).toBeVisible();
+    await expect(page.getByText(/TikTok photos require media hosted under the configured TIKTOK_PULL_URL_PREFIX/)).toBeVisible();
     await fill("https://cdn.example.test/photo-in.png");
     await expect(page).toHaveURL(/\/content\/[\w-]+$/);
     const { rows } = await client.query(`SELECT d.format, d.payload FROM posts p JOIN deliveries d ON d.id=p.delivery_id WHERE p.content_id=$1`, [page.url().split("/").pop()]);

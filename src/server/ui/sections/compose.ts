@@ -83,7 +83,7 @@ const CONTENT_TYPES: [string, string][] = [
   ["image", "Image"],
   ["story", "Story"],
   ["article", "LinkedIn article"],
-  ["carousel", "Carousel (2–20 media; destination limits apply)"],
+  ["carousel", "Carousel"],
 ];
 
 async function auth(c: Context): Promise<AuthContext | null> {
@@ -257,7 +257,7 @@ function composeScript(): Html {
         isOn(p) { return !!(this.sel[p] && this.sel[p].on); },
         baseFull() { return [this.baseDescription, this.baseHashtags].filter(Boolean).join("\\n\\n"); },
         captionFor(p) { var o = ((this.sel[p] && this.sel[p].override) || "").trim(); return [o || this.baseDescription.trim(), this.baseHashtags.trim()].filter(Boolean).join("\\n\\n"); },
-        limit(p) { return this.LIMITS[p] || 2200; },
+        limit(p) { return p === "tiktok" && (this.type === "image" || this.type === "carousel") ? 4000 : (this.LIMITS[p] || 2200); },
         count(p) { return this.captionFor(p).length; },
         over(p) { return this.count(p) > this.limit(p); },
         capCount() {
@@ -356,7 +356,7 @@ async function composePage(
     canFirstComment: features.has("first_comment"),
     canAutoStory: features.has("auto_story"),
   }).replace(/</g, "\\u003c");
-  const typeOpts = CONTENT_TYPES.map(([v, label]) => html`<option value="${v}">${label}</option>`);
+  const typeOpts = CONTENT_TYPES.map(([v, label]) => v === "carousel" ? html`<option value="carousel" x-text="'Carousel (2–' + mediaLimit() + ' media)'">${label}</option>` : html`<option value="${v}">${label}</option>`);
   const brandOpts = Object.entries(data).map(([key, v]) => html`<option value="${key}">${v.name}</option>`);
   const lockChip = (label: string) => html`<p class="card-hint"><span class="lock-chip">${icon("lock", "ico", 11)}PRO</span> ${label}</p>`;
   // Decorative glyphs the icon registry doesn't carry yet (code brackets / like-heart) — inline SVG, no emoji.
