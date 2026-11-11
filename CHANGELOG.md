@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-11
+
 ### Added
 - LinkedIn Company Pages: the new **LinkedIn Company Page** tile signs in with the organization permissions and lets you pick your profile and/or the Pages where you are a Super admin or Content admin; each becomes its own channel publishing text, image, video and article posts as the Page. The regular LinkedIn profile connection is unchanged and works without the Community Management API product. Channels expose `metadata.subKind: "organization"` in `GET /api/v1/channels`. See [DEPLOY](docs/DEPLOY.md#linkedin-company-pages).
 - TikTok photo posts: 1–35 images (WebP/JPEG, ≤ 20 MB each) through TikTok's Photo Post API, in the composer and API, as Direct Post (creator privacy, comments and commercial disclosure with confirmation) or to the TikTok inbox. Photos are pulled from `TIKTOK_PULL_URL_PREFIX`; a URL outside the verified prefix is rejected before sending. Progress is tracked until TikTok reports the final state and the public post id when available. See [DEPLOY](docs/DEPLOY.md#tiktok-media-url-prefix-photo-posts).
