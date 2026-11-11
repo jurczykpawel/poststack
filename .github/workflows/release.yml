@@ -74,7 +74,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Install ffprobe (video duration in media tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        # Ubuntu mirrors can hang for ~50 min (2026-11-11); bound the step and retry downloads.
+        timeout-minutes: 8
+        run: sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ffmpeg
       - name: Audit dependencies
         run: |
           # Shipped (runtime) dependencies: moderate+ blocks. Dev tooling (eslint & co.) never reaches the image
