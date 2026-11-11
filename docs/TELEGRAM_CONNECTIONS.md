@@ -56,6 +56,8 @@ Removing the bot from the channel makes publishing fail with a permission error 
 - **Groups:** by default a bot in a group only sees commands and messages that mention it
   (privacy mode, `/setprivacy` in BotFather). The inbox is meant for private chats.
 
+- **Video inside an album** must be served with a video content type (e.g. `video/mp4`). Telegram rejects a video URL that answers `application/octet-stream` inside an album (a single video post accepts it). PostStack media storage sets the right type; this matters for media hosted elsewhere.
+
 ## Guiding a customer (for agents)
 
 The customer does steps 1.1–1.5 on their phone; you never need their Telegram login.
