@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { threadsProvider as provider } from "./threads";
 import type { PublishHandle } from "./types";
+import { TokenInvalidError } from "./errors";
 
 const tokens = { accessToken: "fixture" };
 afterEach(() => vi.unstubAllGlobals());
@@ -76,6 +77,29 @@ describe("Threads container workflow", () => {
     expect(retry.mock.calls.every(([, init]) => !init?.method)).toBe(true);
     fixture("PUBLISHED");
     expect(await poll(handle)).toMatchObject({ state: "published" });
+  });
+  it("surfaces an expired token on container create and allows a clean retry", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: 190, message: "Session has expired" } }, { status: 400 })));
+    const saved: string[] = [];
+    const handle = await start();
+    await expect(poll(handle, saved)).rejects.toBeInstanceOf(TokenInvalidError);
+    expect(JSON.parse(handle.providerHandle).stage).toBe("ready");
+    const retry = fixture();
+    expect(await poll(handle)).toMatchObject({ state: "accepted" });
+    expect(retry.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
+  });
+  it("reports a rejected create (code 100) as the real error, not an interruption", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: 100, message: "Invalid parameter" } }, { status: 400 })));
+    const handle = await start();
+    expect(await poll(handle)).toMatchObject({ state: "failed", error: expect.stringContaining("Invalid parameter") });
+    expect(JSON.parse(handle.providerHandle).stage).toBe("ready");
+  });
+  it("keeps an upstream 5xx on create as uncertain", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 502 })));
+    const handle = await start();
+    await expect(poll(handle)).rejects.toThrow();
+    fixture();
+    expect(await poll(handle)).toMatchObject({ state: "failed", error: expect.stringContaining("interrupted") });
   });
   it("does not repeat a container create interrupted after its checkpoint", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("timeout")));

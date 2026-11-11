@@ -150,6 +150,8 @@ export interface Provider {
   reconcile?(tokens: TokenSet, handle: PublishHandle): Promise<"sent" | "not_sent" | "unknown">;
   refreshWindowSeconds?(): number;
   rateLimit?(): { perMinute?: number; perDay?: number };
+  /** Optional: swap the short-lived token from the code exchange for a long-lived one (Threads). */
+  exchangeLongLived?(tokens: TokenSet): Promise<TokenSet>;
   /** Optional (capability-gated): OAuth2 authorization-code config for the admin connect flow. */
   oauthConfig?(): Promise<OAuthConfig | undefined>;
   /** Optional (capability-gated): this provider can manage sub-accounts from one master token. */

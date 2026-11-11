@@ -101,3 +101,27 @@ describe("runHealthCheck (A10 — skip empty FB token for IG-Login-only)", () =>
     expect(inspectMetaToken).toHaveBeenCalledWith("FB");
   });
 });
+
+describe("runHealthCheck — Threads", () => {
+  const row = () => ({ id: "ch_th", platform: "threads", status: "active", token_encrypted: encryptTokens({ access_token: "TH" }) });
+
+  it("expired Threads token (code 190) → needs_reauth", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: 190, message: "Session has expired" } }, { status: 400 })));
+    findFirst.mockResolvedValueOnce(row());
+    expect(await runHealthCheck("ws_1", "ch_th")).toBe("needs_reauth");
+    expect(markChannelNeedsReauth).toHaveBeenCalled();
+    expect(markChannelHealthy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("live Threads token stays healthy; a transient failure does not flip the channel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: "th_1", username: "u" })));
+    findFirst.mockResolvedValueOnce(row());
+    expect(await runHealthCheck("ws_1", "ch_th")).toBe("active");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 502 })));
+    findFirst.mockResolvedValueOnce(row());
+    expect(await runHealthCheck("ws_1", "ch_th")).toBe("active");
+    expect(markChannelNeedsReauth).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});

@@ -115,7 +115,8 @@ export async function completePublishOAuth(args: {
     if (!codeVerifier) throw new Error("Missing PKCE verifier — restart the connection");
   }
 
-  const tokens = await exchangeCodeForToken(config, { code: args.code, redirectUri: args.redirectUri, codeVerifier });
+  let tokens = await exchangeCodeForToken(config, { code: args.code, redirectUri: args.redirectUri, codeVerifier });
+  if (provider.exchangeLongLived) tokens = await provider.exchangeLongLived(tokens);
   const info = await provider.healthCheck(tokens); // resolves accountId + display/handle/avatar
 
   const account: ConnectedAccount = {

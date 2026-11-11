@@ -6,9 +6,23 @@ import { inspectMetaToken, MetaTokenError } from "@/lib/platforms/meta-token";
 import { markChannelNeedsReauth, markChannelHealthy } from "./health";
 import { recordGrantedScopes } from "./granted-scopes";
 import { sanitizeForLog } from "@/lib/api/safe-log";
+import { threadsProvider } from "@/lib/providers/threads";
+import { TokenInvalidError } from "@/lib/providers/errors";
+import { toTokenSet } from "@/lib/providers/token-codec";
 
 /** Health-checked platforms (debug_token-backed). Non-Meta channels (e.g. Telegram) are skipped. */
 const META_PLATFORMS = ["facebook", "instagram"] as const;
+
+/** True only when Threads confirms the stored token is dead; transient/other errors are inconclusive. */
+export async function threadsTokenDead(channel: { workspace_id: string; platform: string; platform_id: string; token_encrypted: string }): Promise<boolean> {
+  try {
+    const blob = decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
+    await threadsProvider.healthCheck(toTokenSet(blob));
+    return false;
+  } catch (err) {
+    return err instanceof TokenInvalidError;
+  }
+}
 
 /**
  * Hourly health-check sweep: validate each Meta channel's stored token via debug_token and reconcile
@@ -54,6 +68,17 @@ export async function sweepChannelHealth(): Promise<{ checked: number; flagged: 
         // A decrypt/other error is logged + skipped, not treated as a token failure.
         console.error(`[health-sweep] channel ${channel.id} skipped: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`);
       }
+    }
+  }
+  const threads = await db.query.channels.findMany({
+    where: and(inArray(channels.status, ["active"]), inArray(channels.platform, ["threads"])),
+    columns: { platform_id: true, platform: true, id: true, workspace_id: true, token_encrypted: true },
+  });
+  for (const channel of threads) {
+    checked++;
+    if (await threadsTokenDead(channel)) {
+      await markChannelNeedsReauth(channel.id, "Threads access token expired — reconnect required").catch(() => {});
+      flagged++;
     }
   }
   return { checked, flagged, recovered };

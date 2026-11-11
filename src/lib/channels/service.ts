@@ -16,6 +16,7 @@ import { parsePublishTarget, resolvePublishTarget } from "@/lib/providers/telegr
 import { ProviderError } from "@/lib/providers/errors";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { markChannelHealthy, markChannelNeedsReauth } from "@/lib/channels/health";
+import { threadsTokenDead } from "@/lib/channels/health-sweep";
 import { reconcileChannelSubscription, isSubscribablePlatform } from "@/lib/channels/subscription-status";
 import { messagingConnection, type MessagingConnection } from "@/lib/channels/ig-connection";
 import { recordGrantedScopes } from "./granted-scopes";
@@ -416,6 +417,10 @@ export async function deleteChannel(workspaceId: string, id: string): Promise<vo
  */
 export async function runHealthCheck(workspaceId: string, id: string): Promise<ChannelStatus> {
   const ch = await ownChannelOr404(workspaceId, id);
+  if (ch.platform === "threads" && await threadsTokenDead(ch)) {
+    await markChannelNeedsReauth(id, "Threads access token expired — reconnect required");
+    return "needs_reauth";
+  }
   if (!META_HEALTH_PLATFORMS.has(ch.platform)) {
     await markChannelHealthy(id);
     return "active";

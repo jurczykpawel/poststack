@@ -18,6 +18,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Auto-Story `media` mode accepts Facebook Story video up to 120 s (was 90 s), as measured on a live Page.
 
 ### Fixed
+- Threads: a newly connected channel's ~1 h token is exchanged for a 60-day token (refreshed before expiry), so publishing no longer fails an hour after connecting. A container request that Threads rejects now shows the real error (expired token marks the channel *Needs reauth*) and can be retried after reconnecting; only a timeout or network failure still asks for a manual check. Channel health checks and the hourly sweep detect an expired Threads token.
 - Publishing distinguishes provider permission, quota and X credit errors from expired tokens, and respects Retry-After and X rate-limit reset headers while preserving uncertain-publication recovery.
 
 ## [0.19.1] - 2026-11-10

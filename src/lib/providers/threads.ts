@@ -1,7 +1,7 @@
 import { oauthCredentials } from "./oauth-credentials";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishStatus } from "./types";
-import { PermanentError, TokenInvalidError } from "./errors";
+import { PermanentError, ProviderError, TokenInvalidError, TransientError } from "./errors";
 import { classifyHttp } from "./http";
 import { asString } from "./util";
 
@@ -33,6 +33,21 @@ export const threadsProvider: Provider = {
       clientId,
       clientSecret,
       scopeSeparator: ",",
+    };
+  },
+
+  // The code exchange returns a ~1 h token; only a long-lived (60 d) token can be refreshed.
+  async exchangeLongLived(tokens: TokenSet): Promise<TokenSet> {
+    const { clientSecret } = await oauthCredentials("threads");
+    const query = new URLSearchParams({ grant_type: "th_exchange_token", client_secret: clientSecret ?? "", access_token: tokens.accessToken });
+    const res = await fetch(`${GRAPH}/access_token?${query}`, { redirect: "error", signal: AbortSignal.timeout(15_000) });
+    const json = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: { message?: string } };
+    if (!res.ok) throw classifyHttp(res.status, json.error?.message, "pre_commit", { headers: res.headers, provider: "threads", body: json });
+    if (!json.access_token) throw new PermanentError("Threads long-lived token exchange returned no access_token");
+    return {
+      accessToken: json.access_token,
+      refreshToken: tokens.refreshToken,
+      expiresAt: json.expires_in ? new Date(Date.now() + json.expires_in * 1000).toISOString() : undefined,
     };
   },
 
@@ -114,7 +129,17 @@ async function pollThreads(tokens: TokenSet, handle: PublishHandle, saveHandle?:
   const create = async (body: Record<string, string>) => {
     state.stage = "creating";
     await checkpoint();
-    const json = await call(`${encodeURIComponent(state.accountId)}/threads`, body);
+    let json;
+    try {
+      json = await call(`${encodeURIComponent(state.accountId)}/threads`, body);
+    } catch (err) {
+      // An answered 4xx proves no container was made; only a timeout/network/5xx leaves it uncertain.
+      if (err instanceof ProviderError && !(err instanceof TransientError)) {
+        state.stage = "ready";
+        await checkpoint().catch(() => {});
+      }
+      throw err;
+    }
     const id = asString(json.id);
     if (!id) throw new PermanentError("Threads container response has no id");
     state.stage = "ready";
