@@ -79,7 +79,8 @@ async function publish(when = "now", url = "https://example.com/editorial.mp4") 
   expect(response.status).toBe(200);
   const body = await response.json();
   expect(Object.keys(body).sort()).toEqual(["data", "error"]);
-  expect(Object.keys(body.data).sort()).toEqual(["delivery", "post"]);
+  expect(Object.keys(body.data).sort()).toEqual(["delivery", "post", "storySegments"]);
+  expect(body.data.storySegments).toBeNull();
   expect(body.error).toBeNull();
   expect(body.data.post.deliveryId).toBe(body.data.delivery.id);
   return body.data.delivery as { id: string; payload: { media: { mediaId: string }[] } };

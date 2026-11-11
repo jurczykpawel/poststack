@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
-import { users, workspaces, channels, deliveries, rateLimitCounters } from "@/db/schema";
+import { users, workspaces, channels, deliveries, outboundDeliveries, rateLimitCounters } from "@/db/schema";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -107,6 +107,16 @@ describe("queue section", () => {
     expect(out).toContain("Payload");
     expect(out).toContain("Last error");
     expect(out).toContain("boom");
+  });
+
+  it("detail shows a split Story and the readable auto-Story card-fallback reason", async () => {
+    if (!TEST_DB) return;
+    const { chId, id } = await seedDelivery("sent");
+    await db.update(deliveries).set({ payload: { format: "story", media: [], _storyClipHandles: ["S1", "S2", "S3"] } }).where(eq(deliveries.id, id));
+    await db.insert(outboundDeliveries).values({ workspace_id: workspaceId, channel_id: chId, delivery_key: `auto-story:${id}`, task_name: "publish-story", status: "sent", payload: { storyFallbackReason: "video_duration" } });
+    const out = await (await app.request(`/queue/${id}`, { headers: { cookie } })).text();
+    expect(out).toContain("Published as 3 consecutive Instagram Stories");
+    expect(out).toContain("Story sent as a card: the video is shorter than 3 s or longer than Facebook&#39;s 120 s.");
   });
 
   it("retry re-queues a failed delivery (status flips off failed)", async () => {

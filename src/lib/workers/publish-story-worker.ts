@@ -9,6 +9,7 @@ import { toTokenSet } from "@/lib/providers/token-codec";
 import { getProviderForPlatform, subKindForPlatform } from "@/lib/providers";
 import { PermanentError } from "@/lib/providers/errors";
 import { prepareStoryMedia, resolveAutoStoryMode } from "@/lib/stories/media";
+import { publishClips } from "@/lib/stories/segments";
 import { getStorage } from "@/lib/storage";
 import { getStoryRenderer } from "@/lib/stories";
 import { runDelivery, type DeliveryChannel } from "./delivery";
@@ -20,12 +21,19 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
   if (!delivery) return; // the source post is gone — nothing to render a Story about
   const workspaceId = delivery.workspace_id;
   const request = delivery.payload as PublishRequest;
+  const deliveryKey = idempotencyKey ?? `job:${helpers.job.id}`;
+  const ledgerWhere = and(eq(outboundDeliveries.workspace_id, workspaceId), eq(outboundDeliveries.delivery_key, deliveryKey));
+  // Clips of a split video already published by an earlier attempt; carried in the ledger payload
+  // (the claim rewrites it) so a retry continues with the next clip instead of repeating them.
+  const prior = await db.query.outboundDeliveries.findFirst({ where: ledgerWhere, columns: { payload: true } });
+  const publishedClips = (prior?.payload as { storyClipHandles?: string[] } | undefined)?.storyClipHandles ?? [];
+  const ledgerPayload: Record<string, unknown> = { ...payload, ...(publishedClips.length ? { storyClipHandles: publishedClips } : {}) };
 
   await runDelivery({
-    deliveryKey: idempotencyKey ?? `job:${helpers.job.id}`,
+    deliveryKey,
     channelId,
     taskName: "publish-story",
-    payload: payload as unknown as Record<string, unknown>,
+    payload: ledgerPayload,
     helpers,
     send: async (dch: DeliveryChannel) => {
       // The delivery state machine passes a trimmed channel; load the full row for the publish
@@ -36,16 +44,16 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
       if (!provider.publishStory) {
         throw new PermanentError(`Platform ${channel.platform} cannot publish a Story`);
       }
+      const publishStory = provider.publishStory.bind(provider);
 
       const mode = resolveAutoStoryMode(request.autoStoryMode, channel.default_auto_story_mode);
-      const selected = await prepareStoryMedia(request, workspaceId, channel.platform, mode);
+      const selected = await prepareStoryMedia(request, workspaceId, channel.platform, mode, `stories/${deliveryId}`);
       if (selected.fallbackReason) {
-        await db.update(outboundDeliveries).set({ payload: { ...payload, storyFallbackReason: selected.fallbackReason } })
-          .where(and(eq(outboundDeliveries.workspace_id, workspaceId), eq(outboundDeliveries.delivery_key, idempotencyKey ?? `job:${helpers.job.id}`)));
+        await db.update(outboundDeliveries).set({ payload: { ...ledgerPayload, storyFallbackReason: selected.fallbackReason } }).where(ledgerWhere);
         helpers.logger.info(`auto-story card fallback delivery=${deliveryId} reason=${selected.fallbackReason}`);
       }
-      let mediaUrl = selected.mediaUrl;
-      if (!mediaUrl) {
+      let mediaUrls = selected.mediaUrls;
+      if (!mediaUrls) {
         const caption = (request.caption ?? request.title ?? "").trim();
         const accountName = channel.display_name ?? channel.username ?? undefined;
 
@@ -72,7 +80,7 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
         const storage = getStorage();
         const key = `stories/${deliveryId}.jpg`;
         await storage.putBytes(key, bytes, "image/jpeg", { sourceDelivery: deliveryId });
-        mediaUrl = storage.publicUrl(key);
+        mediaUrls = [storage.publicUrl(key)];
       }
 
       const channelMetadata = {
@@ -80,8 +88,10 @@ export async function processPublishStory(payload: PublishStoryJob, helpers: Job
         ...(channel.metadata as Record<string, unknown>),
       };
       const tokens = toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]));
-      const handle = await provider.publishStory({ tokens, accountId: channel.platform_id, mediaUrl, mediaKind: selected.mediaKind ?? "image", channelMetadata });
-      return { platformMessageId: handle.providerHandle };
+      const handles = await publishClips(mediaUrls, publishedClips,
+        async mediaUrl => (await publishStory({ tokens, accountId: channel.platform_id, mediaUrl, mediaKind: selected.mediaKind ?? "image", channelMetadata })).providerHandle,
+        async storyClipHandles => { if (mediaUrls.length > 1) await db.update(outboundDeliveries).set({ payload: { ...ledgerPayload, storyClipHandles } }).where(ledgerWhere); });
+      return { platformMessageId: handles[0] ?? null };
     },
     // No local table to mirror: the delivery ledger row IS the record of the published Story.
     onSent: async () => {},

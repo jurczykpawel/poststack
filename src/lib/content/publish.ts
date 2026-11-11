@@ -10,6 +10,8 @@ import { getProviderForPlatform } from "@/lib/providers";
 import { disclosureFlag } from "@/lib/ai-disclosure/mapping";
 import { appendChapters, type YouTubeChapter } from "@/lib/providers/youtube-chapters";
 import { resolveDisclosure, type ResolvedDisclosure } from "@/lib/ai-disclosure/resolve";
+import { resolveAutoStoryMode } from "@/lib/stories/media";
+import { storySegmentCount } from "@/lib/stories/segments";
 
 /** description + hashtags → a single caption (blank-line separated). */
 export function buildCaption(description?: string | null, hashtags?: string | null): string | undefined {
@@ -187,7 +189,7 @@ export async function publishPost(
   input: PublishPostInput,
   workspaceId: string,
   deps: PublishPostDeps = defaultDeps,
-): Promise<{ delivery: typeof deliveries.$inferSelect; post: typeof posts.$inferSelect }> {
+): Promise<{ delivery: typeof deliveries.$inferSelect; post: typeof posts.$inferSelect; storySegments: number | null }> {
   const post = await db.query.posts.findFirst({
     where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)),
   });
@@ -221,7 +223,21 @@ export async function publishPost(
   });
 
   const updated = await db.query.posts.findFirst({ where: and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)) });
-  return { delivery, post: updated! };
+  return { delivery, post: updated!, storySegments: await storySegments(request, input.channelId, workspaceId) };
+}
+
+/**
+ * How many Instagram Stories a Story video (format `story`, or auto-Story in `media` mode) goes out
+ * as — over 60 s it is split into consecutive clips. Null when no Instagram Story video is involved
+ * or its length is not known yet.
+ */
+async function storySegments(request: PublishRequest, channelId: string, workspaceId: string): Promise<number | null> {
+  const channel = await db.query.channels.findFirst({ where: and(eq(channels.id, channelId), eq(channels.workspace_id, workspaceId)), columns: { platform: true, default_auto_story: true, default_auto_story_mode: true } });
+  const autoStory = (request.autoStory ?? channel?.default_auto_story) && resolveAutoStoryMode(request.autoStoryMode, channel?.default_auto_story_mode) === "media";
+  const first = request.media[0];
+  if (channel?.platform !== "instagram" || !first || !(request.format === "story" || autoStory)) return null;
+  const asset = await db.query.media.findFirst({ where: and(eq(media.id, first.mediaId), eq(media.workspace_id, workspaceId)), columns: { kind: true, duration_sec: true } });
+  return asset?.kind === "video" && asset.duration_sec != null ? storySegmentCount(asset.duration_sec) : null;
 }
 
 export async function preparePublishRequest(

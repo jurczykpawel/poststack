@@ -29,6 +29,7 @@ import type { CreatorInfoResult } from "@/lib/providers/tiktok-creator-info";
 import { resolveChannelForBrandPlatform } from "@/lib/brands/resolve";
 import { createHash } from "node:crypto";
 import { AuditAction } from "@/lib/audit";
+import { IG_STORY_WHOLE_MAX_SEC, STORY_CLIP_SEC } from "@/lib/stories/segments";
 
 type Html = ReturnType<typeof html>;
 
@@ -97,10 +98,10 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
   });
 }
 
-type PlatformOpt = { carousel: boolean; providerId: string; videoCarousel?: boolean; channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
+type PlatformOpt = { autoStory?: boolean; autoStoryMode?: string; carousel: boolean; providerId: string; videoCarousel?: boolean; channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
 async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
   const brands = await listBrands(workspaceId);
-  const channelRows = await db.query.channels.findMany({ where: eq(channels.workspace_id, workspaceId), columns: { id: true, video_carousel: true } });
+  const channelRows = await db.query.channels.findMany({ where: eq(channels.workspace_id, workspaceId), columns: { id: true, video_carousel: true, default_auto_story: true, default_auto_story_mode: true } });
   const locked = await lockedBrandKeys(workspaceId);
   const out: Record<string, { name: string; platforms: PlatformOpt[] }> = {};
   for (const b of brands) {
@@ -111,6 +112,8 @@ async function brandsData(workspaceId: string): Promise<Record<string, { name: s
       platforms: slots
         .filter((s) => s.channel)
         .map((s) => ({
+          autoStory: channelRows.find(c => c.id === s.channel!.id)?.default_auto_story,
+          autoStoryMode: channelRows.find(c => c.id === s.channel!.id)?.default_auto_story_mode,
           channelId: s.channel!.id,
           carousel: getProviderForPlatform(s.platform).capabilities().some(c => c.format === "carousel"),
           providerId: getProviderForPlatform(s.platform).id,
@@ -185,6 +188,13 @@ function composeScript(): Html {
         removeMedia(i) { this.setMedia(this.allMedia().filter((_, n) => n !== i)); },
         mediaImage(url) { return this.mediaKinds[url] ? this.mediaKinds[url] === "image" : /\\.(png|jpe?g|gif|webp|avif)(\\?|$)/i.test(url); },
         mediaVideo(url) { return this.mediaKinds[url] ? this.mediaKinds[url] === "video" : /\\.(mp4|mov|webm|m4v)(\\?|$)/i.test(url); },
+        videoSec: 0,
+        storySplitNotice() {
+          var p = this.isOn("instagram") && this.availPlatforms.find(x => x.platform === "instagram"), s = this.sel.instagram;
+          var auto = p && this.licAutoStory && (s.autoStory || p.autoStory) && (s.autoStoryMode || p.autoStoryMode) === "media";
+          if (!p || this.allMedia().length > 1 || !this.mediaVideo(this.mediaUrl.trim()) || !(this.type === "story" || auto) || !(this.videoSec > ${IG_STORY_WHOLE_MAX_SEC})) return "";
+          return "Video is " + Math.round(this.videoSec) + " s \u2014 on Instagram it will be published as " + Math.ceil(this.videoSec / ${STORY_CLIP_SEC}) + " Stories of up to ${STORY_CLIP_SEC} s, one after another.";
+        },
         fbVideoBlocked() { return this.allMedia().length > 0 && this.isOn("facebook") && !this.availPlatforms.find(p => p.platform === "facebook")?.videoCarousel; },
         carouselNotice(p) {
           if (this.allMedia().length < 2 && this.type !== "carousel") return "";
@@ -431,6 +441,8 @@ async function composePage(
                 <div class="carousel-library"><template x-for="m in library" :key="m.id"><button type="button" class="btn btn-sm" data-library-media :disabled="mediaBusy || allMedia().length>=10 || (m.kind==='video' &amp;&amp; fbVideoBlocked())" :title="m.kind==='video' &amp;&amp; fbVideoBlocked() ? videoCarouselHint : ''" @click="addMedia(m.url,m.kind)"><span x-text="m.kind + ': ' + m.url"></span></button></template></div>
               </div>
               <p class="notice notice-info" role="status" x-show="mediaBusy" x-cloak>Preparing media…</p>
+              <template x-if="mediaVideo(mediaUrl.trim())"><video hidden preload="metadata" :src="mediaUrl.trim()" @loadedmetadata="videoSec = $el.duration" @emptied="videoSec = 0"></video></template>
+              <p class="notice notice-info" role="status" data-story-split x-show="storySplitNotice()" x-text="storySplitNotice()" x-cloak></p>
               <p class="notice notice-warn" role="status" x-show="mediaNotice || (type==='carousel' &amp;&amp; allMedia().length&lt;2)" x-text="mediaNotice || &quot;format 'carousel' needs >= 2 media&quot;" x-cloak></p>
             </div>
           </section>

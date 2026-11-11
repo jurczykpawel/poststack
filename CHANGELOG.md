@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Stories: an Instagram Story video over 60 s (Story format or auto-Story in `media` mode) is split into consecutive 60 s clips and published as separate Stories in order; a retry never repeats a published clip. The composer shows the number of Stories before publishing, `POST /api/v1/posts/{postId}/publish` returns `storySegments`, and the post in Queue shows the split and the auto-Story card-fallback reason. See [Stories](docs/STORIES.md#video-length).
+
+### Changed
+- Auto-Story `media` mode accepts Facebook Story video up to 120 s (was 90 s), as measured on a live Page.
+
 ### Fixed
 - Publishing distinguishes provider permission, quota and X credit errors from expired tokens, and respects Retry-After and X rate-limit reset headers while preserving uncertain-publication recovery.
 

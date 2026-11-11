@@ -19,6 +19,10 @@ import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 import { editDeliveryText } from "@/lib/content/service";
 import { getQueueItem, resolveZone, type QueueItem } from "./queue-data";
 import { currentListUrl, renderQueue } from "./queue-list";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { outboundDeliveries } from "@/db/schema";
+import { storyFallbackText } from "@/lib/stories/media";
 
 type Html = ReturnType<typeof html>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -56,6 +60,19 @@ async function queuePage(c: Context): Promise<Response> {
 // ── detail ─────────────────────────────────────────────────────────────────────
 function metaRow(label: string, value: Html | string): Html {
   return html`<div class="meta-row"><dt>${label}</dt><dd>${value}</dd></div>`;
+}
+
+/** The Story outcome of a post: clips of a split Story video, and its auto-Story with any card-fallback reason. */
+async function storyRows(post: DeliveryRow): Promise<Html> {
+  const clips = (post.payload as { _storyClipHandles?: string[] } | null)?._storyClipHandles?.length ?? 0;
+  const story = await db.query.outboundDeliveries.findFirst({
+    where: and(eq(outboundDeliveries.workspace_id, post.workspace_id), eq(outboundDeliveries.delivery_key, `auto-story:${post.id}`)),
+    columns: { status: true, payload: true },
+  });
+  const detail = story?.payload as { storyFallbackReason?: string; storyClipHandles?: string[] } | undefined;
+  const autoClips = detail?.storyClipHandles?.length ?? 0;
+  return html`${clips > 1 ? metaRow("Story", `Published as ${clips} consecutive Instagram Stories`) : ""}
+    ${story ? metaRow("Auto-Story", html`${story.status}${detail?.storyFallbackReason ? html` · <span data-story-fallback>${storyFallbackText(detail.storyFallbackReason)}</span>` : autoClips > 1 ? ` · ${autoClips} consecutive Stories` : ""}`) : ""}`;
 }
 
 function mediaPreview(media: MediaRow): Html {
@@ -180,6 +197,7 @@ async function postDetailPage(c: Context): Promise<Response> {
             <dl class="meta-list">
               ${metaRow("Provider handle", post.provider_handle ? urlLink(post.provider_handle) : html`<small>—</small>`)}
               ${metaRow("Idempotency key", post.idempotency_key ? html`<code>${post.idempotency_key}</code>` : html`<small>—</small>`)}
+              ${await storyRows(post)}
             </dl>
           </section>
         </div>

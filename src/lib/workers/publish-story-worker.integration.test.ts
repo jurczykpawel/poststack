@@ -146,16 +146,37 @@ describe("publish-story worker (STORY1)", () => {
   it.each(["image", "video"] as const)("publishes the selected %s once without rendering a card", async kind => {
     const { channelId, deliveryId } = await seed();
     await db.update(schema.channels).set({ default_auto_story_mode: "media" }).where(eq(schema.channels.id, channelId));
-    prepareStoryMedia.mockResolvedValue({ mediaUrl: "https://cdn.example/story", mediaKind: kind });
+    prepareStoryMedia.mockResolvedValue({ mediaUrls: ["https://cdn.example/story"], mediaKind: kind });
     const render = fakeRenderer();
     const pub = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
       .mockResolvedValue({ providerHandle: documented.published.id });
     const args = { channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` };
     await processPublishStory(args, helpers);
     await processPublishStory(args, helpers);
-    expect(prepareStoryMedia).toHaveBeenCalledWith(expect.anything(), WS, "instagram", "media");
+    expect(prepareStoryMedia).toHaveBeenCalledWith(expect.anything(), WS, "instagram", "media", `stories/${deliveryId}`);
     expect(render).not.toHaveBeenCalled();
     expect(pub).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ mediaUrl: "https://cdn.example/story", mediaKind: kind }));
+  });
+
+  it("publishes split clips in order and a retry continues after the last published clip", async () => {
+    const { channelId, deliveryId } = await seed();
+    await db.update(schema.channels).set({ default_auto_story_mode: "media" }).where(eq(schema.channels.id, channelId));
+    const clips = [1, 2, 3].map(i => `https://bucket.example/stories/${deliveryId}/clip-${i}.mp4`);
+    prepareStoryMedia.mockResolvedValue({ mediaUrls: clips, mediaKind: "video" });
+    const pub = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
+      .mockResolvedValueOnce({ providerHandle: "S1" })
+      .mockRejectedValueOnce(new Error("Story unavailable"))
+      .mockResolvedValueOnce({ providerHandle: "S2" })
+      .mockResolvedValueOnce({ providerHandle: "S3" });
+    const args = { channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` };
+    await expect(processPublishStory(args, helpers)).rejects.toThrow("Story unavailable");
+    const failed = await db.query.outboundDeliveries.findFirst({ where: eq(schema.outboundDeliveries.delivery_key, args.idempotencyKey) });
+    expect(failed).toMatchObject({ status: "failed", payload: { storyClipHandles: ["S1"] } });
+    await processPublishStory(args, helpers);
+    await processPublishStory(args, helpers);
+    expect(pub.mock.calls.map(call => call[0].mediaUrl)).toEqual([clips[0], clips[1], clips[1], clips[2]]);
+    const sent = await db.query.outboundDeliveries.findFirst({ where: eq(schema.outboundDeliveries.delivery_key, args.idempotencyKey) });
+    expect(sent).toMatchObject({ status: "sent", platform_message_id: "S1", payload: { storyClipHandles: ["S1", "S2", "S3"] } });
   });
 
   it("records the card fallback reason and respects the post mode", async () => {
@@ -166,7 +187,7 @@ describe("publish-story worker (STORY1)", () => {
     vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publishStory")
       .mockResolvedValue({ providerHandle: documented.published.id });
     await processPublishStory({ channelId, deliveryId, idempotencyKey: `auto-story:${deliveryId}` }, helpers);
-    expect(prepareStoryMedia).toHaveBeenCalledWith(expect.anything(), WS, "instagram", "media");
+    expect(prepareStoryMedia).toHaveBeenCalledWith(expect.anything(), WS, "instagram", "media", `stories/${deliveryId}`);
     expect(render.mock.calls[0]?.[0].thumbnail).toEqual(new Uint8Array([1]));
     const row = await db.query.outboundDeliveries.findFirst({ where: eq(schema.outboundDeliveries.delivery_key, `auto-story:${deliveryId}`) });
     expect(row?.payload).toMatchObject({ storyFallbackReason: "video_duration" });

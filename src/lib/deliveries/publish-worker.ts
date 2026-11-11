@@ -24,6 +24,7 @@ import { dispatchAlert } from "@/lib/notifications/alert";
 import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
 import { youtubeFormat } from "@/lib/providers/youtube-format";
 import { getConfig } from "@/lib/settings/config";
+import { fetchInstagramStoryClips, publishClips, STORY_CLIP_SEC } from "@/lib/stories/segments";
 import type { AiDisclosureLevel } from "@/db/schema";
 
 type DeliveryRow = typeof deliveries.$inferSelect;
@@ -431,8 +432,27 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
         throw new ConfirmationRequiredError("TikTok requires confirmation at send time. Review current settings and publish now.");
       }
     }
+    const tokens = toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]));
+    // An Instagram Story video over the length limit goes out as consecutive clips, in order; each
+    // published clip is saved on the delivery so a retry continues with the next one.
+    if (request.format === "story" && channel.platform === "instagram" && mediaKinds[0] === "video" && !((mediaDurationsSec[0] ?? Infinity) <= STORY_CLIP_SEC) && provider.publishStory) {
+      const clips = await fetchInstagramStoryClips(mediaUrls[0]!, `stories/${postId}`).catch((err: unknown) => {
+        throw new PermanentError(`Story video could not be split into clips: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      if (clips.length > 1) {
+        const publishStory = provider.publishStory.bind(provider);
+        const handles = await publishClips(clips, (request as { _storyClipHandles?: string[] })._storyClipHandles ?? [],
+          async mediaUrl => (await publishStory({ tokens, accountId: channel.platform_id, mediaUrl, mediaKind: "video", channelMetadata })).providerHandle,
+          async _storyClipHandles => {
+            post.payload = { ...request, _storyClipHandles };
+            await setStatus(postId, ws, "sending", { payload: post.payload });
+          });
+        await completePublish(post, channel, handles[0]!);
+        return;
+      }
+    }
     const handle = await provider.publish({
-      tokens: toTokenSet(decryptTokens(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id])),
+      tokens,
       accountId: channel.platform_id,
       request,
       mediaUrls,

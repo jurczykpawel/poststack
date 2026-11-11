@@ -438,10 +438,11 @@ interface ComposeState {
   extraMedia: string[]; mediaKinds: Record<string, string>;
   allMedia(): string[]; moveMedia(index: number, step: number): void;
   mediaImage(url: string): boolean; mediaVideo(url: string): boolean;
-  tiktokScheduleText(): string;
+  tiktokScheduleText(): string; storySplitNotice(): string; videoSec: number; licAutoStory: boolean;
+  availPlatforms: Array<{ platform: string; autoStory?: boolean; autoStoryMode?: string }>;
   brand: string; title: string; type: string; mediaUrl: string; baseDescription: string; baseHashtags: string;
   publishMode: string; scheduleAt: string; language: string;
-  sel: Record<string, { on: boolean; override: string }>;
+  sel: Record<string, { on: boolean; override: string; autoStory?: boolean; autoStoryMode?: string }>;
   tt: { mode: string; privacy: string; disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean;
     consent: boolean; consentKey: string; allowDuet: boolean; videoDurationSec: number };
   onBrandChange(): void; tiktokConsentKey(): string; canSubmit(): boolean;
@@ -480,6 +481,20 @@ it("builds the confirmed TikTok payload and requires confirmation again after a 
   c.sel.tiktok.override = "Changed caption"; expect(c.canSubmit()).toBe(false);
   c.tt.consentKey = c.tiktokConsentKey(); expect(c.canSubmit()).toBe(true);
   c.tt.videoDurationSec = 61; expect(c.canSubmit()).toBe(false);
+});
+
+it("tells the author before publishing that a long Instagram Story video becomes several Stories", async () => {
+  const c = await composeState();
+  c.brand = "techskills.academy"; c.onBrandChange();
+  c.mediaUrl = "https://cdn.example.test/long.mp4"; c.type = "story"; c.videoSec = 125.4;
+  expect(c.storySplitNotice()).toBe("Video is 125 s \u2014 on Instagram it will be published as 3 Stories of up to 60 s, one after another.");
+  c.videoSec = 61; expect(c.storySplitNotice()).toBe("");
+  c.videoSec = 180; c.sel.instagram.on = false; expect(c.storySplitNotice()).toBe("");
+  c.sel.instagram.on = true; c.type = "video"; expect(c.storySplitNotice()).toBe("");
+  c.licAutoStory = true; c.sel.instagram.autoStory = true; c.sel.instagram.autoStoryMode = "media";
+  expect(c.storySplitNotice()).toContain("3 Stories");
+  c.sel.instagram.autoStoryMode = ""; c.availPlatforms.find(p => p.platform === "instagram")!.autoStoryMode = "card";
+  expect(c.storySplitNotice()).toBe("");
 });
 
 it("shows that scheduled TikTok will require send-time confirmation when enabled", async () => {
