@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
@@ -204,5 +204,37 @@ describe("reaction-trigger rule gate", () => {
     await licenseInstance();
     const res = await rulesRoute.POST(rulePost("reaction"));
     expect(res.status).toBe(201);
+  });
+});
+
+describe("LinkedIn Company Page picker respects the free-tier channel gate", () => {
+  // Fake LinkedIn answers for the picker: the member, one administered Company Page and its name.
+  const linkedinFetch = async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/userinfo")) return Response.json({ sub: "member-1", name: "Member" });
+    if (url.includes("/organizationAcls")) return Response.json({ elements: [{ organization: "urn:li:organization:90000002", role: "ADMINISTRATOR", state: "APPROVED" }] });
+    if (url.includes("/organizations/")) return Response.json({ id: 90000002, localizedName: "Example Academy", vanityName: "example" });
+    return new Response("{}", { status: 404 });
+  };
+  const AUTH = { userId: "u1", workspaceId: WS, sessionId: "s1", authMethod: "session", scopes: [] } as never;
+
+  it("refuses a Company Page channel without a license and creates nothing", async () => {
+    if (!TEST_DB) return;
+    vi.stubGlobal("fetch", vi.fn(linkedinFetch));
+    try {
+      const { connectPicked } = await import("@/lib/oauth/pick");
+      await expect(connectPicked("linkedin", { accessToken: "t" }, AUTH, ["page:90000002"])).rejects.toMatchObject({ feature: "non_meta_channels" });
+      expect(await db.query.channels.findMany({ where: eq(s.channels.workspace_id, WS) })).toHaveLength(0);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("creates the Company Page channel once licensed", async () => {
+    if (!TEST_DB) return;
+    await licenseInstance();
+    vi.stubGlobal("fetch", vi.fn(linkedinFetch));
+    try {
+      const { connectPicked } = await import("@/lib/oauth/pick");
+      await expect(connectPicked("linkedin", { accessToken: "t" }, AUTH, ["page:90000002"])).resolves.toBe(1);
+    } finally { vi.unstubAllGlobals(); }
   });
 });
