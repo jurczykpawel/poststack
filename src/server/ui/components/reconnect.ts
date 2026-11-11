@@ -20,6 +20,7 @@ export interface ReconnectTarget {
   platform: string;
   connection_mode: "oauth" | "manual_token" | "derived";
   messaging_connection?: "instagram_login" | "facebook_only" | null;
+  metadata?: unknown;
 }
 
 export function reconnectHref(ch: ReconnectTarget): string {
@@ -29,6 +30,9 @@ export function reconnectHref(ch: ReconnectTarget): string {
   if (ch.connection_mode === "oauth" && ch.platform === "instagram" && ch.messaging_connection === "instagram_login") {
     return "/api/oauth/instagram-login";
   }
+  // A LinkedIn Company Page re-authorizes through the pages variant (its scopes + the picker).
+  const isPage = (ch.metadata as { subKind?: unknown } | null | undefined)?.subKind === "organization";
+  if (ch.connection_mode === "oauth" && ch.platform === "linkedin" && isPage) return "/api/oauth/connect/linkedin?pages=1";
   const start = oauthStartHref(ch.platform);
   if (ch.connection_mode === "oauth" && start) return start; // hosted OAuth flow
   return `/channels/${ch.id}`; // manual_token (or oauth without a hosted flow) → paste a fresh token

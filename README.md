@@ -635,7 +635,9 @@ publish-time permissions. Direct publishing also queries TikTok afresh before in
 and stops when the creator cannot post now. The inbox/draft flow is unchanged.
 
 The other publishing channels — **X, LinkedIn, Threads, YouTube, Facebook & Instagram** — publish
-directly, subject to each platform's own developer-app setup and API access tier.
+directly, subject to each platform's own developer-app setup and API access tier. LinkedIn can
+publish as your profile or as Company Pages you administer — see
+[DEPLOY → LinkedIn Company Pages](docs/DEPLOY.md#linkedin-company-pages).
 
 ---
 

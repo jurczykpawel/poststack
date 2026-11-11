@@ -23,3 +23,11 @@ describe("publisher reconnect destinations", () => {
     expect(reconnectHref({ ...base, platform })).toBe(`/api/oauth/connect/${slug}`);
   });
 });
+
+describe("LinkedIn Company Page reconnect", () => {
+  it("a page channel re-runs the Company Page flow; a profile channel keeps the plain one", () => {
+    expect(reconnectHref({ ...base, platform: "linkedin", metadata: { subKind: "organization" } })).toBe("/api/oauth/connect/linkedin?pages=1");
+    expect(reconnectHref({ ...base, platform: "linkedin", metadata: {} })).toBe("/api/oauth/connect/linkedin");
+    expect(reconnectHref({ ...base, platform: "linkedin", metadata: null })).toBe("/api/oauth/connect/linkedin");
+  });
+});

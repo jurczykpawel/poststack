@@ -4,9 +4,9 @@ import { sourceSize, sourceRange } from "./range-source";
 import { readProviderBody } from "./download";
 import { assertAllowedHost } from "./follow";
 import type { TokenSet } from "./types";
-import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
+import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest, SubAccount } from "./types";
 import { validate } from "./validate";
-import { PermanentError } from "./errors";
+import { PermanentError, PermissionError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { asString } from "./util";
 
@@ -36,6 +36,8 @@ export const linkedinProvider: Provider = {
       authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
       tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
       scopes: ["openid", "profile", "w_member_social"],
+      // Company Pages: post as the organization + list the member's page roles and page names.
+      subAccountScopes: ["w_organization_social", "r_organization_admin"],
       clientId,
       clientSecret,
     };
@@ -60,36 +62,79 @@ export const linkedinProvider: Provider = {
     return { accountId, displayName: json.name };
   },
 
-  async publish({ tokens, accountId, request, mediaUrls, mediaKinds }): Promise<PublishHandle> {
-    const author = `urn:li:person:${accountId}`;
-    const caption = request.caption ?? "";
+  /** Company Pages the member can post to; each becomes its own channel sharing the member token. */
+  async enumerateSubAccounts(master: TokenSet): Promise<SubAccount[]> {
+    const headers = restHeaders(master.accessToken);
+    const acl = await fetch(`${REST}/organizationAcls?q=roleAssignee&state=APPROVED&count=100`, { headers });
+    const json = await acl.json().catch(() => ({})) as { elements?: { organization?: unknown; role?: unknown }[]; message?: string };
+    if (acl.status === 403) throw new PermissionError(PAGES_DENIED);
+    if (!acl.ok) throw classifyHttp(acl.status, json.message, "pre_commit", { headers: acl.headers, provider: "linkedin", body: json });
+    const ids = new Set<string>();
+    for (const e of json.elements ?? []) {
+      const id = /^urn:li:organization:(\d+)$/.exec(asString(e.organization) ?? "")?.[1];
+      if (id && POSTING_ROLES.has(String(e.role))) ids.add(id);
+    }
+    const pages: SubAccount[] = [];
+    for (const id of ids) {
+      // Admin-only lookup; a content admin may get 403 — keep the page with a neutral name.
+      const res = await fetch(`${REST}/organizations/${id}`, { headers });
+      if (res.status === 401) throw classifyHttp(401, "linkedin: organization lookup", "pre_commit", { provider: "linkedin" });
+      const org = res.ok ? await res.json().catch(() => ({})) as { localizedName?: unknown; vanityName?: unknown } : {};
+      if (!res.ok) await res.body?.cancel();
+      pages.push({
+        platform: "linkedin", providerAccountId: id, token: master,
+        displayName: asString(org.localizedName) ?? `LinkedIn Page ${id}`,
+        metadata: { subKind: ORGANIZATION, ...(asString(org.vanityName) ? { vanityName: asString(org.vanityName) } : {}) },
+      });
+    }
+    return pages;
+  },
 
-    if (request.format === "text") {
-      return { providerHandle: await createShare(tokens.accessToken, author, caption, "NONE", []) };
+  async publish(args): Promise<PublishHandle> {
+    const isPage = args.channelMetadata?.subKind === ORGANIZATION;
+    try {
+      return await publishAs(isPage ? `urn:li:organization:${args.accountId}` : `urn:li:person:${args.accountId}`, args);
+    } catch (e) {
+      if (isPage && e instanceof PermissionError) throw new PermissionError(`${PAGE_POST_DENIED} (${e.message})`);
+      throw e;
     }
-    if (request.format === "article") {
-      const checked = validate(linkedinProvider, request, { mediaKinds });
-      if (!checked.ok) throw new PermanentError(checked.errors.join("; "));
-      return publishArticle(tokens.accessToken, author, request, mediaUrls[0]);
-    }
-    if (request.format !== "image" && request.format !== "video") {
-      throw new PermanentError(`linkedin: unsupported format '${request.format}'`);
-    }
-
-    // LIPUB1: media publishing. Assets API — register an upload slot per media, PUT the bytes, then
-    // create the share referencing the resulting asset URNs (READY). Count is capability-gated upstream.
-    const urls = mediaUrls ?? [];
-    if (urls.length === 0) throw new PermanentError(`linkedin: format '${request.format}' needs media`);
-    const isVideo = request.format === "video";
-    if (isVideo) return publishVideo(tokens.accessToken, author, caption, urls[0]!);
-    const recipe = "urn:li:digitalmediaRecipe:feedshare-image";
-    const assets: ShareMedia[] = [];
-    for (const url of urls) {
-      assets.push({ status: "READY", media: await uploadAsset(tokens.accessToken, author, recipe, url) });
-    }
-    return { providerHandle: await createShare(tokens.accessToken, author, caption, "IMAGE", assets) };
   },
 };
+
+const ORGANIZATION = "organization";
+// Page roles allowed to publish organic posts (LinkedIn Company Page roles).
+const POSTING_ROLES = new Set(["ADMINISTRATOR", "CONTENT_ADMINISTRATOR"]);
+const PAGES_DENIED = "LinkedIn did not allow reading your Company Pages (r_organization_admin). Add the Community Management API product to the LinkedIn app, or connect your personal profile instead.";
+const PAGE_POST_DENIED = "LinkedIn refused to publish as this Company Page: you need the Page's Super admin or Content admin role and the w_organization_social permission — reconnect the Page";
+
+async function publishAs(author: string, { tokens, request, mediaUrls, mediaKinds }: Parameters<Provider["publish"]>[0]): Promise<PublishHandle> {
+  const caption = request.caption ?? "";
+
+  if (request.format === "text") {
+    return { providerHandle: await createShare(tokens.accessToken, author, caption, "NONE", []) };
+  }
+  if (request.format === "article") {
+    const checked = validate(linkedinProvider, request, { mediaKinds });
+    if (!checked.ok) throw new PermanentError(checked.errors.join("; "));
+    return publishArticle(tokens.accessToken, author, request, mediaUrls[0]);
+  }
+  if (request.format !== "image" && request.format !== "video") {
+    throw new PermanentError(`linkedin: unsupported format '${request.format}'`);
+  }
+
+  // LIPUB1: media publishing. Assets API — register an upload slot per media, PUT the bytes, then
+  // create the share referencing the resulting asset URNs (READY). Count is capability-gated upstream.
+  const urls = mediaUrls ?? [];
+  if (urls.length === 0) throw new PermanentError(`linkedin: format '${request.format}' needs media`);
+  const isVideo = request.format === "video";
+  if (isVideo) return publishVideo(tokens.accessToken, author, caption, urls[0]!);
+  const recipe = "urn:li:digitalmediaRecipe:feedshare-image";
+  const assets: ShareMedia[] = [];
+  for (const url of urls) {
+    assets.push({ status: "READY", media: await uploadAsset(tokens.accessToken, author, recipe, url) });
+  }
+  return { providerHandle: await createShare(tokens.accessToken, author, caption, "IMAGE", assets) };
+}
 
 type ShareMedia = { status: "READY"; media: string };
 

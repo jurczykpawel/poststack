@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import type { SessionAuthContext } from "@/lib/auth";
 
 process.env.DATABASE_URL ??= "postgres://u:p@localhost:5432/db";
@@ -46,5 +46,24 @@ describe("startPublishOAuth — generic across providers", () => {
 
   it("throws for a platform without OAuth credentials configured", async () => {
     await expect(startPublishOAuth("linkedin", "https://app/cb", SESSION)).rejects.toThrow(/not configured for OAuth/);
+  });
+});
+
+describe("startPublishOAuth — connect pages variant", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("LinkedIn adds the page scopes and marks the state; the plain connect keeps member scopes", async () => {
+    vi.stubEnv("LINKEDIN_CLIENT_ID", "li-id");
+    vi.stubEnv("LINKEDIN_CLIENT_SECRET", "li-secret");
+    const plain = new URL((await startPublishOAuth("linkedin", "https://app/cb", SESSION)).url);
+    expect(plain.searchParams.get("scope")).toBe("openid profile w_member_social");
+    const pages = await startPublishOAuth("linkedin", "https://app/cb", SESSION, { subAccounts: true });
+    expect(new URL(pages.url).searchParams.get("scope")).toBe("openid profile w_member_social w_organization_social r_organization_admin");
+    const context = pages.cookies[0]!.split(";")[0]!.split(".")[1]!;
+    expect(JSON.parse(Buffer.from(context, "base64url").toString()).purpose).toEqual({ kind: "connect", subAccounts: true });
+  });
+
+  it("refuses the variant for a provider without pages", async () => {
+    await expect(startPublishOAuth("tiktok", "https://app/cb", SESSION, { subAccounts: true })).rejects.toThrow(/no pages/);
   });
 });

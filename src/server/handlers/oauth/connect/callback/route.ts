@@ -1,7 +1,7 @@
 import { env } from "@/lib/env";
 import { clearOAuthStateCookie, clearPkceCookie, connectOAuthFlow } from "@/lib/oauth/state";
 import { authenticateOAuthCallback, oauthCallbackFailurePath } from "@/lib/oauth/callback";
-import { completePublishOAuth } from "@/lib/oauth/connect";
+import { beginSubAccountPick, completePublishOAuth } from "@/lib/oauth/connect";
 import { ProRequiredError } from "@/lib/license/gate";
 
 export const runtime = "nodejs";
@@ -24,7 +24,8 @@ export async function GET(request: Request, platform: string): Promise<Response>
   const qkeys = [...searchParams.keys()].join(",");
   if (error) {
     console.error(`[oauth-connect] ${platform} callback returned error=${error} desc=${searchParams.get("error_description") ?? "-"} keys=${qkeys}`);
-    return redirect("/channels?error=access_denied");
+    // LinkedIn: the app lacks a requested product/scope (e.g. Company Pages without Community Management).
+    return redirect(error === "unauthorized_scope_error" ? "/channels?error=scope_unavailable" : "/channels?error=access_denied");
   }
   if (!code || !state) {
     console.error(`[oauth-connect] ${platform} callback missing params (code=${!!code} state=${!!state}) keys=${qkeys}`);
@@ -38,18 +39,16 @@ export async function GET(request: Request, platform: string): Promise<Response>
     }
     return redirect(oauthCallbackFailurePath(callbackAuth.reason));
   }
-  const { auth } = callbackAuth;
+  const { auth, purpose } = callbackAuth;
 
   try {
     const redirectUri = `${env.APP_URL}/api/oauth/connect/${platform}/callback`;
-    const r = await completePublishOAuth({
-      platform,
-      code,
-      state,
-      cookieHeader: request.headers.get("cookie"),
-      redirectUri,
-      auth,
-    });
+    const args = { platform, code, state, cookieHeader: request.headers.get("cookie"), redirectUri, auth };
+    if (purpose.kind === "connect" && purpose.subAccounts) {
+      const { cookies } = await beginSubAccountPick(args);
+      return redirect(`/channels/pick/${encodeURIComponent(platform)}`, cookies);
+    }
+    const r = await completePublishOAuth(args);
     return redirect(`/channels?connected=${platform}&count=1`, r.clearCookies);
   } catch (err) {
     if (err instanceof ProRequiredError) return redirect("/channels?error=pro_required");

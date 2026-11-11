@@ -44,6 +44,9 @@ export function serverEnv(): Record<string, string> {
     AI_ALLOWED_PRIVATE_TARGETS: `127.0.0.1:${E2E_AI_PORT}`,
     // No revocation in e2e (empty disables it).
     LICENSE_REVOCATION_URL: "",
+    // Inert LinkedIn app credentials so the LinkedIn tiles render; specs intercept linkedin.com.
+    LINKEDIN_CLIENT_ID: "e2e-linkedin-client",
+    LINKEDIN_CLIENT_SECRET: "e2e-linkedin-secret",
     // Storage falls back to in-memory; Meta/OAuth unconfigured (UI tests don't publish).
   };
 }

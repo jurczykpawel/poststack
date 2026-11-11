@@ -1,0 +1,66 @@
+{
+  "source": "LinkedIn Company Pages (CA-LIPAGE1). Status codes and shapes recorded live on 2026-11-10 with an owner token (LinkedIn-Version 202610): GET /rest/organizationAcls?q=roleAssignee&state=APPROVED -> 200 with two APPROVED ADMINISTRATOR rows; GET /organizations/{id} -> 200 (localizedName, vanityName); POST /v2/ugcPosts with author urn:li:organization -> 201 (urn:li:share, 19 digits), DELETE -> 204. Field layout follows learn.microsoft.com organization-access-control-by-role and organization-lookup-api (li-lms-2026-10). Identifiers and names are inert placeholders of the recorded shape. aclDenied is LinkedIn's documented error envelope for a missing permission (not recorded live).",
+  "organizationAcls": {
+    "status": 200,
+    "body": {
+      "paging": {
+        "start": 0,
+        "count": 100,
+        "links": [],
+        "total": 2
+      },
+      "elements": [
+        {
+          "roleAssignee": "urn:li:person:ABCdef123",
+          "state": "APPROVED",
+          "role": "ADMINISTRATOR",
+          "organization": "urn:li:organization:90000001"
+        },
+        {
+          "roleAssignee": "urn:li:person:ABCdef123",
+          "state": "APPROVED",
+          "role": "ADMINISTRATOR",
+          "organization": "urn:li:organization:90000002"
+        }
+      ]
+    }
+  },
+  "organizations": {
+    "90000001": {
+      "status": 200,
+      "body": {
+        "id": 90000001,
+        "localizedName": "Example Foundation",
+        "vanityName": "example-foundation",
+        "$URN": "urn:li:organization:90000001"
+      }
+    },
+    "90000002": {
+      "status": 200,
+      "body": {
+        "id": 90000002,
+        "localizedName": "Example Academy",
+        "vanityName": "example-academy",
+        "$URN": "urn:li:organization:90000002"
+      }
+    }
+  },
+  "ugcPostAsOrganization": {
+    "status": 201,
+    "headers": {
+      "x-restli-id": "urn:li:share:7500000000000000002"
+    },
+    "body": {
+      "id": "urn:li:share:7500000000000000002"
+    }
+  },
+  "aclDenied": {
+    "status": 403,
+    "body": {
+      "status": 403,
+      "serviceErrorCode": 100,
+      "code": "ACCESS_DENIED",
+      "message": "Not enough permissions to access: organizationAcls.FINDER-roleAssignee.20261001"
+    }
+  }
+}

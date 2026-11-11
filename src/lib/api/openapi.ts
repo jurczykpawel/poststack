@@ -8,6 +8,7 @@
 import { PUBLISHING_OAUTH_KEYS } from "@/lib/settings/publishing-oauth";
 import { BRAND } from "@/lib/brand";
 import { API_SCOPES, type ApiScope } from "@/lib/auth/scopes";
+import { platform as platformEnum } from "@/db/schema";
 
 /** Machine-readable permission metadata for API docs and generated clients. */
 const requiresScope = <T extends ApiScope>(scope: T): { "x-required-scope": T } => ({
@@ -194,8 +195,9 @@ export const openApiSpec = {
           default_auto_story_mode: { type: "string", enum: ["card", "media"], default: "card" },
           publish_target: { type: ["string", "null"], description: "Telegram only: channel @username or chat id that posts are published to. Null = not set (inbox only)." },
           id: { type: "string", format: "uuid" },
-          platform: { type: "string", enum: ["facebook", "instagram", "youtube", "gmail", "telegram"] },
-          platform_id: { type: "string", description: "Platform-native account id (e.g. IG business account id / FB page id)." },
+          platform: { type: "string", enum: [...platformEnum.enumValues] },
+          platform_id: { type: "string", description: "Platform-native account id (e.g. IG business account id / FB page id / LinkedIn organization id)." },
+          metadata: { type: ["object", "null"], additionalProperties: true, description: "Provider identity hints. LinkedIn Company Page channels carry subKind \"organization\" (posts are authored by urn:li:organization:{platform_id}); LinkedIn profile channels have no subKind. Company Pages are connected in the dashboard (Connect channel → LinkedIn Company Page)." },
           display_name: { type: "string", example: "My Business Page" },
           username: { type: "string", nullable: true },
           profile_picture: { type: "string", format: "uri", nullable: true },

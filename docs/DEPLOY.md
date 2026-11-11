@@ -323,6 +323,22 @@ PUT accepts an object mapping the environment key names to non-empty values; omi
 stay unchanged. Responses include source (`db`, `env`, `unset`) and masked secret status only.
 See `/api/docs` for the accepted keys.
 
+### LinkedIn Company Pages
+
+The **LinkedIn** tile connects your personal profile (`openid`, `profile`, `w_member_social`)
+and works with any LinkedIn app that has *Sign In with LinkedIn using OpenID Connect* and
+*Share on LinkedIn*. The **LinkedIn Company Page** tile additionally requests
+`w_organization_social` and `r_organization_admin`, so the LinkedIn app must also include the
+**Community Management API** product. Without it LinkedIn rejects the authorization and
+PostStack shows a message; the profile connection keeps working.
+
+After signing in, pick where to publish: your profile and/or every Page on which you are a
+**Super admin** or **Content admin**. Each ticked account becomes its own channel (the Page
+name is its display name; all formats — text, image, video, article — are published as the
+Page). The same redirect URL is used (`/api/oauth/connect/linkedin/callback`). Reconnecting a
+Page channel opens the Company Page flow again. If you lose the Page role, publishing fails with
+a permission error naming the required role.
+
 ### TikTok media URL prefix (photo posts)
 
 TikTok pulls media only from a domain or URL prefix verified in your TikTok app (Developer

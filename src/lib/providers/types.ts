@@ -78,6 +78,9 @@ export interface OAuthConfig {
   scopeSeparator?: string; // default " " (TikTok/Threads use ",")
   usePkce?: boolean; // X (Twitter) OAuth2 requires PKCE
   tokenAuthBasic?: boolean; // send client creds as a Basic auth header (X)
+  /** Extra scopes for the opt-in "connect pages" flow (connect → pick sub-accounts). Requires
+   *  `enumerateSubAccounts`. Kept out of `scopes` so the default connect works for apps without them. */
+  subAccountScopes?: string[];
 }
 
 /** A sub-account enumerated from a master token, with its own minted token. */

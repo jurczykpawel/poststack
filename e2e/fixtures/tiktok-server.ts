@@ -1,6 +1,7 @@
-// Offline HTTP boundaries for the dedicated TikTok browser suite.
+// Offline HTTP boundaries for the e2e server (TikTok suite + LinkedIn Company Pages picker).
 import { readFileSync } from "node:fs";
 const video = readFileSync("e2e/fixtures/tiktok-preview.mp4");
+const liPages = JSON.parse(readFileSync("tests/fixtures/provider-docs/linkedin-pages.json", "utf8"));
 const bunTestModule = "bun:test";
 const { mock } = await import(bunTestModule);
 const mediaHttp = await import("../../src/lib/media/ssrf");
@@ -25,6 +26,11 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
       comment_disabled: true, duet_disabled: false, stitch_disabled: true, max_video_post_duration_sec: 60,
     }, error: { code: "ok" } });
   }
+  if (url.href === "https://www.linkedin.com/oauth/v2/accessToken") return Response.json({ access_token: "e2e-linkedin-token", expires_in: 5184000 });
+  if (url.href === "https://api.linkedin.com/v2/userinfo") return Response.json({ sub: "e2e-li-member", name: "E2E LinkedIn Member" });
+  if (url.hostname === "api.linkedin.com" && url.pathname === "/rest/organizationAcls") return Response.json(liPages.organizationAcls.body);
+  const org = url.hostname === "api.linkedin.com" ? /^\/rest\/organizations\/(\d+)$/.exec(url.pathname)?.[1] : undefined;
+  if (org && liPages.organizations[org]) return Response.json(liPages.organizations[org].body);
   if (url.hostname === "127.0.0.1" || url.hostname === "localhost") return nativeFetch(input, init);
   throw new Error("Unconfigured HTTP fixture");
 }) as typeof fetch;

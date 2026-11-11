@@ -31,6 +31,7 @@ import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { getProvider } from "@/lib/platforms/registry";
 import { getProviderForPlatform, getProvider as getPublishProvider } from "@/lib/providers";
 import { renderSourcesManager, countSources } from "./sources";
+import { registerChannelPick } from "./channel-pick";
 import { channelInsightsPanel } from "./insights";
 import { DEFAULT_DRAFT_PROMPT } from "@/lib/ai/draft";
 import { isAiConfigured } from "@/lib/ai/client";
@@ -382,6 +383,7 @@ const CHANNEL_ERRORS: Record<string, string> = {
   yt_no_refresh: "YouTube did not grant offline access. Reconnect and approve the requested access.",
   yt_no_channel: "No YouTube channel was found for this Google account.",
   oauth_failed: "Connection failed. Please try again.",
+  scope_unavailable: "The provider's app does not allow the requested permissions. For LinkedIn Company Pages, add the Community Management API product to the LinkedIn app, or connect your profile instead.",
   pro_required: "That channel needs a PRO license.",
   instagram_login_not_configured:
     "Instagram Business Login isn't configured (set INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET).",
@@ -523,6 +525,7 @@ async function connectGroups(o: ConnectOpts): Promise<Html> {
       { platform: "youtube", name: "YouTube", does: "Upload videos, reply to comments", href: "/api/oauth/youtube", locked: !o.canNonMeta },
       ...pub("tiktok", "TikTok", "Publish videos"),
       ...pub("linkedin", "LinkedIn", "Publish to your profile"),
+      ...pub("linkedin", "LinkedIn Company Page", "Publish as your company Pages").map((t) => ({ ...t, href: `${t.href}?pages=1` })),
       ...pub("x", "X", "Publish posts"),
     ].map(tile))}
     ${group("Messaging and email", [
@@ -1047,6 +1050,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
 
 export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
   r.get("/channels", guard, channelsPage);
+  registerChannelPick(r, guard);
   r.get("/channels/:id", guard, channelDetailPage);
 
   // Operational actions: perform via the service, then respond (303 no-JS / detail-head swap + toast for HTMX).

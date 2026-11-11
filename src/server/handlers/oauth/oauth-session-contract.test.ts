@@ -325,6 +325,7 @@ describe("interactive OAuth session boundary", () => {
         "tiktok",
         "http://localhost:3000/api/oauth/connect/tiktok/callback",
         SESSION_AUTH,
+        { subAccounts: false },
       );
     } else {
       expect(mockGenerateOAuthState).toHaveBeenCalledWith(SESSION_AUTH, route.flow);

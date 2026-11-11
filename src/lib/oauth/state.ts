@@ -14,7 +14,8 @@ export const OAUTH_FLOWS = {
   gmail: "gmail",
 } as const;
 
-export type OAuthPurpose = { kind: "insights"; channelId: string; transport: string } | { kind: "connect" };
+/** `subAccounts`: the opt-in "connect pages" variant — the callback lets the user pick sub-accounts. */
+export type OAuthPurpose = { kind: "insights"; channelId: string; transport: string } | { kind: "connect"; subAccounts?: true };
 
 export type OAuthFlow = (typeof OAUTH_FLOWS)[keyof typeof OAUTH_FLOWS] | `connect:${string}`;
 
@@ -26,8 +27,14 @@ function secureAttribute(): string {
   return process.env.NODE_ENV === "production" ? " Secure;" : "";
 }
 
-function oauthCookie(name: string, value: string, maxAge: number): string {
-  return `${name}=${value}; HttpOnly;${secureAttribute()} SameSite=Lax; Path=${COOKIE_PATH}; Max-Age=${maxAge}`;
+export function oauthCookie(name: string, value: string, maxAge: number, path = COOKIE_PATH): string {
+  return `${name}=${value}; HttpOnly;${secureAttribute()} SameSite=Lax; Path=${path}; Max-Age=${maxAge}`;
+}
+
+/** Read one cookie's value from the raw `Cookie` header (null when absent). */
+export function readCookie(cookieHeader: string | null, name: string): string | null {
+  const match = cookieHeader?.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
+  return match ? match.slice(name.length + 1) : null;
 }
 
 function signature(state: string, auth: SessionAuthContext, flow: OAuthFlow, context: string): string {
@@ -77,14 +84,7 @@ export function clearOAuthStateCookie(): string {
   return oauthCookie(COOKIE_NAME, "", 0);
 }
 
-function readStateCookie(cookieHeader: string | null): string | null {
-  if (!cookieHeader) return null;
-  const match = cookieHeader
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${COOKIE_NAME}=`));
-  return match ? match.slice(COOKIE_NAME.length + 1) : null;
-}
+const readStateCookie = (cookieHeader: string | null) => readCookie(cookieHeader, COOKIE_NAME);
 
 /**
  * Verify the state returned in the OAuth callback matches the cookie. Throws if
@@ -120,6 +120,7 @@ export function verifyOAuthState(
 
 function validatePurpose(purpose: OAuthPurpose, flow: OAuthFlow): void {
   if (purpose?.kind === "connect" && Object.keys(purpose).length === 1) return;
+  if (purpose?.kind === "connect" && purpose.subAccounts === true && Object.keys(purpose).length === 2 && flow.startsWith("connect:")) return;
   if (purpose?.kind !== "insights" || Object.keys(purpose).length !== 3 ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purpose.channelId) ||
     !((flow === "instagram" && purpose.transport === "facebook") || (flow === "instagram-login" && purpose.transport === "instagram_business"))) throw new Error("Invalid OAuth purpose");
@@ -138,12 +139,7 @@ export function pkceCookie(verifier: string): string {
 
 /** Read the PKCE verifier from the raw `Cookie` header (null when absent). */
 export function readPkceCookie(cookieHeader: string | null): string | null {
-  if (!cookieHeader) return null;
-  const match = cookieHeader
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${PKCE_COOKIE_NAME}=`));
-  return match ? match.slice(PKCE_COOKIE_NAME.length + 1) : null;
+  return readCookie(cookieHeader, PKCE_COOKIE_NAME);
 }
 
 /** `Set-Cookie` value that clears the PKCE verifier cookie (one-time use). */

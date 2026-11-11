@@ -17,6 +17,8 @@ export interface ConnectedAccount {
   username?: string;
   profilePicture?: string;
   tokens: TokenData;
+  /** Provider identity hints merged into `channels.metadata` (e.g. LinkedIn `{ subKind: "organization" }`). */
+  metadata?: Record<string, unknown>;
 }
 
 export interface QuickReply {

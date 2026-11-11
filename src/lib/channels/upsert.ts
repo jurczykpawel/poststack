@@ -179,6 +179,7 @@ export async function upsertChannels(
           token_expires_at: tokenExpiresAt,
           data_access_expires_at: dataAccessExpiresAt,
           messaging_token_expires_at: messagingTokenExpiresAt,
+          ...(account.metadata ? { metadata: account.metadata } : {}),
         })
         .onConflictDoUpdate({
           target: [channels.workspace_id, channels.platform, channels.platform_id],
@@ -198,6 +199,7 @@ export async function upsertChannels(
             token_expires_at: tokenExpiresAt,
             data_access_expires_at: dataAccessExpiresAt,
             messaging_token_expires_at: messagingTokenExpiresAt,
+            ...(account.metadata ? { metadata: sql`${channels.metadata} || ${JSON.stringify(account.metadata)}::jsonb` } : {}),
           },
         })
         .returning({ id: channels.id });

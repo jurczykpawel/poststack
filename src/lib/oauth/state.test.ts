@@ -101,3 +101,21 @@ describe("OAuth state identity binding", () => {
     ).toThrow(/Invalid OAuth state/);
   });
 });
+
+describe("connect-pages purpose", () => {
+  it("round-trips the subAccounts variant for a generic connect flow only", () => {
+    const purpose = { kind: "connect" as const, subAccounts: true as const };
+    const { state, setCookie } = generateOAuthState(SESSION, "connect:linkedin", purpose);
+    expect(verifyOAuthState(state, setCookie.split(";")[0]!, SESSION, "connect:linkedin")).toEqual(purpose);
+    expect(() => generateOAuthState(SESSION, "facebook", purpose)).toThrow(/Invalid OAuth purpose/);
+    expect(() => generateOAuthState(SESSION, "connect:linkedin", { kind: "connect", subAccounts: false } as never)).toThrow(/Invalid OAuth purpose/);
+  });
+
+  it("binds the variant to the signature: the plain flow cannot be relabelled", () => {
+    const { state, setCookie } = generateOAuthState(SESSION, "connect:linkedin");
+    const [value] = setCookie.split(";");
+    const [s, , sig] = value!.slice("rs_oauth_state=".length).split(".");
+    const forged = Buffer.from(JSON.stringify({ purpose: { kind: "connect", subAccounts: true }, expiresAt: Date.now() + 60_000 })).toString("base64url");
+    expect(() => verifyOAuthState(state, `rs_oauth_state=${s}.${forged}.${sig}`, SESSION, "connect:linkedin")).toThrow(/Invalid OAuth state/);
+  });
+});
