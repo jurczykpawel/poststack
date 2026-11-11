@@ -1,0 +1,23 @@
+{
+  "_source": "Shapes follow core.telegram.org/bots/api (Message, ChatFullInfo, ChatMember*, ResponseParameters); error descriptions are the documented Bot API wording.",
+  "me": { "ok": true, "result": { "id": 777000111, "is_bot": true, "first_name": "Acme", "username": "acme_bot" } },
+  "message": { "ok": true, "result": { "message_id": 101, "date": 1700000000, "chat": { "id": -1001234567890, "type": "channel", "title": "Acme News", "username": "acme_news" } } },
+  "album": { "ok": true, "result": [
+    { "message_id": 201, "date": 1700000000, "chat": { "id": -1001234567890, "type": "channel", "username": "acme_news" } },
+    { "message_id": 202, "date": 1700000000, "chat": { "id": -1001234567890, "type": "channel", "username": "acme_news" } }
+  ] },
+  "chatChannel": { "ok": true, "result": { "id": -1001234567890, "type": "channel", "title": "Acme News", "username": "acme_news" } },
+  "chatPrivateChannel": { "ok": true, "result": { "id": -1009876543210, "type": "channel", "title": "Private" } },
+  "chatGroup": { "ok": true, "result": { "id": -4000111, "type": "supergroup", "title": "Acme Group" } },
+  "chatPrivate": { "ok": true, "result": { "id": 55, "type": "private", "first_name": "Ann" } },
+  "memberAdminCanPost": { "ok": true, "result": { "status": "administrator", "user": { "id": 777000111, "is_bot": true, "first_name": "Acme" }, "can_post_messages": true } },
+  "memberAdminNoPost": { "ok": true, "result": { "status": "administrator", "user": { "id": 777000111, "is_bot": true, "first_name": "Acme" }, "can_post_messages": false } },
+  "memberPlain": { "ok": true, "result": { "status": "member", "user": { "id": 777000111, "is_bot": true, "first_name": "Acme" } } },
+  "memberLeft": { "ok": true, "result": { "status": "left", "user": { "id": 777000111, "is_bot": true, "first_name": "Acme" } } },
+  "errForbidden": { "ok": false, "error_code": 403, "description": "Forbidden: bot is not a member of the channel chat" },
+  "errNoRights": { "ok": false, "error_code": 400, "description": "Bad Request: have no rights to send a message" },
+  "errChatNotFound": { "ok": false, "error_code": 400, "description": "Bad Request: chat not found" },
+  "errRetry": { "ok": false, "error_code": 429, "description": "Too Many Requests: retry after 17", "parameters": { "retry_after": 17 } },
+  "errUnauthorized": { "ok": false, "error_code": 401, "description": "Unauthorized" },
+  "errBadUrl": { "ok": false, "error_code": 400, "description": "Bad Request: wrong file identifier/HTTP URL specified" }
+}

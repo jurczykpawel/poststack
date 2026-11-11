@@ -105,7 +105,7 @@ test("phone: collapsed cards, expand to the same selects, no horizontal scroll",
   const card = page.locator(`#brand-${PREFIX}1`);
   await expect(card.locator(".bm-cells")).toBeHidden();
   await card.getByRole("button", { name: /Show channels/ }).click();
-  await expect(card.locator(".brand-slot select")).toHaveCount(7);
+  await expect(card.locator(".brand-slot select")).toHaveCount(8);
   await expect(card.locator(".brand-slot button.ps-trigger").first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const box = await card.locator(".brand-slot button.ps-trigger").first().boundingBox();

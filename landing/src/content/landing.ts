@@ -59,7 +59,7 @@ export const platforms = {
   // private 1:1 DMs. Keep this honest — the provider has no publish, no comment surface, and groups /
   // channels / Telegram Business inboxes aren't handled yet.
   telegramNote:
-    "† Telegram is an early, proof-of-concept integration: it connects as a bot and handles private 1:1 DMs (text) only — a bot can't message someone until they start the chat. Groups, channels and Telegram Business account inboxes aren't supported yet; deeper Telegram integration is on the roadmap.",
+    "† Telegram is an early, proof-of-concept integration: it connects as a bot and handles private 1:1 DMs (text) in the inbox — a bot can't message someone until they start the chat — and can publish posts to a channel or group you add it to. Group/channel inboxes and Telegram Business account inboxes aren't supported yet; deeper Telegram integration is on the roadmap.",
 };
 
 export const proofSignals = [

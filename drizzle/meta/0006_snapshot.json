@@ -1477,6 +1477,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'card'"
+        },
+        "publish_target": {
+          "name": "publish_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

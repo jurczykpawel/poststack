@@ -5,6 +5,7 @@ import { tiktokProvider } from "./tiktok";
 import { xProvider } from "./x";
 import { linkedinProvider } from "./linkedin";
 import { threadsProvider } from "./threads";
+import { telegramProvider } from "./telegram";
 
 // The publish-side providers (one per platform). meta serves FB+IG publish; the inbound side lives
 // in @/lib/platforms (facebook/instagram/youtube) and shares the Meta token/app-secret model. The
@@ -15,6 +16,7 @@ providers.register(tiktokProvider);
 providers.register(xProvider);
 providers.register(linkedinProvider);
 providers.register(threadsProvider);
+providers.register(telegramProvider);
 
 import { getProvider, isProvider } from "./registry";
 

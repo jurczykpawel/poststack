@@ -8,13 +8,14 @@ import { addJobTx } from "@/lib/queue/client";
 import { z } from "zod";
 import { hasFeature } from "@/lib/license/gate";
 import { env } from "@/lib/env";
-import { deleteChannel } from "@/lib/channels/service";
+import { deleteChannel, resolveChannelPublishTarget } from "@/lib/channels/service";
 
 export const runtime = "nodejs";
 
 const DETAIL_COLUMNS = {
   default_auto_story: true,
   default_auto_story_mode: true,
+  publish_target: true,
   id: true,
   platform: true,
   platform_id: true,
@@ -50,6 +51,8 @@ const patchSchema = z.object({
   default_auto_story: z.boolean().optional(),
   default_auto_story_mode: z.enum(["card", "media"]).optional(),
   display_name: z.string().min(1).max(100).optional(),
+  // Telegram only; null/"" clears. Checked against Telegram before it is saved.
+  publish_target: z.string().max(64).nullable().optional(),
   // Manual status changes only — needs_reauth is set by the system.
   status: z.enum(["active", "paused", "disabled"]).optional(),
   // Backward-compatible boolean alias (true → active, false → disabled).
@@ -80,9 +83,10 @@ export async function PATCH(
   if ((parsed.data.default_auto_story !== undefined || parsed.data.default_auto_story_mode !== undefined) && !await hasFeature("auto_story")) {
     return ApiErrors.proRequired("auto_story", env.LICENSE_UPGRADE_URL);
   }
-  const data: { display_name?: string; status?: "active" | "paused" | "disabled"; default_auto_story?: boolean; default_auto_story_mode?: "card" | "media" } = {};
+  const data: { publish_target?: string | null; display_name?: string; status?: "active" | "paused" | "disabled"; default_auto_story?: boolean; default_auto_story_mode?: "card" | "media" } = {};
   if (parsed.data.default_auto_story !== undefined) data.default_auto_story = parsed.data.default_auto_story;
   if (parsed.data.default_auto_story_mode !== undefined) data.default_auto_story_mode = parsed.data.default_auto_story_mode;
+  if (parsed.data.publish_target !== undefined) data.publish_target = await resolveChannelPublishTarget(auth.workspaceId, channelId, parsed.data.publish_target);
   if (parsed.data.display_name !== undefined) data.display_name = parsed.data.display_name;
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   else if (parsed.data.is_active !== undefined) data.status = parsed.data.is_active ? "active" : "disabled";
@@ -103,6 +107,7 @@ export async function PATCH(
         .returning({
           default_auto_story: channels.default_auto_story,
           default_auto_story_mode: channels.default_auto_story_mode,
+          publish_target: channels.publish_target,
           id: channels.id,
           platform: channels.platform,
           platform_id: channels.platform_id,

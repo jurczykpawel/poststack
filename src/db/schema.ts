@@ -282,6 +282,9 @@ export const channels = pgTable("channels", {
 	default_first_comment: text("default_first_comment"),
 	default_auto_story: boolean("default_auto_story").default(false).notNull(),
 	default_auto_story_mode: autoStoryMode("default_auto_story_mode").default("card").notNull(),
+	// Telegram only: where posts are published (@username or chat id) — validated against getChat +
+	// getChatMember when set. NULL = the bot can only serve the inbox.
+	publish_target: text("publish_target"),
 	// AIDISC1 — RESERVED, NOT WIRED YET (owner's call, 2026-07-31: land the columns now so enabling the
 	// feature later needs no second migration). The intended semantics, mirroring the
 	// default_first_comment / default_auto_story pattern above: a post whose `ai_disclosure` is NULL

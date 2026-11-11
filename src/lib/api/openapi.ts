@@ -192,6 +192,7 @@ export const openApiSpec = {
         properties: {
           default_auto_story: { type: "boolean" },
           default_auto_story_mode: { type: "string", enum: ["card", "media"], default: "card" },
+          publish_target: { type: ["string", "null"], description: "Telegram only: channel @username or chat id that posts are published to. Null = not set (inbox only)." },
           id: { type: "string", format: "uuid" },
           platform: { type: "string", enum: ["facebook", "instagram", "youtube", "gmail", "telegram"] },
           platform_id: { type: "string", description: "Platform-native account id (e.g. IG business account id / FB page id)." },
@@ -1100,7 +1101,7 @@ export const openApiSpec = {
         ...requiresScope("channels:write"),
         tags: ["Channels"],
         summary: "Update a channel (e.g. pause/resume automation, rename)",
-        requestBody: { content: { "application/json": { schema: { type: "object", properties: { default_auto_story: { type: "boolean", description: "Requires auto_story (PRO)." }, default_auto_story_mode: { type: "string", enum: ["card", "media"], description: "Requires auto_story (PRO); does not change the toggle." }, display_name: { type: "string" }, status: { type: "string", enum: ["active", "paused"] } } } } } },
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { publish_target: { type: ["string", "null"], description: "Telegram only: @username or chat id of the channel/group to publish to; null clears. 422 unless the bot is an administrator with permission to post (channel) or may write (group)." }, default_auto_story: { type: "boolean", description: "Requires auto_story (PRO)." }, default_auto_story_mode: { type: "string", enum: ["card", "media"], description: "Requires auto_story (PRO); does not change the toggle." }, display_name: { type: "string" }, status: { type: "string", enum: ["active", "paused"] } } } } } },
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },

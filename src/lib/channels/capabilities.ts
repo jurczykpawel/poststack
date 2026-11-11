@@ -28,6 +28,8 @@ export interface ChannelCapabilityCtx {
   platform: string;
   video_carousel?: string;
   connection_mode?: "oauth" | "manual_token" | "derived";
+  /** Telegram: publishing needs a validated "publish to" target. */
+  publish_target?: string | null;
   /** Granted token scopes, when available. */
   metadata?: unknown;
 }
@@ -48,7 +50,7 @@ export function channelCapabilities(ctx: ChannelCapabilityCtx): Capability[] {
   if (ctx.platform === "facebook" && ctx.video_carousel === "available") caps.add("video_carousel");
 
   if (isPublishablePlatform(ctx.platform)) {
-    if (!missingPublishScopes(ctx).length) caps.add("publish");
+    if (!missingPublishScopes(ctx).length && (ctx.platform !== "telegram" || ctx.publish_target)) caps.add("publish");
     const provider = getProviderForPlatform(ctx.platform);
     if (provider.supportsSources?.() && ctx.connection_mode !== "derived") {
       caps.add("enumerate_subaccounts");

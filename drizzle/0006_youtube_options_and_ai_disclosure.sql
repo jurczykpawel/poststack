@@ -293,3 +293,6 @@ CREATE TYPE "auto_story_mode" AS ENUM ('card', 'media');
 ALTER TABLE "channels" ADD COLUMN "default_auto_story_mode" "auto_story_mode" NOT NULL DEFAULT 'card';
 --> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "auto_story_mode" "auto_story_mode";
+
+--> statement-breakpoint
+ALTER TABLE "channels" ADD COLUMN "publish_target" text;

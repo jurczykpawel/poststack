@@ -69,6 +69,7 @@ const PLATFORM_FORMAT: Record<string, { video: string; image: string }> = {
   // twitter video fell back to "reel", which the x provider rejects ("unsupported format 'reel'").
   twitter: { video: "video", image: "image" },
   linkedin: { video: "video", image: "image" },
+  telegram: { video: "video", image: "image" },
 };
 
 /** The provider `format` + media `kind` for an editorial post on `platform`. */
@@ -259,7 +260,7 @@ export async function preparePublishRequest(
   const pickUrl = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v : undefined);
   const mediaUrl = pickUrl(post.video_url) ?? pickUrl(post.media_url) ?? pickUrl(urls[0]);
 
-  const carousel = (post.platform === "facebook" || post.platform === "instagram") && urls.length > 1;
+  const carousel = (post.platform === "facebook" || post.platform === "instagram" || post.platform === "telegram") && urls.length > 1;
   const publishUrls = carousel ? urls.map(value => {
     const url = pickUrl(value);
     if (!url) throw new ApiError("invalid_request", "Carousel media URLs must not be blank", 422);

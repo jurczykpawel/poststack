@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     columns: {
       default_auto_story: true,
       default_auto_story_mode: true,
+      publish_target: true,
       id: true,
       platform: true,
       video_carousel: true,

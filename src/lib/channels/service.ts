@@ -12,6 +12,8 @@ import { channels, channelRateState, insightConnections, type Platform } from "@
 import { getProvider } from "@/lib/platforms/registry";
 import { MetaTokenError, inspectMetaToken } from "@/lib/platforms/meta-token";
 import { decryptTokens } from "@/lib/crypto";
+import { parsePublishTarget, resolvePublishTarget } from "@/lib/providers/telegram";
+import { ProviderError } from "@/lib/providers/errors";
 import { upsertChannels, assertChannelsAllowed } from "@/lib/channels/upsert";
 import { markChannelHealthy, markChannelNeedsReauth } from "@/lib/channels/health";
 import { reconcileChannelSubscription, isSubscribablePlatform } from "@/lib/channels/subscription-status";
@@ -53,6 +55,8 @@ export interface PublicChannel {
   default_ai_disclosure_note: string | null;
   default_auto_story: boolean;
   default_auto_story_mode: "card" | "media";
+  /** Telegram: where posts are published (@username or chat id); null = not set. */
+  publish_target: string | null;
   metadata: Record<string, unknown> | null;
   created_at: Date;
   /** Gmail-channel ingest filter (raw Gmail query string). NULL = use default "in:inbox". */
@@ -102,6 +106,7 @@ export function toPublic(r: ChannelRow): PublicChannel {
     default_ai_disclosure_note: r.default_ai_disclosure_note,
     default_auto_story: r.default_auto_story,
     default_auto_story_mode: r.default_auto_story_mode,
+    publish_target: r.publish_target,
     metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     created_at: r.created_at,
     gmail_query: r.gmail_query,
@@ -312,6 +317,25 @@ export async function setChannelDefaultAiDisclosure(
     .update(channels)
     .set({ default_ai_disclosure: level, default_ai_disclosure_note: trimmed || null })
     .where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
+}
+
+/** Telegram: check that the bot may post to `input` and return its stored form; blank/null clears (null). */
+export async function resolveChannelPublishTarget(workspaceId: string, id: string, input: string | null): Promise<string | null> {
+  const ch = await ownChannelOr404(workspaceId, id);
+  if (ch.platform !== "telegram") throw new ApiError("invalid_request", "Only Telegram channels have a publish target", 400);
+  if (!input?.trim()) return null;
+  try { parsePublishTarget(input); } catch (err) { throw new ApiError("validation_error", (err as Error).message, 422); }
+  const blob = decryptTokens(ch.token_encrypted, [`ws:${ch.workspace_id}`, "channels.token_encrypted", ch.platform, ch.platform_id]);
+  try { return await resolvePublishTarget(blob.access_token, input); }
+  catch (err) {
+    if (err instanceof ProviderError && err.kind !== "transient") throw new ApiError("validation_error", err.message, 422);
+    throw new ApiError("upstream_unavailable", "Telegram could not be reached — try again", 502);
+  }
+}
+
+export async function setChannelPublishTarget(workspaceId: string, id: string, input: string | null): Promise<void> {
+  const target = await resolveChannelPublishTarget(workspaceId, id, input);
+  await db.update(channels).set({ publish_target: target }).where(and(eq(channels.id, id), eq(channels.workspace_id, workspaceId)));
 }
 
 export async function setChannelDefaultAutoStory(workspaceId: string, id: string, enabled?: boolean, mode?: "card" | "media"): Promise<void> {

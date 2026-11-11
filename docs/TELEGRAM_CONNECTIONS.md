@@ -2,7 +2,7 @@
 
 Telegram needs no developer app, OAuth client or review. You connect a **bot** by pasting its token.
 Today a connected bot powers the **inbox**: private messages sent to the bot land in PostStack, and you
-reply from there (manually, with rules or with sequences). Publishing posts to a Telegram channel is planned.
+reply from there (manually, with rules or with sequences). The same bot can also publish scheduled posts to a channel or group (see [Publishing to a channel](#publishing-to-a-channel)).
 
 ## 1. Create the bot (2 minutes, in the Telegram app)
 
@@ -26,6 +26,25 @@ messages are verified. Your instance must be reachable over public HTTPS at `APP
 
 Open `https://t.me/<bot username>`, press **Start**, and send a message. It should appear in the Inbox
 within seconds. Reply from PostStack and check that the reply arrives in Telegram.
+
+## Publishing to a channel
+
+1. In Telegram, open your channel → Administrators → add the bot as an administrator with **Post messages**
+   (for a group, just add the bot as a member).
+2. In PostStack open the channel (Channels → your Telegram bot) → **Publish to** → enter the channel
+   `@username` (or the numeric chat id of a private channel) → Save.
+   API: `PATCH /api/v1/channels/{id}` with `{"publish_target": "@my_channel"}` (scope `channels:write`).
+   PostStack checks the bot's rights with Telegram and refuses with *"Add the bot as an administrator of the
+   channel with permission to post messages"* if they are missing. Empty value turns publishing off.
+3. Assign the channel to a brand, then pick Telegram in the composer. Without a target the composer shows a
+   hint instead of a Telegram option.
+
+Formats and limits (Bot API): text up to 4096 characters; photo, video or an album of 2–10 items with a
+caption up to 1024 characters (on the first item of an album). Telegram downloads media from its public URL:
+photos up to 5 MB, videos and other files up to 20 MB — larger files are not supported yet. Public channels get a
+`https://t.me/<username>/<message_id>` link on the post; for an album the post keeps every message id
+(`101,102,…`, first is the album's first message). Telegram flood control (HTTP 429) is retried after its `retry_after`.
+Removing the bot from the channel makes publishing fail with a permission error (the channel itself stays connected).
 
 ## Pitfalls
 

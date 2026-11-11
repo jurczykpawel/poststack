@@ -10,6 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- Telegram publishing: a connected bot can publish scheduled text, photo, video and 2–10 item albums to a channel or group. Set **Publish to** (`@username` or chat id) in the channel settings or with `PATCH /api/v1/channels/{id}` (`publish_target`); PostStack checks that the bot is an administrator with permission to post before saving. Captions follow Telegram limits (4096 text, 1024 media), media is fetched by Telegram from its URL (photo ≤ 5 MB, video ≤ 20 MB), rate limits honor `retry_after`, and a post links to its `t.me` message for public channels. See [Telegram connections](docs/TELEGRAM_CONNECTIONS.md#publishing-to-a-channel).
 - Stories: an Instagram Story video over 60 s (Story format or auto-Story in `media` mode) is split into consecutive 60 s clips and published as separate Stories in order; a retry never repeats a published clip. The composer shows the number of Stories before publishing, `POST /api/v1/posts/{postId}/publish` returns `storySegments`, and the post in Queue shows the split and the auto-Story card-fallback reason. See [Stories](docs/STORIES.md#video-length).
 
 ### Changed

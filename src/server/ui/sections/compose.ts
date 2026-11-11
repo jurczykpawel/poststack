@@ -99,18 +99,22 @@ function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; n
 }
 
 type PlatformOpt = { autoStory?: boolean; autoStoryMode?: string; carousel: boolean; providerId: string; videoCarousel?: boolean; channelId: string; tiktokCreator?: CreatorInfoResult | null; platform: string; name: string; label: string; color: string; glyph: string };
-async function brandsData(workspaceId: string): Promise<Record<string, { name: string; platforms: PlatformOpt[] }>> {
+type BrandOpt = { name: string; platforms: PlatformOpt[]; hints: { text: string; href: string }[] };
+async function brandsData(workspaceId: string): Promise<Record<string, BrandOpt>> {
   const brands = await listBrands(workspaceId);
-  const channelRows = await db.query.channels.findMany({ where: eq(channels.workspace_id, workspaceId), columns: { id: true, video_carousel: true, default_auto_story: true, default_auto_story_mode: true } });
+  const channelRows = await db.query.channels.findMany({ where: eq(channels.workspace_id, workspaceId), columns: { id: true, video_carousel: true, default_auto_story: true, default_auto_story_mode: true, publish_target: true } });
   const locked = await lockedBrandKeys(workspaceId);
-  const out: Record<string, { name: string; platforms: PlatformOpt[] }> = {};
+  const out: Record<string, BrandOpt> = {};
   for (const b of brands) {
     if (locked.has(b.key)) continue;
     const slots = await resolveBrandSlots(workspaceId, b.key);
+    // A Telegram bot without a "publish to" target is an inbox-only channel: offer a hint, not a target.
+    const noTarget = (s: (typeof slots)[number]) => s.platform === "telegram" && !channelRows.find(c => c.id === s.channel?.id)?.publish_target;
     out[b.key] = {
       name: b.name,
+      hints: slots.filter((s) => s.channel && noTarget(s)).map((s) => ({ text: `Telegram “${s.channel!.label}” can't publish yet — set “Publish to” in its channel settings.`, href: `/channels/${s.channel!.id}` })),
       platforms: slots
-        .filter((s) => s.channel)
+        .filter((s) => s.channel && !noTarget(s))
         .map((s) => ({
           autoStory: channelRows.find(c => c.id === s.channel!.id)?.default_auto_story,
           autoStoryMode: channelRows.find(c => c.id === s.channel!.id)?.default_auto_story_mode,
@@ -385,6 +389,9 @@ async function composePage(
                 <div><p class="card-hint">Set up a brand to choose which channels publish your posts.</p><a class="btn btn-primary btn-sm" href="/brands?new=1&amp;compose=1">Set up brand &amp; channels</a></div>
               </template>
               <p class="notice notice-info" role="status" x-show="brand &amp;&amp; availPlatforms.length === 0" x-cloak>This brand has no channels. <a class="btn btn-sm" href="/brands" :href="'/brands?compose=1&amp;open=' + encodeURIComponent(brand)">Assign channels</a></p>
+              <template x-for="h in (brand &amp;&amp; brands[brand] ? brands[brand].hints : [])" :key="h.href">
+                <p class="notice notice-info" role="status"><span x-text="h.text"></span> <a class="btn btn-sm" :href="h.href">Open channel</a></p>
+              </template>
               <div class="targets" x-show="brand" x-cloak>
                 <template x-for="p in availPlatforms" :key="p.platform">
                   <div class="target" :class="isOn(p.platform) ? 'on' : ''" @click="toggleTarget(p.platform)" role="button" tabindex="0" @keydown.enter.prevent="toggleTarget(p.platform)" @keydown.space.prevent="toggleTarget(p.platform)">

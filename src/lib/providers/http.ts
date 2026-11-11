@@ -2,13 +2,15 @@ import type { TokenSet } from "./types";
 import { PermanentError, PermissionError, PaymentRequiredError, RateLimitedError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
 
 type HttpContext = {
-  provider?: "meta" | "threads" | "youtube" | "x" | "linkedin" | "tiktok";
+  provider?: "meta" | "threads" | "youtube" | "x" | "linkedin" | "tiktok" | "telegram";
   headers?: Headers;
   body?: unknown;
 };
 
 /** Retry-After (RFC 9110) or X's Unix reset timestamp; bounded to 1s–24h. */
-function retryDelay({ headers, provider }: HttpContext): number {
+function retryDelay({ headers, provider, body }: HttpContext): number {
+  const tg = (body as { parameters?: { retry_after?: unknown } } | undefined)?.parameters?.retry_after;
+  if (provider === "telegram" && typeof tg === "number" && Number.isFinite(tg)) return Math.max(1, Math.min(86400, Math.ceil(tg)));
   const value = headers?.get("retry-after")?.trim();
   let seconds = value && /^\d+$/.test(value) ? Number(value) :
     value && /[a-z]{3},/i.test(value) ? (Date.parse(value) - Date.now()) / 1000 : NaN;

@@ -43,9 +43,9 @@ describe("threads provider", () => {
     expect(h.providerHandle).toBe(docs.threads.publish.body.id);
   });
 
-  it("all six v1 providers are registered", () => {
+  it("all seven v1 providers are registered", () => {
     expect(listProviders().map((p) => p.id).sort()).toEqual(
-      ["linkedin", "meta", "threads", "tiktok", "x", "youtube"],
+      ["linkedin", "meta", "telegram", "threads", "tiktok", "x", "youtube"],
     );
   });
 });

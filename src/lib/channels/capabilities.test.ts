@@ -21,8 +21,8 @@ beforeAll(async () => {
 // CHANNELS-ARCHITECTURE (Task 6): a channel is an account with CAPABILITIES, resolved from
 // platform × connection_mode × provider — never a "publish channel" vs "reply channel". The engine
 // asks can(channel, "publish") / can(channel, "dm"); zero platform if-ladders live in the engine.
-const caps = (platform: string, extra: Partial<{ connection_mode: "oauth" | "manual_token" | "derived" }> = {}) =>
-  channelCapabilities({ platform, connection_mode: extra.connection_mode ?? "oauth" });
+const caps = (platform: string, extra: Partial<{ connection_mode: "oauth" | "manual_token" | "derived"; publish_target: string }> = {}) =>
+  channelCapabilities({ platform, connection_mode: extra.connection_mode ?? "oauth", publish_target: extra.publish_target });
 
 describe("channel capabilities — derived from provider, not stored", () => {
   it("the capability set is a small closed enum", () => {
@@ -61,11 +61,12 @@ describe("channel capabilities — derived from provider, not stored", () => {
     }
   });
 
-  it("telegram: DM-only (inbound bot, no publish provider, no comment surface)", () => {
+  it("telegram: DM-only until a publish target is set; then it can publish too (still no comment surface)", () => {
     const s = caps("telegram");
     expect(s).toContain("dm");
     expect(s).not.toContain("publish");
     expect(s).not.toContain("comment_reply");
+    expect(caps("telegram", { publish_target: "@acme_news" })).toContain("publish");
   });
 
   it("enumerate_subaccounts: a non-derived meta credential can act as a master; a derived child cannot", () => {

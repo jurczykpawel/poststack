@@ -12,7 +12,7 @@ import {
   reconnectManualToken,
   setChannelStatus,
   setChannelDisplayName,
-  setChannelDefaultFirstComment,
+  setChannelDefaultFirstComment, setChannelPublishTarget,
   setChannelDefaultAiDisclosure,
   setChannelDefaultAutoStory,
   setChannelHidden,
@@ -708,6 +708,26 @@ function aiDisclosurePanel(ch: PublicChannel, oob = false): Html {
   </section>`;
 }
 
+function publishTargetPanel(ch: PublicChannel, oob = false): Html {
+  if (ch.platform !== "telegram") return html``;
+  return html`<section class="panel" id="publish-target-panel"${oob ? raw(' hx-swap-oob="true"') : raw("")}>
+    <div class="panel-head"><h3>Publish to</h3></div>
+    <div class="set-body">
+      <p class="set-lead">
+        Channel or group where PostStack publishes scheduled posts. Add the bot as an administrator of the
+        channel with permission to post messages first. ${ch.publish_target ? html`Currently <strong>${ch.publish_target}</strong>.` : "Not set — this bot only serves the inbox."}
+      </p>
+      <form class="panel-form" method="post" action="/channels/${ch.id}/publish-target"
+        hx-post="/channels/${ch.id}/publish-target" hx-target="#ch-detail-head" hx-swap="outerHTML">
+        <input name="target" value="${ch.publish_target ?? ""}" maxlength="64" placeholder="@my_channel or -1001234567890"
+          aria-label="Publish to (Telegram @username or chat id)" style="width:100%;font:inherit" />
+        <p class="card-hint">Leave empty to stop publishing.</p>
+        ${btn({ label: "Save publish target", variant: "secondary", size: "sm" })}
+      </form>
+    </div>
+  </section>`;
+}
+
 function firstCommentPanel(ch: PublicChannel, licensed: boolean, upgradeUrl: string, oob = false): Html {
   if (!platformSupportsFirstComment(ch.platform)) return html``;
   // Same out-of-band pattern as the Auto-Story panel: the control lives here, not in #ch-detail-head,
@@ -1003,6 +1023,7 @@ async function channelDetailPage(c: Context): Promise<Response> {
               </div></section>`
           : html`<section class="panel"><div class="set-body"><p class="set-lead" style="margin:0">${icon("lock", "ico", 13)} Channel stats (posts & messages) are a PRO feature.</p></div></section>`}
         ${insightsPanel}
+        ${publishTargetPanel(ch)}
         ${firstCommentPanel(ch, lic.features.has("first_comment"), lic.upgradeUrl)}
         ${aiDisclosurePanel(ch)}
         ${storyPanel(ch, lic.features.has("auto_story"), lic.upgradeUrl)}
@@ -1036,6 +1057,7 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     toast: (ch: PublicChannel) => string,
     oob?: (ch: PublicChannel) => Html,
     feature?: Feature,
+    errorToast = false,
   ) {
     return async (c: Context) => {
       const a = await auth(c);
@@ -1048,6 +1070,7 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
       try {
         await run(a.workspaceId, id, c);
       } catch (err) {
+        if (err instanceof ApiError && errorToast && isHtmx(c)) { toastHeader(c, "bad", err.message); return c.body(null, 204); }
         if (err instanceof ApiError) return c.text(err.message, err.status as 400);
         throw err;
       }
@@ -1070,6 +1093,10 @@ export function registerChannels(r: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.parseBody();
     await setChannelDisplayName(ws, id, String(form.displayName ?? ""));
   }, () => "Name updated"));
+  r.post("/channels/:id/publish-target", guard, action(async (ws, id, c) => {
+    const form = await c.req.parseBody();
+    await setChannelPublishTarget(ws, id, String(form.target ?? ""));
+  }, (ch) => ch.publish_target ? "Publish target saved" : "Publishing turned off", (ch) => publishTargetPanel(ch, true), undefined, true));
   r.post("/channels/:id/first-comment", guard, action(async (ws, id, c) => {
     const form = await c.req.parseBody();
     await setChannelDefaultFirstComment(ws, id, String(form.firstComment ?? ""));

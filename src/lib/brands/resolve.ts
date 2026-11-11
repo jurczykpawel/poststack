@@ -13,6 +13,7 @@ export const EDITORIAL_PLATFORMS = [
   "threads",
   "x",
   "linkedin",
+  "telegram",
 ] as const;
 export type EditorialPlatform = (typeof EDITORIAL_PLATFORMS)[number];
 

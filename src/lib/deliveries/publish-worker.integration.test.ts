@@ -1268,3 +1268,63 @@ describe("provider status retry delay", () => {
     } finally { poll.mockRestore(); publish.mockRestore(); }
   });
 });
+
+describe("Telegram publishing", () => {
+  async function tgScenario(payload: Record<string, unknown>, mediaKinds: ("image" | "video")[] = []) {
+    const [c] = await db.insert(schema.channels).values({
+      workspace_id: WS, platform: "telegram", platform_id: "777000111", connection_mode: "manual_token",
+      token_encrypted: encryptTokens({ access_token: "123:SECRET" }), webhook_secret: "wh", publish_target: "@acme_news",
+    }).returning();
+    const media = [];
+    for (const kind of mediaKinds) {
+      const [m] = await db.insert(schema.media).values({ workspace_id: WS, checksum: `c${Math.random()}`, storage_key: "k", url: `https://cdn.example/${Math.random()}.${kind === "video" ? "mp4" : "jpg"}`, kind }).returning();
+      media.push({ mediaId: m!.id });
+    }
+    const request = { ...payload, media };
+    const [p] = await db.insert(schema.deliveries).values({
+      workspace_id: WS, channel_id: c!.id, format: String(payload.format), status: "scheduled", payload: request, scheduled_at: sql`now()`, run_at: sql`now()`,
+    }).returning();
+    return p!.id;
+  }
+  const row = (id: string) => db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, id) });
+  const stubTelegram = (reply: () => Response) => {
+    const calls: { method: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ method: String(url).split("/").pop()!, body: JSON.parse(String(init?.body)) });
+      return reply();
+    }));
+    return calls;
+  };
+
+  it("an album goes out as one sendMediaGroup and is recorded sent with its message ids and public link", async () => {
+    if (!TEST_DB) return;
+    const id = await tgScenario({ format: "carousel", caption: "album" }, ["image", "video"]);
+    const calls = stubTelegram(() => Response.json({ ok: true, result: [{ message_id: 201 }, { message_id: 202 }] }));
+    await processPublish({ postId: id }, helpers);
+    expect(calls.map((c) => c.method)).toEqual(["sendMediaGroup"]);
+    expect(calls[0]!.body).toMatchObject({ chat_id: "@acme_news", media: [{ type: "photo", caption: "album" }, { type: "video" }] });
+    expect(await row(id)).toMatchObject({ status: "sent", provider_handle: "201,202", payload: expect.objectContaining({ _publishedUrl: "https://t.me/acme_news/201" }) });
+  });
+
+  it("flood control (429) re-schedules after retry_after and publishes exactly once afterwards", async () => {
+    if (!TEST_DB) return;
+    const id = await tgScenario({ format: "text", caption: "hello" });
+    stubTelegram(() => Response.json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 90", parameters: { retry_after: 90 } }, { status: 429 }));
+    const t0 = Date.now();
+    await processPublish({ postId: id }, helpers);
+    expect((await row(id))?.status).toBe("scheduled");
+    expect(new Date((await publishJobByKey(`publish:${id}`))!.run_at).getTime()).toBeGreaterThan(t0 + 80_000);
+    const calls = stubTelegram(() => Response.json({ ok: true, result: { message_id: 7 } }));
+    await processPublish({ postId: id }, helpers);
+    expect(calls).toHaveLength(1);
+    expect((await row(id))?.status).toBe("sent");
+  });
+
+  it("a bot without rights fails the delivery permanently with the fix hint, without retry", async () => {
+    if (!TEST_DB) return;
+    const id = await tgScenario({ format: "text", caption: "hello" });
+    stubTelegram(() => Response.json({ ok: false, error_code: 403, description: "Forbidden: bot is not a member of the channel chat" }, { status: 403 }));
+    await processPublish({ postId: id }, helpers);
+    expect(await row(id)).toMatchObject({ status: "failed", last_error: expect.stringContaining("Add the bot as an administrator") });
+  });
+});
