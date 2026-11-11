@@ -62,7 +62,7 @@ const PLATFORM_FORMAT: Record<string, { video: string; image: string }> = {
   instagram: { video: "reel", image: "feed_post" },
   facebook: { video: "reel", image: "feed_post" },
   youtube: { video: "video", image: "short" },
-  tiktok: { video: "video", image: "video" },
+  tiktok: { video: "video", image: "image" },
   threads: { video: "video", image: "image" },
   // X's RS platform value is "twitter" (aliased to the "x" publish provider). resolveFormat is called
   // with the platform value, so this MUST be keyed "twitter" — keyed "x" it never matched and a
@@ -260,14 +260,14 @@ export async function preparePublishRequest(
   const pickUrl = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v : undefined);
   const mediaUrl = pickUrl(post.video_url) ?? pickUrl(post.media_url) ?? pickUrl(urls[0]);
 
-  const carousel = (post.platform === "facebook" || post.platform === "instagram" || post.platform === "telegram" || post.platform === "threads") && urls.length > 1;
+  const carouselCap = getProviderForPlatform(post.platform).capabilities().find((c) => c.format === "carousel");
+  const carousel = !!carouselCap && urls.length > 1;
   const publishUrls = carousel ? urls.map(value => {
     const url = pickUrl(value);
     if (!url) throw new ApiError("invalid_request", "Carousel media URLs must not be blank", 422);
     return url;
   }) : mediaUrl ? [mediaUrl] : [];
-  const carouselMax = post.platform === "threads" ? 20 : 10;
-  if (carousel && urls.length > carouselMax) throw new ApiError("invalid_request", `Carousel allows at most ${carouselMax} media items`, 422);
+  if (carousel && urls.length > carouselCap.media.max) throw new ApiError("invalid_request", `Carousel allows at most ${carouselCap.media.max} media items`, 422);
 
   const content = post.content_id
     ? await db.query.content.findFirst({ where: and(eq(contentTable.id, post.content_id), eq(contentTable.workspace_id, workspaceId)) })

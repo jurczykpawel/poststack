@@ -1,7 +1,7 @@
 import { oauthCredentials } from "./oauth-credentials";
 import { z } from "zod";
 import type { TokenSet } from "./types";
-import type { AccountInfo, FormatCapability, Provider, PublishHandle } from "./types";
+import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
 import { queryCreatorInfo, type CreatorInfoResult } from "./tiktok-creator-info";
 import { PermanentError, ConfirmationRequiredError, TransientError, TokenInvalidError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
@@ -22,7 +22,7 @@ const directOptions = z.object({
   aiDisclosed: z.boolean().optional(),
 });
 
-function isVerifiedPullUrl(videoUrl: string): boolean {
+export function isVerifiedPullUrl(videoUrl: string): boolean {
   const prefix = process.env.TIKTOK_PULL_URL_PREFIX;
   if (!prefix) return false;
   try {
@@ -45,9 +45,26 @@ const CAPS: FormatCapability[] = [
     caption: { maxLength: 2200, required: false },
     mediaIngestion: "pull_url",
   },
+  // Photo Post (developers.tiktok.com/doc/content-posting-api-reference-photo-post, read 2026-11-11):
+  // up to 35 PULL_FROM_URL images, WebP/JPEG ≤20 MB, ≤1080p; description ≤4000 UTF-16 units.
+  ...(["image", "carousel"] as const).map((format): FormatCapability => ({
+    format,
+    media: { min: format === "image" ? 1 : 2, max: format === "image" ? 1 : 35, kinds: ["image"] },
+    image: { maxSizeMB: 20 },
+    caption: { maxLength: 4000, required: false },
+    mediaIngestion: "pull_url",
+  })),
 ];
 
-export function validateTikTokSubmission(creator: CreatorInfoResult, optionsInput: unknown, durationSec?: number | null) {
+export const isTikTokPhotoFormat = (format: string) => format === "image" || format === "carousel";
+export const TIKTOK_PHOTO_DOMAIN_MSG = "TikTok photos require media from a verified domain or URL prefix (TIKTOK_PULL_URL_PREFIX); see docs/DEPLOY.md.";
+
+/** Photo posts only support PULL_FROM_URL; reject before any TikTok call. */
+export function assertTikTokPhotoUrls(urls: string[]) {
+  if (!urls.length || !urls.every(isVerifiedPullUrl)) throw new PermanentError(TIKTOK_PHOTO_DOMAIN_MSG);
+}
+
+export function validateTikTokSubmission(creator: CreatorInfoResult, optionsInput: unknown, durationSec?: number | null, photo = false) {
   if (creator.status === "cannot_post_now") {
     throw new ConfirmationRequiredError(`${creator.message} (${creator.reason})`);
   }
@@ -60,6 +77,10 @@ export function validateTikTokSubmission(creator: CreatorInfoResult, optionsInpu
   }
   if (options.brandContentToggle && options.privacyLevel === "SELF_ONLY") {
     throw new ConfirmationRequiredError("tiktok: Branded content visibility cannot be set to private");
+  }
+  if (photo) {
+    if (info.comment_disabled && !options.disableComment) throw new ConfirmationRequiredError("TikTok interaction settings changed. Review and confirm again.");
+    return options;
   }
   const duration = durationSec;
   const creatorLimit = info.max_video_post_duration_sec;
@@ -143,7 +164,8 @@ export const tiktokProvider: Provider = {
     return { state: "accepted" };
   },
 
-  async publish({ tokens, request, mediaUrls, mediaDurationsSec }): Promise<PublishHandle> {
+  async publish({ tokens, request, mediaUrls, mediaKinds, mediaDurationsSec }): Promise<PublishHandle> {
+    if (isTikTokPhotoFormat(request.format)) return publishPhotos(tokens.accessToken, request, mediaUrls, mediaKinds);
     if (request.format !== "video") {
       throw new PermanentError(`tiktok: unsupported format '${request.format}'`);
     }
@@ -187,27 +209,10 @@ export const tiktokProvider: Provider = {
     const initBody: Record<string, unknown> = { source_info: sourceInfo };
     if (postInfo) initBody.post_info = postInfo;
 
-    const init = await fetch(`${API}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(initBody),
-    });
-    const initJson = (await init.json().catch(() => ({}))) as {
-      data?: { publish_id?: unknown; upload_url?: string };
-      error?: { code?: string; message?: string };
-    };
-    const publishId = asString(initJson.data?.publish_id); // PSA51
-    if (!init.ok || !publishId || initJson.error?.code !== "ok") {
-      if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap", "privacy_level_option_mismatch"].includes(initJson.error?.code ?? "")) {
-        throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
-      }
-      const msg = initJson.error?.message || initJson.error?.code || `tiktok init failed (${init.status})`;
-      throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit", { provider: "tiktok", headers: init.headers, body: initJson }); // PSA36: init creates no post yet
-    }
+    const { publishId, uploadUrl } = await initPost(endpoint, headers, initBody);
 
     // Upload sequentially; the final part includes the trailing bytes.
     if (!usePull) {
-      const uploadUrl = initJson.data?.upload_url;
       if (!uploadUrl) {
         throw new PermanentError("tiktok: init returned no upload_url for FILE_UPLOAD");
       }
@@ -236,3 +241,49 @@ export const tiktokProvider: Provider = {
     return { providerHandle: publishId, processing: true };
   },
 };
+
+async function initPost(endpoint: string, headers: Record<string, string>, body: Record<string, unknown>) {
+  const init = await fetch(`${API}${endpoint}`, { method: "POST", headers, body: JSON.stringify(body) });
+  const initJson = (await init.json().catch(() => ({}))) as {
+    data?: { publish_id?: unknown; upload_url?: string };
+    error?: { code?: string; message?: string };
+  };
+  const publishId = asString(initJson.data?.publish_id); // PSA51
+  if (!init.ok || !publishId || initJson.error?.code !== "ok") {
+    const code = initJson.error?.code ?? "";
+    if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap", "privacy_level_option_mismatch"].includes(code)) {
+      throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
+    }
+    if (code === "url_ownership_unverified") throw new PermanentError(TIKTOK_PHOTO_DOMAIN_MSG);
+    const msg = initJson.error?.message || code || `tiktok init failed (${init.status})`;
+    throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit", { provider: "tiktok", headers: init.headers, body: initJson }); // PSA36: init creates no post yet
+  }
+  return { publishId, uploadUrl: initJson.data?.upload_url };
+}
+
+async function publishPhotos(accessToken: string, request: PublishRequest, mediaUrls: string[], mediaKinds?: string[]): Promise<PublishHandle> {
+  if (mediaKinds?.some((kind) => kind !== "image")) throw new PermanentError("tiktok: photo posts accept images only");
+  assertTikTokPhotoUrls(mediaUrls);
+  const direct = request.options?.publishMode === "direct";
+  const postInfo: Record<string, unknown> = { description: request.caption ?? "" };
+  let aiDisclosed: boolean | undefined;
+  if (direct) {
+    const options = validateTikTokSubmission(await queryCreatorInfo(accessToken), request.options, null, true);
+    Object.assign(postInfo, {
+      privacy_level: options.privacyLevel,
+      disable_comment: options.disableComment,
+      brand_content_toggle: options.brandContentToggle,
+      brand_organic_toggle: options.brandOrganicToggle,
+    });
+    aiDisclosed = options.aiDisclosed;
+  }
+  const { publishId } = await initPost("/post/publish/content/init/", { authorization: `Bearer ${accessToken}`, "content-type": "application/json; charset=UTF-8" }, {
+    media_type: "PHOTO",
+    post_mode: direct ? "DIRECT_POST" : "MEDIA_UPLOAD",
+    post_info: postInfo,
+    source_info: { source: "PULL_FROM_URL", photo_cover_index: 0, photo_images: mediaUrls },
+    ...(aiDisclosed !== undefined ? { is_aigc: aiDisclosed } : {}),
+  });
+  // TikTok downloads asynchronously; the publish worker polls status/fetch until a final state.
+  return { providerHandle: publishId, processing: true };
+}

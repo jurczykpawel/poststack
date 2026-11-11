@@ -5,7 +5,7 @@ import { deliveries, posts } from "@/db/schema";
 import { getDelivery } from "./service";
 import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
 import { resolveMediaDetails } from "./resolve-media";
-import { validateTikTokSubmission } from "@/lib/providers/tiktok";
+import { isTikTokPhotoFormat, validateTikTokSubmission } from "@/lib/providers/tiktok";
 import { tiktokPostSettings } from "@/lib/content/schemas";
 import { postPublishOptions } from "@/lib/content/publish";
 import { addJobTx } from "@/lib/queue/client";
@@ -45,7 +45,7 @@ export async function confirmTikTokDelivery(id: string, workspaceId: string, use
   const options = { ...request.options, ...postPublishOptions({ ...settings, youtube_privacy: null, youtube_tags: null, youtube_category_id: null, youtube_made_for_kids: null }) };
   if (data.tiktokPublishMode === "direct") {
     const media = await resolveMediaDetails(request.media, workspaceId);
-    try { validateTikTokSubmission(creator, options, media[0]?.durationSec); }
+    try { validateTikTokSubmission(creator, options, media[0]?.durationSec, isTikTokPhotoFormat(request.format)); }
     catch (err) { throw new ApiError("invalid_request", err instanceof Error ? err.message : "Review TikTok settings", 422); }
   }
   const payload = { ...request, caption: data.caption, options };

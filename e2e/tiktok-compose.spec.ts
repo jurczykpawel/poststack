@@ -188,3 +188,47 @@ for (const width of [1440, 390]) {
     }
   });
 }
+
+test("TikTok photo post: photo settings, verified prefix and scheduled consent", async ({ page }) => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  await page.route("https://*.example.test/*.png", (route) => route.fulfill({ status: 200, contentType: "image/png", body: png }));
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await creatorToken("available");
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  try {
+    for (const url of ["https://cdn.example.test/photo-in.png", "https://elsewhere.example.test/photo-out.png"]) {
+      await client.query(`INSERT INTO media (workspace_id, checksum, storage_key, url, kind, mime, size, width, height, status)
+        SELECT id, $1, 'p.png', $2, 'image', 'image/png', $3, 1, 1, 'ready' FROM workspaces LIMIT 1 ON CONFLICT (workspace_id, checksum) DO NOTHING`,
+        [createHash("sha256").update(url).digest("hex"), url, png.length]);
+    }
+    const fill = async (url: string) => {
+      await openComposer(page);
+      await page.getByLabel("Media URL", { exact: true }).fill(url);
+      await page.locator("label.fld").filter({ has: page.locator("select[aria-label='Content type']") }).locator("button.ps-trigger").click();
+      await page.getByRole("option", { name: "Image", exact: true }).click();
+      await expect(page.locator("select[aria-label='Content type']")).toHaveValue("image");
+      const panel = page.getByRole("region", { name: "TikTok publishing" });
+      await expect(panel.getByText("Who can view this post?")).toBeVisible();
+      await expect(panel.getByLabel("Allow Duet", { exact: true })).toBeHidden();
+      await expect(panel.getByLabel("Allow Stitch", { exact: true })).toBeHidden();
+      await expect(panel.getByLabel("TikTok video preview")).toBeHidden();
+      await expect(panel.getByAltText("TikTok photo cover preview")).toHaveAttribute("src", url);
+      await page.getByLabel("TikTok privacy").selectOption("SELF_ONLY");
+      await page.getByRole("button", { name: "Schedule", exact: true }).click();
+      await page.locator('input[type="datetime-local"]').fill("2030-01-15T14:30");
+      await panel.getByLabel("I confirm this TikTok submission with these settings.").check();
+      await expect(page.locator('button[type="submit"]')).toBeEnabled();
+      await page.locator('button[type="submit"]').click();
+    };
+    await fill("https://elsewhere.example.test/photo-out.png");
+    await expect(page.getByText(/TikTok photos require media from a verified domain/)).toBeVisible();
+    await fill("https://cdn.example.test/photo-in.png");
+    await expect(page).toHaveURL(/\/content\/[\w-]+$/);
+    const { rows } = await client.query(`SELECT d.format, d.payload FROM posts p JOIN deliveries d ON d.id=p.delivery_id WHERE p.content_id=$1`, [page.url().split("/").pop()]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ format: "image", payload: { options: { publishMode: "direct", privacyLevel: "SELF_ONLY" } } });
+  } finally { await client.end(); }
+  expect(errors).toEqual([]);
+});

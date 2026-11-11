@@ -9,6 +9,6 @@ export default defineConfig({
   webServer: {
     command: "bun --no-env-file e2e/fixtures/tiktok-server.ts",
     url: `${E2E_BASE_URL}/login`, timeout: 60_000, reuseExistingServer: false,
-    env: serverEnv(), stdout: "pipe", stderr: "pipe",
+    env: { ...serverEnv(), TIKTOK_PULL_URL_PREFIX: "https://cdn.example.test/" }, stdout: "pipe", stderr: "pipe",
   },
 });

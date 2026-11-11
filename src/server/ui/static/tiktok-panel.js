@@ -6,11 +6,11 @@ window.psTikTokPanel = function (result, channelId) {
     mode: "inbox", privacy: "",
     allowComment: false, allowDuet: false, allowStitch: false,
     disclosure: false, brandYourBrand: false, brandedContent: false,
-    consent: false, consentKey: "", videoDurationSec: 0,
+    consent: false, consentKey: "", videoDurationSec: 0, photo: false,
     confirm(key, checked) { this.consentKey = key; this.consent = checked; },
     get unavailable() { return !this.info; },
     get durationExceeded() {
-      return !!(this.info && this.info.max_video_post_duration_sec && this.videoDurationSec > Math.min(600, this.info.max_video_post_duration_sec));
+      return !this.photo && !!(this.info && this.info.max_video_post_duration_sec && this.videoDurationSec > Math.min(600, this.info.max_video_post_duration_sec));
     },
     get disclosureLabel() {
       if (!this.disclosure) return "";

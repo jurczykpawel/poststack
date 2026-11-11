@@ -95,7 +95,8 @@ test("Compose adds library and uploaded media, removes slides, and explains chan
   await page.getByRole("button", { name: "Media library", exact: true }).click();
   await page.locator("[data-library-media]").first().click();
   await expect(page.locator("[data-compose-slide]")).toHaveCount(2);
-  await expect(page.locator(".target").filter({ hasText: "TikTok" })).toContainText("unsupported format 'carousel' for tiktok");
+  // CA-TTPHOTO1: TikTok publishes image carousels as photo posts.
+  await expect(page.locator(".target").filter({ hasText: "TikTok" })).not.toContainText("unsupported format");
   const originalUrl = await page.getByLabel("Media URL", { exact: true }).inputValue();
   await page.getByLabel("Media URL", { exact: true }).fill("https://cdn.example.test/tt3.mp4");
   await expect(page.locator(".target").filter({ hasText: "Facebook" })).toContainText("Video in Facebook carousels requires a verified Meta app with ads permission (pages_manage_ads) for this Page.");

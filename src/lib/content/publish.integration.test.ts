@@ -581,3 +581,24 @@ it("rejects more than twenty Threads carousel media before scheduling", async ()
   await expect(publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, fakeRegister)).rejects.toThrow("20");
   expect(await db.query.deliveries.findMany({ where: eq(schema.deliveries.workspace_id, WS) })).toHaveLength(0);
 });
+it.skipIf(!TEST_DB)("schedules TikTok photo posts only from the verified URL prefix", async () => {
+  vi.stubEnv("TIKTOK_PULL_URL_PREFIX", "https://media.example/ok/");
+  const registerImage: PublishPostDeps = { registerMedia: async (url, workspaceId) => {
+    const [m] = await db.insert(schema.media).values({ workspace_id: workspaceId, checksum: `c${Math.random()}`, storage_key: "k", url, kind: "image" }).returning();
+    return { id: m!.id };
+  } };
+  const { channelId, postId } = await fixtures({ platform: "tiktok", video_url: null, media_urls: ["https://media.example/ok/1.jpg", "https://other.example/2.jpg"] });
+  await db.update(schema.channels).set({ platform: "tiktok" }).where(eq(schema.channels.id, channelId));
+  const row = (await db.query.posts.findFirst({ where: eq(schema.posts.id, postId) }))!;
+  await db.update(schema.content).set({ content_type: "carousel" }).where(eq(schema.content.id, row.content_id!));
+  await expect(publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, registerImage)).rejects.toMatchObject({ status: 422, message: expect.stringContaining("verified domain") });
+  expect(await db.query.deliveries.findMany({ where: eq(schema.deliveries.workspace_id, WS) })).toHaveLength(0);
+
+  await db.update(schema.posts).set({ media_urls: ["https://media.example/ok/1.jpg", "https://media.example/ok/2.webp"] }).where(eq(schema.posts.id, postId));
+  expect((await publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, registerImage)).delivery.format).toBe("carousel");
+  await db.delete(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS));
+  await db.update(schema.posts).set({ media_urls: ["https://media.example/ok/1.jpg"], delivery_id: null }).where(eq(schema.posts.id, postId));
+  await db.update(schema.content).set({ content_type: "image" }).where(eq(schema.content.id, row.content_id!));
+  expect((await publishPost({ postId, channelId, when: "2030-01-01T08:00:00Z" }, WS, registerImage)).delivery.format).toBe("image");
+  vi.unstubAllEnvs();
+});

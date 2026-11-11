@@ -3,6 +3,7 @@ window.psTikTokConfirmation = function () {
   var tt = window.psTikTokPanel(data.creator, data.channelId);
   tt.mode = data.mode;
   tt.videoDurationSec = data.duration;
+  tt.photo = !!data.photo;
   return {
     tt: tt, mediaUrl: data.mediaUrl, coverUrl: "", sel: { tiktok: { override: data.caption } }, publishMode: "now",
     isOn() { return true; },

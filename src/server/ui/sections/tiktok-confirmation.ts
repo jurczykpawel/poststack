@@ -9,6 +9,7 @@ import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
 import { confirmTikTokDelivery } from "@/lib/deliveries/tiktok-confirmation";
 import { getMedia } from "@/lib/media/service";
 import type { PublishRequest } from "@/lib/providers/types";
+import { isTikTokPhotoFormat } from "@/lib/providers/tiktok";
 import { renderPage } from "../layout";
 import { tiktokPanel, tiktokPanelScript } from "../components/tiktok-panel";
 import { safeHttpUrl } from "../components/url";
@@ -27,7 +28,7 @@ export function registerTikTokConfirmation(r: Hono, guard: MiddlewareHandler) {
     const creator = await getTikTokCreatorInfo(a.workspaceId, item.channel.id, { refresh: true }).catch(() => null);
     const request = item.post.payload as PublishRequest;
     const media = request.media[0] ? await getMedia(request.media[0].mediaId, a.workspaceId).catch(() => null) : null;
-    const data = { creator, channelId: item.channel.id, mode: request.options?.publishMode === "direct" ? "direct" : "inbox", caption: request.caption ?? "", mediaUrl: safeHttpUrl(media?.url ?? "") ?? "", duration: media?.duration_sec ?? 0 };
+    const data = { creator, channelId: item.channel.id, mode: request.options?.publishMode === "direct" ? "direct" : "inbox", caption: request.caption ?? "", mediaUrl: safeHttpUrl(media?.url ?? "") ?? "", duration: media?.duration_sec ?? 0, photo: isTikTokPhotoFormat(request.format) };
     const license = await getInstanceLicense();
     return c.html(renderPage({ title: "Confirm TikTok submission", nav: "queue", features: license.features, products: license.products, body: html`
       <p class="notice notice-warn">${item.post.last_error}</p>

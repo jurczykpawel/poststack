@@ -12,6 +12,7 @@ import { addJobTx } from "@/lib/queue/client";
 
 import { youtubeFormat } from "@/lib/providers/youtube-format";
 import { PermanentError } from "@/lib/providers/errors";
+import { assertTikTokPhotoUrls, isTikTokPhotoFormat, TIKTOK_PHOTO_DOMAIN_MSG } from "@/lib/providers/tiktok";
 import { parseScheduledAt } from "./schedule";
 
 export type DeliveryRow = typeof deliveries.$inferSelect;
@@ -41,6 +42,12 @@ export async function validateDeliveryRequest(request: PublishRequest, workspace
       throw new ApiError("invalid_request", `Unknown media: ${m.mediaId}`, 422);
     }
     assets.push(exists);
+  }
+  if (platform === "tiktok" && isTikTokPhotoFormat(request.format)) {
+    const ready = assets.filter(m => m.status === "ready"); // ingesting rows have no URL yet; the provider re-checks before init
+    if (ready.some(m => m.kind !== "image")) throw new ApiError("invalid_request", "TikTok photo posts accept images only", 422);
+    if (ready.length) try { assertTikTokPhotoUrls(ready.map(m => m.url)); }
+    catch (err) { throw new ApiError("invalid_request", err instanceof Error ? err.message : TIKTOK_PHOTO_DOMAIN_MSG, 422); }
   }
   if (["carousel", "article", "story"].includes(request.format)) {
     const checked = validate(getProviderForPlatform(platform), request, { platform, channel, mediaKinds: assets.filter(m => m.status === "ready").map(m => m.kind) });

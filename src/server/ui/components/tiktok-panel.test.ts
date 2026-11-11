@@ -5,7 +5,7 @@ import type { CreatorInfoResult } from "@/lib/providers/tiktok-creator-info";
 
 interface Panel {
   mode: string; privacy: string; allowComment: boolean; allowDuet: boolean; allowStitch: boolean;
-  disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean; consent: boolean; consentKey: string; videoDurationSec: number;
+  disclosure: boolean; brandYourBrand: boolean; brandedContent: boolean; consent: boolean; consentKey: string; videoDurationSec: number; photo: boolean;
   readonly valid: boolean; readonly unavailable: boolean; readonly durationExceeded: boolean;
   readonly disclosureLabel: string; readonly brandedContentDisabled: boolean;
   readonly privacyOptionsView: Array<{ value: string; label: string; disabled: boolean; note: string }>;
@@ -67,6 +67,10 @@ describe("TikTok creator-facing choices", () => {
     const c = ready(); c.videoDurationSec = 61;
     expect(c.durationExceeded).toBe(true); expect(c.valid).toBe(false);
     c.videoDurationSec = 60; expect(c.valid).toBe(true);
+  });
+  it("does not apply the video duration limit to photo posts", () => {
+    const c = ready(); c.videoDurationSec = 61; c.photo = true;
+    expect(c.durationExceeded).toBe(false); expect(c.valid).toBe(true);
   });
   it("keeps creator options in the creator-provided order", () => {
     expect(ready().privacyOptionsView.map((o) => o.value)).toEqual(result.creator_info.privacy_level_options);

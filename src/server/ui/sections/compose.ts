@@ -293,7 +293,7 @@ function composeScript(): Html {
           if (this.type === "carousel" && this.allMedia().length < 2) return false;
           if (this.isOn("youtube") && !this.yt.valid(this.publishMode !== "draft")) return false;
           if (this.isOn("tiktok")) {
-            if (this.type !== "video" || this.over("tiktok")) return false;
+            if (!["video", "image", "carousel"].includes(this.type) || this.over("tiktok")) return false;
             if (this.publishMode !== "draft" && (!this.tt.valid || !this.tt.consent || this.tt.consentKey !== this.tiktokConsentKey())) return false;
           }
           if (this.type === "article" && (!this.articleUrl.trim() || this.selectedPlatforms().some(p => p.platform !== "linkedin") || this.allMedia().length > 1)) return false;
@@ -534,7 +534,7 @@ async function composePage(
             </div>
           </section>
 
-          <template x-if="sel.tiktok">${tiktokPanel()}</template>
+          <template x-if="sel.tiktok"><div x-effect="tt.photo = type === 'image' || type === 'carousel'">${tiktokPanel()}</div></template>
           <template x-if="sel.youtube">${youtubePanel()}</template>
 
           <div class="compose-pubbar" x-show="brand" x-cloak>
@@ -628,7 +628,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     if (tik && mode !== "draft") {
       let error = "";
       if (!tik.tiktokConsent) error = "Confirm this TikTok submission before sending.";
-      else if (parsed.contentType && !["video", "reel", "short", "story"].includes(parsed.contentType)) error = "TikTok requires a video.";
+      else if (parsed.contentType && !["video", "reel", "short", "image", "carousel"].includes(parsed.contentType)) error = "TikTok requires a video or photos.";
       else if (mode === "schedule" && (!parsed.publish?.at || !Number.isFinite(Date.parse(parsed.publish.at)) || Date.parse(parsed.publish.at) <= Date.now())) error = "Choose a future date and time.";
       else {
         const channel = await resolveChannelForBrandPlatform(a.workspaceId, parsed.brand, "tiktok");

@@ -322,3 +322,14 @@ an operator-created API key with explicit `instance_config:read` / `instance_con
 PUT accepts an object mapping the environment key names to non-empty values; omitted fields
 stay unchanged. Responses include source (`db`, `env`, `unset`) and masked secret status only.
 See `/api/docs` for the accepted keys.
+
+### TikTok media URL prefix (photo posts)
+
+TikTok pulls media only from a domain or URL prefix verified in your TikTok app (Developer
+Portal → app → **URL properties**; a domain needs a DNS TXT record, a URL prefix a file served
+at that prefix). Set `TIKTOK_PULL_URL_PREFIX` to that HTTPS prefix (for example the public base
+of your media bucket) in the `web` and `worker` environment. Videos outside the prefix fall back
+to FILE_UPLOAD; **photo posts (1–35 WebP/JPEG images, ≤ 20 MB each) have no upload fallback**, so
+a photo URL outside the prefix is rejected with a clear error before anything is sent to TikTok.
+Until the app passes TikTok review (sandbox/unaudited), Direct Posts are visible only to the
+creator (*Only me*), and TikTok returns no public post id for them.

@@ -12,9 +12,12 @@ import { enqueueIngest } from "@/lib/media/async-ingest";
 
 export async function validateComposeCarousel(input: ComposeInput, workspaceId: string) {
   const urls = input.mediaUrls ?? [input.mediaUrl];
-  if (urls.length < 2 && input.contentType !== "carousel") return;
+  // A single TikTok photo also needs the verified-domain check before anything is created.
+  const format = urls.length < 2 && input.contentType !== "carousel" ? "image" : "carousel";
+  if (format === "image" && (input.contentType !== "image" || !input.posts.some(p => p.platform === "tiktok"))) return;
   for (const post of input.posts) {
-    const request = { format: "carousel", media: urls.map(() => ({ mediaId: "" })), caption: buildCaption(post.description || input.baseDescription, input.baseHashtags) };
+    if (format === "image" && post.platform !== "tiktok") continue;
+    const request = { format, media: urls.map(() => ({ mediaId: "" })), caption: buildCaption(post.description || input.baseDescription, input.baseHashtags) };
     const checked = validate(getProviderForPlatform(post.platform), request, { platform: post.platform });
     if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
     const target = await resolveChannelForBrandPlatform(workspaceId, input.brand, post.platform);

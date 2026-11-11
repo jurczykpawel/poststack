@@ -6,7 +6,7 @@ export function tiktokPanelScript() {
 }
 
 /** Host provides tt (psTikTokPanel), mediaUrl, coverUrl, captionFor('tiktok'), sel.tiktok.override,
- *  isOn('tiktok'), publishMode, tiktokScheduleText() and tiktokConsentKey().
+ *  isOn('tiktok'), publishMode, tiktokScheduleText() and tiktokConsentKey(); sets tt.photo for photo posts.
  *  Recreate tt with the current creator result and channel id for every confirmation screen.
  *  The host route enables HTTPS video playback in its document policy, as Compose does. */
 export function tiktokPanel() {
@@ -20,7 +20,7 @@ export function tiktokPanel() {
       </select></label>
       <p class="notice notice-warn" role="status" x-show="tt.unavailable">TikTok cannot accept posts right now. Try again later.</p>
       <div x-show="tt.mode === 'direct'">
-        <label class="fld"><span>Who can view this video?</span><select data-ps-raw x-model="tt.privacy" aria-label="TikTok privacy" :disabled="tt.unavailable">
+        <label class="fld"><span x-text="tt.photo ? 'Who can view this post?' : 'Who can view this video?'"></span><select data-ps-raw x-model="tt.privacy" aria-label="TikTok privacy" :disabled="tt.unavailable">
           <option value="" disabled>Select who can view</option>
           <template x-for="opt in tt.privacyOptionsView" :key="opt.value">
             <option :value="opt.value" :disabled="opt.disabled" :title="opt.note" x-text="opt.label"></option>
@@ -28,7 +28,7 @@ export function tiktokPanel() {
         </select></label>
         <fieldset style="border:0;padding:0"><legend>Interactions</legend>
           ${([ ["Comment", "comment"], ["Duet", "duet"], ["Stitch", "stitch"] ] as const).map(([label, kind]) => html`
-            <label class="compose-toggle" :title="tt.interactionNote('${kind}')">
+            <label class="compose-toggle" :title="tt.interactionNote('${kind}')"${kind === "comment" ? "" : html` x-show="!tt.photo"`}>
               <input type="checkbox" x-model="tt.allow${label}" :disabled="tt.interactionDisabled('${kind}')" :title="tt.interactionNote('${kind}')" />
               <span>Allow ${label}</span>
             </label>`)}
@@ -45,10 +45,12 @@ export function tiktokPanel() {
           <p x-show="tt.disclosureLabel" x-text="tt.disclosureLabel" aria-live="polite"></p>
         </div>
         <p class="card-hint">Until this app passes TikTok review, Direct Posts can only be private. Your visibility choice is never changed automatically.</p>
-        <p x-show="tt.info &amp;&amp; tt.info.max_video_post_duration_sec" x-text="'Maximum video length: ' + (tt.info ? Math.min(600, tt.info.max_video_post_duration_sec) : '') + ' seconds'"></p>
+        <p x-show="!tt.photo &amp;&amp; tt.info &amp;&amp; tt.info.max_video_post_duration_sec" x-text="'Maximum video length: ' + (tt.info ? Math.min(600, tt.info.max_video_post_duration_sec) : '') + ' seconds'"></p>
         <p class="notice notice-warn" role="alert" x-show="tt.durationExceeded">This video exceeds the creator's maximum video length. Choose a shorter video.</p>
       </div>
-      <video x-show="mediaUrl" :src="isOn('tiktok') ? mediaUrl : ''" :poster="coverUrl" controls preload="metadata" aria-label="TikTok video preview"
+      <img x-show="tt.photo &amp;&amp; mediaUrl" :src="tt.photo ? mediaUrl : ''" alt="TikTok photo cover preview" style="width:100%;max-height:360px;object-fit:contain" />
+      <p class="card-hint" x-show="tt.photo">TikTok photos are pulled from your media URL, so it must be in the verified domain or URL prefix. The first photo is the cover.</p>
+      <video x-show="mediaUrl &amp;&amp; !tt.photo" :src="isOn('tiktok') &amp;&amp; !tt.photo ? mediaUrl : ''" :poster="coverUrl" controls preload="metadata" aria-label="TikTok video preview"
         style="width:100%;max-height:360px" @loadedmetadata="tt.videoDurationSec = $el.duration" @emptied="tt.videoDurationSec = 0"></video>
       <label class="fld"><span>TikTok caption</span><textarea rows="3" aria-label="TikTok caption" x-model="sel.tiktok.override" :placeholder="captionFor('tiktok')" maxlength="2200"></textarea></label>
       <p class="card-hint" x-text="captionFor('tiktok')"></p>
