@@ -1,16 +1,56 @@
 import type { TokenSet } from "./types";
-import { PermanentError, RateLimitedError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
+import { PermanentError, PermissionError, PaymentRequiredError, RateLimitedError, TokenInvalidError, TransientError, type PublishPhase } from "./errors";
 
-/** `phase` (PSA36) tags the resulting TransientError (5xx) so the worker knows whether a retry can
- *  safely re-run the publish; default `commit_uncertain` keeps the PSA2-safe behavior for callers
- *  that don't classify their step. */
-export function classifyHttp(status: number, message?: string, phase: PublishPhase = "commit_uncertain"): Error {
-  if (status === 401 || status === 403) {
-    return new TokenInvalidError(`auth failed: ${message ?? status}`);
+type HttpContext = {
+  provider?: "meta" | "threads" | "youtube" | "x" | "linkedin" | "tiktok";
+  headers?: Headers;
+  body?: unknown;
+};
+
+/** Retry-After (RFC 9110) or X's Unix reset timestamp; bounded to 1s–24h. */
+function retryDelay({ headers, provider }: HttpContext): number {
+  const value = headers?.get("retry-after")?.trim();
+  let seconds = value && /^\d+$/.test(value) ? Number(value) :
+    value && /[a-z]{3},/i.test(value) ? (Date.parse(value) - Date.now()) / 1000 : NaN;
+  if (!Number.isFinite(seconds) && provider === "x") {
+    const reset = headers?.get("x-rate-limit-reset")?.trim();
+    if (reset && /^\d+$/.test(reset)) seconds = Number(reset) - Date.now() / 1000;
   }
-  if (status === 429) return new RateLimitedError("provider rate limit", 60, phase);
+  return Number.isFinite(seconds) ? Math.max(1, Math.min(86400, Math.ceil(seconds))) : 60;
+}
+
+/** Provider-specific documented codes only; an unrecognized 403 never invalidates a token.
+ * phase remains attached even when a response suggests waiting: it does not authorize re-publish. */
+export function classifyHttp(
+  status: number, message?: string, phase: PublishPhase = "commit_uncertain", context: HttpContext = {},
+): Error {
+  const body = context.body as { error?: { code?: unknown; message?: string; errors?: { reason?: string }[] }; type?: string; title?: string; detail?: string } | undefined;
+  const code = body?.error?.code;
+  const provider = context.provider;
+  const detail = message || body?.error?.message || body?.detail || body?.title || String(code ?? status);
+  const meta = provider === "meta" || provider === "threads";
+  const reasons = Array.isArray(body?.error?.errors) ? body.error.errors.map(e => e?.reason) : [];
+  if (status === 429 || (status === 503 && context.headers?.has("retry-after"))) {
+    return new RateLimitedError(`provider rate limit/unavailable: ${detail}`, retryDelay(context), phase);
+  }
   if (status >= 500) return new TransientError(`upstream ${status}`, phase);
-  return new PermanentError(`request failed (${status}): ${message ?? ""}`);
+  if (provider === "tiktok" && code === "scope_not_authorized") {
+    return new PermissionError("TikTok permission required: video.publish (scope_not_authorized)");
+  }
+  if (status === 401 || (meta && [190, 102, 467].includes(Number(code))) ||
+      (provider === "tiktok" && code === "access_token_invalid")) {
+    return new TokenInvalidError(`auth failed: ${detail}`);
+  }
+  if (provider === "x" && status === 402) return new PaymentRequiredError("X payment/credits required — check the developer account billing");
+  const limited = (provider === "youtube" && reasons.some(r => ["quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"].includes(r ?? ""))) ||
+    (meta && [4, 17, 32, 613, 80004].includes(Number(code))) ||
+    (provider === "tiktok" && code === "rate_limit_exceeded") ||
+    (provider === "x" && (body?.type === "https://api.x.com/2/problems/usage-capped"));
+  if (limited) return new RateLimitedError(`provider quota/rate limit: ${detail}`, retryDelay(context), phase);
+  if (status === 403 || (meta && [10, 200, 294].includes(Number(code)))) {
+    return new PermissionError(`provider permission/access required: ${detail}`);
+  }
+  return new PermanentError(`request failed (${status}): ${detail}`);
 }
 
 /** Standard OAuth2 refresh_token grant. Preserves the old refresh token if none returned (#1383). */
@@ -47,7 +87,7 @@ export async function oauth2Refresh(args: {
     expires_in?: number;
     error?: string;
   };
-  if (res.status >= 500) throw classifyHttp(res.status);
+  if (res.status >= 500) throw classifyHttp(res.status, undefined, "pre_commit", { headers: res.headers, body: json });
   if (!res.ok || !json.access_token || json.error) {
     // OAuth2 'invalid_grant' = the refresh token is expired/revoked — unrecoverable, needs reconnect.
     // Must be TokenInvalid (-> needs_reauth) not a retryable error, else the worker retries forever.
@@ -57,7 +97,7 @@ export async function oauth2Refresh(args: {
     if (json.error === "invalid_grant") {
       throw new TokenInvalidError("refresh token invalid_grant — reconnect required");
     }
-    throw classifyHttp(res.status, json.error);
+    throw classifyHttp(res.status, json.error, "pre_commit", { headers: res.headers, body: json });
   }
   return {
     accessToken: json.access_token,

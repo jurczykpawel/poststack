@@ -1,3 +1,4 @@
+import { RateLimitedError } from "./errors";
 import { describe, it, expect, afterEach, vi } from "vitest";
 // Cover/media fetches now route through the SSRF guard (safeFetch → DNS resolve). Stub DNS to a
 // public IP so these unit tests don't hit the network for fake hostnames.
@@ -328,7 +329,7 @@ describe("youtube provider", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "https://cdn/x.mp4") return new Response(new Uint8Array([1]), { status: 200 });
-        return new Response(JSON.stringify({ error: { message: "quota" } }), { status: 403 });
+        return new Response(JSON.stringify({ error: { message: "quota", errors: [{ reason: "quotaExceeded" }] } }), { status: 403 });
       }),
     );
     await expect(
@@ -338,6 +339,6 @@ describe("youtube provider", () => {
         request: { format: "short", media: [{ mediaId: "m" }], title: "T" },
         mediaUrls: ["https://cdn/x.mp4"],
       }),
-    ).rejects.toBeInstanceOf(TokenInvalidError); // 403 -> token_invalid via classifyHttp
+    ).rejects.toBeInstanceOf(RateLimitedError);
   });
 });

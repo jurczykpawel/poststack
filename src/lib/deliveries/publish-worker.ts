@@ -273,6 +273,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
   // A persisted publish handle is polled only; never initialize another upload.
   if (post.status === "processing" && !uploadSession) {
     const provider = getProviderForPlatform(channel.platform);
+    let pollDelayMs = 30_000;
     try {
       if (channel.token_expires_at && channel.token_expires_at.getTime() < Date.now() + 300_000) {
         await processTokenRefresh({ channelId: channel.id }, helpers);
@@ -289,8 +290,9 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
       await db.update(deliveries).set({ last_error: redactSecrets(err instanceof Error ? err.message : String(err)), updated_at: new Date() })
         .where(and(eq(deliveries.id, postId), eq(deliveries.workspace_id, ws), eq(deliveries.status, "processing")));
       if (err instanceof TokenInvalidError) await markChannelNeedsReauth(channel.id, err.message).catch(() => {});
+      if (err instanceof RateLimitedError) pollDelayMs = err.retryAfterSeconds * 1000;
     }
-    await addJobTx(db, "publish", { postId }, { runAt: new Date(Date.now() + 30_000), jobKey: `publish:${postId}` });
+    await addJobTx(db, "publish", { postId }, { runAt: new Date(Date.now() + pollDelayMs), jobKey: `publish:${postId}` });
     return;
   }
 
@@ -483,7 +485,7 @@ export async function processPublish(payload: { postId: string }, helpers: JobHe
     }
     if (channel.platform === "youtube" && typeof (post.payload as Record<string, unknown>)._youtubeUploadSession === "string") {
       await setStatus(postId, ws, "processing", { last_error: "YouTube upload interrupted; waiting to resume" });
-      await deferPublish(postId, post.attempts);
+      await deferPublish(postId, post.attempts, err instanceof RateLimitedError ? err.retryAfterSeconds : undefined);
       return;
     }
     // PSA2: anything else may have partially/fully landed on a multi-step provider. Leave `sending`

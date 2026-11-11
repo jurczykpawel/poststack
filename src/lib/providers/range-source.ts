@@ -9,7 +9,7 @@ export const UPLOAD_CHUNK = 16 * 1024 * 1024;
 export async function sourceSize(url: string, max = Number(process.env.PROVIDER_DOWNLOAD_MAX_BYTES ?? mediaMaxBytes())): Promise<number> {
   const res = await safeFetch(url, { method: "HEAD" });
   await res.body?.cancel();
-  if (!res.ok) throw classifyHttp(res.status, "Cannot read media size", "pre_commit");
+  if (!res.ok) throw classifyHttp(res.status, "Cannot read media size", "pre_commit", { headers: res.headers });
   const size = Number(res.headers.get("content-length"));
   if (!Number.isSafeInteger(size) || size <= 0 || size > max || !Number.isFinite(max) || max <= 0) throw new PermanentError("Media size unavailable or exceeds upload limit");
   return size;

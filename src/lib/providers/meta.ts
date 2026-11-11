@@ -1,3 +1,4 @@
+import { classifyHttp } from "./http";
 import { instagramInsightsConnector } from "@/lib/insights/instagram/transport";
 import { FACEBOOK_VIDEO_CAROUSEL_HINT } from "@/lib/platforms/facebook-video-carousel";
 import type { TokenSet } from "./types";
@@ -39,18 +40,9 @@ export function classifyMetaError(
   status: number,
   error?: { code?: number; message?: string },
   phase: PublishPhase = "commit_uncertain", // PSA36
+  response?: Response,
 ) {
-  const code = error?.code;
-  // Token-invalid is signalled by a Meta error CODE (190 = invalid/expired, 102 = session expired,
-  // 467 = invalid token) — NOT by a bare HTTP 400/401. Meta returns 400 for many benign request
-  // errors (e.g. #100 "The parameter image_url is required"); classifying those as a token failure
-  // wrongly flips a healthy channel into needs_reauth (the messaging path already keys on code 190
-  // only — see isMetaTokenError). Keep both layers consistent.
-  if (code === 190 || code === 102 || code === 467) {
-    return new TokenInvalidError(`Meta token invalid: ${error?.message ?? status}`);
-  }
-  if (status >= 500) return new TransientError(`Meta transient: ${status}`, phase);
-  return new PermanentError(`Meta publish failed (${status}): ${error?.message ?? "unknown"}`);
+  return classifyHttp(status, error?.message, phase, { provider: "meta", body: { error }, headers: response?.headers });
 }
 
 // Single source of truth for the Graph API version (constants.ts). The publishing layer MUST stay in
@@ -146,7 +138,7 @@ async function pollContainerFinished(containerId: string, encodedToken: string, 
   for (let i = 0; i < attempts; i++) {
     const st = await fetch(`${base}/${containerId}?fields=status_code&access_token=${encodedToken}`);
     const stj = (await st.json().catch(() => ({}))) as { status_code?: string; error?: { code?: number; message?: string } };
-    if (!st.ok) throw classifyMetaError(st.status, stj.error, "pre_commit");
+    if (!st.ok) throw classifyMetaError(st.status, stj.error, "pre_commit", st);
     if (stj.status_code === "FINISHED") return;
     if (stj.status_code === "ERROR" || stj.status_code === "EXPIRED") throw new PermanentError("Meta container processing failed");
     await new Promise((r) => setTimeout(r, delayMs));
@@ -160,7 +152,7 @@ async function pollFacebookVideo(id: string, token: string, uploadOnly = false):
   for (let i = 0; i < attempts; i++) {
     const res = await fetch(`${GRAPH}/${id}?fields=status&access_token=${encodeURIComponent(token)}`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     const data = (await res.json().catch(() => ({}))) as { status?: { video_status?: string; uploading_phase?: { status?: string } }; error?: { code?: number; message?: string } };
-    if (!res.ok) throw classifyMetaError(res.status, data.error, "pre_commit");
+    if (!res.ok) throw classifyMetaError(res.status, data.error, "pre_commit", res);
     if (uploadOnly ? data.status?.uploading_phase?.status === "complete" : data.status?.video_status === "ready") return;
     if (data.status?.video_status === "error" || data.status?.uploading_phase?.status === "error") throw new PermanentError("Meta video processing failed");
     await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -192,7 +184,7 @@ async function publishCarousel(args: Parameters<Provider["publish"]>[0], faceboo
   const create = async (path: string, values: Record<string, string>, phase: PublishPhase): Promise<string> => {
     const res = await fetch(`${base}/${path}`, { method: "POST", body: new URLSearchParams({ ...values, access_token: token }) });
     const data = (await res.json().catch(() => ({}))) as { id?: unknown; error?: { code?: number; message?: string } };
-    if (!res.ok) throw classifyMetaError(res.status, data.error, phase);
+    if (!res.ok) throw classifyMetaError(res.status, data.error, phase, res);
     const id = asString(data.id);
     if (!id) throw new TransientError("Meta carousel returned no id", phase);
     return id;
@@ -296,7 +288,7 @@ export const metaProvider: Provider = {
     };
     if (!res.ok || !body.data || body.data.is_valid === false) {
       if (res.ok) throw new TokenInvalidError("Meta master token is not valid");
-      throw classifyMetaError(res.status, body.error);
+      throw classifyMetaError(res.status, body.error, "commit_uncertain", res);
     }
     // PSA10: the token must belong to THIS app, else a foreign-app token could mint our Page tokens.
     if (body.data.app_id !== process.env.META_APP_ID) {
@@ -328,7 +320,7 @@ export const metaProvider: Provider = {
         paging?: { next?: string };
         error?: { code?: number; message?: string };
       };
-      if (!res.ok || !body.data) throw classifyMetaError(res.status, body.error);
+      if (!res.ok || !body.data) throw classifyMetaError(res.status, body.error, "commit_uncertain", res);
       for (const p of body.data) {
         if (!p.access_token) continue;
         const pageId = asString(p.id); // PSA55 (PSA51 class): skip a malformed page entry
@@ -391,13 +383,13 @@ export const metaProvider: Provider = {
           upload_url?: string;
           error?: { code?: number; message?: string };
         };
-        if (!start.ok || !sj.video_id || !sj.upload_url) throw classifyMetaError(start.status, sj.error);
+        if (!start.ok || !sj.video_id || !sj.upload_url) throw classifyMetaError(start.status, sj.error, "commit_uncertain", start);
         assertAllowedHost(sj.upload_url, META_HOSTS); // PSA50: don't send the OAuth token to a non-Meta host
         const up = await fetch(sj.upload_url, {
           method: "POST",
           headers: { authorization: `OAuth ${tokens.accessToken}`, file_url: url ?? "" },
         });
-        if (!up.ok) throw classifyMetaError(up.status, undefined);
+        if (!up.ok) throw classifyMetaError(up.status, undefined, "commit_uncertain", up);
         const finUrl =
           `${GRAPH}/${accountId}/video_reels?upload_phase=finish&video_id=${sj.video_id}` +
           `&video_state=${published ? "PUBLISHED" : "DRAFT"}` +
@@ -409,10 +401,10 @@ export const metaProvider: Provider = {
           post_id?: unknown;
           error?: { code?: number; message?: string };
         };
-        if (!fin.ok || fj.success === false) throw classifyMetaError(fin.status, fj.error);
+        if (!fin.ok || fj.success === false) throw classifyMetaError(fin.status, fj.error, "commit_uncertain", fin);
         const reelPost = asString(fj.post_id);
         const handle = reelPost ? pagePostHandle(accountId, reelPost) : asString(sj.video_id); // PSA51
-        if (!handle) throw classifyMetaError(fin.status, fj.error);
+        if (!handle) throw classifyMetaError(fin.status, fj.error, "commit_uncertain", fin);
         await setFacebookThumbnail(sj.video_id, coverUrl, tokens.accessToken);
         return { providerHandle: handle };
       }
@@ -431,7 +423,7 @@ export const metaProvider: Provider = {
           error?: { code?: number; message?: string };
         };
         const handle = asString(j.post_id) ?? asString(j.id); // PSA51
-        if (!res.ok || !handle) throw classifyMetaError(res.status, j.error);
+        if (!res.ok || !handle) throw classifyMetaError(res.status, j.error, "commit_uncertain", res);
         return { providerHandle: handle };
       }
 
@@ -448,7 +440,7 @@ export const metaProvider: Provider = {
         error?: { code?: number; message?: string };
       };
       const videoId = asString(j.id); // PSA51
-      if (!res.ok || !videoId) throw classifyMetaError(res.status, j.error);
+      if (!res.ok || !videoId) throw classifyMetaError(res.status, j.error, "commit_uncertain", res);
       await setFacebookThumbnail(videoId, coverUrl, tokens.accessToken); // best-effort cover
       return { providerHandle: await facebookVideoPostHandle(accountId, videoId, token) };
     }
@@ -486,7 +478,7 @@ export const metaProvider: Provider = {
       };
       // PSA36: container-create is pre-commit — nothing is public until step 3, so a transient here is safe to retry.
       const containerId = asString(created.id); // PSA51: a non-string id would coerce to "[object Object]" downstream
-      if (!create.ok || !containerId) throw classifyMetaError(create.status, created.error, "pre_commit");
+      if (!create.ok || !containerId) throw classifyMetaError(create.status, created.error, "pre_commit", create);
 
       // 2) poll container status until FINISHED (IG processes async — observed ~60-90s for a reel).
       const attempts = Number(process.env.META_PUBLISH_POLL_ATTEMPTS ?? 60);
@@ -516,7 +508,7 @@ export const metaProvider: Provider = {
         error?: { code?: number; message?: string };
       };
       const handle = asString(pubj.id); // PSA51
-      if (!pub.ok || !handle) throw classifyMetaError(pub.status, pubj.error);
+      if (!pub.ok || !handle) throw classifyMetaError(pub.status, pubj.error, "commit_uncertain", pub);
       return { providerHandle: handle };
     }
 
@@ -534,15 +526,15 @@ export const metaProvider: Provider = {
       const edge = `${GRAPH}/${accountId}/video_stories`;
       const start = await fetch(`${edge}?upload_phase=start&access_token=${encodeURIComponent(tokens.accessToken)}`, { method: "POST" });
       const init = await start.json().catch(() => ({})) as { video_id?: string; upload_url?: string; error?: { code?: number; message?: string } };
-      if (!start.ok || !init.video_id || !init.upload_url) throw classifyMetaError(start.status, init.error, "pre_commit");
+      if (!start.ok || !init.video_id || !init.upload_url) throw classifyMetaError(start.status, init.error, "pre_commit", start);
       assertAllowedHost(init.upload_url, META_HOSTS);
       const upload = await fetch(init.upload_url, { method: "POST", redirect: "error", headers: { authorization: `OAuth ${tokens.accessToken}`, file_url: mediaUrl } });
       const uploaded = await upload.json().catch(() => ({})) as { success?: boolean; error?: { code?: number; message?: string } };
-      if (!upload.ok || uploaded.success === false) throw classifyMetaError(upload.status, uploaded.error, "pre_commit");
+      if (!upload.ok || uploaded.success === false) throw classifyMetaError(upload.status, uploaded.error, "pre_commit", upload);
       await pollFacebookVideo(init.video_id, tokens.accessToken, true);
       const finish = await fetch(`${edge}?upload_phase=finish&video_state=PUBLISHED&video_id=${encodeURIComponent(init.video_id)}&access_token=${encodeURIComponent(tokens.accessToken)}`, { method: "POST" });
       const result = await finish.json().catch(() => ({})) as { success?: boolean; post_id?: unknown; error?: { code?: number; message?: string } };
-      if (!finish.ok || result.success !== true) throw classifyMetaError(finish.status, result.error);
+      if (!finish.ok || result.success !== true) throw classifyMetaError(finish.status, result.error, "commit_uncertain", finish);
       return { providerHandle: asString(result.post_id) ?? init.video_id };
     }
     if (isFacebook) {
@@ -558,7 +550,7 @@ export const metaProvider: Provider = {
       };
       const photoId = asString(photoJson.id);
       // Photo upload is pre-commit — a story isn't visible until photo_stories below.
-      if (!photoRes.ok || !photoId) throw classifyMetaError(photoRes.status, photoJson.error, "pre_commit");
+      if (!photoRes.ok || !photoId) throw classifyMetaError(photoRes.status, photoJson.error, "pre_commit", photoRes);
 
       const storyRes = await fetch(`${GRAPH}/${accountId}/photo_stories`, {
         method: "POST",
@@ -571,7 +563,7 @@ export const metaProvider: Provider = {
         error?: { code?: number; message?: string };
       };
       const handle = asString(storyJson.post_id) ?? asString(storyJson.id);
-      if (!storyRes.ok || storyJson.success === false || !handle) throw classifyMetaError(storyRes.status, storyJson.error);
+      if (!storyRes.ok || storyJson.success === false || !handle) throw classifyMetaError(storyRes.status, storyJson.error, "commit_uncertain", storyRes);
       return { providerHandle: handle };
     }
 
@@ -589,7 +581,7 @@ export const metaProvider: Provider = {
       error?: { code?: number; message?: string };
     };
     const containerId = asString(created.id);
-    if (!create.ok || !containerId) throw classifyMetaError(create.status, created.error, "pre_commit");
+    if (!create.ok || !containerId) throw classifyMetaError(create.status, created.error, "pre_commit", create);
 
     await pollContainerFinished(containerId, igToken, igBase);
 
@@ -602,7 +594,7 @@ export const metaProvider: Provider = {
       error?: { code?: number; message?: string };
     };
     const handle = asString(pubj.id);
-    if (!pub.ok || !handle) throw classifyMetaError(pub.status, pubj.error);
+    if (!pub.ok || !handle) throw classifyMetaError(pub.status, pubj.error, "commit_uncertain", pub);
     return { providerHandle: handle };
   },
 };

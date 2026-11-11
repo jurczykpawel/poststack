@@ -44,7 +44,7 @@ export const threadsProvider: Provider = {
       error?: { message?: string; code?: number };
     };
     if (res.status < 500 && json.error?.code === 190) throw new TokenInvalidError("Threads access token expired — reconnect required");
-    if (!res.ok || !json.access_token) throw classifyHttp(res.status, json.error?.message);
+    if (!res.ok || !json.access_token) throw classifyHttp(res.status, json.error?.message, "commit_uncertain", { headers: res.headers, provider: "threads", body: json });
     return {
       accessToken: json.access_token,
       refreshToken: tokens.refreshToken,
@@ -63,7 +63,7 @@ export const threadsProvider: Provider = {
       username?: unknown;
       error?: { message?: string };
     };
-    if (!res.ok) throw classifyHttp(res.status, json.error?.message);
+    if (!res.ok) throw classifyHttp(res.status, json.error?.message, "commit_uncertain", { headers: res.headers, provider: "threads", body: json });
     const accountId = asString(json.id); // PSA51
     if (!accountId) throw classifyHttp(404, "no threads user");
     // handle = @username: unique per platform; links a pre-migration handle-keyed row to this account
@@ -89,7 +89,7 @@ export const threadsProvider: Provider = {
     const created = (await create.json().catch(() => ({}))) as { id?: unknown; error?: { message?: string } };
     // PSA36: container-create is pre-commit — the thread isn't public until threads_publish below.
     const creationId = asString(created.id); // PSA51
-    if (!create.ok || !creationId) throw classifyHttp(create.status, created.error?.message, "pre_commit");
+    if (!create.ok || !creationId) throw classifyHttp(create.status, created.error?.message, "pre_commit", { headers: create.headers, provider: "threads", body: created });
 
     const pub = await fetch(`${GRAPH}/v1.0/${accountId}/threads_publish`, {
       method: "POST",
@@ -97,7 +97,7 @@ export const threadsProvider: Provider = {
     });
     const pubj = (await pub.json().catch(() => ({}))) as { id?: unknown; error?: { message?: string } };
     const handle = asString(pubj.id); // PSA51
-    if (!pub.ok || !handle) throw classifyHttp(pub.status, pubj.error?.message);
+    if (!pub.ok || !handle) throw classifyHttp(pub.status, pubj.error?.message, "commit_uncertain", { headers: pub.headers, provider: "threads", body: pubj });
     return { providerHandle: handle };
   },
 };

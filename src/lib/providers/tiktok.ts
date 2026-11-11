@@ -113,7 +113,7 @@ export const tiktokProvider: Provider = {
       data?: { user?: { open_id?: string } };
       error?: { message?: string };
     };
-    if (!res.ok) throw classifyHttp(res.status, json.error?.message);
+    if (!res.ok) throw classifyHttp(res.status, json.error?.message, "commit_uncertain", { headers: res.headers, provider: "tiktok", body: json });
     const id = json.data?.user?.open_id;
     if (!id) throw classifyHttp(404, "no tiktok user");
     return { accountId: id };
@@ -134,7 +134,7 @@ export const tiktokProvider: Provider = {
     } catch { throw new TransientError("TikTok status unavailable. Try again later."); }
     const parsed = z.object({ data: z.object({ status: z.string(), publicaly_available_post_id: z.array(z.string().regex(/^\d+$/)).optional(), fail_reason: z.string().optional() }).optional(), error: z.object({ code: z.string() }) }).safeParse(json);
     if (parsed.success && parsed.data.error.code === "access_token_invalid") throw new TokenInvalidError("Reconnect the TikTok channel");
-    if (!res.ok) throw classifyHttp(res.status, "TikTok status unavailable");
+    if (!res.ok) throw classifyHttp(res.status, "TikTok status unavailable", "commit_uncertain", { headers: res.headers, provider: "tiktok", body: json });
     if (!parsed.success || parsed.data.error.code !== "ok" || !parsed.data.data) throw new TransientError("TikTok status unavailable. Try again later.");
     const data = parsed.data.data;
     if (data.status === "FAILED") return { state: "failed", error: data.fail_reason || "TikTok processing failed" };
@@ -202,9 +202,7 @@ export const tiktokProvider: Provider = {
         throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
       }
       const msg = initJson.error?.message || initJson.error?.code || `tiktok init failed (${init.status})`;
-      // TikTok's 403 here rejects the app, URL or post; only 401 concerns the creator's token.
-      if (init.status === 403) throw new PermanentError(`tiktok: ${msg}`);
-      throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit"); // PSA36: init creates no post yet
+      throw classifyHttp(init.ok ? 400 : init.status, msg, "pre_commit", { provider: "tiktok", headers: init.headers, body: initJson }); // PSA36: init creates no post yet
     }
 
     // Upload sequentially; the final part includes the trailing bytes.
@@ -231,7 +229,7 @@ export const tiktokProvider: Provider = {
         await put.body?.cancel().catch(() => {});
         // A 403 means upload_url expired (valid one hour); nothing is posted before the last chunk.
         if (put.status === 403) throw new TransientError("tiktok: upload URL expired", "pre_commit");
-        if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`);
+        if (putFailed) throw classifyHttp(put.status, `tiktok: chunk upload failed (${put.status})`, "commit_uncertain", { headers: put.headers, provider: "tiktok" });
       }
     }
 

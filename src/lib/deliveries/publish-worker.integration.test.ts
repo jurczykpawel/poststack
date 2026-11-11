@@ -1198,3 +1198,73 @@ describe.skipIf(!TEST_DB)("stored article requests", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+
+describe("provider HTTP failure outcomes", () => {
+  it.each(["permission", "payment"] as const)("%s fails delivery without changing channel auth", async (reason) => {
+    const { postId, channelId } = await scenario();
+    const provider = (await import("@/lib/providers/tiktok")).tiktokProvider;
+    const error = reason === "permission" ? new errs.PermissionError("permission required: video.publish") : new errs.PaymentRequiredError("X payment/credits required");
+    const spy = vi.spyOn(provider, "publish").mockRejectedValue(error);
+    try {
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("failed");
+      const channel = await db.query.channels.findFirst({ where: eq(schema.channels.id, channelId) });
+      expect(channel!.status).toBe("active");
+      const delivery = await db.query.deliveries.findFirst({ where: eq(schema.deliveries.id, postId) });
+      expect(delivery!.last_error).toContain(error.message);
+    } finally { spy.mockRestore(); }
+  });
+
+  it("a rate-limited final call is reconciled without a second publish", async () => {
+    const { postId } = await scenario();
+    const provider = (await import("@/lib/providers/tiktok")).tiktokProvider;
+    const spy = vi.spyOn(provider, "publish").mockRejectedValue(new errs.RateLimitedError("provider rate limit", 300, "commit_uncertain"));
+    try {
+      await expect(processPublish({ postId }, helpers)).rejects.toThrow();
+      expect(await status(postId)).toBe("sending");
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("unknown");
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally { spy.mockRestore(); }
+  });
+});
+
+describe("YouTube retry delay", () => {
+  it("keeps the saved upload session and provider delay", async () => {
+    const { postId, channelId } = await scenario();
+    await db.update(schema.channels).set({ platform: "youtube" }).where(eq(schema.channels.id, channelId));
+    const provider = (await import("@/lib/providers/youtube")).youtubeProvider;
+    const session = "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=example";
+    const spy = vi.spyOn(provider, "publish").mockImplementationOnce(async ({ saveUploadSession }) => {
+      await saveUploadSession!(session);
+      throw new errs.RateLimitedError("upstream unavailable", 360, "commit_uncertain");
+    });
+    try {
+      const before = Date.now();
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("processing");
+      const job = await publishJobByKey(`publish:${postId}`);
+      expect(new Date(job!.run_at).getTime()).toBeGreaterThanOrEqual(before + 360_000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally { spy.mockRestore(); }
+  });
+});
+
+describe("provider status retry delay", () => {
+  it("honors Retry-After while polling without publishing again", async () => {
+    const { postId } = await scenario();
+    await db.update(schema.deliveries).set({ status: "processing", provider_handle: "existing-upload" }).where(eq(schema.deliveries.id, postId));
+    const provider = (await import("@/lib/providers/tiktok")).tiktokProvider;
+    const poll = vi.spyOn(provider, "publishStatus").mockRejectedValue(new errs.RateLimitedError("wait", 300));
+    const publish = vi.spyOn(provider, "publish");
+    try {
+      const before = Date.now();
+      await processPublish({ postId }, helpers);
+      expect(await status(postId)).toBe("processing");
+      const job = await publishJobByKey(`publish:${postId}`);
+      expect(new Date(job!.run_at).getTime()).toBeGreaterThanOrEqual(before + 300_000);
+      expect(publish).not.toHaveBeenCalled();
+    } finally { poll.mockRestore(); publish.mockRestore(); }
+  });
+});

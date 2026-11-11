@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PermanentError, RateLimitedError, TokenInvalidError, TransientError } from "./errors";
+import { TransientError } from "./errors";
 import { classifyHttp } from "./http";
 
 const creatorInfoSchema = z.object({
@@ -40,18 +40,13 @@ export async function queryCreatorInfo(accessToken: string): Promise<CreatorInfo
   }
   const envelope = z.object({ data: z.unknown().optional(), error: z.object({ code: z.string() }) }).safeParse(json);
   const code = envelope.success ? envelope.data.error.code : undefined;
-  if (code === "access_token_invalid") throw new TokenInvalidError("Reconnect the TikTok channel");
-  if (code === "scope_not_authorized") throw new PermanentError("Reconnect TikTok with video.publish permission");
-  if (res.status === 429 || code === "rate_limit_exceeded") {
-    throw new RateLimitedError("TikTok creator info rate limit. Try again later.", 60, "pre_commit");
-  }
   if ((res.ok || res.status === 403) && cannotPostReasons.some((reason) => reason === code)) {
     return {
       status: "cannot_post_now", reason: code as CannotPostReason,
       message: "TikTok cannot accept posts right now. Try again later.",
     };
   }
-  if (!res.ok) throw classifyHttp(res.status, "TikTok creator info unavailable", "pre_commit");
+  if (!res.ok || (code && code !== "ok")) throw classifyHttp(res.ok ? 400 : res.status, "TikTok creator info unavailable", "pre_commit", { provider: "tiktok", headers: res.headers, body: json });
   if (!envelope.success || code !== "ok") {
     throw new TransientError("TikTok creator info unavailable. Try again later.", "pre_commit");
   }

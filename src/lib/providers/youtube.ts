@@ -88,7 +88,7 @@ export const youtubeProvider: Provider = {
         msg = "this Google account has no YouTube channel — Reconnect and choose the Google account that owns the channel";
       }
       console.error("[youtube healthCheck]", res.status, reason || msg, "tokenLen=" + (tokens.accessToken ?? "").length);
-      throw classifyHttp(res.status, msg);
+      throw classifyHttp(res.status, msg, "commit_uncertain", { headers: res.headers, provider: "youtube", body: { error: { message: msg, errors: [{ reason }] } } });
     }
     type Thumb = { url?: string };
     let json: { items?: { id: string; snippet?: { title?: string; customUrl?: string; thumbnails?: { default?: Thumb; medium?: Thumb } } }[] } = {};
@@ -166,7 +166,7 @@ export const youtubeProvider: Provider = {
       );
       if (!init.ok) {
         const e = (await init.json().catch(() => ({}))) as { error?: { message?: string } };
-        throw classifyHttp(init.status, e.error?.message, "pre_commit"); // PSA36: init creates no video yet
+        throw classifyHttp(init.status, e.error?.message, "pre_commit", { headers: init.headers, provider: "youtube", body: e }); // PSA36: init creates no video yet
       }
       location = init.headers.get("location") ?? undefined;
       if (!location) throw new PermanentError("youtube: resumable init returned no upload URL");

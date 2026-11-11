@@ -134,7 +134,7 @@ export const openApiSpec = {
               status: { type: "string", enum: ["scheduled", "sending", "processing", "sent", "held", "unknown", "failed", "canceled"] },
               scheduledFor: { type: "string", format: "date-time", description: "Requested publish time (when)." },
               attempts: { type: "integer" },
-              lastError: { type: ["string", "null"], description: "Redacted provider error." },
+              lastError: { type: ["string", "null"], description: "Redacted provider error, including missing permission/scope, quota or payment/credits required. Permission and payment failures do not mark the channel needs_reauth. A sending/unknown outcome must be reconciled before publishing again." },
               platformPostId: { type: ["string", "null"] },
               updatedAt: { type: "string", format: "date-time" },
               firstComment: {

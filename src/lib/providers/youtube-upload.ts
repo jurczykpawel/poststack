@@ -17,6 +17,10 @@ export async function uploadYouTube(location: string, source: string, size: numb
         headers: { authorization: `Bearer ${token}`, "content-type": "video/mp4", "content-length": String(body?.length ?? 0), "content-range": status ? `bytes */${size}` : `bytes ${first}-${last}/${size}` }, body,
       });
     } catch { status = true; failures++; continue; }
+    if (res.status === 503 && res.headers.has("retry-after")) {
+      await res.body?.cancel();
+      throw classifyHttp(res.status, undefined, "commit_uncertain", { headers: res.headers, provider: "youtube" });
+    }
     if (res.status >= 500) { await res.body?.cancel(); status = true; failures++; continue; }
     if (res.status === 308) {
       const range = res.headers.get("range");
@@ -33,7 +37,7 @@ export async function uploadYouTube(location: string, source: string, size: numb
     const id = asString(json.id);
     if (res.ok && id) return id;
     if (res.ok) throw new TransientError("youtube: upload result unavailable");
-    throw classifyHttp(res.status, json.error?.message);
+    throw classifyHttp(res.status, json.error?.message, "commit_uncertain", { headers: res.headers, provider: "youtube", body: json });
   }
   throw new TransientError("youtube: upload interrupted; resume the saved session");
 }

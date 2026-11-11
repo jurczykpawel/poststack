@@ -53,7 +53,7 @@ export const xProvider: Provider = {
       data?: { id?: unknown; username?: string };
       detail?: string;
     };
-    if (!res.ok) throw classifyHttp(res.status, json.detail);
+    if (!res.ok) throw classifyHttp(res.status, json.detail, "commit_uncertain", { headers: res.headers, provider: "x", body: json });
     const id = asString(json.data?.id); // PSA55 (PSA51 class)
     if (!id) throw classifyHttp(404, "no x user");
     // handle = @username: unique per platform, so it reliably links a pre-migration handle-keyed
@@ -81,7 +81,7 @@ export const xProvider: Provider = {
     });
     const json = (await res.json().catch(() => ({}))) as { data?: { id?: unknown }; detail?: string };
     const handle = asString(json.data?.id); // PSA51: narrow before trusting
-    if (!res.ok || !handle) throw classifyHttp(res.status, json.detail);
+    if (!res.ok || !handle) throw classifyHttp(res.status, json.detail, "commit_uncertain", { headers: res.headers, provider: "x", body: json });
     return { providerHandle: handle, url: postUrlFor("twitter", handle) ?? undefined };
   },
 };
@@ -95,7 +95,10 @@ export async function xPlatformPost(tokens: TokenSet, id: string, method: "GET" 
   });
   if (method === "GET" && res.status === 404) return { exists: false, providerStatus: 404, platformPostId: id };
   try {
-    if (!res.ok) throw classifyHttp(res.status, `X HTTP ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => undefined);
+      throw classifyHttp(res.status, body?.detail ?? `X HTTP ${res.status}`, "commit_uncertain", { headers: res.headers, provider: "x", body });
+    }
     const json = await res.json() as {
       data?: { id?: string; deleted?: boolean };
       errors?: { type?: string; resource_id?: string; resource_type?: string }[];

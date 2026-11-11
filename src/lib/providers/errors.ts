@@ -36,6 +36,16 @@ export class PermanentError extends ProviderError {
   readonly kind = "permanent" as const;
 }
 
+/** Missing provider permission; correcting grants/access is required. */
+export class PermissionError extends PermanentError {
+  readonly reason = "permission";
+}
+
+/** Provider account requires billing credits. */
+export class PaymentRequiredError extends PermanentError {
+  readonly reason = "payment_required";
+}
+
 /** Rate limited — retry after the platform-suggested delay. */
 export class RateLimitedError extends ProviderError {
   readonly kind = "rate_limited" as const;

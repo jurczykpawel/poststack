@@ -1,3 +1,4 @@
+import { PermissionError, RateLimitedError } from "./errors";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { metaProvider, classifyMetaError } from "./meta";
 import { TokenInvalidError, TransientError, PermanentError } from "./errors";
@@ -18,8 +19,8 @@ describe("classifyMetaError", () => {
     expect(e).not.toBeInstanceOf(TokenInvalidError);
   });
 
-  it("treats a bare 401 without a token code as permanent, not token-invalid", () => {
-    expect(classifyMetaError(401, { code: 1, message: "nope" })).toBeInstanceOf(PermanentError);
+  it("treats HTTP 401 as token-invalid", () => {
+    expect(classifyMetaError(401, { code: 1, message: "nope" })).toBeInstanceOf(TokenInvalidError);
   });
 
   it("treats 5xx as TransientError", () => {
@@ -62,5 +63,19 @@ describe("meta provider", () => {
   it("healthCheck throws TransientError on a 500", async () => {
     stubFetch(500, { error: { message: "server" } });
     await expect(metaProvider.healthCheck(tokens)).rejects.toBeInstanceOf(TransientError);
+  });
+});
+
+describe("Meta permission and quota responses", () => {
+  it("keeps a permission denial distinct from a token error", () => {
+    expect(classifyMetaError(403, { code: 200, message: "Requires pages_manage_posts" })).toBeInstanceOf(PermissionError);
+    expect(classifyMetaError(403, { code: 190, message: "Invalid OAuth access token" })).toBeInstanceOf(TokenInvalidError);
+  });
+  it("passes rate-limit headers through without changing the phase", () => {
+    const response = new Response(null, { status: 429, headers: { "retry-after": "240" } });
+    const error = classifyMetaError(429, { code: 4 }, "pre_commit", response) as RateLimitedError;
+    expect(error).toBeInstanceOf(RateLimitedError);
+    expect(error.retryAfterSeconds).toBe(240);
+    expect(error.phase).toBe("pre_commit");
   });
 });

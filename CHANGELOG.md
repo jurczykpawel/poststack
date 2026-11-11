@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Publishing distinguishes provider permission, quota and X credit errors from expired tokens, and respects Retry-After and X rate-limit reset headers while preserving uncertain-publication recovery.
+
 ## [0.19.1] - 2026-11-10
 
 ### Added
