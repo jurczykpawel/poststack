@@ -35,7 +35,7 @@
     "@modelcontextprotocol/server": "^2.4.0",
     "altcha-lib": "^2.8.0",
     "aws4fetch": "^1.0.20",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.9",
     "drizzle-orm": "^0.45.4",
     "graphile-worker": "^0.18.0",
     "hono": "^4.13.16",
