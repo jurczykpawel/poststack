@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-15
+
 ### Added
 - Built-in MCP server at `POST /mcp` (stateless Streamable HTTP) for AI agents such as Claude Code and Cursor. Tools are generated on the fly from this version's OpenAPI document (one per operation, named by `operationId`, with read-only/destructive hints) and each call goes through `/api/v1` with the caller's API key, so permissions, workspace isolation and rate limits are the API's. Only operations the key's permissions allow are listed. `/mcp?mode=compact` offers two tools instead (`search_operations`, `call_operation`). OAuth for Claude.ai/ChatGPT connectors is planned. See [README](README.md#mcp-server-ai-agents).
 - OpenAPI: every operation has an `operationId`; content, post and brand create/update operations now document their JSON request body (generated from the same validators the API uses), and the brand/content/post item paths declare their path parameters.
