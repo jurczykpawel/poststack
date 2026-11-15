@@ -895,6 +895,8 @@ export const apiKeys = pgTable("api_keys", {
 	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	scopes: text().array().default([]),
 	created_by_user_id: uuid("created_by_user_id"),
+	/** Set when the key is an OAuth access token; disconnecting the app deletes it with the grant. */
+	oauth_grant_id: uuid("oauth_grant_id"),
 }, (table) => [
 	uniqueIndex("api_keys_key_hash_key").using("btree", table.key_hash.asc().nullsLast()),
 	index("api_keys_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
@@ -908,6 +910,48 @@ export const apiKeys = pgTable("api_keys", {
 			foreignColumns: [users.id],
 			name: "api_keys_created_by_user_id_fkey"
 		}).onUpdate("cascade").onDelete("set null"),
+	index("api_keys_oauth_grant_id_idx").using("btree", table.oauth_grant_id.asc().nullsLast()),
+	foreignKey({
+			columns: [table.oauth_grant_id],
+			foreignColumns: [oauthGrants.id],
+			name: "api_keys_oauth_grant_id_fkey"
+		}).onDelete("cascade"),
+]);
+
+/** OAuth clients of the built-in authorization server: dynamically registered (random id) or a
+ *  Client ID Metadata Document (id = its https URL, stored when a user approves it). */
+export const oauthClients = pgTable("oauth_clients", {
+	id: text().primaryKey().notNull(),
+	name: text().notNull(),
+	redirect_uris: text("redirect_uris").array().notNull(),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+});
+
+export const oauthGrantStatus = pgEnum("oauth_grant_status", ['pending', 'active'])
+
+/** One approved connection (client × user × workspace). `pending` until its code is exchanged; the
+ *  access tokens are api_keys rows pointing here. Codes and refresh tokens are stored as hashes. */
+export const oauthGrants = pgTable("oauth_grants", {
+	id: uuid().primaryKey().notNull().defaultRandom(),
+	client_id: text("client_id").notNull(),
+	workspace_id: uuid("workspace_id").notNull(),
+	user_id: uuid("user_id").notNull(),
+	scopes: text().array().notNull(),
+	status: oauthGrantStatus().default('pending').notNull(),
+	code_hash: text("code_hash").notNull(),
+	code_challenge: text("code_challenge").notNull(),
+	redirect_uri: text("redirect_uri").notNull(),
+	code_expires_at: timestamp("code_expires_at", { precision: 3, mode: 'date' }).notNull(),
+	refresh_token_hash: text("refresh_token_hash"),
+	refresh_expires_at: timestamp("refresh_expires_at", { precision: 3, mode: 'date' }),
+	created_at: timestamp("created_at", { precision: 3, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("oauth_grants_code_hash_key").using("btree", table.code_hash.asc().nullsLast()),
+	uniqueIndex("oauth_grants_refresh_token_hash_key").using("btree", table.refresh_token_hash.asc().nullsLast()),
+	index("oauth_grants_workspace_id_idx").using("btree", table.workspace_id.asc().nullsLast()),
+	foreignKey({ columns: [table.client_id], foreignColumns: [oauthClients.id], name: "oauth_grants_client_id_fkey" }).onDelete("cascade"),
+	foreignKey({ columns: [table.workspace_id], foreignColumns: [workspaces.id], name: "oauth_grants_workspace_id_fkey" }).onDelete("cascade"),
+	foreignKey({ columns: [table.user_id], foreignColumns: [users.id], name: "oauth_grants_user_id_fkey" }).onDelete("cascade"),
 ]);
 
 export const autoReplyRules = pgTable("auto_reply_rules", {

@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { authenticate, generateApiKey } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiKeys } from "@/db/schema";
@@ -21,7 +21,8 @@ export async function GET(request: Request) {
   if (auth.authMethod === "api_key") return ApiErrors.forbidden("API key management requires a logged-in session");
 
   const keys = await db.query.apiKeys.findMany({
-    where: eq(apiKeys.workspace_id, auth.workspaceId),
+    // OAuth access tokens are managed as connected apps, not listed as keys.
+    where: and(eq(apiKeys.workspace_id, auth.workspaceId), isNull(apiKeys.oauth_grant_id)),
     orderBy: desc(apiKeys.created_at),
     columns: {
       id: true,

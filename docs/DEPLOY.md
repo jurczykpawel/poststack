@@ -303,6 +303,7 @@ gunzip -c poststack-2026-06-16.sql.gz | \
 | `web` won't start, exits immediately | Invalid/missing env var (zod validation). Check `docker compose logs web` — it names the failing variable. |
 | Webhook handshake returns nothing / wrong value | `META_WEBHOOK_VERIFY_TOKEN` in `.env` doesn't match the token entered in the Meta dashboard. |
 | `worker` never starts | It is gated on `web` being healthy (so the schema exists first). Fix `web` health and the worker follows. |
+| Claude.ai / ChatGPT connector fails before the PostStack sign-in screen | The connector discovers OAuth from `APP_URL`: it must be the public HTTPS address (no trailing path) and the proxy must pass `/mcp`, `/.well-known/oauth-*` and `/oauth/*` to the app. Check `curl -s https://your-domain/.well-known/oauth-protected-resource/mcp`: `resource` must equal the connector URL `https://your-domain/mcp` exactly. MCP and connectors need a PRO license (API access). See [README → MCP server](../README.md#mcp-server-ai-agents). |
 | Connections exhausted at scale | See [README → Database connection sizing](../README.md#database-connection-sizing). Raise Postgres `max_connections` or lower `DB_POOL_MAX` before adding replicas. |
 
 ### Publishing OAuth credentials

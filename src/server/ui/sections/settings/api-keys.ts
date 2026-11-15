@@ -1,13 +1,14 @@
 import { localTime } from "../../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { apiKeys as apiKeysTbl } from "@/db/schema";
 import { BRAND } from "@/lib/brand";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { API_SCOPE_DEFINITIONS, API_SCOPE_GROUPS, API_SCOPE_PRESETS, API_SCOPES, isInstanceScope } from "@/lib/auth/scopes";
 import { isInstanceOperator } from "@/lib/auth/instance-operator";
+import { disconnectApp, listConnectedApps, mcpResource } from "@/lib/mcp/oauth";
 import * as apiKeys from "@/server/handlers/v1/api-keys/route";
 import * as apiKey from "@/server/handlers/v1/api-keys/[keyId]/route";
 import { icon } from "../../components/icons";
@@ -19,7 +20,7 @@ import { settingsAuth, settingsPage, type Html } from "./shell";
 
 function loadKeys(workspaceId: string) {
   return db.query.apiKeys.findMany({
-    where: eq(apiKeysTbl.workspace_id, workspaceId),
+    where: and(eq(apiKeysTbl.workspace_id, workspaceId), isNull(apiKeysTbl.oauth_grant_id)),
     orderBy: desc(apiKeysTbl.created_at),
     columns: { id: true, name: true, key_prefix: true, scopes: true, last_used_at: true, expires_at: true },
   });
@@ -44,6 +45,21 @@ function renderKeys(keys: KeyRow[], error?: string): Html {
       <div class="muted key-scopes" title="${k.scopes?.length ? k.scopes.join(", ") : "Full access"}">${scopeSummary(k.scopes)}</div>
       <div class="muted key-used">${k.last_used_at ? html`Used ${timeAgo(k.last_used_at)}` : "Never used"}${k.expires_at ? html`<br />Expires ${localTime(new Date(k.expires_at))}` : ""}</div>
       <button class="btn btn-sm btn-danger" hx-delete="/settings/api-keys/${k.id}" hx-target="#keys-area" hx-swap="innerHTML" hx-confirm="Revoke ${k.name}? Scripts using it stop working." data-confirm-label="Revoke">Revoke</button>
+    </div>`)}
+  </div>`;
+}
+
+type AppRow = Awaited<ReturnType<typeof listConnectedApps>>[number];
+
+/** Apps connected over OAuth (Claude, ChatGPT…). Disconnecting deletes their tokens at once. */
+function renderApps(apps: AppRow[]): Html {
+  if (apps.length === 0) return html`<p class="muted">No apps connected. Add <code>${mcpResource()}</code> as a connector in Claude or ChatGPT and approve it here.</p>`;
+  return html`<div class="table-wrap key-list">
+    ${apps.map((a) => html`<div class="key-row">
+      <div style="min-width:0"><div class="key-name">${a.client_name}</div><div class="muted key-prefix">${a.client_id.startsWith("https://") ? new URL(a.client_id).host : new URL(a.redirect_uri).host}</div></div>
+      <div class="muted key-scopes" title="${a.scopes.join(", ")}">${scopeSummary(a.scopes)}</div>
+      <div class="muted key-used">${a.last_used_at ? html`Used ${timeAgo(a.last_used_at)}` : "Never used"}<br />Connected ${localTime(new Date(a.created_at))}</div>
+      <button class="btn btn-sm btn-danger" hx-delete="/settings/connected-apps/${a.id}" hx-target="#apps-area" hx-swap="innerHTML" hx-confirm="Disconnect ${a.client_name}? It loses access immediately." data-confirm-label="Disconnect">Disconnect</button>
     </div>`)}
   </div>`;
 }
@@ -151,6 +167,8 @@ async function keysPage(c: Context): Promise<Response> {
     <div class="set-head"><p class="muted" style="margin:0;flex:1 1 260px">For your scripts and agents: <code>Authorization: Bearer ${BRAND.idPrefix}…</code> · <a href="/api/docs" target="_blank" rel="noopener">API docs</a></p>
       <button class="btn btn-primary" type="button" onclick="document.getElementById('api-key-sheet').showModal()">${icon("plus", "ico", 14)} Create API key</button></div>
     <div id="keys-area">${renderKeys(await loadKeys(a.workspaceId))}</div>
+    <h2 style="margin-top:28px">Connected apps</h2>
+    <div id="apps-area">${renderApps(await listConnectedApps(a.workspaceId))}</div>
     ${createSheet(await isInstanceOperator(a))}`);
 }
 
@@ -181,6 +199,13 @@ export function registerApiKeySettings(app: Hono, guard: MiddlewareHandler, json
         ? html`<div class="notice notice-err">${formErrorText(body, "Failed to create key.")}</div>`
         : html``;
     return c.html(html`${banner}${renderKeys(await loadKeys(a.workspaceId))}`);
+  });
+
+  app.delete("/settings/connected-apps/:id", guard, async (c) => {
+    const a = await settingsAuth(c);
+    if (!a || a.authMethod !== "session") return c.body(null, 401, { "HX-Redirect": "/login" });
+    await disconnectApp(a.workspaceId, c.req.param("id"));
+    return c.html(renderApps(await listConnectedApps(a.workspaceId)));
   });
 
   app.delete("/settings/api-keys/:id", guard, async (c) => {
