@@ -9,11 +9,21 @@ import { PUBLISHING_OAUTH_KEYS } from "@/lib/settings/publishing-oauth";
 import { BRAND } from "@/lib/brand";
 import { API_SCOPES, type ApiScope } from "@/lib/auth/scopes";
 import { platform as platformEnum } from "@/db/schema";
+import { z } from "zod";
+import { contentCreate, contentPatch, postPatch } from "@/lib/content/schemas";
+import { brandCreate, brandPatch } from "@/lib/brands/validation";
 
 /** Machine-readable permission metadata for API docs and generated clients. */
 const requiresScope = <T extends ApiScope>(scope: T): { "x-required-scope": T } => ({
   "x-required-scope": scope,
 });
+
+/** JSON request body generated from the route's own zod validator (one schema, no hand-written copy). */
+const zodBody = (schema: z.ZodType) => {
+  const { $schema: _dialect, ...jsonSchema } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" });
+  return { required: true, content: { "application/json": { schema: jsonSchema } } };
+};
+const pathParam = (name: string, format?: "uuid") => ({ name, in: "path", required: true, schema: { type: "string", ...(format ? { format } : {}) } });
 
 const cursorParameters = (defaultLimit: number, description = "Opaque cursor from the previous response") => [
   { name: "cursor", in: "query", schema: { type: "string" }, description },
@@ -557,10 +567,12 @@ export const openApiSpec = {
         ...requiresScope("content:write"),
         tags: ["Publishing"],
         summary: "Create editorial content",
+        requestBody: zodBody(contentCreate),
         responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Validation error" } },
       },
     },
     "/content/{contentId}": {
+      parameters: [pathParam("contentId", "uuid")],
       get: {
         ...requiresScope("content:read"),
         tags: ["Publishing"],
@@ -572,6 +584,7 @@ export const openApiSpec = {
         ...requiresScope("content:write"),
         tags: ["Publishing"],
         summary: "Update content",
+        requestBody: zodBody(contentPatch),
         responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       delete: {
@@ -614,6 +627,7 @@ export const openApiSpec = {
       },
     },
     "/posts/{postId}": {
+      parameters: [pathParam("postId", "uuid")],
       get: {
         ...requiresScope("posts:read"),
         tags: ["Publishing"],
@@ -626,6 +640,7 @@ export const openApiSpec = {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
         summary: "Update a post",
+        requestBody: zodBody(postPatch),
         description: "Same body as create (all fields optional), including YouTube options and AI-disclosure fields. scheduledDate reschedules the linked pending delivery and publish job atomically. Returns 409 if the delivery is already publishing or no longer pending. Text, firstComment and media edits also update the pending payload atomically; sending deliveries return 409.",
 
         responses: { "200": { description: "Updated" }, "409": { description: "Delivery no longer pending" }, "422": { description: "Invalid schedule" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
@@ -673,6 +688,7 @@ export const openApiSpec = {
       }])),
     },
     "/posts/{postId}/publish": {
+      parameters: [pathParam("postId", "uuid")],
       post: {
         ...requiresScope("posts:write"),
         tags: ["Publishing"],
@@ -720,10 +736,12 @@ export const openApiSpec = {
           "Accepts `default_ai_disclosure` (`none` | `ai_assisted` | `ai_generated`) and " +
           "`default_ai_disclosure_note` — the brand-wide AI declaration inherited by any post that sets " +
           "none of its own (resolution order: post → channel → brand). Null on both = this brand declares nothing.",
+        requestBody: zodBody(brandCreate),
         responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
     },
     "/brands/{brandKey}/channels": {
+      parameters: [pathParam("brandKey")],
       get: {
         ...requiresScope("brands:read"),
         tags: ["Publishing"],
@@ -740,10 +758,12 @@ export const openApiSpec = {
       },
     },
     "/brands/{brandKey}": {
+      parameters: [pathParam("brandKey")],
       patch: {
         ...requiresScope("brands:write"),
         tags: ["Publishing"],
         summary: "Update a brand",
+        requestBody: zodBody(brandPatch),
         responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
       delete: {
@@ -1636,6 +1656,7 @@ export const openApiSpec = {
         ...requiresScope("settings:write"),
         tags: ["Workspace"],
         summary: "Manually prune terminal messages older than the workspace retention window",
+        "x-mcp": { exclude: true },
         responses: {
           "200": { description: "Prune result (counts)" },
           "401": { $ref: "#/components/responses/Unauthorized" },
@@ -1647,6 +1668,7 @@ export const openApiSpec = {
         ...requiresScope("settings:write"),
         tags: ["Workspace"],
         summary: "Manually prune the inbound webhook-events log older than N days",
+        "x-mcp": { destructive: true },
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["older_than_days"], properties: { older_than_days: { type: "integer", minimum: 7, maximum: 3650 } } } } } },
         responses: {
           "200": { description: "Prune result (deleted count)" },
@@ -1873,7 +1895,7 @@ export const openApiSpec = {
         tags: ["Webhooks"],
         summary: "Register a webhook endpoint",
         description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license. contact.erased provides data.id, workspaceId and channels [{channelId, platform, platformSenderId}] captured before deletion; GET contact then returns 404. conversation.updated provides data.conversationId, contactId, channelId, workspaceId, updatedAt (UTC), previous and current states ({status: open|closed|snoozed, is_automation_paused, assigned_to}). State events include automatic reopening by an incoming message or comment, and exclude read receipts, unchanged values and message activity without a state change. Both types are selectable explicitly and included in wildcard subscriptions ([]). message.received and comment.received announce a message or comment from a contact (never our own sends or echoes) and carry identifiers only: data.id (also messageId or commentId), workspaceId, channelId, platform, conversationId, contactId, direction (inbound), createdAt, plus postId for comments. Read the content with GET /messages/{messageId} or GET /comments/{commentId}.",
-        requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } }, "image/*": { schema: { type: "string", format: "binary" } }, "video/*": { schema: { type: "string", format: "binary" } }, "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
         responses: {
           "201": { description: "Created (includes the signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
@@ -2008,9 +2030,20 @@ Every event includes data.id and data.type. Fields below are additional data fie
   ],
 };
 
-for (const methods of Object.values(openApiSpec.paths)) {
-  for (const operation of Object.values(methods)) {
-    const op = operation as { "x-required-scope"?: ApiScope; responses?: Record<string, unknown> };
+const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete"]);
+const snake = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^A-Za-z0-9]+/g, "_").toLowerCase();
+
+/** Deterministic operationId from method + path: `GET /content/{contentId}` → `get_content_by_content_id`. */
+export function deriveOperationId(method: string, path: string): string {
+  const segments = path.split("/").filter(Boolean).map((seg) => seg.startsWith("{") ? `by_${snake(seg.slice(1, -1))}` : snake(seg));
+  return [method.toLowerCase(), ...segments].join("_");
+}
+
+for (const [path, methods] of Object.entries(openApiSpec.paths)) {
+  for (const [method, operation] of Object.entries(methods)) {
+    if (!HTTP_METHODS.has(method)) continue;
+    const op = operation as { operationId?: string; "x-required-scope"?: ApiScope; responses?: Record<string, unknown> };
+    op.operationId ??= deriveOperationId(method, path);
     if (op["x-required-scope"] && op.responses) {
       op.responses["403"] = { $ref: "#/components/responses/InsufficientScope" };
     }

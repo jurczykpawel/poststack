@@ -47,7 +47,7 @@ function readAppVersion(): string {
   }
 }
 
-const APP_VERSION = readAppVersion();
+export const APP_VERSION = readAppVersion();
 
 /**
  * Map a configured object-storage endpoint to a short provider label (no credentials, just the

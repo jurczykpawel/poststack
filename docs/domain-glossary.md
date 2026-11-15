@@ -19,6 +19,7 @@ The definitions are read from the linked implementation. Existing API/DB spellin
 | channel | A connected platform account used for the capabilities that account supports. | brand, workspace, account source, provider. | [schema](../src/db/schema.ts): `channels`; [channel capabilities](../src/lib/channels/capabilities.ts). |
 | account source | A stored master Meta connection that enumerates and synchronizes derived channels. | channel, content source, media source; “managed connection” is the existing UI label, not another entity. | [schema](../src/db/schema.ts): `accountSources`, `channels.source_id`; [Sources UI](../src/server/ui/sections/sources.ts). |
 | platform | The target service identifier, with explicit mappings between editorial, channel and provider representations. | provider, channel; treating `meta` as a stored Facebook/Instagram channel platform. | [platform enum](../src/db/schema.ts); [channelMatchesPlatform](../src/lib/channels/platform-match.ts); [providerIdForPlatform](../src/lib/providers/index.ts). |
+| MCP tool | An agent-callable operation generated at request time from one OpenAPI operation (named by its `operationId`) and executed as an internal `/api/v1` request with the caller's API key. | A hand-written integration, a separate API surface, a rule action. | [mcpOperations](../src/lib/mcp/operations.ts); [/mcp route](../src/server/routes/mcp.ts). |
 
 ## Provider boundaries
 

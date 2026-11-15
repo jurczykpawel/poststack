@@ -1,24 +1,12 @@
-import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
 import { ok, noContent, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { updateBrand, deleteBrand } from "@/lib/brands/service";
-import { BRAND_ACCENT_RE } from "@/lib/brands/validation";
-import { LIMITS } from "@/lib/api/limits";
+import { brandPatch } from "@/lib/brands/validation";
 
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ brandKey: string }> };
-
-const brandPatch = z.object({
-  name: z.string().min(1).max(LIMITS.name).optional(),
-  accent: z.string().regex(BRAND_ACCENT_RE, "hex colour like #7aa2f7").nullable().optional(),
-  icon: z.string().max(LIMITS.line).nullable().optional(),
-  story_template: z.string().max(LIMITS.ref).nullable().optional(),
-  // AIDISC2: brand-wide default AI declaration. Explicit null clears it.
-  default_ai_disclosure: z.enum(["none", "ai_assisted", "ai_generated"]).nullish(),
-  default_ai_disclosure_note: z.string().max(LIMITS.line).nullish(),
-});
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
   const auth = await authenticateWithScope(request, "brands:write");

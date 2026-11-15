@@ -806,6 +806,38 @@ curl https://your-domain.com/api/v1/contacts \
 
 All responses follow the shape `{ data, error, meta? }`.
 
+### MCP server (AI agents)
+
+PostStack has a built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint at
+`POST /mcp` (stateless Streamable HTTP). It is a thin client over the OpenAPI document of the running
+version: every API operation becomes a tool, generated on the fly, so the tool list follows each
+release without a separate MCP package. Calls go through `/api/v1` with your API key, so permissions,
+workspace isolation and rate limits are exactly the API's. Only the operations your key's permissions
+allow are listed; a dashboard session cookie is not accepted.
+
+Claude Code:
+
+```bash
+claude mcp add --transport http poststack https://your-domain.com/mcp \
+  --header "Authorization: Bearer sk_live_your-key-here"
+```
+
+Cursor (`.cursor/mcp.json`) or any client with Streamable HTTP:
+
+```json
+{ "mcpServers": { "poststack": { "url": "https://your-domain.com/mcp",
+  "headers": { "Authorization": "Bearer sk_live_your-key-here" } } } }
+```
+
+A key with every permission yields about 100 tools. Clients that handle fewer tools well can use
+`https://your-domain.com/mcp?mode=compact`: two tools, `search_operations` (find operations and their
+input schema) and `call_operation` (run one by `operationId`). Tool names are the OpenAPI
+`operationId`s (e.g. `get_channels`, `post_posts_by_post_id_publish`). Use a key with the narrowest
+permission set the agent needs.
+
+Claude.ai and ChatGPT connectors need OAuth sign-in, which is planned; today the endpoint
+authenticates with an API key only.
+
 ### Migrating from another tool
 
 Coming from Buffer, Hootsuite, Later, Publer, SocialBee, or ManyChat? See

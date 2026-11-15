@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",
+    "@modelcontextprotocol/server": "^2.4.0",
     "altcha-lib": "^2.8.0",
     "aws4fetch": "^1.0.20",
     "dotenv": "^17.4.2",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/client": "^2.4.0",
     "@playwright/test": "^1.64.1",
     "@types/html-to-text": "^9.0.4",
     "@types/node": "^25.9.9",
