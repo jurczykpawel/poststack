@@ -32,7 +32,7 @@ export function mergeRefreshedBlob(currentBlob: TokenData, refreshed: TokenSet):
 
 /**
  * Refresh a channel's OAuth token via its publish provider (one token-keeper for publish + inbound).
- * manual_token isn't on a refresh cycle; derived is re-minted by the source-sync. Converts the stored
+ * Manual TikTok tokens share the refresh cycle; derived is re-minted by the source-sync. Converts the stored
  * TokenData ↔ the provider's TokenSet at the boundary.
  */
 export async function processTokenRefresh(
@@ -43,7 +43,7 @@ export async function processTokenRefresh(
     where: and(eq(channels.id, payload.channelId), isNull(channels.deleted_at)),
   });
   if (!channel || channel.status === "disabled") return;
-  if (channel.connection_mode === "manual_token" || channel.connection_mode === "derived") return;
+  if ((channel.connection_mode === "manual_token" && channel.platform !== "tiktok") || channel.connection_mode === "derived") return;
   if (!isProvider(channel.platform)) return;
   const provider = getProvider(channel.platform);
   if (!provider.requiresTokenRefresh()) return;

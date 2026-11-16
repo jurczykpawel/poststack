@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type { SessionAuthContext } from "@/lib/auth";
+import tiktokDocs from "../../../tests/fixtures/provider-docs/tiktok.json";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 let db: typeof import("@/lib/db").db;
@@ -78,7 +79,7 @@ function mockTikTok(accountId = "tt-account-1") {
     }
     // TikTok healthCheck → user info
     if (url.includes("/user/info") || url.includes("user.info")) {
-      return Response.json({ data: { user: { open_id: accountId, display_name: "My TikTok", avatar_url: "https://x/y.jpg" } } });
+      return Response.json({ ...tiktokDocs.userInfo.ok.body, data: { user: { open_id: accountId, display_name: "My TikTok", avatar_url: "https://x/y.jpg" } } });
     }
     return new Response("Not Found", { status: 404 });
   }) as typeof fetch;
@@ -122,7 +123,7 @@ describe("completePublishOAuth (real Postgres)", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/userinfo")) return Response.json({ sub: "g9-account", name: "LinkedIn account" });
-      if (url.includes("/user/info")) return Response.json({ data: { user: { open_id: "g9-account", display_name: "TikTok account" } } });
+      if (url.includes("/user/info")) return Response.json({ ...tiktokDocs.userInfo.ok.body, data: { user: { open_id: "g9-account", display_name: "TikTok account" } } });
       if (url.includes("/users/me")) return Response.json({ data: { id: "g9-account", username: "x-account" } });
       if (url.includes("/v1.0/me")) return Response.json({ id: "g9-account", username: "threads-account" });
       return Response.json({ access_token: "NEW", refresh_token: "RT", expires_in: 86400 });

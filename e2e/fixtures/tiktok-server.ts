@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 const video = readFileSync("e2e/fixtures/tiktok-preview.mp4");
 const liPages = JSON.parse(readFileSync("tests/fixtures/provider-docs/linkedin-pages.json", "utf8"));
+const ttDocs = JSON.parse(readFileSync("tests/fixtures/provider-docs/tiktok.json", "utf8"));
 const bunTestModule = "bun:test";
 const { mock } = await import(bunTestModule);
 const mediaHttp = await import("../../src/lib/media/ssrf");
@@ -16,6 +17,15 @@ mock.module("../../src/lib/media/ssrf", () => ({
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+  if (url.hostname === "open.tiktokapis.com" && url.pathname === "/v2/user/info/") {
+    const token = new Headers(init?.headers).get("authorization");
+    return token === "Bearer expired-access" ? Response.json(ttDocs.userInfo.tokenInvalid.body, { status: 401 })
+      : Response.json({ data: { user: { open_id: "manual-tiktok-e2e", display_name: "Pasted TikTok Creator" } }, error: { code: "ok" } });
+  }
+  if (url.href === "https://open.tiktokapis.com/v2/oauth/token/") {
+    const body = new URLSearchParams(String(init?.body));
+    return body.get("client_secret") === "invalid-secret" ? Response.json({ error: "invalid_client" }, { status: 400 }) : Response.json(ttDocs.refresh.ok);
+  }
   if (url.href === "https://open.tiktokapis.com/v2/post/publish/creator_info/query/") {
     const token = new Headers(init?.headers).get("Authorization") ?? "";
     if (token.includes("cannot-post")) return Response.json({ error: { code: "spam_risk_too_many_posts" } });

@@ -49,7 +49,7 @@ export async function processTokenRefresh(
   }
 
   // Manual long-lived / System User tokens are not on a refresh cycle (FB-token path only).
-  if (channel.connection_mode === "manual_token") {
+  if (channel.connection_mode === "manual_token" && channel.platform !== "tiktok") {
     helpers.logger.info(`Channel ${channelId} uses a manual long-lived token, skipping refresh`);
     return;
   }

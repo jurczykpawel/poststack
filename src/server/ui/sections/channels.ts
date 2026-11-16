@@ -502,6 +502,19 @@ function telegramTile(o: ConnectOpts): Html {
   </div>`;
 }
 
+function tiktokTokenForm(): Html {
+  return html`<p class="ct-note">By default, connect through this instance's TikTok app using OAuth. Paste a token from another TikTok app only with that app's client key and secret. Tokens refresh automatically; reconnect here with all four values if needed.</p>
+    <form class="ct-form" hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML">
+      <input type="hidden" name="platform" value="tiktok" />
+      <label class="label">Access token<input class="input" type="password" name="access_token" autocomplete="off" required maxlength="4096" /></label>
+      <label class="label">Refresh token<input class="input" type="password" name="refresh_token" autocomplete="off" required maxlength="4096" /></label>
+      <label class="label">Issuing app client key<input class="input" name="client_key" autocomplete="off" required maxlength="256" /></label>
+      <label class="label">Issuing app client secret<input class="input" type="password" name="client_secret" autocomplete="off" required maxlength="4096" /></label>
+      <button class="btn btn-primary btn-sm" type="submit">Connect TikTok</button>
+      <div class="ct-err" role="alert"></div>
+    </form>`;
+}
+
 /** Platform tiles grouped as on the mockup. Visibility/lock rules are the old connect buttons':
  *  one FB + one IG on FREE, non-Meta platforms PRO, direct-OAuth publishers only when configured. */
 async function connectGroups(o: ConnectOpts): Promise<Html> {
@@ -528,7 +541,9 @@ async function connectGroups(o: ConnectOpts): Promise<Html> {
       ...pub("linkedin", "LinkedIn", "Publish to your profile"),
       ...pub("linkedin", "LinkedIn Company Page", "Publish as your company Pages").map((t) => ({ ...t, href: `${t.href}?pages=1` })),
       ...pub("x", "X", "Publish posts"),
-    ].map(tile))}
+    ].map(tile), html`<details class="ct-adv"><summary>TikTok — Advanced: paste a token</summary>
+      ${o.canNonMeta ? tiktokTokenForm() : html`<a href="${o.upgradeUrl}" target="_blank" rel="noopener">Requires a PRO license</a>`}
+    </details>`)}
     ${group("Messaging and email", [
       telegramTile(o),
       tile({ platform: "gmail", name: "Gmail", does: "Inbox and replies by email", href: "/api/oauth/gmail", locked: !o.canNonMeta }),
@@ -904,6 +919,7 @@ function gmailFilterPanel(ch: PublicChannel, oob = false): Html {
 
 function manualReconnectForm(ch: PublicChannel): Html {
   if (ch.connection_mode !== "manual_token") return html``;
+  if (ch.platform === "tiktok") return html`<section class="panel"><div class="panel-head"><h3>Reconnect TikTok</h3></div><div class="set-body">${tiktokTokenForm()}</div></section>`;
   return html`<section class="panel">
     <div class="panel-head"><h3>Reconnect</h3></div>
     <div class="set-body">

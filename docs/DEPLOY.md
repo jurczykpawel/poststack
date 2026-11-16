@@ -340,6 +340,33 @@ Page). The same redirect URL is used (`/api/oauth/connect/linkedin/callback`). R
 Page channel opens the Company Page flow again. If you lose the Page role, publishing fails with
 a permission error naming the required role.
 
+### TikTok tokens from another app
+
+OAuth through the instance's configured TikTok app remains the default. As an advanced alternative,
+open **Channels → Connect channel → TikTok — Advanced: paste a token** and enter `access_token`,
+`refresh_token`, `client_key` and `client_secret` from the app that issued that token. This option is
+available even when the instance's TikTok app is not configured. New TikTok channels use the same
+PRO gate as OAuth connections.
+
+Automation can POST the same four fields with `platform: "tiktok"` to
+`/api/v1/channels/connect-token` using a key scoped to `channels:write`. Success returns
+`{ "data": { "connected": 1 }, "error": null }`. See `/api/docs` for the full contract.
+
+PostStack validates `/v2/user/info/` and refreshes during connection to verify the issuing app,
+establish the real expiry from `expires_in`, and recover an expired access token. The channel's
+`platform_id` is the validated `open_id` (TikTok scopes it to the issuing app). Both tokens and the
+issuing app credentials live together in the encrypted channel token field, never in API responses.
+The hourly scan starts refreshing within one hour of expiry, saves rotated refresh tokens and uses
+the channel's issuing app credentials. Existing OAuth channels continue using instance credentials.
+No schema migration or instance credential replacement is needed. Reconnect from the channel detail
+page using all four fresh values if TikTok revokes the grant. Avoid sharing the same rotating refresh
+token across installations or other clients; use separate grants for TEST and PROD.
+
+Permissions (`user.info.basic`, plus `video.upload` / `video.publish` as needed), app review and media
+URL verification belong to the **issuing app**. Configure `TIKTOK_PULL_URL_PREFIX` for that app's
+verified media location. See TikTok's [refresh API](https://developers.tiktok.com/docs/en/oauth-refresh-a-user-access-token)
+and [user info API](https://developers.tiktok.com/docs/en/tiktok-api-v2-get-user-info).
+
 ### TikTok media URL prefix (photo posts)
 
 TikTok pulls media only from a domain or URL prefix verified in your TikTok app (Developer

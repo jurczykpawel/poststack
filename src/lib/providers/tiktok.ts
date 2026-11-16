@@ -3,13 +3,29 @@ import { z } from "zod";
 import type { TokenSet } from "./types";
 import type { AccountInfo, FormatCapability, Provider, PublishHandle, PublishRequest } from "./types";
 import { queryCreatorInfo, type CreatorInfoResult } from "./tiktok-creator-info";
-import { PermanentError, ConfirmationRequiredError, TransientError, TokenInvalidError } from "./errors";
+import { PermanentError, ConfirmationRequiredError, TransientError, TokenInvalidError, ProviderError } from "./errors";
 import { classifyHttp, oauth2Refresh } from "./http";
 import { sourceSize, sourceRange, UPLOAD_CHUNK } from "./range-source";
 import { asString } from "./util";
 import { safeFetch } from "@/lib/media/ssrf";
+import type { ConnectedAccount } from "@/lib/platforms/base";
+import { fromTokenSet } from "./token-codec";
 
 const API = "https://open.tiktokapis.com/v2";
+
+export async function connectTikTokToken(input: { access_token: string; refresh_token: string; client_key: string; client_secret: string }): Promise<ConnectedAccount[]> {
+  const tokens: TokenSet = { accessToken: input.access_token, refreshToken: input.refresh_token, issuerClientKey: input.client_key, issuerClientSecret: input.client_secret };
+  const original = await tiktokProvider.healthCheck(tokens).catch(err => {
+    if (!(err instanceof TokenInvalidError)) throw err;
+    return undefined;
+  });
+  // Refresh also verifies the issuing app and establishes the remaining lifetime of pasted tokens.
+  const refreshed = { ...tokens, ...await tiktokProvider.refreshToken(tokens) };
+  if (!refreshed.expiresAt) throw new PermanentError("TikTok returned no token expiry");
+  const account = await tiktokProvider.healthCheck(refreshed);
+  if (original && original.accountId !== account.accountId) throw new PermanentError("TikTok tokens identify different accounts");
+  return [{ platformId: account.accountId, displayName: account.displayName || account.accountId, tokens: fromTokenSet(refreshed) }];
+}
 
 const directOptions = z.object({
   privacyLevel: z.string().min(1),
@@ -103,7 +119,7 @@ export const tiktokProvider: Provider = {
   id: "tiktok",
   label: "TikTok",
   capabilities: () => CAPS,
-  connectionModes: () => ["oauth"],
+  connectionModes: () => ["oauth", "manual_token"],
   requiresTokenRefresh: () => true,
 
   async oauthConfig() {
@@ -121,27 +137,43 @@ export const tiktokProvider: Provider = {
   },
 
   async refreshToken(tokens: TokenSet): Promise<TokenSet> {
-    const credentials = await oauthCredentials("tiktok");
-    return oauth2Refresh({
-      tokenUrl: `${API}/oauth/token/`,
-      ...credentials,
-      refreshToken: tokens.refreshToken ?? "",
-      extra: { client_key: credentials.clientId },
-    });
+    const hasIssuer = tokens.issuerClientKey !== undefined || tokens.issuerClientSecret !== undefined;
+    if (hasIssuer && (!tokens.issuerClientKey || !tokens.issuerClientSecret)) throw new TokenInvalidError("TikTok issuer credentials incomplete — reconnect required");
+    const credentials = hasIssuer
+      ? { clientId: tokens.issuerClientKey!, clientSecret: tokens.issuerClientSecret! }
+      : await oauthCredentials("tiktok");
+    try {
+      return await oauth2Refresh({
+        tokenUrl: `${API}/oauth/token/`,
+        ...credentials,
+        refreshToken: tokens.refreshToken ?? "",
+        clientIdParam: "client_key",
+      });
+    } catch (err) {
+      if (err instanceof TokenInvalidError) {
+        const reason = err.message.includes("invalid_client") ? "application credentials rejected (invalid_client)" : err.message.includes("invalid_grant") ? "refresh token invalid_grant" : "token rejected";
+        throw new TokenInvalidError(`TikTok: ${reason} — reconnect required`);
+      }
+      if (err instanceof ProviderError) { err.message = "TikTok token refresh failed"; throw err; }
+      throw new TransientError("TikTok token refresh unavailable", "pre_commit");
+    }
   },
 
   async healthCheck(tokens: TokenSet): Promise<AccountInfo> {
-    const res = await fetch(`${API}/user/info/?fields=open_id`, {
+    const res = await fetch(`${API}/user/info/?fields=open_id,display_name`, {
       headers: { authorization: `Bearer ${tokens.accessToken}` },
+      redirect: "error", signal: AbortSignal.timeout(10_000),
     });
     const json = (await res.json().catch(() => ({}))) as {
-      data?: { user?: { open_id?: string } };
-      error?: { message?: string };
+      data?: { user?: { open_id?: string; display_name?: string } };
+      error?: { code?: string };
     };
-    if (!res.ok) throw classifyHttp(res.status, json.error?.message, "commit_uncertain", { headers: res.headers, provider: "tiktok", body: json });
+    if (res.status === 401 || json.error?.code === "access_token_invalid") throw new TokenInvalidError("Reconnect the TikTok channel");
+    if (!res.ok) throw classifyHttp(res.status, "TikTok user info unavailable", "pre_commit", { headers: res.headers });
+    if (json.error?.code !== "ok") throw new PermanentError("TikTok user info rejected");
     const id = json.data?.user?.open_id;
-    if (!id) throw classifyHttp(404, "no tiktok user");
-    return { accountId: id };
+    if (typeof id !== "string" || !id) throw new PermanentError("TikTok user info returned no account");
+    return { accountId: id, displayName: typeof json.data?.user?.display_name === "string" ? json.data.user.display_name : undefined };
   },
 
   async publishStatus(tokens, handle) {
