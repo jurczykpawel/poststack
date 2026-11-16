@@ -69,8 +69,10 @@ domain or Cloudflare Pages. It is **built into the app Docker image** and served
 
 - `docker/Dockerfile` has a `landing` build stage (`npm run build` in `landing/`) and copies
   `landing/dist` into the runtime image.
-- `src/server/routes/landing.ts` (`serveLandingFile`) serves it at `/` and `/privacy` (+ `/_astro/*`).
-  Logged-out visitors see the marketing site; logged-in visitors are redirected to `/overview`.
+- `src/server/routes/landing.ts` serves the runtime instance website from `src/server/ui/public-site/`
+  at `/` and eight informational pages, including `/privacy` and `/terms`. Logged-in visitors to `/`
+  are redirected to `/overview`. The Astro build still supplies static assets (`/_astro/*` and root assets);
+  its marketing homepage is retained for the separate marketing-site work.
 
 **So the landing and the app are one deployment, on one domain (`poststack.techskills.academy`).**
 To ship landing changes, **cut a normal app release** (bump version → tag `v*` → `release.yml` builds the

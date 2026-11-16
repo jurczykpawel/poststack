@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+- Public instance website: nine connected pages with runtime branding, configured integrations and permissions, publishing guidance, contact details, privacy, terms and data deletion instructions. Signed-in visitors still open the dashboard from `/`.
+
 ## [0.23.0] - 2026-11-16
 
 - MCP: publish tool documents TikTok Direct Post consent and requires explicit creator confirmation before agents set it.
