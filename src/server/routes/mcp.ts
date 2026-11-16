@@ -1,7 +1,8 @@
 /**
  * Built-in MCP endpoint (stateless Streamable HTTP). A thin client over this version's OpenAPI spec:
  * tools come from `mcpOperations(openApiSpec)` and every call is an internal request to `/api/v1`
- * with the caller's own API key, so auth, scopes, workspace isolation and limits are the API's.
+ * with the caller's own API key (or OAuth access token, which is an API key of a grant), so auth,
+ * scopes, workspace isolation and limits are the API's.
  *
  * `/mcp` exposes one tool per operation; `/mcp?mode=compact` exposes `search_operations` + `call_operation`.
  */
@@ -12,6 +13,7 @@ import { authenticate } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
 import { openApiSpec } from "@/lib/api/openapi";
 import { APP_VERSION } from "@/lib/telemetry/collect";
+import { issuer } from "@/lib/mcp/oauth";
 import { buildApiRequest, mcpOperations, scopeAllows, searchOperations, type McpOperation, type OpenApiDocument } from "@/lib/mcp/operations";
 
 const OPERATIONS = mcpOperations(openApiSpec as unknown as OpenApiDocument);
@@ -38,8 +40,9 @@ const asTool = (op: McpOperation): Tool => ({ name: op.name, description: op.des
 
 function unauthorized(): Response {
   return Response.json(
-    { jsonrpc: "2.0", error: { code: -32001, message: `Unauthorized: send Authorization: Bearer ${BRAND.idPrefix}<key>` }, id: null },
-    { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="mcp"' } },
+    { jsonrpc: "2.0", error: { code: -32001, message: `Unauthorized: sign in with OAuth or send Authorization: Bearer ${BRAND.idPrefix}<key>` }, id: null },
+    // resource_metadata (RFC 9728) is where OAuth clients start the sign-in flow.
+    { status: 401, headers: { "WWW-Authenticate": `Bearer realm="mcp", resource_metadata="${issuer()}/.well-known/oauth-protected-resource/mcp"` } },
   );
 }
 

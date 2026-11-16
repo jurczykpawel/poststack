@@ -811,32 +811,52 @@ All responses follow the shape `{ data, error, meta? }`.
 PostStack has a built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint at
 `POST /mcp` (stateless Streamable HTTP). It is a thin client over the OpenAPI document of the running
 version: every API operation becomes a tool, generated on the fly, so the tool list follows each
-release without a separate MCP package. Calls go through `/api/v1` with your API key, so permissions,
-workspace isolation and rate limits are exactly the API's. Only the operations your key's permissions
-allow are listed; a dashboard session cookie is not accepted.
+release without a separate MCP package. Calls go through `/api/v1` with your API key or OAuth token,
+so permissions, workspace isolation and rate limits are exactly the API's. Only the operations your
+permissions allow are listed; a dashboard session cookie is not accepted. MCP access is part of API
+access (PRO).
 
-Claude Code:
+There are two ways to sign in:
+
+| Client | How |
+|---|---|
+| Claude.ai, Claude Desktop/mobile, ChatGPT | OAuth: add a custom connector with the URL `https://your-domain.com/mcp`, sign in to PostStack, approve |
+| Claude Code, Cursor, VS Code, scripts | OAuth (if the client supports it) or an API key in the `Authorization` header |
+
+**Claude:** add a custom connector with the URL `https://your-domain.com/mcp` (leave client ID and secret
+empty) and connect. **ChatGPT:** create a connector (developer mode) with the same URL and OAuth
+authentication. In both cases PostStack opens its consent screen: sign in if
+needed, choose the workspace and **Read only** or **Read and write**, then Approve. Read and write covers
+every workspace permission; operator-only instance settings are never granted over OAuth.
+
+**Claude Code** with OAuth: `claude mcp add --transport http poststack https://your-domain.com/mcp`, then
+`/mcp` in Claude Code to sign in. With an API key instead:
 
 ```bash
 claude mcp add --transport http poststack https://your-domain.com/mcp \
   --header "Authorization: Bearer sk_live_your-key-here"
 ```
 
-Cursor (`.cursor/mcp.json`) or any client with Streamable HTTP:
+Cursor (`.cursor/mcp.json`) or any client with Streamable HTTP (omit `headers` to sign in with OAuth, if
+the client supports it):
 
 ```json
 { "mcpServers": { "poststack": { "url": "https://your-domain.com/mcp",
   "headers": { "Authorization": "Bearer sk_live_your-key-here" } } } }
 ```
 
+Connected apps are listed under **Settings → API keys → Connected apps** with their workspace,
+permissions and last use; **Disconnect** cuts access at once. OAuth details: discovery at
+`/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, authorization
+code with PKCE (S256), clients registered dynamically or by a Client ID Metadata Document, access tokens
+valid for 1 hour, refresh tokens rotated on every use (30 days unused and they expire), revocation at
+`/oauth/revoke`. `APP_URL` must be the public HTTPS address the connector uses.
+
 A key with every permission yields about 100 tools. Clients that handle fewer tools well can use
 `https://your-domain.com/mcp?mode=compact`: two tools, `search_operations` (find operations and their
-input schema) and `call_operation` (run one by `operationId`). Tool names are the OpenAPI
-`operationId`s (e.g. `get_channels`, `post_posts_by_post_id_publish`). Use a key with the narrowest
-permission set the agent needs.
-
-Claude.ai and ChatGPT connectors need OAuth sign-in, which is planned; today the endpoint
-authenticates with an API key only.
+input schema) and `call_operation` (run one by `operationId`). Compact mode is for API-key clients;
+OAuth connectors use `/mcp`. Tool names are the OpenAPI `operationId`s (e.g. `get_channels`,
+`post_posts_by_post_id_publish`). Use the narrowest permission set the agent needs.
 
 ### Migrating from another tool
 

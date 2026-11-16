@@ -9,6 +9,7 @@ import { v1 } from "./routes/v1";
 import { pages } from "./routes/pages";
 import { integrationsRoutes } from "./routes/integrations";
 import { mcpRoutes } from "./routes/mcp";
+import { oauthRoutes } from "./routes/oauth";
 import { ApiErrors, ApiError, apiErrorResponse, err } from "@/lib/api/response";
 import { toastHeader } from "./ui/components/toast";
 import { errorPage } from "./ui/error-page";
@@ -39,7 +40,8 @@ export function buildApp(): Hono {
   app.use("*", async (c, next) => {
     const path = c.req.path;
     const asset = path.startsWith("/static/") || path.startsWith("/_astro/");
-    const operationalApi = (path.startsWith("/api/") && !["/api/docs", "/api/v1"].includes(path)) || path === "/mcp";
+    const operationalApi = (path.startsWith("/api/") && !["/api/docs", "/api/v1"].includes(path)) || path === "/mcp"
+      || path.startsWith("/.well-known/") || ["/oauth/token", "/oauth/register", "/oauth/revoke"].includes(path);
     const instanceWrite = c.req.method !== "GET" && ["/settings/branding", "/settings/license", "/settings/license/clear", "/settings/credentials"].includes(path);
     if (asset || operationalApi || instanceWrite) return next();
     return withBrand(await getInstanceBrand(), next);
@@ -98,6 +100,8 @@ export function buildApp(): Hono {
   app.route("/api/v1", v1);
   // MCP: thin client over the v1 OpenAPI spec; calls go back through this app with the caller's key.
   app.route("/", mcpRoutes(app));
+  // OAuth for MCP clients: discovery, registration, consent, tokens (tokens are API keys of a grant).
+  app.route("/", oauthRoutes);
   app.route("/", pages);
 
   return app;

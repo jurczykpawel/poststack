@@ -100,18 +100,24 @@ async function authPage(opts: { title: string; subtitle: string; action: string;
 // `/` is served by landingRoutes (the marketing homepage); a logged-in visitor is redirected to
 // /overview there. See src/server/routes/landing.ts (LANDING1).
 
-pages.get("/login", async (c) =>
-  c.html(
+/** Where to land after signing in: only the OAuth consent screen may be a return target. */
+function loginReturnTo(next: string | undefined): string | null {
+  return next?.startsWith("/oauth/authorize?") ? next : null;
+}
+
+pages.get("/login", async (c) => {
+  const next = loginReturnTo(c.req.query("next"));
+  return c.html(
     await authPage({
       title: t("title.signIn"),
-      subtitle: "Sign in to your account",
-      action: "/login",
+      subtitle: next ? "Sign in to connect an app" : "Sign in to your account",
+      action: next ? `/login?next=${encodeURIComponent(next)}` : "/login",
       submit: "Sign in",
       nameField: false,
       alt: html`No account? <a href="/register">Create one</a>`,
     }),
-  ),
-);
+  );
+});
 
 pages.get("/register", async (c) =>
   c.html(
@@ -128,7 +134,7 @@ pages.get("/register", async (c) =>
 
 pages.post("/login", async (c) => {
   const res = await login.POST(c.req.raw);
-  if (res.status === 200) return htmxRedirect(res, "/inbox");
+  if (res.status === 200) return htmxRedirect(res, loginReturnTo(c.req.query("next")) ?? "/inbox");
   const body = await res.json().catch(() => ({}));
   return c.html(html`<p class="auth-error">${raw(escapeText(authErrorMessage(body, "Login failed")))}</p>`);
 });

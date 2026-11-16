@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { authenticate } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiKeys } from "@/db/schema";
@@ -18,7 +18,7 @@ export async function DELETE(
   const { keyId } = await params;
   const result = await db
     .delete(apiKeys)
-    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.workspace_id, auth.workspaceId)));
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.workspace_id, auth.workspaceId), isNull(apiKeys.oauth_grant_id)));
   if ((result.rowCount ?? 0) === 0) return ApiErrors.notFound();
   return noContent();
 }
