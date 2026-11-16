@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,15 +67,19 @@ describe("serveLandingFile", () => {
   });
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("runtime instance discovery documents", () => {
   it("uses the instance name and origin in crawler documents", async () => {
     const { DEFAULT_BRAND, withBrand } = await import("@/lib/brand");
+    vi.stubEnv("APP_URL", "https://preview.example");
     const brand = { ...DEFAULT_BRAND, name: "Orchard", publicUrl: "https://orchard.example", contactEmail: "hi@orchard.example" };
     for (const path of ["robots.txt", "llms.txt", "sitemap-index.xml", "sitemap-0.xml"]) {
       const response = await withBrand(brand, () => app.request('/raw?p=' + path));
       expect(response.status, path).toBe(200);
       const body = await response.text();
-      expect(body, path).toContain("https://orchard.example");
+      expect(body, path).toContain("https://preview.example");
+      expect(body, path).not.toContain("https://orchard.example");
       expect(body, path).not.toContain("PostStack");
       expect(body, path).not.toContain("poststack.techskills.academy");
       expect(body, path).not.toContain("License checkout");

@@ -17,12 +17,28 @@ for (const width of [1440, 390]) {
       const links = await page.locator('a[href^="/"]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("href")!))]);
       for (const link of links) expect((await request.get(link)).status(), link).toBe(200);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (path === "/") {
+        const preview = page.getByAltText(/Example TikTok composer/);
+        if (await preview.count()) {
+          await expect(preview).toBeVisible();
+          await expect.poll(() => preview.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+          const asset = await request.get(await preview.getAttribute("src") ?? "");
+          expect(asset.status()).toBe(200);
+          const dimensions = await preview.evaluate((img) => {
+            const image = img as HTMLImageElement;
+            return { width: image.naturalWidth, height: image.naturalHeight };
+          });
+          await expect(preview).toHaveAttribute("width", String(dimensions.width));
+          await expect(preview).toHaveAttribute("height", String(dimensions.height));
+          expect((await asset.body()).length).toBeLessThanOrEqual(200_000);
+        }
+      }
       if (path === "/contact") {
         await page.getByRole("button", { name: "Show contact email" }).click();
         await expect(page.getByRole("link", { name: "kontakt@techskills.academy" })).toHaveAttribute("href", "mailto:kontakt@techskills.academy");
       }
-      if (path === "/" || path === "/privacy") {
-        await page.screenshot({ path: testInfo.outputPath(`public-${path === "/" ? "home" : "privacy"}-${width}.png`), fullPage: true });
+      if (path === "/" || path === "/privacy" || path === "/features") {
+        await page.screenshot({ path: testInfo.outputPath(`public-${path === "/" ? "home" : path.slice(1)}-${width}.png`), fullPage: true });
       }
     }
     await page.locator("header").getByRole("link", { name: "Features", exact: true }).click();

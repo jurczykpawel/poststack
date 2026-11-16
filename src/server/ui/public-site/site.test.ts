@@ -24,6 +24,7 @@ describe("instance public pages", () => {
       const main = text(body.match(/<main[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "");
       expect(main.length, path).toBeGreaterThan(900);
       mains.add(main);
+      expect(main, path).not.toMatch(/No response deadline|not a claim of endorsement/i);
       for (const tag of ["header", "footer"]) {
         const part = body.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`))?.[1] ?? "";
         for (const link of paths) expect(part, `${path} ${tag}`).toContain(`href="${link}"`);
@@ -41,7 +42,7 @@ describe("instance public pages", () => {
   it("uses instance identity and omits integrations without credentials", async () => {
     const body = await withBrand({ ...DEFAULT_BRAND, name: 'Orchard <Studio>', contactEmail: 'help@orchard.example', publicUrl: 'https://orchard.example' }, async () => (await landingRoutes.request('/features')).text());
     expect(body).toContain('Orchard &lt;Studio&gt;');
-    expect(body).toContain('https://orchard.example/features');
+    expect(body).toContain('http://localhost:3000/features');
     expect(body).not.toContain('PostStack');
     expect(body).not.toMatch(/TikTok|Facebook|Instagram|YouTube|LinkedIn|Gmail|Threads/);
     expect(body).toContain('Telegram');
@@ -56,12 +57,13 @@ describe("instance public pages", () => {
     expect(body).toContain('Upload to inbox');
     expect(body).toContain('Direct Post');
   });
-  it("shows configured provider scopes and omits incomplete connections", async () => {
+  it("shows TikTok permissions and omits incomplete connections", async () => {
     const { getConfig } = await import("@/lib/settings/config");
     vi.mocked(getConfig).mockResolvedValue("configured-value");
     let body = await (await landingRoutes.request("/features")).text();
     for (const label of ["Facebook", "Instagram", "YouTube", "TikTok", "Threads", "LinkedIn", "X"]) expect(body).toContain(label);
-    for (const scope of ["pages_show_list", "instagram_business_basic", "video.publish", "threads_basic", "w_member_social", "tweet.write"]) expect(body).toContain(scope);
+    for (const scope of ["user.info.basic", "video.upload", "video.publish"]) expect(body).toContain(scope);
+    for (const scope of ["pages_show_list", "instagram_business_basic", "threads_basic", "w_member_social", "tweet.write"]) expect(body).not.toContain(scope);
     expect(body).not.toContain("configured-value");
     vi.mocked(getConfig).mockImplementation(async key => key.endsWith("SECRET") ? "" : "id-only");
     body = await (await landingRoutes.request("/features")).text();
@@ -72,7 +74,7 @@ describe("instance public pages", () => {
     vi.mocked(getConfig).mockImplementation(async key => key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' ? 'configured-google' : '');
     const body = await (await landingRoutes.request('/features')).text();
     expect(body).toContain('YouTube');
-    expect(body).toContain('youtube.force-ssl');
+    expect(body).not.toContain('youtube.force-ssl');
     expect(body).not.toContain('configured-google');
   });
   it("describes configured history compaction without promising total erasure", async () => {
@@ -80,6 +82,49 @@ describe("instance public pages", () => {
     expect(await (await landingRoutes.request("/privacy")).text()).toContain("90-day history compaction window");
     vi.stubEnv("HISTORY_RETENTION_DAYS", "0");
     expect(await (await landingRoutes.request("/privacy")).text()).toContain("Automatic history compaction is disabled");
+  });
+  it("keeps paragraphs unique across public pages in every configuration", async () => {
+    const { getConfig } = await import("@/lib/settings/config");
+    for (const configured of [false, true]) {
+      vi.mocked(getConfig).mockResolvedValue(configured ? "configured" : "");
+      const seen = new Map<string, string>();
+      for (const path of paths) {
+        const body = await (await landingRoutes.request(path)).text();
+        const main = body.match(/<main[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "";
+        for (const [paragraph] of main.matchAll(/<p[ >][\s\S]*?<\/p>/g)) {
+          const value = text(paragraph);
+          if (value.length <= 80) continue;
+          expect(seen.get(value), `${path}: ${value}`).toBeUndefined();
+          seen.set(value, path);
+        }
+        if (path !== "/contact") expect(body).not.toContain('data-contact=');
+        if (path !== "/features") expect(body).not.toContain('Configured connections');
+        if (path !== "/how-it-works") expect(body).not.toContain('<h2>Scheduling and your approval</h2>');
+        if (path !== "/privacy") expect(body).not.toContain('History and retention');
+      }
+    }
+  });
+  it("describes TikTok data and controls only for configured instances", async () => {
+    expect(await (await landingRoutes.request("/privacy")).text()).not.toContain("TikTok");
+    const { getConfig } = await import("@/lib/settings/config");
+    vi.mocked(getConfig).mockResolvedValue("configured");
+    const privacy = await (await landingRoutes.request("/privacy")).text();
+    for (const value of ["TikTok data", "open_id", "display_name", "refresh", "60 seconds", "Settings and privacy", 'href="/data-deletion"']) expect(privacy).toContain(value);
+    expect(await (await landingRoutes.request("/terms")).text()).toContain("Music Usage Confirmation");
+    expect(await (await landingRoutes.request("/data-deletion")).text()).toContain("Settings and privacy");
+    const home = await (await landingRoutes.request("/")).text();
+    expect(home).toMatch(/<img[^>]+src="\/public-compose-tiktok.webp"[^>]+width="\d+"[^>]+height="\d+"[^>]+alt="[^"]+"/);
+  });
+  it("uses APP_URL for canonical, social and discovery addresses", async () => {
+    for (const origin of ["https://preview.example", "https://publisher.example/"]) {
+      vi.stubEnv("APP_URL", origin);
+      const base = origin.replace(/\/$/, "");
+      const body = await (await landingRoutes.request("/features")).text();
+      expect(body).toContain(`<link rel="canonical" href="${base}/features"`);
+      expect(body).toContain(`<meta property="og:url" content="${base}/features"`);
+      expect(await (await landingRoutes.request("/sitemap-0.xml")).text()).toContain(`<loc>${base}/features</loc>`);
+      expect(await (await landingRoutes.request("/robots.txt")).text()).toContain(`Sitemap: ${base}/sitemap-index.xml`);
+    }
   });
   it("keeps the authenticated home redirect", async () => {
     const { authenticate } = await import('@/lib/auth');

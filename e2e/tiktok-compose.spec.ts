@@ -48,6 +48,29 @@ test.beforeAll(async ({ request }) => {
   } finally { await client.end(); }
 });
 
+test("public TikTok composer preview", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 3200 });
+  await creatorToken("available");
+  await openComposer(page);
+  await page.getByRole("button", { name: "Publish now", exact: true }).click();
+  await page.getByLabel("TikTok privacy").selectOption("SELF_ONLY");
+  const panel = page.getByRole("region", { name: "TikTok publishing" });
+  await expect(panel.getByText("TT3 Creator", { exact: true })).toBeVisible();
+  await expect(panel.getByLabel("Allow Duet", { exact: true })).toBeEnabled();
+  await panel.getByLabel("I confirm this TikTok submission with these settings.").check();
+  await expect(page.locator('button[type="submit"]')).toBeEnabled();
+  const preview = panel.getByLabel("TikTok video preview");
+  await preview.evaluate((el) => (el as HTMLVideoElement).play());
+  await expect.poll(() => preview.evaluate((el) => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
+  await preview.evaluate((el) => { const video = el as HTMLVideoElement; video.pause(); video.currentTime = 0.5; });
+  await expect.poll(() => preview.evaluate((el) => (el as HTMLVideoElement).seeking)).toBe(false);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  if (process.env.PUBLIC_SITE_SCREENSHOT) {
+    const sharp = (await import("sharp")).default;
+    await sharp(await panel.screenshot({ animations: "disabled" })).webp({ quality: 85 }).toFile(process.env.PUBLIC_SITE_SCREENSHOT);
+  }
+});
+
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`TikTok choices, preview and scheduled consent at ${viewport.width}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
