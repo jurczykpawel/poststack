@@ -10,3 +10,7 @@ export const PUBLIC_PAGES = [
   { path: "/data-deletion", label: "Data deletion", title: "Request and manage data deletion" },
 ] as const;
 export type PublicPage = (typeof PUBLIC_PAGES)[number];
+
+export function publicSiteOrigin() {
+  return new URL(process.env.APP_URL ?? "http://localhost:3000").origin;
+}

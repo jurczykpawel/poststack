@@ -165,7 +165,8 @@ describe("instance branding settings", () => {
       const response = await app.request(path);
       expect(response.status, path).toBe(200);
       const body = await response.text();
-      expect(body, path).toContain("https://orchard.example");
+      expect(body, path).toContain(new URL(env.APP_URL).origin);
+      expect(body, path).not.toContain("https://orchard.example");
       expect(body, path).not.toContain("PostStack");
       expect(body, path).not.toContain("poststack.techskills.academy");
     }
