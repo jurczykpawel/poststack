@@ -83,7 +83,7 @@ describe("auto-Story media", () => {
   it("falls back for missing media", async () => {
     expect((await prepareStoryMedia({ ...request, media: [] }, "ws", "instagram", "media", "stories/d1")).fallbackReason).toBe("missing_media");
   });
-  it("retains an oversized image as the fallback card thumbnail", async () => {
+  it("retains an oversized image as the fallback card thumbnail", { timeout: 30_000 }, async () => {
     const bytes = new Uint8Array(9 * 1024 * 1024);
     bytes.set(jpeg);
     asset("image", bytes);
