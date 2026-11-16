@@ -65,6 +65,16 @@ function mockFetch(body: unknown) {
 const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 describe("GET /channels/:id/posts — platform-aware endpoint", () => {
+  it("returns a clear 400 for TikTok without fetching or requiring a readable token", async () => {
+    if (!TEST_DB) return;
+    await db.update(s.channels).set({ platform: "tiktok", token_encrypted: "not-valid-ciphertext" }).where(eq(s.channels.id, CH_FB));
+    mockFetch({ data: [] });
+    const res = await GET(req(), ctx(CH_FB));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe("Listing posts is supported for Facebook and Instagram channels");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("uses /feed for a Facebook channel", async () => {
     if (!TEST_DB) return;
     mockFetch({ data: [] });

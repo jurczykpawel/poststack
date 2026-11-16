@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+- MCP: publish tool documents TikTok Direct Post consent and requires explicit creator confirmation before agents set it.
+- API: channel post listing returns a clear unsupported-platform error for channels outside Facebook and Instagram.
+
 - TikTok: optional advanced token connection with per-channel issuing app credentials, encrypted storage and automatic token rotation. OAuth through the instance app remains the default; available in Channels and `POST /api/v1/channels/connect-token`.
 
 - TikTok: clearer publishing errors with provider codes, explicit Direct Post API consent with an audit record, and photo titles (90 UTF-16 units) alongside descriptions (4000).
