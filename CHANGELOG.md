@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-16
+
 ## [0.21.0] - 2026-11-15
 
 ### Added
