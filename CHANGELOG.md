@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-16
+
 - Public website: distinct page content, a TikTok composer preview, configured TikTok data and publishing terms, and instance addresses derived from APP_URL. Platform permissions are shown only for TikTok.
 
 - Public instance website: nine connected pages with runtime branding, configured integrations and permissions, publishing guidance, contact details, privacy, terms and data deletion instructions. Signed-in visitors still open the dashboard from `/`.
