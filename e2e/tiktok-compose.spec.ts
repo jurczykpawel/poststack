@@ -216,6 +216,11 @@ test("TikTok photo post: photo settings, verified prefix and scheduled consent",
       await expect(panel.getByLabel("TikTok video preview")).toBeHidden();
       await expect(panel.getByAltText("TikTok photo cover preview")).toHaveAttribute("src", url);
       await expect(panel.getByLabel("TikTok caption", { exact: true })).toHaveAttribute("maxlength", "4000"); // photo posts: 4000 (video: 2200)
+      const title = page.getByLabel("Title (TikTok photo title, max 90)");
+      await title.fill("😀".repeat(45) + "a");
+      await expect(page.locator('button[type="submit"]')).toBeDisabled();
+      await title.fill("😀".repeat(45));
+      await page.getByLabel("TikTok caption", { exact: true }).fill("😀".repeat(2000));
       await page.getByLabel("TikTok privacy").selectOption("SELF_ONLY");
       await page.getByRole("button", { name: "Schedule", exact: true }).click();
       await page.locator('input[type="datetime-local"]').fill("2030-01-15T14:30");
@@ -229,7 +234,7 @@ test("TikTok photo post: photo settings, verified prefix and scheduled consent",
     await expect(page).toHaveURL(/\/content\/[\w-]+$/);
     const { rows } = await client.query(`SELECT d.format, d.payload FROM posts p JOIN deliveries d ON d.id=p.delivery_id WHERE p.content_id=$1`, [page.url().split("/").pop()]);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ format: "image", payload: { options: { publishMode: "direct", privacyLevel: "SELF_ONLY" } } });
+    expect(rows[0]).toMatchObject({ format: "image", payload: { title: "😀".repeat(45), caption: "😀".repeat(2000), options: { publishMode: "direct", privacyLevel: "SELF_ONLY" } } });
   } finally { await client.end(); }
   expect(errors).toEqual([]);
 });

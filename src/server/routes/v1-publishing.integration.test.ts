@@ -148,6 +148,30 @@ describe("publishing /api/v1 (e2e smoke)", () => {
     expect(d!.channel_id).toBe(CH);
   });
 
+  it.each(["now", "2030-01-01T08:00:00Z"])("TikTok Direct requires fresh consent for %s and records the confirmed request", async (when) => {
+    const p = await (await post("/posts", { platform: "tiktok", videoUrl: "https://example.com/consent.mp4", description: "Reviewed caption", tiktokPublishMode: "direct", tiktokPrivacyLevel: "SELF_ONLY" })).json();
+    for (const tiktokConsent of [undefined, false, "true"]) {
+      const response = await post(`/posts/${p.data.id}/publish`, { channelId: CH, when, tiktokConsent });
+      expect(response.status).toBe(422);
+      expect(JSON.stringify(await response.json())).toContain("tiktokConsent");
+    }
+    expect(await db.select().from(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS))).toHaveLength(0);
+    await db.insert(schema.media).values({ workspace_id: WS, checksum: "consent", storage_key: "c", url: "https://example.com/consent.mp4", kind: "video", status: "ready" });
+    const response = await post(`/posts/${p.data.id}/publish`, { channelId: CH, when, tiktokConsent: true });
+    expect(response.status).toBe(200);
+    const logs = await db.select().from(schema.auditLogs).where(eq(schema.auditLogs.target_id, p.data.id));
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ workspace_id: WS, actor_type: "api_key", action: "tiktok.submission_confirmed", metadata: { channelId: CH, postIds: [p.data.id], settings: { privacyLevel: "SELF_ONLY" }, submissionHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+  });
+
+  it("validates TikTok photo title and description separately from video", async () => {
+    const c = await (await post("/content", { title: "Photos", contentType: "image" })).json();
+    for (const fields of [{ title: "😀".repeat(45) + "a" }, { description: "😀".repeat(2000) + "a" }]) {
+      const p = await (await post("/posts", { contentId: c.data.id, platform: "tiktok", mediaUrl: "https://example.com/photo.jpg", ...fields })).json();
+      expect((await post(`/posts/${p.data.id}/publish`, { channelId: CH })).status).toBe(422);
+    }
+  });
+
   it("a publish to another workspace's channel is rejected (tenancy)", async () => {
     if (!TEST_DB) return;
     const { seedWorkspace } = await import("../../../tests/helpers/workspace");

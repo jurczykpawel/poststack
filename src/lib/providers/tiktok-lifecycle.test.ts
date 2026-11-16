@@ -12,7 +12,7 @@ it("requires confirmation when a selected interaction is no longer available", a
 it.each([ ["PROCESSING_UPLOAD", "accepted"], ["PROCESSING_DOWNLOAD", "accepted"], ["SEND_TO_USER_INBOX", "published"], ["PUBLISH_COMPLETE", "published"], ["FAILED", "failed"] ])("maps TikTok %s to %s", async (status, state) => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: { status, ...(status === "FAILED" ? { fail_reason: "duration_check_failed" } : {}) }, error: { code: "ok" } })));
   expect(tiktokProvider.publishStatus).toBeTypeOf("function");
-  expect(await tiktokProvider.publishStatus!({ accessToken: "test" }, { providerHandle: "publish-1" })).toMatchObject({ state, ...(state === "failed" ? { error: "duration_check_failed" } : {}) });
+  expect(await tiktokProvider.publishStatus!({ accessToken: "test" }, { providerHandle: "publish-1" })).toMatchObject({ state, ...(state === "failed" ? { error: "TikTok: duration_check_failed (code: ok)" } : {}) });
 });
 it("sends the status request with the saved publish id and bearer token", async () => {
   const http = vi.fn(async () => Response.json({ data: { status: "PROCESSING_DOWNLOAD" }, error: { code: "ok" } }));
@@ -22,5 +22,5 @@ it("sends the status request with the saved publish id and bearer token", async 
 });
 it("does not accept an unsuccessful status envelope as publication", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: { status: "PUBLISH_COMPLETE" }, error: { code: "internal_error" } })));
-  await expect(tiktokProvider.publishStatus!({ accessToken: "test" }, { providerHandle: "id" })).rejects.toThrow(/status unavailable/);
+  await expect(tiktokProvider.publishStatus!({ accessToken: "test" }, { providerHandle: "id" })).rejects.toThrow(/internal_error/);
 });

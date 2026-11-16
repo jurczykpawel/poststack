@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+- TikTok: clearer publishing errors with provider codes, explicit Direct Post API consent with an audit record, and photo titles (90 UTF-16 units) alongside descriptions (4000).
+
 ## [0.22.0] - 2026-11-16
 
 ## [0.21.0] - 2026-11-15

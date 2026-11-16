@@ -52,6 +52,7 @@ const CAPS: FormatCapability[] = [
     media: { min: format === "image" ? 1 : 2, max: format === "image" ? 1 : 35, kinds: ["image"] },
     image: { maxSizeMB: 20 },
     caption: { maxLength: 4000, required: false },
+    title: { maxLength: 90, required: false },
     mediaIngestion: "pull_url",
   })),
 ];
@@ -156,12 +157,14 @@ export const tiktokProvider: Provider = {
       json = JSON.parse(body.replace(/("publicaly_available_post_id"\s*:\s*\[)([\d\s,]*)(\])/g,
         (_match, start: string, ids: string, end: string) => start + ids.replace(/\d+/g, '"$&"') + end));
     } catch { throw new TransientError("TikTok status unavailable. Try again later."); }
-    const parsed = z.object({ data: z.object({ status: z.string(), publicaly_available_post_id: z.array(z.string().regex(/^\d+$/)).optional(), fail_reason: z.string().optional() }).optional(), error: z.object({ code: z.string() }) }).safeParse(json);
+    const parsed = z.object({ data: z.object({ status: z.string(), publicaly_available_post_id: z.array(z.string().regex(/^\d+$/)).optional(), fail_reason: z.string().optional() }).optional(), error: z.object({ code: z.string(), message: z.string().optional() }) }).safeParse(json);
     if (parsed.success && parsed.data.error.code === "access_token_invalid") throw new TokenInvalidError("Reconnect the TikTok channel");
-    if (!res.ok) throw classifyHttp(res.status, "TikTok status unavailable", "commit_uncertain", { headers: res.headers, provider: "tiktok", body: json });
-    if (!parsed.success || parsed.data.error.code !== "ok" || !parsed.data.data) throw new TransientError("TikTok status unavailable. Try again later.");
+    if (!res.ok) throw classifyHttp(res.status, undefined, "commit_uncertain", { headers: res.headers, provider: "tiktok", body: json });
+    if (!parsed.success) throw new TransientError("TikTok status unavailable. Try again later.");
     const data = parsed.data.data;
-    if (data.status === "FAILED") return { state: "failed", error: data.fail_reason || "TikTok processing failed" };
+    if (data?.status === "FAILED") return { state: "failed", error: `TikTok: ${data.fail_reason || parsed.data.error.message || "TikTok processing failed"} (code: ${parsed.data.error.code})` };
+    if (parsed.data.error.code !== "ok") throw new TransientError(`TikTok: ${parsed.data.error.message || "TikTok status unavailable. Try again later."} (code: ${parsed.data.error.code})`);
+    if (!data) throw new TransientError("TikTok status unavailable. Try again later.");
     if (data.status === "PUBLISH_COMPLETE") return { state: "published", ...(data.publicaly_available_post_id?.[0] ? { postId: data.publicaly_available_post_id[0] } : {}) };
     if (data.status === "SEND_TO_USER_INBOX") return { state: "published" };
     return { state: "accepted" };
@@ -255,7 +258,7 @@ async function initPost(endpoint: string, headers: Record<string, string>, body:
   if (!init.ok || !publishId || initJson.error?.code !== "ok") {
     const code = initJson.error?.code ?? "";
     if (["spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap", "privacy_level_option_mismatch"].includes(code)) {
-      throw new ConfirmationRequiredError("TikTok cannot accept posts right now. Try again later and confirm again.");
+      throw new ConfirmationRequiredError(`TikTok: ${initJson.error?.message || "Cannot accept posts right now. Try again later and confirm again."} (code: ${code})`);
     }
     if (code === "url_ownership_unverified") throw new PermanentError(TIKTOK_URL_UNVERIFIED_MSG);
     const msg = initJson.error?.message || code || `tiktok init failed (${init.status})`;
@@ -268,7 +271,8 @@ async function publishPhotos(accessToken: string, request: PublishRequest, media
   if (mediaKinds?.some((kind) => kind !== "image")) throw new PermanentError("tiktok: photo posts accept images only");
   assertTikTokPhotoUrls(mediaUrls);
   const direct = request.options?.publishMode === "direct";
-  const postInfo: Record<string, unknown> = { description: request.caption ?? "" };
+  if ((request.title?.length ?? 0) > 90 || (request.caption?.length ?? 0) > 4000) throw new PermanentError("TikTok photos require title ≤90 and description ≤4000 UTF-16 units");
+  const postInfo: Record<string, unknown> = { description: request.caption ?? "", ...(request.title ? { title: request.title } : {}) };
   let aiDisclosed: boolean | undefined;
   if (direct) {
     const options = validateTikTokSubmission(await queryCreatorInfo(accessToken), request.options, null, true);
