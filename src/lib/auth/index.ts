@@ -2,7 +2,7 @@ import { jwtVerify } from "jose";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { apiKeys, revokedTokens, workspaceMembers } from "@/db/schema";
+import { apiKeys, oauthGrants, revokedTokens, workspaceMembers } from "@/db/schema";
 import { env } from "@/lib/env";
 import { BRAND } from "@/lib/brand";
 import type { ApiScope } from "./scopes";
@@ -80,13 +80,20 @@ async function authenticateApiKey(
 
   const apiKey = await db.query.apiKeys.findFirst({
     where: eq(apiKeys.key_hash, keyHash),
-    columns: { id: true, workspace_id: true, scopes: true, expires_at: true },
+    columns: { id: true, workspace_id: true, scopes: true, expires_at: true, oauth_grant_id: true },
   });
 
   if (!apiKey) return null;
   if (apiKey.expires_at && apiKey.expires_at < new Date()) return null;
   if (requiredWorkspaceId && apiKey.workspace_id !== requiredWorkspaceId) {
     return null;
+  }
+
+  if (apiKey.oauth_grant_id) {
+    const [grant] = await db.select({ id: oauthGrants.id }).from(oauthGrants)
+      .innerJoin(workspaceMembers, and(eq(workspaceMembers.user_id, oauthGrants.user_id), eq(workspaceMembers.workspace_id, oauthGrants.workspace_id)))
+      .where(and(eq(oauthGrants.id, apiKey.oauth_grant_id), eq(oauthGrants.workspace_id, apiKey.workspace_id), eq(oauthGrants.status, "active")));
+    if (!grant) return null;
   }
 
   // Update last_used_at in background (non-blocking)

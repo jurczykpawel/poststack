@@ -954,6 +954,14 @@ export const oauthGrants = pgTable("oauth_grants", {
 	foreignKey({ columns: [table.user_id], foreignColumns: [users.id], name: "oauth_grants_user_id_fkey" }).onDelete("cascade"),
 ]);
 
+export const oauthRefreshTokens = pgTable("oauth_refresh_tokens", {
+	hash: text().primaryKey().notNull(),
+	grant_id: uuid("grant_id").notNull(),
+}, (table) => [
+	index("oauth_refresh_tokens_grant_id_idx").on(table.grant_id),
+	foreignKey({ columns: [table.grant_id], foreignColumns: [oauthGrants.id], name: "oauth_refresh_tokens_grant_id_fkey" }).onDelete("cascade"),
+]);
+
 export const autoReplyRules = pgTable("auto_reply_rules", {
 	id: uuid().primaryKey().notNull().defaultRandom(),
 	workspace_id: uuid("workspace_id").notNull(),

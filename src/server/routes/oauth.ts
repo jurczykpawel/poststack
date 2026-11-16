@@ -147,6 +147,16 @@ function consentPage(req: AuthorizeRequest, workspaces: { id: string; name: stri
     <p class="muted" style="font-size:12px;margin:0">You can disconnect it any time in Settings → API keys.</p>`);
 }
 
+oauthRoutes.use("/oauth/authorize", async (c, next) => {
+  c.header("Cache-Control", "private, no-store");
+  if (await limited(c, "authorize", 60, 60)) return c.json({ error: "slow_down" }, 429);
+  await next();
+}, smallBody);
+
+async function consentBudget(userId: string): Promise<boolean> {
+  return (await rateLimit(`rl:oauth-consent-user:${userId}`, 30, 60)).allowed;
+}
+
 oauthRoutes.get("/oauth/authorize", async (c) => {
   // Sign-in first: validating the request may fetch the client's metadata document.
   const session = await authenticateSession(c.req.raw);
@@ -154,10 +164,11 @@ oauthRoutes.get("/oauth/authorize", async (c) => {
     const here = new URL(c.req.url);
     return c.redirect(`/login?next=${encodeURIComponent(here.pathname + here.search)}`);
   }
+  if (!(await consentBudget(session.userId))) return c.json({ error: "slow_down" }, 429);
+  if (!(await hasFeature("api_access"))) return c.html(errorPage("Connecting apps needs API access, a PRO feature of this instance."), 403);
   const parsed = await parseAuthorizeRequest(pickParams(c.req.query()));
   if ("fatal" in parsed) return c.html(errorPage(parsed.fatal), 400);
   if ("redirect" in parsed) return c.redirect(parsed.redirect);
-  if (!(await hasFeature("api_access"))) return c.html(errorPage("Connecting apps needs API access, a PRO feature of this instance."), 403);
   return c.html(consentPage(parsed.ok, await memberWorkspaces(session.userId), session.workspaceId, consentCsrf(session.sessionId)));
 });
 
@@ -165,12 +176,13 @@ oauthRoutes.post("/oauth/authorize", requireSameOrigin, async (c) => {
   const f = await formFields(c);
   const session = await authenticateSession(c.req.raw);
   if (!session || !sameToken(f.csrf, consentCsrf(session.sessionId))) return c.html(errorPage("Your session changed. Start the connection again from the app."), 403);
+  if (!(await consentBudget(session.userId))) return c.json({ error: "slow_down" }, 429);
+  if (!(await hasFeature("api_access"))) return c.html(errorPage("Connecting apps needs API access, a PRO feature of this instance."), 403);
   const parsed = await parseAuthorizeRequest(pickParams(f));
   if ("fatal" in parsed) return c.html(errorPage(parsed.fatal), 400);
   if ("redirect" in parsed) return continuePage(c, parsed.redirect);
   const req = parsed.ok;
   if (f.decision !== "approve") return continuePage(c, redirectWith(req.redirectUri, { error: "access_denied", state: req.state }));
-  if (!(await hasFeature("api_access"))) return c.html(errorPage("Connecting apps needs API access, a PRO feature of this instance."), 403);
   const workspace = (await memberWorkspaces(session.userId)).find((w) => w.id === f.workspace_id);
   if (!workspace || (f.access !== "read" && f.access !== "write")) return c.html(errorPage("Choose a workspace and an access level."), 400);
   const scopes = grantScopes(f.access, req.requestedScopes);

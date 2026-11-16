@@ -340,3 +340,12 @@ CREATE INDEX "oauth_grants_workspace_id_idx" ON "oauth_grants" USING btree ("wor
 ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_oauth_grant_id_fkey" FOREIGN KEY ("oauth_grant_id") REFERENCES "public"."oauth_grants"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 CREATE INDEX "api_keys_oauth_grant_id_idx" ON "api_keys" USING btree ("oauth_grant_id");
+
+--> statement-breakpoint
+CREATE TABLE "oauth_refresh_tokens" (
+	"hash" text PRIMARY KEY NOT NULL,
+	"grant_id" uuid NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "oauth_refresh_tokens" ADD CONSTRAINT "oauth_refresh_tokens_grant_id_fkey" FOREIGN KEY ("grant_id") REFERENCES "public"."oauth_grants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "oauth_refresh_tokens_grant_id_idx" ON "oauth_refresh_tokens" USING btree ("grant_id");

@@ -10,7 +10,7 @@ import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { and, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { apiKeys, oauthClients, oauthGrants, workspaceMembers, workspaces } from "@/db/schema";
+import { apiKeys, oauthClients, oauthGrants, oauthRefreshTokens, workspaceMembers, workspaces } from "@/db/schema";
 import { env } from "@/lib/env";
 import { generateApiKey } from "@/lib/auth";
 import { API_SCOPE_PRESETS, API_SCOPES, isInstanceScope } from "@/lib/auth/scopes";
@@ -103,10 +103,20 @@ export async function registerClient(body: unknown): Promise<OAuthClient & { cre
   return client;
 }
 
+const metadataFlights = new Map<string, Promise<OAuthClient | null>>();
 const metadataCache = new Map<string, { client: OAuthClient; until: number }>();
 
 /** Client ID Metadata Document: the client_id is an https URL serving its own registration. */
 async function fetchClientMetadata(clientId: string): Promise<OAuthClient | null> {
+  const flight = metadataFlights.get(clientId);
+  if (flight) return flight;
+  if (metadataFlights.size >= 16) return null;
+  const pending = loadClientMetadata(clientId);
+  metadataFlights.set(clientId, pending);
+  try { return await pending; } finally { metadataFlights.delete(clientId); }
+}
+
+async function loadClientMetadata(clientId: string): Promise<OAuthClient | null> {
   const hit = metadataCache.get(clientId);
   if (hit && hit.until > Date.now()) return hit.client;
   const url = parseUrl(clientId);
@@ -115,7 +125,7 @@ async function fetchClientMetadata(clientId: string): Promise<OAuthClient | null
     const res = await safeFetch(clientId, { headers: { accept: "application/json" } }, { allow: new Set(["public"]), deadlineMs: 5_000, maxResponseBytes: 16_384 });
     if (!res.ok) return null;
     const doc = (await res.json()) as { client_id?: unknown };
-    const parsed = clientMetadata.safeParse(doc);
+    const parsed = clientMetadata.extend({ token_endpoint_auth_method: z.literal("none").optional() }).safeParse(doc);
     if (!parsed.success || doc.client_id !== clientId) return null;
     const client = { id: clientId, name: parsed.data.client_name ?? url.host, redirect_uris: parsed.data.redirect_uris };
     if (metadataCache.size > 500) metadataCache.clear();
@@ -151,6 +161,7 @@ export function redirectWith(redirectUri: string, params: Record<string, string 
  * the user (`fatal`) and never redirected; after that they go back to the client (`redirect`).
  */
 export async function parseAuthorizeRequest(params: AuthorizeParams): Promise<{ ok: AuthorizeRequest } | { fatal: string } | { redirect: string }> {
+  if (Object.values(params).some((v) => v !== undefined && v.length > 2000)) return { fatal: "An authorization parameter is too long." };
   const client = await findClient(params.client_id);
   if (!client) return { fatal: "This app is not registered with this server." };
   const redirectUri = params.redirect_uri;
@@ -160,6 +171,7 @@ export async function parseAuthorizeRequest(params: AuthorizeParams): Promise<{ 
   if (params.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(params.code_challenge ?? "")) return fail("invalid_request", "PKCE with code_challenge_method=S256 is required.");
   if (!resourceAllowed(params.resource)) return fail("invalid_target", `Tokens are only issued for ${mcpResource()}.`);
   const requestedScopes = (params.scope ?? "").split(" ").filter((s) => (API_SCOPES as readonly string[]).includes(s));
+  if (params.scope !== undefined && !requestedScopes.length) return fail("invalid_scope", "No supported scopes were requested.");
   return { ok: { client, redirectUri, state: params.state, codeChallenge: params.code_challenge!, requestedScopes, params } };
 }
 
@@ -216,13 +228,17 @@ export async function exchangeCode(p: { code?: string; code_verifier?: string; r
   // A code works once: any failed or repeated use also ends the connection it created.
   if (!valid) { await db.delete(oauthGrants).where(eq(oauthGrants.id, grant.id)); throw invalidGrant(); }
   const refreshToken = newSecret();
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [active] = await tx.update(oauthGrants)
       .set({ status: "active", refresh_token_hash: sha256(refreshToken), refresh_expires_at: new Date(Date.now() + REFRESH_TTL_MS) })
       .where(and(eq(oauthGrants.id, grant.id), eq(oauthGrants.status, "pending"))).returning();
-    if (!active) throw invalidGrant();
+    if (!active) { await tx.delete(oauthGrants).where(eq(oauthGrants.id, grant.id)); return null; }
+    const member = await tx.query.workspaceMembers.findFirst({ where: and(eq(workspaceMembers.user_id, active.user_id), eq(workspaceMembers.workspace_id, active.workspace_id)), columns: { user_id: true } });
+    if (!member) { await tx.delete(oauthGrants).where(eq(oauthGrants.id, active.id)); return null; }
     return issueTokens(tx, active, active.scopes, refreshToken);
   });
+  if (!result) throw invalidGrant();
+  return result;
 }
 
 /** Rotates the refresh token. `scope` may narrow the new access token, never widen it. */
@@ -236,7 +252,12 @@ export async function refreshTokens(p: { refresh_token?: string; client_id?: str
       .set({ refresh_token_hash: sha256(refreshToken), refresh_expires_at: new Date(Date.now() + REFRESH_TTL_MS) })
       .where(and(eq(oauthGrants.refresh_token_hash, oldHash), eq(oauthGrants.client_id, p.client_id!), eq(oauthGrants.status, "active"), gt(oauthGrants.refresh_expires_at, new Date())))
       .returning();
-    if (!grant) throw invalidGrant();
+    if (!grant) {
+      const used = tx.select({ id: oauthRefreshTokens.grant_id }).from(oauthRefreshTokens).where(eq(oauthRefreshTokens.hash, oldHash));
+      await tx.delete(oauthGrants).where(and(eq(oauthGrants.client_id, p.client_id!), inArray(oauthGrants.id, used)));
+      return null;
+    }
+    await tx.insert(oauthRefreshTokens).values({ hash: oldHash, grant_id: grant.id });
     const member = await tx.query.workspaceMembers.findFirst({ where: and(eq(workspaceMembers.user_id, grant.user_id), eq(workspaceMembers.workspace_id, grant.workspace_id)), columns: { user_id: true } });
     if (!member) { await tx.delete(oauthGrants).where(eq(oauthGrants.id, grant.id)); return null; }
     const scopes = p.scope === undefined ? grant.scopes : p.scope.split(" ").filter(Boolean);

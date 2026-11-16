@@ -129,3 +129,42 @@ describe("authorization request validation", () => {
     }
   });
 });
+
+it("shares an in-flight metadata read and bounds simultaneous document reads", async () => {
+  const pending: Array<() => void> = [];
+  fetchMock.mockReset().mockImplementation((id: string) => new Promise<Response>((resolve) => {
+    pending.push(() => resolve(Response.json({ client_id: id, redirect_uris: ["https://client.example/cb"], token_endpoint_auth_method: "none" })));
+  }));
+  const id = "https://client.example/single-flight.json";
+  const first = m.findClient(id), second = m.findClient(id);
+  const more = Array.from({ length: 15 }, (_, i) => m.findClient(`https://client.example/parallel-${i}.json`));
+  const overflow = m.findClient("https://client.example/overflow.json");
+  try {
+    expect(fetchMock).toHaveBeenCalledTimes(16);
+  } finally { pending.forEach((finish) => finish()); }
+  expect(await overflow).toBeNull();
+  const results = await Promise.all([first, second, ...more]);
+  expect(results[0]).toEqual(results[1]);
+  expect(results.every(Boolean)).toBe(true);
+  fetchMock.mockResolvedValue(Response.json({ client_id: "https://client.example/after.json", redirect_uris: ["https://client.example/cb"] }));
+  expect(await m.findClient("https://client.example/after.json")).not.toBeNull();
+});
+
+it("bounds authorization fields before reading metadata", async () => {
+  fetchMock.mockReset();
+  for (const key of m.AUTHORIZE_PARAMS) {
+    expect(await m.parseAuthorizeRequest({ client_id: "https://client.example/bounds.json", [key]: "s".repeat(2001) })).toEqual({ fatal: expect.any(String) });
+  }
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("uses default scopes only when the parameter is absent", async () => {
+  const id = "https://client.example/scopes.json";
+  fetchMock.mockReset().mockResolvedValue(Response.json({ client_id: id, redirect_uris: ["https://client.example/cb"] }));
+  const base = { client_id: id, redirect_uri: "https://client.example/cb", response_type: "code", code_challenge_method: "S256", code_challenge: challengeOf("v".repeat(43)) };
+  expect(await m.parseAuthorizeRequest(base)).toHaveProperty("ok");
+  for (const scope of ["", " ", "channels:reed", "offline_access"]) {
+    const result = await m.parseAuthorizeRequest({ ...base, scope });
+    expect("redirect" in result && new URL(result.redirect).searchParams.get("error")).toBe("invalid_scope");
+  }
+});
