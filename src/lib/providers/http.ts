@@ -29,13 +29,17 @@ export function classifyHttp(
   const body = context.body as { error?: { code?: unknown; message?: string; errors?: { reason?: string }[] }; type?: string; title?: string; detail?: string } | undefined;
   const code = body?.error?.code;
   const provider = context.provider;
-  const detail = message || body?.error?.message || body?.detail || body?.title || String(code ?? status);
+  let detail = message || body?.error?.message || body?.detail || body?.title || String(code ?? status);
+  if (provider === "tiktok" && code != null) detail = `TikTok: ${detail} (code: ${code})`;
+  if (provider === "tiktok" && code === "unaudited_client_can_only_post_to_private_accounts") {
+    return new PermanentError(`This app has not passed TikTok review: publish only to private accounts with SELF_ONLY visibility. ${detail}`);
+  }
   const meta = provider === "meta" || provider === "threads";
   const reasons = Array.isArray(body?.error?.errors) ? body.error.errors.map(e => e?.reason) : [];
   if (status === 429 || (status === 503 && context.headers?.has("retry-after"))) {
     return new RateLimitedError(`provider rate limit/unavailable: ${detail}`, retryDelay(context), phase);
   }
-  if (status >= 500) return new TransientError(`upstream ${status}`, phase);
+  if (status >= 500) return new TransientError(provider === "tiktok" ? detail : `upstream ${status}`, phase);
   if (provider === "tiktok" && code === "scope_not_authorized") {
     return new PermissionError("TikTok permission required: video.publish (scope_not_authorized)");
   }

@@ -30,6 +30,14 @@ describe("TikTok init errors as documented", () => {
     server(docs.init[name]);
     await expect(tiktokProvider.publish(args)).rejects.toBeInstanceOf(ConfirmationRequiredError);
   });
+  it("explains private-account restrictions before TikTok review", async () => {
+    server(docs.init.unauditedClient);
+    await expect(tiktokProvider.publish(args)).rejects.toThrow(/private accounts.*SELF_ONLY/);
+  });
+  it("keeps both the init error code and message", async () => {
+    server(docs.status.invalidPublishId);
+    await expect(tiktokProvider.publish(args)).rejects.toThrow("The publish_id does not exist. (code: invalid_publish_id)");
+  });
   it("an invalid token asks to reconnect", async () => {
     server(docs.init.tokenInvalid);
     await expect(tiktokProvider.publish(args)).rejects.toBeInstanceOf(TokenInvalidError);
@@ -64,7 +72,13 @@ describe("TikTok status responses as documented", () => {
     return tiktokProvider.publishStatus!({ accessToken: "test" }, { providerHandle: "id" });
   };
   it("reports the provider's failure reason", async () => {
-    await expect(status(docs.status.failed)).resolves.toEqual({ state: "failed", error: "picture_size_check_failed" });
+    await expect(status(docs.status.failed)).resolves.toEqual({ state: "failed", error: "TikTok: picture_size_check_failed (code: ok)" });
+  });
+  it("keeps both the status error code and message", async () => {
+    await expect(status(docs.status.invalidPublishId)).rejects.toThrow("The publish_id does not exist. (code: invalid_publish_id)");
+  });
+  it("keeps the FAILED reason with its envelope code", async () => {
+    await expect(status(docs.status.failed)).resolves.toMatchObject({ error: "TikTok: picture_size_check_failed (code: ok)" });
   });
   it("reports completion with the provider's post id list present", async () => {
     await expect(status(docs.status.complete)).resolves.toEqual({ state: "published", postId: "7300000000000000000" });

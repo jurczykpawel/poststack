@@ -2,6 +2,7 @@ import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
 import { ok, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
+import { actorFromAuth } from "@/lib/audit";
 import { publishPost } from "@/lib/content/publish";
 
 export const runtime = "nodejs";
@@ -10,6 +11,7 @@ type Ctx = { params: Promise<{ postId: string }> };
 
 const publishBody = z.object({
   channelId: z.string().uuid(),
+  tiktokConsent: z.boolean().optional(),
   when: z.string().min(1).default("now"), // "now" or an ISO timestamp
   format: z.string().min(1).max(255).optional(),
 });
@@ -22,6 +24,6 @@ export async function POST(request: Request, ctx: Ctx): Promise<Response> {
   const body = await request.json().catch(() => ({}));
   const parsed = publishBody.safeParse(body);
   if (!parsed.success) return ApiErrors.validationError(zodDetails(parsed.error));
-  const result = await publishPost({ postId, ...parsed.data }, auth.workspaceId);
+  const result = await publishPost({ postId, ...parsed.data, actor: actorFromAuth(auth) }, auth.workspaceId);
   return ok(camelizeKeys(result));
 }

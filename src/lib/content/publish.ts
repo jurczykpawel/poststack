@@ -12,6 +12,8 @@ import { disclosureFlag } from "@/lib/ai-disclosure/mapping";
 import { appendChapters, type YouTubeChapter } from "@/lib/providers/youtube-chapters";
 import { resolveDisclosure, type ResolvedDisclosure } from "@/lib/ai-disclosure/resolve";
 import { resolveAutoStoryMode } from "@/lib/stories/media";
+import { recordTikTokConsent } from "./tiktok-consent";
+import type { AuditActor } from "@/lib/audit";
 import { storySegmentCount } from "@/lib/stories/segments";
 
 /** description + hashtags → a single caption (blank-line separated). */
@@ -164,6 +166,8 @@ export function disclosureOptions(platform: string, resolved: ResolvedDisclosure
 
 export interface PublishPostInput {
   postId: string;
+  tiktokConsent?: boolean;
+  actor?: AuditActor;
   channelId: string;
   when: "now" | string; // "now" or an ISO timestamp (future)
   format?: string;
@@ -200,6 +204,8 @@ export async function publishPost(
     throw new ApiError("conflict", "Post already published", 409);
   }
 
+  const directConsent = input.actor && post.platform === "tiktok" && post.tiktok_publish_mode === "direct";
+  if (directConsent && input.tiktokConsent !== true) throw new ApiError("invalid_request", "TikTok Direct Post requires tiktokConsent: true confirming the creator agreed to send this post and to TikTok Music Usage Confirmation / Branded Content Policy.", 422);
   const request = await preparePublishRequest(post, input.channelId, workspaceId, deps, input.format);
   const scheduledAt = (input.when === "now" ? new Date() : new Date(input.when)).toISOString();
   if (Number.isNaN(Date.parse(scheduledAt))) throw new ApiError("invalid_request", "Invalid when", 422);
@@ -221,6 +227,10 @@ export async function publishPost(
         ...(input.when !== "now" && Date.parse(scheduledAt) > Date.now() ? { scheduled_date: new Date(scheduledAt) } : {}),
       })
       .where(and(eq(posts.id, input.postId), eq(posts.workspace_id, workspaceId)));
+    if (directConsent) await recordTikTokConsent(workspaceId, input.actor!, "post", post.id, {
+      channelId: input.channelId, postIds: [post.id], mode: input.when === "now" ? "now" : "schedule",
+      at: input.when === "now" ? null : scheduledAt, settings: postPublishOptions(post),
+    }, request, tx);
     return d;
   });
 

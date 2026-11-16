@@ -43,6 +43,19 @@ describe("TikTok photo posts", () => {
     expect(validate(tiktokProvider, req(2), { mediaKinds: ["image", "video"] }).ok).toBe(false);
   });
 
+  it.each(["image", "carousel"])("enforces UTF-16 title and caption limits for %s", (format) => {
+    const req = { format, media: [{ mediaId: "m" }, ...(format === "carousel" ? [{ mediaId: "n" }] : [])], title: "😀".repeat(45), caption: "😀".repeat(2000) };
+    expect(validate(tiktokProvider, req).ok).toBe(true);
+    expect(validate(tiktokProvider, { ...req, title: req.title + "a" })).toMatchObject({ ok: false, errors: ["title exceeds 90 chars"] });
+    expect(validate(tiktokProvider, { ...req, caption: req.caption + "a" }).ok).toBe(false);
+    expect(validate(tiktokProvider, { ...req, format: "video", media: [{ mediaId: "m" }], caption: "a".repeat(2201) }).ok).toBe(false);
+  });
+  it("sends the photo title to TikTok", async () => {
+    server();
+    await tiktokProvider.publish({ tokens: { accessToken: "AT" }, accountId: "creator", mediaUrls: photos, request: { format: "carousel", media: [], title: "Photo title" } });
+    expect(initCall()!.body.post_info).toMatchObject({ title: "Photo title" });
+  });
+
   it("inbox mode sends MEDIA_UPLOAD with PULL_FROM_URL images and no Direct Post fields", async () => {
     server();
     const handle = await publish();
@@ -108,6 +121,6 @@ describe("TikTok photo posts", () => {
 
   it("status FAILED for a photo pull reports TikTok's reason", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: { status: "FAILED", fail_reason: "photo_pull_failed" }, error: { code: "ok" } })));
-    await expect(tiktokProvider.publishStatus!({ accessToken: "AT" }, { providerHandle: "p_pub_url~v2.1" })).resolves.toEqual({ state: "failed", error: "photo_pull_failed" });
+    await expect(tiktokProvider.publishStatus!({ accessToken: "AT" }, { providerHandle: "p_pub_url~v2.1" })).resolves.toEqual({ state: "failed", error: "TikTok: photo_pull_failed (code: ok)" });
   });
 });

@@ -17,7 +17,7 @@ export async function validateComposeCarousel(input: ComposeInput, workspaceId: 
   if (format === "image" && (input.contentType !== "image" || !input.posts.some(p => p.platform === "tiktok"))) return;
   for (const post of input.posts) {
     if (format === "image" && post.platform !== "tiktok") continue;
-    const request = { format, media: urls.map(() => ({ mediaId: "" })), caption: buildCaption(post.description || input.baseDescription, input.baseHashtags) };
+    const request = { format, title: input.title, media: urls.map(() => ({ mediaId: "" })), caption: buildCaption(post.description || input.baseDescription, input.baseHashtags) };
     const checked = validate(getProviderForPlatform(post.platform), request, { platform: post.platform });
     if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
     const target = await resolveChannelForBrandPlatform(workspaceId, input.brand, post.platform);

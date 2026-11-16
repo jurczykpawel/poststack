@@ -16,7 +16,7 @@ import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
 import { articleUrlInput, autoReplyInput, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
 import { db } from "@/lib/db";
-import { sequences as sequencesTbl, auditLogs, channels } from "@/db/schema";
+import { sequences as sequencesTbl, channels } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { renderPage } from "../layout";
 import { platformLabel, platformColor, platformGlyphString } from "../components/platform";
@@ -27,8 +27,7 @@ import { youtubePanel, youtubePanelScript } from "../components/youtube-panel";
 import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
 import type { CreatorInfoResult } from "@/lib/providers/tiktok-creator-info";
 import { resolveChannelForBrandPlatform } from "@/lib/brands/resolve";
-import { createHash } from "node:crypto";
-import { AuditAction } from "@/lib/audit";
+import { recordTikTokConsent } from "@/lib/content/tiktok-consent";
 import { IG_STORY_WHOLE_MAX_SEC, STORY_CLIP_SEC } from "@/lib/stories/segments";
 
 type Html = ReturnType<typeof html>;
@@ -171,7 +170,7 @@ function composeScript(): Html {
           return "Opublikujemy automatycznie " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") z tymi ustawieniami";
         },
         tiktokConsentKey() {
-          return JSON.stringify([this.brand, this.tt.channelId, this.type, this.mediaUrl, this.coverUrl, this.captionFor("tiktok"), this.publishMode, this.scheduleAt, this.tt.options()]);
+          return JSON.stringify([this.brand, this.tt.channelId, this.type, this.mediaUrl, this.coverUrl, this.captionFor("tiktok"), this.title, this.publishMode, this.scheduleAt, this.tt.options()]);
         },
         brandList: Object.keys(data).map(function (k) { return { key: k, name: data[k].name }; }),
         canSequence: seqCfg.canSequence,
@@ -293,7 +292,7 @@ function composeScript(): Html {
           if (this.type === "carousel" && this.allMedia().length < 2) return false;
           if (this.isOn("youtube") && !this.yt.valid(this.publishMode !== "draft")) return false;
           if (this.isOn("tiktok")) {
-            if (!["video", "image", "carousel"].includes(this.type) || this.over("tiktok")) return false;
+            if (!["video", "image", "carousel"].includes(this.type) || this.over("tiktok") || (["image", "carousel"].includes(this.type) && this.title.trim().length > 90)) return false;
             if (this.publishMode !== "draft" && (!this.tt.valid || !this.tt.consent || this.tt.consentKey !== this.tiktokConsentKey())) return false;
           }
           if (this.type === "article" && (!this.articleUrl.trim() || this.selectedPlatforms().some(p => p.platform !== "linkedin") || this.allMedia().length > 1)) return false;
@@ -460,7 +459,7 @@ async function composePage(
           <section class="panel" x-show="brand" x-cloak>
             <div class="panel-head"><h3>Caption</h3><span class="panel-sub" x-text="capSub()"></span></div>
             <div class="compose-body">
-              <label class="fld"><span>Title <small>(internal)</small></span><input type="text" x-model="title" maxlength="200" placeholder="Internal title" required /></label>
+              <label class="fld"><span>Title <small x-text="isOn('tiktok') &amp;&amp; ['image','carousel'].includes(type) ? '(TikTok photo title, max 90)' : '(internal)'">(internal)</small></span><input type="text" x-model="title" maxlength="200" placeholder="Internal title" required /></label>
               <label class="fld"><span>Post language</span><select x-model="language" aria-label="Post language">
                 <option value="">Not set</option><option value="pl">Polski</option><option value="en">English</option>
               </select></label>
@@ -650,12 +649,10 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     }
     const { contentId, postIds } = await composeContent(parsed, a.workspaceId);
     if (consentChannelId && tik) {
-      await db.insert(auditLogs).values({
-        workspace_id: a.workspaceId, actor_type: "user", actor_id: a.userId,
-        action: AuditAction.TikTokSubmissionConfirmed, target_type: "content", target_id: contentId,
-        metadata: { channelId: consentChannelId, postIds, mode, at: mode === "schedule" ? parsed.publish?.at : null,
-          settings: tiktokPostSettings.parse(tik), submissionHash: createHash("sha256").update(JSON.stringify(parsed)).digest("hex") },
-      });
+      await recordTikTokConsent(a.workspaceId, { type: "user", id: a.userId }, "content", contentId, {
+        channelId: consentChannelId, postIds, mode, at: mode === "schedule" ? parsed.publish?.at : null,
+        settings: tiktokPostSettings.parse(tik),
+      }, parsed);
     }
     if (mode === "now" || mode === "schedule") {
       const when = mode === "schedule" ? (parsed.publish?.at ?? "now") : "now";

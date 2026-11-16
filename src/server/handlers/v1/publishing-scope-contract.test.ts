@@ -24,6 +24,7 @@ vi.mock("@/lib/content/service", () => ({
   deletePost: vi.fn(),
 }));
 vi.mock("@/lib/deliveries/service", () => ({ rescheduleDelivery: vi.fn() }));
+vi.mock("@/lib/audit", () => ({ actorFromAuth: vi.fn() }));
 vi.mock("@/lib/content/publish", () => ({ publishPost: vi.fn() }));
 vi.mock("@/lib/content/post-delivery", () => ({
   withPostDeliveries: vi.fn(async (rows: object[]) => rows.map((row) => ({ ...row, delivery: null }))),
