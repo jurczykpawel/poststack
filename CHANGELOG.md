@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-16
+
 - MCP: publish tool documents TikTok Direct Post consent and requires explicit creator confirmation before agents set it.
 - API: channel post listing returns a clear unsupported-platform error for channels outside Facebook and Instagram.
 
