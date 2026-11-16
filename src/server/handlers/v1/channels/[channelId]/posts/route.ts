@@ -51,6 +51,9 @@ export async function GET(
   });
 
   if (!channel) return ApiErrors.notFound("Channel");
+  if (channel.platform !== "facebook" && channel.platform !== "instagram") {
+    return ApiErrors.badRequest("Listing posts is supported for Facebook and Instagram channels");
+  }
 
   // Decrypt inside its own guard: a corrupt token / rotated ENCRYPTION_KEY throws, and that
   // must surface as a clean 400, not an uncaught 500.

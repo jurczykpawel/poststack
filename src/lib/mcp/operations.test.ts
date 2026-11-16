@@ -109,6 +109,18 @@ describe("mcpOperations (this app's spec)", () => {
     }
   });
 
+  it("exposes creator consent in the generated TikTok publish tool", () => {
+    const op = mcpOperations(spec).find((o) => o.name === "post_posts_by_post_id_publish");
+    expect(op?.inputSchema.properties).toMatchObject({
+      body: { properties: { tiktokConsent: {
+        type: "boolean",
+        description: expect.stringContaining("Agents must set true only after explicit creator confirmation"),
+      } } },
+    });
+    expect(buildApiRequest(op!, { postId: "post", body: { channelId: "channel", tiktokConsent: true } }).body)
+      .toBe(JSON.stringify({ channelId: "channel", tiktokConsent: true }));
+  });
+
   it("documents JSON bodies for the editorial write operations agents need", () => {
     const ops = Object.fromEntries(mcpOperations(spec).map((o) => [o.name, o]));
     for (const name of ["post_content", "patch_content_by_content_id", "patch_posts_by_post_id", "post_brands", "patch_brands_by_brand_key"]) {
