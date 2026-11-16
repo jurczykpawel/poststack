@@ -54,7 +54,13 @@ for (const width of [1280, 390]) {
         await expect(page.locator(`select[name="${field}"]`)).toHaveValue(value);
       }
       await expect(page.locator("#data-list tbody tr")).toHaveCount(1);
-      await search.press("Enter"); // htmx-boosted: the list swaps in place, so wait for the new row set, not a navigation
+      // The filtered rows are unchanged, so they cannot signal completion of this htmx request.
+      const filtered = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === "/contacts" && response.request().method() === "GET");
+      await search.press("Enter");
+      const response = await filtered;
+      expect(response.status()).toBe(200);
+      expect(await response.finished()).toBeNull();
       await expect(search).toHaveValue(name);
       await expect(page.locator("#data-list tbody tr")).toHaveCount(1);
 

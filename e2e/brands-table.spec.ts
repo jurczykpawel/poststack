@@ -86,6 +86,9 @@ test("desktop: one table row per brand, slot save, edit panel, search", async ({
   await shoot(page, testInfo.outputPath("brands-edit"), async () => {
     await row.getByRole("button", { name: "Edit" }).click();
     await expect(dlg).toBeVisible();
+    // Finish the lazy preview before the next theme reload tears down this document.
+    await expect.poll(() => dlg.getByRole("img", { name: "Auto-Story preview" })
+      .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
     // the form card fills the panel: no empty strip on the right
     const [panel, form] = await Promise.all([dlg.locator(".sheet-b").boundingBox(), dlg.locator("form.brand-edit-form").boundingBox()]);
     expect(panel!.x + panel!.width - (form!.x + form!.width)).toBeLessThanOrEqual(40);

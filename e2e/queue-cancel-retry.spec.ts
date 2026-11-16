@@ -9,6 +9,16 @@ test("failed post: Cancel from panel and list, Retry and Disable confirm", async
   const { errors } = watchConsole(page);
   const client = new Client({ connectionString: E2E_DATABASE_URL });
   await client.connect();
+  // A DB commit precedes the HTML response; navigating at that point aborts the htmx POST.
+  const confirmAction = async (path: string, label: string) => {
+    const pending = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === path && response.request().method() === "POST");
+    await page.getByRole("alertdialog").getByRole("button", { name: label, exact: true }).click();
+    const response = await pending;
+    expect(response.status()).toBe(200);
+    expect(response.request().headers()["hx-request"]).toBe("true");
+    expect(await response.finished()).toBeNull();
+  };
   const ids: string[] = [];
   let endpointId = "";
   const status = async (id: string) => (await client.query("select status from deliveries where id=$1", [id])).rows[0].status;
@@ -41,8 +51,9 @@ test("failed post: Cancel from panel and list, Retry and Disable confirm", async
 
     // Cancel from the panel.
     await page.locator(".dl-detail").getByRole("button", { name: "Cancel post", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Cancel post", exact: true }).click();
+    await confirmAction(`/queue/${ids[0]}/cancel`, "Cancel post");
     await expect.poll(() => status(ids[0])).toBe("canceled");
+    await expect(page.locator(".dl-detail .badge")).toHaveText("canceled");
 
     // Cancel from the attention list: the list shrinks.
     await gotoOk(page, "/queue?status=attention");
@@ -50,7 +61,7 @@ test("failed post: Cancel from panel and list, Retry and Disable confirm", async
     const before = await rows().count();
     expect(before).toBeGreaterThanOrEqual(2);
     await page.locator(`[data-row="${ids[1]}"]`).getByRole("button", { name: "Cancel post", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Cancel post", exact: true }).click();
+    await confirmAction(`/queue/${ids[1]}/cancel`, "Cancel post");
     await expect.poll(() => status(ids[1])).toBe("canceled");
     await expect(rows()).toHaveCount(before - 1);
     await expect(page.locator(`[data-row="${ids[1]}"]`)).toHaveCount(0);
@@ -60,6 +71,11 @@ test("failed post: Cancel from panel and list, Retry and Disable confirm", async
     await expect(page.getByRole("alertdialog")).toBeVisible();
     await page.keyboard.press("Escape");
     expect(await status(ids[2])).toBe("failed");
+
+    await page.locator(`[data-row="${ids[2]}"]`).getByRole("button", { name: "Retry", exact: true }).click();
+    await confirmAction(`/queue/${ids[2]}/retry`, "Retry");
+    await expect.poll(() => status(ids[2])).toBe("scheduled");
+    await expect(page.locator(`[data-row="${ids[2]}"]`)).toHaveCount(0);
 
     // Disable endpoint asks first.
     const res = await page.request.post("/api/v1/webhooks", { data: { url: "https://hooks.example.test/disable-confirm" } });
@@ -72,8 +88,9 @@ test("failed post: Cancel from panel and list, Retry and Disable confirm", async
     await page.keyboard.press("Escape");
     expect((await client.query("select active from webhook_endpoints where id=$1", [endpointId])).rows[0].active).toBe(true);
     await page.locator(`[hx-post="/webhooks/outbound/${endpointId}/toggle"]`).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Disable", exact: true }).click();
+    await confirmAction(`/webhooks/outbound/${endpointId}/toggle`, "Disable");
     await expect.poll(async () => (await client.query("select active from webhook_endpoints where id=$1", [endpointId])).rows[0].active).toBe(false);
+    await expect(page.locator(`[hx-post="/webhooks/outbound/${endpointId}/toggle"]`)).toHaveText("Enable");
     expect(errors).toEqual([]);
   } finally {
     for (const id of ids) await client.query("delete from deliveries where id=$1", [id]);
