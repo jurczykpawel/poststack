@@ -31,7 +31,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     if (token.includes("cannot-post")) return Response.json({ error: { code: "spam_risk_too_many_posts" } });
     if (token.includes("info-error")) return Response.json({}, { status: 503 });
     return Response.json({ data: {
-      creator_nickname: "TT3 Creator", creator_avatar_url: "",
+      creator_nickname: token.includes("public-demo") ? "Demo Creator" : "TT3 Creator", creator_avatar_url: "",
       privacy_level_options: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"],
       comment_disabled: true, duet_disabled: false, stitch_disabled: true, max_video_post_duration_sec: 60,
     }, error: { code: "ok" } });

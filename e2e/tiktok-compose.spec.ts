@@ -1,5 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { Client } from "pg";
 import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { E2E_DATABASE_URL, serverEnv } from "./env";
@@ -50,12 +53,27 @@ test.beforeAll(async ({ request }) => {
 
 test("public TikTok composer preview", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 3200 });
-  await creatorToken("available");
+  const dir = mkdtempSync(join(tmpdir(), "poststack-demo-"));
+  let demoVideo: Buffer;
+  try {
+    const path = join(dir, "demo.mp4");
+    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=360x640:rate=24", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]);
+    demoVideo = readFileSync(path);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  await page.route("https://cdn.example.test/tt3.mp4", route => {
+    const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range ?? "");
+    const start = range ? Number(range[1]) : 0;
+    const end = range?.[2] ? Math.min(Number(range[2]), demoVideo.length - 1) : demoVideo.length - 1;
+    return route.fulfill({ status: range ? 206 : 200, contentType: "video/mp4",
+      headers: { "accept-ranges": "bytes", ...(range ? { "content-range": `bytes ${start}-${end}/${demoVideo.length}` } : {}) },
+      body: demoVideo.subarray(start, end + 1) });
+  });
+  await creatorToken("public-demo");
   await openComposer(page);
   await page.getByRole("button", { name: "Publish now", exact: true }).click();
   await page.getByLabel("TikTok privacy").selectOption("SELF_ONLY");
   const panel = page.getByRole("region", { name: "TikTok publishing" });
-  await expect(panel.getByText("TT3 Creator", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Demo Creator", { exact: true })).toBeVisible();
   await expect(panel.getByLabel("Allow Duet", { exact: true })).toBeEnabled();
   await panel.getByLabel("I confirm this TikTok submission with these settings.").check();
   await expect(page.locator('button[type="submit"]')).toBeEnabled();
@@ -64,8 +82,15 @@ test("public TikTok composer preview", async ({ page }) => {
   await expect.poll(() => preview.evaluate((el) => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
   await preview.evaluate((el) => { const video = el as HTMLVideoElement; video.pause(); video.currentTime = 0.5; });
   await expect.poll(() => preview.evaluate((el) => (el as HTMLVideoElement).seeking)).toBe(false);
+  await expect(preview).toHaveJSProperty("videoWidth", 360);
+  await expect(preview).toHaveJSProperty("currentTime", 0.5);
+  const review = panel.getByText("Until this app passes TikTok review", { exact: false });
+  await expect(review).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
   if (process.env.PUBLIC_SITE_SCREENSHOT) {
+    // Omit this notice only from the public illustration; the product keeps it.
+    await review.evaluate(el => { (el as HTMLElement).style.display = "none"; });
+    await expect(review).toBeHidden();
     const sharp = (await import("sharp")).default;
     await sharp(await panel.screenshot({ animations: "disabled" })).webp({ quality: 85 }).toFile(process.env.PUBLIC_SITE_SCREENSHOT);
   }
