@@ -9,6 +9,8 @@ export function toTokenSet(td: TokenData): TokenSet {
   return {
     accessToken: td.access_token,
     refreshToken: td.refresh_token,
+    ...(td.issuerClientKey !== undefined ? { issuerClientKey: td.issuerClientKey } : {}),
+    ...(td.issuerClientSecret !== undefined ? { issuerClientSecret: td.issuerClientSecret } : {}),
     // TokenData.expires_at is epoch seconds; TokenSet.expiresAt is ISO.
     expiresAt: typeof td.expires_at === "number" ? new Date(td.expires_at * 1000).toISOString() : undefined,
     // IGFU1: carry the IG-Login token so the publish path can route to graph.instagram.com when the
@@ -21,6 +23,8 @@ export function fromTokenSet(ts: TokenSet): TokenData {
   return {
     access_token: ts.accessToken,
     refresh_token: ts.refreshToken,
+    ...(ts.issuerClientKey !== undefined ? { issuerClientKey: ts.issuerClientKey } : {}),
+    ...(ts.issuerClientSecret !== undefined ? { issuerClientSecret: ts.issuerClientSecret } : {}),
     expires_at: ts.expiresAt ? Math.floor(Date.parse(ts.expiresAt) / 1000) : undefined,
     // Defense in depth: carry the IG-Login messaging token if the TokenSet has one. NOTE: this alone
     // can't preserve a channel's blob across a refresh — fromTokenSet has no slot for page_id /

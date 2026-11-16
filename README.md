@@ -531,6 +531,13 @@ The same Google app can also serve **YouTube** (`youtube` platform) — just add
 
 ## TikTok publishing
 
+Connect TikTok through the instance's app using **Channels → Connect channel → TikTok** (OAuth).
+For an existing token issued by another TikTok app, the advanced alternative is
+**TikTok — Advanced: paste a token**. Supply its access token, refresh token, and the issuing app's
+client key and secret. New TikTok channels require PRO. The issuing app must have the permissions
+needed for your publishing mode; this connection does not change TikTok's app review requirements.
+See [deployment instructions](docs/DEPLOY.md#tiktok-tokens-from-another-app) for storage and refresh details.
+
 An instance operator with a **Business** license can set the product name, logo, favicon, accent,
 default theme, contact email, public HTTPS origin and footer in **Settings → Integrations → Instance
 branding**. This config belongs to the entire installation, independently of content brands. It is

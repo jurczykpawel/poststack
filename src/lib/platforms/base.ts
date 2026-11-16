@@ -7,6 +7,8 @@ export interface TokenData {
   refresh_token?: string;
   expires_at?: number;
   token_type?: string;
+  issuerClientKey?: string;
+  issuerClientSecret?: string;
   [key: string]: unknown;
 }
 

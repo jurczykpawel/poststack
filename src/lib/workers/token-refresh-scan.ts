@@ -1,4 +1,4 @@
-import { and, eq, gt, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gt, isNotNull, lte, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels } from "@/db/schema";
 import { addJob } from "@/lib/queue/client";
@@ -13,14 +13,14 @@ import { sanitizeForLog } from "@/lib/api/safe-log";
  * provider's refresh buffer. Shared by the hourly worker cron and the manual
  * `GET /api/cron/token-refresh` trigger, so both paths behave identically.
  *
- * manual_token channels carry a long-lived/System User token and are never refreshed.
+ * Manual TikTok tokens refresh with their issuing app; other manual tokens have no refresh cycle.
  * Each channel is isolated: a single undecryptable/corrupt token (e.g. after a key rotation) is
  * logged and skipped, never aborting the whole scan and starving every other channel of its
  * refresh job — which would silently cascade into mass token expiry.
  */
 export async function scanExpiringTokens(): Promise<{ enqueued: number }> {
   const rows = await db.query.channels.findMany({
-    where: and(eq(channels.status, "active"), eq(channels.connection_mode, "oauth")),
+    where: and(eq(channels.status, "active"), or(eq(channels.connection_mode, "oauth"), and(eq(channels.connection_mode, "manual_token"), eq(channels.platform, "tiktok")))),
     columns: { platform_id: true, workspace_id: true, id: true, platform: true, token_encrypted: true, token_expires_at: true },
   });
 

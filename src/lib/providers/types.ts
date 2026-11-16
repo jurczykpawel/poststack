@@ -10,6 +10,8 @@ import type { InsightsConnector } from "@/lib/insights/types";
 export interface TokenSet {
   accessToken: string;
   refreshToken?: string;
+  issuerClientKey?: string;
+  issuerClientSecret?: string;
   expiresAt?: string; // ISO timestamp
   /**
    * IGFU1: the Instagram Business Login token (IGQW, from the channel's `messaging_token`). Present on

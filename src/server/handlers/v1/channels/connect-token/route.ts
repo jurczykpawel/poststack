@@ -6,16 +6,22 @@ import { subscribeChannelWebhooks } from "@/lib/channels/subscribe";
 import { recordAudit, actorFromAuth, AuditAction } from "@/lib/audit";
 import { created, ApiErrors } from "@/lib/api/response";
 import { z } from "zod";
+import { connectTikTokToken } from "@/lib/providers/tiktok";
 
 export const runtime = "nodejs";
 
-const schema = z.object({
+const schema = z.discriminatedUnion("platform", [z.object({
   platform: z.enum(["facebook", "instagram"]),
   token: z.string().min(20),
-});
+}), z.object({
+  platform: z.literal("tiktok"),
+  access_token: z.string().trim().min(1).max(4096),
+  refresh_token: z.string().trim().min(1).max(4096),
+  client_key: z.string().trim().min(1).max(256),
+  client_secret: z.string().trim().min(1).max(4096),
+})]);
 
-// POST /api/v1/channels/connect-token — connect a channel with a pasted
-// long-lived / System User token instead of OAuth.
+// POST /api/v1/channels/connect-token — connect with a pasted Meta or TikTok token.
 export async function POST(request: Request) {
   const auth = await authenticateWithScope(request, "channels:write");
   if (!auth) return ApiErrors.unauthorized();
@@ -26,14 +32,14 @@ export async function POST(request: Request) {
     return ApiErrors.validationError(parsed.error);
   }
 
-  const provider = getProvider(parsed.data.platform);
-  if (!provider.connectWithToken) {
-    return ApiErrors.badRequest("Platform does not support manual token connection");
-  }
-
   let accounts;
   try {
-    accounts = await provider.connectWithToken(parsed.data.token);
+    if (parsed.data.platform === "tiktok") accounts = await connectTikTokToken(parsed.data);
+    else {
+      const provider = getProvider(parsed.data.platform);
+      if (!provider.connectWithToken) return ApiErrors.badRequest("Platform does not support manual token connection");
+      accounts = await provider.connectWithToken(parsed.data.token);
+    }
   } catch (err) {
     // A MetaTokenError carries a specific, user-facing reason (foreign app / invalid / expired /
     // missing scope) — surface it. Anything else stays a generic message.
@@ -51,7 +57,7 @@ export async function POST(request: Request) {
   // Auto-subscribe to inbound webhook events, same path as the OAuth callbacks + the managed-connection
   // mint, so a pasted-token channel both publishes AND receives on one row (best-effort; flags any
   // that fail rather than failing the connect).
-  await subscribeChannelWebhooks(auth.workspaceId, parsed.data.platform, accounts);
+  if (parsed.data.platform !== "tiktok") await subscribeChannelWebhooks(auth.workspaceId, parsed.data.platform, accounts);
 
   await recordAudit({
     workspaceId: auth.workspaceId,

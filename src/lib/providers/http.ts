@@ -63,6 +63,7 @@ export function classifyHttp(
 export async function oauth2Refresh(args: {
   tokenUrl: string;
   clientId: string;
+  clientIdParam?: "client_id" | "client_key";
   clientSecret: string;
   refreshToken: string;
   extra?: Record<string, string>;
@@ -72,7 +73,7 @@ export async function oauth2Refresh(args: {
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: args.refreshToken,
-    client_id: args.clientId,
+    [args.clientIdParam ?? "client_id"]: args.clientId,
     client_secret: args.clientSecret,
     ...(args.extra ?? {}),
   });
@@ -86,6 +87,7 @@ export async function oauth2Refresh(args: {
     method: "POST",
     headers,
     body,
+    redirect: "error", signal: AbortSignal.timeout(10_000),
   });
   const json = (await res.json().catch(() => ({}))) as {
     access_token?: string;

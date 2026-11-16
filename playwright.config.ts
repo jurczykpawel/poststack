@@ -36,7 +36,7 @@ export default defineConfig({
     {
       name: "chromium",
       // Offline TikTok boundaries use playwright.tiktok.config.ts.
-      testIgnore: [/captcha\.spec\.ts/, /tiktok-compose\.spec\.ts/],
+      testIgnore: [/captcha\.spec\.ts/, /tiktok-(compose|token)\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], storageState: "./e2e/.auth/state.json" },
       dependencies: ["setup"],
     },
