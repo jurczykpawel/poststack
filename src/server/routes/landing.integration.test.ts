@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// LANDING1 route wiring against the real app: `/` serves the marketing page to anonymous visitors,
+// Public route wiring against the real app: `/` serves the instance site to anonymous visitors,
 // redirects a logged-in session to /overview, and serves the landing's static assets. The landing
 // build is faked via LANDING_DIST_DIR so no Astro build is needed.
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -68,12 +68,12 @@ afterAll(async () => {
 });
 
 describe("LANDING1 route wiring", () => {
-  it("serves the marketing landing at / for an anonymous visitor", async () => {
+  it("serves the instance public site at / for an anonymous visitor", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
-    expect(await res.text()).toContain("Landing marketing page");
+    expect(await res.text()).toContain("Your publishing workspace");
   });
 
   it("redirects a logged-in visitor from / to /overview", async () => {
@@ -113,19 +113,19 @@ describe("LANDING1 route wiring", () => {
     }
   });
 
-  it("injects window.__POSTSTACK_ANALYTICS__ only when analytics env is set", async () => {
+  it("keeps public pages free of marketing analytics", async () => {
     if (!TEST_DB) return;
-    // No env → no injection.
+    // Public pages do not load marketing analytics.
     expect(await (await app.request("/")).text()).not.toContain("__POSTSTACK_ANALYTICS__");
 
-    // Env set → config injected into <head> at request time (read live, no rebuild).
+    // Marketing build settings do not change the instance website.
     process.env.LANDING_UMAMI_WEBSITE_ID = "umami-test-id";
     process.env.LANDING_GTM_ID = "GTM-TEST123";
     try {
       const body = await (await app.request("/")).text();
-      expect(body).toContain("window.__POSTSTACK_ANALYTICS__=");
-      expect(body).toContain("umami-test-id");
-      expect(body).toContain("GTM-TEST123");
+      expect(body).not.toContain("window.__POSTSTACK_ANALYTICS__=");
+      expect(body).not.toContain("umami-test-id");
+      expect(body).not.toContain("GTM-TEST123");
     } finally {
       delete process.env.LANDING_UMAMI_WEBSITE_ID;
       delete process.env.LANDING_GTM_ID;

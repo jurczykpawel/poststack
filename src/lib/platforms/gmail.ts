@@ -15,7 +15,7 @@ import {
   resolveGoogleApp,
 } from "./google-oauth";
 
-const SCOPES = [
+export const GMAIL_OAUTH_SCOPES = [
   "openid",
   "email",
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -85,7 +85,7 @@ export class GmailProvider extends EmailProvider {
   async generateAuthUrl(state: string, redirectUri: string): Promise<string> {
     // resolveGoogleApp ignores workspaceId in v1 (instance-level env) — "" is fine.
     const app = await resolveGoogleApp("");
-    return buildGoogleAuthUrl(app, redirectUri, state, SCOPES);
+    return buildGoogleAuthUrl(app, redirectUri, state, GMAIL_OAUTH_SCOPES);
   }
 
   async authenticate(code: string, redirectUri: string): Promise<ConnectedAccount[]> {

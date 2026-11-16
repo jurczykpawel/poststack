@@ -117,16 +117,11 @@ test("compose media URL fills the phone form", async ({ page }) => {
   expect(geometry.label).toBeGreaterThanOrEqual(geometry.row - 2);
 });
 
-test("privacy cookie table scrolls within the phone page", async ({ page }) => {
+test("privacy content fits within the phone page", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await gotoOk(page, "/privacy");
-  const geometry = await page.locator(".cookie-table").evaluate((el) => ({
-    page: document.documentElement.scrollWidth,
-    viewport: window.innerWidth,
-    overflow: getComputedStyle(el.parentElement!).overflowX,
-  }));
-  expect(geometry.page).toBeLessThanOrEqual(geometry.viewport);
-  expect(geometry.overflow).toBe("auto");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy Policy");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("incoming webhook callback wraps within the phone page", async ({ page }, testInfo) => {

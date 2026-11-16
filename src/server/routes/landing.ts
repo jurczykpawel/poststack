@@ -2,22 +2,22 @@ import { Hono } from "hono";
 import { authenticate } from "@/lib/auth";
 import { serveLandingFile } from "../ui/landing";
 
-// Public marketing homepage. The built Astro site (landing/dist) is served at `/` and its assets.
-// LANDING1: `/` shows the landing to logged-out visitors (the public face of the product), while a
-// logged-in visitor is sent straight to the panel — same as the pre-landing home behaviour.
+import { PUBLIC_PAGES } from "../ui/public-site/pages";
+import { renderPublicPage } from "../ui/public-site/site";
+
 export const landingRoutes = new Hono();
-
-landingRoutes.get("/", async (c) => {
-  const auth = await authenticate(c.req.raw).catch(() => null);
-  if (auth) return c.redirect("/overview");
-  return serveLandingFile(c, "index.html");
-});
-
-// Static marketing sub-pages (Astro emits <page>/index.html). Public, no auth redirect.
-landingRoutes.get("/privacy", (c) => serveLandingFile(c, "privacy/index.html"));
-landingRoutes.get("/privacy/", (c) => serveLandingFile(c, "privacy/index.html"));
-landingRoutes.get("/terms", (c) => serveLandingFile(c, "terms/index.html"));
-landingRoutes.get("/terms/", (c) => serveLandingFile(c, "terms/index.html"));
+for (const page of PUBLIC_PAGES) {
+  const handler = async (c: import("hono").Context) => {
+    if (page.path === "/") {
+      const auth = await authenticate(c.req.raw).catch(() => null);
+      if (auth) return c.redirect("/overview");
+    }
+    c.header("Cache-Control", "private, no-store");
+    return c.html(await renderPublicPage(page));
+  };
+  landingRoutes.get(page.path, handler);
+  if (page.path !== "/") landingRoutes.get(`${page.path}/`, handler);
+}
 
 landingRoutes.get("/_astro/*", (c) => serveLandingFile(c, c.req.path.replace(/^\//, "")));
 

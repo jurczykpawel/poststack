@@ -1,5 +1,4 @@
-import { isWhiteLabel } from "@/lib/brand";
-import { brandedLanding, brandedDiscovery } from "./landing-branding";
+import { brandedDiscovery } from "./landing-branding";
 import type { Context } from "hono";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
@@ -30,33 +29,6 @@ const MIME: Record<string, string> = {
  * (no leading slash). Path-traversal guarded and extension-allowlisted, mirroring serveAsset.
  * Astro fingerprints `_astro/*` so those are cached immutable; everything else must-revalidate.
  */
-/**
- * Runtime analytics config for the landing, read from the app's environment at request time.
- * Self-hosted-friendly: the public image ships with NO tracking IDs baked in; an operator turns
- * analytics on purely via env (so test/prod differ by their compose env, not by the image). When
- * none are set, nothing is injected and the landing loads zero trackers / no consent UI.
- */
-function landingAnalyticsConfig(): Record<string, string> {
-  const cfg: Record<string, string> = {};
-  const gtmId = process.env.LANDING_GTM_ID?.trim();
-  const umamiId = process.env.LANDING_UMAMI_WEBSITE_ID?.trim();
-  const umamiSrc = process.env.LANDING_UMAMI_SRC?.trim();
-  if (gtmId) cfg.gtmId = gtmId;
-  if (umamiId) cfg.umamiId = umamiId;
-  if (umamiSrc) cfg.umamiSrc = umamiSrc;
-  return cfg;
-}
-
-// Inject the runtime analytics config as a global, before any of the landing's own head scripts run.
-// `<` is escaped so an ID can never break out of the <script> element.
-function injectAnalyticsConfig(html: string): string {
-  const cfg = landingAnalyticsConfig();
-  if (Object.keys(cfg).length === 0) return html;
-  const json = JSON.stringify(cfg).replace(/</g, "\\u003c");
-  const tag = `<script>window.__POSTSTACK_ANALYTICS__=${json}</script>`;
-  return html.replace("<head>", `<head>${tag}`);
-}
-
 export async function serveLandingFile(c: Context, rel: string): Promise<Response> {
   const safe = normalize(rel).replace(/^(\.\.(\/|\\|$))+/, "");
   if (!/^[\w./-]+$/.test(safe) || safe.includes("..")) return c.notFound();
@@ -68,13 +40,8 @@ export async function serveLandingFile(c: Context, rel: string): Promise<Respons
     const cache = safe.startsWith("_astro/")
       ? "public, max-age=31536000, immutable"
       : "public, max-age=0, must-revalidate";
-    const discovery = isWhiteLabel() ? await brandedDiscovery(safe) : null;
+    const discovery = await brandedDiscovery(safe);
     if (discovery !== null) return c.body(discovery, 200, { "content-type": type, "cache-control": cache });
-    if (ext === ".html") {
-      const source = await readFile(join(ROOT(), safe), "utf8");
-      const html = isWhiteLabel() ? await brandedLanding(source, safe) : injectAnalyticsConfig(source);
-      return c.body(html, 200, { "content-type": type, "cache-control": cache });
-    }
     const body = await readFile(join(ROOT(), safe));
     return c.body(body, 200, { "content-type": type, "cache-control": cache });
   } catch {

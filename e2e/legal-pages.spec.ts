@@ -1,56 +1,31 @@
 import { test, expect } from "@playwright/test";
+import { PUBLIC_PAGES } from "../src/server/ui/public-site/pages";
 
-// Public pages must remain usable without a dashboard session or opening the mobile menu.
 test.use({ storageState: { cookies: [], origins: [] } });
-
 for (const width of [1440, 390]) {
-  for (const path of ["/", "/privacy", "/terms"]) {
-    test(`public legal navigation at ${path} (${width}px)`, async ({ page, baseURL }, testInfo) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      await page.route("**/*", (route) => {
-        if (new URL(route.request().url()).origin === new URL(baseURL!).origin) {
-          return route.continue();
-        }
-        return route.abort();
-      });
+  test(`public instance navigation and contact (${width}px)`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    for (const { path, title } of PUBLIC_PAGES) {
       const response = await page.goto(path);
       expect(response?.status()).toBe(200);
-      const footer = page.locator("footer");
-      await footer.getByRole("link", { name: "Privacy", exact: true }).scrollIntoViewIfNeeded();
-      for (const [label, href] of [["Privacy", "/privacy"], ["Terms", "/terms"]]) {
-        const link = footer.getByRole("link", { name: label, exact: true });
-        await expect(link).toBeVisible();
-        await expect(link).toHaveAttribute("href", href);
-        await expect(link).toBeInViewport();
-        expect(await link.evaluate((el) => el.closest("details") === null)).toBe(true);
+      expect(await response!.text()).not.toContain("kontakt@techskills.academy");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
+      await expect(page.locator("header").getByRole("link", { name: "Open the app" })).toHaveAttribute("href", "/login");
+      for (const region of ["header", "footer"]) {
+        for (const p of PUBLIC_PAGES) await expect(page.locator(region).getByRole("link", { name: p.label, exact: true })).toBeVisible();
       }
-      const dimensions = await page.evaluate(() => ({
-        content: document.documentElement.scrollWidth,
-        viewport: document.documentElement.clientWidth,
-      }));
-      expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport);
-
-      if (path === "/") {
-        await expect(page.locator("#capabilities")).toContainText(/publish|schedul/i);
-        await expect(page.locator("main")).toContainText("TikTok");
-      } else {
-        await page.evaluate(() => window.scrollTo(0, 0));
-        await expect(page.locator("header").getByRole("link", { name: "PostStack home" })).toBeInViewport();
-        await expect(page.locator("header").getByRole("img", { name: "PostStack logo" })).toBeVisible();
-        const favicon = page.locator('link[rel="icon"]');
-        await expect(favicon).toHaveAttribute("href", "/favicon.svg");
-        expect((await page.request.get("/favicon.svg")).status()).toBe(200);
-        await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-          path === "/terms" ? "Terms of Service" : "Privacy Policy",
-        );
-        await expect(page.locator("main")).toContainText("TikTok");
-        await expect(page.locator("main")).toContainText("kontakt@techskills.academy");
-        await page.screenshot({ path: testInfo.outputPath(`${path.slice(1)}-${width}.png`), fullPage: true });
+      const links = await page.locator('a[href^="/"]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("href")!))]);
+      for (const link of links) expect((await request.get(link)).status(), link).toBe(200);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (path === "/contact") {
+        await page.getByRole("button", { name: "Show contact email" }).click();
+        await expect(page.getByRole("link", { name: "kontakt@techskills.academy" })).toHaveAttribute("href", "mailto:kontakt@techskills.academy");
       }
-      await footer.getByRole("link", { name: path === "/terms" ? "Privacy" : "Terms", exact: true }).click();
-      await expect(page).toHaveURL(path === "/terms" ? /\/privacy$/ : /\/terms$/);
-      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    });
-  }
+      if (path === "/" || path === "/privacy") {
+        await page.screenshot({ path: testInfo.outputPath(`public-${path === "/" ? "home" : "privacy"}-${width}.png`), fullPage: true });
+      }
+    }
+    await page.locator("header").getByRole("link", { name: "Features", exact: true }).click();
+    await expect(page).toHaveURL(/\/features$/);
+  });
 }
