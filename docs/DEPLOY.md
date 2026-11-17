@@ -377,3 +377,7 @@ to FILE_UPLOAD; **photo posts (1–35 WebP/JPEG images, ≤ 20 MB each) have no 
 a photo URL outside the prefix is rejected with a clear error before anything is sent to TikTok.
 Until the app passes TikTok review (sandbox/unaudited), Direct Posts are visible only to the
 creator (*Only me*), and TikTok returns no public post id for them.
+
+### Public operator contact
+
+Set `OPERATOR_EMAIL=operator@example.com` to publish this instance’s contact on `/contact` in standard mode. The value must be a valid email address; invalid values stop startup. If unset or empty, the page asks visitors to “contact the administrator of this instance” and shows no address. Other public pages link to `/contact`. White-label instances continue to use the contact email from their branding settings. The product attribution in the footer is independent of the operator contact.

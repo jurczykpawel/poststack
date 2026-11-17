@@ -10,6 +10,8 @@ export const historyRetentionField = z.coerce
   .default(60)
   .refine((n) => n === 0 || n >= 30, "HISTORY_RETENTION_DAYS must be 0 (off) or >= 30");
 
+export const operatorEmailField = z.union([z.literal(""), z.email().max(254)]).default("");
+
 const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1),
@@ -31,6 +33,7 @@ const envSchema = z.object({
 
   // App
   APP_URL: z.string().url(),
+  OPERATOR_EMAIL: operatorEmailField,
 
   // Reverse-proxy trust. "" (default) = only trust X-Real-IP / the rightmost
   // X-Forwarded-For hop (the proxy's own value). Set "cloudflare" ONLY when

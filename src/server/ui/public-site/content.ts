@@ -1,10 +1,11 @@
 import { html } from "hono/html";
-import { currentBrand } from "@/lib/brand";
+import { currentBrand, isWhiteLabel } from "@/lib/brand";
 import { publicSiteOrigin, type PublicPage } from "./pages";
 import type { PublicSiteConfig } from "./config";
 
 export function publicContent(page: PublicPage, config: PublicSiteConfig) {
   const brand = currentBrand();
+  const contactEmail = isWhiteLabel() ? brand.contactEmail : config.operatorEmail;
   const has = (id: string) => config.integrations.some(i => i.id === id);
   const workflow = html`
     <section>
@@ -32,8 +33,8 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
       <h2>History and retention</h2>
       <p>${config.retentionDays === 0 ? "Automatic history compaction is disabled for this instance." : html`This instance has a ${config.retentionDays}-day history compaction window. Older webhook, reaction and response-metric details can be replaced by aggregate statistics.`} This setting does not erase all stored content or all personal data. Message retention is configured separately for each workspace, and active workflow records can remain where needed for ongoing delivery. <a href="/contact">Contact the operator</a> about media storage, correspondence and backup retention.</p>
     </section>`;
-  const contact = html`
-      <p>Use the <button class="contact-email" type="button" data-contact="${Array.from(brand.contactEmail, c => c.codePointAt(0)).join(",")}">Show contact email</button> to write to the operator of ${brand.name}. The address becomes a clickable email link when JavaScript is available. <noscript>The contact address is ${brand.contactEmail.replace("@", " [at] ").replaceAll(".", " [dot] ")}.</noscript></p>`;
+  const contact = contactEmail ? html`
+      <p>Use the <button class="contact-email" type="button" data-contact="${Array.from(contactEmail, c => c.codePointAt(0)).join(",")}">Show contact email</button> to write to the operator of ${brand.name}. The address becomes a clickable email link when JavaScript is available. <noscript>The contact address is ${contactEmail.replace("@", " [at] ").replaceAll(".", " [dot] ")}.</noscript></p>` : html`<p>Please contact the administrator of this instance for assistance and data requests.</p>`;
   const deletion = html`
     <section>
       <h2>Disconnect a channel</h2>

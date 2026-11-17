@@ -149,7 +149,7 @@ npm run worker
 
 ### Clean worktree: start and verify
 
-Run `npm run verify:local` from a clean checkout with Node >=22.12, npm, Bun and Docker Compose v2 available (Docker running). No `.env` or real provider keys are needed. The command installs locked dependencies and Chromium, starts an isolated PostgreSQL container on loopback **55479**, migrates and seeds the E2E workspace, starts the app on **3397** (captcha server: **3398**), and runs the Chromium section sweep in FREE and PRO, auth unit tests and section integration tests. It saves a full-page authenticated dashboard screenshot to **`/private/tmp/poststack-verify.png`**. External publishing and the worker are not started; licenses use the existing offline test fixture and telemetry is disabled.
+Run `npm run verify:local` from a clean checkout with Node >=22.12, npm, Bun and Docker Compose v2 available (Docker running). No `.env` or real provider keys are needed. The command installs locked dependencies, builds `landing/dist`, installs Chromium, starts an isolated PostgreSQL container on loopback **55479**, migrates and seeds the E2E workspace, starts the app on **3397** (captcha server: **3398**), and runs the Chromium section sweep in FREE and PRO, auth unit tests and section integration tests. It saves a full-page authenticated dashboard screenshot to **`/private/tmp/poststack-verify.png`**. External publishing and the worker are not started; licenses use the existing offline test fixture and telemetry is disabled.
 
 Override `E2E_PORT`, `CAPTCHA_E2E_PORT`, `E2E_PG_PORT`, or `E2E_SCREENSHOT` before the command if needed. Only one verification run at a time. Servers stop and the temporary Compose project and its database volume are removed automatically on success or failure; **Ctrl+C** stops an active run. After a forced kill, find its `poststack-verify-*` project with `docker compose ls`, then run `docker compose --env-file /dev/null -p <project> down --volumes` from this checkout.
 
@@ -166,6 +166,7 @@ See `.env.example`. Required:
 | `META_APP_SECRET` | Facebook App Secret |
 | `INSTAGRAM_APP_ID` | Optional. Instagram app ID for **Instagram Business Login** (connect one IG account directly; IG DMs at Standard Access). Distinct from `META_APP_ID`. |
 | `INSTAGRAM_APP_SECRET` | Optional. Instagram app secret for Instagram Business Login. Also a valid webhook-signature secret (dual-secret verify). Distinct from `META_APP_SECRET`. |
+| `OPERATOR_EMAIL` | Optional. Valid email shown on `/contact` in standard mode. Unset/empty: ask the instance administrator, without an address. White-label uses its branding contact. |
 | `APP_URL` | Public URL (for OAuth redirect + webhook URL display) |
 | `AI_PROVIDER` | Optional. `openai` \| `anthropic` \| `openrouter` \| `groq` \| `custom`; presets bring their own Base URL (Claude is called natively via `/v1/messages`). Unset = inferred from `AI_BASE_URL`. Normally set from Settings → Integrations → AI provider or `PUT /api/v1/settings/ai` (scope `instance_ai:write`, operator only). |
 | `AI_ALLOWED_PRIVATE_TARGETS` | Optional. AI provider calls are public-only; a custom Base URL on loopback/private/CGNAT (Ollama, LM Studio) must be listed here (hosts, IPs, IPv4 CIDRs, optional `:port`). Link-local/cloud metadata always blocked. |

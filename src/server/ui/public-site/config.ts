@@ -1,5 +1,5 @@
 import { getConfig } from "@/lib/settings/config";
-import { historyRetentionField } from "@/lib/env";
+import { historyRetentionField, operatorEmailField } from "@/lib/env";
 import { getProvider, listProviders } from "@/lib/providers";
 import { GMAIL_OAUTH_SCOPES } from "@/lib/platforms/gmail";
 import { FACEBOOK_OAUTH_SCOPES } from "@/lib/platforms/facebook";
@@ -31,6 +31,6 @@ export async function publicSiteConfig() {
     if (youtube) youtube.scopes = [...youtube.scopes, YOUTUBE_OAUTH_SCOPE];
     else integrations.push({ id: "youtube", name: "YouTube", scopes: [YOUTUBE_OAUTH_SCOPE], formats: [] });
   }
-  return { integrations, retentionDays: historyRetentionField.parse(process.env.HISTORY_RETENTION_DAYS) };
+  return { integrations, operatorEmail: operatorEmailField.parse(process.env.OPERATOR_EMAIL), retentionDays: historyRetentionField.parse(process.env.HISTORY_RETENTION_DAYS) };
 }
 export type PublicSiteConfig = Awaited<ReturnType<typeof publicSiteConfig>>;

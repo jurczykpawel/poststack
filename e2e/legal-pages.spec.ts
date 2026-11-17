@@ -35,7 +35,7 @@ for (const width of [1440, 390]) {
       }
       if (path === "/contact") {
         await page.getByRole("button", { name: "Show contact email" }).click();
-        await expect(page.getByRole("link", { name: "kontakt@techskills.academy" })).toHaveAttribute("href", "mailto:kontakt@techskills.academy");
+        await expect(page.getByRole("link", { name: "operator@example.com" })).toHaveAttribute("href", "mailto:operator@example.com");
       }
       if (path === "/" || path === "/privacy" || path === "/features") {
         await page.screenshot({ path: testInfo.outputPath(`public-${path === "/" ? "home" : path.slice(1)}-${width}.png`), fullPage: true });

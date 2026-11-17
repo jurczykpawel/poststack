@@ -32,6 +32,7 @@ export function serverEnv(): Record<string, string> {
     // Live reads: the nav counter memo must not hide rows a spec seeds moments earlier.
     STATS_CACHE_TTL_MS: "0",
     BRAND_NAME: "PostStack",
+    OPERATOR_EMAIL: "operator@example.com",
     // 32+ char secrets (validated at boot).
     ENCRYPTION_KEY: "e2e-encryption-key-0123456789abcdef0123456789",
     JWT_SECRET: "e2e-jwt-secret-0123456789abcdef0123456789abcdef",
