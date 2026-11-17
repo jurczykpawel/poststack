@@ -50,7 +50,7 @@
     "@modelcontextprotocol/client": "^2.4.0",
     "@playwright/test": "1.65.0",
     "@types/html-to-text": "^9.0.4",
-    "@types/node": "^25.9.9",
+    "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "eslint": "^10.14.0",
