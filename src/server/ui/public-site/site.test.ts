@@ -16,6 +16,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe("instance public pages", () => {
   it("presents a product illustration and instance access guidance without a tall bare capture", async () => {
     const home = await (await landingRoutes.request("/")).text();
+    expect(home.match(/src="\/favicon.svg" alt="PostStack"/g)).toHaveLength(2);
     expect(home).toContain('class="workspace-illustration"');
     expect(home).toContain('Example workflow');
     expect(home).toContain('Access to this instance');

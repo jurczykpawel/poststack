@@ -18,20 +18,21 @@ describe("dashboard shell brand", () => {
     vi.resetModules();
   });
 
-  async function renderBrand(name?: string): Promise<string> {
+  async function renderBrand(name?: string, logoUrl = ""): Promise<string> {
     vi.resetModules();
     const { dashboardDoc } = await import("./layout");
     const { html } = await import("hono/html");
     const { withBrand, DEFAULT_BRAND } = await import("@/lib/brand");
     const render = () => dashboardDoc("T", "/overview", html`<p>x</p>`);
-    const out = await (name ? withBrand({ ...DEFAULT_BRAND, name }, render) : render());
+    const out = await (name ? withBrand({ ...DEFAULT_BRAND, name, logoUrl }, render) : render());
     return out.toString();
   }
 
-  it("renders the default brand PostStack in the sidebar (glyph + name)", async () => {
+  it("renders the default brand PostStack in the sidebar (logo + name)", async () => {
     delete process.env.BRAND_NAME;
     const out = await renderBrand();
-    expect(out).toContain(`<span class="brand-glyph">P</span>PostStack`);
+    expect(out).toContain('src="/favicon.svg" alt="PostStack"');
+    expect(out).not.toContain('<span class="brand-glyph">P</span>');
   });
 
   it("flips the rendered brand in the resolved instance context", async () => {
@@ -39,6 +40,13 @@ describe("dashboard shell brand", () => {
     const out = await renderBrand("Acme Social");
     expect(out).toContain(`<span class="brand-glyph">A</span>Acme Social`);
     expect(out).not.toContain("PostStack");
+  });
+
+  it("keeps the configured white-label logo", async () => {
+    const out = await renderBrand("Acme Social", "/acme.svg");
+    expect(out).toContain('src="/acme.svg" alt="Acme Social"');
+    expect(out).not.toContain('src="/favicon.svg"');
+    expect(out).not.toContain('class="brand-glyph"');
   });
 
   it("uses the first complete character for the fallback logo", async () => {

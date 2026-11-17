@@ -17,11 +17,13 @@ if (!process.env.FONTCONFIG_FILE) {
   } finally { await rm(temporary, { recursive: true, force: true }); }
 } else {
   const { default: sharp } = await import("sharp");
+  const logo = await sharp("landing/public/favicon.svg", { density: 288 }).resize(64, 64).png().toBuffer();
+  await sharp("landing/public/favicon.svg", { density: 2304 }).resize(1024, 1024).png().toFile("landing/public/poststack-icon-1024.png");
   for (const page of PUBLIC_PAGES) {
     const title = await sharp({ text: { text: `<span foreground="#2A5BC2">${escape(page.title)}</span>`, font: "Geologica 68", fontfile: join(process.cwd(), "src/server/ui/static/public-site/geologica-var.woff2"), width: 1000, rgba: true } }).png().toBuffer();
     const caption = await sharp({ text: { text: `<span foreground="#55556A">// ${escape(locale.signature)}</span>`, font: "Source Sans 3 28", fontfile: join(process.cwd(), "src/server/ui/static/public-site/source-sans-3-var.woff2"), rgba: true } }).png().toBuffer();
     await sharp({ create: { width: 1200, height: 630, channels: 4, background: "#F5F5F0" } })
-      .composite([{ input: title, left: 80, top: 220 }, { input: caption, left: 80, top: 100 }])
+      .composite([{ input: logo, left: 80, top: 80 }, { input: title, left: 80, top: 220 }, { input: caption, left: 168, top: 100 }])
       .png().toFile(`landing/public/public-site-${page.path.slice(1) || "home"}.png`);
   }
 }
