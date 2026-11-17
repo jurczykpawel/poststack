@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
 
@@ -53,10 +53,16 @@ beforeAll(async () => {
   cookie = `session=${await signSession(USER, WS)}`;
 });
 
-beforeEach(async () => {
+async function cleanup() {
   if (!TEST_DB) return;
   for (const id of [WS, OTHER_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, id));
   await db.delete(s.users).where(eq(s.users.id, USER));
+}
+afterAll(cleanup);
+
+beforeEach(async () => {
+  if (!TEST_DB) return;
+  await cleanup();
   await db.insert(s.users).values({ id: USER, email: `u-${USER}@test.local` });
   await db.insert(s.workspaces).values([{ id: WS, name: "A", slug: `a-${WS}` }, { id: OTHER_WS, name: "B", slug: `b-${OTHER_WS}` }]);
   await db.insert(s.workspaceMembers).values({ workspace_id: WS, user_id: USER, role: "owner" });

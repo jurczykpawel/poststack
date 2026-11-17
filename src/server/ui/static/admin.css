@@ -1542,7 +1542,7 @@ a.msg-chip.msg-media:hover { border-color: var(--accent); }
 
 /* Email mode: stacked email cards (from avatar + name/address + date, then the body). */
 .email-list { padding: 16px; gap: 14px; }
-.email { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+.email { flex: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
 .email-head { display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .email-from-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; color: white; font-weight: 600; font-size: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
 .email-meta { min-width: 0; flex: 1; }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
@@ -10,9 +10,9 @@ let s: typeof import("@/db/schema");
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let GET: typeof import("./route").GET;
 
-const WS = "aaaaaaaa-0000-4000-8000-0000000000c1";
-const CH_FB = "aaaaaaaa-0000-4000-8000-0000000000c2";
-const CH_IG = "aaaaaaaa-0000-4000-8000-0000000000c3";
+const WS = randomUUID();
+const CH_FB = randomUUID();
+const CH_IG = randomUUID();
 
 const realFetch = globalThis.fetch;
 let lastUrl = "";
