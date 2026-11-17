@@ -9,7 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-- Meta: Graph API v27.0 for Facebook and Instagram (strict live probe passed for every surface except the Instagram DM send, which is verified manually on TEST).
+## [0.25.0] - 2026-11-17
+
+- Meta: Graph API v27.0 for Facebook and Instagram (strict live probe passed for every surface except the Instagram DM send, verified manually on TEST: DM reply sent through v27).
 
 ### Fixed
 - Keep Gmail email cards fully readable in shorter inbox thread panels.
