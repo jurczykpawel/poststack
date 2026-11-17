@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+- Redesigned the instance public website with TSA typography and themes, illustrated publishing workflows, clearer navigation and responsive service documents. Instance branding continues to supply its own identity and accent.
+
 ## [0.25.0] - 2026-11-17
 
 - Meta: Graph API v27.0 for Facebook and Instagram (strict live probe passed for every surface except the Instagram DM send, verified manually on TEST: DM reply sent through v27).

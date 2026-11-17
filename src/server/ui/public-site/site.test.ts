@@ -14,6 +14,21 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe("instance public pages", () => {
+  it("presents a product illustration and instance access guidance without a tall bare capture", async () => {
+    const home = await (await landingRoutes.request("/")).text();
+    expect(home).toContain('class="workspace-illustration"');
+    expect(home).toContain('Example workflow');
+    expect(home).toContain('Access to this instance');
+    expect(home).toContain('class="site-menu"');
+  });
+  it("applies configured colours and logo to the public theme", async () => {
+    const body = await withBrand({ ...DEFAULT_BRAND, name: "Orchard", accent: "#286541", logoUrl: "/orchard.svg", footer: "Orchard workspace" }, async () => (await landingRoutes.request("/")).text());
+    expect(body).toContain('--site-accent:#286541');
+    expect(body).toContain('--site-cta:#286541');
+    expect(body).toContain('src="/orchard.svg"');
+    expect(body).not.toContain('TechSkills Academy');
+  });
+
   it("serves distinct, substantive pages with complete navigation and reachable links", async () => {
     const mains = new Set<string>();
     for (const path of paths) {

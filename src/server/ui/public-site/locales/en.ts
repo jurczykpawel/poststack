@@ -1,7 +1,20 @@
 import { html } from "hono/html";
 import { currentBrand, isWhiteLabel } from "@/lib/brand";
-import { publicSiteOrigin, type PublicPage } from "./pages";
-import type { PublicSiteConfig } from "./config";
+import type { PublicPage } from "../pages";
+import { publicSiteOrigin } from "../origin";
+import type { PublicSiteConfig } from "../config";
+
+export const pages = [
+  { path: "/", label: "Home", title: "Your publishing workspace" },
+  { path: "/how-it-works", label: "How it works", title: "From your content to your channels" },
+  { path: "/features", label: "Features", title: "Tools available in this instance" },
+  { path: "/faq", label: "FAQ", title: "Frequently asked questions" },
+  { path: "/about", label: "About", title: "About this instance" },
+  { path: "/contact", label: "Contact", title: "Contact the instance operator" },
+  { path: "/privacy", label: "Privacy", title: "Privacy Policy" },
+  { path: "/terms", label: "Terms", title: "Terms of Service" },
+  { path: "/data-deletion", label: "Data deletion", title: "Request and manage data deletion" },
+] as const;
 
 export function publicContent(page: PublicPage, config: PublicSiteConfig) {
   const brand = currentBrand();
@@ -47,25 +60,22 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
       <p>Do not send passwords or authorisation credentials. The operator can explain which records have been removed, what remains and how retained backups are handled. Deletion from this instance does not delete data already processed by a connected platform under its own policies.</p>
     </section>`;
   switch (page.path) {
-    case "/": return html`<p class="lead">${brand.name} is a publishing and conversation workspace for creators and authorised account managers working with their own accounts.</p>
-    ${has("tiktok") ? html`<figure><img src="/public-compose-tiktok.webp" width="658" height="1066" alt="Example TikTok composer showing Demo Creator, audience selection, interaction controls and submission consent" /><figcaption>Example workspace with demonstration data: review the creator identity, audience, interactions and consent before submitting a TikTok post.</figcaption></figure>` : ""}
-    <section>
-      <h2>Bring your content together</h2>
-      <p>Use a workspace to keep the material for your next post in one place. Add media, write captions and choose which connected account will receive the content. Drafts give you space to prepare a message before deciding when it should reach your audience.</p>
-      <p>The composer presents the choices for the selected destination alongside your content. You can inspect the media, adjust the caption and check the account identity before submitting. Read <a href="/how-it-works">How it works</a> for account connection, approval and scheduling steps.</p>
-    </section>
-    <section>
-      <h2>See what happens after submission</h2>
-      <p>Follow a post from preparation through delivery in the queue. Status information helps you distinguish work that is waiting, processing or completed. When a destination needs attention, open its delivery record to read the result and decide your next action.</p>
-      <p>For supported messaging connections, the workspace also brings conversations and contact records together. Reply tools help you handle incoming questions alongside your publishing work. Visit <a href="/features">Features</a> to explore the connections configured here, or <a href="/faq">FAQ</a> for common account questions.</p>
-    </section>`;
-    case "/how-it-works": return html`<p class="lead">Follow the full journey from account authorisation to checking a delivery result.</p>${workflow}
+    case "/": return html`
+    <section class="feature-story"><div><p class="eyebrow">From idea to ready</p><h2>Give your next post a place to take shape.</h2>
+      <p>Keep media and captions together in Content, then open Compose to choose a destination. Prepare a draft at your own pace and check the account before you send.</p>
+      <p>For creators and authorised account managers, ${brand.name} brings preparation and publishing into one workspace. <a href="/how-it-works">See the publishing steps</a>.</p></div>
+      <figure class="content-illustration"><div class="micro-label">Content / Example draft</div><div class="content-sample"><div class="media-art" aria-hidden="true"><span></span><i></i><b>Made<br />to share.</b></div><div><span class="status">Draft</span><h3>Your next post</h3><div class="caption-lines" aria-hidden="true"><i></i><i></i><i></i></div><strong>Media + caption</strong><p>Ready for Compose</p></div></div><figcaption>Prepare a draft before choosing when to publish.</figcaption></figure></section>
+    ${has("tiktok") ? html`<section class="feature-story capture-story"><div><p class="eyebrow">A closer look</p><h2>Check the details before they go live.</h2><p>Compose puts the creator identity and publishing choices alongside your content. For TikTok, review the audience, interaction controls and consent before submitting.</p><p>Direct Post sends your approved instruction. Upload to inbox leaves the final publication step to you in TikTok.</p><a href="/how-it-works">Understand review and approval →</a></div>
+      <figure class="capture"><div class="capture-label">Compose / TikTok</div><div class="capture-options"><img src="/public-compose-tiktok.webp" width="658" height="1066" alt="Example TikTok composer showing Demo Creator, audience selection, interaction controls and submission consent" loading="lazy" decoding="async" /></div><div class="capture-label">Your confirmation before submission</div><div class="capture-consent"><img src="/public-compose-tiktok.webp" width="658" height="1066" alt="TikTok submission consent, confirmed in the example workspace" loading="lazy" decoding="async" /></div><figcaption>Details from the real composer, with demonstration data. Your account determines the available choices.</figcaption></figure></section>` : ""}
+    <section class="feature-story"><div><p class="eyebrow">After you confirm</p><h2>Know where each post stands.</h2><p>Follow the delivery in Queue. See what is scheduled, what has been published and what needs your attention. Open a record to inspect the result before deciding to retry.</p><p>Supported messaging connections also bring conversations, contacts and replies into the workspace. A publishing connection does not automatically include a message inbox.</p><a href="/faq">Read common account questions →</a></div>${deliveryIllustration()}</section>
+    <section class="access-note"><h2>${locale.access}</h2><p>${locale.accessText}</p><a href="/contact">Contact the operator →</a></section>`;
+    case "/how-it-works": return html`<p class="lead">Follow the full journey from account authorisation to checking a delivery result.</p>${processIllustration()}${workflow}
     <section>
       <h2>Check before confirming</h2>
       <p>Review the selected channel's identity and make sure the media and caption belong to the post you intend to send. Choose only the publishing settings available to that account. Include any commercial-content or other disclosure required for your material. If the application reports a validation problem, correct it before submitting again.</p>
       <p>After sending, open the queue to inspect the delivery. A submitted upload may still be processing at the destination. If a connection requires authorisation again, return to Channels and reconnect with the account you control. Check the result before manually retrying content whose publication status is uncertain.</p>
     </section>${scheduling}`;
-    case "/features": return html`<p class="lead">Prepare content, organise delivery and manage supported conversations using the connections listed below.</p>${integrations}
+    case "/features": return html`<div class="feature-overview"><div><p class="lead">Prepare content, organise delivery and manage supported conversations using the connections listed below.</p><h2>A place for every step.</h2><p>Keep drafts in Content. Choose a destination in Compose. Check each publishing result in Queue.</p><a href="/how-it-works">Follow the publishing workflow →</a></div>${workflowIllustration()}</div>${integrations}
     <section>
       <h2>Content and delivery</h2>
       <p>The content workspace holds media and captions before publication. Compose lets you select destinations and review the options for each. Immediate publishing and scheduling use the queue, which tracks each delivery separately. Platform validation can reject unsupported media or unavailable settings; check the reported result before assuming publication succeeded.</p>
@@ -81,6 +91,7 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
       <p>Available actions depend on the integration configured here, the permissions granted to your account and the platform's current limits. An expired connection may need authorisation again. Check the delivery message and <a href="/contact">contact the operator</a> if you cannot resolve the issue.</p>
       <h2>Does disconnecting erase my data?</h2>
       <p>It disables the connection and clears its saved credentials, but existing records and already published posts can remain. Read the data deletion page for the difference between disconnecting, requesting local erasure and removing a post on its destination platform.</p>
+      <h2>How do I get access, and what does it cost?</h2><p>Workspace access and any service charges are managed by the operator of this instance. Contact the operator to ask about the terms available to you before signing in.</p>
       <h2>How do scheduled posts work?</h2>
       <p>See <a href="/how-it-works">Scheduling and your approval</a> for the confirmation steps and what happens when a destination’s publishing choices change before delivery.</p>
     </section>`;
@@ -148,4 +159,36 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
     </section>`;
     case "/data-deletion": return html`<p class="lead">Choose the action that matches what you want removed from ${brand.name}.</p>${deletion}${has("tiktok") ? html`<p>To revoke TikTok access, open Settings and privacy in the TikTok app and remove this app from your app permissions.</p>` : ""}<p>Read <a href="/privacy">Privacy</a> for history and retention practices.</p>`;
   }
+}
+
+export const locale = {
+  lang: "en", skip: "Skip to content", menu: "Explore", mainNav: "Main", footerNav: "Footer",
+  app: "Open the app", signature: "Publishing & conversations", product: "Workspace", resources: "Service", legal: "Your data",
+  theme: "Change colour theme", light: "Light", dark: "Dark", system: "System",
+  overview: "Prepare. Review. Publish.", next: "Make room for your next post.",
+  nextText: "Sign in to prepare content and follow its delivery. Need a workspace? Ask your instance operator about access and service terms.",
+  description: (title: string, name: string) => `${title}. Explore ${name}: prepare content, review publishing choices, track delivery and manage supported conversations.`,
+  heroLead: (name: string) => `${name} brings content, publishing choices and delivery results together for creators and authorised account managers.`,
+  related: "Useful links", access: "Access to this instance", accessText: "Your instance operator manages workspace access and any service charges. Contact them for the terms that apply to you.",
+};
+
+export function workflowIllustration() {
+  return html`<figure class="workspace-illustration">
+    <div class="workspace-top"><span class="slashes" aria-hidden="true">//</span><span>Example workflow</span><span class="workspace-dot" aria-hidden="true"></span></div>
+    <div class="workspace-body"><div class="workspace-tabs"><span>Content</span><strong>Compose</strong><span>Queue</span></div>
+      <div class="compose-example"><div class="media-art" aria-hidden="true"><span></span><i></i><b>Made<br />to share.</b></div>
+      <div class="compose-copy"><span class="micro-label">Content → Compose</span><strong>A new idea, ready to go.</strong><p>Media and caption, together.<br />Your account. Your choices.</p><span class="sample-field">Review destination options</span><span class="sample-check">✓ Confirm your publishing choices</span></div></div>
+      <div class="queue-example"><div><span class="micro-label">Queue</span><strong>Follow every delivery</strong></div><span class="status">Scheduled</span><span class="status">Published</span></div>
+    </div><figcaption>Illustration of the publishing workflow. Available options depend on your connected account.</figcaption>
+  </figure>`;
+}
+export function deliveryIllustration() {
+  return html`<figure class="delivery-illustration"><div class="micro-label">Example delivery queue</div>
+    <div class="delivery-row"><span class="delivery-symbol" aria-hidden="true">✓</span><div><strong>Published</strong><span>Check the destination result</span></div></div>
+    <div class="delivery-row"><span class="delivery-symbol" aria-hidden="true">◷</span><div><strong>Scheduled</strong><span>Waiting for the chosen time</span></div></div>
+    <div class="delivery-row"><span class="delivery-symbol" aria-hidden="true">!</span><div><strong>Needs attention</strong><span>Open the record for details</span></div></div>
+    <figcaption>Each destination has its own delivery record and status.</figcaption></figure>`;
+}
+export function processIllustration() {
+  return html`<ol class="process-illustration"><li><span>01</span><strong>Connect</strong><p>Authorise your account.</p></li><li><span>02</span><strong>Compose</strong><p>Review content and choices.</p></li><li><span>03</span><strong>Confirm</strong><p>Send now or schedule.</p></li><li><span>04</span><strong>Check</strong><p>Read the delivery result.</p></li></ol>`;
 }
