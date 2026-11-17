@@ -11,9 +11,17 @@ for (const width of [1440, 390]) {
       expect(await response!.text()).not.toContain("kontakt@techskills.academy");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
       await expect(page.locator("header").getByRole("link", { name: "Open the app" })).toHaveAttribute("href", "/login");
-      for (const region of ["header", "footer"]) {
-        for (const p of PUBLIC_PAGES) await expect(page.locator(region).getByRole("link", { name: p.label, exact: true })).toBeVisible();
+      await page.locator("header summary").click();
+      const menu = page.locator("header").getByRole("navigation", { name: "Explore", exact: true });
+      await expect(menu).toBeVisible();
+      for (const region of [menu, page.locator("footer")]) {
+        for (const p of PUBLIC_PAGES) {
+          const link = region.getByRole("link", { name: p.label, exact: true });
+          await expect(link).toBeVisible();
+          await expect(link).toHaveAttribute("href", p.path);
+        }
       }
+      await page.locator("header summary").click();
       const links = await page.locator('a[href^="/"]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("href")!))]);
       for (const link of links) expect((await request.get(link)).status(), link).toBe(200);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -41,7 +49,8 @@ for (const width of [1440, 390]) {
         await page.screenshot({ path: testInfo.outputPath(`public-${path === "/" ? "home" : path.slice(1)}-${width}.png`), fullPage: true });
       }
     }
-    await page.locator("header").getByRole("link", { name: "Features", exact: true }).click();
+    await page.locator("header summary").click();
+    await page.locator("header").getByRole("navigation", { name: "Explore", exact: true }).getByRole("link", { name: "Features", exact: true }).click();
     await expect(page).toHaveURL(/\/features$/);
   });
 }

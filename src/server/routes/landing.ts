@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authenticate } from "@/lib/auth";
+import { serveAsset } from "../ui/assets";
 import { serveLandingFile } from "../ui/landing";
 
 import { PUBLIC_PAGES } from "../ui/public-site/pages";
@@ -18,6 +19,8 @@ for (const page of PUBLIC_PAGES) {
   landingRoutes.get(page.path, handler);
   if (page.path !== "/") landingRoutes.get(`${page.path}/`, handler);
 }
+
+landingRoutes.get("/static/public-site/:file", c => serveAsset(c, `public-site/${c.req.param("file")}`));
 
 landingRoutes.get("/_astro/*", (c) => serveLandingFile(c, c.req.path.replace(/^\//, "")));
 
