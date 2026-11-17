@@ -142,6 +142,21 @@ jobs:
         continue-on-error: true
         run: npm run typecheck
 
+      - name: Install ffmpeg + ffprobe (media and Story tests)
+        if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
+        # Same source as ci.yml: static BtbN build, apt fallback. Without it 4 media/Story unit tests fail (ENOENT).
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          url=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
+          if curl -fsSL --retry 3 --max-time 180 "$url" -o /tmp/ffmpeg.tar.xz; then
+            mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
+            echo /tmp/ffmpeg/bin >> "$GITHUB_PATH"
+          else
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ffmpeg
+          fi
+
       - name: Run contract and unit tests
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
         id: test
