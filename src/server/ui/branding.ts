@@ -3,8 +3,9 @@ import { currentBrand, isWhiteLabel } from "@/lib/brand";
 
 export function brandLogo() {
   const brand = currentBrand();
-  return brand.logoUrl
-    ? html`<img src="${brand.logoUrl}" alt="${brand.name}" width="32" height="32" style="object-fit:contain" />`
+  const logoUrl = brand.logoUrl || (!isWhiteLabel() ? "/favicon.svg" : "");
+  return logoUrl
+    ? html`<img src="${logoUrl}" alt="${brand.name}" width="32" height="32" style="object-fit:contain;flex-shrink:0" />`
     : html`<span class="brand-glyph">${(Array.from(brand.name)[0] ?? "").toUpperCase()}</span>`;
 }
 export function brandingHead() {
