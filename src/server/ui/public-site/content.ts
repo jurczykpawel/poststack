@@ -47,7 +47,7 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
     </section>`;
   switch (page.path) {
     case "/": return html`<p class="lead">${brand.name} is a publishing and conversation workspace for creators and authorised account managers working with their own accounts.</p>
-    ${has("tiktok") ? html`<figure><img src="/public-compose-tiktok.webp" width="658" height="1099" alt="Example TikTok composer showing Demo Creator, audience selection, interaction controls and submission consent" /><figcaption>Example workspace with demonstration data: review the creator identity, audience, interactions and consent before submitting a TikTok post.</figcaption></figure>` : ""}
+    ${has("tiktok") ? html`<figure><img src="/public-compose-tiktok.webp" width="658" height="1066" alt="Example TikTok composer showing Demo Creator, audience selection, interaction controls and submission consent" /><figcaption>Example workspace with demonstration data: review the creator identity, audience, interactions and consent before submitting a TikTok post.</figcaption></figure>` : ""}
     <section>
       <h2>Bring your content together</h2>
       <p>Use a workspace to keep the material for your next post in one place. Add media, write captions and choose which connected account will receive the content. Drafts give you space to prepare a message before deciding when it should reach your audience.</p>

@@ -53,7 +53,7 @@ export function tiktokPanel() {
       <video x-show="mediaUrl &amp;&amp; !tt.photo" :src="isOn('tiktok') &amp;&amp; !tt.photo ? mediaUrl : ''" :poster="coverUrl" controls preload="metadata" aria-label="TikTok video preview"
         style="width:100%;max-height:360px" @loadedmetadata="tt.videoDurationSec = $el.duration" @emptied="tt.videoDurationSec = 0"></video>
       <label class="fld"><span>TikTok caption</span><textarea rows="3" aria-label="TikTok caption" x-model="sel.tiktok.override" :placeholder="captionFor('tiktok')"  :maxlength="tt.photo ? 4000 : 2200"></textarea></label>
-      <p class="card-hint" x-text="captionFor('tiktok')"></p>
+      <p class="card-hint" x-show="!sel.tiktok.override.trim() &amp;&amp; captionFor('tiktok')" x-text="'Inherited caption: ' + captionFor('tiktok')"></p>
       <p>Processing may take a few minutes. Check the post's delivery status after submission.</p>
       <div x-show="publishMode !== 'draft'">
         <p x-show="publishMode === 'schedule'" x-text="tiktokScheduleText()" role="status"></p>

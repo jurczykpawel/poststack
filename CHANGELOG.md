@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Show the inherited TikTok caption only when the caption field is empty, with a clear label.
+
 ## [0.24.0] - 2026-11-16
 
 - Public website: distinct page content, a TikTok composer preview, configured TikTok data and publishing terms, and instance addresses derived from APP_URL. Platform permissions are shown only for TikTok.
