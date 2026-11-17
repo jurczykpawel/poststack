@@ -307,3 +307,28 @@ test("TikTok photo post: photo settings, verified prefix and scheduled consent",
   } finally { await client.end(); }
   expect(errors).toEqual([]);
 });
+
+for (const width of [390, 1440]) {
+  test(`home details remain readable at ${width}px without scripts`, async ({ browser }) => {
+    const context = await browser.newContext({ storageState: { cookies: [], origins: [] }, javaScriptEnabled: false, viewport: { width, height: 900 }, colorScheme: "light" });
+    const page = await context.newPage();
+    await page.goto("/");
+    for (const name of ["How it works", "Features"]) {
+      const link = page.getByRole("navigation", { name: "Main", exact: true }).getByRole("link", { name, exact: true });
+      await expect(link).toBeInViewport();
+      await link.click();
+      await expect(page).toHaveURL(name === "Features" ? /\/features$/ : /\/how-it-works$/);
+      await expect(page.locator("h1")).toBeVisible();
+      await page.goto("/");
+    }
+    await expect(page.locator(".media-art b", { hasText: /Made\s*to share\./ })).toHaveCount(1);
+    const fullSize = page.getByRole("link", { name: "Open full size", exact: true });
+    await expect(fullSize).toHaveAttribute("href", "/public-compose-tiktok.webp");
+    await fullSize.click();
+    await expect(page).toHaveURL(/\/public-compose-tiktok\.webp$/);
+    const image = page.locator("img");
+    await expect(image).toHaveJSProperty("complete", true);
+    expect(await image.evaluate((img: HTMLImageElement) => img.naturalWidth >= img.getBoundingClientRect().width && img.naturalWidth === 658)).toBe(true);
+    await context.close();
+  });
+}

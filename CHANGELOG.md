@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Keep key public navigation links visible on phones, provide the full-size composer preview, and remove repeated illustration text.
+
 ### Changed
 - Redesigned the instance public website with TSA typography and themes, illustrated publishing workflows, clearer navigation and responsive service documents. Instance branding continues to supply its own identity and accent.
 
