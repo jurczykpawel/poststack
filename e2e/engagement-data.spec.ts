@@ -59,7 +59,10 @@ for (const timezoneId of ["Europe/Warsaw", "America/Los_Angeles"]) {
       const expectedTime = timezoneId === "Europe/Warsaw" ? "25 Oct 2026, 02:30 · Europe/Warsaw" : "24 Oct 2026, 17:30 · America/Los_Angeles";
       await expect(date).toHaveText(expectedTime);
       await expect(rows(page).first().locator("[data-local-title]")).toHaveAttribute("title", expectedTime);
-      await page.reload({ waitUntil: "domcontentloaded" });
+      await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === "/nav/counts").then(response => response.finished()),
+        page.reload({ waitUntil: "domcontentloaded" }),
+      ]);
       await expect(page.locator(".dl-detail time[data-local-time]")).toHaveText(expectedTime);
       await gotoOk(page, "/engagement?brand=engdata-b");
       await expect(rows(page)).toHaveCount(1);
