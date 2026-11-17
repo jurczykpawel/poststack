@@ -29,6 +29,15 @@ function setEnv(over: Record<string, string | undefined>) {
 }
 
 describe("env validation", () => {
+  it.each(["not-an-email", "a@example.com?subject=hello", "a@example.com\r\nOther: value"])("rejects invalid OPERATOR_EMAIL %j at startup", async (email) => {
+    setEnv({ OPERATOR_EMAIL: email });
+    await expect(import("@/lib/env")).rejects.toThrow();
+  });
+  it.each([undefined, "", "operator@example.com"])("accepts optional OPERATOR_EMAIL %j", async (email) => {
+    setEnv({ OPERATOR_EMAIL: email });
+    const { env } = await import("@/lib/env");
+    expect(env).toHaveProperty("OPERATOR_EMAIL", email ?? "");
+  });
   it("accepts any passphrase >= 32 chars as ENCRYPTION_KEY (no hex constraint)", async () => {
     setEnv({ ENCRYPTION_KEY: "a non-hex but plenty long passphrase!!" });
     const { env } = await import("@/lib/env");

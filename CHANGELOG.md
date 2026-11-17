@@ -10,6 +10,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Fixed
+- Keep Gmail email cards fully readable in shorter inbox thread panels.
+- Build landing assets during `verify:local` so clean checkouts include public assets.
+- Use optional `OPERATOR_EMAIL` for the standard instance contact page; when unset, direct visitors to their instance administrator. White-label contact settings remain unchanged.
 - Show the inherited TikTok caption only when the caption field is empty, with a clear label.
 
 ## [0.24.0] - 2026-11-16

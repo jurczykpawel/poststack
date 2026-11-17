@@ -39,6 +39,34 @@ describe("instance public pages", () => {
     }
     expect(mains.size).toBe(paths.length);
   });
+  it("shows the configured standard operator contact only on the contact page", async () => {
+    vi.stubEnv("OPERATOR_EMAIL", "operator@example.com");
+    const body = await (await landingRoutes.request("/contact")).text();
+    expect(body).toContain('operator [at] example [dot] com');
+    expect(body).toContain('data-contact="' + Array.from("operator@example.com", c => c.codePointAt(0)).join(",") + '"');
+    expect(body).not.toContain('kontakt [at] techskills');
+    for (const path of ["/privacy", "/terms", "/data-deletion"]) {
+      const page = await (await landingRoutes.request(path)).text();
+      expect(page).toContain('href="/contact"');
+      expect(page).not.toContain('operator [at]');
+    }
+  });
+  it("asks visitors to contact their administrator when no operator email is configured", async () => {
+    vi.stubEnv("OPERATOR_EMAIL", undefined);
+    const body = await (await landingRoutes.request("/contact")).text();
+    expect(body).toContain("contact the administrator of this instance");
+    expect(body).not.toContain("data-contact=");
+    expect(body).not.toContain("kontakt [at]");
+  });
+  it("keeps the white-label contact independent of the standard operator email", async () => {
+    for (const email of [undefined, "operator@example.com"]) {
+      vi.stubEnv("OPERATOR_EMAIL", email);
+      const body = await withBrand({ ...DEFAULT_BRAND, name: "Orchard", contactEmail: "help@orchard.example" }, async () => (await landingRoutes.request("/contact")).text());
+      expect(body).toContain("help [at] orchard [dot] example");
+      expect(body).not.toContain("operator [at]");
+      expect(body).not.toContain("contact the administrator of this instance");
+    }
+  });
   it("uses instance identity and omits integrations without credentials", async () => {
     const body = await withBrand({ ...DEFAULT_BRAND, name: 'Orchard <Studio>', contactEmail: 'help@orchard.example', publicUrl: 'https://orchard.example' }, async () => (await landingRoutes.request('/features')).text());
     expect(body).toContain('Orchard &lt;Studio&gt;');
