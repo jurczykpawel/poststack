@@ -93,14 +93,15 @@ jobs:
           # (Dockerfile uses npm ci --omit=dev), so it blocks only from high — a fresh moderate advisory with no
           # upstream fix in the linter chain must not stop a release.
           npm audit --omit=dev --audit-level=moderate
-          npm audit --audit-level=high
+          node --test scripts/ci/audit-dependencies.node-test.mjs
+          node scripts/ci/audit-dependencies.mjs high
           # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with the latest npm (the verifier must know current keys)
           for i in 1 2 3; do npx -y npm@latest audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
       - name: Install and audit landing dependencies
         run: |
           npm --prefix landing ci
-          npm --prefix landing audit --audit-level=moderate
+          node scripts/ci/audit-dependencies.mjs moderate landing
           # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with the latest npm (the verifier must know current keys)
           for i in 1 2 3; do npx -y npm@latest --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 

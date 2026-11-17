@@ -63,13 +63,14 @@ describe("CI release gates", () => {
   it.each(["ci.yml", "release.yml"])("makes dependency and browser checks blocking in %s", (name) => {
     const source = workflows[name];
     expect(source).toContain("npm audit --omit=dev --audit-level=moderate");
-    expect(source).toContain("npm audit --audit-level=high");
+    expect(source).toContain("node --test scripts/ci/audit-dependencies.node-test.mjs");
+    expect(source).toContain("node scripts/ci/audit-dependencies.mjs high");
     expect(source).toMatch(/npx -y npm@latest audit signatures/);
     expect(source).toContain("npm --prefix landing ci");
-    expect(source).toContain("npm --prefix landing audit --audit-level=moderate");
+    expect(source).toContain("node scripts/ci/audit-dependencies.mjs moderate landing");
     expect(source).toMatch(/npx -y npm@latest --prefix landing audit signatures/);
     expect(source).toContain("npm run test:e2e");
-    expect(source).not.toMatch(/npm audit[^\n]*\|\| true/);
+    expect(source).not.toMatch(/(?:npm (?:--prefix landing )?audit|node scripts\/ci\/audit-dependencies\.mjs)[^\n]*\|\| true/);
   });
 
   it("lets CI isolate browser tests on its own database", async () => {
