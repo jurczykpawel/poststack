@@ -51,13 +51,34 @@ test.beforeAll(async ({ request }) => {
   } finally { await client.end(); }
 });
 
+test("TikTok inherited caption and explicit audience choices", async ({ page }) => {
+  await creatorToken("available");
+  await openComposer(page);
+  const panel = page.getByRole("region", { name: "TikTok publishing" });
+  const hint = panel.locator(".card-hint").filter({ hasText: "Inherited caption:" });
+  await expect(hint).toBeHidden();
+  await page.getByPlaceholder("Write the caption every channel shares…").fill("Shared caption");
+  await page.getByLabel("TikTok caption", { exact: true }).fill("");
+  await expect(hint).toHaveText("Inherited caption: Shared caption");
+  await expect(hint).toBeVisible();
+  await page.getByLabel("TikTok caption", { exact: true }).fill("Own caption");
+  await expect(hint).toBeHidden();
+  const privacy = page.getByLabel("TikTok privacy");
+  await expect(privacy).toHaveValue("");
+  await expect(privacy.locator("option")).toHaveText(["Select who can view", "Everyone", "Friends", "Only me"]);
+  console.log("TTCAP1 audience measurement", await privacy.evaluate(el => ({ value: (el as HTMLSelectElement).value, selectedIndex: (el as HTMLSelectElement).selectedIndex, options: Array.from((el as HTMLSelectElement).options, o => o.value) })));
+});
+
 test("public TikTok composer preview", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 3200 });
   const dir = mkdtempSync(join(tmpdir(), "poststack-demo-"));
   let demoVideo: Buffer;
   try {
     const path = join(dir, "demo.mp4");
-    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=360x640:rate=24", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]);
+    const sharp = (await import("sharp")).default;
+    const frame = join(dir, "frame.png");
+    await sharp(Buffer.from(`<svg width="360" height="640" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#163b48"/><stop offset="1" stop-color="#8dbcae"/></linearGradient></defs><rect width="360" height="640" fill="url(#g)"/><circle cx="290" cy="160" r="140" fill="white" opacity=".1"/><rect x="35" y="260" width="290" height="120" rx="24" fill="#163b48" opacity=".35"/><text x="180" y="330" text-anchor="middle" font-family="sans-serif" font-size="28" fill="white">PostStack demo</text></svg>`)).png().toFile(frame);
+    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-loop", "1", "-i", frame, "-t", "2", "-r", "24", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]);
     demoVideo = readFileSync(path);
   } finally { rmSync(dir, { recursive: true, force: true }); }
   await page.route("https://cdn.example.test/tt3.mp4", route => {
