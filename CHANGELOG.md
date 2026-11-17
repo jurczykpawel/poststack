@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+- Meta: Graph API v27.0 for Facebook and Instagram (strict live probe passed for every surface except the Instagram DM send, which is verified manually on TEST).
+
 ### Fixed
 - Keep Gmail email cards fully readable in shorter inbox thread panels.
 - Build landing assets during `verify:local` so clean checkouts include public assets.
