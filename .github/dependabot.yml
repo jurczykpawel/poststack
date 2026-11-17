@@ -1,60 +1,60 @@
 version: 2
-# Noise control: one PR per ecosystem and update kind. Everything except majors (patch,
-# minor, Docker digests) is merged automatically once CI is green
-# (workflows/dependabot-auto-merge.yml); a red CI pings the owner on the PR, and majors
-# stay individual PRs for review. Base-image majors are ignored: the Node LTS line is
-# pinned deliberately and bumped by hand. Version updates wait 7 days after a release
-# (cooldown): a compromised package is usually pulled within days, before we merge it.
-# Security updates are not delayed.
 updates:
-  - package-ecosystem: npm
-    directory: /
-    cooldown:
-      default-days: 7
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    groups:
-      compatible-patches:
-        update-types: [patch]
-      compatible-minors:
-        update-types: [minor]
-  - package-ecosystem: npm
-    directory: /landing
-    cooldown:
-      default-days: 7
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 3
-    groups:
-      compatible-patches:
-        update-types: [patch]
-      compatible-minors:
-        update-types: [minor]
-  - package-ecosystem: docker
-    directory: /docker
-    cooldown:
-      default-days: 7
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    groups:
-      base-images:
-        patterns: ["*"]
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
-  - package-ecosystem: github-actions
-    directory: /
-    cooldown:
-      default-days: 7
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-    groups:
-      compatible-patches:
-        update-types: [patch]
-      compatible-minors:
-        update-types: [minor]
+- package-ecosystem: npm
+  schedule:
+    interval: monthly
+    time: '10:00'
+    timezone: Europe/Warsaw
+  open-pull-requests-limit: 1
+  cooldown:
+    default-days: 14
+  allow:
+  - dependency-name: '*'
+    update-types:
+    - version-update:semver-patch
+    - version-update:semver-minor
+  groups:
+    maintenance:
+      patterns:
+      - '*'
+    security:
+      applies-to: security-updates
+      patterns:
+      - '*'
+  directories:
+  - /
+  - /landing
+- package-ecosystem: docker
+  directory: /docker
+  schedule:
+    interval: monthly
+    time: '10:00'
+    timezone: Europe/Warsaw
+  open-pull-requests-limit: 1
+  cooldown:
+    default-days: 14
+  groups:
+    images:
+      patterns:
+      - '*'
+  ignore:
+  - dependency-name: node
+    versions:
+    - '>=23'
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: quarterly
+    time: '10:00'
+    timezone: Europe/Warsaw
+  open-pull-requests-limit: 1
+  cooldown:
+    default-days: 14
+  groups:
+    actions:
+      patterns:
+      - '*'
+    security:
+      applies-to: security-updates
+      patterns:
+      - '*'
