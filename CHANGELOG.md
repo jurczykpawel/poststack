@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-18
+
 ### Changed
 - Use the PostStack favicon mark consistently across the public website, dashboard, authentication pages and social cards; include a 1024px application icon while preserving custom instance branding.
 
