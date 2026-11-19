@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-19
+
+### Fixed
+- Show the scheduled TikTok publishing notices in Compose in English, matching the rest of the interface.
+
 ## [0.27.0] - 2026-11-18
 
 ### Changed
