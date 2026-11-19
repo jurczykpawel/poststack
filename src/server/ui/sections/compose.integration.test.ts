@@ -317,7 +317,7 @@ describe("TikTok Compose controls", () => {
     ["processing notice", "Processing may take a few minutes"],
     ["playable preview", 'aria-label="TikTok video preview"'],
     ["editable caption", 'aria-label="TikTok caption"'],
-    ["automatic schedule disclosure", "Opublikujemy automatycznie"],
+    ["automatic schedule disclosure", "Publishes automatically on"],
   ])("renders %s", async (_rule, expected) => {
     expect(await pageHtml()).toContain(expected);
   });
@@ -503,8 +503,8 @@ it("shows that scheduled TikTok will require send-time confirmation when enabled
   try {
     const c = await composeState();
     c.scheduleAt = "2030-01-15T14:30";
-    expect(c.tiktokScheduleText()).toContain("wymaga potwierdzenia");
-    expect(c.tiktokScheduleText()).not.toContain("Opublikujemy automatycznie");
+    expect(c.tiktokScheduleText()).toContain("needs your confirmation in Queue");
+    expect(c.tiktokScheduleText()).not.toContain("Publishes automatically");
   } finally { await clearConfig("TIKTOK_CONFIRM_AT_SEND"); }
 });
 

@@ -166,8 +166,8 @@ function composeScript(): Html {
           if (!this.scheduleAt) return "Choose a date and time for automatic publication.";
           var when = window.psScheduleTime(this.scheduleAt).iso;
           if (!when) return "Choose a valid date and time.";
-          if (seqCfg.tiktokConfirmAtSend) return "Wysyłka " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") wymaga potwierdzenia w Queue. Powiadomimy Cię w chwili wysyłki.";
-          return "Opublikujemy automatycznie " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") z tymi ustawieniami";
+          if (seqCfg.tiktokConfirmAtSend) return "Sending on " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") needs your confirmation in Queue. We will notify you when it is due.";
+          return "Publishes automatically on " + new Date(when).toLocaleString() + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ") with these settings.";
         },
         tiktokConsentKey() {
           return JSON.stringify([this.brand, this.tt.channelId, this.type, this.mediaUrl, this.coverUrl, this.captionFor("tiktok"), this.title, this.publishMode, this.scheduleAt, this.tt.options()]);

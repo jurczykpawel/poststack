@@ -153,8 +153,8 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(onlyMe).toHaveAttribute("title", "Branded content visibility cannot be set to private");
     await expect(panel.getByRole("link", { name: "Music Usage Confirmation" })).toBeVisible();
     await expect(panel.getByRole("link", { name: "Branded Content Policy" })).toBeVisible();
-    await expect(panel.getByText(/Opublikujemy automatycznie/)).toContainText(/2030.*z tymi ustawieniami/);
-    await expect(panel.getByText(/Opublikujemy automatycznie/)).toContainText(/\([A-Za-z_]+\/[A-Za-z_]+\)|\(UTC\)/);
+    await expect(panel.getByText(/Publishes automatically on/)).toContainText(/2030.*with these settings/);
+    await expect(panel.getByText(/Publishes automatically on/)).toContainText(/\([A-Za-z_]+\/[A-Za-z_]+\)|\(UTC\)/);
     await expect(panel.getByLabel("TikTok video preview")).toHaveAttribute("controls", "");
     await expect(panel.getByLabel("TikTok video preview")).toHaveAttribute("src", "https://cdn.example.test/tt3.mp4");
     await expect.poll(() => panel.getByLabel("TikTok video preview").evaluate((el) => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(1);
