@@ -39,17 +39,18 @@ export async function GET(c: Context): Promise<Response> {
 
     let lastBeat = Date.now();
     while (open) {
+      if (Date.now() - lastBeat >= HEARTBEAT_MS) {
+        const current = await authenticateDashboard(c.req.raw).catch(() => null);
+        if (!current || current.workspaceId !== workspaceId || current.userId !== auth.userId || current.sessionId !== auth.sessionId) break;
+        await stream.writeSSE({ event: "heartbeat", data: String(Date.now()) });
+        lastBeat = Date.now();
+      }
       // Drain everything the hub queued for this workspace.
       while (pending.length && open) {
         const msg = pending.shift()!;
         await stream.writeSSE(msg);
       }
       if (!open) break;
-      // Heartbeat comment on idle, so proxies don't time the connection out.
-      if (Date.now() - lastBeat >= HEARTBEAT_MS) {
-        await stream.writeSSE({ event: "heartbeat", data: String(Date.now()) });
-        lastBeat = Date.now();
-      }
       // Wait for the next signal or a short tick (so heartbeat + abort are responsive).
       await new Promise<void>((resolve) => {
         notify = resolve;

@@ -121,4 +121,18 @@ describe("dashboard session requests", () => {
       expect((await app.request("/content", { headers: { cookie: freshCookie } })).headers.get("location")).toBe("/login");
     }
   });
+
+  it.each(["/logout", "/api/auth/logout"])("keeps the session when %s receives a different site", async path => {
+    const sites: Record<string, string>[] = [{ "sec-fetch-site": "cross-site" }, { origin: "https://other.example.test" }];
+    for (const headers of sites) {
+      const freshCookie = `session=${await auth.signSession(userIds[0], own)}`;
+      for (const withCookie of [false, true]) {
+        const res = await app.request(path, { method: "POST", headers: { ...headers, ...(withCookie ? { cookie: freshCookie } : {}) } });
+        expect(res.status).toBe(403);
+        expect(res.headers.get("set-cookie")).toBeNull();
+        expect(res.headers.get("Clear-Site-Data")).toBeNull();
+      }
+      expect(await auth.authenticateDashboard(new Request("http://localhost/content", { headers: { cookie: freshCookie } }))).not.toBeNull();
+    }
+  });
 });

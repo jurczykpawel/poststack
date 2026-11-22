@@ -120,4 +120,26 @@ describe("GET /events/stream (SSE)", () => {
       await reader.cancel().catch(() => {});
     }
   });
+
+  it("finishes an open stream after sign-out", async () => {
+    const { signSession, readSessionCookie } = await import("@/lib/auth");
+    const { subscriberCount } = await import("@/lib/realtime/hub");
+    const user = await db.query.users.findFirst({ where: eq(users.email, EMAIL) });
+    const freshCookie = `session=${await signSession(user!.id, workspaceId)}`;
+    expect(readSessionCookie(freshCookie)).toBeTruthy();
+    const res = await app.request("/events/stream", { headers: { cookie: freshCookie } });
+    const reader = res.body!.getReader();
+    try {
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain("event: ready");
+      expect(subscriberCount(workspaceId)).toBe(1);
+      const logout = await app.request("/api/auth/logout", { method: "POST", headers: { cookie: freshCookie, "sec-fetch-site": "same-origin" } });
+      expect(logout.status).toBe(200);
+      const next = await reader.read();
+      expect(next.done).toBe(true);
+      expect(subscriberCount(workspaceId)).toBe(0);
+      expect((await app.request("/events/stream", { headers: { cookie: freshCookie } })).status).toBe(401);
+    } finally {
+      await reader.cancel();
+    }
+  });
 });

@@ -63,7 +63,15 @@ describe("requireSession", () => {
     const res = await respond({ cookie: `session=${await signWith("HS256")}`, authorization: "Basic cHJveHk6cGFzcw==" });
     expect(res.status).toBe(200);
   });
-  it.each(["Bearer sk_live_example", "bearer sk_live_example", "Bearer other-token"])("refuses Bearer credentials on dashboard pages (%s)", async authorization => {
+  it.each(["invalid", "retired", "missing membership"])("clears an %s session behind a Basic-auth proxy", async state => {
+    if (state === "retired") queries.revoked.mockResolvedValue({ expires_at: new Date(Date.now() + 60_000) });
+    if (state === "missing membership") queries.member.mockResolvedValue(undefined);
+    const res = await respond({ cookie: `session=${state === "invalid" ? "invalid" : await signWith("HS256")}`, authorization: "Basic cHJveHk6cGFzcw==" });
+    expect(res.headers.get("location")).toBe("/login");
+    expect(res.headers.get("set-cookie")).toContain("session=;");
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+  it.each(["Bearer sk_live_example", "bearer sk_live_example", "BEARER sk_live_example", "Bearer\tother-token", "Bearer other-token"])("refuses Bearer credentials on dashboard pages (%s)", async authorization => {
     const res = await respond({ cookie: `session=${await signWith("HS256")}`, authorization, "HX-Request": "true" });
     expect(res.headers.get("HX-Redirect")).toBe("/login");
     expect(res.headers.get("set-cookie")).toBeNull();

@@ -5,6 +5,41 @@ import { setPro } from "./helpers";
 
 test.use({ launchOptions: { ignoreDefaultArgs: ["--disable-back-forward-cache"] } });
 
+test("document visibility returns after a pageshow without a reload", async ({ page }) => {
+  await page.goto("/content");
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+  await expect(page.locator("html")).toHaveCSS("visibility", "hidden");
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false })));
+  await expect(page.locator("html")).toHaveCSS("visibility", "visible");
+  await expect(page.locator("#main")).toBeVisible();
+});
+
+test("an open event stream finishes after signing out in another tab", async ({ page, context }) => {
+  test.setTimeout(45_000);
+  expect((await page.request.post("/api/auth/login", { data: { email: "admin@e2e.test", password: "e2e-password-123" } })).status()).toBe(200);
+  await page.goto("/overview");
+  await page.evaluate(() => {
+    const source = new EventSource("/events/stream");
+    document.documentElement.dataset.streamState = "connecting";
+    source.addEventListener("ready", () => { document.documentElement.dataset.streamState = "ready"; });
+    source.onerror = () => {
+      source.close();
+      document.documentElement.dataset.streamState = "finished";
+    };
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-stream-state", "ready");
+  const otherTab = await context.newPage();
+  try {
+    await otherTab.goto("/overview");
+    await otherTab.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(otherTab).toHaveURL(/\/login$/);
+    await expect(page.locator("html")).toHaveAttribute("data-stream-state", "finished", { timeout: 25_000 });
+    expect((await page.request.get("/events/stream")).status()).toBe(401);
+  } finally {
+    await otherTab.close();
+  }
+});
+
 test("endpoint signing values are available on create and rotate responses", async ({ page }) => {
   await setPro(page.request);
   const create = await page.request.post("/webhooks/outbound", {

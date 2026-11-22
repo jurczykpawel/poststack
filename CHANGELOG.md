@@ -12,6 +12,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 - Disable brand save buttons while requests are pending and keep API key form values and permissions after validation errors.
 - Align all eight platform columns, including Telegram, in the desktop Brands table.
+- Keep sign-out and realtime connections aligned with current dashboard sessions, including Basic-auth proxies.
+- Restore dashboard visibility when returning through browser history.
+
+### Changed
+- Signing out resets the public website's saved theme along with this site's browser storage.
 
 ## [0.27.2] - 2026-11-22
 

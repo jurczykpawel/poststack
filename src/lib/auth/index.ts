@@ -51,6 +51,10 @@ export async function authenticateWithScope(
 
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
 
+export function hasBearerCredential(request: Request): boolean {
+  return /^\s*bearer\b/i.test(request.headers.get("authorization") ?? "");
+}
+
 /**
  * Authenticate a request using either:
  * 1. Session JWT cookie (dashboard frontend)
@@ -78,7 +82,7 @@ export async function authenticate(
  * Other schemes (e.g. Basic from an auth proxy in front of a self-hosted instance) are ignored.
  */
 export async function authenticateDashboard(request: Request): Promise<SessionAuthContext | null> {
-  if (/^\s*bearer\b/i.test(request.headers.get("authorization") ?? "")) return null;
+  if (hasBearerCredential(request)) return null;
   return authenticateSession(request);
 }
 

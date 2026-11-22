@@ -5,6 +5,7 @@ import * as register from "@/server/handlers/auth/register/route";
 import * as logout from "@/server/handlers/auth/logout/route";
 import { doc } from "../ui/layout";
 import { requireSession } from "../middleware/page-auth";
+import { requireSameOrigin } from "../middleware/same-origin";
 import { registerDashboard } from "./dashboard";
 import { brandLogo } from "../ui/branding";
 import { BRAND } from "@/lib/brand";
@@ -148,7 +149,7 @@ pages.post("/register", async (c) => {
   return c.html(html`<p class="auth-error">${raw(escapeText(authErrorMessage(body, "Registration failed")))}</p>`);
 });
 
-pages.post("/logout", async (c) => {
+pages.post("/logout", requireSameOrigin, async (c) => {
   const res = await logout.POST(c.req.raw);
   return htmxRedirect(res, "/login");
 });
