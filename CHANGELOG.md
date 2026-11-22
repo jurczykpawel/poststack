@@ -9,8 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.2] - 2026-11-22
+
 ### Security
 - Standardize dashboard session handling, browser history lifecycle and one-time signing value display.
+- Dashboard pages ignore non-Bearer `Authorization` headers, so instances behind a Basic-auth proxy keep working.
+- Signing out also clears this site's browser cache and storage.
+
+### Fixed
+- An unknown platform filter on the webhook diagnostics page no longer returns a server error.
 
 ## [0.27.1] - 2026-11-19
 
