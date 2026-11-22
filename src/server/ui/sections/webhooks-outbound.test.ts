@@ -64,11 +64,12 @@ describe("renderOutboundWebhooks — list", () => {
     expect(out).toContain("Enable"); // toggle offers to re-enable
   });
 
-  it("renders the secret behind a reveal toggle (masked placeholder present)", () => {
+  it("renders only a mask on routine lists", () => {
     const out = s(renderOutboundWebhooks([ep({ secret: "whsec_supersecret" })], base));
-    expect(out).toContain("whsec_supersecret"); // revealed value in DOM (x-show gated)
+    expect(out).not.toContain("whsec_supersecret");
     expect(out).toContain("whsec_••••••••••••"); // masked placeholder
-    expect(out).toContain("Reveal");
+    expect(out).not.toContain("Reveal");
+    expect(out).not.toContain("Copy");
   });
 
   it("offers rotate + delete (with confirm) per endpoint", () => {
@@ -142,7 +143,7 @@ describe("renderOutboundWebhooks — gating + escaping", () => {
   });
 
   it("escapes a malicious secret value", () => {
-    const out = s(renderOutboundWebhooks([ep({ secret: 'whsec_"><img src=x onerror=alert(1)>' })], base));
+    const out = s(renderOutboundWebhooks([ep({ secret: 'whsec_"><img src=x onerror=alert(1)>' })], { ...base, highlightId: ep({}).id }));
     expect(out).not.toContain("<img src=x onerror=alert(1)>");
     expect(out).toContain("&lt;img");
   });

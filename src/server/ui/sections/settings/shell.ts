@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { isInstanceOperator } from "@/lib/auth/instance-operator";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { t } from "@/lib/i18n";
@@ -10,7 +10,7 @@ import { dashboardDoc } from "../../layout";
 export type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
 export async function settingsAuth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 /** UXFLOW1 stage 7: each Settings tab is its own address. The first four belong to this workspace,

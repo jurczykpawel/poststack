@@ -72,6 +72,12 @@ export async function authenticate(
   return authenticateSession(request, requiredWorkspaceId);
 }
 
+/** Authenticate an interactive dashboard request using its session cookie. */
+export async function authenticateDashboard(request: Request): Promise<SessionAuthContext | null> {
+  if (request.headers.has("authorization")) return null;
+  return authenticateSession(request);
+}
+
 async function authenticateApiKey(
   rawKey: string,
   requiredWorkspaceId?: string
@@ -111,8 +117,7 @@ async function authenticateApiKey(
   };
 }
 
-/** Read the session token from a Cookie header (brand-neutral cookie name). One source for the
- *  three call-sites that need it (authenticate, page-auth middleware, logout) — no drift. */
+/** Read the session token from a Cookie header using the configured cookie name. */
 export function readSessionCookie(cookieHeader: string | null): string | null {
   return parseCookie(cookieHeader, BRAND.cookieName);
 }

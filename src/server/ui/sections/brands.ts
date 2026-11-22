@@ -4,7 +4,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { brands as brandsTbl, channels as channelsTbl } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
 import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
 import { BRAND_ACCENT_RE, BRAND_KEY_HTML_PATTERN } from "@/lib/brands/validation";
@@ -24,7 +24,7 @@ import { isHtmx, toastHeader } from "../components/toast";
 type Html = ReturnType<typeof html>;
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 function domSafe(s: string): string {

@@ -3,7 +3,7 @@ import { DEFAULT_BRAND, withBrand } from "@/lib/brand";
 vi.hoisted(() => {
   Object.assign(process.env, { DATABASE_URL: "postgres://test:test@localhost:5433/test", JWT_SECRET: "test-secret-at-least-32-characters-long", ENCRYPTION_KEY: "test-encryption-key-at-least-32-characters", APP_URL: "http://localhost:3000", CRON_SECRET: "test-cron-secret-at-least-32-characters" });
 });
-vi.mock("@/lib/auth", () => ({ authenticate: vi.fn(async () => null) }));
+vi.mock("@/lib/auth", () => ({ authenticateDashboard: vi.fn(async () => null) }));
 vi.mock("@/lib/settings/config", () => ({ getConfig: vi.fn(async () => "") }));
 import { landingRoutes } from "../../routes/landing";
 const paths = ["/", "/how-it-works", "/features", "/faq", "/about", "/contact", "/privacy", "/terms", "/data-deletion"];
@@ -171,8 +171,8 @@ describe("instance public pages", () => {
     }
   });
   it("keeps the authenticated home redirect", async () => {
-    const { authenticate } = await import('@/lib/auth');
-    vi.mocked(authenticate).mockResolvedValueOnce({ userId: 'u', workspaceId: 'w', scopes: [], authMethod: 'session' });
+    const { authenticateDashboard } = await import('@/lib/auth');
+    vi.mocked(authenticateDashboard).mockResolvedValueOnce({ userId: 'u', workspaceId: 'w', scopes: [], authMethod: 'session', sessionId: 'login' });
     const res = await landingRoutes.request('/');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/overview');

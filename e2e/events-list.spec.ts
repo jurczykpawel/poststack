@@ -50,7 +50,7 @@ async function shoot(page: Page, base: string) {
   await page.context().clearCookies({ name: "ps_theme" });
 }
 
-test("filter, page, open and go back on /activity?source=events without leaving the page", async ({ page }, testInfo) => {
+test("filter and open events inline, then revisit history with a fresh document", async ({ page }, testInfo) => {
   const { errors } = watchConsole(page);
   await setPro(page.request);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -90,6 +90,8 @@ test("filter, page, open and go back on /activity?source=events without leaving 
   await page.goBack();
   await expect(page).not.toHaveURL(/after=/);
   await expect(rows(page).first()).toHaveAttribute("data-row", firstBefore!);
+  expect(await page.evaluate(() => (window as unknown as { __kept?: boolean }).__kept)).toBeUndefined();
+  await noReloadMarker(page);
 
   const failed = page.locator("#data-list tbody tr", { hasText: "Post failed" }).first();
   const id = await failed.getAttribute("data-row");

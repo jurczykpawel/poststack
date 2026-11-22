@@ -2,7 +2,7 @@ import { getCookie } from "hono/cookie";
 import { resolveZone } from "./queue-data";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
-import { authenticate } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { t } from "@/lib/i18n";
 import { isHtmx } from "../components/toast";
@@ -38,7 +38,7 @@ export function registerActivity(r: Hono, guard: MiddlewareHandler): void {
   r.get("/events", guard, (c) => activityRedirect(c, "events"));
 
   r.get(PATH, guard, async (c: Context) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return isHtmx(c) ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
     const { features, products, upgradeUrl } = await getInstanceLicense();
     const asked = new URL(c.req.url).searchParams.get("source");

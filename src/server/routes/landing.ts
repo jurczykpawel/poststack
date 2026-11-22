@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { authenticate } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { serveAsset } from "../ui/assets";
 import { serveLandingFile } from "../ui/landing";
 
@@ -10,7 +10,7 @@ export const landingRoutes = new Hono();
 for (const page of PUBLIC_PAGES) {
   const handler = async (c: import("hono").Context) => {
     if (page.path === "/") {
-      const auth = await authenticate(c.req.raw).catch(() => null);
+      const auth = await authenticateDashboard(c.req.raw).catch(() => null);
       if (auth) return c.redirect("/overview");
     }
     c.header("Cache-Control", "private, no-store");

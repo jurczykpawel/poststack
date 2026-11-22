@@ -223,7 +223,8 @@ describe("instance operator selection", () => {
     await db.delete(s.users).where(eq(s.users.id, USER));
     expect(await operator(USER)).toBe(false);
     const response = await app.request("/settings/license/clear", { method: "POST", headers: { cookie } });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/login");
   });
 
   it("renders instance forms for the operator", async () => {
@@ -237,7 +238,9 @@ describe("instance operator selection", () => {
 
   it("requires current workspace membership on instance writes", async () => {
     await db.delete(s.workspaceMembers).where(eq(s.workspaceMembers.user_id, USER));
-    expect((await app.request("/settings/license/clear", { method: "POST", headers: { cookie } })).status).toBe(403);
+    const page = await app.request("/settings/license/clear", { method: "POST", headers: { cookie } });
+    expect(page.status).toBe(302);
+    expect(page.headers.get("location")).toBe("/login");
     expect((await app.request("/api/v1/license", { method: "DELETE", headers: { cookie } })).status).toBe(401);
   });
 });

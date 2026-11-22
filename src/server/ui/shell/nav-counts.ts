@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { conversations, pendingApprovals, channels } from "@/db/schema";
 import { createTtlCache } from "@/lib/cache/ttl-cache";
-import { authenticate } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { COUNT_KEYS } from "./nav";
 
 export type NavCounts = Record<(typeof COUNT_KEYS)[number], number>;
@@ -44,7 +44,7 @@ export const navCountsLoader = raw('<div hidden hx-get="/nav/counts" hx-trigger=
 
 export function registerNavCounts(app: Hono, guard: MiddlewareHandler): void {
   app.get("/nav/counts", guard, async (c) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.body("", 401);
     c.header("Cache-Control", "private, no-store");
     return c.html(navCountsFragment(await loadNavCounts(a.workspaceId)));

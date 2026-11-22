@@ -8,7 +8,7 @@ import { html, raw } from "hono/html";
 import { inArray, and, eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { posts as postsTbl, content as contentTbl, deliveries } from "@/db/schema";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { listContent, getContent, getPost, patchPost, type PostRow } from "@/lib/content/service";
 import { listBrands, getBrand, type BrandRow } from "@/lib/brands/service";
@@ -34,7 +34,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const typeIcon = (t: string | null): IconName => (t && /vid|reel|clip|story|short/i.test(t) ? "video" : "image");
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 // ── brand chip ────────────────────────────────────────────────────────────────

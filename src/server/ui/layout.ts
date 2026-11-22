@@ -102,9 +102,10 @@ export function renderPage(o: PageOpts): Html {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- CSS handles document navigation; fragment swaps must not overlap its transition. -->
-    <meta name="htmx-config" content='{"globalViewTransitions":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' />
+    <meta name="htmx-config" content='{"globalViewTransitions":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' />
     <title>${o.title}</title>
     <script src="${assetUrl("view-transitions.js")}"></script>
+    <script src="${assetUrl("dashboard-session.js")}"></script>
     ${themeBootScript()}
     <link rel="stylesheet" href="${assetUrl("tokens.css")}" />
     <link rel="stylesheet" href="${assetUrl("admin.css")}" />
@@ -120,7 +121,7 @@ export function renderPage(o: PageOpts): Html {
     <script defer src="${assetUrl("filter-bar.js")}"></script>
     <script defer src="${assetUrl("data-list.js")}"></script>
   </head>
-  <body x-data>
+  <body x-data hx-history="false">
     ${iconSprite()}
     <a class="skip-link" href="#main">Skip to content</a>
     <!-- REALTIME1 · R4: one SSE connection for the whole shell; sections declare live regions with

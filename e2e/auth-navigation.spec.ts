@@ -76,7 +76,7 @@ test.describe("full document auth redirects", () => {
         if (branded) await context.addCookies(cookies);
         const response = page.waitForResponse((r) => r.request().method() === "POST" && r.headers()["hx-redirect"] === "/login");
         await save.click();
-        expect((await response).status()).toBe(branded ? 401 : 200);
+        expect((await response).status()).toBe(200);
         await expect(page).toHaveURL(/\/login$/);
         await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
         await expect(page).toHaveTitle(branded ? /MQA5 Orchard/ : /PostStack/);

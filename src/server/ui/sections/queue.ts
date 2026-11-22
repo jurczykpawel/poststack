@@ -6,7 +6,7 @@ import { html, raw } from "hono/html";
 import { retryPost, cancelDelivery, publishDeliveryNow, rescheduleDelivery, type DeliveryRow } from "@/lib/deliveries/service";
 import { getMedia, type MediaRow } from "@/lib/media/service";
 import { ApiError } from "@/lib/api/response";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { renderPage } from "../layout";
 import { statusBadge, type Tone } from "../components/status";
@@ -35,7 +35,7 @@ const STATUS_TONE: Record<DeliveryRow["status"], Tone> = {
 };
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 async function queuePage(c: Context): Promise<Response> {

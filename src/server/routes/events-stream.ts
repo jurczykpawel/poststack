@@ -1,16 +1,17 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { authenticate } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { subscribe, startRealtimeListener } from "@/lib/realtime/hub";
 
-// REALTIME1 · R3 — the SSE endpoint. authenticate() → workspaceId → register with the hub → stream
+// REALTIME1 · R3 — the SSE endpoint. authenticateDashboard() → workspaceId → register with the hub → stream
 // workspace-scoped signals server→client. STRICTLY workspace-scoped: the stream only ever carries the
 // caller's own workspace events (the hub keys fan-out by workspaceId — never leaks cross-workspace).
 // Heartbeat keeps the connection alive through proxies; the hub subscription is removed on close.
 const HEARTBEAT_MS = 20_000;
 
 export async function GET(c: Context): Promise<Response> {
-  const auth = await authenticate(c.req.raw).catch(() => null);
+  c.header("Cache-Control", "private, no-store, no-transform");
+  const auth = await authenticateDashboard(c.req.raw).catch(() => null);
   if (!auth) return c.text("Unauthorized", 401);
   const workspaceId = auth.workspaceId;
 
@@ -58,7 +59,7 @@ export async function GET(c: Context): Promise<Response> {
     }
     unsubscribe();
   });
-  response.headers.set("Cache-Control", "no-cache, no-transform");
+  response.headers.set("Cache-Control", "private, no-store, no-transform");
   response.headers.set("X-Accel-Buffering", "no");
   return response;
 }

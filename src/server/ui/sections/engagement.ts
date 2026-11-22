@@ -1,7 +1,7 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
-import { authenticate } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels, contacts, messageReactions, messages } from "@/db/schema";
 import { getInstanceLicense } from "@/lib/license/gate";
@@ -223,7 +223,7 @@ async function renderMessages(workspaceId: string, url: string, chans: Channel[]
 
 export function registerEngagement(r: Hono, guard: MiddlewareHandler, proLock: (title: string, body: Html, upgradeUrl: string) => Html): void {
   const page = (render: typeof renderPosts, path: string) => async (c: Context) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl, products } = await getInstanceLicense();
     const title = t("title.suffix", { section: "Engagement" });

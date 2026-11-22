@@ -23,6 +23,7 @@ beforeAll(async () => {
   process.env.ENCRYPTION_KEY = "test-encryption-key-at-least-32-characters-long";
   process.env.JWT_SECRET = "jwt-secret-value-at-least-32-characters-long-xyz";
   process.env.APP_URL = APP_URL;
+  process.env.LICENSE_KEY = "";
   process.env.CRON_SECRET = "cron-secret-value-at-least-32-characters-long-xyz";
   // Secrets that MUST NOT appear anywhere in the serialized envelope.
   process.env.META_APP_SECRET = "meta-app-secret-VALUE-leak-canary-1";
@@ -47,6 +48,7 @@ beforeEach(async () => {
   if (!TEST_DB) return;
   if (WS) await db.delete(schema.workspaces).where(inArray(schema.workspaces.id, [WS]));
   await db.delete(schema.telemetryState);
+  await db.delete(schema.instanceLicense);
   WS = await seedWorkspace(db, schema, { slug: `tel-${Math.random().toString(36).slice(2)}` });
 
   const mk = (platform: "instagram" | "facebook", status: "active" | "needs_reauth") =>

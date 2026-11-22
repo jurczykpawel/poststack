@@ -10,6 +10,6 @@ export async function POST(request: Request) {
 
   return Response.json(
     { data: { ok: true }, error: null },
-    { headers: { "set-cookie": sessionCookie("", 0) } },
+    { headers: { "set-cookie": sessionCookie("", 0), "Clear-Site-Data": '"cache", "storage"', "Cache-Control": "no-store" } },
   );
 }

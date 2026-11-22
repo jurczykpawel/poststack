@@ -130,7 +130,7 @@ describe("securityHeaders middleware — per-path CSP", () => {
     }
   });
 
-  it("marks API responses no-store but leaves page responses cacheable", async () => {
+  it("marks API responses no-store and leaves public documents to their route policy", async () => {
     expect((await respond("/api/health")).headers.get("Cache-Control")).toContain("no-store");
     expect((await respond("/")).headers.get("Cache-Control")).toBeNull();
   });
@@ -152,4 +152,11 @@ it("allows Scalar fonts only on the API documentation document", async () => {
     const policy = (await respond(path)).headers.get("Content-Security-Policy")!;
     expect(directive(policy, "font-src")).not.toContain("https://fonts.scalar.com");
   }
+});
+
+it("preserves the session route's no-store policy", async () => {
+  const app = new Hono();
+  app.use("*", securityHeaders());
+  app.get("/overview", c => c.html("<p>Dashboard</p>", 200, { "Cache-Control": "private, no-store" }));
+  expect((await app.request("/overview")).headers.get("Cache-Control")).toBe("private, no-store");
 });

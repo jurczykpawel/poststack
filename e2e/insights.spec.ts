@@ -271,6 +271,8 @@ test.describe.serial("insights consumer acceptance", () => {
       await page.goBack();
       await expect(page.locator(".ins-seg button[value='7']")).toHaveAttribute("aria-pressed", "true");
       await page.goForward();
+      await expect(page.locator(".ins-seg button[value='30']")).toHaveAttribute("aria-pressed", "true");
+      await page.waitForLoadState("load");
       await page.goForward();
       await expect(page).toHaveURL(/metric=reach/);
       await page.reload({ waitUntil: "domcontentloaded" });

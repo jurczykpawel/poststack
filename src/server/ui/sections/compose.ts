@@ -6,7 +6,7 @@ import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { z } from "zod";
 import { LIMITS } from "@/lib/api/limits";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getConfig } from "@/lib/settings/config";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { listBrands } from "@/lib/brands/service";
@@ -86,7 +86,7 @@ const CONTENT_TYPES: [string, string][] = [
 ];
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 function loadActiveSequences(workspaceId: string): Promise<Array<{ id: string; name: string }>> {

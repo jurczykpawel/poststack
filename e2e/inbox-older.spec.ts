@@ -87,7 +87,7 @@ for (const width of [390, 1440]) {
         }
         await page.reload();
         await expect(page.locator("#thread .thread-head")).toBeVisible();
-        const restored = page.waitForResponse((r) => new URL(r.url()).pathname === "/inbox/list" && r.request().headers()["x-inbox-refresh"] === "true");
+        const restored = page.waitForResponse((r) => new URL(r.url()).pathname === "/inbox" && r.request().isNavigationRequest());
         if (width === 390) await page.locator(".thread-back").click();
         else await page.goBack();
         await restored;

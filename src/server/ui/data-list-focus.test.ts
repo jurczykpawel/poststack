@@ -13,11 +13,25 @@ it.each([true, false])("returns focus after details close (row clicked: %s)", (c
     getElementById: () => list,
     querySelectorAll: () => [{ getAttribute: () => "row-1", matches: () => false, querySelector: () => ({ focus }) }],
   };
-  runInNewContext(readFileSync("src/server/ui/static/data-list.js", "utf8"), { document, window: { URL, location: { href: "http://localhost/inbox?open=row-1" } } });
+  runInNewContext(readFileSync("src/server/ui/static/data-list.js", "utf8"), { document, window: { URL, history: { state: null }, sessionStorage: { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() }, location: { href: "http://localhost/inbox?open=row-1" } } });
   if (clicked) listeners.get("click")!({ target: { closest: () => ({ getAttribute: () => "row-1", matches: () => false }) } });
   listeners.get("htmx:afterSettle")!({ target: list });
   expect(focus).not.toHaveBeenCalled();
   detailsOpen = false;
   listeners.get("htmx:afterSettle")!({ target: list });
   expect(focus).toHaveBeenCalledOnce();
+});
+
+it.each([true, false])("returns to an available row after a fresh history load (present=%s)", present => {
+  const focus = vi.fn();
+  const document = {
+    body: { addEventListener: vi.fn() },
+    querySelector: () => null,
+    querySelectorAll: () => present ? [{ getAttribute: () => "row-1", matches: () => true, focus }] : [],
+  };
+  runInNewContext(readFileSync("src/server/ui/static/data-list.js", "utf8"), {
+    document,
+    window: { URL, location: { href: "http://localhost/inbox" }, history: { state: { htmx: true } }, sessionStorage: { getItem: () => "row-1", setItem: vi.fn(), removeItem: vi.fn() } },
+  });
+  expect(focus).toHaveBeenCalledTimes(present ? 1 : 0);
 });

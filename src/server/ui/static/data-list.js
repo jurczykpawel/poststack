@@ -1,6 +1,14 @@
 // Client side of the shared DataList (components/data-list.ts). Everything else is server-rendered.
 (function () {
-  var returnTo = new window.URL(window.location.href).searchParams.get("open");
+  var openRow = new window.URL(window.location.href).searchParams.get("open");
+  var returnTo = openRow;
+  try {
+    if (openRow) window.sessionStorage.setItem("ps-row-return", openRow);
+    else {
+      returnTo = window.sessionStorage.getItem("ps-row-return");
+      window.sessionStorage.removeItem("ps-row-return");
+    }
+  } catch { /* Storage may be disabled. */ }
 
   function restoreFocus(clear) {
     if (!returnTo || document.querySelector(".dl-detail, #thread .thread-head")) return;
@@ -11,6 +19,7 @@
   }
 
   function ready() {
+    if (!openRow) restoreFocus(true);
     // Empty filter fields would otherwise end up in the pushed address.
     document.body.addEventListener("htmx:configRequest", function (e) {
       if (e.target.id === "conv-panel" || (e.target.id === "conv-filter-form" && ["htmx:historyRestore", "conversation-updated"].includes(e.detail.triggeringEvent?.type))) {
@@ -40,7 +49,10 @@
     // Closing details hands focus back to the row they belong to.
     document.body.addEventListener("click", function (e) {
       var conversation = e.target.closest && e.target.closest(".conv-item");
-      if (conversation) returnTo = conversation.getAttribute("data-row");
+      if (conversation) {
+        returnTo = conversation.getAttribute("data-row");
+        try { window.sessionStorage.setItem("ps-row-return", returnTo); } catch { /* Storage may be disabled. */ }
+      }
       var close = e.target.closest && e.target.closest(".dl-close, .thread-back");
       if (close) {
         returnTo = close.getAttribute("data-row-return");

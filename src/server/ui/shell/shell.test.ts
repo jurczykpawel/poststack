@@ -70,7 +70,7 @@ describe("renderPage shell", () => {
 
   it("wires the Alpine toast store + styled confirm dialog into the shell", async () => {
     const out = s(await renderPage({ title: "Overview", nav: "overview", body: html`<p>x</p>`, products: ALL_AREAS }));
-    expect(out).toContain("<body x-data>");
+    expect(out).toContain('<body x-data hx-history="false">');
     expect(out).toMatch(/class="toasts"[^>]*aria-live="polite"/);
     expect(out).toContain('role="alertdialog"');
     expect(out).toContain("ps:toast");

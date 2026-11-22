@@ -17,8 +17,10 @@ export const pages = new Hono();
 
 function htmxRedirect(from: Response, to: string): Response {
   const out = new Response(null, { status: 204 });
-  const cookie = from.headers.get("set-cookie");
-  if (cookie) out.headers.set("set-cookie", cookie);
+  for (const name of ["set-cookie", "Clear-Site-Data", "Cache-Control"]) {
+    const value = from.headers.get(name);
+    if (value) out.headers.set(name, value);
+  }
   out.headers.set("HX-Redirect", to);
   return out;
 }

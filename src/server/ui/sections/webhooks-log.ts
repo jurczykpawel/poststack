@@ -1,7 +1,7 @@
 import { html } from "hono/html";
 import { and, eq, inArray, or, sql, type AnyColumn } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, webhookEvents } from "@/db/schema";
+import { channels, webhookEvents, platform } from "@/db/schema";
 import { containsPattern, countBy, listPage } from "@/lib/list-page";
 import { isUuid } from "@/lib/api/identifiers";
 import { redactSecrets } from "@/lib/redact";
@@ -90,6 +90,7 @@ export async function renderWebhooksLog(workspaceId: string, url: string, path: 
   const f = state.filters;
   const status = f.status && (CHANNEL_STATUSES as string[]).includes(f.status) ? sql`${webhookEvents.handling_status} = ${f.status}` : undefined;
   if (!status) delete f.status;
+  if (!platform.enumValues.some(value => value === f.platform)) delete f.platform;
   const withoutStatus = and(
     scope, search,
     f.platform ? sql`${webhookEvents.platform} = ${f.platform}` : undefined,

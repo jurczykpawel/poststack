@@ -1,7 +1,7 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import { BRAND } from "@/lib/brand";
-import { authenticateSession } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { getInstanceLicense, ProRequiredError } from "@/lib/license/gate";
 import { readPick, listPickOptions, connectPicked, clearPickCookie, type PickOption } from "@/lib/oauth/pick";
 import { ProviderError } from "@/lib/providers/errors";
@@ -31,7 +31,7 @@ export function registerChannelPick(r: Hono, guard: MiddlewareHandler): void {
 }
 
 async function pickContext(c: Context) {
-  const auth = await authenticateSession(c.req.raw).catch(() => null);
+  const auth = await authenticateDashboard(c.req.raw).catch(() => null);
   const platform = c.req.param("platform") ?? "";
   const tokens = auth && readPick(c.req.header("cookie") ?? null, platform, auth);
   return auth && tokens ? { auth, platform, tokens } : null;

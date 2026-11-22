@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { getInstanceLicense } from "@/lib/license/gate";
-import { authenticateSession } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { ApiError } from "@/lib/api/response";
 import { getQueueItem } from "./queue-data";
 import { getTikTokCreatorInfo } from "@/lib/channels/tiktok-creator-info";
@@ -19,7 +19,7 @@ const deliveryIdSchema = z.string().uuid();
 
 export function registerTikTokConfirmation(r: Hono, guard: MiddlewareHandler) {
   r.get("/queue/:id/confirm", guard, async (c) => {
-    const a = await authenticateSession(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.redirect("/login");
     if (!deliveryIdSchema.safeParse(c.req.param("id")).success) return c.text("Not found", 404);
     const item = await getQueueItem(a.workspaceId, c.req.param("id"));
@@ -42,7 +42,7 @@ export function registerTikTokConfirmation(r: Hono, guard: MiddlewareHandler) {
       </form>` }));
   });
   r.post("/queue/:id/confirm", guard, async (c) => {
-    const a = await authenticateSession(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.text("Unauthorized", 401);
     if (!deliveryIdSchema.safeParse(c.req.param("id")).success) return c.text("Not found", 404);
     try {

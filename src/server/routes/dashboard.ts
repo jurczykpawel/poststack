@@ -27,7 +27,7 @@ import { registerEngagement } from "../ui/sections/engagement";
 import { registerInsights } from "../ui/sections/insights";
 import { registerSettings } from "../ui/sections/settings";
 import { messagingWindowState } from "@/lib/platforms/messaging-window";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { truncateCodePoints } from "@/lib/text";
 import type { StoredAttachments } from "@/lib/messages/attachments";
 import { env } from "@/lib/env";
@@ -87,7 +87,7 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 /** Build a JSON Request carrying the caller's cookie/Authorization, for delegating

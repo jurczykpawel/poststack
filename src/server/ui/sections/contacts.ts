@@ -3,7 +3,7 @@ import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { and, asc, eq, exists, ilike, like, or, sql, type SQL } from "drizzle-orm";
-import { authenticate } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { channels, contactChannels, contactTags, contacts, tags } from "@/db/schema";
 import { getInstanceLicense } from "@/lib/license/gate";
@@ -145,7 +145,7 @@ async function renderContacts(workspaceId: string, url: string, multiBrand: bool
 /** `proLock` renders the shared upsell for instances without the contacts CRM. */
 export function registerContacts(r: Hono, guard: MiddlewareHandler, proLock: (title: string, body: Html, upgradeUrl: string) => Html | Promise<HtmlEscapedString>): void {
   r.get("/contacts", guard, async (c: Context) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return isHtmx(c) ? c.body(null, 401, { "HX-Redirect": "/login" }) : c.redirect("/login");
     c.header("Cache-Control", "private, no-store, no-transform");
     const { features, upgradeUrl, products } = await getInstanceLicense();

@@ -138,6 +138,7 @@ describe("Brands section", () => {
     expect(page).toContain(':src="$el.dataset.base + encodeURIComponent(tpl)"'); // preview updates safely on change
     // the preview endpoint renders a JPEG card
     const prev = await app.request("/brands/storybrand/story-preview", { headers: { cookie } });
+    expect(prev.headers.get("Cache-Control")).toContain("no-store");
     expect(prev.status).toBe(200);
     expect(prev.headers.get("content-type")).toBe("image/jpeg");
     expect((await prev.arrayBuffer()).byteLength).toBeGreaterThan(1000);

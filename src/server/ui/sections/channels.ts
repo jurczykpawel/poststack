@@ -4,7 +4,7 @@ import { html, raw } from "hono/html";
 import { desc, eq, and, count } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { events as eventsTbl, conversations as conversationsTbl, messages as messagesTbl, commentLogs as commentLogsTbl, deliveries as deliveriesTbl } from "@/db/schema";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import {
   listChannels,
   getChannel,
@@ -65,7 +65,7 @@ const STATUS_META: Record<ChannelStatus, { label: string; tone: Tone }> = {
 };
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 // ── capability badges (CHANNELS-ARCHITECTURE: a channel is an account WITH capabilities) ─────────

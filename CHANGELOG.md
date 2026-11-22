@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+- Standardize dashboard session handling, browser history lifecycle and one-time signing value display.
+
 ## [0.27.1] - 2026-11-19
 
 ### Fixed

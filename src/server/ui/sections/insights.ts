@@ -1,6 +1,6 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html } from "hono/html";
-import { authenticate, authenticateSession } from "@/lib/auth";
+import { authenticateDashboard } from "@/lib/auth";
 import { ApiError, apiErrorResponse } from "@/lib/api/response";
 import { listBrands } from "@/lib/brands/service";
 import { t } from "@/lib/i18n";
@@ -251,7 +251,7 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 
 export function registerInsights(app: Hono, requireAuth: MiddlewareHandler): void {
   app.get(PATH, requireAuth, async (c) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.redirect("/login");
     const { features, upgradeUrl, products } = await getInstanceLicense();
     const params = new URL(c.req.url).searchParams;
@@ -262,7 +262,7 @@ export function registerInsights(app: Hono, requireAuth: MiddlewareHandler): voi
 
   // Turn collection on/off through the same handler as PATCH /api/v1/channels/:id/insights.
   app.post(`${PATH}/collection`, requireAuth, async (c) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.redirect("/login");
     const form = await formValues(c);
     const q = readInsightsQuery(form);
@@ -276,7 +276,7 @@ export function registerInsights(app: Hono, requireAuth: MiddlewareHandler): voi
 
   // Queue a refresh through the same handler as POST /api/v1/channels/:id/insights/refresh.
   app.post(`${PATH}/refresh`, requireAuth, async (c) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.redirect("/login");
     const q = readInsightsQuery(await formValues(c));
     if (!isChannelId(q.channel)) return c.text("not found", 404);
@@ -299,7 +299,7 @@ export function registerInsights(app: Hono, requireAuth: MiddlewareHandler): voi
 
   // Bounded polling of the locally stored status after a refresh: every 5 s, at most 12 times.
   app.get(`${PATH}/status`, requireAuth, async (c) => {
-    const a = await authenticate(c.req.raw).catch(() => null);
+    const a = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!a) return c.redirect("/login");
     const params = new URL(c.req.url).searchParams;
     const q = readInsightsQuery(params);
@@ -318,7 +318,7 @@ export function registerInsights(app: Hono, requireAuth: MiddlewareHandler): voi
 
   // Start the platform consent for this channel (the transport is chosen from its stored credentials).
   app.post(`${PATH}/consent`, requireAuth, async (c) => {
-    const session = await authenticateSession(c.req.raw).catch(() => null);
+    const session = await authenticateDashboard(c.req.raw).catch(() => null);
     if (!session) return c.redirect("/login");
     const q = readInsightsQuery(await formValues(c));
     if (!isChannelId(q.channel)) return c.text("not found", 404);

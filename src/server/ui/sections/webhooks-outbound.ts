@@ -1,7 +1,7 @@
 import { localTime } from "../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import { ApiError } from "@/lib/api/response";
 import { listWebhookDeliveries } from "@/lib/webhooks/deliveries";
@@ -19,7 +19,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MONO = "font-family:var(--font-mono);font-size:12.5px";
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 /** Pull the (possibly repeated) `event_types` checkbox values + url + headers/extra textareas out of a form body. */
@@ -95,13 +95,13 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
       <code class="mono grow" style="overflow-x:auto;white-space:nowrap">${ep.url}</code>
     </div>
     <div class="muted" style="font-size:.82rem;margin:.4rem 0 .2rem">Events: ${eventsLabel(ep)}</div>
-    <div class="row" style="align-items:center;gap:.4rem;font-size:.8rem" x-data="{ show: ${highlight ? "true" : "false"} }">
+    ${highlight ? html`<div class="row" style="align-items:center;gap:.4rem;font-size:.8rem" x-data="{ show: true }">
       <span class="muted">Signing secret:</span>
       <code class="mono" x-ref="sec" x-show="show" x-cloak style="overflow-x:auto;white-space:nowrap">${ep.secret}</code>
       <code class="mono" x-show="!show">whsec_••••••••••••</code>
       <button type="button" class="btn btn-sm btn-ghost" @click="show = !show" x-text="show ? 'Hide' : 'Reveal'">Reveal</button>
       <button type="button" class="btn btn-sm btn-ghost" @click="navigator.clipboard && navigator.clipboard.writeText($refs.sec.textContent)">Copy</button>
-    </div>
+    </div>` : html`<div class="row" style="font-size:.8rem"><span class="muted">Signing secret:</span> <code class="mono">whsec_••••••••••••</code></div>`}
     <div class="row" style="gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/toggle" hx-target="#wh-outbound" hx-swap="outerHTML"${ep.active ? raw(' hx-confirm="Disable this endpoint? Pending deliveries to it will be dropped." data-confirm-label="Disable"') : raw("")}>${ep.active ? "Disable" : "Enable"}</button>
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/rotate" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Rotate the signing secret? The previous secret keeps verifying briefly, then stops." data-confirm-label="Rotate">${icon("reconnect", "ico", 13)} Rotate secret</button>

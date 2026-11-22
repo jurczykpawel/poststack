@@ -21,7 +21,7 @@ import * as eventsStream from "./events-stream";
 
 export const special = new Hono();
 
-// Realtime SSE (REALTIME1 · R3) — workspace-scoped live signals; authenticate() inside the handler.
+// Realtime SSE (REALTIME1 · R3) — workspace-scoped live signals; authenticateDashboard() inside the handler.
 special.get("/events/stream", (c) => eventsStream.GET(c));
 
 // Auth (these set/clear the session cookie on the returned Response)

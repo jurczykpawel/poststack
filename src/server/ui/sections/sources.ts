@@ -4,7 +4,7 @@ import { html, raw } from "hono/html";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { accountSources, channels } from "@/db/schema";
-import { authenticate, type AuthContext } from "@/lib/auth";
+import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense } from "@/lib/license/gate";
 import * as sourcesApi from "@/server/handlers/v1/sources/route";
 import * as sourceApi from "@/server/handlers/v1/sources/[sourceId]/route";
@@ -14,7 +14,7 @@ import { platformLabel } from "../components/platform";
 type Html = ReturnType<typeof html>;
 
 async function auth(c: Context): Promise<AuthContext | null> {
-  return authenticate(c.req.raw).catch(() => null);
+  return authenticateDashboard(c.req.raw).catch(() => null);
 }
 
 function fmtDate(d: Date | null): Html | string {
