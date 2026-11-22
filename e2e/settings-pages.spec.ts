@@ -123,6 +123,8 @@ test("API key validation keeps the sheet, name and custom permissions until succ
   await expect(sheet.locator('[name="preset"][value="custom"]')).toBeChecked();
   await expect(scope).toBeChecked();
   await expect(sheet.locator('[data-api-scope]:checked')).toHaveCount(1);
+  await expect(sheet.getByRole("alert")).toBeFocused();
+  await expect(sheet.getByRole("alert")).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("api-key-validation.png") });
   await sheet.getByLabel("Name", { exact: true }).fill("e2e corrected key");
   await sheet.getByRole("button", { name: "Create key", exact: true }).click();

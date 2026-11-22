@@ -99,13 +99,13 @@ function createSheet(operator: boolean): Html {
   ];
   return html`<dialog id="api-key-sheet" class="side-sheet" aria-labelledby="api-key-sheet-title">
     <form data-api-key-form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" hx-disabled-elt="find button[type=submit]"
-      x-data="${state}" @htmx:after-request="if ($event.detail.successful) { $el.closest('dialog').close(); $el.reset(); $el.querySelector('#api-key-error').replaceChildren(); preset = 'publishing'; scopes = [...presets.publishing] }">
+      x-data="${state}" @htmx:after-request="if ($event.detail.successful) { $el.closest('dialog').close(); $el.reset(); $refs.keyError.replaceChildren(); preset = 'publishing'; scopes = [...presets.publishing] } else if ($refs.keyError.textContent) { $refs.keyError.focus() }">
       <div class="side-sheet-head"><h2 id="api-key-sheet-title">Create API key</h2>
         <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" @click="$el.closest('dialog').close()">${icon("close", "ico", 15)}</button></div>
       <div class="side-sheet-body">
         <label class="label" for="api-key-name">Name</label>
         <input class="input" id="api-key-name" name="name" placeholder="e.g. Content pipeline" aria-describedby="api-key-error" required />
-        <div id="api-key-error" role="alert"></div>
+        <div id="api-key-error" x-ref="keyError" role="alert" tabindex="-1"></div>
         <div class="label" id="api-key-access" style="margin-top:14px">What can this key do?</div>
         <div class="preset-cards" role="radiogroup" aria-labelledby="api-key-access">
           ${choices.map((p) => html`<label class="preset-card" :class="{ on: preset === '${p.id}' }">
