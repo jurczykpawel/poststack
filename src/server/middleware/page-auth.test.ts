@@ -59,7 +59,11 @@ describe("requireSession", () => {
     expect(res.headers.get("location")).toBe("/login");
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
-  it.each(["Bearer sk_live_example", "Basic example", ""])("requires session-only headers (%s)", async authorization => {
+  it("serves a session behind a Basic-auth proxy", async () => {
+    const res = await respond({ cookie: `session=${await signWith("HS256")}`, authorization: "Basic cHJveHk6cGFzcw==" });
+    expect(res.status).toBe(200);
+  });
+  it.each(["Bearer sk_live_example", "bearer sk_live_example", "Bearer other-token"])("refuses Bearer credentials on dashboard pages (%s)", async authorization => {
     const res = await respond({ cookie: `session=${await signWith("HS256")}`, authorization, "HX-Request": "true" });
     expect(res.headers.get("HX-Redirect")).toBe("/login");
     expect(res.headers.get("set-cookie")).toBeNull();

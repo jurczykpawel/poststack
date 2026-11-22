@@ -72,9 +72,13 @@ export async function authenticate(
   return authenticateSession(request, requiredWorkspaceId);
 }
 
-/** Authenticate an interactive dashboard request using its session cookie. */
+/**
+ * Authenticate an interactive dashboard request using its session cookie only.
+ * Any Bearer credential is refused so an API key can never pick the workspace or widen a page's scope.
+ * Other schemes (e.g. Basic from an auth proxy in front of a self-hosted instance) are ignored.
+ */
 export async function authenticateDashboard(request: Request): Promise<SessionAuthContext | null> {
-  if (request.headers.has("authorization")) return null;
+  if (/^\s*bearer\b/i.test(request.headers.get("authorization") ?? "")) return null;
   return authenticateSession(request);
 }
 
