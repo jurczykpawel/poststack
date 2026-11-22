@@ -1129,7 +1129,7 @@ details[open] .guide-summary::before { transform: rotate(90deg); }
 .bm-tools .section-intro { flex: 1 1 260px; margin: 0; }
 .bm-tools input[type="search"] { flex: 0 1 240px; min-width: 0; padding: 8px 10px; font: inherit; font-size: 0.86rem;
   border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg); color: var(--text-1); }
-.bm { --bm-cols: 230px repeat(7, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-card, 10px); background: var(--surface, var(--bg-2)); }
+.bm { --bm-cols: 230px repeat(8, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-card, 10px); background: var(--surface, var(--bg-2)); }
 .bm { overflow-x: auto; }
 .bm-row { min-width: 1040px; display: grid; grid-template-columns: var(--bm-cols); align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border); }
 .bm-row.bm-head { border-top: 0; color: var(--text-3); font-size: 0.78rem; }

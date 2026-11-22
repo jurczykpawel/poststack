@@ -271,3 +271,15 @@ it("Google shows direct publishing credentials as a configured alternative", asy
   const { youtubeProvider } = await import("@/lib/providers/youtube");
   expect(await youtubeProvider.oauthConfig?.()).toMatchObject({ clientId: "direct-client", clientSecret: "direct-secret" });
 });
+
+it.each([
+  { name: "x".repeat(101), scopes: ["brands:read"], message: "Name must be at most 100 characters." },
+  { name: "No permissions", scopes: [], message: "Select at least one permission." },
+])("key form reports validation without changing the list: $message", async ({ name, scopes, message }) => {
+  const res = await postJson("/settings/api-keys", { name, scopes_json: JSON.stringify(scopes) });
+  expect(res.status).toBe(422);
+  expect(res.headers.get("HX-Retarget")).toBe("#api-key-error");
+  expect(res.headers.get("HX-Reswap")).toBe("innerHTML");
+  expect(await res.text()).toContain(message);
+  expect(await db.query.apiKeys.findMany({ where: eq(s.apiKeys.workspace_id, WS) })).toHaveLength(0);
+});

@@ -1,5 +1,6 @@
 import { localTime } from "../../components/format";
 import type { Context, Hono, MiddlewareHandler } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { html, raw } from "hono/html";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -97,13 +98,14 @@ function createSheet(operator: boolean): Html {
     { id: "custom", label: "Custom", hint: "Choose permissions one by one." },
   ];
   return html`<dialog id="api-key-sheet" class="side-sheet" aria-labelledby="api-key-sheet-title">
-    <form data-api-key-form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML"
-      x-data="${state}" @htmx:after-request="if ($event.detail.successful) { $el.closest('dialog').close(); $el.reset(); preset = 'publishing'; scopes = [...presets.publishing] }">
+    <form data-api-key-form hx-post="/settings/api-keys" hx-ext="json-enc" hx-target="#keys-area" hx-swap="innerHTML" hx-disabled-elt="find button[type=submit]"
+      x-data="${state}" @htmx:after-request="if ($event.detail.successful) { $el.closest('dialog').close(); $el.reset(); $el.querySelector('#api-key-error').replaceChildren(); preset = 'publishing'; scopes = [...presets.publishing] }">
       <div class="side-sheet-head"><h2 id="api-key-sheet-title">Create API key</h2>
         <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" @click="$el.closest('dialog').close()">${icon("close", "ico", 15)}</button></div>
       <div class="side-sheet-body">
         <label class="label" for="api-key-name">Name</label>
-        <input class="input" id="api-key-name" name="name" placeholder="e.g. Content pipeline" required />
+        <input class="input" id="api-key-name" name="name" placeholder="e.g. Content pipeline" aria-describedby="api-key-error" required />
+        <div id="api-key-error" role="alert"></div>
         <div class="label" id="api-key-access" style="margin-top:14px">What can this key do?</div>
         <div class="preset-cards" role="radiogroup" aria-labelledby="api-key-access">
           ${choices.map((p) => html`<label class="preset-card" :class="{ on: preset === '${p.id}' }">
@@ -188,16 +190,20 @@ export function registerApiKeySettings(app: Hono, guard: MiddlewareHandler, json
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     // An empty scopes array is the full-access sentinel for programmatic keys, but in this form
     // deselecting every permission means the user wants no permissions. Require at least one.
-    if (picked.length === 0) return c.html(renderKeys(await loadKeys(a.workspaceId), "Select at least one permission."));
+    const formError = (message: string, status = 422) => {
+      c.header("HX-Retarget", "#api-key-error");
+      c.header("HX-Reswap", "innerHTML");
+      return c.html(html`<div class="notice notice-err">${message}</div>`, status as ContentfulStatusCode);
+    };
+    if (picked.length === 0) return formError("Select at least one permission.");
     const res = await apiKeys.POST(jsonReq(c, { name: form.name ?? "", scopes: picked }));
     const body = await res.json().catch(() => ({}));
+    if (res.status >= 400) return formError(formErrorText(body, "Failed to create key."), res.status);
     const created = res.status === 201 ? body?.data?.key : null;
     const banner = created
       ? html`<div class="notice notice-ok key-created"><strong>Copy this key now. It won't be shown again.</strong>
           <div class="row" style="gap:8px;align-items:center;margin-top:6px"><code class="mono" style="overflow-wrap:anywhere">${created}</code>${copyBtn(created)}</div></div>`
-      : res.status >= 400
-        ? html`<div class="notice notice-err">${formErrorText(body, "Failed to create key.")}</div>`
-        : html``;
+      : html``;
     return c.html(html`${banner}${renderKeys(await loadKeys(a.workspaceId))}`);
   });
 

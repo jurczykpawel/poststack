@@ -62,6 +62,16 @@ test("desktop: one table row per brand, slot save, edit panel, search", async ({
   expect(search.width).toBeGreaterThan(150);
   const last = (await page.locator(".bm-head .bm-th").last().boundingBox())!;
   expect(last.x + last.width).toBeLessThanOrEqual(1440);
+  const headers = await page.locator(".bm-head .bm-th").all();
+  const top = (await headers[0].boundingBox())!.y;
+  for (const header of headers) expect((await header.boundingBox())!.y).toBeCloseTo(top, 0);
+  const slots = await rows.first().locator(".brand-slot").all();
+  for (const [i, slot] of slots.entries()) {
+    const cell = (await slot.boundingBox())!;
+    const heading = (await headers[i + 1].boundingBox())!;
+    expect(cell.x).toBeCloseTo(heading.x, 0);
+    expect(cell.width).toBeCloseTo(heading.width, 0);
+  }
   await shoot(page, testInfo.outputPath("brands-desktop"));
 
   // searching narrows the rows
@@ -113,7 +123,12 @@ test("phone: collapsed cards, expand to the same selects, no horizontal scroll",
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const box = await card.locator(".brand-slot button.ps-trigger").first().boundingBox();
   expect(box!.height).toBeGreaterThanOrEqual(44);
-  await shoot(page, testInfo.outputPath("brands-phone"));
+  await shoot(page, testInfo.outputPath("brands-phone"), async () => {
+    await card.getByRole("button", { name: /Show channels/ }).click();
+    await expect(card.locator(".brand-slot button.ps-trigger")).toHaveCount(8);
+    await expect(card.locator(".brand-slot button.ps-trigger").last()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
@@ -156,3 +171,38 @@ test("MQA13: legacy unsafe key stays inert, Delete confirm sits over the panel, 
   expect((await db.query("SELECT 1 FROM brands WHERE workspace_id = $1 AND key = $2", [workspaceId, `${PREFIX}14`])).rowCount).toBe(0);
   expect(errors, errors.join("\n")).toEqual([]);
 });
+
+for (const mode of ["create", "edit"] as const) {
+  test(`brand ${mode}: one pending request, then validation permits retry`, async ({ page }) => {
+    await setPro(page.request);
+    await gotoOk(page, "/brands");
+    const dialog = mode === "create" ? page.getByRole("dialog", { name: "New brand" }) : page.locator(`#brand-${PREFIX}3 dialog`);
+    await (mode === "create" ? page.getByRole("button", { name: "Add brand" }) : page.locator(`#brand-${PREFIX}3`).getByRole("button", { name: "Edit", exact: true })).click();
+    if (mode === "create") await dialog.locator('[name="key"]').fill(`${PREFIX}pending`);
+    await dialog.locator('[name="name"]').fill("Pending brand");
+    const save = dialog.getByRole("button", { name: mode === "create" ? "Create brand" : "Save changes" });
+    const path = mode === "create" ? "/brands" : `/brands/${PREFIX}3/edit`;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    let requests = 0;
+    await page.route(`**${path}`, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      requests++;
+      await pending;
+      await route.fulfill({ status: 422, contentType: "text/html", body: '<div class="notice notice-err" role="alert">Please check the name.</div>' });
+    });
+    try {
+      await save.click();
+      await expect.poll(() => requests).toBe(1);
+      await expect(save).toBeDisabled();
+      await save.evaluate((el: HTMLButtonElement) => el.click());
+      await dialog.locator('[name="name"]').press("Enter");
+      expect(requests).toBe(1);
+    } finally { release(); }
+    await expect(dialog.locator(".notice-err")).toContainText("Please check the name.");
+    await expect(save).toBeEnabled();
+    await expect(dialog.locator('[name="name"]')).toHaveValue("Pending brand");
+    await save.click();
+    await expect.poll(() => requests).toBe(2);
+  });
+}

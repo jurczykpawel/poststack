@@ -852,7 +852,7 @@ describe("dashboard API key scopes", () => {
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ name: "Empty-130", scopes_json: JSON.stringify([]) }),
     });
-    expect(res.status).toBe(200); // re-renders the form area with a notice, no key created
+    expect(res.status).toBe(422); // keeps the create sheet open with a notice, no key created
     const key = await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.name, "Empty-130"), columns: { id: true } });
     expect(key).toBeUndefined();
   });

@@ -102,3 +102,33 @@ test("X publishing credentials save in Integrations and show their source", asyn
     await expect(page.locator("#int-detail")).toContainText("Reverted to the environment variable.");
   }
 });
+
+test("API key validation keeps the sheet, name and custom permissions until successful retry", async ({ page }, testInfo) => {
+  await setPro(page.request);
+  await gotoOk(page, "/settings/api-keys");
+  await page.getByRole("button", { name: "Create API key" }).click();
+  const sheet = page.locator("#api-key-sheet");
+  const name = "x".repeat(101);
+  await sheet.getByLabel("Name", { exact: true }).fill(name);
+  await sheet.locator(".preset-card", { hasText: "Custom" }).click();
+  await sheet.getByRole("button", { name: "Deselect all" }).click();
+  const scope = sheet.locator('[data-api-scope][value="brands:read"]');
+  await scope.check();
+  const response = page.waitForResponse((r) => r.url().endsWith("/settings/api-keys") && r.request().method() === "POST");
+  await sheet.getByRole("button", { name: "Create key", exact: true }).click();
+  expect((await response).status()).toBe(422);
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("alert")).toContainText("Name must be at most 100 characters.");
+  await expect(sheet.getByLabel("Name", { exact: true })).toHaveValue(name);
+  await expect(sheet.locator('[name="preset"][value="custom"]')).toBeChecked();
+  await expect(scope).toBeChecked();
+  await expect(sheet.locator('[data-api-scope]:checked')).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("api-key-validation.png") });
+  await sheet.getByLabel("Name", { exact: true }).fill("e2e corrected key");
+  await sheet.getByRole("button", { name: "Create key", exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.locator(".key-created")).toBeVisible();
+  await page.getByRole("button", { name: "Create API key" }).click();
+  await expect(sheet.getByLabel("Name", { exact: true })).toHaveValue("");
+  await expect(sheet.locator('[name="preset"][value="publishing"]')).toBeChecked();
+});

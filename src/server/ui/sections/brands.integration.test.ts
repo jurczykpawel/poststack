@@ -97,6 +97,13 @@ async function makeChannel(platform: string, accountId: string, subKind?: string
 }
 
 describe("Brands section", () => {
+  it("brand save forms disable their own submit button during requests", async () => {
+    await createBrandSvc({ key: "pending", name: "Pending" }, workspaceId);
+    const page = await (await app.request("/brands", { headers: { cookie } })).text();
+    expect(page).toContain('hx-disabled-elt="find button[type=submit]"');
+    expect(page).toContain('hx-disabled-elt="[form=edit-pending]"');
+  });
+
   it("renders the page with the New brand form", async () => {
     if (!TEST_DB) return;
     const res = await app.request("/brands", { headers: { cookie } });

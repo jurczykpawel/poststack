@@ -206,7 +206,7 @@ function editPanel(brand: BrandRow, error?: string): Html {
       <button type="button" class="btn btn-ghost btn-sm" @click="$refs.dlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
     <div class="sheet-b">
       <form class="brand-edit-form" id="edit-${domSafe(brand.key)}" method="post" action="${keyPath(brand.key)}/edit"
-        hx-post="${keyPath(brand.key)}/edit" hx-target="#edit-error-${domSafe(brand.key)}" hx-swap="innerHTML"
+        hx-post="${keyPath(brand.key)}/edit" hx-target="#edit-error-${domSafe(brand.key)}" hx-swap="innerHTML" hx-disabled-elt="[form=edit-${domSafe(brand.key)}]"
         x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
         <label class="brand-fld"><span>Brand name</span>
           <input name="name" value="${brand.name}" required /></label>
@@ -306,7 +306,7 @@ async function brandsPage(c: Context, notice?: string, status = 200, failedEdit?
           <dialog class="sheet" x-ref="newDlg"${c.req.query("new") === "1" ? raw(` x-init="$el.showModal()"`) : ""} @click="if ($event.target === $el) $el.close()" aria-label="New brand">
             <div class="sheet-h"><h4>New brand</h4>
               <button type="button" class="btn btn-ghost btn-sm" @click="$refs.newDlg.close()" aria-label="Close">${icon("close", "ico", 14)}</button></div>
-            <form class="brand-new-form sheet-b" method="post" action="/brands" hx-post="/brands" hx-target="#brand-new-err" hx-swap="innerHTML">
+            <form class="brand-new-form sheet-b" method="post" action="/brands" hx-post="/brands" hx-target="#brand-new-err" hx-swap="innerHTML" hx-disabled-elt="find button[type=submit]">
               <div id="brand-new-err" role="alert"></div>
               ${composing ? html`<input type="hidden" name="compose" value="1" />` : ""}
               <label class="brand-fld"><span>Key <small>(stable id — e.g. techskills.academy)</small></span>

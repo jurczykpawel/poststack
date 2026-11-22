@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Disable brand save buttons while requests are pending and keep API key form values and permissions after validation errors.
+- Align all eight platform columns, including Telegram, in the desktop Brands table.
+
 ## [0.27.2] - 2026-11-22
 
 ### Security
