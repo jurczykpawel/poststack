@@ -155,6 +155,8 @@ test("MQA13: legacy unsafe key stays inert, Delete confirm sits over the panel, 
   const row = page.locator(`#brand-${PREFIX}14`);
   const dlg = row.locator("dialog");
   await row.getByRole("button", { name: "Edit" }).click();
+  const preview = dlg.locator('img[src*="/story-preview"]');
+  await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
   await dlg.locator("summary", { hasText: "Danger zone" }).click();
   await dlg.getByRole("button", { name: "Delete brand" }).click();
   const confirm = page.getByRole("alertdialog");
