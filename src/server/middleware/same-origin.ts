@@ -5,20 +5,21 @@ import { env } from "@/lib/env";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Keep the page policy for dashboard forms. API session writes also check the full Origin when sent.
-// Clients that carry a session explicitly can omit both browser headers.
-export function isSameOriginRequest(method: string, headers: Headers, { strict = false } = {}): boolean {
+// One policy for every state-changing browser request (dashboard forms and session-authenticated
+// /api/v1 writes). Sec-Fetch-Site must be same-origin (or none: user-initiated, not forgeable by
+// another site); a sibling subdomain sends same-site and is refused, because the SameSite=Lax session
+// cookie is still attached there. Without Sec-Fetch-Site the full Origin must equal APP_URL's origin.
+// A request with neither header (non-browser client carrying a session explicitly) is allowed.
+export function isSameOriginRequest(method: string, headers: Headers): boolean {
   if (SAFE_METHODS.has(method)) return true;
 
   const site = headers.get("sec-fetch-site");
-  if (!strict && site) return site !== "cross-site";
-  if (strict && site !== null && site !== "same-origin") return false;
+  if (site !== null) return site === "same-origin" || site === "none";
 
   const origin = headers.get("origin");
-  if (origin === null || (!strict && origin === "")) return true;
+  if (origin === null) return true;
   try {
-    const appUrl = new URL(env.APP_URL);
-    return strict ? origin !== "null" && origin === appUrl.origin : new URL(origin).host === appUrl.host;
+    return origin !== "null" && origin === new URL(env.APP_URL).origin;
   } catch {
     return false;
   }
@@ -31,7 +32,7 @@ export const requireSameOrigin: MiddlewareHandler = async (c, next) => {
 
 export const requireSameOriginForSessionWrites: MiddlewareHandler = async (c, next) => {
   const request = c.req.raw;
-  if (!isSameOriginRequest(request.method, request.headers, { strict: true }) &&
+  if (!isSameOriginRequest(request.method, request.headers) &&
       readSessionCookie(request.headers.get("cookie")) && readApiKeyCredential(request) === null) {
     return ApiErrors.forbidden();
   }

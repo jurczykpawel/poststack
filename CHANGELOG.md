@@ -11,6 +11,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 - Enforce the instance origin for browser API writes authenticated by a dashboard session.
+- Dashboard form submissions from sibling subdomains are refused; only same-origin requests may change data.
 
 ### Fixed
 - Channel updates with no editable fields return a validation error.

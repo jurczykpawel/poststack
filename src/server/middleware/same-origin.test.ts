@@ -30,9 +30,14 @@ describe("requireSameOrigin", () => {
     expect(res.status).toBe(200);
   });
 
-  it("allows a same-site POST", async () => {
+  it("refuses a same-site POST (a sibling subdomain still carries the Lax session cookie)", async () => {
     const res = await (await makeApp()).request("/x", { method: "POST", headers: { "sec-fetch-site": "same-site" } });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses a sibling-subdomain Origin when Sec-Fetch-Site is absent", async () => {
+    const res = await (await makeApp()).request("/x", { method: "POST", headers: { origin: "http://evil.localhost:3000" } });
+    expect(res.status).toBe(403);
   });
 
   it("allows a user-initiated POST (Sec-Fetch-Site: none)", async () => {
