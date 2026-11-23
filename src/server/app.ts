@@ -2,6 +2,7 @@ import { getInstanceBrand, withBrand } from "@/lib/brand";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { securityHeaders } from "./middleware/security-headers";
+import { requireSameOriginForSessionWrites } from "./middleware/same-origin";
 import { publicRoutes } from "./routes/public";
 import { landingRoutes } from "./routes/landing";
 import { special } from "./routes/special";
@@ -48,6 +49,7 @@ export function buildApp(): Hono {
   });
   app.use("/api/v1", corsMiddleware);
   app.use("/api/v1/*", corsMiddleware);
+  app.use("/api/v1/*", requireSameOriginForSessionWrites);
 
   // Any uncaught error from an API handler (DB/queue/runtime) must still honour the
   // { data, error } contract — not leak Hono's plain-text 500 — and never expose internals

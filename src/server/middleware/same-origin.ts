@@ -1,31 +1,24 @@
 import type { MiddlewareHandler } from "hono";
+import { ApiErrors } from "@/lib/api/response";
+import { readApiKeyCredential, readSessionCookie } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-function appHost(): string {
-  try {
-    return new URL(env.APP_URL).host;
-  } catch {
-    return "";
-  }
-}
-
-// Only accept state-changing requests that come from the app's own pages. Modern browsers send
-// Sec-Fetch-Site (accept same-origin/same-site/none, refuse cross-site); clients that omit it fall
-// back to an Origin host match against APP_URL. A request with neither header — e.g. a non-browser
-// client carrying a valid session cookie — is allowed, since the SameSite=Lax session cookie already
-// governs browser cross-site requests; this also keeps server-to-server callers working.
-export function isSameOriginRequest(method: string, headers: Headers): boolean {
+// Keep the page policy for dashboard forms. API session writes also check the full Origin when sent.
+// Clients that carry a session explicitly can omit both browser headers.
+export function isSameOriginRequest(method: string, headers: Headers, { strict = false } = {}): boolean {
   if (SAFE_METHODS.has(method)) return true;
 
   const site = headers.get("sec-fetch-site");
-  if (site) return site !== "cross-site";
+  if (!strict && site) return site !== "cross-site";
+  if (strict && site !== null && site !== "same-origin") return false;
 
   const origin = headers.get("origin");
-  if (!origin) return true;
+  if (origin === null || (!strict && origin === "")) return true;
   try {
-    return new URL(origin).host === appHost();
+    const appUrl = new URL(env.APP_URL);
+    return strict ? origin !== "null" && origin === appUrl.origin : new URL(origin).host === appUrl.host;
   } catch {
     return false;
   }
@@ -33,5 +26,14 @@ export function isSameOriginRequest(method: string, headers: Headers): boolean {
 
 export const requireSameOrigin: MiddlewareHandler = async (c, next) => {
   if (!isSameOriginRequest(c.req.method, c.req.raw.headers)) return c.text("Forbidden", 403);
+  return next();
+};
+
+export const requireSameOriginForSessionWrites: MiddlewareHandler = async (c, next) => {
+  const request = c.req.raw;
+  if (!isSameOriginRequest(request.method, request.headers, { strict: true }) &&
+      readSessionCookie(request.headers.get("cookie")) && readApiKeyCredential(request) === null) {
+    return ApiErrors.forbidden();
+  }
   return next();
 };

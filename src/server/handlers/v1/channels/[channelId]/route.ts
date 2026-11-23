@@ -79,6 +79,9 @@ export async function PATCH(
     columns: { id: true, status: true },
   });
   if (!existing) return ApiErrors.notFound();
+  if (Object.keys(parsed.data).length === 0) {
+    return ApiErrors.validationError([{ path: "", message: "No fields to update" }]);
+  }
 
   if ((parsed.data.default_auto_story !== undefined || parsed.data.default_auto_story_mode !== undefined) && !await hasFeature("auto_story")) {
     return ApiErrors.proRequired("auto_story", env.LICENSE_UPGRADE_URL);

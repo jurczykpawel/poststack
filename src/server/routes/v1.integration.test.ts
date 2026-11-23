@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createHash } from "crypto";
-import { inArray, eq } from "drizzle-orm";
-import { workspaces, channels, contacts, apiKeys, tags, conversations, messages, instanceLicense } from "@/db/schema";
+import { and, inArray, eq } from "drizzle-orm";
+import { workspaces, channels, contacts, apiKeys, tags, conversations, messages, instanceLicense, users, workspaceMembers } from "@/db/schema";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
 import type { Hono } from "hono";
 
@@ -12,12 +12,15 @@ const RAW_KEY = "sk_live_v1_integration_key_abcdef0123";
 let db: typeof import("@/lib/db").db;
 let encryptTokens: typeof import("@/lib/crypto").encryptTokens;
 let app: Hono;
+let sessionHeaders: { cookie: string };
 
 const WS_A = "dddddddd-0000-0000-0000-00000000000a";
 const WS_B = "dddddddd-0000-0000-0000-00000000000b";
 const CH_A = "dddddddd-0000-0000-0000-0000000000c1";
 const CONTACT_A = "dddddddd-0000-0000-0000-0000000000a1";
 const CONTACT_B = "dddddddd-0000-0000-0000-0000000000b1";
+const USER_A = "dddddddd-0000-0000-0000-0000000000e1";
+const APP_ORIGIN = "http://localhost:3000";
 
 beforeAll(async () => {
   if (!TEST_DB) return;
@@ -25,13 +28,16 @@ beforeAll(async () => {
   process.env.ENCRYPTION_KEY =
     "0000000000000000000000000000000000000000000000000000000000000001";
   process.env.JWT_SECRET = "test-secret-at-least-32-characters-long";
-  process.env.APP_URL = "http://localhost:3000";
+  process.env.APP_URL = APP_ORIGIN;
   process.env.CRON_SECRET = "test-cron-secret-at-least-32-characters-long";
 
   ({ db } = await import("@/lib/db"));
   ({ encryptTokens } = await import("@/lib/crypto"));
   const { buildApp } = await import("../app");
   app = buildApp();
+  const { signSession, sessionCookie } = await import("@/lib/auth");
+  sessionHeaders = { cookie: sessionCookie(await signSession(USER_A, WS_A), 3600).split(";")[0] };
+  await db.insert(users).values({ id: USER_A, email: "v1-session@example.test" });
   // Contacts + tags reads are the PRO contacts-CRM surface; license the instance.
   await licenseInstance();
 });
@@ -41,6 +47,7 @@ beforeEach(async () => {
   await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
   await db.insert(workspaces).values({ id: WS_A, name: "A", slug: `a-${WS_A}` });
   await db.insert(workspaces).values({ id: WS_B, name: "B", slug: `b-${WS_B}` });
+  await db.insert(workspaceMembers).values({ user_id: USER_A, workspace_id: WS_A });
   await db.insert(channels).values({
     id: CH_A, workspace_id: WS_A, platform: "facebook", platform_id: "PAGE_A",
     display_name: "Page A", token_encrypted: encryptTokens({ access_token: "tok" }),
@@ -58,11 +65,81 @@ beforeEach(async () => {
 afterAll(async () => {
   if (!TEST_DB) return;
   await db.delete(workspaces).where(inArray(workspaces.id, [WS_A, WS_B]));
+  await db.delete(users).where(eq(users.id, USER_A));
   await db.delete(instanceLicense);
   await db.$client.end();
 });
 
 const authHeaders = { authorization: `Bearer ${RAW_KEY}` };
+
+describe("v1 request origin policy", () => {
+  const otherOrigin = "https://other.example.test";
+  const patchChannel = (headers: Record<string, string>) => app.request(`/api/v1/channels/${CH_A}`, {
+    method: "PATCH",
+    headers: { ...sessionHeaders, "content-type": "application/json", ...headers },
+    body: JSON.stringify({ display_name: "Renamed" }),
+  });
+
+  it.each(["POST", "PUT", "PATCH", "DELETE"])("applies the session policy to %s", async (method) => {
+    const res = await app.request("/api/v1/unknown", {
+      method, headers: { ...sessionHeaders, origin: otherOrigin },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ data: null, error: { code: "forbidden" } });
+  });
+
+  it.each<[string, Record<string, string>]>([
+    ["same-site metadata", { "sec-fetch-site": "same-site" }],
+    ["cross-site metadata", { "sec-fetch-site": "cross-site" }],
+    ["a different scheme", { origin: "https://localhost:3000" }],
+    ["conflicting origin", { origin: otherOrigin, "sec-fetch-site": "same-origin" }],
+    ["a Basic credential", { origin: otherOrigin, authorization: "Basic dGVzdDp0ZXN0" }],
+    ["an unrecognized credential", { origin: otherOrigin, authorization: "Bearer unknown" }],
+  ])("leaves the channel unchanged for %s", async (_label, headers) => {
+    const res = await patchChannel(headers);
+    const channel = await db.query.channels.findFirst({
+      where: and(eq(channels.id, CH_A), eq(channels.workspace_id, WS_A)),
+      columns: { display_name: true },
+    });
+    expect({ status: res.status, displayName: channel?.display_name }).toEqual({ status: 403, displayName: "Page A" });
+  });
+
+  it.each<[string, Record<string, string>]>([
+    ["a matching Origin", { origin: APP_ORIGIN }],
+    ["same-origin metadata", { "sec-fetch-site": "same-origin" }],
+    ["an explicit session without browser headers", {}],
+    ["the same origin through a Basic proxy", { origin: APP_ORIGIN, authorization: "Basic dGVzdDp0ZXN0" }],
+  ])("allows a session write with %s", async (_label, headers) => {
+    const res = await patchChannel(headers);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ data: { display_name: "Renamed" } });
+  });
+
+  it("allows a Bearer write and CORS preflight from another origin", async () => {
+    const res = await patchChannel({ ...authHeaders, origin: otherOrigin, "sec-fetch-site": "cross-site" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    const preflight = await app.request(`/api/v1/channels/${CH_A}`, {
+      method: "OPTIONS",
+      headers: { origin: otherOrigin, "access-control-request-method": "PATCH", "access-control-request-headers": "authorization,content-type" },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-headers")).toContain("Authorization");
+  });
+
+  it("keeps key authentication independent of the session", async () => {
+    const res = await patchChannel({ authorization: "Bearer sk_live_unrecognized", origin: otherOrigin });
+    expect(res.status).toBe(401);
+  });
+
+  it("allows a session read from another origin", async () => {
+    const res = await app.request(`/api/v1/channels/${CH_A}`, {
+      headers: { ...sessionHeaders, origin: otherOrigin, "sec-fetch-site": "cross-site" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ data: { id: CH_A } });
+  });
+});
 
 describe("v1 delegation parity (real Postgres)", () => {
   it("returns client errors for malformed IDs and cursors", async () => {
@@ -136,6 +213,16 @@ describe("v1 delegation parity (real Postgres)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.display_name).toBe("Renamed");
+  });
+
+  it.each([{}, { name: "Renamed" }])("requires an editable channel field in %j", async (body) => {
+    const res = await app.request(`/api/v1/channels/${CH_A}`, {
+      method: "PATCH",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ error: { code: "validation_error" } });
   });
 
   it("returns 409 (not 500) when reactivating a channel whose account is active in another workspace", async () => {

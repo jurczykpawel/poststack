@@ -55,6 +55,11 @@ export function hasBearerCredential(request: Request): boolean {
   return /^\s*bearer\b/i.test(request.headers.get("authorization") ?? "");
 }
 
+export function readApiKeyCredential(request: Request): string | null {
+  const authorization = request.headers.get("authorization");
+  return authorization?.startsWith(`Bearer ${BEARER_PREFIX}`) ? authorization.slice(7) : null;
+}
+
 /**
  * Authenticate a request using either:
  * 1. Session JWT cookie (dashboard frontend)
@@ -67,9 +72,9 @@ export async function authenticate(
   requiredWorkspaceId?: string
 ): Promise<AuthContext | null> {
   // Try Bearer API key first
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith(`Bearer ${BEARER_PREFIX}`)) {
-    return authenticateApiKey(authHeader.slice(7), requiredWorkspaceId);
+  const apiKey = readApiKeyCredential(request);
+  if (apiKey !== null) {
+    return authenticateApiKey(apiKey, requiredWorkspaceId);
   }
 
   // Fall back to session JWT cookie (parse from Cookie header)

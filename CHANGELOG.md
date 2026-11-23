@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+- Enforce the instance origin for browser API writes authenticated by a dashboard session.
+
+### Fixed
+- Channel updates with no editable fields return a validation error.
+
 ## [0.27.3] - 2026-11-22
 
 ### Fixed
