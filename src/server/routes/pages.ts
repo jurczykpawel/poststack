@@ -135,14 +135,14 @@ pages.get("/register", async (c) =>
   ),
 );
 
-pages.post("/login", async (c) => {
+pages.post("/login", requireSameOrigin, async (c) => {
   const res = await login.POST(c.req.raw);
   if (res.status === 200) return htmxRedirect(res, loginReturnTo(c.req.query("next")) ?? "/inbox");
   const body = await res.json().catch(() => ({}));
   return c.html(html`<p class="auth-error">${raw(escapeText(authErrorMessage(body, "Login failed")))}</p>`);
 });
 
-pages.post("/register", async (c) => {
+pages.post("/register", requireSameOrigin, async (c) => {
   const res = await register.POST(c.req.raw);
   if (res.status === 201) return htmxRedirect(res, "/inbox");
   const body = await res.json().catch(() => ({}));

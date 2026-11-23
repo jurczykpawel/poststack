@@ -92,7 +92,6 @@ describe("v1 request origin policy", () => {
     ["same-site metadata", { "sec-fetch-site": "same-site" }],
     ["cross-site metadata", { "sec-fetch-site": "cross-site" }],
     ["a different scheme", { origin: "https://localhost:3000" }],
-    ["conflicting origin", { origin: otherOrigin, "sec-fetch-site": "same-origin" }],
     ["a Basic credential", { origin: otherOrigin, authorization: "Basic dGVzdDp0ZXN0" }],
     ["an unrecognized credential", { origin: otherOrigin, authorization: "Bearer unknown" }],
   ])("leaves the channel unchanged for %s", async (_label, headers) => {

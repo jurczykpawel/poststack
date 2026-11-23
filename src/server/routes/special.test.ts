@@ -24,6 +24,22 @@ describe("auth routes", () => {
     expect(setCookie).toContain("session=");
     expect(setCookie.toLowerCase()).toMatch(/max-age=0|expires=/);
   });
+
+  // Login CSRF: a sibling subdomain or foreign site must not be able to sign the browser into another account.
+  it.each([
+    ["/api/auth/login", { "sec-fetch-site": "same-site" }],
+    ["/api/auth/register", { "sec-fetch-site": "cross-site" }],
+    ["/login", { "sec-fetch-site": "same-site" }],
+    ["/register", { origin: "http://evil.localhost:3000" }],
+  ])("refuses a %s submission from another site before any credential check", async (path, headers) => {
+    const res = await app.request(path, {
+      method: "POST",
+      headers: { "content-type": "text/plain", ...headers },
+      body: JSON.stringify({ email: "a@example.com", password: "x" }),
+    });
+    expect(res.status).toBe(403);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
 });
 
 describe("webhook verification", () => {
