@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.4] - 2026-11-23
+
 ### Security
 - Enforce the instance origin for browser API writes authenticated by a dashboard session.
 - Dashboard form submissions from sibling subdomains are refused; only same-origin requests may change data.
