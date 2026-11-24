@@ -61,7 +61,7 @@ beforeEach(async () => {
   await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-F", token_encrypted: token, webhook_secret: "s", status: "active" });
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-F" });
-  await db.insert(s.conversations).values({ id: CONV_DM, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "dm" });
+  await db.insert(s.conversations).values({ id: CONV_DM, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "dm", last_inbound_at: new Date() });
   await db.insert(s.messages).values({ conversation_id: CONV_DM, direction: "inbound", text: "Where is my order?", platform_message_id: "MID-F1" });
   await db.insert(s.conversations).values({ id: CONV_COMMENT, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "comment", thread_ref: "POST-1" });
   await db.insert(s.messages).values({ conversation_id: CONV_COMMENT, direction: "inbound", text: "Nice post!", platform_message_id: "CMT-F9" });
@@ -258,6 +258,102 @@ async function approvalJob<T = OutgoingMessageJob>(key: string) {
   return rows[0].payload;
 }
 
+it.each([
+  new DOMException("Send timed out", "TimeoutError"),
+  new DOMException("Send aborted", "AbortError"),
+  new TypeError("fetch failed", { cause: Object.assign(new Error("connection reset"), { code: "ECONNRESET" }) }),
+  Object.assign(new Error("socket closed unexpectedly"), { code: "ECONNRESET" }),
+])("stops sending an approval after an ambiguous provider response (%s)", async (error) => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const id = await seedApproval();
+  await post(`/approvals/${id}/approve`);
+  const payload = await approvalJob(`approval-${id}`);
+  send.mockRejectedValue(error);
+  await processOutgoingMessage(payload, attempt(1));
+  await processOutgoingMessage(payload, attempt(2));
+  expect(send).toHaveBeenCalledTimes(1);
+  const history = await (await get("/approvals")).text();
+  expect(history).toContain(">Delivery unknown</span>");
+  expect(history).not.toContain(`hx-post="/approvals/${id}/retry"`);
+  expect((await post(`/approvals/${id}/retry`)).headers.get("HX-Trigger")).toBeNull();
+});
+
+it("keeps Graphile's existing timeout retries and terminal Inbox failure for manual replies", async () => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const payload = {
+    channelId: CH, conversationId: CONV_DM, contactId: CONTACT, recipientPlatformId: "PSID-F",
+    content: { text: "Manual reply" }, isManual: true,
+  };
+  send.mockRejectedValue(new DOMException("Send timed out", "TimeoutError"));
+  for (const n of [1, 2, 3]) await expect(processOutgoingMessage(payload, attempt(n))).rejects.toThrow("Send timed out");
+  expect(send).toHaveBeenCalledTimes(3);
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Send timed out");
+});
+
+it("shows an unknown private reply when only its public counterpart can be retried", async () => {
+  const { processOutgoingComment } = await import("@/lib/workers/outgoing-comment-worker");
+  const { processOutgoingPrivateReply } = await import("@/lib/workers/outgoing-private-reply-worker");
+  const id = await seedApproval({ conversation_id: CONV_COMMENT }, {
+    content: { text: "Details by DM" }, comment: { text: "Thanks!", commentId: "CMT-F9" },
+  });
+  await post(`/approvals/${id}/approve`);
+  send.mockRejectedValueOnce(new DOMException("Send timed out", "TimeoutError"));
+  await processOutgoingPrivateReply(await approvalJob<OutgoingPrivateReplyJob>(`approval-${id}`), attempt(1));
+  send.mockRejectedValueOnce(new Error("Comment unavailable"));
+  await expect(processOutgoingComment(await approvalJob<OutgoingCommentJob>(`approval-${id}-comment`), attempt(3))).rejects.toThrow();
+  const history = await (await get("/approvals")).text();
+  expect(history).toContain(">Delivery unknown</span>");
+  expect(history).toContain(">Failed</span>");
+  expect((await post(`/approvals/${id}/retry`)).headers.get("HX-Trigger")).toContain("queued for retry");
+  await approvalJob(`retry:approval:${id}:comment`);
+  const { rows } = await db.execute(sql`select id from graphile_worker._private_jobs where key = ${`retry:approval:${id}`}`);
+  expect(rows).toHaveLength(0);
+});
+
+it("records the last failure when the outgoing task throws before entering delivery", async () => {
+  const { createTaskList } = await import("@/lib/queue/tasks");
+  const id = await seedApproval();
+  await post(`/approvals/${id}/approve`);
+  const payload = await approvalJob(`approval-${id}`);
+  const task = createTaskList()["outgoing-message"]!;
+  send.mockRejectedValueOnce(new Error("Provider unavailable"));
+  await expect(task(payload, attempt(1))).rejects.toThrow("Provider unavailable");
+  vi.spyOn(db.query.conversations, "findFirst").mockRejectedValueOnce(new Error("Could not load conversation"));
+  await expect(task(payload, attempt(3))).rejects.toThrow("Could not load conversation");
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(await (await get("/approvals")).text()).toContain(`hx-post="/approvals/${id}/retry"`);
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Could not load conversation");
+});
+
+it("shows an uncertain result on the existing Inbox message when Retry times out", async () => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const id = await seedApproval();
+  await post(`/approvals/${id}/approve`);
+  send.mockRejectedValueOnce(new Error("Provider unavailable"));
+  await expect(processOutgoingMessage(await approvalJob(`approval-${id}`), attempt(3))).rejects.toThrow();
+  await post(`/approvals/${id}/retry`);
+  send.mockRejectedValueOnce(new DOMException("Send timed out", "TimeoutError"));
+  await processOutgoingMessage(await approvalJob(`retry:approval:${id}`), attempt(1));
+  const thread = await (await get(`/inbox/${CONV_DM}`)).text();
+  expect(thread).toContain("Delivery unknown");
+  expect(thread).not.toContain("Queued");
+});
+
+it.each([null, new Date("2000-01-01")])("explains why a closed DM window blocks Retry (%s)", async (lastInbound) => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const id = await seedApproval();
+  await post(`/approvals/${id}/approve`);
+  send.mockRejectedValueOnce(new Error("Provider unavailable"));
+  await expect(processOutgoingMessage(await approvalJob(`approval-${id}`), attempt(3))).rejects.toThrow();
+  await db.update(s.conversations).set({ last_inbound_at: lastInbound }).where(eq(s.conversations.id, CONV_DM));
+  const history = await (await get("/approvals")).text();
+  expect(history).not.toContain(`hx-post="/approvals/${id}/retry"`);
+  expect(history).toContain("24h reply window closed");
+  const retry = await post(`/approvals/${id}/retry`);
+  expect(retry.headers.get("HX-Trigger")).toBeNull();
+  expect(await retry.text()).toContain("24h reply window closed");
+});
+
 it("shows a final approval failure and retries the same reply once", async () => {
   const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
   const { loadOverview } = await import("@/lib/stats/overview");
@@ -298,6 +394,11 @@ it("shows a final approval failure and retries the same reply once", async () =>
   expect(retries.filter(res => res.headers.get("HX-Trigger")?.includes("queued for retry"))).toHaveLength(1);
   const retried = await approvalJob(`retry:${payload.idempotencyKey}`);
   expect(retried.idempotencyKey).toBe(payload.idempotencyKey);
+  expect(await db.query.messages.findFirst({ where: eq(s.messages.id, retried.heldMessageId!) }))
+    .toMatchObject({ status: "pending", failure_reason: null });
+  const thread = await (await get(`/inbox/${CONV_DM}`)).text();
+  expect(thread).not.toContain("Not delivered");
+  expect(thread).toContain("Queued");
   send.mockResolvedValue({ platformMessageId: "retried-approval" });
   await runOutgoing();
   const outbound = await db.query.messages.findMany({ where: and(eq(s.messages.conversation_id, CONV_DM), eq(s.messages.direction, "outbound")) });
@@ -324,7 +425,10 @@ it("counts an approved AI reply refused by messaging policy", async () => {
   await processOutgoingMessage(await approvalJob(`retry:approval:${id}`), attempt(1));
   expect(send).toHaveBeenCalledTimes(1);
   expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Contact is unsubscribed");
-  expect(await (await post(`/approvals/${id}/retry`)).text()).toContain("This reply cannot be retried");
+  const history = await (await get("/approvals")).text();
+  expect(history).not.toContain(`hx-post="/approvals/${id}/retry"`);
+  expect(history).toContain("Contact is unsubscribed");
+  expect(await (await post(`/approvals/${id}/retry`)).text()).toContain("Contact is unsubscribed");
   expect(await loadOverview(WS)).toMatchObject({ failed: 1 });
 });
 
@@ -341,7 +445,16 @@ it("retries only the failed private reply of a two-part approval", async () => {
   await expect(processOutgoingPrivateReply(await approvalJob<OutgoingPrivateReplyJob>(`approval-${id}`), attempt(3))).rejects.toThrow();
   expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Private reply unavailable");
   expect((await post(`/approvals/${id}/retry`)).status).toBe(200);
-  await approvalJob(`retry:approval:${id}`);
+  const retried = await approvalJob<OutgoingPrivateReplyJob>(`retry:approval:${id}`);
+  const parked = () => db.query.messages.findFirst({ where: eq(s.messages.id, retried.heldMessageId!) });
+  expect(await parked()).toMatchObject({ conversation_id: CONV_DM, status: "pending", failure_reason: null });
+  await db.update(s.channels).set({ status: "paused" }).where(eq(s.channels.id, CH));
+  await processOutgoingPrivateReply(retried, attempt(1));
+  expect(await parked()).toMatchObject({ conversation_id: CONV_DM, status: "held", failure_reason: null });
+  const thread = await (await get(`/inbox/${CONV_DM}`)).text();
+  expect(thread).not.toContain("Not delivered");
+  expect(thread).toContain("Held");
+  expect(send).toHaveBeenCalledTimes(2);
   const { rows } = await db.execute(sql`select id from graphile_worker._private_jobs where key = ${`retry:approval:${id}:comment`}`);
   expect(rows).toHaveLength(0);
 });

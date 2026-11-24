@@ -1,7 +1,7 @@
 import type { JobHelpers } from "graphile-worker";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { channels, outboundDeliveries, type Platform } from "@/db/schema";
+import { channels, messages, outboundDeliveries, type Platform } from "@/db/schema";
 import { TokenInvalidError, MessagingPolicyError, RateLimitError } from "@/lib/platforms/errors";
 import { markChannelNeedsReauth } from "@/lib/channels/health";
 import { dispatchAlert } from "@/lib/notifications/alert";
@@ -10,6 +10,7 @@ import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
 import { recordFirstResponse } from "@/lib/metrics/capture";
 import { approvalIdFromDelivery, recordApprovalFailure } from "@/lib/approvals/delivery";
 import { isContactSubscribed } from "@/lib/contacts/consent";
+import { redactSecrets } from "@/lib/redact";
 
 /** Stop re-enqueueing a perpetually rate-limited delivery once the ledger has counted this many
  *  attempts, so it fails (dead-letters) rather than rescheduling forever. */
@@ -75,6 +76,13 @@ export interface RunDeliveryArgs {
 /** A delivery in one of these states may be (re)attempted; others are terminal. */
 const REATTEMPTABLE: ReadonlySet<string> = new Set(["pending", "failed", "held"]);
 
+function isAmbiguousSendError(error: unknown): error is Error {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "TimeoutError" || error.name === "AbortError") return true;
+  return [error, error.cause].some((cause) => !!cause && typeof cause === "object" && "code" in cause &&
+    ["ECONNRESET", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"].includes(String(cause.code)));
+}
+
 /**
  * Drive one outbound send through a durable, crash-safe state machine.
  *
@@ -106,23 +114,18 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       idempotencyKey: deliveryKey,
       ...(held && held.heldMessageId ? { heldMessageId: held.heldMessageId } : {}),
     };
-    await db
-      .insert(outboundDeliveries)
-      .values({
-        delivery_key: deliveryKey,
-        workspace_id: workspaceId,
-        channel_id: channelId,
-        contact_id: contactId,
-        task_name: taskName,
-        payload: heldPayload,
-        status: "held",
-        last_error: lastError,
-        attempts: 1,
-      })
-      .onConflictDoUpdate({
-        target: outboundDeliveries.delivery_key,
-        set: { status: "held", payload: heldPayload, last_error: lastError, updated_at: new Date() },
-      });
+    await db.transaction(async (tx) => {
+      const state = { status: "held" as const, payload: heldPayload, last_error: lastError };
+      await tx.insert(outboundDeliveries).values({
+        ...state, delivery_key: deliveryKey, workspace_id: workspaceId, channel_id: channelId,
+        contact_id: contactId, task_name: taskName, attempts: 1,
+      }).onConflictDoUpdate({ target: outboundDeliveries.delivery_key, set: { ...state, updated_at: new Date() } });
+      const conversationId = args.dmConversationId ?? payload.conversationId;
+      if (approvalId && typeof payload.heldMessageId === "string" && typeof conversationId === "string") {
+        await tx.update(messages).set({ status: "held", failure_reason: null })
+          .where(and(eq(messages.id, payload.heldMessageId), eq(messages.conversation_id, conversationId)));
+      }
+    });
     // The send is parked awaiting a drain — surface it (throttled per channel).
     await dispatchAlert({ type: "delivery_held", channelId, workspaceId, detail: lastError ?? undefined });
   };
@@ -224,6 +227,13 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
     const res = await send(channel);
     platformMessageId = res.platformMessageId ?? null;
   } catch (e) {
+    if (approvalId && isAmbiguousSendError(e)) {
+      await db.update(outboundDeliveries).set({ status: "unknown", last_error: redactSecrets(e.message) })
+        .where(and(eq(outboundDeliveries.delivery_key, deliveryKey), eq(outboundDeliveries.workspace_id, channel.workspace_id),
+          eq(outboundDeliveries.status, "sending")));
+      helpers.logger.info(`delivery ${deliveryKey} marked unknown after an interrupted send`);
+      return "skipped_unknown";
+    }
     if (e instanceof TokenInvalidError) {
       // Dead token — park (held) and open the breaker. Not retried from here. But the row is
       // currently committed `sending`; if the park/flag bookkeeping itself fails, demote it to

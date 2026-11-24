@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+vi.mock("@/lib/approvals/delivery", () => ({
+  approvalIdFromDelivery: vi.fn(),
+  recordPendingApprovalFailure: vi.fn(),
+}));
 
 vi.mock("@/lib/workers/incoming-message-worker", () => ({ processIncomingMessage: vi.fn() }));
 vi.mock("@/lib/workers/incoming-comment-worker", () => ({ processIncomingComment: vi.fn() }));

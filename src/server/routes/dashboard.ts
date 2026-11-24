@@ -60,7 +60,7 @@ import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
 import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
 import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
 import { proposedHasComment, proposedHasDm, type ProposedContent } from "@/lib/approvals/draft";
-import { APPROVAL_DELIVERY_PREFIX, retryableApprovalDelivery, retryApprovedReply } from "@/lib/approvals/delivery";
+import { APPROVAL_DELIVERY_PREFIX, approvalRetryBlocked, retryableApprovalDelivery, retryApprovedReply } from "@/lib/approvals/delivery";
 import { REPLY_TEXT_MAX_LENGTH, replyText } from "@/lib/messages/reply-text";
 import * as sequences from "@/server/handlers/v1/sequences/route";
 import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
@@ -340,6 +340,8 @@ type ThreadContext = { name: string; handle: string };
 /** The mono meta line under a DM bubble: the message's own clock time, plus the outbound delivery
  *  receipt inline ("· ✓✓ Seen 14:06" / "· ✓✓ Delivered" / "· ✓ Sent"). Read beats delivered. */
 function messageMeta(it: Extract<ThreadItem, { kind: "message" }>): Html {
+  const queuedLabel = it.status === "unknown" ? "Delivery unknown" : it.status === "held" ? "Held" : it.status === "pending" ? "Queued" : null;
+  if (it.direction === "outbound" && queuedLabel) return html`<span class="msg-meta">${clockTime(it.createdAt)} · ${queuedLabel}</span>`;
   const receipt =
     it.direction === "outbound" && it.status === "failed"
       ? html` · <span class="msg-failed">Not delivered — ${it.failureReason ?? "the platform refused it (messaging window closed or Human Agent tag not approved)"}</span>`
@@ -908,6 +910,14 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
       columns: { id: true, comment_text: true, post_id: true, post_url: true, reply_text: true, dm_sent: true, reply_sent: true, error: true, created_at: true },
     }),
   ]);
+  const parkedIds = msgs.filter((m) => m.status === "pending" || m.status === "held").map((m) => m.id);
+  const parkedId = sql<string>`${outboundDeliveries.payload}->>'heldMessageId'`;
+  const unknownIds = new Set(conv && parkedIds.length
+    ? (await db.select({ id: parkedId }).from(outboundDeliveries).where(and(
+      eq(outboundDeliveries.workspace_id, conv.workspace_id), eq(outboundDeliveries.channel_id, conv.channel_id),
+      eq(outboundDeliveries.status, "unknown"), inArray(parkedId, parkedIds),
+    ))).map((m) => m.id)
+    : []);
   // Resolve each comment's platform post id back to its published content title, in ONE workspace-scoped
   // batch (platform_post_id → posts → content). Keyed by platform_post_id; a comment whose post id has
   // no matching published post (or no content) keeps its raw id label.
@@ -924,7 +934,7 @@ async function loadMessages(conversationId: string): Promise<ThreadItem[]> {
     }
   }
   const items: ThreadItem[] = [
-    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, attachments: (m.attachments as StoredAttachments | null) ?? null, quickReplyPayload: m.quick_reply_payload, postbackPayload: m.postback_payload, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at, status: m.status, failureReason: m.failure_reason })),
+    ...msgs.map((m) => ({ kind: "message" as const, id: m.id, direction: m.direction, text: m.text, attachments: (m.attachments as StoredAttachments | null) ?? null, quickReplyPayload: m.quick_reply_payload, postbackPayload: m.postback_payload, createdAt: m.created_at, deliveredAt: m.delivered_at, readAt: m.read_at, status: unknownIds.has(m.id) ? "unknown" : m.status, failureReason: m.failure_reason })),
     ...reactions.map((r) => ({ kind: "reaction" as const, id: r.id, emoji: r.emoji, reactionType: r.reaction_type, createdAt: r.created_at })),
     ...comments.map((c) => ({ kind: "comment" as const, id: c.id, text: c.comment_text, postId: c.post_id, postTitle: c.post_id ? postTitleById.get(c.post_id) ?? null : null, postUrl: httpUrl(c.post_url) ?? postUrlFor(platform, c.post_id), replyText: c.reply_text, dmSent: c.dm_sent, replySent: c.reply_sent, dmConvId: dmSiblingId, error: c.error, createdAt: c.created_at })),
   ];
@@ -1987,9 +1997,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
     if (!isUuid(id)) return c.notFound();
-    const queued = await retryApprovedReply(a.workspaceId, id);
-    if (queued) toastHeader(c, "ok", "Reply queued for retry.");
-    return c.html(await renderApprovalsView(a.workspaceId, queued ? undefined : "This reply cannot be retried."));
+    const error = await retryApprovedReply(a.workspaceId, id);
+    if (!error) toastHeader(c, "ok", "Reply queued for retry.");
+    return c.html(await renderApprovalsView(a.workspaceId, error ?? undefined));
   });
 
   // ADUX2: edit a draft's text straight from the Approvals list (previously only possible from the
@@ -2905,11 +2915,16 @@ function loadResolvedApprovals(workspaceId: string) {
       recipient: pendingApprovals.recipient_platform_id,
       dmStatus: dm.status,
       commentStatus: comment.status,
+      subscribed: contacts.is_subscribed,
+      platform: conversations.platform,
+      threadType: conversations.thread_type,
+      lastInboundAt: conversations.last_inbound_at,
       canRetry: sql<boolean>`coalesce(${retryableApprovalDelivery(dm.status, dm.payload)}, false)
         or coalesce(${retryableApprovalDelivery(comment.status, comment.payload)}, false)`,
     })
     .from(pendingApprovals)
-    .leftJoin(contacts, eq(contacts.id, pendingApprovals.contact_id))
+    .leftJoin(contacts, and(eq(contacts.id, pendingApprovals.contact_id), eq(contacts.workspace_id, workspaceId)))
+    .leftJoin(conversations, and(eq(conversations.id, pendingApprovals.conversation_id), eq(conversations.workspace_id, workspaceId)))
     .leftJoin(dm, and(eq(dm.workspace_id, workspaceId), eq(dm.delivery_key, sql`${APPROVAL_DELIVERY_PREFIX} || ${pendingApprovals.id}::text`)))
     .leftJoin(comment, and(eq(comment.workspace_id, workspaceId), eq(comment.delivery_key, sql`${APPROVAL_DELIVERY_PREFIX} || ${pendingApprovals.id}::text || ':comment'`)))
     .where(and(eq(pendingApprovals.workspace_id, workspaceId), ne(pendingApprovals.status, "pending")))
@@ -2938,21 +2953,28 @@ function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApp
       const statuses = [];
       if (proposedHasDm(proposed.content)) statuses.push(r.dmStatus);
       if (proposedHasComment(proposed.comment)) statuses.push(r.commentStatus);
+      const unknown = statuses.includes("unknown");
       let label = "Approved";
       if (r.status === "rejected") label = "Rejected";
       else if (statuses.includes("failed") || statuses.includes("expired")) label = "Failed";
-      else if (statuses.includes("unknown")) label = "Delivery unknown";
+      else if (unknown) label = "Delivery unknown";
       else if (statuses.includes("held")) label = "Held";
       else if (statuses.length && statuses.every(status => status === "sent")) label = "Sent";
       else if (statuses.some(Boolean)) label = "Queued";
       const tone = label === "Sent" ? "tone-ok" : label === "Failed" || label === "Rejected" ? "tone-bad" : "tone-neutral";
       const txt = snippet(r.proposed);
+      const canRetry = r.status === "approved" && r.canRetry;
+      const blocked = canRetry ? approvalRetryBlocked(r.subscribed, {
+        platform: r.platform ?? "", threadType: r.threadType, lastInboundAt: r.lastInboundAt,
+      }) : null;
       return html`<div class="appr-resolved-row">
         <span class="badge ${tone}">${label}</span>
+        ${label === "Failed" && unknown ? html`<span class="badge tone-neutral">Delivery unknown</span>` : ""}
         <span>${who}</span>
         ${txt ? html`<span class="appr-resolved-snippet">“${truncateCodePoints(txt, 60)}”</span>` : html``}
         <span class="appr-resolved-time">${r.resolved_at ? timeAgo(r.resolved_at) : ""}</span>
-        ${r.status === "approved" && r.canRetry ? html`<button class="btn btn-sm" type="button" hx-post="/approvals/${r.id}/retry" hx-target="#approvals-list" hx-swap="innerHTML" hx-disabled-elt="this">Retry</button>` : ""}
+        ${blocked ? html`<span>${blocked}</span>` : ""}
+        ${canRetry && !blocked ? html`<button class="btn btn-sm" type="button" hx-post="/approvals/${r.id}/retry" hx-target="#approvals-list" hx-swap="innerHTML" hx-disabled-elt="this">Retry</button>` : ""}
         <button class="btn btn-sm btn-ghost" type="button" title="Delete from history" hx-delete="/approvals/${r.id}" hx-target="#approvals-list" hx-swap="innerHTML" hx-confirm="Delete this from history?" data-confirm-label="Delete">${icon("close", "ico", 12)}</button>
       </div>`;
     })}

@@ -66,6 +66,10 @@ test("failed approval is visible across Inbox and Overview and can be retried fr
     await expect(history.locator(".badge")).toHaveText("Queued");
     const { rows } = await db.query("SELECT payload->>'heldMessageId' AS message_id FROM graphile_worker._private_jobs WHERE key = $1", [`retry:${key}`]);
     expect(rows).toEqual([{ message_id: message.id }]);
+
+    await gotoOk(page, `/inbox?open=${conversation.id}`);
+    await expect(page.locator(".msg-failed")).toHaveCount(0);
+    await expect(page.locator(".msg-meta", { hasText: "Queued" })).toBeVisible();
   } finally {
     if (approvalId) {
       for (const key of [`approval-${approvalId}`, `retry:approval:${approvalId}`]) {

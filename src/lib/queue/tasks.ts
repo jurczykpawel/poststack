@@ -1,6 +1,7 @@
 import { processInsightsSync } from "@/lib/workers/insights-worker";
 import { processMediaIngest } from "@/lib/media/async-ingest";
-import type { TaskList } from "graphile-worker";
+import type { JobHelpers, Task, TaskList } from "graphile-worker";
+import { approvalIdFromDelivery, recordPendingApprovalFailure } from "@/lib/approvals/delivery";
 import { processIncomingMessage } from "@/lib/workers/incoming-message-worker";
 import { processIncomingComment } from "@/lib/workers/incoming-comment-worker";
 import { processIncomingReaction } from "@/lib/workers/incoming-reaction-worker";
@@ -22,6 +23,24 @@ import { processEventDispatch, processWebhookDelivery } from "@/lib/webhooks/dis
 import { processAiDraft } from "@/lib/workers/ai-draft-worker";
 import type { TaskPayloadMap } from "./types";
 
+function approvalTask<P extends { channelId: string; idempotencyKey?: string }>(
+  task: (payload: P, helpers: JobHelpers) => Promise<void>,
+): Task {
+  return async (raw, helpers) => {
+    const payload = raw as P;
+    try {
+      await task(payload, helpers);
+    } catch (error) {
+      const key = payload?.idempotencyKey;
+      const approvalId = key && approvalIdFromDelivery(key);
+      if (approvalId && helpers.job.attempts >= helpers.job.max_attempts) {
+        await recordPendingApprovalFailure(approvalId, key, payload.channelId, error);
+      }
+      throw error;
+    }
+  };
+}
+
 /**
  * The graphile-worker task registry. Each task identifier maps to its handler;
  * the payload is cast from `unknown` to its typed shape at this boundary.
@@ -38,10 +57,8 @@ export function createTaskList(): TaskList {
       processIncomingReaction(p as TaskPayloadMap["incoming-reaction"], h),
     "incoming-post-reaction": (p, h) =>
       processIncomingPostReaction(p as TaskPayloadMap["incoming-post-reaction"], h),
-    "outgoing-message": (p, h) =>
-      processOutgoingMessage(p as TaskPayloadMap["outgoing-message"], h),
-    "outgoing-comment": (p, h) =>
-      processOutgoingComment(p as TaskPayloadMap["outgoing-comment"], h),
+    "outgoing-message": approvalTask(processOutgoingMessage),
+    "outgoing-comment": approvalTask(processOutgoingComment),
     "outgoing-first-comment": (p, h) =>
       processOutgoingFirstComment(p as TaskPayloadMap["outgoing-first-comment"], h),
     "publish-story": (p, h) =>
@@ -50,8 +67,7 @@ export function createTaskList(): TaskList {
       processIncomingEcho(p as TaskPayloadMap["incoming-echo"], h),
     "incoming-receipt": (p, h) =>
       processIncomingReceipt(p as TaskPayloadMap["incoming-receipt"], h),
-    "outgoing-private-reply": (p, h) =>
-      processOutgoingPrivateReply(p as TaskPayloadMap["outgoing-private-reply"], h),
+    "outgoing-private-reply": approvalTask(processOutgoingPrivateReply),
     "follow-gate": (p, h) =>
       processFollowGate(p as TaskPayloadMap["follow-gate"], h),
     "token-refresh": (p, h) =>
