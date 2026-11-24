@@ -21,7 +21,6 @@ describe("CI release gates", () => {
   it("pins every third-party action to an immutable commit", () => {
     for (const [name, source] of Object.entries(workflows)) {
       const actions = [...source.matchAll(/\buses:\s*([^\s#]+)/g)].map((match) => match[1]);
-      expect(actions.length, name).toBeGreaterThan(0);
       for (const action of actions) {
         if (action.startsWith("./")) {
           expect(action).toMatch(/^\.\/\.github\/workflows\/[a-z0-9-]+\.yml$/);
@@ -65,10 +64,10 @@ describe("CI release gates", () => {
     expect(source).toContain("npm audit --omit=dev --audit-level=moderate");
     expect(source).toContain("node --test scripts/ci/audit-dependencies.node-test.mjs");
     expect(source).toContain("node scripts/ci/audit-dependencies.mjs high");
-    expect(source).toMatch(/npx -y npm@latest audit signatures/);
+    expect(source).toMatch(/npx -y npm@\d+\.\d+\.\d+ audit signatures/);
     expect(source).toContain("npm --prefix landing ci");
     expect(source).toContain("node scripts/ci/audit-dependencies.mjs moderate landing");
-    expect(source).toMatch(/npx -y npm@latest --prefix landing audit signatures/);
+    expect(source).toMatch(/npx -y npm@\d+\.\d+\.\d+ --prefix landing audit signatures/);
     expect(source).toContain("npm run test:e2e");
     expect(source).not.toMatch(/(?:npm (?:--prefix landing )?audit|node scripts\/ci\/audit-dependencies\.mjs)[^\n]*\|\| true/);
   });

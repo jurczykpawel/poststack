@@ -8,7 +8,8 @@ const probe = readFileSync(join(root, "scripts/meta-version-probe.ts"), "utf8");
 
 describe("Meta API version-update gate", () => {
   it("creates a version-bump PR only after an explicitly confirmed strict live probe", () => {
-    expect(workflow).toContain('[ "${{ github.event_name }}" = "workflow_dispatch" ]');
+    expect(workflow).toContain("CONFIRM_LIVE_PROBE: ${{ inputs.confirm_live_probe }}");
+    expect(workflow).toContain('[ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$CONFIRM_LIVE_PROBE" = "true" ]');
     expect(workflow).toContain('META_PROBE_STRICT: "1"');
     expect(workflow).toContain('META_PROBE_WRITE: "1"');
     expect(workflow).toContain("bun scripts/meta-version-probe.ts");
