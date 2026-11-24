@@ -74,7 +74,9 @@ export async function GET(
   return ok([...items].reverse(), { has_more: hasMore, next_cursor: nextCursor });
 }
 
-const sendSchema = z.object({ text: replyText });
+const sendSchema = z.object({
+  text: replyText.refine((text) => !text.includes("\u0000"), "Reply text must not contain null characters."),
+});
 
 // POST /api/v1/conversations/:id/messages — manual reply
 export async function POST(

@@ -9,12 +9,12 @@ import { LIMITS } from "@/lib/api/limits";
 import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getConfig } from "@/lib/settings/config";
 import { getInstanceLicense } from "@/lib/license/gate";
-import { listBrands } from "@/lib/brands/service";
-import { resolveBrandSlots } from "@/lib/brands/resolve";
+import { getBrand, listBrands } from "@/lib/brands/service";
+import { EDITORIAL_PLATFORMS, resolveBrandSlots } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
 import { composeContent } from "@/lib/content/compose";
 import { publishPosts } from "@/lib/content/publish-batch";
-import { articleUrlInput, autoReplyInput, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
+import { MEDIA_URL_MSG, articleUrlInput, autoReplyInput, mediaUrlInput, publishTimestamp, tiktokPostSettings, youtubePostSettings } from "@/lib/content/schemas";
 import { db } from "@/lib/db";
 import { sequences as sequencesTbl, channels } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
@@ -32,17 +32,22 @@ import { IG_STORY_WHOLE_MAX_SEC, STORY_CLIP_SEC } from "@/lib/stories/segments";
 
 type Html = ReturnType<typeof html>;
 
-const MEDIA_URL_MSG = "Media URL must be an http(s) address.";
-const httpUrl = z.string().max(LIMITS.url).refine((u) => /^https?:\/\//i.test(u.trim()), MEDIA_URL_MSG);
+const CONTENT_TYPES = [
+  ["video", "Video"],
+  ["image", "Image"],
+  ["story", "Story"],
+  ["article", "LinkedIn article"],
+  ["carousel", "Carousel"],
+] as const;
 
 const composeSchema = z.object({
-  brand: z.string().min(1).max(LIMITS.line),
-  title: z.string().min(1).max(LIMITS.name),
-  contentType: z.string().max(LIMITS.line).optional(),
+  brand: z.string().trim().min(1, "Brand is required.").max(LIMITS.line),
+  title: z.string().trim().min(1, "Title is required.").max(LIMITS.name),
+  contentType: z.enum([...CONTENT_TYPES.map(([value]) => value), "reel", "short"], { error: "Choose a valid content type." }).optional(),
   articleUrl: articleUrlInput.optional(),
-  mediaUrl: httpUrl.or(z.literal("")),
-  mediaUrls: z.array(httpUrl).max(100).optional(),
-  coverUrl: httpUrl.optional().or(z.literal("")),
+  mediaUrl: z.union([z.literal(""), mediaUrlInput], { error: MEDIA_URL_MSG }),
+  mediaUrls: z.array(mediaUrlInput).max(100).optional(),
+  coverUrl: z.union([z.literal(""), mediaUrlInput], { error: MEDIA_URL_MSG }).optional(),
   baseDescription: z.string().max(LIMITS.text).optional(),
   language: z.enum(["pl", "en"]).optional(),
   baseHashtags: z.string().max(LIMITS.hashtags).optional(),
@@ -54,7 +59,7 @@ const composeSchema = z.object({
         tiktokConsent: z.boolean().optional(),
         tiktokDisclosure: z.boolean().optional(),
         tiktokChannelId: z.string().uuid().optional(),
-        platform: z.string().min(1).max(LIMITS.line),
+        platform: z.enum(EDITORIAL_PLATFORMS, { error: "Choose a valid platform." }),
         description: z.string().max(LIMITS.text).optional(),
         firstComment: z.string().max(LIMITS.text).optional(),
         autoStory: z.boolean().optional(),
@@ -64,9 +69,13 @@ const composeSchema = z.object({
     )
     .min(1)
     .refine((posts) => new Set(posts.map((p) => p.platform)).size === posts.length, "Choose each platform once"),
-  publish: z
-    .object({ mode: z.enum(["draft", "now", "schedule"]).default("draft"), at: z.string().max(40).optional() })
-    .optional(),
+  publish: z.discriminatedUnion("mode", [
+    z.object({ mode: z.enum(["draft", "now"]).optional(), at: z.string().max(40).optional() }),
+    z.object({
+      mode: z.literal("schedule"),
+      at: publishTimestamp.max(40).refine((at) => Date.parse(at) > Date.now(), "Choose a future date and time."),
+    }),
+  ]).optional(),
 }).superRefine((input, ctx) => {
   if (input.contentType === "article") {
     if (!input.articleUrl) ctx.addIssue({ code: "custom", path: ["articleUrl"], message: "Article URL is required" });
@@ -76,14 +85,6 @@ const composeSchema = z.object({
   if (input.contentType === "story" && (input.mediaUrls?.length ?? 0) > 1) ctx.addIssue({ code: "custom", path: ["mediaUrls"], message: "Story allows one image or video" });
   if (input.contentType === "story" && input.posts.some(p => !["facebook", "instagram"].includes(p.platform))) ctx.addIssue({ code: "custom", path: ["posts"], message: "Stories require Facebook or Instagram" });
 });
-
-const CONTENT_TYPES: [string, string][] = [
-  ["video", "Video"],
-  ["image", "Image"],
-  ["story", "Story"],
-  ["article", "LinkedIn article"],
-  ["carousel", "Carousel"],
-];
 
 async function auth(c: Context): Promise<AuthContext | null> {
   return authenticateDashboard(c.req.raw).catch(() => null);
@@ -156,7 +157,10 @@ function composeScript(): Html {
           this.language = d.language || "";
           this.baseDescription = d.baseDescription || ""; this.baseHashtags = d.baseHashtags || "";
           this.publishMode = d.publish?.mode || "draft";
-          if (d.publish?.at) { var at = new Date(d.publish.at); this.scheduleAt = new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+          if (typeof d.publish?.at === "string") {
+            var at = new Date(d.publish.at);
+            if (Number.isFinite(at.getTime())) this.scheduleAt = new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+          }
           Object.keys(this.sel).forEach(p => { var post = (d.posts || []).find(x => x.platform === p); this.sel[p].on = !!post;
             if (post) Object.assign(this.sel[p], { override: post.description || "", firstComment: post.firstComment || "", autoStory: !!post.autoStory, autoStoryMode: post.autoStoryMode || "" }); });
         },
@@ -609,13 +613,20 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
     try { json = JSON.parse(String(form.payload ?? "{}")); } catch { json = null; }
     const result = composeSchema.safeParse(json);
     if (!result.success) {
-      // A too-long field or a non-http(s) address is the user's to fix: 422 with the field named.
-      // Anything else (unreadable or structurally wrong payload) stays a 400.
-      const fixable = json !== null && result.error.issues.every((i) => i.code === "too_big" || i.message === MEDIA_URL_MSG);
-      const msg = fixable ? formErrorText({ error: { details: result.error.issues } }, "Check the form and try again.") : "Could not read the form — please try again.";
-      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg, fixable ? json : undefined, result.error.issues.some(i => ["mediaUrl", "mediaUrls"].includes(String(i.path[0])))), fixable ? 422 : 400);
+      const issues = result.error.issues;
+      const fixable = issues.every((issue) => {
+        const field = issue.path.filter((part) => typeof part === "string").join(".");
+        if (field === "publish.at" || issue.code === "too_big" || issue.message === MEDIA_URL_MSG) return true;
+        if (issue.code === "too_small") return field === "title" || field === "brand";
+        return issue.code === "invalid_value" && (field === "contentType" || field === "posts.platform");
+      });
+      const msg = fixable ? formErrorText({ error: { details: issues } }, "Check the form and try again.") : "Could not read the form — please try again.";
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), msg, fixable ? json : undefined, issues.some(i => ["mediaUrl", "mediaUrls"].includes(String(i.path[0])))), fixable ? 422 : 400);
     }
     const parsed = result.data;
+    if (!await getBrand(a.workspaceId, parsed.brand)) {
+      return c.html(await composePage(await brandsData(a.workspaceId), lic.features, lic.products, await loadActiveSequences(a.workspaceId), "Choose an existing brand.", parsed), 422);
+    }
     try { await validateComposeCarousel(parsed, a.workspaceId); }
     catch (e) {
       if (!(e instanceof ApiError)) throw e;
@@ -628,7 +639,6 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
       let error = "";
       if (!tik.tiktokConsent) error = "Confirm this TikTok submission before sending.";
       else if (parsed.contentType && !["video", "reel", "short", "image", "carousel"].includes(parsed.contentType)) error = "TikTok requires a video or photos.";
-      else if (mode === "schedule" && (!parsed.publish?.at || !Number.isFinite(Date.parse(parsed.publish.at)) || Date.parse(parsed.publish.at) <= Date.now())) error = "Choose a future date and time.";
       else {
         const channel = await resolveChannelForBrandPlatform(a.workspaceId, parsed.brand, "tiktok");
         if (!channel || channel.id !== tik.tiktokChannelId) error = "The TikTok channel changed. Review and confirm the current creator.";
@@ -655,7 +665,7 @@ export function registerCompose(r: Hono, guard: MiddlewareHandler): void {
       }, parsed);
     }
     if (mode === "now" || mode === "schedule") {
-      const when = mode === "schedule" ? (parsed.publish?.at ?? "now") : "now";
+      const when = parsed.publish?.mode === "schedule" ? parsed.publish.at : "now";
       await publishPosts(postIds, when, a.workspaceId);
     }
     return c.redirect(`/content/${contentId}`, 303);

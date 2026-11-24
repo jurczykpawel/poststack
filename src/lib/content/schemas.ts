@@ -3,7 +3,15 @@ import { LIMITS } from "@/lib/api/limits";
 import { youtubeChaptersSchema } from "@/lib/providers/youtube-chapters";
 
 const iso = z.string().refine((s) => !Number.isNaN(Date.parse(s)), "invalid ISO datetime");
-const urls = z.array(z.string().max(LIMITS.url)).max(LIMITS.arrayLen).optional();
+export const publishTimestamp = z.iso.datetime({
+  offset: true,
+  error: (issue) => issue.input === undefined ? "A date and time are required." : "Use an ISO 8601 date and time with Z or a UTC offset.",
+});
+export const MEDIA_URL_MSG = "Media URL must be an http(s) address.";
+export const mediaUrlInput = z.string().trim().max(LIMITS.url)
+  .refine((value) => /^https?:\/\//i.test(value) && !value.includes("\u0000"), MEDIA_URL_MSG)
+  .pipe(z.url({ protocol: /^https?$/, error: MEDIA_URL_MSG }));
+const urls = z.array(mediaUrlInput).max(LIMITS.arrayLen).optional();
 
 // A single-URL field that is nullable so a PATCH can clear it (send null). Empty/whitespace strings
 // are normalized to null at the service layer (mapFields) so a URL column is never stored as "",

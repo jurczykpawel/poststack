@@ -192,3 +192,28 @@ describe.skipIf(!TEST_DB)("/api/v1/content", () => {
     expect((await call("GET", "/content", undefined, null)).status).toBe(401);
   });
 });
+
+it.each(["not a url", "https://", "ftp://example.com/video.mp4"])("rejects invalid content media URL %j", async (url) => {
+  expect((await call("POST", "/content", { title: "Media test", mediaUrls: [url] })).status).toBe(422);
+  const { json } = await createOne();
+  expect((await call("PATCH", `/content/${json.data.id}`, { mediaUrls: [url] })).status).toBe(422);
+});
+
+it("keeps the scheduled post and delivery when deleting its content", async () => {
+  const { json } = await createOne();
+  const contentId = json.data.id;
+  const [channel] = await db.insert(s.channels).values({
+    workspace_id: WS, platform: "facebook", platform_id: contentId, token_encrypted: "unused", webhook_secret: "unused",
+  }).returning();
+  const [delivery] = await db.insert(s.deliveries).values({
+    workspace_id: WS, channel_id: channel.id, status: "scheduled", format: "image", payload: {},
+    scheduled_at: new Date("2030-01-02T08:30:00Z"),
+  }).returning();
+  const [post] = await db.insert(s.posts).values({
+    workspace_id: WS, content_id: contentId, platform: "facebook", delivery_id: delivery.id, status: "scheduled",
+  }).returning();
+
+  expect((await call("DELETE", `/content/${contentId}`)).status).toBe(204);
+  const saved = await (await call("GET", `/posts/${post.id}`)).json();
+  expect(saved.data).toMatchObject({ contentId: null, deliveryId: delivery.id, delivery: { status: "scheduled" } });
+});

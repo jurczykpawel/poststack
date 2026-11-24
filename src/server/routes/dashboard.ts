@@ -221,7 +221,7 @@ function renderConvItems(all: Array<Awaited<ReturnType<typeof loadConversations>
     </button>`;
   })}${all.length > size
     ? html`<button type="button" class="btn btn-sm conv-older" hx-get="/inbox/older?before=${encodeURIComponent(`${(conversations[size - 1]!.last_message_at ?? new Date(0)).toISOString()}|${conversations[size - 1]!.id}`)}&pages=${pages + 1}"
-        hx-include="#conv-filter-form" hx-target="this" hx-swap="outerHTML">Older</button>`
+        hx-include="#conv-filter-form" hx-target="this" hx-swap="outerHTML" hx-sync="#conv-panel:drop">Older</button>`
     : html``}`;
 }
 
@@ -253,7 +253,7 @@ function renderConvPanel(
       <button type="submit" form="conv-filter-form" class="btn btn-sm btn-ic" title="Refresh the list (also pulls the latest into view)">${icon("reconnect", "ico", 14)}</button>
     </div>
     <form id="conv-filter-form" class="conv-filters" x-data="{ filter: '${filter}', since: '${since}' }"
-      hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML"
+      hx-get="/inbox/list" hx-target="#conv-panel" hx-swap="innerHTML" hx-sync="#conv-panel:replace"
       hx-trigger="submit, change, conversation-updated from:body, htmx:historyRestore from:body, input changed delay:350ms from:find input[name='search']"
       style="display:flex;flex-direction:column;gap:.4rem;padding:.45rem .5rem;border-bottom:1px solid var(--border)">
       <input type="hidden" name="filter" :value="filter" />
@@ -291,7 +291,7 @@ function renderConvPanel(
           <span class="muted">Filtered: <b>${conversations[0] ? contactName(conversations[0]) : "this contact"}</b></span>
           <button type="button" class="btn btn-sm btn-ic" title="Clear contact filter — show everyone"
             hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=all&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}"
-            hx-target="#conv-panel" hx-swap="innerHTML">${icon("close", "ico", 13)}</button>
+            hx-target="#conv-panel" hx-swap="innerHTML" hx-sync="#conv-panel:replace">${icon("close", "ico", 13)}</button>
         </div>`
       : html``}
     <div id="conv-list-items">${renderConvItems(conversations, false, pages)}</div>`;
@@ -750,10 +750,11 @@ function parseYmd(v: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function inboxListUrl(c: Context): string {
+function inboxListUrl(c: Context, search: string): string {
   const params = new URL(c.req.url).searchParams;
   params.delete("before");
   params.delete("open");
+  params.set("search", search);
   for (const [key, value] of [...params]) if (!value) params.delete(key);
   return `/inbox?${params}`;
 }
@@ -762,11 +763,12 @@ function inboxListUrl(c: Context): string {
 async function convQuery(c: Context) {
   const q = (k: string) => c.req.query(k) || "";
   const pages = Number(q("pages"));
+  const search = q("search");
   return {
     filter: parseConvFilter(c.req.query("filter")),
     channelId: isUuid(q("channel")) ? q("channel") : "all", // MQA13-B11: malformed ids are ignored, not a 500
     contactId: isUuid(q("contact")) ? q("contact") : "all",
-    search: q("search"),
+    search: search.includes("\u0000") ? "" : search,
     since: parseConvSince(c.req.query("since")),
     from: q("from"),
     to: q("to"),
@@ -1138,6 +1140,10 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // Every dashboard route runs the first-party origin check (a no-op on safe methods) before the
   // session check, so a cross-site write is refused even before auth runs.
   const guard = every(requireSameOrigin, sessionGuard);
+  const uuidParam: MiddlewareHandler = async (c, next) => {
+    if (!isUuid(c.req.param("id"))) return c.notFound();
+    await next();
+  };
   // Outbound webhook endpoints — register BEFORE the `/webhooks/:id` inbound-event route so its static
   // `/webhooks/outbound*` paths aren't captured by the `:id` param (mirrors endpoint-activity / subscriptions).
   registerWebhooksOutbound(app, guard);
@@ -1182,9 +1188,13 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const { filter, channelId, contactId, search, since, from, to, timeZone, pages } = await convQuery(c);
     // Deep-link to a specific thread (e.g. "open in inbox" from Approvals): the #thread pane
     // self-loads that conversation on page load. The /inbox/:id endpoint scopes it to the workspace.
-    const openRaw = (c.req.query("open") || "").trim();
-    const open = isUuid(openRaw) ? openRaw : "";
-    const [conversations, chans, doneCount] = await Promise.all([
+    const requested = c.req.query("open")?.trim();
+    const open = isUuid(requested) ? requested : undefined;
+    const [conversation, convList, chans, doneCount] = await Promise.all([
+      open ? db.query.conversations.findFirst({
+        where: and(eq(conversations.id, open), eq(conversations.workspace_id, a.workspaceId)),
+        columns: { id: true },
+      }) : undefined,
       loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, "", timeZone, pages),
       loadInboxChannels(a.workspaceId),
       loadDoneCount(a.workspaceId, channelId, contactId),
@@ -1194,12 +1204,14 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         t("title.suffix", { section: "Inbox" }),
         "/inbox",
         html`<div class="inbox" data-view-tz="${timeZone}">
-          <div id="conv-panel" class="conv-list"
+          <div id="conv-panel" class="conv-list" hx-sync="this:abort"
             hx-get="/inbox/list?filter=${filter}&channel=${channelId}&contact=${contactId}&search=${encodeURIComponent(search)}&since=${since}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&pages=${pages}"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
-            hx-swap="innerHTML">${renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount, pages)}</div>
-          ${open
-            ? html`<div id="thread" class="thread"><div class="thread-empty" hx-get="/inbox/${open}" hx-trigger="load" hx-target="#thread" hx-sync="#thread:replace" hx-swap="innerHTML">Loading…</div></div>`
+            hx-swap="innerHTML">
+            ${open && !conversation ? html`<div class="notice notice-err" role="alert">Conversation not found</div>` : ""}
+            ${renderConvPanel(convList, filter, channelId, chans, contactId, search, since, from, to, doneCount, pages)}</div>
+          ${conversation
+            ? html`<div id="thread" class="thread"><div class="thread-empty" hx-get="/inbox/${conversation.id}" hx-trigger="load" hx-target="#thread" hx-sync="#thread:replace" hx-swap="innerHTML">Loading…</div></div>`
             : html`<div id="thread" class="thread"><div class="thread-empty">Select a conversation</div></div>`}
         </div>`,
         features,
@@ -1218,7 +1230,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       loadInboxChannels(a.workspaceId),
       loadDoneCount(a.workspaceId, channelId, contactId),
     ]);
-    if (c.req.header("X-Inbox-Refresh") !== "true") c.header("HX-Push-Url", inboxListUrl(c));
+    if (c.req.header("X-Inbox-Refresh") !== "true") c.header("HX-Push-Url", inboxListUrl(c, search));
     return c.html(renderConvPanel(conversations, filter, channelId, chans, contactId, search, since, from, to, doneCount, pages));
   });
 
@@ -1227,7 +1239,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const { filter, channelId, contactId, search, since, from, to, before, timeZone, pages } = await convQuery(c);
-    c.header("HX-Push-Url", inboxListUrl(c));
+    c.header("HX-Push-Url", inboxListUrl(c, search));
     return c.html(renderConvItems(await loadConversations(a.workspaceId, filter, channelId, contactId, search, since, from, to, before, timeZone), true, pages));
   });
 
@@ -1269,7 +1281,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
         t("title.suffix", { section: "Inbox" }),
         "/inbox",
         html`<div class="inbox">
-          <div id="conv-panel" class="conv-list"
+          <div id="conv-panel" class="conv-list" hx-sync="this:abort"
             hx-get="/inbox/list?filter=open&channel=all&contact=all"
             hx-trigger="sse:comment from:body, sse:message from:body, sse:reaction from:body"
             hx-swap="innerHTML">${renderConvPanel(convList, "open", "all", chans, "all", "", "", "", "", doneCount)}</div>
@@ -1552,7 +1564,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return deleted.length > 0;
   };
 
-  app.post("/inbox/approval/:id/approve", guard, async (c) => {
+  app.post("/inbox/approval/:id/approve", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
@@ -1562,7 +1574,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return reRenderThreadForConv(c, a, appr.conversation_id, await noticeFrom(res, "Could not approve — the reply was not sent."));
   });
 
-  app.post("/inbox/approval/:id/reject", guard, async (c) => {
+  app.post("/inbox/approval/:id/reject", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
@@ -1572,7 +1584,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return reRenderThreadForConv(c, a, appr.conversation_id, await noticeFrom(res, "Could not reject the reply."));
   });
 
-  app.post("/inbox/approval/:id/edit", guard, async (c) => {
+  app.post("/inbox/approval/:id/edit", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
@@ -1586,7 +1598,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   });
 
   // ADDEL1: delete a draft/approval entirely from the inbox thread (hx-confirm on the button).
-  app.delete("/inbox/approval/:id", guard, async (c) => {
+  app.delete("/inbox/approval/:id", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
@@ -1761,7 +1773,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       responseConfig.followed = { ...(responseConfig.followed as object), text: form.followed_text ?? "" };
       responseConfig.not_followed = { ...(responseConfig.not_followed as object), text: form.not_followed_text ?? "", buttons: [claimButton, ...storedButtons.slice(1)] };
     } else if (responseType === "text" || responseType === "ai_rephrase") {
-      responseConfig.text = form.text ?? "";
+      if (typeof form.text === "string" && form.text.trim()) responseConfig.text = form.text;
+      else delete responseConfig.text;
       // AI rephrase is a flag on a text reply (not a distinct response_type). The API gates it to the
       // ai_rephrase PRO feature and 402s if unlicensed; the UI also hides the toggle on free.
       if (form.ai_rephrase === "false") {
@@ -1812,7 +1825,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(list);
   });
 
-  app.post("/rules/:id/toggle", guard, async (c) => {
+  app.post("/rules/:id/toggle", guard, uuidParam, async (c) => {
     const id = c.req.param("id");
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -1824,7 +1837,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderRules(await loadRules(a.workspaceId), await noticeFrom(res, "Could not update the rule.")));
   });
 
-  app.delete("/rules/:id", guard, async (c) => {
+  app.delete("/rules/:id", guard, uuidParam, async (c) => {
     const id = c.req.param("id");
     const res = await rule.DELETE(c.req.raw, { params: Promise.resolve({ ruleId: id }) }).catch(() => null);
     const a = await auth(c);
@@ -1839,7 +1852,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(renderRules(await loadRules(a.workspaceId)));
   });
 
-  app.get("/rules/:id/edit", guard, async (c) => {
+  app.get("/rules/:id/edit", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
@@ -1852,7 +1865,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   // Duplicate = the Create form pre-filled with the source rule's settings, swapped into #rules-list.
   // It POSTs to /rules (create), so nothing is saved until Submit and the source rule is untouched.
-  app.get("/rules/:id/duplicate", guard, async (c) => {
+  app.get("/rules/:id/duplicate", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const r = await loadRuleForEdit(a.workspaceId, c.req.param("id"));
@@ -1876,7 +1889,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     </section>`);
   });
 
-  app.post("/rules/:id", guard, async (c) => {
+  app.post("/rules/:id", guard, uuidParam, async (c) => {
     const id = c.req.param("id");
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
@@ -1901,7 +1914,8 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
       if (form.sequence_id) responseConfig.sequence_id = form.sequence_id;
     }
     if (existing.response_type === "text") {
-      responseConfig.text = form.text ?? "";
+      if (typeof form.text === "string" && form.text.trim()) responseConfig.text = form.text;
+      else delete responseConfig.text;
       // ai_rephrase toggle: the field is sent (Alpine-bound "true"/"false") only when the editor
       // renders it (licensed). Absent (free instance) → leave the stored value untouched.
       if (form.ai_rephrase !== undefined) {
@@ -1974,7 +1988,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     );
   });
 
-  app.post("/approvals/:id/approve", guard, async (c) => {
+  app.post("/approvals/:id/approve", guard, uuidParam, async (c) => {
     const id = c.req.param("id");
     const res = await approvalApprove.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
     const a = await auth(c);
@@ -1984,7 +1998,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(await renderApprovalsView(a.workspaceId, await noticeFrom(res, "Could not approve — the reply was not sent.")));
   });
 
-  app.post("/approvals/:id/reject", guard, async (c) => {
+  app.post("/approvals/:id/reject", guard, uuidParam, async (c) => {
     const id = c.req.param("id");
     const res = await approvalReject.POST(jsonReq(c, {}), { params: Promise.resolve({ approvalId: id }) }).catch(() => null);
     const a = await auth(c);
@@ -2005,7 +2019,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
   // ADUX2: edit a draft's text straight from the Approvals list (previously only possible from the
   // inbox thread). Reuses updateProposedText (DRY with /inbox/approval/:id/edit) but re-renders the
   // approvals list, not a thread.
-  app.post("/approvals/:id/edit", guard, async (c) => {
+  app.post("/approvals/:id/edit", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
@@ -2023,7 +2037,7 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   // ADDEL1: delete a draft/approval entirely from the Approvals page — any status, so a resolved row
   // can be purged from "Recently resolved" too (hx-confirm on the button).
-  app.delete("/approvals/:id", guard, async (c) => {
+  app.delete("/approvals/:id", guard, uuidParam, async (c) => {
     const a = await auth(c);
     if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
     const id = c.req.param("id");
@@ -2509,6 +2523,8 @@ function ruleSummary(r: Awaited<ReturnType<typeof loadRules>>[number]): Html {
   return html`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${bits}</div>`;
 }
 
+const rulesListNav = html`hx-target="#rules-list" hx-swap="innerHTML" hx-sync="#rules-list:replace"`;
+
 function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (rulesList.length === 0) return html`${notice}<div class="empty"><span class="empty-ic">${icon("sparkles", "ico", 20)}</span><p class="empty-title">No rules yet</p><p class="empty-body">Add a keyword rule above to auto-reply to DMs and comments.</p></div>`;
@@ -2523,8 +2539,8 @@ function renderRules(rulesList: Awaited<ReturnType<typeof loadRules>>, error?: s
         </td>
         <td>${r.is_active ? html`<span class="badge tone-ok">Active</span>` : html`<span class="badge tone-neutral">Paused</span>`}</td>
         <td class="th-act"><div class="wh-actions" style="justify-content:flex-end">
-          <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" hx-target="#rules-list" hx-swap="innerHTML">Edit</button>
-          <button class="btn btn-sm" hx-get="/rules/${r.id}/duplicate" hx-target="#rules-list" hx-swap="innerHTML">Duplicate</button>
+          <button class="btn btn-sm" hx-get="/rules/${r.id}/edit" ${rulesListNav}>Edit</button>
+          <button class="btn btn-sm" hx-get="/rules/${r.id}/duplicate" ${rulesListNav}>Duplicate</button>
           <button class="btn btn-sm" hx-post="/rules/${r.id}/toggle" hx-target="#rules-list" hx-swap="innerHTML">${r.is_active ? "Pause" : "Activate"}</button>
           <button class="btn btn-sm btn-danger" hx-delete="/rules/${r.id}" hx-target="#rules-list" hx-swap="innerHTML" hx-confirm="Delete this rule?">Delete</button>
         </div></td>
@@ -2644,6 +2660,7 @@ function ruleKeywords(input: string, previous: unknown): Array<Record<string, un
 }
 
 function loadRuleForEdit(workspaceId: string, id: string) {
+  if (!isUuid(id)) return Promise.resolve(undefined);
   return db.query.autoReplyRules.findFirst({
     where: and(eq(autoReplyRules.id, id), eq(autoReplyRules.workspace_id, workspaceId)),
     columns: { id: true, name: true, channel_id: true, trigger_type: true, trigger_config: true, response_type: true, response_config: true, requires_approval: true, priority: true, cooldown_seconds: true, max_sends_per_contact: true, is_active: true },
@@ -2722,7 +2739,7 @@ function renderRuleEditForm(
       </label>
       <div class="row" style="gap:.5rem">
         <button class="btn btn-primary" type="submit">Save changes</button>
-        <button class="btn btn-sm" type="button" hx-get="/rules/list" hx-target="#rules-list" hx-swap="innerHTML">Cancel</button>
+        <button class="btn btn-sm" type="button" hx-get="/rules/list" ${rulesListNav}>Cancel</button>
       </div>
     </form>
   </section>`;
@@ -2867,7 +2884,7 @@ function ruleCreateForm(
       <div class="row" style="gap:.5rem;align-self:flex-start">
         <div id="rule-new-err-${p ? p.id : "new"}"></div>
         <button class="btn btn-primary" type="submit">Create rule</button>
-        ${cancel ? html`<button class="btn btn-sm" type="button" hx-get="/rules/list" hx-target="#rules-list" hx-swap="innerHTML">Cancel</button>` : html``}
+        ${cancel ? html`<button class="btn btn-sm" type="button" hx-get="/rules/list" ${rulesListNav}>Cancel</button>` : html``}
       </div>
     </form>`;
 }

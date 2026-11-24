@@ -325,3 +325,9 @@ describe("account insights contract", () => {
     expect(observation.properties.providerDay.description).toContain("Instagram app");
   });
 });
+
+it("documents what deleting content does to scheduled posts and deliveries", () => {
+  const operation = openApiSpec.paths["/content/{contentId}"].delete;
+  expect(operation.description).toMatch(/scheduled deliveries remain scheduled/i);
+  expect(operation.description).toContain("POST /deliveries/{deliveryId}/cancel");
+});

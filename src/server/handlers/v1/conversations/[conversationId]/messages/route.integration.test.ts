@@ -56,11 +56,11 @@ afterAll(async () => {
 });
 
 const ctx = { params: Promise.resolve({ conversationId: CONV }) };
-function postReq() {
+function postReq(text = "thanks!") {
   return new Request(`http://x/api/v1/conversations/${CONV}/messages`, {
     method: "POST",
     headers: { authorization: `Bearer ${RAW_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ text: "thanks!" }),
+    body: JSON.stringify({ text }),
   });
 }
 async function flag() {
@@ -239,4 +239,10 @@ it.each([false, true])("clears delivered DM attention only without newer activit
     expect(send).toHaveBeenCalledOnce();
     expect(await flag()).toBe(newer);
   } finally { send.mockRestore(); }
+});
+
+it("rejects a reply containing a null character before enqueueing it", async () => {
+  const res = await POST(postReq("a\u0000b"), ctx);
+  expect(res.status).toBe(422);
+  expect(addJobTx).not.toHaveBeenCalled();
 });

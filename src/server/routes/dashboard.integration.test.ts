@@ -1418,3 +1418,63 @@ describe("dashboard inbox thread (MQA13 B02/B04/B07)", () => {
     expect(await list("_")).not.toContain(CONV);
   });
 });
+
+it.each([
+  ["GET", "/rules/garbage/edit"], ["GET", "/rules/garbage/duplicate"],
+  ["POST", "/rules/garbage"], ["POST", "/rules/garbage/toggle"], ["DELETE", "/rules/garbage"],
+  ["POST", "/approvals/garbage/approve"], ["POST", "/approvals/garbage/reject"],
+  ["POST", "/approvals/garbage/edit"], ["DELETE", "/approvals/garbage"],
+  ["POST", "/inbox/approval/garbage/approve"], ["POST", "/inbox/approval/garbage/reject"],
+  ["POST", "/inbox/approval/garbage/edit"], ["DELETE", "/inbox/approval/garbage"],
+])("%s %s returns a dashboard 404", async (method, path) => {
+  const res = await app.request(path, { method, headers: { cookie, "hx-request": "true" } });
+  expect(res.status).toBe(404);
+});
+
+it.each(["/inbox", "/inbox/list", "/inbox/older"])("keeps Inbox usable with an invalid search on %s", async (path) => {
+  const res = await app.request(`${path}?filter=dm&search=%00x`, { headers: { cookie, "hx-request": "true" } });
+  expect(res.status).toBe(200);
+  if (path !== "/inbox/older") expect(await res.text()).toContain('name="search"');
+  expect(res.headers.get("HX-Push-Url") ?? "").not.toContain("%00");
+});
+
+it.each(["unknown", "foreign"])("resolves an %s Inbox deep link without loading a thread", async (kind) => {
+  const id = crypto.randomUUID();
+  const workspaceId = crypto.randomUUID();
+  if (kind === "foreign") {
+    await db.insert(s.workspaces).values({ id: workspaceId, name: "Other", slug: workspaceId });
+    const [channel] = await db.insert(s.channels).values({
+      workspace_id: workspaceId, platform: "facebook", platform_id: id, token_encrypted: "x", webhook_secret: "s",
+    }).returning();
+    const [contact] = await db.insert(s.contacts).values({ workspace_id: workspaceId }).returning();
+    await db.insert(s.conversations).values({
+      id, workspace_id: workspaceId, channel_id: channel.id, contact_id: contact.id, platform: "facebook", unread_count: 1,
+    });
+  }
+  try {
+    const res = await app.request(`/inbox?open=${id}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const page = await res.text();
+    expect(page).toContain("Conversation not found");
+    expect(page).not.toContain(`hx-get="/inbox/${id}"`);
+  } finally {
+    if (kind === "foreign") await db.delete(s.workspaces).where(eq(s.workspaces.id, workspaceId));
+  }
+});
+
+it("creates and edits a public-comment rule with only public reply text", async () => {
+  const form = {
+    name: "Public reply rule", trigger_type: "comment_keyword", keywords: "hello",
+    response_mode: "text", reply_mode: "comment", text: "", comment_reply_text: "Hello there",
+  };
+  const submit = (path: string, values: typeof form) => app.request(path, {
+    method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(values),
+  });
+  expect((await submit("/rules", form)).status).toBe(200);
+  const [rule] = await db.select().from(s.autoReplyRules).where(eq(s.autoReplyRules.workspace_id, WS));
+  expect(rule.response_config).toEqual({ reply_mode: "comment", comment_reply_text: "Hello there" });
+  expect((await submit(`/rules/${rule.id}`, { ...form, comment_reply_text: "Updated public reply" })).status).toBe(200);
+  const [updated] = await db.select().from(s.autoReplyRules).where(eq(s.autoReplyRules.id, rule.id));
+  expect(updated.response_config).toEqual({ reply_mode: "comment", comment_reply_text: "Updated public reply" });
+  expect((await submit("/rules", { ...form, reply_mode: "both" })).status).toBe(422);
+});

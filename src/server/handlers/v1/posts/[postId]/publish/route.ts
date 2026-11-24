@@ -3,6 +3,7 @@ import { authenticateWithScope } from "@/lib/auth";
 import { ok, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
 import { actorFromAuth } from "@/lib/audit";
+import { publishTimestamp } from "@/lib/content/schemas";
 import { publishPost } from "@/lib/content/publish";
 
 export const runtime = "nodejs";
@@ -12,7 +13,7 @@ type Ctx = { params: Promise<{ postId: string }> };
 const publishBody = z.object({
   channelId: z.string().uuid(),
   tiktokConsent: z.boolean().optional(),
-  when: z.string().min(1).default("now"), // "now" or an ISO timestamp
+  when: z.union([z.literal("now"), publishTimestamp], { error: "Use now or an ISO 8601 date and time with Z or a UTC offset." }).default("now"),
   format: z.string().min(1).max(255).optional(),
 });
 

@@ -2,9 +2,10 @@ import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
 import { ApiErrors, ok } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
+import { publishTimestamp } from "@/lib/content/schemas";
 import { rescheduleDelivery } from "@/lib/deliveries/service";
 
-const input = z.object({ scheduledAt: z.string().datetime({ offset: true }) }).strict();
+const input = z.object({ scheduledAt: publishTimestamp }).strict();
 
 export async function POST(request: Request, ctx: { params: Promise<{ deliveryId: string }> }): Promise<Response> {
   const auth = await authenticateWithScope(request, "posts:write");

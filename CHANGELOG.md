@@ -12,6 +12,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 - Show failed approved replies in Inbox, Approvals, and Overview, and let operators retry failed deliveries from Approvals.
 - Apply the 2,000-character reply limit when editing an approval.
+- Compose requires a future date for scheduled posts and validates the title, brand, platform, content type, and media addresses before saving.
+- Inbox keeps the latest filter and shows a clear state for unavailable conversations. Rules keeps the latest editor and accepts public-comment replies without DM text.
+- Invalid rule and approval IDs return 404. The publishing API validates schedule timestamps and media addresses, and manual replies validate message text before queueing.
+
+### Changed
+
+- Clarified that deleting content leaves linked posts and scheduled deliveries in place.
 
 ## [0.27.4] - 2026-11-23
 

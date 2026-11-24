@@ -79,8 +79,9 @@ export async function renderProviderList(scope: string | null, editId?: string, 
   const view: AiSettingsView = { configured: !!rows.length, provider: edit?.provider ?? "openai", base_url: edit?.base_url ?? "", model: edit?.model ?? "", api_key: { set: !!edit, source: edit ? "db" : "unset", hint: edit?.api_key_hint ?? null }, sources: { provider: "db", model: "db", base_url: "db" }, fallbacks: { count: 0 }, providers: [] };
   const ids = rows.map(r => r.id);
   const orderButton = (label: string, reordered: string[], disabled = false) => html`<button class="btn btn-ghost btn-sm" type="button" aria-label="${label}" title="${label}" ${disabled ? raw("disabled") : ""} hx-post="/settings/ai/providers/reorder" hx-vals="${JSON.stringify({ ids: reordered })}" hx-target="#ai-provider-list" hx-swap="outerHTML">${label === "Move up" ? "↑" : label === "Move down" ? "↓" : label}</button>`;
+  const providerListNav = html`hx-target="#ai-provider-list" hx-swap="outerHTML" hx-sync="#ai-provider-list:replace"`;
   return html`<section class="card set-card ai-providers" id="ai-provider-list" hx-ext="json-enc" x-data="${JSON.stringify({ connecting: connect || !!edit })}">
-    <div class="row" style="justify-content:space-between;flex-wrap:wrap"><h2>AI providers</h2><button id="ai-connect-provider" class="btn btn-primary btn-sm" type="button" hx-get="/settings/ai/providers/connect" hx-target="#ai-provider-list" hx-swap="outerHTML">+ Connect provider</button></div>
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap"><h2>AI providers</h2><button id="ai-connect-provider" class="btn btn-primary btn-sm" type="button" hx-get="/settings/ai/providers/connect" ${providerListNav}>+ Connect provider</button></div>
     <p class="muted">Drafts and rephrasing use the main provider. If it fails, the next one in the list answers.</p>
     ${message ? notice("info", message) : ""}
     ${rows.length ? rows.map((r, i) => {
@@ -90,7 +91,7 @@ export async function renderProviderList(scope: string | null, editId?: string, 
         <div class="ai-arrows">${orderButton("Move up", i > 0 ? swap(i - 1) : ids, i === 0)}${orderButton("Move down", i < rows.length - 1 ? swap(i + 1) : ids, i === rows.length - 1)}</div>
         <details class="ai-more" ${edit?.id === r.id ? raw("open") : ""}><summary class="btn btn-ghost btn-sm" aria-label="Actions for ${r.model}">⋯</summary><div class="ai-provider-menu">
           ${orderButton("Make main", [r.id, ...ids.filter(id => id !== r.id)], i === 0)}
-          <button id="ai-edit-${r.id}" class="btn btn-ghost btn-sm" hx-get="/settings/ai/providers/edit/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML">Edit</button>
+          <button id="ai-edit-${r.id}" class="btn btn-ghost btn-sm" hx-get="/settings/ai/providers/edit/${r.id}" ${providerListNav}>Edit</button>
           <button class="btn btn-ghost btn-sm" hx-post="/settings/ai/providers/test-again/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML">Test again</button>
           <button class="btn btn-ghost btn-sm" hx-post="/settings/ai/providers/remove/${r.id}" hx-target="#ai-provider-list" hx-swap="outerHTML" hx-confirm="Remove this AI provider?" data-confirm-label="Remove">Remove</button>
         </div></details></div>`;

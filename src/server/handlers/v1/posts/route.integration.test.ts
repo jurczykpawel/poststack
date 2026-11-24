@@ -493,3 +493,19 @@ describe.skipIf(!TEST_DB)("article URL", () => {
     expect((await createOne({ platform: "linkedin", articleUrl })).res.status).toBe(422);
   });
 });
+
+it.each(["tomorrow", "not-a-date", "2030-01-02T10:00:00+99:00", "1e10", "NOW", "now ", "01/02/2030", "2030-01-02T10:00:00", "2030-01-02T10:00:00\u0000Z"])(
+  "rejects invalid publish time %j before creating a delivery", async (when) => {
+    licensed.value = true;
+    const f = await deliveryFixture();
+    await db.update(s.posts).set({ delivery_id: null, video_url: "https://example.com/validation.mp4" }).where(eq(s.posts.id, f.postId));
+    await db.insert(s.media).values({
+      workspace_id: WS, checksum: "publish-validation", storage_key: "publish-validation",
+      url: "https://example.com/validation.mp4", kind: "video",
+    });
+    const res = await call("POST", `/posts/${f.postId}/publish`, { channelId: f.channelId, when });
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.details).toEqual(expect.arrayContaining([expect.objectContaining({ path: "when" })]));
+    expect(await db.select().from(s.deliveries).where(eq(s.deliveries.workspace_id, WS))).toHaveLength(1);
+  },
+);

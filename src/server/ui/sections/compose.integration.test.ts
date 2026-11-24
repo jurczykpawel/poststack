@@ -414,7 +414,7 @@ describe("TikTok Compose submission", () => {
     if (rule === "disclosure") p.posts[0].tiktokBrandOrganicToggle = false;
     if (rule === "channel") p.posts[0].tiktokChannelId = "00000000-0000-4000-8000-000000000000";
     if (rule === "past") p.publish.at = "2000-01-01T00:00:00Z";
-    expect((await submit(p)).status).toBe(400);
+    expect((await submit(p)).status).toBe(rule === "past" ? 422 : 400);
   });
   it.each(["direct", "inbox"])("shows cannot-post guidance and rejects %s when the creator cannot post", async (mode) => {
     const p = await payload();
@@ -616,4 +616,29 @@ it("includes the selected language in the browser payload", async () => {
   expect(c.buildPayload().language).toBe("pl");
   c.language = "";
   expect(c.buildPayload().language).toBeUndefined();
+});
+
+it.each([
+  ["missing schedule date", { publish: { mode: "schedule" } }, "date"],
+  ["invalid schedule date", { publish: { mode: "schedule", at: "tomorrow" } }, "date"],
+  ["past schedule date", { publish: { mode: "schedule", at: "2020-01-01T12:00:00Z" } }, "future"],
+  ["blank title", { title: "   " }, "title"],
+  ["unknown brand", { brand: "unknown-brand" }, "brand"],
+  ["unknown platform", { posts: [{ platform: "bogus" }] }, "platform"],
+  ["unknown content type", { contentType: "bogus" }, "content type"],
+  ["invalid media URL", { mediaUrls: ["https://"] }, "media"],
+] as const)("rejects Compose with %s before writing", async (_, override, field) => {
+  const payload = {
+    brand: "techskills.academy", title: "Input test", contentType: "video",
+    mediaUrl: "https://cdn.example.test/tt3.mp4", posts: [{ platform: "instagram" }], ...override,
+  };
+  const count = async () => Promise.all([content, posts, deliveries].map(async (table) =>
+    (await db.select({ id: table.id }).from(table).where(eq(table.workspace_id, workspaceId))).length));
+  const before = await count();
+  const res = await app.request("/compose", {
+    method: "POST", headers: { cookie }, body: new URLSearchParams({ payload: JSON.stringify(payload) }),
+  });
+  expect(res.status).toBe(422);
+  expect((await res.text()).toLowerCase()).toContain(field);
+  expect(await count()).toEqual(before);
 });
