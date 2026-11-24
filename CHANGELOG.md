@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.5] - 2026-11-24
+
 ### Added
 - Delete media from the Compose library or via the API. Media needed for pending publications is protected. For platforms that fetch media by URL, protection lasts for one hour after publication. Shared storage objects are kept while referenced.
 
