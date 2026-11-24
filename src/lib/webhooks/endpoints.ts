@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { webhookEndpoints, webhookDeliveries } from "@/db/schema";
+import { webhookEndpoints } from "@/db/schema";
 import { encryptString, decryptString } from "@/lib/crypto";
 import { assertValidHeaderMap, encryptHeaderMap, decryptHeaderMap, type HeaderMap } from "@/lib/webhooks/header-map";
 import { ApiError } from "@/lib/api/response";
@@ -13,6 +13,7 @@ export type { HeaderMap };
 // callers that only need to know header NAMES (the edit form) or actual values (the dispatcher) both
 // read `headers`; nothing needs to touch the ciphertext column directly outside this module.
 export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect & { headers: HeaderMap };
+const SECRET_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /** A signing secret: `whsec_` + 48 hex chars. Used to HMAC-sign outbound deliveries. */
 function newSecret(): string {
@@ -45,6 +46,7 @@ function decryptEndpoint(row: typeof webhookEndpoints.$inferSelect): WebhookEndp
  * delivery).
  */
 function assertValidUrl(url: string): void {
+  if (url.includes("\0")) throw new ApiError("invalid_request", "Endpoint URL must not contain NUL characters.", 422);
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -65,7 +67,8 @@ function assertValidUrl(url: string): void {
 function assertValidEventTypes(eventTypes: string[]): void {
   const bad = eventTypes.filter((t) => !isKnownEventType(t));
   if (bad.length > 0) {
-    throw new ApiError("invalid_request", `Unknown event type(s): ${bad.join(", ")}`, 422);
+    const message = `Unknown event type(s): ${bad.join(", ")}`;
+    throw new ApiError("invalid_request", message, 422, [{ path: "event_types", message }]);
   }
 }
 
@@ -83,7 +86,7 @@ export async function createEndpoint(
       workspace_id: workspaceId,
       url: input.url,
       secret: encryptString(newSecret()),
-      event_types: eventTypes,
+      event_types: [...new Set(eventTypes)],
       active: true,
       custom_headers_encrypted: encryptHeaderMap(input.headers),
       extra_payload_fields: input.extraFields ?? {},
@@ -134,7 +137,7 @@ export async function updateEndpoint(
   }
   if (patch.eventTypes !== undefined) {
     assertValidEventTypes(patch.eventTypes);
-    set.event_types = patch.eventTypes;
+    set.event_types = [...new Set(patch.eventTypes)];
   }
   if (patch.active !== undefined) set.active = patch.active;
   if (patch.headers !== undefined) set.custom_headers_encrypted = encryptHeaderMap(patch.headers);
@@ -147,7 +150,8 @@ export async function updateEndpoint(
     .set(set)
     .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.workspace_id, workspaceId)))
     .returning();
-  return decryptEndpoint(row!); // secret is untouched here; decrypt so the return matches plaintext
+  if (!row) throw new ApiError("not_found", "Webhook endpoint not found", 404);
+  return decryptEndpoint(row);
 }
 
 /**
@@ -156,23 +160,24 @@ export async function updateEndpoint(
  * secondary is dropped — only the immediately-previous secret stays valid.
  */
 export async function rotateSecret(workspaceId: string, id: string): Promise<WebhookEndpoint> {
-  const existing = await getEndpoint(workspaceId, id); // decrypted (plaintext) current secret
-  if (!existing) throw new ApiError("not_found", "Webhook endpoint not found", 404);
-  const [row] = await db
-    .update(webhookEndpoints)
-    // Both stored encrypted: the new primary, and the previous primary moved to secondary.
-    .set({ secret: encryptString(newSecret()), secret_secondary: encryptString(existing.secret) })
-    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.workspace_id, workspaceId)))
-    .returning();
-  return decryptEndpoint(row!);
+  const where = and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.workspace_id, workspaceId));
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select({ secret: webhookEndpoints.secret }).from(webhookEndpoints).where(where).for("update");
+    if (!existing) throw new ApiError("not_found", "Webhook endpoint not found", 404);
+    const previousSecret = decryptString(existing.secret, [`ws:${workspaceId}`, "webhook_endpoints.secret", id]);
+    const [row] = await tx.update(webhookEndpoints).set({
+      secret: encryptString(newSecret()),
+      secret_secondary: encryptString(previousSecret),
+      secret_secondary_expires_at: new Date(Date.now() + SECRET_GRACE_MS),
+    }).where(where).returning();
+    return decryptEndpoint(row!);
+  });
 }
 
 /** Delete an endpoint and its deliveries (delivery FK references the endpoint). */
 export async function deleteEndpoint(workspaceId: string, id: string): Promise<void> {
-  const existing = await getEndpoint(workspaceId, id);
-  if (!existing) throw new ApiError("not_found", "Webhook endpoint not found", 404);
-  await db.transaction(async (tx) => {
-    await tx.delete(webhookDeliveries).where(eq(webhookDeliveries.endpoint_id, id));
-    await tx.delete(webhookEndpoints).where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.workspace_id, workspaceId)));
-  });
+  const [deleted] = await db.delete(webhookEndpoints)
+    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.workspace_id, workspaceId)))
+    .returning({ id: webhookEndpoints.id });
+  if (!deleted) throw new ApiError("not_found", "Webhook endpoint not found", 404);
 }

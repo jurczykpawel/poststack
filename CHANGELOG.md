@@ -15,9 +15,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Compose requires a future date for scheduled posts and validates the title, brand, platform, content type, and media addresses before saving.
 - Inbox keeps the latest filter and shows a clear state for unavailable conversations. Rules keeps the latest editor and accepts public-comment replies without DM text.
 - Invalid rule and approval IDs return 404. The publishing API validates schedule timestamps and media addresses, and manual replies validate message text before queueing.
+- Outbound webhook deliveries use the previous signing secret for up to 24 hours after rotation.
+- Webhook endpoints reject transport-managed custom headers and store each selected event type once.
+- The add-endpoint form keeps its values on validation errors, and actions on removed endpoints refresh the list with a clear message.
+- OpenAPI lists HTTP 402 responses for PRO-gated operations that were missing them.
+- Rotations made before this release stop using the previous secret immediately; only rotations made from now on keep the previous secret signing for 24 hours.
 
 ### Changed
 
+- REST publish and reschedule accept `when` only as an ISO 8601 timestamp with a UTC offset (for example `2026-12-01T09:00:00+01:00`) or `now`; timestamps without an offset are rejected.
 - Clarified that deleting content leaves linked posts and scheduled deliveries in place.
 
 ## [0.27.4] - 2026-11-23

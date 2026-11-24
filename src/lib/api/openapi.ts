@@ -862,6 +862,7 @@ export const openApiSpec = {
           "201": { description: "Bot connected" },
           "400": { description: "Invalid bot token or webhook registration failed" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "422": { description: "Validation error" },
         },
       },
@@ -882,6 +883,7 @@ export const openApiSpec = {
             content: cursorResponse({ $ref: "#/components/schemas/Contact" }, "meta"),
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
         },
       },
       post: {
@@ -940,6 +942,7 @@ export const openApiSpec = {
             },
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "422": { description: "Validation error" },
         },
       },
@@ -960,6 +963,7 @@ export const openApiSpec = {
             content: cursorResponse({ type: "object" }, "meta"),
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
         },
       },
     },
@@ -988,6 +992,7 @@ export const openApiSpec = {
         responses: {
           "201": { description: "Rule created" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "422": { description: "Validation error" },
         },
       },
@@ -1144,6 +1149,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
           "422": { description: "Validation error" },
         },
@@ -1355,6 +1361,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Contact", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Contact" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -1366,6 +1373,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
           "422": { description: "Validation error" },
         },
@@ -1392,6 +1400,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Conversation", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Conversation" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -1403,6 +1412,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
           "422": { description: "Validation error" },
         },
@@ -1417,6 +1427,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Message", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Message" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -1430,6 +1441,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Comment: id, conversation_id, channel_id, post_id, post_url, platform_comment_id, author_name, comment_text, created_at" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -1446,6 +1458,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Messages (chronological)", content: cursorResponse({ $ref: "#/components/schemas/Message" }, "meta") },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -1462,6 +1475,7 @@ export const openApiSpec = {
           "201": { description: "Queued for sending" },
           "400": { description: "No platform identity / over-long Idempotency-Key" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
           "422": { description: "Validation error, `reply_unavailable` for an unsupported reply or missing parent comment, or `messaging_window_closed`: a Facebook/Instagram DM more than 24h after the customer's last message (Meta only allows the HUMAN_AGENT tag after the operator sets `META_HUMAN_AGENT_APPROVED=true`)" },
         },
@@ -1489,6 +1503,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Updated" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
           "422": { description: "Validation error" },
         },
@@ -1524,6 +1539,7 @@ export const openApiSpec = {
         responses: {
           "201": { description: "Created" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "422": { description: "Validation error" },
         },
       },
@@ -1617,6 +1633,7 @@ export const openApiSpec = {
           "201": { description: "Created — `data.key` holds the full secret, shown only here" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "422": { description: "Validation error" },
         },
       },
@@ -1853,6 +1870,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "List of tags", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Tag" } }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
         },
       },
       post: {
@@ -1863,6 +1881,7 @@ export const openApiSpec = {
         responses: {
           "201": { description: "Created" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "409": { description: "A tag with this name already exists" },
           "422": { description: "Validation error" },
         },
@@ -1878,6 +1897,7 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Updated", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Tag" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
           "409": { description: "A tag with this name already exists" },
           "422": { description: "Validation error" },
@@ -1891,6 +1911,7 @@ export const openApiSpec = {
         responses: {
           "204": { description: "Deleted" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "402": { $ref: "#/components/responses/ProRequired" },
           "404": { $ref: "#/components/responses/NotFound" },
         },
       },
@@ -1912,7 +1933,7 @@ export const openApiSpec = {
         tags: ["Webhooks"],
         summary: "Register a webhook endpoint",
         description: "Subscribe a URL to events. Returns the HMAC signing secret ONCE. Requires a PRO license. contact.erased provides data.id, workspaceId and channels [{channelId, platform, platformSenderId}] captured before deletion; GET contact then returns 404. conversation.updated provides data.conversationId, contactId, channelId, workspaceId, updatedAt (UTC), previous and current states ({status: open|closed|snoozed, is_automation_paused, assigned_to}). State events include automatic reopening by an incoming message or comment, and exclude read receipts, unchanged values and message activity without a state change. Both types are selectable explicitly and included in wildcard subscriptions ([]). message.received and comment.received announce a message or comment from a contact (never our own sends or echoes) and carry identifiers only: data.id (also messageId or commentId), workspaceId, channelId, platform, conversationId, contactId, direction (inbound), createdAt, plus postId for comments. Read the content with GET /messages/{messageId} or GET /comments/{commentId}.",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, event_types: { type: "array", items: { type: "string" }, description: "Omit/empty for all events" }, headers: { type: "object", additionalProperties: { type: "string" }, description: "Custom HTTP headers merged into every delivery (e.g. an Authorization token). Transport-managed headers are rejected. Values are encrypted at rest." }, extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body." } } } } } },
         responses: {
           "201": { description: "Created (includes the signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
@@ -1992,7 +2013,7 @@ export const openApiSpec = {
         ...requiresScope("webhooks:write"),
         tags: ["Webhooks"],
         summary: "Rotate a webhook signing secret",
-        description: "Mints a new signing secret (the previous one stays valid during a grace window). Returns the new secret ONCE.",
+        description: "Mints a new signing secret. The previous secret keeps signing for 24 hours unless another rotation replaces it sooner. Returns the new secret ONCE.",
         parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Rotated (includes the new signing secret once)", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/WebhookEndpoint" }, error: { type: "null" } } } } } },
@@ -2015,12 +2036,12 @@ export const openApiSpec = {
     { name: "Workspace", description: "Settings, retention, audit log" },
     { name: "Stats", description: "Aggregate metrics (response times, answer rate)" },
     { name: "Insights", description: "Account metrics collected from supported channels (PRO). Collection is opt-in per channel; every read uses locally stored data." },
-    { name: "Webhooks", description: `Outbound event webhooks require PRO. Register a URL and retain the signing secret returned once on creation. An empty event_types array subscribes to every catalog event, including future additions.
+    { name: "Webhooks", description: `Outbound event webhooks require PRO. Register a URL and retain the signing secret returned once on creation. An empty event_types array subscribes to every catalog event, including future additions. Duplicate event types are stored once.
 
 ### Envelope and delivery
 The default JSON envelope is { id, type, created_at, data }. id is the event UUID for deduplication, type is the event name, created_at is the event timestamp in UTC, and data.id / data.type identify the subject. Post subjects use the editorial post ID from GET /posts/{id} (legacy deliveries without an editorial post use the delivery ID). Event-specific fields are inside data. Payload changes are additive; accept unknown fields. Custom extra_payload_fields can override envelope fields, so the following contract describes the default body.
 
-POSTs use Content-Type: application/json, X-PostStack-Event and X-PostStack-Timestamp. Verify \`X-PostStack-Signature: t=<unix>,v1=<hmac>\` by computing HMAC-SHA256 in hexadecimal over timestamp.raw-body (the decimal timestamp, a literal dot, then the exact raw request bytes), using the endpoint secret. Compare in constant time before parsing JSON, check timestamp freshness (e.g. 300 seconds), and accept any matching v1 value during secret rotation. Do not reserialize JSON before verification.
+POSTs use Content-Type: application/json, X-PostStack-Event and X-PostStack-Timestamp. Verify \`X-PostStack-Signature: t=<unix>,v1=<hmac>\` by computing HMAC-SHA256 in hexadecimal over timestamp.raw-body (the decimal timestamp, a literal dot, then the exact raw request bytes), using the endpoint secret. Compare in constant time before parsing JSON, check timestamp freshness (e.g. 300 seconds), and accept any matching v1 value during the 24 hours after secret rotation. Do not reserialize JSON before verification.
 
 A 2xx response acknowledges delivery. Non-2xx responses, network failures and the 10-second timeout retry with exponential backoff for up to 8 attempts total. The final failed attempt is retained as failed. Delivery is at least once: deduplicate by envelope id, acknowledge quickly, and process asynchronously. Ordering between events is not guaranteed; a retry signs with a new delivery timestamp but keeps the event id and created_at.
 

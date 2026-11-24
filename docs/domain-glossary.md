@@ -75,6 +75,7 @@ The definitions are read from the linked implementation. Existing API/DB spellin
 | webhook event | A logged inbound platform event with a deduplication key and handling outcome. | internal event, outbound webhook delivery. | [schema](../src/db/schema.ts): `webhookEvents`; [inbound log](../src/lib/webhook-events/log.ts). |
 | event | An internal workspace event that can feed realtime updates and outbound webhook dispatch. | raw inbound webhook event, webhook delivery. | [schema](../src/db/schema.ts): `events`; [event bus](../src/lib/events.ts). |
 | webhook endpoint | A workspace's outbound event subscription with target URL, signing secret and selected event types. | incoming platform webhook route, account source, alert webhook configuration. | [schema](../src/db/schema.ts): `webhookEndpoints`; [endpoint service](../src/lib/webhooks/endpoints.ts). |
+| signing secret | A per-endpoint key used to sign webhook deliveries. After rotation, the previous key can sign alongside the current key for up to 24 hours. | API key, incoming platform webhook verification token. | [endpoint service](../src/lib/webhooks/endpoints.ts); [dispatcher](../src/lib/webhooks/dispatch.ts). |
 | webhook delivery | A delivery attempt lifecycle for one internal event fanned out to one webhook endpoint. | publishing delivery, inbox outbound delivery, inbound webhook event. | [schema](../src/db/schema.ts): `webhookDeliveries`; [dispatcher](../src/lib/webhooks/dispatch.ts). |
 
 ## Insights

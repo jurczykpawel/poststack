@@ -7068,6 +7068,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "secret_secondary_expires_at": {
+          "name": "secret_secondary_expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "event_types": {
           "name": "event_types",
           "type": "text[]",

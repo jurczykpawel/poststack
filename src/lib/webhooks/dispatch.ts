@@ -7,6 +7,7 @@ import { addJobTx } from "@/lib/queue/client";
 import { safeFetchWebhook } from "./safe-target";
 import { redactSecrets } from "@/lib/redact";
 import { getEndpoint } from "./endpoints";
+import { isTransportManagedHeader } from "./header-map";
 import { signWebhook } from "./signature";
 import { renderTemplate, type PlaceholderContext } from "./payload-customization";
 import type { EventDispatchJob, WebhookDeliveryJob } from "@/lib/queue/types";
@@ -92,8 +93,6 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
     ? (renderTemplate(endpoint.extra_payload_fields, placeholderContext) as Record<string, unknown>)
     : {};
   const body = JSON.stringify({ ...standardBody, ...extra });
-  const ts = Math.floor(Date.now() / 1000);
-  const signature = signWebhook([endpoint.secret, endpoint.secret_secondary ?? ""], ts, body);
 
   await db
     .update(webhookDeliveries)
@@ -109,18 +108,25 @@ export async function processWebhookDelivery(payload: WebhookDeliveryJob, helper
       // loopback/cgnat only with WEBHOOK_ALLOW_PRIVATE_TARGETS; metadata/link-local always blocked)
       // on the user-supplied URL via the rebinding-safe pinned connector (rejects 3xx).
       const brand = await getInstanceBrand();
+      const now = Date.now();
+      const ts = Math.floor(now / 1000);
+      const secrets = [endpoint.secret];
+      const expiresAt = endpoint.secret_secondary_expires_at;
+      if (endpoint.secret_secondary && expiresAt && expiresAt.getTime() > now) {
+        secrets.push(endpoint.secret_secondary);
+      }
       const res = await safeFetchWebhook(endpoint.url, {
         method: "POST",
         // The operator's custom headers are spread FIRST (e.g. an Authorization token for their
         // receiver) — the reserved delivery headers are spread AFTER so a custom header can never
         // shadow the signature/event/timestamp/content-type the receiver relies on to verify.
         headers: {
-          ...endpoint.headers,
+          ...Object.fromEntries(Object.entries(endpoint.headers).filter(([name]) => !isTransportManagedHeader(name))),
           "content-type": "application/json",
           "User-Agent": brandUserAgent(brand),
           "X-PostStack-Event": event.type,
           "X-PostStack-Timestamp": String(ts),
-          "X-PostStack-Signature": signature,
+          "X-PostStack-Signature": signWebhook(secrets, ts, body),
         },
         body,
         signal: controller.signal,

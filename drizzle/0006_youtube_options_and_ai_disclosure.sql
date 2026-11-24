@@ -349,3 +349,5 @@ CREATE TABLE "oauth_refresh_tokens" (
 --> statement-breakpoint
 ALTER TABLE "oauth_refresh_tokens" ADD CONSTRAINT "oauth_refresh_tokens_grant_id_fkey" FOREIGN KEY ("grant_id") REFERENCES "public"."oauth_grants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "oauth_refresh_tokens_grant_id_idx" ON "oauth_refresh_tokens" USING btree ("grant_id");
+--> statement-breakpoint
+ALTER TABLE "webhook_endpoints" ADD COLUMN "secret_secondary_expires_at" timestamp (3) with time zone;

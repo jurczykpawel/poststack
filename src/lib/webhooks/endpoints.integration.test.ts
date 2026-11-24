@@ -111,6 +111,15 @@ describe.skipIf(!TEST_DB)("webhook endpoint service", () => {
     expect(second.secret_secondary).toBe(first.secret);
   });
 
+  it("keeps the immediately preceding primary when two rotations overlap", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/concurrent" });
+    const rotations = await Promise.all([svc.rotateSecret(WS, ep.id), svc.rotateSecret(WS, ep.id)]);
+    const latest = (await svc.getEndpoint(WS, ep.id))!;
+    const preceding = rotations.find(({ secret }) => secret !== latest.secret)!;
+    expect(preceding.secret_secondary).toBe(ep.secret);
+    expect(latest.secret_secondary).toBe(preceding.secret);
+  });
+
   it("deleteEndpoint removes the endpoint and its deliveries", async () => {
     const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/d" });
     const [e] = await db

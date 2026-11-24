@@ -106,7 +106,7 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
     expect(await fragment.text()).toContain('id="wh-outbound"');
   });
 
-  it.each(["Bad Name: value", "X-Test: a\rvalue", "X-Test: a\u0000b"].flatMap((headers) => [false, true].map((edit) => ({ headers, edit }))))("validates header lines before saving ($headers, edit=$edit)", async ({ headers, edit }) => {
+  it.each(["Bad Name: value", "X-Test: a\rvalue", "X-Test: a\u0000b", "Host: hooks.example.com"].flatMap((headers) => [false, true].map((edit) => ({ headers, edit }))))("validates header lines before saving ($headers, edit=$edit)", async ({ headers, edit }) => {
     const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/valid-headers", headers: { "X-Keep": "value" } });
     const before = await endpoints.listEndpoints(workspaceId);
     const path = edit ? `/webhooks/outbound/${ep.id}` : "/webhooks/outbound";
@@ -247,8 +247,51 @@ describe.skipIf(!TEST_DB)("/webhooks/outbound dashboard", () => {
     const before = (await endpoints.listEndpoints(workspaceId)).length;
     const res = await form("/webhooks/outbound", { url: "ftp://evil.example.com" });
     expect(res.status).toBe(422);
+    expect(res.headers.get("HX-Retarget")).toBe("#wh-add-error-url");
     expect(await res.text()).not.toContain("ftp://evil.example.com");
     expect((await endpoints.listEndpoints(workspaceId)).length).toBe(before);
+  });
+
+  it("returns only the field error when the add form fails validation", async () => {
+    const res = await form("/webhooks/outbound", {
+      url: "https://hooks.example.com/keep", event_types: ["contact.updated"],
+      headers: "X-Token: draft-value", extra: "{bad json",
+    });
+    expect(res.status).toBe(422);
+    expect(res.headers.get("HX-Retarget")).toBe("#wh-add-error-extra");
+    const body = await res.text();
+    expect(body).toContain("Extra payload fields must be valid JSON");
+    expect(body).not.toMatch(/<form|draft-value/);
+  });
+
+  it.each([
+    { field: "url", value: "https://hooks.example.com/nul\0" },
+    { field: "extra", value: '{"key":"\\u0000"}' },
+    { field: "event_types", value: "unknown.event" },
+  ])("places $field validation errors next to the submitted field", async ({ field, value }) => {
+    const res = await form("/webhooks/outbound", { url: "https://hooks.example.com/fields", [field]: value });
+    expect(res.status).toBe(422);
+    expect(res.headers.get("HX-Retarget")).toBe(`#wh-add-error-${field}`);
+  });
+
+  it("returns 404 with a refreshed panel after actions on a deleted endpoint", async () => {
+    const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/deleted" });
+    await endpoints.deleteEndpoint(workspaceId, ep.id);
+    const path = `/webhooks/outbound/${ep.id}`;
+    for (const res of [
+      await form(path, { url: ep.url }),
+      await form(`${path}/rotate`, {}),
+      await form(`${path}/toggle`, {}),
+      await form(path, {}, "DELETE"),
+      await app.request(`${path}/deliveries`, { headers: withCookie({ "HX-Request": "true" }) }),
+    ]) {
+      expect(res.status).toBe(404);
+      expect(res.headers.get("HX-Retarget")).toBe("#wh-outbound");
+      const body = await res.text();
+      expect(body).toContain("This webhook endpoint no longer exists.");
+      expect(body).toContain('id="wh-outbound"');
+      expect(body).not.toContain(ep.url);
+    }
   });
 
   it("is tenant-isolated: another workspace's endpoint is neither listed nor mutable", async () => {

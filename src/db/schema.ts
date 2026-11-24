@@ -1581,8 +1581,9 @@ export const webhookEndpoints = pgTable("webhook_endpoints", {
 	url: text().notNull(),
 	// AES-256-GCM ciphertext of the `whsec_…` signing secret. Never returned in plaintext from the DB.
 	secret: text().notNull(),
-	// Previous secret kept valid during a rotation grace window (also ciphertext). NULL = not rotated.
+	// Previous signing secret (ciphertext) and the deadline for using it on deliveries.
 	secret_secondary: text("secret_secondary"),
+	secret_secondary_expires_at: timestamp("secret_secondary_expires_at", { precision: 3, withTimezone: true }),
 	event_types: text("event_types").array().notNull().default([]),
 	active: boolean().default(true).notNull(),
 	// AES-256-GCM ciphertext of a JSON header map (mirrors alert_webhooks). NULL = no custom headers.

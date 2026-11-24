@@ -70,6 +70,7 @@ async function createOne(body: Record<string, unknown> = { url: "https://hook.ex
 
 describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
   it.each([
+    { "Host": "hooks.example.com" },
     { "Bad Name": "value" },
     { "Bad:Name": "value" },
     { "X-Test": "a\r\nb" },
@@ -85,6 +86,17 @@ describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
     expect(res.status).toBe(422);
     expect((await res.json()).error.message).toMatch(/header/i);
     expect(await db.query.webhookEndpoints.findMany({ where: eq(s.webhookEndpoints.workspace_id, WS) })).toEqual(before);
+  });
+
+  it("stores each event type once in its first supplied position on create and edit", async () => {
+    const eventTypes = ["contact.updated", "contact.created", "contact.updated"];
+    const { res, json } = await createOne({ url: "https://hook.example.com/events", event_types: eventTypes });
+    expect(res.status).toBe(201);
+    expect.soft(json.data.event_types).toEqual(eventTypes.slice(0, 2));
+    const path = `/webhooks/${json.data.id}`;
+    const patch = await call("PATCH", path, { event_types: ["contact.created", "contact.updated", "contact.created"] });
+    expect(patch.status).toBe(200);
+    expect((await (await call("GET", path)).json()).data.event_types).toEqual(["contact.created", "contact.updated"]);
   });
 
   it("creates an endpoint, returns the secret once, and stores it encrypted", async () => {

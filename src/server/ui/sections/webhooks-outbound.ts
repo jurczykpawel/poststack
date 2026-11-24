@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/api/response";
 import { listWebhookDeliveries } from "@/lib/webhooks/deliveries";
 import { EVENT_TYPES } from "@/lib/events";
 import {
-  createEndpoint, listEndpoints, updateEndpoint, rotateSecret, deleteEndpoint,
+  createEndpoint, getEndpoint, listEndpoints, updateEndpoint, rotateSecret, deleteEndpoint,
   type WebhookEndpoint,
 } from "@/lib/webhooks/endpoints";
 import { parseHeaderLines, type HeaderMap } from "@/lib/webhooks/header-map";
@@ -17,6 +17,14 @@ import { icon } from "../components/icons";
 type Html = ReturnType<typeof html>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MONO = "font-family:var(--font-mono);font-size:12.5px";
+type EndpointField = "url" | "event_types" | "headers" | "extra";
+const addErrorId = (field: EndpointField) => `wh-add-error-${field}`;
+const addErrorSlot = (field: EndpointField) => html`<div id="${addErrorId(field)}"></div>`;
+function addErrorAttributes(field: EndpointField): Html {
+  const id = addErrorId(field);
+  return html`data-wh-error="${id}" :aria-invalid="fieldError === '${id}'"
+    :aria-describedby="fieldError === '${id}' ? fieldError : null"`;
+}
 
 async function auth(c: Context): Promise<AuthContext | null> {
   return authenticateDashboard(c.req.raw).catch(() => null);
@@ -43,8 +51,14 @@ function parseExtraFields(raw: string): Record<string, unknown> {
   if (!raw.trim()) return {};
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
-  } catch {
+    parsed = JSON.parse(raw, (key, value: unknown) => {
+      if (key.includes("\0") || (typeof value === "string" && value.includes("\0"))) {
+        throw new ApiError("invalid_request", "Extra payload fields must not contain NUL characters.", 422);
+      }
+      return value;
+    });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
     throw new ApiError("invalid_request", "Extra payload fields must be valid JSON — nothing saved.", 422);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -76,11 +90,13 @@ function eventChecks(selected: ReadonlySet<string>, idPrefix: string): Html {
  * configured NAMES (`headerNames`), so the operator knows what's set without leaking secrets. Extra
  * fields aren't secret, so `extraJson` prefills the textarea with the current value.
  */
-function headerAndExtraFields(headerNames: string[], extraJson: string): Html {
+function headerAndExtraFields(headerNames: string[], extraJson: string, add = false): Html {
   return html`<label class="fld"><span>Custom headers <small>— one <code>Key: Value</code> per line, encrypted at rest${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</small></span>
-      <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${MONO}"></textarea></label>
+      <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${MONO}" ${add ? addErrorAttributes("headers") : ""}></textarea></label>
+    ${add ? addErrorSlot("headers") : ""}
     <label class="fld"><span>Extra payload fields <small>— JSON; supports {{id}} {{type}} {{created_at}} {{subject_id}} {{subject_type}}</small></span>
-      <textarea name="extra" rows="3" placeholder='{ "source": "poststack" }' style="${MONO}">${extraJson}</textarea></label>`;
+      <textarea name="extra" rows="3" placeholder='{ "source": "poststack" }' style="${MONO}" ${add ? addErrorAttributes("extra") : ""}>${extraJson}</textarea></label>
+    ${add ? addErrorSlot("extra") : ""}`;
 }
 
 /** One endpoint card: url, events, active toggle, revealable secret, edit form, rotate, delete. */
@@ -104,7 +120,7 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
     </div>` : html`<div class="row" style="font-size:.8rem"><span class="muted">Signing secret:</span> <code class="mono">whsec_••••••••••••</code></div>`}
     <div class="row" style="gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/toggle" hx-target="#wh-outbound" hx-swap="outerHTML"${ep.active ? raw(' hx-confirm="Disable this endpoint? Pending deliveries to it will be dropped." data-confirm-label="Disable"') : raw("")}>${ep.active ? "Disable" : "Enable"}</button>
-      <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/rotate" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Rotate the signing secret? The previous secret keeps verifying briefly, then stops." data-confirm-label="Rotate">${icon("reconnect", "ico", 13)} Rotate secret</button>
+      <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/rotate" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Rotate the signing secret? The previous secret keeps signing for 24 hours." data-confirm-label="Rotate">${icon("reconnect", "ico", 13)} Rotate secret</button>
       <button class="btn btn-sm btn-danger" hx-delete="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Delete this endpoint? Future events will no longer be delivered to it." data-confirm-label="Delete">Delete</button>
     </div>
     <details style="margin-top:.5rem" data-webhook-deliveries="${ep.id}">
@@ -142,17 +158,25 @@ export function renderOutboundWebhooks(
       <div class="callout">${icon("lock", "ico", 15)}<div>Outbound webhook endpoints are a <a href="${opts.upgradeUrl}">PRO</a> feature. Subscribe an external URL (n8n, Zapier, your own service) to events — each delivery is HMAC-signed with a per-endpoint secret.</div></div>
     </div>`;
   }
-  return html`<div id="wh-outbound">${notice}
+  return html`<div id="wh-outbound" x-data @htmx:before-swap.self="if ($event.detail.xhr.status === 404) $event.detail.shouldSwap = true">${notice}
     <details class="card" style="margin:.6rem 0">
       <summary style="cursor:pointer;font-weight:600">${icon("plus", "ico", 14)} Add an endpoint</summary>
-      <form hx-post="/webhooks/outbound" hx-target="#wh-outbound" hx-swap="outerHTML" style="margin-top:.6rem">
+      <form method="post" action="/webhooks/outbound" hx-post="/webhooks/outbound" hx-target="#wh-outbound" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" style="margin-top:.6rem"
+        x-data="{ fieldError: '' }"
+        @htmx:before-request="if (fieldError) document.getElementById(fieldError).replaceChildren(); fieldError = ''"
+        @htmx:after-request="if ($event.detail.xhr.status === 422) {
+          fieldError = $event.detail.target.id;
+          $nextTick(() => $el.querySelector('[data-wh-error=' + fieldError + ']')?.focus());
+        }">
         <label class="fld"><span>Endpoint URL</span>
-          <input type="url" name="url" placeholder="https://hooks.example.com/poststack" required style="${MONO}" /></label>
-        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;margin:.4rem 0">
+          <input type="url" name="url" placeholder="https://hooks.example.com/poststack" required style="${MONO}" ${addErrorAttributes("url")} /></label>
+        ${addErrorSlot("url")}
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;margin:.4rem 0" tabindex="-1" ${addErrorAttributes("event_types")}>
           <legend style="font-size:.8rem;padding:0 .3rem">Subscribe to events <small class="muted">— leave all unchecked to receive every event</small></legend>
           ${eventChecks(new Set<string>(), "new")}
+          ${addErrorSlot("event_types")}
         </fieldset>
-        ${headerAndExtraFields([], "")}
+        ${headerAndExtraFields([], "", true)}
         <button class="btn btn-primary" type="submit">${icon("plus", "ico", 14)} Add endpoint</button>
       </form>
     </details>
@@ -184,6 +208,15 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     return renderOutboundWebhooks(endpoints, { canManage, upgradeUrl, ...extra });
   }
 
+  async function missingEndpoint(c: Context, workspaceId: string, upgradeUrl: string) {
+    const notice = "This webhook endpoint no longer exists.";
+    if (!isHtmx(c)) return c.text(notice, 404);
+    toastHeader(c, "bad", notice);
+    c.header("HX-Retarget", "#wh-outbound");
+    c.header("HX-Reswap", "outerHTML");
+    return c.html(await renderPanel(workspaceId, true, upgradeUrl, { notice, noticeError: true }), 404);
+  }
+
   r.get("/webhooks/outbound", guard, async (c) => {
     if (!isHtmx(c)) return c.redirect("/webhooks#outgoing");
     const g = await ctx(c);
@@ -196,8 +229,13 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     if (g instanceof Response) return g;
     if (!g.canManage) return c.text("PRO feature", 402);
     const id = c.req.param("id");
-    if (!UUID_RE.test(id)) return c.text("not found", 404);
-    const { items, meta } = await listWebhookDeliveries(g.a.workspaceId, id, 20, c.req.query("cursor"));
+    if (!UUID_RE.test(id)) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
+    const result = await listWebhookDeliveries(g.a.workspaceId, id, 20, c.req.query("cursor")).catch((err: unknown) => {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    });
+    if (!result) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
+    const { items, meta } = result;
     return c.html(html`
       <button class="btn btn-sm" hx-get="/webhooks/outbound/${id}/deliveries" hx-target="#wh-deliveries-${id}" hx-swap="innerHTML transition:false">Refresh deliveries</button>
       ${items.length ? items.map((d) => html`<article class="card" style="margin:.5rem 0;overflow-wrap:anywhere" data-delivery-id="${d.id}">
@@ -217,24 +255,31 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
   });
 
   // Create — empty event_types ⇒ subscribe to ALL events. Surfaces the freshly-minted secret once
-  // (auto-revealed on the new card). A bad url / unknown type surfaces as an inline notice (no throw).
+  // (auto-revealed on the new card). Validation errors update only the corresponding field.
   r.post("/webhooks/outbound", guard, async (c) => {
     const g = await ctx(c);
     if (g instanceof Response) return g;
     if (!g.canManage) return c.html(await renderPanel(g.a.workspaceId, false, g.upgradeUrl));
     const { url, eventTypes, headersRaw, extraRaw } = await readEndpointForm(c);
+    let field: EndpointField = "extra";
     try {
       const extraFields = parseExtraFields(extraRaw);
+      field = "headers";
       const headers: HeaderMap = parseHeaderLines(headersRaw);
+      field = "url";
       const ep = await createEndpoint(g.a.workspaceId, { url, eventTypes, headers, extraFields });
       return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, {
         notice: "Endpoint added — reveal the signing secret below and store it now.",
         highlightId: ep.id,
       }));
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof ApiError && err.status === 422) {
+        const validationField = err.details?.[0]?.path;
+        if (validationField === "event_types" || validationField === "headers") field = validationField;
         toastHeader(c, "bad", err.message);
-        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message, noticeError: true }), err.status === 422 ? 422 : 200);
+        c.header("HX-Retarget", `#${addErrorId(field)}`);
+        c.header("HX-Reswap", "innerHTML");
+        return c.html(html`<div class="notice notice-err">${err.message}</div>`, 422);
       }
       throw err;
     }
@@ -256,7 +301,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
       const headers = Object.keys(headerLines).length ? headerLines : undefined;
       await updateEndpoint(g.a.workspaceId, id, { url, eventTypes, headers, extraFields });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
+      if (err instanceof ApiError && err.status === 404) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
       if (err instanceof ApiError) {
         toastHeader(c, "bad", err.message);
         return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message, noticeError: true }), err.status === 422 ? 422 : 200);
@@ -275,12 +320,11 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     if (!g.canManage) return c.html(await renderPanel(g.a.workspaceId, false, g.upgradeUrl));
     let ep;
     try {
-      const current = await listEndpoints(g.a.workspaceId);
-      const found = current.find((e) => e.id === id);
-      if (!found) return c.text("not found", 404);
+      const found = await getEndpoint(g.a.workspaceId, id);
+      if (!found) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
       ep = await updateEndpoint(g.a.workspaceId, id, { active: !found.active });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
+      if (err instanceof ApiError && err.status === 404) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
       throw err;
     }
     return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: ep.active ? "Endpoint enabled." : "Endpoint disabled." }));
@@ -296,7 +340,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     try {
       await rotateSecret(g.a.workspaceId, id);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
+      if (err instanceof ApiError && err.status === 404) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
       throw err;
     }
     return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: "Secret rotated — reveal and store the new one.", highlightId: id }));
@@ -312,7 +356,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     try {
       await deleteEndpoint(g.a.workspaceId, id);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return c.text("not found", 404);
+      if (err instanceof ApiError && err.status === 404) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
       throw err;
     }
     return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: "Endpoint deleted." }));

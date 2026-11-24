@@ -4,8 +4,11 @@ import { encryptString, decryptString, type SecretContext } from "@/lib/crypto";
 /** Custom HTTP header name → value, as entered by the operator. */
 export type HeaderMap = Record<string, string>;
 
-/** Validate custom headers before storing them for HTTP delivery. */
-export function assertValidHeaderMap(map: HeaderMap | undefined): void {
+export function isTransportManagedHeader(name: string): boolean {
+  return /^(?:(?:transfer-encoding|connection|keep-alive|upgrade|te|trailer|host|content-length)$|proxy-)/i.test(name);
+}
+
+function assertHeaderSyntax(map: HeaderMap | undefined): void {
   for (const [name, value] of Object.entries(map ?? {})) {
     if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || name.length > 200) {
       throw new ApiError("invalid_request", "Custom header names must be valid HTTP header names (maximum 200 characters).", 422);
@@ -18,6 +21,16 @@ export function assertValidHeaderMap(map: HeaderMap | undefined): void {
     } catch {
       throw new ApiError("invalid_request", "Custom header values must be valid HTTP header values.", 422);
     }
+  }
+}
+
+/** Validate custom headers before storing them for outbound webhook delivery. */
+export function assertValidHeaderMap(map: HeaderMap | undefined): void {
+  assertHeaderSyntax(map);
+  const name = Object.keys(map ?? {}).find(isTransportManagedHeader);
+  if (name !== undefined) {
+    const message = `Custom header ${name} is managed by the transport.`;
+    throw new ApiError("invalid_request", message, 422, [{ path: "headers", message }]);
   }
 }
 
@@ -40,7 +53,7 @@ export function decryptHeaderMap(stored: string | null, context?: SecretContext)
 
 /** Parse a `Key: Value` per-line textarea into a header map (blank lines skipped; a line without `Name:` is a 422). */
 export function parseHeaderLines(raw: string): HeaderMap {
-  const out: HeaderMap = {};
+  const out: HeaderMap = Object.create(null);
   for (const line of raw.replace(/\r\n/g, "\n").split("\n")) {
     const i = line.indexOf(":");
     if (!line.trim()) continue;
@@ -52,6 +65,6 @@ export function parseHeaderLines(raw: string): HeaderMap {
     const val = line.slice(i + 1).trim();
     if (key) out[key] = val;
   }
-  assertValidHeaderMap(out);
+  assertHeaderSyntax(out);
   return out;
 }

@@ -46,6 +46,11 @@ describe("parseHeaderLines", () => {
 
 
 describe("custom header validation", () => {
+  it.each(["Transfer-Encoding", "cOnNeCtIoN", "Keep-Alive", "Upgrade", "TE", "Trailer",
+    "Proxy-Connection", "pRoXy-Example", "Host", "Content-Length"])("reserves %s for the transport", (name) => {
+    expect(() => assertValidHeaderMap({ [name]: "" })).toThrow(/managed by the transport/i);
+  });
+
   it("accepts HTTP token names and byte values", () => {
     expect(() => assertValidHeaderMap({ "X-Token_1": "Bearer token:with:colons", "X-Empty": "", "X-Label": "café" })).not.toThrow();
     expect(() => assertValidHeaderMap({})).not.toThrow();

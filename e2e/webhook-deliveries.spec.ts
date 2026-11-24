@@ -4,6 +4,70 @@ import { E2E_DATABASE_URL } from "./env";
 import { setPro, watchConsole, gotoOk } from "./helpers";
 import recorded from "../tests/fixtures/mqa-delivery-approval.json";
 
+test("keeps entered endpoint fields while showing the validation error next to its field", async ({ page }) => {
+  await setPro(page.request);
+  await gotoOk(page, "/webhooks#outgoing");
+  await page.getByRole("button", { name: "Outgoing", exact: true }).click();
+  await page.getByText("Add an endpoint", { exact: true }).click();
+  const form = page.locator('#wh-outbound form[hx-post="/webhooks/outbound"]');
+  const url = form.getByLabel("Endpoint URL");
+  const event = form.getByRole("checkbox", { name: "contact.updated", exact: true });
+  const headers = form.getByLabel("Custom headers");
+  const extra = form.getByLabel("Extra payload fields");
+  const submit = form.getByRole("button", { name: "Add endpoint", exact: true });
+  await url.fill("https://hooks.example.test/retain-draft");
+  await event.check();
+  await headers.fill("Host: hooks.example.test");
+  await extra.fill("{bad json");
+  const invalid = () => page.waitForResponse((r) => r.url().endsWith("/webhooks/outbound") && r.request().method() === "POST");
+  const invalidExtra = invalid();
+  await submit.click();
+  expect((await invalidExtra).status()).toBe(422);
+  await expect(extra).toHaveAccessibleDescription(/Extra payload fields must be valid JSON/);
+  await expect(extra).toHaveAttribute("aria-invalid", "true");
+  await expect(extra).toBeFocused();
+  await expect(url).toHaveValue("https://hooks.example.test/retain-draft");
+  await expect(event).toBeChecked();
+  await expect(headers).toHaveValue("Host: hooks.example.test");
+  await expect(extra).toHaveValue("{bad json");
+
+  await extra.fill('{"source":"browser"}');
+  const invalidHeaders = invalid();
+  await submit.click();
+  expect((await invalidHeaders).status()).toBe(422);
+  await expect(headers).toHaveAccessibleDescription(/managed by the transport/);
+  await expect(extra).not.toHaveAttribute("aria-invalid", "true");
+  await headers.fill("X-Source: browser");
+  const valid = invalid();
+  await submit.click();
+  expect((await valid).status()).toBe(200);
+  await expect(page.locator(".wh-just-created")).toContainText("https://hooks.example.test/retain-draft");
+  const { data: endpoints } = await (await page.request.get("/api/v1/webhooks")).json();
+  const endpoint = endpoints.find((e: { url: string }) => e.url.endsWith("/retain-draft"));
+  expect(endpoint.event_types).toEqual(["contact.updated"]);
+  expect((await page.request.delete(`/api/v1/webhooks/${endpoint.id}`)).status()).toBe(204);
+});
+
+test("refreshes a stale endpoint card and explains the 404", async ({ page }) => {
+  await setPro(page.request);
+  const response = await page.request.post("/api/v1/webhooks", { data: { url: "https://hooks.example.test/stale-card" } });
+  expect(response.status()).toBe(201);
+  const { data: endpoint } = await response.json();
+  await gotoOk(page, "/webhooks#outgoing");
+  await page.getByRole("button", { name: "Outgoing", exact: true }).click();
+  const card = page.locator("#wh-outbound .card").filter({ hasText: endpoint.url });
+  await card.getByRole("button", { name: "Rotate secret" }).click();
+  const confirm = page.getByRole("alertdialog");
+  await expect.soft(confirm).toContainText("The previous secret keeps signing for 24 hours.", { timeout: 1000 });
+  expect((await page.request.delete(`/api/v1/webhooks/${endpoint.id}`)).status()).toBe(204);
+  const rejected = page.waitForResponse((r) => r.url().endsWith(`/webhooks/outbound/${endpoint.id}/rotate`));
+  await confirm.getByRole("button", { name: "Rotate", exact: true }).click();
+  expect((await rejected).status()).toBe(404);
+  await expect(page.locator("#wh-outbound")).toContainText("This webhook endpoint no longer exists.");
+  await expect(card).toHaveCount(0);
+  await expect(page.getByText(/Not saved — server error/)).toHaveCount(0);
+});
+
 test("outgoing endpoints show delivery outcomes at desktop and phone widths", async ({ page }, testInfo) => {
   await setPro(page.request);
   const response = await page.request.post("/api/v1/webhooks", { data: { url: "https://hooks.example.test/delivery-history" } });

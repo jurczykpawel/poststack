@@ -48,6 +48,25 @@ function registeredRoutes(): Array<{ method: string; oapiPath: string }> {
 }
 
 describe("OpenAPI spec ↔ v1 router parity", () => {
+  it.each([
+    ["/contacts", "get"], ["/contacts", "post"],
+    ["/contacts/{contactId}", "get"], ["/contacts/{contactId}", "patch"],
+    ["/conversations", "get"],
+    ["/conversations/{conversationId}", "get"], ["/conversations/{conversationId}", "patch"],
+    ["/conversations/{conversationId}/messages", "get"], ["/conversations/{conversationId}/messages", "post"],
+    ["/messages/{messageId}", "get"], ["/comments/{commentId}", "get"],
+    ["/tags", "get"], ["/tags", "post"], ["/tags/{tagId}", "patch"], ["/tags/{tagId}", "delete"],
+    ["/api-keys", "post"], ["/sequences", "post"], ["/rules", "post"], ["/rules/{ruleId}", "patch"],
+    ["/channels/{channelId}", "patch"], ["/channels/telegram/connect", "post"],
+  ] as const)("documents HTTP 402 for %s %s", (path, method) => {
+    const paths = openApiSpec.paths as unknown as Record<string, Record<string, { responses: Record<string, unknown> }>>;
+    expect(paths[path][method].responses["402"]).toEqual({ $ref: "#/components/responses/ProRequired" });
+  });
+
+  it("documents the 24-hour grace period for webhook signing secret rotation", () => {
+    expect(openApiSpec.paths["/webhooks/{webhookId}/rotate-secret"].post.description).toContain("24 hours");
+  });
+
   it("documents every registered v1 route", () => {
     const paths = openApiSpec.paths as Record<string, Record<string, unknown>>;
     const missing = registeredRoutes()

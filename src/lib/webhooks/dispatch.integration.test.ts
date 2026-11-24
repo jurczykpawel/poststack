@@ -202,6 +202,50 @@ describe.skipIf(!TEST_DB)("event dispatch + webhook delivery", () => {
     expect(seenHeaders!["content-type"]).toBe("application/json"); // reserved header wins
   });
 
+  it("signs with the previous secret only before the 24-hour deadline", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.test/rotate" });
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      const rotated = await svc.rotateSecret(WS, ep.id);
+      for (const [elapsed, previousSigns] of [[0, true], [86_399_999, true], [86_400_000, false], [86_400_001, false]] as const) {
+        clock.mockReturnValue(start + elapsed);
+        const eventId = await emitNow(WS, "post.published");
+        const [delivery] = await db.insert(s.webhookDeliveries)
+          .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id }).returning();
+        await processWebhookDelivery({ deliveryId: delivery!.id }, helpers());
+        const init = connectStub.mock.lastCall![1];
+        const signature = new Headers(init.headers).get("X-PostStack-Signature")!;
+        const body = String(init.body);
+        expect(verifyWebhook(rotated.secret, signature, body)).toBe(true);
+        expect(verifyWebhook(ep.secret, signature, body), `at ${elapsed} ms`).toBe(previousSigns);
+      }
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("delivers existing endpoints with supported headers and the current signing secret", async () => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.test/existing" });
+    const rotated = await svc.rotateSecret(WS, ep.id);
+    const { encryptHeaderMap } = await import("./header-map");
+    await db.update(s.webhookEndpoints).set({
+      secret_secondary_expires_at: null,
+      custom_headers_encrypted: encryptHeaderMap({ Host: "hook.test", "X-Source": "existing" }),
+    }).where(eq(s.webhookEndpoints.id, ep.id));
+    const eventId = await emitNow(WS, "post.published");
+    const [delivery] = await db.insert(s.webhookDeliveries)
+      .values({ workspace_id: WS, event_id: eventId, endpoint_id: ep.id }).returning();
+    await processWebhookDelivery({ deliveryId: delivery!.id }, helpers());
+    const init = connectStub.mock.lastCall![1];
+    const headers = new Headers(init.headers);
+    const signature = headers.get("X-PostStack-Signature")!;
+    expect(headers.has("Host")).toBe(false);
+    expect(headers.get("X-Source")).toBe("existing");
+    expect(verifyWebhook(rotated.secret, signature, String(init.body))).toBe(true);
+    expect(verifyWebhook(ep.secret, signature, String(init.body))).toBe(false);
+  });
+
   it("merges extra payload fields into the delivered body, with {{placeholder}} substitution from the event envelope, and keeps the signature valid for the actual sent body", async () => {
     const ep = await svc.createEndpoint(WS, {
       url: "https://hook.test/extra",
