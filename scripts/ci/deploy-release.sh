@@ -44,10 +44,10 @@ env_tmp=$(mktemp "$PWD/.env.deploy.XXXXXXXX")
 export IMAGE_TAG="$tag"
 cat > "$override" <<YAML
 services:
-web:
-  image: ghcr.io/jurczykpawel/poststack@$web_digest
-worker:
-  image: ghcr.io/jurczykpawel/poststack-worker@$worker_digest
+  web:
+    image: ghcr.io/jurczykpawel/poststack@$web_digest
+  worker:
+    image: ghcr.io/jurczykpawel/poststack-worker@$worker_digest
 YAML
 compose=(docker compose -f docker-compose.yaml -f "$override")
 "${compose[@]}" pull web worker
