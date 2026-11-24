@@ -7,13 +7,14 @@ import { every } from "hono/combine";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { and, or, eq, ne, gt, gte, asc, desc, ilike, inArray, isNull, sql, count, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { containsPattern } from "@/lib/list-page";
 import { db } from "@/lib/db";
 import {
   conversations, messages, messageReactions, channels, contacts, contactChannels,
   autoReplyRules, sequences as sequencesTbl, sequenceEnrollments,
   pendingApprovals, aiGenerationLogs, commentLogs, webhookEvents, webhookEventStats,
-  posts, content,
+  posts, content, outboundDeliveries,
   type ConversationThreadType,
 } from "@/db/schema";
 import { mergeWebhookStatusCounts } from "@/lib/history/stats-read";
@@ -58,7 +59,9 @@ import * as rules from "@/server/handlers/v1/rules/route";
 import * as rule from "@/server/handlers/v1/rules/[ruleId]/route";
 import * as approvalApprove from "@/server/handlers/v1/approvals/[approvalId]/approve/route";
 import * as approvalReject from "@/server/handlers/v1/approvals/[approvalId]/reject/route";
-import type { ProposedContent } from "@/lib/approvals/draft";
+import { proposedHasComment, proposedHasDm, type ProposedContent } from "@/lib/approvals/draft";
+import { APPROVAL_DELIVERY_PREFIX, retryableApprovalDelivery, retryApprovedReply } from "@/lib/approvals/delivery";
+import { REPLY_TEXT_MAX_LENGTH, replyText } from "@/lib/messages/reply-text";
 import * as sequences from "@/server/handlers/v1/sequences/route";
 import * as sequence from "@/server/handlers/v1/sequences/[sequenceId]/route";
 import { dashboardDoc } from "../ui/layout";
@@ -83,6 +86,7 @@ import { kpi } from "../ui/components/kpi";
 import { httpUrl, postUrlFor } from "@/lib/posts/post-url";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
+const approvalEditText = replyText.refine(text => !text.includes("\u0000"), "Text must not contain NUL (\\u0000) characters.");
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -594,7 +598,7 @@ function renderDraftBubble(d: DraftBubble): Html {
         </div>
       </div>
       <form class="draft-edit" x-show="editing" x-cloak hx-post="/inbox/approval/${d.id}/edit" hx-ext="json-enc" hx-target="#thread" hx-swap="innerHTML">
-        <textarea class="textarea" name="text" rows="3" required x-ref="ta" aria-describedby="draft-error-${d.id}">${prefill}</textarea>
+        <textarea class="textarea" name="text" rows="3" required maxlength="${REPLY_TEXT_MAX_LENGTH}" aria-label="Reply text" x-ref="ta" aria-describedby="draft-error-${d.id}">${prefill}</textarea>
         <div id="draft-error-${d.id}" aria-live="polite"></div>
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
@@ -1511,11 +1515,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
 
   // ADUX2: shared by the inbox-thread edit route and the /approvals page edit route (DRY) — one
   // edited text feeds whichever parts the parked reply has (a DM body and/or a public-comment
-  // reply). Blank text is a silent no-op (the textarea is `required`, so this only guards a
-  // direct/malformed POST). Only updates while still `status='pending'` — a row a concurrent
+  // reply). Only updates while still `status='pending'` — a row a concurrent
   // approve/reject already resolved is left untouched.
   const updateProposedText = async (workspaceId: string, id: string, proposedContent: unknown, text: string): Promise<void> => {
-    if (!text) return;
     const pc = (proposedContent ?? {}) as ProposedContent;
     const next: ProposedContent = { ...pc };
     if (next.content) next.content = { ...next.content, text };
@@ -1567,9 +1569,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     const appr = await approvalConv(id, a.workspaceId);
     if (!appr) return c.notFound();
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const text = typeof form.text === "string" ? form.text.trim() : "";
-    if (!text || text.includes("\u0000")) return formError(c, `draft-error-${id}`, !text ? "Reply text is required" : "Text must not contain NUL (\\u0000) characters.");
-    await updateProposedText(a.workspaceId, id, appr.proposed_content, text);
+    const parsed = approvalEditText.safeParse(form?.text ?? "");
+    if (!parsed.success) return formError(c, `draft-error-${id}`, parsed.error.issues[0].message);
+    await updateProposedText(a.workspaceId, id, appr.proposed_content, parsed.data);
     return reRenderThreadForConv(c, a, appr.conversation_id);
   });
 
@@ -1980,6 +1982,16 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     return c.html(await renderApprovalsView(a.workspaceId, await noticeFrom(res, "Could not reject the reply.")));
   });
 
+  app.post("/approvals/:id/retry", guard, async (c) => {
+    const a = await auth(c);
+    if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
+    const id = c.req.param("id");
+    if (!isUuid(id)) return c.notFound();
+    const queued = await retryApprovedReply(a.workspaceId, id);
+    if (queued) toastHeader(c, "ok", "Reply queued for retry.");
+    return c.html(await renderApprovalsView(a.workspaceId, queued ? undefined : "This reply cannot be retried."));
+  });
+
   // ADUX2: edit a draft's text straight from the Approvals list (previously only possible from the
   // inbox thread). Reuses updateProposedText (DRY with /inbox/approval/:id/edit) but re-renders the
   // approvals list, not a thread.
@@ -1993,10 +2005,9 @@ export function registerDashboard(app: Hono, sessionGuard: MiddlewareHandler): v
     });
     if (!existing) return c.notFound();
     const form = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const text = typeof form.text === "string" ? form.text.trim() : "";
-    if (text.includes("\u0000")) return formError(c, `draft-error-${id}`, "Text must not contain NUL (\\u0000) characters.");
-    if (!text) return c.html(await renderApprovalsView(a.workspaceId, undefined, id), 422);
-    await updateProposedText(a.workspaceId, id, existing.proposed_content, text);
+    const parsed = approvalEditText.safeParse(form?.text ?? "");
+    if (!parsed.success) return formError(c, `draft-error-${id}`, parsed.error.issues[0].message);
+    await updateProposedText(a.workspaceId, id, existing.proposed_content, parsed.data);
     return c.html(await renderApprovalsView(a.workspaceId));
   });
 
@@ -2880,24 +2891,27 @@ function loadApprovals(workspaceId: string) {
     .limit(100);
 }
 
-/** Recently resolved (approved / rejected) approvals — the audit trail. Kept until maintenance prunes
- *  resolved rows past the ledger window, so this shows what was sent vs discarded in the recent past. */
+/** Recently resolved decisions with the delivery outcome of each approved part. */
 function loadResolvedApprovals(workspaceId: string) {
+  const dm = alias(outboundDeliveries, "approved_dm");
+  const comment = alias(outboundDeliveries, "approved_comment");
   return db
     .select({
       id: pendingApprovals.id,
       status: pendingApprovals.status,
       proposed: pendingApprovals.proposed_content,
       resolved_at: pendingApprovals.resolved_at,
-      ruleName: autoReplyRules.name,
       contactName: contacts.display_name,
       recipient: pendingApprovals.recipient_platform_id,
-      threadType: conversations.thread_type,
+      dmStatus: dm.status,
+      commentStatus: comment.status,
+      canRetry: sql<boolean>`coalesce(${retryableApprovalDelivery(dm.status, dm.payload)}, false)
+        or coalesce(${retryableApprovalDelivery(comment.status, comment.payload)}, false)`,
     })
     .from(pendingApprovals)
-    .leftJoin(autoReplyRules, eq(autoReplyRules.id, pendingApprovals.rule_id))
     .leftJoin(contacts, eq(contacts.id, pendingApprovals.contact_id))
-    .leftJoin(conversations, eq(conversations.id, pendingApprovals.conversation_id))
+    .leftJoin(dm, and(eq(dm.workspace_id, workspaceId), eq(dm.delivery_key, sql`${APPROVAL_DELIVERY_PREFIX} || ${pendingApprovals.id}::text`)))
+    .leftJoin(comment, and(eq(comment.workspace_id, workspaceId), eq(comment.delivery_key, sql`${APPROVAL_DELIVERY_PREFIX} || ${pendingApprovals.id}::text || ':comment'`)))
     .where(and(eq(pendingApprovals.workspace_id, workspaceId), ne(pendingApprovals.status, "pending")))
     .orderBy(desc(pendingApprovals.resolved_at))
     .limit(25);
@@ -2905,9 +2919,9 @@ function loadResolvedApprovals(workspaceId: string) {
 
 /** Load both queues + render — shared by the page and the approve/reject htmx swaps so a just-resolved
  *  item drops straight into the history. */
-async function renderApprovalsView(workspaceId: string, error?: string, invalidId?: string): Promise<Html> {
+async function renderApprovalsView(workspaceId: string, error?: string): Promise<Html> {
   const [pending, resolved] = await Promise.all([loadApprovals(workspaceId), loadResolvedApprovals(workspaceId)]);
-  return renderApprovals(pending, resolved, error, invalidId);
+  return renderApprovals(pending, resolved, error);
 }
 
 function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApprovals>>): Html {
@@ -2920,20 +2934,32 @@ function renderResolvedApprovals(list: Awaited<ReturnType<typeof loadResolvedApp
     <summary>Recently resolved (${list.length})</summary>
     ${list.map((r) => {
       const who = r.contactName ?? r.recipient;
-      const tone = r.status === "approved" ? "tone-ok" : "tone-bad";
+      const proposed = (r.proposed ?? {}) as ProposedContent;
+      const statuses = [];
+      if (proposedHasDm(proposed.content)) statuses.push(r.dmStatus);
+      if (proposedHasComment(proposed.comment)) statuses.push(r.commentStatus);
+      let label = "Approved";
+      if (r.status === "rejected") label = "Rejected";
+      else if (statuses.includes("failed") || statuses.includes("expired")) label = "Failed";
+      else if (statuses.includes("unknown")) label = "Delivery unknown";
+      else if (statuses.includes("held")) label = "Held";
+      else if (statuses.length && statuses.every(status => status === "sent")) label = "Sent";
+      else if (statuses.some(Boolean)) label = "Queued";
+      const tone = label === "Sent" ? "tone-ok" : label === "Failed" || label === "Rejected" ? "tone-bad" : "tone-neutral";
       const txt = snippet(r.proposed);
       return html`<div class="appr-resolved-row">
-        <span class="badge ${tone}">${r.status === "approved" ? "Sent" : "Rejected"}</span>
+        <span class="badge ${tone}">${label}</span>
         <span>${who}</span>
         ${txt ? html`<span class="appr-resolved-snippet">“${truncateCodePoints(txt, 60)}”</span>` : html``}
         <span class="appr-resolved-time">${r.resolved_at ? timeAgo(r.resolved_at) : ""}</span>
+        ${r.status === "approved" && r.canRetry ? html`<button class="btn btn-sm" type="button" hx-post="/approvals/${r.id}/retry" hx-target="#approvals-list" hx-swap="innerHTML" hx-disabled-elt="this">Retry</button>` : ""}
         <button class="btn btn-sm btn-ghost" type="button" title="Delete from history" hx-delete="/approvals/${r.id}" hx-target="#approvals-list" hx-swap="innerHTML" hx-confirm="Delete this from history?" data-confirm-label="Delete">${icon("close", "ico", 12)}</button>
       </div>`;
     })}
   </details>`;
 }
 
-function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolved: Awaited<ReturnType<typeof loadResolvedApprovals>> = [], error?: string, invalidId?: string): Html {
+function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolved: Awaited<ReturnType<typeof loadResolvedApprovals>> = [], error?: string): Html {
   const notice = error ? html`<div class="notice notice-err">${error}</div>` : html``;
   if (list.length === 0) return html`${notice}<div class="empty"><span class="empty-ic">${icon("check", "ico", 20)}</span><p class="empty-title">Nothing waiting for approval</p><p class="empty-body">When a rule holds a reply for review, it shows up here.</p></div>${renderResolvedApprovals(resolved)}`;
   return html`${notice}<div class="appr-list">${list.map((a) => {
@@ -2950,7 +2976,7 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
     // ADUX2: one edited text feeds whichever parts the parked reply has — same single-textarea
     // semantics as the inbox thread's edit form (updateProposedText applies it to both).
     const editPrefill = dmText ?? commentText ?? "";
-    return html`<div class="appr" x-data="{ editing: ${String(a.id === invalidId)} }">
+    return html`<div class="appr" x-data="{ editing: false }">
       <div class="appr-top">
         <div>
           <div class="appr-who">${who}</div>
@@ -2975,9 +3001,8 @@ function renderApprovals(list: Awaited<ReturnType<typeof loadApprovals>>, resolv
         </div>` : (!commentText ? html`<div class="appr-reply"><div class="appr-reply-text is-empty">(no reply text)</div></div>` : html``)}
       </div>
       <form class="draft-edit" x-show="editing" x-cloak hx-post="/approvals/${a.id}/edit" hx-ext="json-enc" hx-target="#approvals-list" hx-swap="innerHTML">
-        <textarea class="textarea" name="text" rows="3" required aria-label="Reply text" aria-invalid="${String(a.id === invalidId)}" x-ref="ta">${editPrefill}</textarea>
+        <textarea class="textarea" name="text" rows="3" required maxlength="${REPLY_TEXT_MAX_LENGTH}" aria-label="Reply text" aria-describedby="draft-error-${a.id}" x-ref="ta">${editPrefill}</textarea>
         <div id="draft-error-${a.id}" aria-live="polite"></div>
-        ${a.id === invalidId ? html`<p class="notice notice-err" role="alert">Reply text is required</p>` : ""}
         <div class="draft-actions">
           <button class="btn btn-sm btn-primary" type="submit">Save</button>
           <button class="btn btn-sm" type="button" @click="editing = false; $refs.ta.value = $refs.ta.defaultValue; $nextTick(() => $refs.edit.focus())">Cancel</button>

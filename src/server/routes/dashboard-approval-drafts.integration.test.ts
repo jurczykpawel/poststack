@@ -1,8 +1,13 @@
 import recorded from "../../../tests/fixtures/mqa-delivery-approval.json";
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import type { Hono } from "hono";
-import { eq, sql } from "drizzle-orm";
+import { runOnce, type JobHelpers } from "graphile-worker";
+import { and, eq, sql } from "drizzle-orm";
+import type { OutgoingCommentJob, OutgoingMessageJob, OutgoingPrivateReplyJob } from "@/lib/queue/types";
 import { licenseInstance } from "@/lib/license/__fixtures__/license-instance";
+
+const send = vi.fn();
+let token: string;
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
@@ -34,10 +39,17 @@ beforeAll(async () => {
   app = buildApp();
   const { signSession } = await import("@/lib/auth");
   cookie = `session=${await signSession(USER, WS)}`;
+  const { FacebookProvider } = await import("@/lib/platforms/facebook");
+  vi.spyOn(FacebookProvider.prototype, "sendMessage").mockImplementation(send);
+  vi.spyOn(FacebookProvider.prototype, "sendComment").mockImplementation(send);
+  vi.spyOn(FacebookProvider.prototype, "sendPrivateReply").mockImplementation(send);
+  const { encryptTokens } = await import("@/lib/crypto");
+  token = encryptTokens({ access_token: "test" });
 });
 
 beforeEach(async () => {
   if (!TEST_DB) return;
+  send.mockReset();
   await db.execute(sql.raw("truncate table graphile_worker._private_jobs cascade"));
   await db.delete(s.webhookEvents);
   for (const ws of [WS, FOREIGN_WS]) await db.delete(s.workspaces).where(eq(s.workspaces.id, ws));
@@ -46,7 +58,7 @@ beforeEach(async () => {
   await db.insert(s.workspaces).values({ id: WS, name: "M", slug: `m-${WS}` });
   await db.insert(s.workspaces).values({ id: FOREIGN_WS, name: "F", slug: `f-${FOREIGN_WS}` });
   await db.insert(s.workspaceMembers).values({ workspace_id: WS, user_id: USER, role: "owner" });
-  await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-F", token_encrypted: "x", webhook_secret: "s", status: "active" });
+  await db.insert(s.channels).values({ id: CH, workspace_id: WS, platform: "facebook", platform_id: "PG-F", token_encrypted: token, webhook_secret: "s", status: "active" });
   await db.insert(s.contacts).values({ id: CONTACT, workspace_id: WS });
   await db.insert(s.contactChannels).values({ contact_id: CONTACT, channel_id: CH, platform_sender_id: "PSID-F" });
   await db.insert(s.conversations).values({ id: CONV_DM, workspace_id: WS, channel_id: CH, contact_id: CONTACT, platform: "facebook", thread_type: "dm" });
@@ -219,6 +231,158 @@ it("reports whitespace approval edits next to the field without changing the dra
   expect(res.status).toBe(422);
   expect(await res.text()).toContain("Reply text is required");
   expect(await statusOf(id)).toEqual(before);
+});
+it.each([
+  ["/approvals", "/approvals"],
+  ["/inbox/approval", `/inbox/${CONV_DM}`],
+])("limits edits through %s to 2000 characters", async (prefix, screen) => {
+  const id = await seedApproval();
+  expect(await (await get(screen)).text()).toContain('maxlength="2000"');
+  const before = await statusOf(id);
+  const res = await post(`${prefix}/${id}/edit`, { text: "x".repeat(2001) });
+  expect(res.status).toBe(422);
+  expect(await res.text()).toContain("Reply text must be at most 2000 characters");
+  expect(await statusOf(id)).toEqual(before);
+  expect((await post(`${prefix}/${id}/edit`, { text: "x".repeat(2000) })).status).toBe(200);
+});
+
+const attempt = (attempts: number) => ({
+  logger: { info() {} }, job: { id: "123", attempts, max_attempts: 3 },
+}) as unknown as JobHelpers;
+
+async function approvalJob<T = OutgoingMessageJob>(key: string) {
+  const { rows } = await db.execute<{ payload: T }>(
+    sql`select payload from graphile_worker._private_jobs where key = ${key}`,
+  );
+  expect(rows).toHaveLength(1);
+  return rows[0].payload;
+}
+
+it("shows a final approval failure and retries the same reply once", async () => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const { loadOverview } = await import("@/lib/stats/overview");
+  const id = await seedApproval({ source: "rule" });
+  const approved = await post(`/approvals/${id}/approve`);
+  expect(approved.status).toBe(200);
+  const payload = await approvalJob(`approval-${id}`);
+  expect(await approved.text()).not.toMatch(/>Sent<\/span>/);
+  send.mockRejectedValue(new Error("Provider unavailable"));
+  const runOutgoing = () => runOnce({
+    connectionString: TEST_DB!,
+    taskList: { "outgoing-message": (job, helpers) => processOutgoingMessage(job as OutgoingMessageJob, helpers) },
+  });
+  for (const n of [1, 2]) {
+    await runOutgoing();
+    const { rows: [job] } = await db.execute<{ attempts: number }>(sql`select attempts from graphile_worker.jobs where key = ${`approval-${id}`}`);
+    expect(job.attempts).toBe(n);
+    expect(await (await get(`/inbox/${CONV_DM}`)).text()).not.toContain("Not delivered");
+    expect(await (await get("/approvals")).text()).not.toContain(">Retry</button>");
+    await db.execute(sql`update graphile_worker._private_jobs set run_at = now() where key = ${`approval-${id}`}`);
+  }
+  await runOutgoing();
+  const { rows: [exhausted] } = await db.execute<{ attempts: number; max_attempts: number }>(
+    sql`select attempts, max_attempts from graphile_worker.jobs where key = ${`approval-${id}`}`,
+  );
+  expect(exhausted).toEqual({ attempts: 3, max_attempts: 3 });
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Provider unavailable");
+  expect(await loadOverview(WS)).toMatchObject({ failed: 1, sent: 0 });
+  const history = await (await get("/approvals")).text();
+  expect(history).toMatch(/>Failed<\/span>/);
+  expect(history).not.toMatch(/>Sent<\/span>/);
+  expect(history).toContain(`hx-post="/approvals/${id}/retry"`);
+  await processOutgoingMessage(payload, attempt(3));
+  expect(send).toHaveBeenCalledTimes(3);
+
+  const retries = await Promise.all([post(`/approvals/${id}/retry`), post(`/approvals/${id}/retry`)]);
+  expect(retries.map(res => res.status)).toEqual([200, 200]);
+  expect(retries.filter(res => res.headers.get("HX-Trigger")?.includes("queued for retry"))).toHaveLength(1);
+  const retried = await approvalJob(`retry:${payload.idempotencyKey}`);
+  expect(retried.idempotencyKey).toBe(payload.idempotencyKey);
+  send.mockResolvedValue({ platformMessageId: "retried-approval" });
+  await runOutgoing();
+  const outbound = await db.query.messages.findMany({ where: and(eq(s.messages.conversation_id, CONV_DM), eq(s.messages.direction, "outbound")) });
+  expect(outbound).toMatchObject([
+    { text: "Proposed reply", status: "sent", failure_reason: null },
+  ]);
+  expect(await loadOverview(WS)).toMatchObject({ failed: 0, sent: 1 });
+  expect(await (await get("/approvals")).text()).toMatch(/>Sent<\/span>/);
+});
+
+it("counts an approved AI reply refused by messaging policy", async () => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const { MessagingPolicyError } = await import("@/lib/platforms/errors");
+  const { loadOverview } = await import("@/lib/stats/overview");
+  const id = await seedApproval();
+  await post(`/approvals/${id}/approve`);
+  send.mockRejectedValue(new MessagingPolicyError("Window closed"));
+  await processOutgoingMessage(await approvalJob(`approval-${id}`), attempt(1));
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Window closed");
+  expect(await (await get("/approvals")).text()).toMatch(/>Failed<\/span>/);
+  expect(await loadOverview(WS)).toMatchObject({ failed: 1, sent: 0 });
+  expect((await post(`/approvals/${id}/retry`)).headers.get("HX-Trigger")).toContain("queued for retry");
+  await db.update(s.contacts).set({ is_subscribed: false }).where(eq(s.contacts.id, CONTACT));
+  await processOutgoingMessage(await approvalJob(`retry:approval:${id}`), attempt(1));
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Contact is unsubscribed");
+  expect(await (await post(`/approvals/${id}/retry`)).text()).toContain("This reply cannot be retried");
+  expect(await loadOverview(WS)).toMatchObject({ failed: 1 });
+});
+
+it("retries only the failed private reply of a two-part approval", async () => {
+  const { processOutgoingComment } = await import("@/lib/workers/outgoing-comment-worker");
+  const { processOutgoingPrivateReply } = await import("@/lib/workers/outgoing-private-reply-worker");
+  const id = await seedApproval({ conversation_id: CONV_COMMENT }, {
+    content: { text: "Details by DM" }, comment: { text: "Thanks!", commentId: "CMT-F9" },
+  });
+  await post(`/approvals/${id}/approve`);
+  send.mockResolvedValueOnce({ platformMessageId: "public-approved" });
+  await processOutgoingComment(await approvalJob<OutgoingCommentJob>(`approval-${id}-comment`), attempt(1));
+  send.mockRejectedValueOnce(new Error("Private reply unavailable"));
+  await expect(processOutgoingPrivateReply(await approvalJob<OutgoingPrivateReplyJob>(`approval-${id}`), attempt(3))).rejects.toThrow();
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered — Private reply unavailable");
+  expect((await post(`/approvals/${id}/retry`)).status).toBe(200);
+  await approvalJob(`retry:approval:${id}`);
+  const { rows } = await db.execute(sql`select id from graphile_worker._private_jobs where key = ${`retry:approval:${id}:comment`}`);
+  expect(rows).toHaveLength(0);
+});
+
+it("keeps automatic rule failures in Overview without adding an Inbox message", async () => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const { loadOverview } = await import("@/lib/stats/overview");
+  send.mockRejectedValue(new Error("Automatic reply unavailable"));
+  await expect(processOutgoingMessage({
+    channelId: CH, conversationId: CONV_DM, contactId: CONTACT, recipientPlatformId: "PSID-F",
+    content: { text: "Automatic reply" }, idempotencyKey: "rule:auto",
+  }, attempt(3))).rejects.toThrow();
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).not.toContain("Not delivered");
+  expect(await loadOverview(WS)).toMatchObject({ failed: 1, sent: 0 });
+});
+
+it("records a final failure when the channel is disabled before the first claim", async () => {
+  const { processOutgoingMessage } = await import("@/lib/workers/outgoing-message-worker");
+  const { loadOverview } = await import("@/lib/stats/overview");
+  const id = await seedApproval();
+  await post(`/approvals/${id}/approve`);
+  await db.update(s.channels).set({ status: "disabled" }).where(eq(s.channels.id, CH));
+  await expect(processOutgoingMessage(await approvalJob(`approval-${id}`), attempt(3))).rejects.toThrow("disabled");
+  expect(send).not.toHaveBeenCalled();
+  expect(await (await get(`/inbox/${CONV_DM}`)).text()).toContain("Not delivered");
+  expect(await loadOverview(WS)).toMatchObject({ failed: 1, sent: 0 });
+});
+
+it("sends a failed public reply on retry and updates its Inbox message", async () => {
+  const { processOutgoingComment } = await import("@/lib/workers/outgoing-comment-worker");
+  const id = await seedApproval({ conversation_id: CONV_COMMENT }, { comment: { text: "Public reply", commentId: "CMT-F9" } });
+  await post(`/approvals/${id}/approve`);
+  send.mockRejectedValueOnce(new Error("Comment unavailable"));
+  await expect(processOutgoingComment(await approvalJob<OutgoingCommentJob>(`approval-${id}-comment`), attempt(3))).rejects.toThrow();
+  expect(await (await get(`/inbox/${CONV_COMMENT}`)).text()).toContain("Not delivered — Comment unavailable");
+  await post(`/approvals/${id}/retry`);
+  send.mockResolvedValueOnce({ platformMessageId: "public-retried" });
+  await processOutgoingComment(await approvalJob<OutgoingCommentJob>(`retry:approval:${id}:comment`), attempt(1));
+  const thread = await (await get(`/inbox/${CONV_COMMENT}`)).text();
+  expect(thread).not.toContain("Not delivered");
+  expect(thread).toContain("Public reply");
 });
 it("gives the approval editor an accessible name and keyboard focus targets", async () => {
   await seedApproval();

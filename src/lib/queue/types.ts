@@ -64,6 +64,8 @@ export interface OutgoingCommentJob extends FirstResponseStamp {
   text: string;
   sentByRuleId?: string;
   idempotencyKey?: string;
+  /** Inbox message to update after retrying a failed approved public reply. */
+  heldMessageId?: string;
 }
 
 /** FIRSTCOMMENT1: auto-post the configured "first comment" UNDER a just-published post. Enqueued by

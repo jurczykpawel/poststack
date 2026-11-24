@@ -1,5 +1,5 @@
 import type { JobHelpers } from "graphile-worker";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, outboundDeliveries, type Platform } from "@/db/schema";
 import { TokenInvalidError, MessagingPolicyError, RateLimitError } from "@/lib/platforms/errors";
@@ -8,6 +8,8 @@ import { dispatchAlert } from "@/lib/notifications/alert";
 import { addJob } from "@/lib/queue/client";
 import type { TaskName, TaskPayloadMap } from "@/lib/queue/types";
 import { recordFirstResponse } from "@/lib/metrics/capture";
+import { approvalIdFromDelivery, recordApprovalFailure } from "@/lib/approvals/delivery";
+import { isContactSubscribed } from "@/lib/contacts/consent";
 
 /** Stop re-enqueueing a perpetually rate-limited delivery once the ledger has counted this many
  *  attempts, so it fails (dead-letters) rather than rescheduling forever. */
@@ -66,6 +68,8 @@ export interface RunDeliveryArgs {
    * at the same row.
    */
   onHeld?: () => Promise<{ heldMessageId?: string } | void>;
+  /** The Inbox destination when an approved private reply originated on a comment thread. */
+  dmConversationId?: string;
 }
 
 /** A delivery in one of these states may be (re)attempted; others are terminal. */
@@ -82,13 +86,14 @@ const REATTEMPTABLE: ReadonlySet<string> = new Set(["pending", "failed", "held"]
  *  - The success write and the local-state write share one transaction, so we can never end
  *    up `sent` without local state or vice-versa.
  *
- * A caught transient error records `failed` and rethrows, so graphile retries cleanly.
+ * A caught transient error records a retryable state and rethrows, so graphile retries cleanly.
  */
 export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult> {
   const { deliveryKey, channelId, taskName, payload, helpers, allowWhenPaused, send, onSent, onHeld } = args;
   // The addressed contact (DM / follow-gate carry it; public comments don't). Stamping it on
   // the ledger row gives the FK that makes a contact erasure cascade here.
   const contactId = typeof payload.contactId === "string" ? payload.contactId : null;
+  const approvalId = approvalIdFromDelivery(deliveryKey);
 
   // Park the send durably: record the FULL typed payload + original task on the ledger so a
   // drain can re-dispatch the exact operation later, and run the worker's local park
@@ -142,8 +147,9 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       helpers.logger.info(`delivery ${deliveryKey} interrupted mid-send — marked unknown, not re-sending`);
       return "skipped_unknown";
     }
-    if (!REATTEMPTABLE.has(prior.status)) {
-      // unknown / expired — terminal, do not resurrect.
+    const failedApproval = approvalId && prior.status === "failed" && (prior.payload as Record<string, unknown>).failedMessageId;
+    if (!REATTEMPTABLE.has(prior.status) || failedApproval) {
+      // A failed approval must be returned to pending by an explicit retry.
       helpers.logger.info(`delivery ${deliveryKey} terminal (${prior.status}) — skipping`);
       return "skipped_terminal";
     }
@@ -152,11 +158,39 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
 
   // 2. Load the channel and gate on its health.
   const channel = await db.query.channels.findFirst({
-    where: and(eq(channels.id, channelId), isNull(channels.deleted_at)),
-    columns: { platform_id: true, id: true, workspace_id: true, platform: true, token_encrypted: true, status: true },
+    where: eq(channels.id, channelId),
+    columns: { platform_id: true, id: true, workspace_id: true, platform: true, token_encrypted: true, status: true, deleted_at: true },
   });
-  if (!channel || channel.status === "disabled") {
-    throw new Error(`Channel ${channelId} not found or disabled`);
+  const unavailable = `Channel ${channelId} not found or disabled`;
+  if (!channel) throw new Error(unavailable);
+
+  const finalAttempt = helpers.job?.attempts >= helpers.job?.max_attempts;
+  const recordFailure = async (detail: string, outcome: "failed" | "expired" = "failed", terminal = finalAttempt) => {
+    const status = approvalId && !terminal ? "pending" : outcome;
+    const scope = and(eq(outboundDeliveries.delivery_key, deliveryKey), eq(outboundDeliveries.workspace_id, channel.workspace_id));
+    if (approvalId && terminal) {
+      await db.transaction(async (tx) => {
+        const nextPayload = await recordApprovalFailure(tx, {
+          approvalId, workspaceId: channel.workspace_id, channelId, payload, reason: detail, dmConversationId: args.dmConversationId,
+        });
+        const failure = { status, last_error: detail, payload: nextPayload } as const;
+        await tx.insert(outboundDeliveries).values({
+          delivery_key: deliveryKey, workspace_id: channel.workspace_id, channel_id: channelId,
+          contact_id: contactId, task_name: taskName, ...failure,
+        }).onConflictDoUpdate({ target: outboundDeliveries.delivery_key, set: failure, setWhere: scope });
+      });
+    } else {
+      await db.update(outboundDeliveries).set({ status, last_error: detail }).where(scope);
+    }
+  };
+
+  if (channel.deleted_at || channel.status === "disabled") {
+    if (approvalId && finalAttempt) await recordFailure("Channel disabled or disconnected");
+    throw new Error(unavailable);
+  }
+  if (approvalId && contactId && !await isContactSubscribed(db, contactId)) {
+    await recordFailure("Contact is unsubscribed", "expired", true);
+    return "dropped_policy";
   }
   const blockedByPause = channel.status === "paused" && !allowWhenPaused;
   if (channel.status === "needs_reauth" || blockedByPause) {
@@ -199,10 +233,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
         await markHeld(channel.workspace_id, e.message);
         await markChannelNeedsReauth(channelId, e.message);
       } catch (markErr) {
-        await db
-          .update(outboundDeliveries)
-          .set({ status: "failed", last_error: e.message })
-          .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+        await recordFailure(e.message);
         throw markErr;
       }
       helpers.logger.info(`channel ${channelId} token invalid on ${taskName} — held + needs_reauth`);
@@ -212,10 +243,7 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       // Policy rejection (e.g. outside the 24h window) — retrying can't fix it. Record a terminal
       // `expired` with the reason and DO NOT rethrow, so a stale sequence step can't grind every
       // attempt into the dead-letter queue. The ledger row is the operator-visible record.
-      await db
-        .update(outboundDeliveries)
-        .set({ status: "expired", last_error: e.message })
-        .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+      await recordFailure(e.message, "expired", true);
       helpers.logger.info(`delivery ${deliveryKey} dropped — ${e.message} (not retried)`);
       return "dropped_policy";
     }
@@ -226,11 +254,8 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       // message that would otherwise go through. The stored idempotency-key makes the
       // replay reuse this very ledger row, and a deterministic jobKey collapses repeats into one
       // pending retry. Bounded by the ledger attempt count so a permanent throttle still gives up.
-      await db
-        .update(outboundDeliveries)
-        .set({ status: "failed", last_error: e.message })
-        .where(eq(outboundDeliveries.delivery_key, deliveryKey));
       const attempts = (prior?.attempts ?? 0) + 1;
+      await recordFailure(e.message, "failed", attempts >= RATE_LIMIT_MAX_REQUEUE && finalAttempt);
       if (attempts < RATE_LIMIT_MAX_REQUEUE) {
         // Wait AT LEAST the provider's Retry-After, plus a random spread so a throttled burst that
         // all got the same value doesn't re-collide the instant the window opens. Floor the
@@ -238,11 +263,12 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
         // clock skew) still gets non-zero jitter rather than re-colliding at delay 0.
         const jitterWindow = Math.min(Math.max(e.retryAfterMs, 1_000), RATE_LIMIT_JITTER_CAP_MS);
         const delayMs = e.retryAfterMs + Math.floor(Math.random() * jitterWindow);
-        await addJob(
-          taskName as TaskName,
-          payload as unknown as TaskPayloadMap[TaskName],
-          { jobKey: `ratelimit:${deliveryKey}`, delayMs },
-        );
+        try {
+          await addJob(taskName as TaskName, payload as unknown as TaskPayloadMap[TaskName], { jobKey: `ratelimit:${deliveryKey}`, delayMs });
+        } catch (err) {
+          if (approvalId && finalAttempt) await recordFailure(e.message);
+          throw err;
+        }
         helpers.logger.info(`delivery ${deliveryKey} rate-limited — retry in ~${Math.round(delayMs / 1000)}s (attempt ${attempts})`);
         return "rate_limited";
       }
@@ -250,12 +276,9 @@ export async function runDelivery(args: RunDeliveryArgs): Promise<DeliveryResult
       throw e;
     }
     // Transient: we caught it, so the provider (most likely) did not accept the send.
-    // Record `failed` and rethrow so graphile retries; the retry re-claims from `failed`.
+    // Rethrow so graphile retries. Approvals stay pending until the final attempt fails.
     const detail = e instanceof Error ? e.message : String(e);
-    await db
-      .update(outboundDeliveries)
-      .set({ status: "failed", last_error: detail })
-      .where(eq(outboundDeliveries.delivery_key, deliveryKey));
+    await recordFailure(detail);
     // Surface the failed delivery (throttled per channel, so a flapping send doesn't storm).
     await dispatchAlert({ type: "delivery_failed", channelId, workspaceId: channel.workspace_id, detail });
     throw e;

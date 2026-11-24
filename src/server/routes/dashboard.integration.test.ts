@@ -186,7 +186,7 @@ describe("dashboard action error surfacing", () => {
     ]);
     const body = await (await app.request("/approvals", { headers: { cookie } })).text();
     expect(body).toContain("Recently resolved");
-    expect(body).toContain("Sent"); // approved badge
+    expect(body).toContain(">Approved</span>"); // No recorded send for this historical decision.
     expect(body).toContain("Rejected"); // rejected badge
     expect(body).toContain("Odrzucona odpowiedź"); // the rejected text is visible in history
   });

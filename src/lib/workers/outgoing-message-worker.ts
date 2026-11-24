@@ -13,6 +13,7 @@ import { env } from "@/lib/env";
 import { runDelivery, type DeliveryChannel } from "./delivery";
 import { captureFieldFromQuickReplies } from "@/lib/contacts/capture";
 import { normalizeOutgoingAttachments } from "@/lib/messages/attachments";
+import { approvalIdFromDelivery } from "@/lib/approvals/delivery";
 
 /**
  * Send an outbound message via the platform API, through the durable delivery state
@@ -67,7 +68,8 @@ export async function processOutgoingMessage(
   // between enqueue and send, so re-read it here — the other DM-producing paths (sequence-step,
   // follow-gate) already do. A human's OWN manual reply is exempt: unsubscribe governs automated
   // messaging, not a human agent answering a live conversation.
-  if (!isHumanReply) {
+  // Approved replies re-check consent in runDelivery so a refusal is visible to the operator.
+  if (!isHumanReply && !(idempotencyKey && approvalIdFromDelivery(idempotencyKey))) {
     const contact = await db.query.contacts.findFirst({
       where: eq(contacts.id, contactId),
       columns: { is_subscribed: true },
@@ -157,7 +159,7 @@ export async function processOutgoingMessage(
       if (heldMessageId) {
         await tx
           .update(messages)
-          .set({ status: "sent", platform_message_id: platformMessageId })
+          .set({ status: "sent", platform_message_id: platformMessageId, failure_reason: null })
           .where(eq(messages.id, heldMessageId));
       } else {
         await tx.insert(messages).values({

@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Show failed approved replies in Inbox, Approvals, and Overview, and let operators retry failed deliveries from Approvals.
+- Apply the 2,000-character reply limit when editing an approval.
+
 ## [0.27.4] - 2026-11-23
 
 ### Security

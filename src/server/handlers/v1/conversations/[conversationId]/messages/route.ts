@@ -10,6 +10,7 @@ import { proGate } from "@/lib/api/pro-gate";
 import { addJobTx } from "@/lib/queue/client";
 import { can } from "@/lib/channels/capabilities";
 import { z } from "zod";
+import { replyText } from "@/lib/messages/reply-text";
 
 export const runtime = "nodejs";
 
@@ -73,9 +74,7 @@ export async function GET(
   return ok([...items].reverse(), { has_more: hasMore, next_cursor: nextCursor });
 }
 
-const sendSchema = z.object({
-  text: z.string().trim().min(1, "Reply text is required").max(2000, "Reply text must be at most 2000 characters"),
-});
+const sendSchema = z.object({ text: replyText });
 
 // POST /api/v1/conversations/:id/messages — manual reply
 export async function POST(

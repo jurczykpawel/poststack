@@ -7,6 +7,7 @@ import { ok, ApiErrors } from "@/lib/api/response";
 import { enqueueCommentReply, enqueueDmReply } from "@/lib/approvals/send";
 import { isContactSubscribed } from "@/lib/contacts/consent";
 import { proposedHasDm, proposedHasComment, type ProposedContent } from "@/lib/approvals/draft";
+import { approvalDeliveryKey } from "@/lib/approvals/delivery";
 
 export const runtime = "nodejs";
 
@@ -18,9 +19,8 @@ type Outcome =
 // POST /api/v1/approvals/:approvalId/approve — send the parked reply.
 //
 // The status flip and the outbound enqueue run in ONE transaction (via
-// graphile_worker.add_job): if the enqueue fails the flip rolls back, so an
-// approved-but-never-sent reply cannot occur. The where-pending guard makes a
-// double-approve a no-op (409), and a deterministic idempotency key means even
+// graphile_worker.add_job): if the enqueue fails, the reply remains pending.
+// The where-pending guard makes a double-approve a no-op (409), and the deterministic key means
 // a retried enqueue results in a single send.
 export async function POST(
   request: Request,
@@ -94,7 +94,7 @@ export async function POST(
           contactId: row.contact_id,
           comment: { text: comment!.text!, commentId: comment!.commentId! },
           sentByRuleId: row.rule_id ?? undefined,
-          keys: { jobKey: `approval-${row.id}-comment`, idempotencyKey: `approval:${row.id}:comment` },
+          keys: { jobKey: `approval-${row.id}-comment`, idempotencyKey: approvalDeliveryKey(row.id, true) },
         });
       }
 
@@ -111,7 +111,7 @@ export async function POST(
           content: content!,
           commentId: comment?.commentId ?? undefined,
           sentByRuleId: row.rule_id ?? undefined,
-          keys: { jobKey: `approval-${row.id}`, idempotencyKey: `approval:${row.id}` },
+          keys: { jobKey: `approval-${row.id}`, idempotencyKey: approvalDeliveryKey(row.id) },
         });
       }
     }

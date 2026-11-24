@@ -8,6 +8,7 @@
 import { count, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { channels, contacts, deliveries, outboundDeliveries } from "@/db/schema";
+import { APPROVAL_DELIVERY_PREFIX } from "@/lib/approvals/delivery";
 
 // Outbound task name -> a friendly, identity-free label for the activity log.
 const TASK_LABELS: Record<string, string> = {
@@ -69,7 +70,8 @@ export async function loadOverview(
     .select({
       total: count(),
       sent: isStatus("sent"),
-      failed: isStatus("failed"),
+      failed: sql<number>`count(*) filter (where ${outboundDeliveries.status} = 'failed'
+        or (${outboundDeliveries.status} = 'expired' and ${outboundDeliveries.delivery_key} like ${APPROVAL_DELIVERY_PREFIX + "%"}))`,
       held: isStatus("held"),
       today: sql<number>`count(*) filter (where ${outboundDeliveries.status} = 'sent' and ${today})`,
     })

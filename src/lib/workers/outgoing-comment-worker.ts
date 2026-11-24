@@ -35,6 +35,10 @@ export async function processOutgoingComment(
       return { platformMessageId: sent.platformMessageId };
     },
     onSent: async (tx, platformMessageId) => {
+      if (payload.heldMessageId && payload.conversationId) {
+        await tx.update(messages).set({ status: "sent", platform_message_id: platformMessageId, failure_reason: null })
+          .where(and(eq(messages.id, payload.heldMessageId), eq(messages.conversation_id, payload.conversationId)));
+      }
       if (payload.conversationId && payload.manualReplyAt && payload.workspaceId) {
         await tx.insert(messages).values({ conversation_id: payload.conversationId, direction: "outbound", text, status: "sent", platform_message_id: platformMessageId });
         await tx.update(conversations).set({ needs_manual_reply: false, last_message_at: new Date(), last_message_preview: truncateCodePoints(text, 255) })

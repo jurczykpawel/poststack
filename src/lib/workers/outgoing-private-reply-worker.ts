@@ -72,6 +72,7 @@ export async function processOutgoingPrivateReply(
     payload: payload as unknown as Record<string, unknown>,
     helpers,
     onHeld: persistHeld,
+    dmConversationId,
     send: async (channel: DeliveryChannel) => {
       const tokens = decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]);
       const provider = getProvider(channel.platform);
@@ -88,7 +89,7 @@ export async function processOutgoingPrivateReply(
         // Drain replay: flip the parked row in place instead of inserting a duplicate.
         await tx
           .update(messages)
-          .set({ status: "sent", platform_message_id: platformMessageId })
+          .set({ status: "sent", platform_message_id: platformMessageId, failure_reason: null })
           .where(eq(messages.id, heldMessageId));
       } else {
         await tx.insert(messages).values({
