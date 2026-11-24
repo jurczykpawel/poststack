@@ -20,7 +20,9 @@ permissions:
 jobs:
   check-version:
     name: Check for new Meta Graph API version
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: live
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,8 +63,10 @@ jobs:
 
       - name: Decide whether strict validation was explicitly requested
         id: mode
+        env:
+          CONFIRM_LIVE_PROBE: ${{ inputs.confirm_live_probe }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.confirm_live_probe }}" = "true" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$CONFIRM_LIVE_PROBE" = "true" ]; then
             echo "strict=true" >> "$GITHUB_OUTPUT"
           else
             echo "strict=false" >> "$GITHUB_OUTPUT"
@@ -144,18 +148,8 @@ jobs:
 
       - name: Install ffmpeg + ffprobe (media and Story tests)
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
-        # Same source as ci.yml: static BtbN build, apt fallback. Without it 4 media/Story unit tests fail (ENOENT).
         timeout-minutes: 8
-        run: |
-          set -euo pipefail
-          url=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
-          if curl -fsSL --retry 3 --max-time 180 "$url" -o /tmp/ffmpeg.tar.xz; then
-            mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
-            echo /tmp/ffmpeg/bin >> "$GITHUB_PATH"
-          else
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ffmpeg
-          fi
+        run: bash scripts/ci/install-ffmpeg.sh
 
       - name: Run contract and unit tests
         if: steps.version.outputs.exists == 'true' && steps.existing.outputs.skip != 'true' && steps.mode.outputs.strict == 'true'
@@ -242,7 +236,7 @@ jobs:
             echo
             echo "Outcomes: ${OUTCOMES}."
             echo
-            echo "Check that all META_PROBE_* repository secrets refer to the dedicated test assets (and"
+            echo "Check that all META_PROBE_* secrets in the live environment refer to the dedicated test assets (and"
             echo "that their tokens have not expired), inspect the redacted workflow logs, then re-run the"
             echo "manually dispatched workflow."
             echo

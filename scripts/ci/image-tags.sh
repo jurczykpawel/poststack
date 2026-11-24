@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ref="${1:?ref required}" web="${2:?web image required}" worker="${3:?worker image required}"
-[[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "not a release tag: $ref" >&2; exit 1; }
+[[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || { echo "not a release tag" >&2; exit 1; }
 
 emit() {
   local name="$1" image="$2"

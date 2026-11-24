@@ -4,17 +4,19 @@ name: Release & Deploy
 #  • push a tag `v*`  → verify → build+push GHCR images → AUTO deploy to the TEST environment
 #  • workflow_dispatch → MANUAL deploy of an existing tag to the PROD environment
 # Prod is never deployed automatically. Images are GHCR-pulled on the servers (docker login persisted).
-# Deploy targets are configured via repo secrets (host/user/port/key) + repo variables
-# (TEST_DEPLOY_PATH / PROD_DEPLOY_PATH / TEST_HEALTH_URL / PROD_HEALTH_URL) — no infra in this file.
+# Deploy targets use environment secrets and a fixed deployment command on each host.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Image tag to deploy to PROD (must already be built & pushed, e.g. v0.4.0)'
+        description: 'Release tag to deploy to PROD (e.g. v0.27.6)'
+        type: string
         required: true
-        default: latest
+
+permissions:
+  contents: read
 
 # Opt JS-based actions (docker/*) into Node.js 24 now; GitHub forces it 2026-06-16.
 env:
@@ -25,12 +27,10 @@ env:
 jobs:
   live-telegram:
     name: Telegram live gate
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     uses: ./.github/workflows/live-telegram.yml
     with:
-      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
-    secrets:
-      LIVE_TG_BOT_TOKEN: ${{ secrets.LIVE_TG_BOT_TOKEN }}
-      LIVE_TG_CHAT_ID: ${{ secrets.LIVE_TG_CHAT_ID }}
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
   verify:
     name: Lint, Type Check, Test
@@ -62,31 +62,21 @@ jobs:
       E2E_DATABASE_URL: postgresql://poststack:poststack-ci@localhost:5432/poststack_e2e
       E2E_ADMIN_DATABASE_URL: postgresql://poststack:poststack-ci@localhost:5432/poststack
     steps:
-      # Actions pinned to commit SHAs (not floating tags) — build job has packages:write.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.x"
-          cache: "npm"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.4"
       - name: Install dependencies
         run: npm ci
       - name: Install ffmpeg + ffprobe (media and Story tests)
-        # Static build from GitHub Releases (BtbN, n8.1 GPL incl. libx264), not the Ubuntu mirrors that hung
-        # for hours on 2026-11-11. Falls back to apt if the download fails.
         timeout-minutes: 8
-        run: |
-          set -euo pipefail
-          url=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
-          if curl -fsSL --retry 3 --max-time 180 "$url" -o /tmp/ffmpeg.tar.xz; then
-            mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
-            echo /tmp/ffmpeg/bin >> "$GITHUB_PATH"
-          else
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ffmpeg
-          fi
+        run: bash scripts/ci/install-ffmpeg.sh
+
       - name: Audit dependencies
         run: |
           # Shipped (runtime) dependencies: moderate+ blocks. Dev tooling (eslint & co.) never reaches the image
@@ -95,14 +85,14 @@ jobs:
           npm audit --omit=dev --audit-level=moderate
           node --test scripts/ci/audit-dependencies.node-test.mjs
           node scripts/ci/audit-dependencies.mjs high
-          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with the latest npm (the verifier must know current keys)
-          for i in 1 2 3; do npx -y npm@latest audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
+          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); use the pinned npm 11 verifier with current registry keys
+          for i in 1 2 3; do npx -y npm@11.21.3 audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
       - name: Install and audit landing dependencies
         run: |
           npm --prefix landing ci
           node scripts/ci/audit-dependencies.mjs moderate landing
-          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with the latest npm (the verifier must know current keys)
-          for i in 1 2 3; do npx -y npm@latest --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
+          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); use the pinned npm 11 verifier with current registry keys
+          for i in 1 2 3; do npx -y npm@11.21.3 --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
       - name: Run database migrations
         run: npm run db:migrate
       - name: Lint
@@ -127,8 +117,7 @@ jobs:
   dependabot-gate:
     name: Dependabot PRs handled
     # A final release (vX.Y.Z, not an rc) is refused while a Dependabot PR is red or has been
-    # waiting more than 14 days (a major nobody reviewed). Green patch/minor PRs merge by
-    # themselves (dependabot-auto-merge.yml), so this only stops on what needs a human.
+    # waiting more than 14 days.
     if: github.event_name == 'push' && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     permissions:
@@ -162,8 +151,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      web-digest: ${{ steps.web.outputs.digest }}
+      worker-digest: ${{ steps.worker.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Log in to GHCR
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -176,6 +170,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build and push web
+        id: web
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -183,9 +178,8 @@ jobs:
           push: true
           provenance: false
           tags: ${{ steps.image-tags.outputs.web }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
       - name: Build and push worker
+        id: worker
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -193,8 +187,23 @@ jobs:
           push: true
           provenance: false
           tags: ${{ steps.image-tags.outputs.worker }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+      - name: Record release images
+        env:
+          RELEASE_SHA: ${{ needs.live-telegram.outputs.sha }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          WORKER_DIGEST: ${{ steps.worker.outputs.digest }}
+        run: |
+          jq -n --arg tag "$GITHUB_REF_NAME" --arg sha "$RELEASE_SHA" \
+            --arg web "$WEB_DIGEST" --arg worker "$WORKER_DIGEST" \
+            '{tag:$tag,sha:$sha,web:$web,worker:$worker}' > "$RUNNER_TEMP/release-images.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-images
+          path: ${{ runner.temp }}/release-images.json
+          retention-days: 30
+          if-no-files-found: error
+          overwrite: true
 
   github-release:
     name: GitHub Release
@@ -206,6 +215,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Create release from CHANGELOG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -218,59 +229,55 @@ jobs:
     name: Auto-deploy to TEST
     if: "!cancelled() && github.event_name == 'push' && needs.build.result == 'success'"
     needs: build
+    uses: ./.github/workflows/deploy-release.yml
+    with:
+      target: test-deploy
+      tag: ${{ github.ref_name }}
+      web-digest: ${{ needs.build.outputs.web-digest }}
+      worker-digest: ${{ needs.build.outputs.worker-digest }}
+
+  resolve-images:
+    name: Resolve built images for PROD
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: live-telegram
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      web-digest: ${{ steps.images.outputs.web-digest }}
+      worker-digest: ${{ steps.images.outputs.worker-digest }}
     steps:
-      - name: Deploy over SSH (TEST environment)
+      - name: Read the manifest from the successful release run
+        id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ needs.live-telegram.outputs.sha }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.DEPLOY_TEST_PORT }} -H ${{ secrets.DEPLOY_TEST_HOST }} >> ~/.ssh/known_hosts
-          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
-            -p ${{ secrets.DEPLOY_TEST_PORT }} \
-            ${{ secrets.DEPLOY_TEST_USER }}@${{ secrets.DEPLOY_TEST_HOST }} \
-            'cd ${{ vars.TEST_DEPLOY_PATH }} && \
-              { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.ref_name }}/" .env || echo "IMAGE_TAG=${{ github.ref_name }}" >> .env; } && \
-              docker compose pull && \
-              docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
-              docker compose up -d --no-deps --wait --wait-timeout 180 web worker && \
-              docker image prune -af && docker builder prune -af'
-      - name: Health gate (test)
-        run: |
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.TEST_HEALTH_URL }}" || true)
-            if [ "$code" = "200" ]; then echo "test healthy"; exit 0; fi
-            echo "waiting ($i) — got $code"; sleep 5
-          done
-          echo "test health check failed"; exit 1
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]
+          [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          run_id=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs" \
+            -f event=push -f status=success -f branch="$RELEASE_TAG" -f head_sha="$RELEASE_SHA" \
+            --jq '.workflow_runs[0].id // empty')
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::No successful release run found for this tag and commit."
+            exit 1
+          fi
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name release-images --dir "$RUNNER_TEMP/release"
+          jq -er --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" '
+            select(.tag == $tag and .sha == $sha)
+            | select([.web, .worker] | all(type == "string" and test("^sha256:[a-f0-9]{64}$")))
+            | "web-digest=\(.web)\nworker-digest=\(.worker)"
+          ' "$RUNNER_TEMP/release/release-images.json" >> "$GITHUB_OUTPUT"
 
   deploy-prod:
     name: Manual deploy to PROD
-    needs: live-telegram
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Deploy over SSH (PROD environment)
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.DEPLOY_PORT }} -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
-          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
-            -p ${{ secrets.DEPLOY_PORT }} \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            'cd ${{ vars.PROD_DEPLOY_PATH }} && \
-              { grep -q "^IMAGE_TAG=" .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.event.inputs.tag }}/" .env || echo "IMAGE_TAG=${{ github.event.inputs.tag }}" >> .env; } && \
-              docker compose pull && \
-              docker compose run --rm --no-deps --entrypoint bun web scripts/migrate.ts && \
-              docker compose up -d --no-deps --wait --wait-timeout 180 web worker && \
-              docker image prune -af && docker builder prune -af'
-      - name: Health gate (prod)
-        run: |
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.PROD_HEALTH_URL }}" || true)
-            if [ "$code" = "200" ]; then echo "prod healthy"; exit 0; fi
-            echo "waiting ($i) — got $code"; sleep 5
-          done
-          echo "prod health check failed"; exit 1
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: resolve-images
+    uses: ./.github/workflows/deploy-release.yml
+    with:
+      target: production
+      tag: ${{ inputs.tag }}
+      web-digest: ${{ needs.resolve-images.outputs.web-digest }}
+      worker-digest: ${{ needs.resolve-images.outputs.worker-digest }}

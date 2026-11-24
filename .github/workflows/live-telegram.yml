@@ -1,36 +1,75 @@
 name: Live Telegram smoke
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Release tag to test (e.g. v0.27.6)
+        type: string
+        required: true
   workflow_call:
     inputs:
       ref:
         type: string
         required: true
-    secrets:
-      LIVE_TG_BOT_TOKEN:
-        required: true
-      LIVE_TG_CHAT_ID:
-        required: true
+    outputs:
+      sha:
+        value: ${{ jobs.resolve.outputs.sha }}
 permissions:
   contents: read
 concurrency:
   group: live-telegram
   cancel-in-progress: false
 jobs:
-  smoke:
+  resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve release tag on main
+        id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.ref }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::Supply a release tag such as v0.27.6 or v0.27.6-rc.1."
+            exit 1
+          fi
+          sha=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          if ! git merge-base --is-ancestor "$sha" HEAD; then
+            echo "::error::The release tag must point to a commit on main."
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            pushed_sha=$(git rev-parse --verify "$GITHUB_SHA^{commit}")
+            if [[ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" || "$sha" != "$pushed_sha" ]]; then
+              echo "::error::The release tag no longer matches the triggering commit."
+              exit 1
+            fi
+          fi
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+
+  smoke:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: live
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.4"
-      - name: Resolve fixture commit
-        run: echo "GITHUB_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: Validate, publish and delete Telegram messages
         env:
           LIVE_TG_BOT_TOKEN: ${{ secrets.LIVE_TG_BOT_TOKEN }}
           LIVE_TG_CHAT_ID: ${{ secrets.LIVE_TG_CHAT_ID }}
-        run: bun scripts/ci/live-telegram-smoke.ts
+          RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+        run: GITHUB_SHA="$RELEASE_SHA" bun scripts/ci/live-telegram-smoke.ts

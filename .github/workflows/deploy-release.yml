@@ -1,0 +1,65 @@
+name: Deploy release images
+on:
+  workflow_call:
+    inputs:
+      target:
+        type: string
+        required: true
+      tag:
+        type: string
+        required: true
+      web-digest:
+        type: string
+        required: true
+      worker-digest:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      (inputs.target == 'production' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      || (inputs.target == 'test-deploy' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    concurrency:
+      group: deploy-${{ inputs.target }}
+      cancel-in-progress: false
+    timeout-minutes: 25
+    steps:
+      - name: Deploy over SSH
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          WEB_DIGEST: ${{ inputs.web-digest }}
+          WORKER_DIGEST: ${{ inputs.worker-digest }}
+          DEPLOY_HOST: ${{ secrets[inputs.target == 'production' && 'DEPLOY_HOST' || 'DEPLOY_TEST_HOST'] }}
+          DEPLOY_PORT: ${{ secrets[inputs.target == 'production' && 'DEPLOY_PORT' || 'DEPLOY_TEST_PORT'] }}
+          DEPLOY_USER: ${{ secrets[inputs.target == 'production' && 'DEPLOY_USER' || 'DEPLOY_TEST_USER'] }}
+          DEPLOY_SSH_KEY: ${{ secrets[inputs.target == 'production' && 'DEPLOY_SSH_KEY' || 'DEPLOY_TEST_SSH_KEY'] }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets[inputs.target == 'production' && 'DEPLOY_KNOWN_HOSTS' || 'DEPLOY_TEST_KNOWN_HOSTS'] }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]
+          [[ "$WEB_DIGEST" =~ ^sha256:[a-f0-9]{64}$ && "$WORKER_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "${DEPLOY_SSH_KEY:?}" > "$ssh_dir/key"
+          printf '%s\n' "${DEPLOY_KNOWN_HOSTS:?}" > "$ssh_dir/known_hosts"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+            -i "$ssh_dir/key" -p "${DEPLOY_PORT:?}" -- "${DEPLOY_USER:?}@${DEPLOY_HOST:?}" \
+            "deploy $RELEASE_TAG $WEB_DIGEST $WORKER_DIGEST"
+      - name: Check deployment health
+        env:
+          HEALTH_URL: ${{ inputs.target == 'production' && vars.PROD_HEALTH_URL || vars.TEST_HEALTH_URL }}
+        run: |
+          for _ in {1..30}; do
+            code=$(curl --silent --max-time 5 --output /dev/null --write-out '%{http_code}' -- "${HEALTH_URL:?}" || true)
+            if [[ "$code" == 200 ]]; then echo "Deployment is healthy."; exit 0; fi
+            sleep 5
+          done
+          echo "::error::Deployment health check failed."
+          exit 1

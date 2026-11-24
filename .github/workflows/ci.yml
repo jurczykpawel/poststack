@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
@@ -13,6 +20,7 @@ jobs:
   ci:
     name: Lint, Type Check, Test
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -43,6 +51,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -57,32 +67,8 @@ jobs:
         run: npm ci
 
       - name: Install ffmpeg + ffprobe (media and Story tests)
-
-        # Static build from GitHub Releases (BtbN, n8.1 GPL incl. libx264), not the Ubuntu mirrors that hung
-
-        # for hours on 2026-11-11. Falls back to apt if the download fails.
-
         timeout-minutes: 8
-
-        run: |
-
-          set -euo pipefail
-
-          url=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
-
-          if curl -fsSL --retry 3 --max-time 180 "$url" -o /tmp/ffmpeg.tar.xz; then
-
-            mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
-
-            echo /tmp/ffmpeg/bin >> "$GITHUB_PATH"
-
-          else
-
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ffmpeg
-
-          fi
+        run: bash scripts/ci/install-ffmpeg.sh
 
       - name: Run database migrations
         run: npm run db:migrate
@@ -95,15 +81,15 @@ jobs:
           npm audit --omit=dev --audit-level=moderate
           node --test scripts/ci/audit-dependencies.node-test.mjs
           node scripts/ci/audit-dependencies.mjs high
-          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with the latest npm (the verifier must know current keys)
-          for i in 1 2 3; do npx -y npm@latest audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
+          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); use the pinned npm 11 verifier with current registry keys
+          for i in 1 2 3; do npx -y npm@11.21.3 audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
       - name: Install and audit landing dependencies
         run: |
           npm --prefix landing ci
           node scripts/ci/audit-dependencies.mjs moderate landing
-          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); verify with the latest npm (the verifier must know current keys)
-          for i in 1 2 3; do npx -y npm@latest --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
+          # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); use the pinned npm 11 verifier with current registry keys
+          for i in 1 2 3; do npx -y npm@11.21.3 --prefix landing audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
       - name: Lint
         run: npm run lint
