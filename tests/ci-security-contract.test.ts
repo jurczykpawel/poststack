@@ -18,6 +18,35 @@ afterEach(() => {
 });
 
 describe("CI release gates", () => {
+  const deploySecretNames = ["HOST", "PORT", "USER", "SSH_KEY", "KNOWN_HOSTS"];
+  const telegramSecrets = ["LIVE_TG_BOT_TOKEN", "LIVE_TG_CHAT_ID"];
+  const testDeploySecrets = deploySecretNames.map((suffix) => `DEPLOY_TEST_${suffix}`);
+  const prodDeploySecrets = deploySecretNames.map((suffix) => `DEPLOY_${suffix}`);
+
+  it.each([
+    ["live-telegram", "live-telegram.yml", telegramSecrets],
+    ["deploy-test", "deploy-release.yml", testDeploySecrets],
+    ["deploy-prod", "deploy-release.yml", prodDeploySecrets],
+  ] as const)("passes only the named secrets for %s", (job, workflow, names) => {
+    const source = workflows["release.yml"].split(`\n  ${job}:\n`)[1]?.split(/\n  [\w-]+:\n/)[0];
+    expect(source).toContain(`uses: ./.github/workflows/${workflow}`);
+    const block = source?.match(/^    secrets:\n((?:      [^\n]+\n)+)/m)?.[1]?.trim();
+    expect(block?.split("\n").map((line) => line.trim())).toEqual(
+      names.map((name) => `${name}: \${{ secrets.${name} }}`),
+    );
+  });
+
+  it.each([
+    ["live-telegram.yml", telegramSecrets, true],
+    ["deploy-release.yml", [...testDeploySecrets, ...prodDeploySecrets], false],
+  ] as const)("%s declares its workflow call secrets", (workflow, names, required) => {
+    const call = workflows[workflow].split("\n  workflow_call:\n")[1]?.split(/\n\S/)[0];
+    const block = call?.match(/^    secrets:\n((?:      [^\n]+\n)+)/m)?.[1]?.trim();
+    expect(block?.split("\n").map((line) => line.trim())).toEqual(
+      names.flatMap((name) => [`${name}:`, `required: ${required}`]),
+    );
+  });
+
   it("pins every third-party action to an immutable commit", () => {
     for (const [name, source] of Object.entries(workflows)) {
       const actions = [...source.matchAll(/\buses:\s*([^\s#]+)/g)].map((match) => match[1]);

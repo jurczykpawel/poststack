@@ -276,6 +276,45 @@ you always know which version is live and which to fall back to.
 > A rollback **across** a release line that dropped/renamed columns is not safe (migrations are
 > forward-only). Restore from a backup (§4) if you must go back that far.
 
+### 3.1 Emergency rollback by image digest
+
+Use a known-good pair of web and worker digests from the same release. Final releases that include
+`release-images.json` in their GitHub release assets record the pair in `web` and `worker`. Check
+that the manifest's `tag` matches the release you intend to restore. For an older release without
+a manifest, use the recorded deployment digests or inspect both image tags with
+`docker buildx imagetools inspect <image>:<tag>`. Match each displayed manifest digest against your
+deployment records when available. Both images must still be available in the registry.
+
+Run this on the deployment host in the stack directory, with the same Compose project name you use
+for normal deployments. Set `compose_file` to the base Compose file for the running stack.
+
+```bash
+(
+  set -euo pipefail
+  compose_file=docker-compose.prod.yml
+  image_repo=ghcr.io/jurczykpawel/poststack # set this to your registry path if you use a fork
+  web_digest='sha256:REPLACE_WITH_WEB_DIGEST'
+  worker_digest='sha256:REPLACE_WITH_WORKER_DIGEST'
+  [[ "$web_digest" =~ ^sha256:[0-9a-f]{64}$ && "$worker_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+  cat > docker-compose.rollback.yml <<YAML
+services:
+  web:
+    image: ${image_repo}@${web_digest}
+  worker:
+    image: ${image_repo}-worker@${worker_digest}
+YAML
+  compose=(docker compose -f "$compose_file" -f docker-compose.rollback.yml)
+  "${compose[@]}" pull web worker
+  "${compose[@]}" up -d --no-deps --pull never --wait --wait-timeout 180 web worker
+  "${compose[@]}" ps
+)
+```
+
+Verify the instance's `/api/health` endpoint returns HTTP 200. Keep passing both Compose files for
+operations that recreate containers until you deliberately deploy another version. At that point,
+set the desired `IMAGE_TAG` and return to the base Compose file.
+
 ---
 
 ## 4. Backups

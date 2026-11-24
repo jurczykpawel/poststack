@@ -14,6 +14,27 @@ on:
       worker-digest:
         type: string
         required: true
+    secrets:
+      DEPLOY_TEST_HOST:
+        required: false
+      DEPLOY_TEST_PORT:
+        required: false
+      DEPLOY_TEST_USER:
+        required: false
+      DEPLOY_TEST_SSH_KEY:
+        required: false
+      DEPLOY_TEST_KNOWN_HOSTS:
+        required: false
+      DEPLOY_HOST:
+        required: false
+      DEPLOY_PORT:
+        required: false
+      DEPLOY_USER:
+        required: false
+      DEPLOY_SSH_KEY:
+        required: false
+      DEPLOY_KNOWN_HOSTS:
+        required: false
 
 permissions:
   contents: read

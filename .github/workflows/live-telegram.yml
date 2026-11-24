@@ -11,6 +11,11 @@ on:
       ref:
         type: string
         required: true
+    secrets:
+      LIVE_TG_BOT_TOKEN:
+        required: true
+      LIVE_TG_CHAT_ID:
+        required: true
     outputs:
       sha:
         value: ${{ jobs.resolve.outputs.sha }}

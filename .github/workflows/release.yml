@@ -31,6 +31,9 @@ jobs:
     uses: ./.github/workflows/live-telegram.yml
     with:
       ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    secrets:
+      LIVE_TG_BOT_TOKEN: ${{ secrets.LIVE_TG_BOT_TOKEN }}
+      LIVE_TG_CHAT_ID: ${{ secrets.LIVE_TG_CHAT_ID }}
 
   verify:
     name: Lint, Type Check, Test
@@ -212,18 +215,32 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Create release from CHANGELOG
+      - name: Publish release notes and image manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          scripts/ci/release-notes.sh "$GITHUB_REF_NAME" > notes.md
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name release-images --dir "$RUNNER_TEMP/release"
+          manifest="$RUNNER_TEMP/release/release-images.json"
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets > "$RUNNER_TEMP/release-assets.json"; then
+            scripts/ci/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+            gh release create "$GITHUB_REF_NAME" "$manifest" --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          elif jq -e 'any(.assets[]; .name == "release-images.json")' "$RUNNER_TEMP/release-assets.json" >/dev/null; then
+            gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern release-images.json \
+              --output "$RUNNER_TEMP/published-images.json"
+            if ! cmp -s "$manifest" "$RUNNER_TEMP/published-images.json"; then
+              echo "::error::The published image manifest differs from the build manifest."
+              exit 1
+            fi
+          else
+            gh release upload "$GITHUB_REF_NAME" "$manifest" --repo "$GITHUB_REPOSITORY"
+          fi
 
   deploy-test:
     name: Auto-deploy to TEST
@@ -235,6 +252,12 @@ jobs:
       tag: ${{ github.ref_name }}
       web-digest: ${{ needs.build.outputs.web-digest }}
       worker-digest: ${{ needs.build.outputs.worker-digest }}
+    secrets:
+      DEPLOY_TEST_HOST: ${{ secrets.DEPLOY_TEST_HOST }}
+      DEPLOY_TEST_PORT: ${{ secrets.DEPLOY_TEST_PORT }}
+      DEPLOY_TEST_USER: ${{ secrets.DEPLOY_TEST_USER }}
+      DEPLOY_TEST_SSH_KEY: ${{ secrets.DEPLOY_TEST_SSH_KEY }}
+      DEPLOY_TEST_KNOWN_HOSTS: ${{ secrets.DEPLOY_TEST_KNOWN_HOSTS }}
 
   resolve-images:
     name: Resolve built images for PROD
@@ -244,6 +267,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: read
+      contents: read
     outputs:
       web-digest: ${{ steps.images.outputs.web-digest }}
       worker-digest: ${{ steps.images.outputs.worker-digest }}
@@ -264,12 +288,23 @@ jobs:
             echo "::error::No successful release run found for this tag and commit."
             exit 1
           fi
-          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name release-images --dir "$RUNNER_TEMP/release"
-          jq -er --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" '
-            select(.tag == $tag and .sha == $sha)
+          artifact_available=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" \
+            -f name=release-images --jq 'any(.artifacts[]; .name == "release-images" and .expired == false)')
+          manifest_dir="$RUNNER_TEMP/release"
+          if [[ "$artifact_available" == true ]]; then
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name release-images --dir "$manifest_dir"
+          elif [[ "$RELEASE_TAG" == *-rc.* ]]; then
+            echo "::error::This release candidate has no available image manifest artifact."
+            exit 1
+          else
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern release-images.json --dir "$manifest_dir"
+          fi
+          jq -ers --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" '
+            select(length == 1) | .[0]
+            | select(.tag == $tag and .sha == $sha)
             | select([.web, .worker] | all(type == "string" and test("^sha256:[a-f0-9]{64}$")))
             | "web-digest=\(.web)\nworker-digest=\(.worker)"
-          ' "$RUNNER_TEMP/release/release-images.json" >> "$GITHUB_OUTPUT"
+          ' "$manifest_dir/release-images.json" >> "$GITHUB_OUTPUT"
 
   deploy-prod:
     name: Manual deploy to PROD
@@ -281,3 +316,9 @@ jobs:
       tag: ${{ inputs.tag }}
       web-digest: ${{ needs.resolve-images.outputs.web-digest }}
       worker-digest: ${{ needs.resolve-images.outputs.worker-digest }}
+    secrets:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}

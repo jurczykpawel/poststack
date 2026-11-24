@@ -61,5 +61,5 @@ else
   printf '\nIMAGE_TAG=%s\n' "$tag" >> "$env_tmp"
 fi
 mv -- "$env_tmp" .env
-docker image prune -af
-docker builder prune -af
+docker image prune -af || true
+docker builder prune -af || true
