@@ -23,7 +23,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
-- REST publish and reschedule accept `when` only as an ISO 8601 timestamp with a UTC offset (for example `2026-12-01T09:00:00+01:00`) or `now`; timestamps without an offset are rejected.
+- REST publish and reschedule accept `when` only as `now` or an ISO 8601 timestamp with `Z` or a UTC offset (for example `2026-12-01T09:00:00+01:00`); timestamps without a zone are rejected.
 - Clarified that deleting content leaves linked posts and scheduled deliveries in place.
 
 ## [0.27.4] - 2026-11-23
