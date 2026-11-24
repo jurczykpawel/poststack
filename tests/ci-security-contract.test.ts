@@ -28,9 +28,9 @@ describe("CI release gates", () => {
     ["deploy-test", "deploy-release.yml", testDeploySecrets],
     ["deploy-prod", "deploy-release.yml", prodDeploySecrets],
   ] as const)("passes only the named secrets for %s", (job, workflow, names) => {
-    const source = workflows["release.yml"].split(`\n  ${job}:\n`)[1]?.split(/\n  [\w-]+:\n/)[0];
+    const source = workflows["release.yml"].split(`\n  ${job}:\n`)[1]?.split(/\n {2}[\w-]+:\n/)[0];
     expect(source).toContain(`uses: ./.github/workflows/${workflow}`);
-    const block = source?.match(/^    secrets:\n((?:      [^\n]+\n)+)/m)?.[1]?.trim();
+    const block = source?.match(/^ {4}secrets:\n((?: {6}[^\n]+\n)+)/m)?.[1]?.trim();
     expect(block?.split("\n").map((line) => line.trim())).toEqual(
       names.map((name) => `${name}: \${{ secrets.${name} }}`),
     );
@@ -41,7 +41,7 @@ describe("CI release gates", () => {
     ["deploy-release.yml", [...testDeploySecrets, ...prodDeploySecrets], false],
   ] as const)("%s declares its workflow call secrets", (workflow, names, required) => {
     const call = workflows[workflow].split("\n  workflow_call:\n")[1]?.split(/\n\S/)[0];
-    const block = call?.match(/^    secrets:\n((?:      [^\n]+\n)+)/m)?.[1]?.trim();
+    const block = call?.match(/^ {4}secrets:\n((?: {6}[^\n]+\n)+)/m)?.[1]?.trim();
     expect(block?.split("\n").map((line) => line.trim())).toEqual(
       names.flatMap((name) => [`${name}:`, `required: ${required}`]),
     );
