@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- Delete media from the Compose library or via the API. Media still needed for publication is protected, and shared storage objects are kept while referenced.
+
 ### Fixed
 - Show failed approved replies in Inbox, Approvals, and Overview, and let operators retry failed deliveries from Approvals.
 - Apply the 2,000-character reply limit when editing an approval.

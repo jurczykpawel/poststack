@@ -724,9 +724,13 @@ describe("publish worker (AUD27)", () => {
 
   // ── FIRSTCOMMENT1: auto first-comment on publish ────────────────────────────────────────────
 
-  function storyCall(spy: ReturnType<typeof vi.fn>) {
-    const call = spy.mock.calls.find((c) => c[0] === "publish-story");
-    return call ? { payload: call[1], opts: call[2] } : null;
+  async function storyJob(postId: string) {
+    const result = await db.execute<{ payload: unknown; key: string }>(sql`
+      select p.payload, j.key from graphile_worker.jobs j
+      join graphile_worker._private_jobs p on p.id = j.id
+      where j.task_identifier = 'publish-story' and j.key = ${`auto-story:${postId}`}
+    `);
+    return result.rows[0] ?? null;
   }
 
   async function igScenario(
@@ -816,60 +820,52 @@ describe("publish worker (AUD27)", () => {
   it("enqueues a publish-story keyed to the delivery when the channel default is on", async () => {
     if (!TEST_DB) return;
     const { channelId, postId } = await igScenario({ defaultAutoStory: true });
-    const enqueue = await spyFirstCommentEnqueue();
     const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S1" });
     try {
       await processPublish({ postId }, helpers);
       expect(await status(postId)).toBe("sent");
-      const call = storyCall(enqueue as unknown as ReturnType<typeof vi.fn>);
+      const call = await storyJob(postId);
       expect(call?.payload).toEqual({ channelId, deliveryId: postId, idempotencyKey: `auto-story:${postId}` });
-      expect(call?.opts).toEqual({ jobKey: `auto-story:${postId}` });
+      expect(call?.key).toBe(`auto-story:${postId}`);
     } finally {
       spy.mockRestore();
-      enqueue.mockRestore();
     }
   });
 
   it("per-post autoStory=true overrides a channel default of off", async () => {
     if (!TEST_DB) return;
     const { postId } = await igScenario({ defaultAutoStory: false, autoStoryOverride: true });
-    const enqueue = await spyFirstCommentEnqueue();
     const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S2" });
     try {
       await processPublish({ postId }, helpers);
-      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).not.toBeNull();
+      expect(await storyJob(postId)).not.toBeNull();
     } finally {
       spy.mockRestore();
-      enqueue.mockRestore();
     }
   });
 
   it("per-post autoStory=false overrides a channel default of on", async () => {
     if (!TEST_DB) return;
     const { postId } = await igScenario({ defaultAutoStory: true, autoStoryOverride: false });
-    const enqueue = await spyFirstCommentEnqueue();
     const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S3" });
     try {
       await processPublish({ postId }, helpers);
-      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+      expect(await storyJob(postId)).toBeNull();
     } finally {
       spy.mockRestore();
-      enqueue.mockRestore();
     }
   });
 
   it("does not enqueue a publish-story when auto-story is off (no default, no override)", async () => {
     if (!TEST_DB) return;
     const { postId } = await igScenario();
-    const enqueue = await spyFirstCommentEnqueue();
     const spy = vi.spyOn((await import("@/lib/providers/meta")).metaProvider, "publish").mockResolvedValue({ providerHandle: "IG_MEDIA_S4" });
     try {
       await processPublish({ postId }, helpers);
       expect(await status(postId)).toBe("sent");
-      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+      expect(await storyJob(postId)).toBeNull();
     } finally {
       spy.mockRestore();
-      enqueue.mockRestore();
     }
   });
 
@@ -887,7 +883,7 @@ describe("publish worker (AUD27)", () => {
       await processPublish({ postId }, helpers);
       expect(await status(postId)).toBe("sent"); // the post still publishes
       expect(firstCommentCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull(); // but no PRO automations
-      expect(storyCall(enqueue as unknown as ReturnType<typeof vi.fn>)).toBeNull();
+      expect(await storyJob(postId)).toBeNull();
       void channelId;
     } finally {
       spy.mockRestore();

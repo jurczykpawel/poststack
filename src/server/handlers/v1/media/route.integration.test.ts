@@ -18,7 +18,7 @@ import { createHash } from "crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { runOnce } from "graphile-worker";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 
 // POST /api/v1/media reference fast-path: when sha256+mime+kind are supplied, an object already in the
@@ -269,4 +269,162 @@ it("lists and uploads media with the publishing scope and standard response enve
   const library = await app.request("/api/v1/media", { headers: { authorization: `Bearer ${WRITE_KEY}` } });
   expect(library.status).toBe(200);
   expect(await library.json()).toMatchObject({ error: null, data: [{ id: stored.data.id, url: stored.data.url, kind: "image" }] });
+});
+
+const remove = (id: string, key = WRITE_KEY) => app.request(`/api/v1/media/${id}`, {
+  method: "DELETE", headers: { authorization: `Bearer ${key}` },
+});
+const storeVideo = async () => {
+  const key = casKey(SHA, "video/mp4");
+  await getStorage().putBytes(key, mp4, "video/mp4");
+  const response = await post({ url: "https://example.com/video.mp4", sha256: SHA, mime: "video/mp4", kind: "video", size: mp4.length });
+  expect(response.status).toBe(201);
+  return (await response.json()).data as { id: string; storageKey: string; url: string };
+};
+
+describe("DELETE /api/v1/media/:id", () => {
+  it("deletes the object and releases the workspace's registered bytes", async () => {
+    const stored = await storeVideo();
+    const bytes = async () => (await db.query.media.findMany({ where: eq(schema.media.workspace_id, WS) }))
+      .reduce((sum, row) => sum + (row.size ?? 0), 0);
+    expect(await bytes()).toBe(mp4.length);
+    const response = await remove(stored.id);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ data: { deleted: true }, error: null });
+    expect(await bytes()).toBe(0);
+    expect(await getStorage().head(stored.storageKey)).toEqual({ exists: false });
+    expect((await get(stored.id)).status).toBe(404);
+    expect((await remove(stored.id)).status).toBe(404);
+  });
+
+  it("requires media:write and validates the ID", async () => {
+    const stored = await storeVideo();
+    expect((await remove(stored.id, UNRELATED_KEY)).status).toBe(403);
+    expect((await remove("bad-id")).status).toBe(422);
+    expect((await get(stored.id)).status).toBe(200);
+  });
+
+  it("hides another workspace's media and leaves a shared object in storage", async () => {
+    const stored = await storeVideo();
+    const { seedWorkspace } = await import("../../../../../tests/helpers/workspace");
+    const { registerKnownMedia } = await import("@/lib/media/service");
+    const other = await seedWorkspace(db, schema, { slug: `media-delete-other-${Date.now()}` });
+    try {
+      const shared = await registerKnownMedia({ checksum: SHA, mime: "video/mp4", kind: "video" }, { storage: getStorage() }, other);
+      expect((await remove(shared.id)).status).toBe(404);
+      expect((await remove(stored.id)).status).toBe(200);
+      expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
+      expect((await db.query.media.findFirst({ where: eq(schema.media.id, shared.id) }))?.workspace_id).toBe(other);
+    } finally {
+      await db.delete(schema.workspaces).where(eq(schema.workspaces.id, other));
+    }
+  });
+
+  it("keeps the object while another media record refers to its key", async () => {
+    const stored = await storeVideo();
+    const [shared] = await db.insert(schema.media).values({
+      workspace_id: WS, checksum: "legacy-checksum", storage_key: stored.storageKey, url: stored.url, kind: "video",
+    }).returning();
+    expect((await remove(stored.id)).status).toBe(200);
+    expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
+    expect((await remove(shared.id)).status).toBe(200);
+    expect(await getStorage().head(stored.storageKey)).toEqual({ exists: false });
+  });
+
+  it("keeps an object referenced by a post preview", async () => {
+    const stored = await storeVideo();
+    const [channel] = await db.insert(schema.channels).values({
+      workspace_id: WS, platform: "facebook", platform_id: "media-preview", token_encrypted: "fixture", webhook_secret: "fixture",
+    }).returning();
+    try {
+      await db.insert(schema.postPreviews).values({
+        workspace_id: WS, channel_id: channel.id, post_id: "preview", status: "ready", image_url: stored.url,
+      });
+      expect((await remove(stored.id)).status).toBe(200);
+      expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
+    } finally {
+      await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
+    }
+  });
+
+  it("does not register a reference while the last copy is being deleted", async () => {
+    const stored = await storeVideo();
+    const storage = getStorage();
+    const deleteObject = storage.delete.bind(storage);
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const deletion = vi.spyOn(storage, "delete").mockImplementationOnce(async (key) => {
+      started.resolve();
+      await release.promise;
+      await deleteObject(key);
+    });
+    const removing = remove(stored.id);
+    try {
+      await started.promise;
+      const { registerKnownMedia } = await import("@/lib/media/service");
+      const registering = registerKnownMedia({ checksum: SHA, mime: "video/mp4", kind: "video" }, { storage }, WS)
+        .catch(error => error);
+      await expect.poll(async () => (await db.execute(sql`
+        select 1 from pg_stat_activity where wait_event = 'advisory' and query like 'select pg_advisory_xact_lock%'
+      `)).rows.length).toBe(1);
+      release.resolve();
+      expect((await removing).status).toBe(200);
+      expect(await registering).toMatchObject({ status: 422, code: "not_present" });
+    } finally {
+      release.resolve();
+      await removing;
+      deletion.mockRestore();
+    }
+  });
+
+  it("blocks a scheduled post that uses an ingest handle, then permits deletion after publication", async () => {
+    const stored = await storeVideo();
+    const [alias] = await db.insert(schema.media).values({
+      workspace_id: WS, checksum: "alias", canonical_id: stored.id, storage_key: "", url: "", kind: "",
+    }).returning();
+    const [channel] = await db.insert(schema.channels).values({
+      workspace_id: WS, platform: "facebook", platform_id: "media-delete", token_encrypted: "fixture", webhook_secret: "fixture",
+    }).returning();
+    try {
+      const [delivery] = await db.insert(schema.deliveries).values({
+        workspace_id: WS, channel_id: channel.id, format: "reel", scheduled_at: new Date(),
+        payload: { format: "reel", media: [{ mediaId: alias.id }] },
+      }).returning();
+      const [editorial] = await db.insert(schema.posts).values({
+        workspace_id: WS, platform: "facebook", delivery_id: delivery.id, status: "scheduled",
+      }).returning();
+      const blocked = await remove(stored.id);
+      expect(blocked.status).toBe(409);
+      expect((await blocked.json()).error.message).toContain(editorial.id);
+      expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
+
+      await db.update(schema.deliveries).set({ status: "sent" }).where(eq(schema.deliveries.id, delivery.id));
+      await db.update(schema.posts).set({ status: "published" }).where(eq(schema.posts.id, editorial.id));
+      const { addJobTx } = await import("@/lib/queue/client");
+      const storyKey = `auto-story:${delivery.id}`;
+      await addJobTx(db, "publish-story", { channelId: channel.id, deliveryId: delivery.id }, { jobKey: storyKey });
+      try {
+        expect((await remove(stored.id)).status).toBe(409);
+      } finally {
+        await db.execute(sql`select graphile_worker.remove_job(${storyKey})`);
+      }
+      expect((await remove(stored.id)).status).toBe(200);
+      expect((await get(alias.id)).status).toBe(404);
+    } finally {
+      await db.delete(schema.posts).where(eq(schema.posts.workspace_id, WS));
+      await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
+    }
+  });
+
+  it("keeps a registered row if object deletion fails and allows retry", async () => {
+    const stored = await storeVideo();
+    const deletion = vi.spyOn(getStorage(), "delete").mockRejectedValueOnce(new Error("Storage unavailable"));
+    try {
+      expect((await remove(stored.id)).status).toBe(500);
+      expect((await get(stored.id)).status).toBe(200);
+      expect((await remove(stored.id)).status).toBe(200);
+    } finally {
+      deletion.mockRestore();
+    }
+  });
 });

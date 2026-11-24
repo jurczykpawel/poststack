@@ -7,7 +7,7 @@ import { getProviderForPlatform } from "@/lib/providers";
 import { can, missingPublishScopes } from "@/lib/channels/capabilities";
 import { validate } from "@/lib/providers/validate";
 import type { PublishRequest } from "@/lib/providers/types";
-import { getMedia } from "@/lib/media/service";
+import { getMedia, lockDeliveryMedia } from "@/lib/media/service";
 import { addJobTx } from "@/lib/queue/client";
 
 import { youtubeFormat } from "@/lib/providers/youtube-format";
@@ -92,6 +92,7 @@ export async function createDelivery(input: CreateDeliveryInput, workspaceId: st
   const runAt = parseScheduledAt(input.scheduledAt);
 
   const insert = async (t: DbTx): Promise<DeliveryRow> => {
+    await lockDeliveryMedia(t, workspaceId, input.request.media.map(m => m.mediaId), input.request.options?.coverUrl);
     const [row] = await t
       .insert(deliveries)
       .values({

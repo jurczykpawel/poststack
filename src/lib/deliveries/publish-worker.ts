@@ -200,37 +200,15 @@ async function enqueueFirstComment(
   );
 }
 
-/**
- * STORY1: enqueue the auto-Story for a just-published post. Resolves the toggle (per-post `autoStory`
- * override > channel `default_auto_story`), guards that the publish provider can post a Story, and
- * keys the delivery to the publish (delivery) id so a retry / re-publish reuses the same ledger row
- * instead of double-posting. Best-effort — the caller swallows failures so a Story hiccup never
- * affects the published post.
- */
-async function enqueueAutoStory(
-  channel: { id: string; platform: Platform; default_auto_story: boolean },
-  request: PublishRequest,
-  deliveryId: string,
-): Promise<void> {
-  const enabled = request.autoStory ?? channel.default_auto_story;
-  if (!enabled) return;
-  // PRO feature (auto_story): a free instance never auto-publishes a Story, even if the toggle is still
-  // stored on from a lapsed license — server-side authority, not the (stale) UI state.
-  if (!(await hasFeature("auto_story"))) return;
-  // Skip platforms whose publish provider has no Story-publish path (only meta/FB+IG today).
-  if (!getProviderForPlatform(channel.platform).publishStory) return;
-  await addJob(
-    "publish-story",
-    { channelId: channel.id, deliveryId, idempotencyKey: `auto-story:${deliveryId}` },
-    { jobKey: `auto-story:${deliveryId}` },
-  );
-}
-
 async function completePublish(post: DeliveryRow, channel: typeof channels.$inferSelect, providerHandle: string, publicPostId?: string, providerUrl?: string) {
   const publishedUrl = httpUrl(providerUrl) ?? (publicPostId ? postUrlFor(channel.platform, publicPostId, channel.username) : null);
   const request = post.payload as PublishRequest;
   const aiDisclosureSent = await buildAiDisclosureSent(post.id, post.workspace_id, request);
   const sentAt = new Date();
+  const autoStory = (request.autoStory ?? channel.default_auto_story)
+    && getProviderForPlatform(channel.platform).publishStory
+    && await hasFeature("auto_story").catch(() => false);
+  const storyKey = `auto-story:${post.id}`;
   const changed = await db.transaction(async (tx) => {
     await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id))).orderBy(posts.id).for("update");
     const rows = await tx.update(deliveries).set({ status: "sent", sent_at: sentAt, provider_handle: providerHandle, payload: sql`(${deliveries.payload} - '_youtubeUploadSession') || ${JSON.stringify(publishedUrl ? { _publishedUrl: publishedUrl } : {})}::jsonb`, last_error: null, updated_at: new Date() })
@@ -238,13 +216,15 @@ async function completePublish(post: DeliveryRow, channel: typeof channels.$infe
     if (!rows.length) return false;
     await tx.update(posts).set({ status: "published", published_at: sentAt, platform_post_id: providerHandle, ...(publishedUrl ? { published_url: publishedUrl } : {}), updated_at: new Date(), ...(aiDisclosureSent ? { ai_disclosure_sent: aiDisclosureSent } : {}) })
       .where(and(eq(posts.workspace_id, post.workspace_id), eq(posts.delivery_id, post.id)));
+    // Keep the Story job visible as soon as the source delivery stops protecting its media.
+    if (autoStory) await tx.transaction(storyTx => addJobTx(storyTx, "publish-story",
+      { channelId: channel.id, deliveryId: post.id, idempotencyKey: storyKey }, { jobKey: storyKey })).catch(() => {});
     return true;
   });
   if (!changed) return;
   await emitPostEvent(post.workspace_id, "post.published", post.id, { providerHandle, platform: channel.platform }).catch(() => {});
   await provisionAutoReply(post.id, post.workspace_id).catch(() => {});
   await enqueueFirstComment(channel, request, providerHandle, post.id).catch(() => {});
-  await enqueueAutoStory(channel, request, post.id).catch(() => {});
 }
 
 export async function processPublish(payload: { postId: string }, helpers: JobHelpers): Promise<void> {

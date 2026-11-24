@@ -3,7 +3,7 @@ import { z } from "zod";
 import { authenticateWithScope } from "@/lib/auth";
 import { created, ok, ApiErrors, ApiError, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
-import { getMedia, registerKnownMedia, listReadyMedia } from "@/lib/media/service";
+import { deleteMedia, getMedia, registerKnownMedia, listReadyMedia } from "@/lib/media/service";
 import { getStorage } from "@/lib/storage";
 import { enqueueIngest } from "@/lib/media/async-ingest";
 import { setTimeout as delay } from "node:timers/promises";
@@ -71,10 +71,12 @@ export async function POST(request: Request): Promise<Response> {
   return ok({ id: row.id, status: row.status, error: row.error }, undefined, 202);
 }
 
+const mediaId = z.string().uuid();
+
 export async function GET(request: Request, id: string): Promise<Response> {
   const auth = await authenticateWithScope(request, "media:write");
   if (!auth) return ApiErrors.unauthorized();
-  if (!z.string().uuid().safeParse(id).success) return ApiErrors.validationError([{ path: "id", message: "Invalid media id" }]);
+  if (!mediaId.safeParse(id).success) return ApiErrors.validationError([{ path: "id", message: "Invalid media id" }]);
   const row = await getMedia(id, auth.workspaceId);
   if (!row) return ApiErrors.notFound("Media");
   return ok(row.status === "ready" ? camelizeKeys(row) : { id: row.id, status: row.status, error: row.error });
@@ -84,4 +86,13 @@ export async function LIST(request: Request): Promise<Response> {
   const auth = await authenticateWithScope(request, "media:write");
   if (!auth) return ApiErrors.unauthorized();
   return ok(await listReadyMedia(auth.workspaceId));
+}
+
+
+export async function DELETE(request: Request, id: string): Promise<Response> {
+  const auth = await authenticateWithScope(request, "media:write");
+  if (!auth) return ApiErrors.unauthorized();
+  if (!mediaId.safeParse(id).success) return ApiErrors.validationError([{ path: "id", message: "Invalid media id" }]);
+  await deleteMedia(id, { storage: getStorage() }, auth.workspaceId);
+  return ok({ deleted: true });
 }

@@ -1,6 +1,6 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media } from "@/db/schema";
+import { media, deliveries, posts, postPreviews, outboundDeliveries } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import type { Storage } from "@/lib/storage/types";
 import { safeFetch, SsrfError } from "./ssrf";
@@ -18,15 +18,19 @@ export interface ProbeResult {
 export type Prober = (bytes: Uint8Array, mime: string | undefined, file?: string) => Promise<ProbeResult>;
 
 export type MediaRow = typeof media.$inferSelect;
+type MediaTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function fillMissingDuration(row: MediaRow, durationSec?: number): Promise<MediaRow> {
-  if (row.kind !== "video" || row.duration_sec != null || durationSec == null) return row;
-  const [updated] = await db.update(media).set({ duration_sec: durationSec })
-    .where(and(eq(media.id, row.id), eq(media.workspace_id, row.workspace_id), isNull(media.duration_sec)))
-    .returning();
-  return updated ?? (await getMedia(row.id, row.workspace_id)) ?? row;
+function lockBlob(tx: MediaTx, key: string) {
+  return tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
 }
 
+async function fillMissingDuration(tx: MediaTx, row: MediaRow, durationSec?: number): Promise<MediaRow> {
+  if (row.kind !== "video" || row.duration_sec != null || durationSec == null) return row;
+  const [updated] = await tx.update(media).set({ duration_sec: durationSec })
+    .where(and(eq(media.id, row.id), eq(media.workspace_id, row.workspace_id), isNull(media.duration_sec)))
+    .returning();
+  return updated ?? row;
+}
 
 const fetchTimeoutMs = (): number => Number(process.env.MEDIA_FETCH_TIMEOUT_MS ?? 3_600_000);
 
@@ -34,6 +38,7 @@ export interface RegisterByUrlDeps {
   storage: Storage;
   probe: Prober;
   resolve?: (host: string) => Promise<string[]>;
+  handleId?: string;
 }
 
 /**
@@ -62,50 +67,17 @@ export async function registerByUrl(
     }
     const headerMime = res.headers.get("content-type")?.split(";")[0]?.trim();
     return ingestStream(res, deps.storage, async ({ checksum, size, prefix, file, temporary }) => {
-      // CAS dedup at the media-row level (per workspace): identical content → existing row.
       const existing = await db.query.media.findFirst({
         where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, checksum)),
       });
-      if (existing) {
-        if (existing.kind !== "video" || existing.duration_sec != null) return existing;
-        return fillMissingDuration(existing, (await ingestStage("probe", () => deps.probe(prefix, headerMime, file))).durationSec);
-      }
-
-      const probe = await ingestStage("probe", () => deps.probe(prefix, headerMime, file));
-      const mime = probe.mime ?? headerMime;
-      const key = casKey(checksum, mime);
-
-      // CAS dedup at the object level: only upload if not already present.
-      await ingestStage("upload", async () => {
-        if (!(await deps.storage.head(key)).exists) {
-          await deps.storage.copy(temporary, key, mime ?? "application/octet-stream", { sha256: checksum });
-        }
-      });
-
-      // Row-level CAS: a concurrent identical ingest can insert between the findFirst and here.
-      // onConflictDoNothing + re-select makes the loser resolve to the winner (PSA34) — scoped to
-      // the (workspace_id, checksum) unique so it's per-tenant.
-      const [row] = await db
-        .insert(media)
-        .values({
-          workspace_id: workspaceId,
-          checksum,
-          storage_key: key,
-          url: deps.storage.publicUrl(key),
-          kind: probe.kind,
-          mime: mime ?? null,
-          size,
-          width: probe.width ?? null,
-          height: probe.height ?? null,
-          duration_sec: probe.durationSec ?? null,
-          status: "ready",
-        })
-        .onConflictDoNothing({ target: [media.workspace_id, media.checksum] })
-        .returning();
-      if (row) return row;
-      return (await db.query.media.findFirst({
-        where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, checksum)),
-      }))!;
+      const probe: ProbeResult = existing?.kind === "image" || (existing?.kind === "video" && existing.duration_sec != null)
+        ? { kind: existing.kind, mime: existing.mime ?? undefined, width: existing.width ?? undefined,
+          height: existing.height ?? undefined, durationSec: existing.duration_sec ?? undefined }
+        : await ingestStage("probe", () => deps.probe(prefix, headerMime, file));
+      return ingestStage("upload", () => registerKnownMedia(
+        { ...probe, checksum, size, mime: probe.mime ?? headerMime },
+        { storage: deps.storage, temporary, handleId: deps.handleId }, workspaceId,
+      ));
     });
   });
 }
@@ -145,47 +117,107 @@ export interface KnownMedia {
  */
 export async function registerKnownMedia(
   m: KnownMedia,
-  deps: { storage: Storage },
+  deps: { storage: Storage; temporary?: string; handleId?: string },
   workspaceId: string,
 ): Promise<MediaRow> {
-  // CAS dedup (per workspace): identical checksum already linked here → return without storage I/O.
-  const existing = await db.query.media.findFirst({
-    where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum)),
-  });
-  if (existing) return fillMissingDuration(existing, m.durationSec);
-
+  const { storage, temporary, handleId } = deps;
   const key = casKey(m.checksum, m.mime);
+  return db.transaction(async tx => {
+    await lockBlob(tx, key);
+    const byChecksum = and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum));
+    let row = await tx.query.media.findFirst({ where: byChecksum });
+    if ((!row || (temporary && key === row.storage_key)) && !(await storage.head(key)).exists) {
+      if (!temporary) throw new ApiError("not_present", `Object ${key} not present in media bucket`, 422);
+      await storage.copy(temporary, key, m.mime ?? "application/octet-stream", { sha256: m.checksum });
+    }
+    if (row) {
+      row = await fillMissingDuration(tx, row, m.durationSec);
+    } else {
+      const [inserted] = await tx.insert(media).values({
+        workspace_id: workspaceId,
+        checksum: m.checksum,
+        storage_key: key,
+        url: storage.publicUrl(key),
+        kind: m.kind,
+        mime: m.mime ?? null,
+        size: m.size ?? null,
+        width: m.width ?? null,
+        height: m.height ?? null,
+        duration_sec: m.durationSec ?? null,
+        status: "ready",
+      }).onConflictDoNothing({ target: [media.workspace_id, media.checksum] }).returning();
+      row = inserted ?? (await tx.query.media.findFirst({ where: byChecksum }))!;
+    }
+    if (handleId) await tx.update(media).set({ canonical_id: row.id, status: "ready", error: null })
+      .where(and(eq(media.id, handleId), eq(media.workspace_id, workspaceId), eq(media.status, "ingesting")));
+    return row;
+  });
+}
 
-  // Verify the object is actually present — the caller (or ReelStack) must have uploaded it first.
-  if (!(await deps.storage.head(key)).exists) {
-    throw new ApiError("not_present", `Object ${key} not present in media bucket`, 422);
-  }
-
-  // Row-level CAS scoped to (workspace_id, checksum): a concurrent registration can race past
-  // findFirst. onConflictDoNothing + re-select mirrors registerByUrl (PSA34).
-  const [row] = await db
-    .insert(media)
-    .values({
-      workspace_id: workspaceId,
-      checksum: m.checksum,
-      storage_key: key,
-      url: deps.storage.publicUrl(key),
-      kind: m.kind,
-      mime: m.mime ?? null,
-      size: m.size ?? null,
-      width: m.width ?? null,
-      height: m.height ?? null,
-      duration_sec: m.durationSec ?? null,
-      status: "ready",
-    })
-    .onConflictDoNothing({ target: [media.workspace_id, media.checksum] })
-    .returning();
-  if (row) return row;
-  return (await db.query.media.findFirst({
-    where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum)),
-  }))!;
+// Keep the media rows stable until the delivery's media IDs have been written to its payload.
+export async function lockDeliveryMedia(tx: MediaTx, workspaceId: string, mediaIds: string[], coverUrl?: unknown) {
+  const scope = eq(media.workspace_id, workspaceId);
+  const covers = typeof coverUrl === "string" && coverUrl ? await tx.select({ id: media.id }).from(media)
+    .where(and(scope, eq(media.url, coverUrl))) : [];
+  const ids = [...new Set([...mediaIds.map(id => id.toLowerCase()), ...covers.map(row => row.id)])];
+  if (!ids.length) return;
+  const rows = await tx.select({ id: media.id }).from(media)
+    .where(and(scope, inArray(media.id, ids))).orderBy(media.id).for("key share");
+  const found = new Set(rows.map(row => row.id));
+  const missing = ids.find(id => !found.has(id));
+  if (missing) throw new ApiError("invalid_request", `Unknown media: ${missing}`, 422);
 }
 
 export function listReadyMedia(workspaceId: string) {
   return db.query.media.findMany({ where: and(eq(media.workspace_id, workspaceId), eq(media.status, "ready"), isNull(media.canonical_id)), orderBy: [desc(media.created_at), desc(media.id)], limit: 100, columns: { id: true, url: true, kind: true } });
+}
+
+export async function deleteMedia(id: string, deps: { storage: Storage }, workspaceId: string) {
+  const scope = eq(media.workspace_id, workspaceId);
+  const target = and(scope, eq(media.id, id));
+  return db.transaction(async tx => {
+    const existing = await tx.query.media.findFirst({ where: target, columns: { storage_key: true } });
+    if (!existing) throw new ApiError("not_found", "Media not found", 404);
+    if (existing.storage_key) await lockBlob(tx, existing.storage_key);
+
+    const related = await tx.select().from(media)
+      .where(and(scope, or(eq(media.id, id), eq(media.canonical_id, id)))).orderBy(media.id).for("update");
+    const row = related.find(m => m.id === id);
+    if (!row) throw new ApiError("not_found", "Media not found", 404);
+    const ids = sql.param(related.map(m => m.id));
+    const url = row.canonical_id ? null : row.url || null;
+    const blockers = await tx.execute<{ post_id: string | null; delivery_id: string | null }>(sql`
+      select p.id as post_id, d.id as delivery_id from ${deliveries} d
+      left join ${posts} p on p.delivery_id = d.id and p.workspace_id = d.workspace_id
+      where d.workspace_id = ${workspaceId}
+      and ((d.status not in ('sent', 'canceled') and (
+        exists (select 1 from jsonb_array_elements_text(jsonb_path_query_array(d.payload, '$.media[*].mediaId')) item
+          where lower(item) = any(${ids}::text[]))
+        or d.payload->'options'->>'coverUrl' = ${url}
+      )) or (d.status = 'sent' and lower(d.payload->'media'->0->>'mediaId') = any(${ids}::text[]) and (
+        exists (select 1 from graphile_worker.jobs j where j.key = 'auto-story:' || d.id
+          and (j.locked_at is not null or j.attempts < j.max_attempts))
+        or exists (select 1 from ${outboundDeliveries} o where o.workspace_id = d.workspace_id
+          and o.delivery_key = 'auto-story:' || d.id and o.status in ('held', 'sending'))
+      )))
+      union all
+      select p.id, null from ${posts} p
+      where p.workspace_id = ${workspaceId} and p.delivery_id is null and p.status = 'scheduled'
+      and (${url} in (p.media_url, p.video_url, p.cover_url) or p.media_urls ? ${url})
+    `);
+    if (blockers.rows.length) {
+      const names = blockers.rows.map(p => p.post_id ? `post ${p.post_id}` : `delivery ${p.delivery_id}`);
+      throw new ApiError("conflict", `Media is in use by ${names.join(", ")}.`, 409);
+    }
+    if (row.status === "ingesting") throw new ApiError("conflict", "Wait for media ingestion to finish before deleting it.", 409);
+
+    await tx.delete(media).where(target);
+    if (!row.storage_key || row.canonical_id) return;
+    // Object ownership spans workspaces. Only this workspace's media rows are removed.
+    const refs = await tx.select({ found: sql`1` }).from(media).where(eq(media.storage_key, row.storage_key))
+      .unionAll(tx.select({ found: sql`1` }).from(postPreviews).where(or(
+        eq(postPreviews.image_url, row.url), eq(postPreviews.image_url, deps.storage.publicUrl(row.storage_key)),
+      ))).limit(1);
+    if (!refs.length) await deps.storage.delete(row.storage_key);
+  });
 }

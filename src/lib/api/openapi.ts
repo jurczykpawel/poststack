@@ -722,6 +722,19 @@ export const openApiSpec = {
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: { "200": { description: "Workspace-scoped media status and metadata" }, "404": { description: "Media not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
+      delete: {
+        ...requiresScope("media:write"), tags: ["Publishing"], summary: "Delete workspace media",
+        description: "Deletes the media and its ingest handles. The storage object is removed once no registered media or preview references remain.",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Media deleted", content: { "application/json": { schema: { type: "object", properties: { data: { type: "object", properties: { deleted: { const: true } } }, error: { type: "null" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Missing media:write scope" },
+          "404": { description: "Media not found in this workspace" },
+          "409": { description: "Media is ingesting or still needed for publication. The error message identifies any blocking posts or deliveries." },
+          "422": { description: "Invalid media id" },
+        },
+      },
     },
     "/brands": {
       get: {

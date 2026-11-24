@@ -29,14 +29,11 @@ export async function processMediaIngest({ id, workspaceId }: { id: string; work
   const row = await getMedia(id, workspaceId);
   if (!row || row.status !== "ingesting" || !row.source_url) return;
   try {
-    const ready = await registerByUrl(row.source_url, { storage: getStorage(), probe: defaultProbe }, workspaceId);
-    // Keep the accepted handle stable when CAS resolves to an existing media row.
-    await db.update(media).set({ canonical_id: ready.id, status: "ready", error: null })
-      .where(and(eq(media.id, id), eq(media.workspace_id, workspaceId)));
+    await registerByUrl(row.source_url, { storage: getStorage(), probe: defaultProbe, handleId: id }, workspaceId);
   } catch (e) {
     const reason = (e instanceof Error ? e.message : "Media ingest failed").slice(0, 1000);
     await db.update(media).set({ status: "failed", error: reason })
-      .where(and(eq(media.id, id), eq(media.workspace_id, workspaceId)));
+      .where(and(eq(media.id, id), eq(media.workspace_id, workspaceId), eq(media.status, "ingesting")));
     console.error(`[media-ingest] ${id}: ${sanitizeForLog(reason)}`);
   }
 }

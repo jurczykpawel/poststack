@@ -1863,6 +1863,7 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .carousel-notice { white-space: normal; overflow-wrap: anywhere; color: var(--text-2); }
 .compose-media-add { display: flex; flex-direction: column; gap: 10px; }
 .carousel-library { max-height: 220px; overflow: auto; display: grid; gap: 6px; }
+.carousel-library-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px; }
 .carousel-library button { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .carousel-preview { padding: 10px; font-size: 12px; color: var(--text-2); }
 .carousel-strip { overflow-x: auto; margin-top: 6px; }

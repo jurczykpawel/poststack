@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { Client } from "pg";
+import sharp from "sharp";
 import { E2E_DATABASE_URL } from "./env";
 import { setPro } from "./helpers";
 
@@ -56,4 +57,48 @@ test("Compose schedules a small image and brand slot counts update in place", as
   expect(errors).toEqual([]);
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
   await page.screenshot({ path: testInfo.outputPath("compose-image.png"), fullPage: true });
+});
+
+test("Media library confirms deletion and protects a scheduled post", async ({ page }) => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: "#4a76be" } }).png().toBuffer();
+  const response = await page.request.post("/api/v1/media", { headers: { "content-type": "image/png" }, data: bytes });
+  expect(response.status()).toBe(201);
+  const { data: media } = await response.json();
+
+  await page.goto("/compose");
+  await page.getByRole("button", { name: "Brand", exact: true }).click();
+  await page.getByRole("option", { name: "E2E Brand", exact: true }).click();
+  await page.getByRole("button", { name: "Add media", exact: true }).click();
+  await page.getByRole("button", { name: "Media library", exact: true }).click();
+  const select = page.locator("[data-library-media]").filter({ hasText: media.url });
+  const remove = page.getByRole("button", { name: `Delete media ${media.url}`, exact: true });
+  const dialog = page.getByRole("alertdialog");
+  await expect(select).toBeVisible();
+  await remove.click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(select).toBeVisible();
+
+  const { data: channels } = await (await page.request.get("/api/v1/channels")).json();
+  const facebook = channels.find((channel: { platform: string }) => channel.platform === "facebook");
+  const post = await page.request.post("/api/v1/posts", { data: { platform: "facebook", mediaUrl: media.url } });
+  expect(post.status()).toBe(201);
+  const { data: editorial } = await post.json();
+  const scheduled = await page.request.post(`/api/v1/posts/${editorial.id}/publish`, {
+    data: { channelId: facebook.id, when: "2030-01-15T14:30:00Z" },
+  });
+  expect(scheduled.status()).toBe(200);
+  const { data: { delivery } } = await scheduled.json();
+  await remove.click();
+  await dialog.getByRole("button", { name: "Delete media", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: editorial.id })).toBeVisible();
+  await expect(select).toBeVisible();
+
+  const canceled = await page.request.post(`/api/v1/deliveries/${delivery.id}/cancel`);
+  expect(canceled.ok()).toBe(true);
+  await remove.click();
+  const deleted = page.waitForResponse(r => r.request().method() === "DELETE" && r.url().endsWith(`/api/v1/media/${media.id}`));
+  await dialog.getByRole("button", { name: "Delete media", exact: true }).click();
+  expect((await deleted).status()).toBe(200);
+  await expect(select).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Media library", exact: true })).toBeFocused();
 });

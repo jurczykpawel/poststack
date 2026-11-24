@@ -274,6 +274,7 @@ v1.post("/posts/:postId/publish", validateIds, (c) =>
 v1.get("/media", (c) => mediaRegister.LIST(c.req.raw));
 v1.post("/media", (c) => mediaRegister.POST(c.req.raw));
 v1.get("/media/:id", (c) => mediaRegister.GET(c.req.raw, c.req.param("id")));
+v1.delete("/media/:id", (c) => mediaRegister.DELETE(c.req.raw, c.req.param("id")));
 v1.get("/brands", (c) => brandsList.GET(c.req.raw));
 v1.post("/brands", (c) => brandsList.POST(c.req.raw));
 v1.get("/brands/:brandKey/channels", validateIds, (c) =>

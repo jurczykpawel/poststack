@@ -184,7 +184,7 @@ function composeScript(): Html {
         hasSequences() { return this.canSequence && this.sequences.length > 0; },
         LIMITS: { instagram: 2200, facebook: 5000, tiktok: 2200, youtube: 5000, threads: 500, x: 280, linkedin: 3000 },
         videoCarouselHint: seqCfg.videoCarouselHint,
-        extraMedia: [], addOpen: false, additionalUrl: "", library: [], mediaKinds: {}, mediaNotice: "", mediaBusy: false, slideMenu: -1,
+        extraMedia: [], addOpen: false, additionalUrl: "", library: [], libraryLoaded: false, mediaKinds: {}, mediaNotice: "", mediaBusy: false, slideMenu: -1,
         allMedia() { return [this.mediaUrl.trim(), ...this.extraMedia].filter(Boolean); },
         setMedia(urls) { this.mediaUrl = urls[0] || ""; this.extraMedia = urls.slice(1); this.slideMenu = -1; if (urls.length > 1) this.type = "carousel"; else if (urls.length === 1) this.type = this.mediaVideo(urls[0]) ? "video" : "image"; },
         mediaLimit() { var targets = this.selectedPlatforms().filter(p => p.carousel); return targets.length ? Math.min(...targets.map(p => p.carouselMax)) : 20; },
@@ -213,9 +213,27 @@ function composeScript(): Html {
           return "";
         },
         async loadLibrary() {
-          this.mediaBusy = true;
-          try { var r = await fetch("/api/v1/media"); if (!r.ok) throw new Error("Could not load media library."); var b = await r.json(); this.library = b.data; this.library.forEach(m => this.mediaKinds[m.url] = m.kind); }
+          this.mediaBusy = true; this.mediaNotice = "";
+          try { var r = await fetch("/api/v1/media"); if (!r.ok) throw new Error("Could not load media library."); var b = await r.json(); this.library = b.data; this.libraryLoaded = true; this.library.forEach(m => this.mediaKinds[m.url] = m.kind); }
           catch (e) { this.mediaNotice = e.message; } finally { this.mediaBusy = false; }
+        },
+        async deleteLibraryMedia(item) {
+          this.mediaBusy = true;
+          this.mediaNotice = "";
+          try {
+            var response = await fetch("/api/v1/media/" + item.id, { method: "DELETE" });
+            var result = await response.json();
+            if (!response.ok) throw new Error(result.error?.message || "Could not delete media.");
+            this.library = this.library.filter(m => m.id !== item.id);
+            var urls = this.allMedia();
+            if (urls.includes(item.url)) this.setMedia(urls.filter(url => url !== item.url));
+            if (this.coverUrl.trim() === item.url) this.coverUrl = "";
+            this.$store.ui.push("ok", "Media deleted.");
+          } catch (e) { this.mediaNotice = e.message; }
+          finally {
+            this.mediaBusy = false;
+            this.$nextTick(() => this.$refs.mediaLibrary.focus());
+          }
         },
         async uploadMedia(file) {
           if (!file) return; this.mediaBusy = true;
@@ -449,9 +467,18 @@ async function composePage(
                 <label class="fld"><span>Additional media URL</span><input type="url" x-model="additionalUrl" /></label>
                 <button type="button" class="btn btn-sm" :disabled="!additionalUrl.trim() || mediaBusy" @click="addMedia(additionalUrl)">Add URL</button>
                 <label class="fld"><span>Upload media</span><input type="file" :accept="fbVideoBlocked() ? 'image/*' : 'image/*,video/*'" :disabled="mediaBusy" @change="uploadMedia($event.target.files[0]); $event.target.value=''" /></label>
-                <button type="button" class="btn btn-sm" :disabled="mediaBusy" @click="loadLibrary()">Media library</button>
+                <button type="button" class="btn btn-sm" x-ref="mediaLibrary" :disabled="mediaBusy" @click="loadLibrary()">Media library</button>
                 <p class="card-hint" x-show="fbVideoBlocked()" x-text="videoCarouselHint"></p>
-                <div class="carousel-library"><template x-for="m in library" :key="m.id"><button type="button" class="btn btn-sm" data-library-media :disabled="mediaBusy || allMedia().length>=mediaLimit() || (m.kind==='video' &amp;&amp; fbVideoBlocked())" :title="m.kind==='video' &amp;&amp; fbVideoBlocked() ? videoCarouselHint : ''" @click="addMedia(m.url,m.kind)"><span x-text="m.kind + ': ' + m.url"></span></button></template></div>
+                <p class="card-hint" role="status" x-show="libraryLoaded &amp;&amp; !library.length">No media in your library.</p>
+                <div class="carousel-library">
+                  <template x-for="m in library" :key="m.id">
+                    <div class="carousel-library-item">
+                      <button type="button" class="btn btn-sm" data-library-media :disabled="mediaBusy || allMedia().length>=mediaLimit() || (m.kind==='video' &amp;&amp; fbVideoBlocked())" :title="m.kind==='video' &amp;&amp; fbVideoBlocked() ? videoCarouselHint : ''" @click="addMedia(m.url,m.kind)"><span x-text="m.kind + ': ' + m.url"></span></button>
+                      <button type="button" class="btn btn-sm btn-danger" :aria-label="'Delete media ' + m.url" :disabled="mediaBusy"
+                        @click="$store.ui.ask({ title: 'Delete media?', body: 'Permanently delete this file from your media library?', label: 'Delete media' }, () => deleteLibraryMedia(m))">Delete</button>
+                    </div>
+                  </template>
+                </div>
               </div>
               <p class="notice notice-info" role="status" x-show="mediaBusy" x-cloak>Preparing media…</p>
               <template x-if="mediaVideo(mediaUrl.trim())"><video hidden preload="metadata" :src="mediaUrl.trim()" @loadedmetadata="videoSec = $el.duration" @emptied="videoSec = 0"></video></template>

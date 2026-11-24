@@ -3,6 +3,7 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { channels, content as contentTable, posts, deliveries } from "@/db/schema";
 import { rescheduleDelivery, validateDeliveryRequest, type DbTx } from "@/lib/deliveries/service";
+import { lockDeliveryMedia } from "@/lib/media/service";
 import { preparePublishRequest } from "./publish";
 import { validate } from "@/lib/providers/validate";
 import { getProviderForPlatform } from "@/lib/providers";
@@ -254,6 +255,7 @@ async function patchPostTx(id: string, workspaceId: string, patch: Partial<PostW
       const checked = validate(getProviderForPlatform(updated.platform), payload);
       if (!checked.ok) throw new ApiError("invalid_request", checked.errors.join("; "), 422);
     }
+    await lockDeliveryMedia(tx, workspaceId, payload.media.map(m => m.mediaId), payload.options.coverUrl);
     await tx.update(deliveries).set({ payload, format: payload.format, updated_at: new Date() })
       .where(and(eq(deliveries.id, delivery.id), eq(deliveries.workspace_id, workspaceId)));
   }
