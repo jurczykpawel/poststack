@@ -10,7 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
-- Delete media from the Compose library or via the API. Media still needed for publication is protected, and shared storage objects are kept while referenced.
+- Delete media from the Compose library or via the API. Media needed for pending publications is protected. For platforms that fetch media by URL, protection lasts for one hour after publication. Shared storage objects are kept while referenced.
 
 ### Fixed
 - Show failed approved replies in Inbox, Approvals, and Overview, and let operators retry failed deliveries from Approvals.

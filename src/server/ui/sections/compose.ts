@@ -222,8 +222,8 @@ function composeScript(): Html {
           this.mediaNotice = "";
           try {
             var response = await fetch("/api/v1/media/" + item.id, { method: "DELETE" });
-            var result = await response.json();
-            if (!response.ok) throw new Error(result.error?.message || "Could not delete media.");
+            var result = await response.json().catch(() => ({}));
+            if (!response.ok || result?.data?.deleted !== true) throw new Error(result?.error?.message || "Could not delete media.");
             this.library = this.library.filter(m => m.id !== item.id);
             var urls = this.allMedia();
             if (urls.includes(item.url)) this.setMedia(urls.filter(url => url !== item.url));

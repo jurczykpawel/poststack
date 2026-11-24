@@ -377,6 +377,99 @@ describe("DELETE /api/v1/media/:id", () => {
     }
   });
 
+  it("copies outside a database transaction and restores the object if DELETE removes that copy", async () => {
+    const stored = await storeVideo();
+    const storage = getStorage();
+    const temporary = "temporary/video.mp4";
+    await storage.putBytes(temporary, mp4, "video/mp4");
+    await storage.delete(stored.storageKey);
+
+    const copyObject = storage.copy.bind(storage);
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const copying = vi.spyOn(storage, "copy").mockImplementationOnce(async (...args) => {
+      await copyObject(...args);
+      started.resolve();
+      await release.promise;
+    });
+    const { registerKnownMedia } = await import("@/lib/media/service");
+    const registering = registerKnownMedia({ checksum: SHA, mime: "video/mp4", kind: "video" }, { storage, temporary }, WS);
+    try {
+      await Promise.race([started.promise, registering]);
+      const activity = await db.execute(sql`
+        select pid from pg_stat_activity where datname = current_database() and state = 'idle in transaction'
+      `);
+      expect(activity.rows).toHaveLength(0);
+      const removing = remove(stored.id);
+      try {
+        await expect.poll(async () => (await storage.head(stored.storageKey)).exists).toBe(false);
+      } finally {
+        release.resolve();
+        expect((await removing).status).toBe(200);
+      }
+      const registered = await registering;
+      expect(registered.id).not.toBe(stored.id);
+      expect((await get(registered.id)).status).toBe(200);
+      expect(await storage.head(registered.storage_key)).toMatchObject({ exists: true });
+      expect(copying).toHaveBeenCalledTimes(2);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([registering]);
+      copying.mockRestore();
+    }
+  });
+
+  it.each(["failed", "held", "processing"] as const)("keeps media used only as a cover by a %s delivery", async (status) => {
+    const stored = await storeVideo();
+    const [channel] = await db.insert(schema.channels).values({
+      workspace_id: WS, platform: "facebook", platform_id: "media-cover", token_encrypted: "fixture", webhook_secret: "fixture",
+    }).returning();
+    try {
+      const [delivery] = await db.insert(schema.deliveries).values({
+        workspace_id: WS, channel_id: channel.id, format: "reel", scheduled_at: new Date(), status,
+        payload: { format: "reel", media: [], options: { coverUrl: stored.url } },
+      }).returning();
+      const blocked = await remove(stored.id);
+      expect(blocked.status).toBe(409);
+      const { error } = await blocked.json();
+      expect(error.message).toContain(delivery.id);
+      if (status === "failed") expect(error.message).toMatch(/cancel the post to delete the file/i);
+      expect((await get(stored.id)).status).toBe(200);
+      expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
+    } finally {
+      await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
+    }
+  });
+
+  it.each([
+    { platform: "facebook", format: "feed_post", minutesAgo: 59, expected: 409 },
+    { platform: "facebook", format: "reel", minutesAgo: 59, expected: 409 },
+    { platform: "facebook", format: "reel", minutesAgo: 61, expected: 200 },
+    { platform: "youtube", format: "video", minutesAgo: 1, expected: 200 },
+  ] as const)("returns $expected for sent $platform $format media after $minutesAgo minutes", async ({ platform, format, minutesAgo, expected }) => {
+    const stored = await storeVideo();
+    const [channel] = await db.insert(schema.channels).values({
+      workspace_id: WS, platform, platform_id: "media-sent", token_encrypted: "fixture", webhook_secret: "fixture",
+    }).returning();
+    try {
+      const [delivery] = await db.insert(schema.deliveries).values({
+        workspace_id: WS, channel_id: channel.id, format, scheduled_at: new Date(), status: "sent",
+        sent_at: new Date(Date.now() - minutesAgo * 60_000),
+        payload: { format, media: [{ mediaId: stored.id }] },
+      }).returning();
+      const response = await remove(stored.id);
+      expect(response.status).toBe(expected);
+      if (expected === 409) {
+        const { error } = await response.json();
+        expect(error.message).toContain(delivery.id);
+        expect(error.message).toMatch(/one hour after publication/i);
+      }
+      expect((await getStorage().head(stored.storageKey)).exists).toBe(expected === 409);
+    } finally {
+      await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
+    }
+  });
+
   it("blocks a scheduled post that uses an ingest handle, then permits deletion after publication", async () => {
     const stored = await storeVideo();
     const [alias] = await db.insert(schema.media).values({

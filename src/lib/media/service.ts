@@ -1,7 +1,8 @@
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media, deliveries, posts, postPreviews, outboundDeliveries } from "@/db/schema";
+import { channels, media, deliveries, posts, postPreviews, outboundDeliveries } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
+import { getProviderForPlatform, isPublishablePlatform } from "@/lib/providers";
 import type { Storage } from "@/lib/storage/types";
 import { safeFetch, SsrfError } from "./ssrf";
 import { casKey } from "./cas";
@@ -110,8 +111,8 @@ export interface KnownMedia {
 /**
  * Register media that ALREADY lives in the content-addressed bucket (e.g. a reel rendered by
  * ReelStack into the shared `tsa-media-public` bucket), scoped to a workspace. Verifies the object
- * is present via a storage HEAD and links a DB row — never fetches bytes or re-uploads. CAS dedup is
- * PER workspace (checksum unique per workspace_id), mirroring registerByUrl. Throws
+ * is present via a storage HEAD and links a DB row. Uploads can supply a temporary object to copy
+ * into CAS if the key is missing. CAS dedup is PER workspace (checksum unique per workspace_id). Throws
  * ApiError("not_present", …, 422) when the object is absent so the caller can fall back to
  * registerByUrl (a missing dependency object is an unprocessable request, not a 409 conflict).
  */
@@ -122,14 +123,11 @@ export async function registerKnownMedia(
 ): Promise<MediaRow> {
   const { storage, temporary, handleId } = deps;
   const key = casKey(m.checksum, m.mime);
-  return db.transaction(async tx => {
+  const register = () => db.transaction(async tx => {
     await lockBlob(tx, key);
     const byChecksum = and(eq(media.workspace_id, workspaceId), eq(media.checksum, m.checksum));
     let row = await tx.query.media.findFirst({ where: byChecksum });
-    if ((!row || (temporary && key === row.storage_key)) && !(await storage.head(key)).exists) {
-      if (!temporary) throw new ApiError("not_present", `Object ${key} not present in media bucket`, 422);
-      await storage.copy(temporary, key, m.mime ?? "application/octet-stream", { sha256: m.checksum });
-    }
+    if ((!row || (temporary && key === row.storage_key)) && !(await storage.head(key)).exists) return;
     if (row) {
       row = await fillMissingDuration(tx, row, m.durationSec);
     } else {
@@ -152,6 +150,16 @@ export async function registerKnownMedia(
       .where(and(eq(media.id, handleId), eq(media.workspace_id, workspaceId), eq(media.status, "ingesting")));
     return row;
   });
+
+  let row = await register();
+  // Release the transaction during the copy. DELETE can remove the object before the next HEAD.
+  for (let attempt = 0; !row && temporary && attempt < 2; attempt++) {
+    await storage.copy(temporary, key, m.mime ?? "application/octet-stream", { sha256: m.checksum });
+    row = await register();
+  }
+  if (row) return row;
+  if (!temporary) throw new ApiError("not_present", `Object ${key} not present in media bucket`, 422);
+  throw new ApiError("conflict", "Media changed during registration. Retry the upload.", 409);
 }
 
 // Keep the media rows stable until the delivery's media IDs have been written to its payload.
@@ -186,11 +194,19 @@ export async function deleteMedia(id: string, deps: { storage: Storage }, worksp
     if (!row) throw new ApiError("not_found", "Media not found", 404);
     const ids = sql.param(related.map(m => m.id));
     const url = row.canonical_id ? null : row.url || null;
-    const blockers = await tx.execute<{ post_id: string | null; delivery_id: string | null }>(sql`
-      select p.id as post_id, d.id as delivery_id from ${deliveries} d
+    const pullUrlFormats = channels.platform.enumValues.filter(isPublishablePlatform).flatMap(platform =>
+      getProviderForPlatform(platform).capabilities(platform)
+        .filter(cap => cap.mediaIngestion === "pull_url" && cap.media.max > 0)
+        .map(cap => sql`(${platform}, ${cap.format})`));
+    const blockers = await tx.execute<{ post_id: string | null; delivery_id: string | null; status: string }>(sql`
+      select p.id as post_id, d.id as delivery_id, d.status from ${deliveries} d
       left join ${posts} p on p.delivery_id = d.id and p.workspace_id = d.workspace_id
       where d.workspace_id = ${workspaceId}
-      and ((d.status not in ('sent', 'canceled') and (
+      and (((d.status not in ('sent', 'canceled') or (
+        d.status = 'sent' and d.sent_at > (now() at time zone 'UTC') - interval '1 hour'
+        and exists (select 1 from ${channels} c where c.id = d.channel_id and c.workspace_id = d.workspace_id
+          and (c.platform::text, d.format) in (${sql.join(pullUrlFormats, sql`, `)}))
+      )) and (
         exists (select 1 from jsonb_array_elements_text(jsonb_path_query_array(d.payload, '$.media[*].mediaId')) item
           where lower(item) = any(${ids}::text[]))
         or d.payload->'options'->>'coverUrl' = ${url}
@@ -201,13 +217,18 @@ export async function deleteMedia(id: string, deps: { storage: Storage }, worksp
           and o.delivery_key = 'auto-story:' || d.id and o.status in ('held', 'sending'))
       )))
       union all
-      select p.id, null from ${posts} p
+      select p.id, null, 'scheduled' from ${posts} p
       where p.workspace_id = ${workspaceId} and p.delivery_id is null and p.status = 'scheduled'
       and (${url} in (p.media_url, p.video_url, p.cover_url) or p.media_urls ? ${url})
     `);
     if (blockers.rows.length) {
       const names = blockers.rows.map(p => p.post_id ? `post ${p.post_id}` : `delivery ${p.delivery_id}`);
-      throw new ApiError("conflict", `Media is in use by ${names.join(", ")}.`, 409);
+      const statuses = new Set(blockers.rows.map(blocker => blocker.status));
+      const message = [`Media is in use by ${names.join(", ")}.`];
+      if (["scheduled", "held", "failed", "unknown"].some(status => statuses.has(status))) message.push("Cancel the post to delete the file.");
+      if (statuses.has("sending") || statuses.has("processing")) message.push("Wait for publishing to finish before deleting the file.");
+      if (statuses.has("sent")) message.push("Wait until one hour after publication and until any automatic Story has finished before deleting the file.");
+      throw new ApiError("conflict", message.join(" "), 409);
     }
     if (row.status === "ingesting") throw new ApiError("conflict", "Wait for media ingestion to finish before deleting it.", 409);
 

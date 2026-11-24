@@ -78,6 +78,17 @@ test("Media library confirms deletion and protects a scheduled post", async ({ p
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(select).toBeVisible();
 
+  const deleteUrl = `/api/v1/media/${media.id}`;
+  for (const status of [502, 200]) {
+    await page.route(deleteUrl, route => route.fulfill({
+      status, contentType: "text/html", body: "<html>Proxy response</html>",
+    }), { times: 1 });
+    await remove.click();
+    await dialog.getByRole("button", { name: "Delete media", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Could not delete media." })).toBeVisible();
+    await expect(select).toBeVisible();
+  }
+
   const { data: channels } = await (await page.request.get("/api/v1/channels")).json();
   const facebook = channels.find((channel: { platform: string }) => channel.platform === "facebook");
   const post = await page.request.post("/api/v1/posts", { data: { platform: "facebook", mediaUrl: media.url } });
@@ -91,6 +102,7 @@ test("Media library confirms deletion and protects a scheduled post", async ({ p
   await remove.click();
   await dialog.getByRole("button", { name: "Delete media", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: editorial.id })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Cancel the post to delete the file." })).toBeVisible();
   await expect(select).toBeVisible();
 
   const canceled = await page.request.post(`/api/v1/deliveries/${delivery.id}/cancel`);
