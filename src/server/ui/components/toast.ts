@@ -51,6 +51,7 @@ export function confirmDialog(): Html {
     role="alertdialog"
     aria-labelledby="ps-confirm-title"
     aria-describedby="ps-confirm-body"
+    x-pstrap.tab-only
     x-effect="$store.ui.confirm.open ? ($el.open || $el.showModal()) : ($el.open && $el.close())"
     @close="if (!$el.open) $store.ui.cancelConfirm()"
     @click.self="$el.close()"
@@ -134,6 +135,12 @@ export function uiBehaviorScript(): Html {
         var first = f[0], last = f[f.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      // Native dialogs manage initial focus and restore it on close, but Tab can reach browser UI.
+      if (info.modifiers.includes('tab-only')) {
+        el.addEventListener('keydown', onKey);
+        ctx.cleanup(function () { el.removeEventListener('keydown', onKey); });
+        return;
       }
       ctx.effect(function () {
         var open = !!ctx.evaluate(info.expression);
