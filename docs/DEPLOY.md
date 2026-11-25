@@ -332,6 +332,27 @@ gunzip -c poststack-2026-06-16.sql.gz | \
   docker compose -f docker-compose.prod.yml exec -T postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
 ```
 
+### Deleted media in versioned storage
+
+Set an expiration rule for hidden versions in your versioned media bucket. For
+[Backblaze B2](https://www.backblaze.com/docs/cloud-storage-lifecycle-rules), the
+recommended rule for a dedicated media bucket is:
+
+```json
+{
+  "fileNamePrefix": "",
+  "daysFromHidingToDeleting": 30,
+  "daysFromUploadingToHiding": null
+}
+```
+
+The empty prefix covers the whole bucket. In a shared bucket, use the prefix that
+contains this instance's media files. B2 deletes eligible hidden versions on its
+next daily lifecycle run after 30 days. The rule also applies to versions that
+were already hidden. Object Lock can prevent their deletion. Tell users the
+effective retention period for their deleted media, accounting for the lifecycle
+schedule and any copies stored separately.
+
 ---
 
 ## 5. Troubleshooting

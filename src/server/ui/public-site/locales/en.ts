@@ -45,6 +45,7 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
     <section>
       <h2>History and retention</h2>
       <p>${config.retentionDays === 0 ? "Automatic history compaction is disabled for this instance." : html`This instance has a ${config.retentionDays}-day history compaction window. Older webhook, reaction and response-metric details can be replaced by aggregate statistics.`} This setting does not erase all stored content or all personal data. Message retention is configured separately for each workspace, and active workflow records can remain where needed for ongoing delivery. <a href="/contact">Contact the operator</a> about media storage, correspondence and backup retention.</p>
+      <p>Backup copies of deleted media files may be kept for a period set by the instance operator and are permanently deleted after that period.</p>
     </section>`;
   const contact = contactEmail ? html`
       <p>Use the <button class="contact-email" type="button" data-contact="${Array.from(contactEmail, c => c.codePointAt(0)).join(",")}">Show contact email</button> to write to the operator of ${brand.name}. The address becomes a clickable email link when JavaScript is available. <noscript>The contact address is ${contactEmail.replace("@", " [at] ").replaceAll(".", " [dot] ")}.</noscript></p>` : html`<p>Please contact the administrator of this instance for assistance and data requests.</p>`;
@@ -58,6 +59,7 @@ export function publicContent(page: PublicPage, config: PublicSiteConfig) {
       <h2>Account, workspace and stored-data requests</h2>
       <p>There is no account or workspace deletion button in this application. Contact the instance operator to request deletion of an account, a workspace or specific stored records. Identify the workspace and connected account involved, describe the data you want removed and say whether you are also asking to end access. The operator must verify your authority before acting on a request.</p><p>Find the operator’s address on the <a href="/contact">Contact page</a>.</p>
       <p>Do not send passwords or authorisation credentials. The operator can explain which records have been removed, what remains and how retained backups are handled. Deletion from this instance does not delete data already processed by a connected platform under its own policies.</p>
+      <p>Ask the operator how long backup copies of deleted media files are kept before permanent deletion.</p>
     </section>`;
   switch (page.path) {
     case "/": return html`

@@ -127,6 +127,13 @@ describe("instance public pages", () => {
     vi.stubEnv("HISTORY_RETENTION_DAYS", "0");
     expect(await (await landingRoutes.request("/privacy")).text()).toContain("Automatic history compaction is disabled");
   });
+  it("describes the operator's media backup retention separately from history compaction", async () => {
+    vi.stubEnv("HISTORY_RETENTION_DAYS", "90");
+    const privacy = await (await landingRoutes.request("/privacy")).text();
+    const deletion = await (await landingRoutes.request("/data-deletion")).text();
+    expect(privacy).toContain("Backup copies of deleted media files may be kept for a period set by the instance operator and are permanently deleted after that period.");
+    expect(deletion).toContain("Ask the operator how long backup copies of deleted media files are kept before permanent deletion.");
+  });
   it("keeps paragraphs unique across public pages in every configuration", async () => {
     const { getConfig } = await import("@/lib/settings/config");
     for (const configured of [false, true]) {
