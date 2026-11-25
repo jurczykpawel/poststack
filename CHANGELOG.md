@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.6] - 2026-11-25
+
 ### Security
 - Release and deployment workflows validate release tags before use, deploy the exact image digests built for the release, keep deployment output in private server logs, and use separate restricted deploy keys for TEST and PROD.
 - CI tooling downloads (ffmpeg, npm) are pinned and checksum-verified, and workflows run with read-only tokens by default.
