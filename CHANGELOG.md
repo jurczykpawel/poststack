@@ -9,6 +9,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.7] - 2026-11-25
+
+### Fixed
+- Uploaded and imported images must be readable images; a file with only an image signature is rejected.
+- API keys with an expiry date in the past are rejected with a field error, and expired keys are labelled in Settings.
+- Publishing an already scheduled post again returns a clear "already scheduled" conflict, and scheduling or rescheduling is limited to 10 years ahead.
+- The FREE brand limit is enforced for the REST API as well as the dashboard. Brand and tag names are trimmed and validated, and an unknown AI disclosure value returns a validation error instead of a server error.
+- Outbound webhooks: the API shows when the previous signing secret expires during rotation, transport headers such as `Expect` are ignored, duplicate header names are merged case-insensitively, and the endpoint edit form shows validation errors next to the field.
+- Deleting media that is still needed names the post and date instead of an internal ID, and link previews are protected against concurrent media deletion.
+- Dashboard: the Queue refreshes a stale card after a conflict, the reschedule form explains which dates are allowed, Escape returns focus after a confirmation dialog, errors show inside an open dialog, and 403/404 pages keep the dashboard layout.
+- The Telegram bot token is masked and cleared after submitting, and connecting YouTube without a configured client returns to Channels with instructions.
+- Contacts and Activity show a loading state while details load.
+- Callback URLs in Settings → Integrations wrap on small screens (#123), and X, Telegram and Gmail channels show their icons (#124).
+
+### Changed
+- `/privacy` and `/data-deletion` explain that backup copies of deleted media files are kept for a period set by the operator; `docs/DEPLOY.md` recommends a 30-day lifecycle rule for versioned media buckets.
+
 ## [0.27.6] - 2026-11-25
 
 ### Security
