@@ -79,7 +79,16 @@ test("switch sources, filter and open details on one address", async ({ page }, 
 
   const first = rows(page).first();
   const id = await first.getAttribute("data-row");
-  await first.click();
+  let resume!: () => void;
+  const pending = new Promise<void>(resolve => { resume = resolve; });
+  const detailUrl = (url: URL) => url.searchParams.get("open") === id;
+  await page.route(detailUrl, async route => { await pending; await route.continue(); }, { times: 1 });
+  try {
+    await first.click();
+    await expect(first.getByRole("status")).toHaveText("Loading details…");
+  } finally {
+    resume();
+  }
   await expect(page).toHaveURL(new RegExp(`open=${id}`));
   const panel = page.locator(".dl-detail");
   await expect(panel).toContainText("Noémie Pfirsch");

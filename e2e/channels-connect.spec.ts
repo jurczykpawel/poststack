@@ -54,6 +54,11 @@ test("CTA above the fold, sheet opens and closes with Esc, ?connect=1 deep link,
   await sheet(page).getByRole("button", { name: /Telegram bot/ }).click();
   await expect(sheet(page).getByLabel("Bot token")).toBeVisible();
   await expect(sheet(page).getByRole("button", { name: "Connect Telegram" })).toBeVisible();
+  const botToken = sheet(page).getByLabel("Bot token");
+  await botToken.fill("invalid-fixture-token");
+  await sheet(page).getByRole("button", { name: "Connect Telegram" }).click();
+  await expect(sheet(page).getByRole("alert")).toContainText("doesn't look like a Telegram bot token");
+  await expect(botToken).toHaveValue("");
   await page.screenshot({ path: testInfo.outputPath("channels-sheet-telegram-1440.png"), animations: "disabled" });
 
   // Advanced unfolds the token form; the footer opens Managed connections.
@@ -103,4 +108,13 @@ test("an empty workspace shows the platform tiles on the page", async ({ browser
   } finally {
     await ctx.close();
   }
+});
+
+
+test("unconfigured YouTube returns to Channels with a setup message", async ({ page }) => {
+  await setPro(page.request);
+  await gotoOk(page, "/channels?connect=1");
+  await sheet(page).getByRole("link", { name: /^YouTube/ }).click();
+  await expect(page).toHaveURL(/\/channels\?error=youtube_not_configured/);
+  await expect(page.getByText("Ask the instance administrator to set it up.", { exact: false })).toBeVisible();
 });

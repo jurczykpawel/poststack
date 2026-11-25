@@ -109,7 +109,12 @@ describe("Settings addresses", () => {
     const integrations = await text("/settings/integrations", otherCookie);
     expect(integrations).toContain("Managed by the instance operator");
     expect(integrations).not.toContain("META_APP_SECRET");
-    expect((await get("/settings/integrations/meta", otherCookie)).status).toBe(403);
+    const denied = await get("/settings/integrations/meta", otherCookie);
+    expect(denied.status).toBe(403);
+    const deniedPage = await denied.text();
+    expect(deniedPage).toContain('class="app');
+    expect(deniedPage).toContain("Access denied");
+    expect(deniedPage).toContain("Managed by the instance operator");
   });
 });
 

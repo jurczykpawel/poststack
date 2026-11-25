@@ -46,7 +46,12 @@ describe("versioned stored values", () => {
     const created = await endpoints.createEndpoint(workspaceId, { url: "https://example.com/hook" });
     const ctx = (field: string) => [`ws:${workspaceId}`, `webhook_endpoints.${field}`, created.id];
     const stored = reference("current", key, ctx("secret"));
-    await db.update(schema.webhookEndpoints).set({ secret: stored, secret_secondary: reference("previous", key, ctx("secret_secondary")), custom_headers_encrypted: reference('{"X-Example":"value"}', key, ctx("custom_headers_encrypted")) }).where(eq(schema.webhookEndpoints.id, created.id));
+    await db.update(schema.webhookEndpoints).set({
+      secret: stored,
+      secret_secondary: reference("previous", key, ctx("secret_secondary")),
+      secret_secondary_expires_at: new Date(Date.now() + 3_600_000),
+      custom_headers_encrypted: reference('{"X-Example":"value"}', key, ctx("custom_headers_encrypted")),
+    }).where(eq(schema.webhookEndpoints.id, created.id));
     expect((await endpoints.listEndpoints(workspaceId))[0]).toMatchObject({ secret: "current", secret_secondary: "previous", headers: { "X-Example": "value" } });
     await db.update(schema.webhookEndpoints).set({ secret_secondary: stored }).where(eq(schema.webhookEndpoints.id, created.id));
     await expect(endpoints.listEndpoints(workspaceId)).rejects.toThrow();

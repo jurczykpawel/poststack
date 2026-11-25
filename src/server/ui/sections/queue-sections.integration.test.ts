@@ -427,7 +427,9 @@ describe("queue post panel", () => {
     for (const open of ["nope", "00000000-0000-4000-8000-000000000000"]) {
       const res = await app.request(`/queue?open=${open}`, { headers: { cookie } });
       expect(res.status).toBe(404);
-      expect(await res.text()).not.toContain("dl-detail");
+      const page = await res.text();
+      expect(page).toContain("Page not found");
+      expect(page).not.toMatch(/class="dl-detail"/);
     }
   });
 

@@ -9,11 +9,11 @@ export const BRAND_KEY_HTML_PATTERN = "[A-Za-z0-9][A-Za-z0-9._\\-]*";
 export const BRAND_ACCENT_RE = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 export const BRAND_NAME_MAX = 100;
-export const brandName = z.string().trim().min(1, "Brand name is required").max(BRAND_NAME_MAX);
+export const brandName = z.string().trim().min(1, "Brand name is required").max(BRAND_NAME_MAX, `Brand name must be at most ${BRAND_NAME_MAX} characters`);
 
 const aiDisclosure = {
   // AIDISC2: brand-wide default AI declaration. Explicit null clears it.
-  default_ai_disclosure: z.enum(["none", "ai_assisted", "ai_generated"]).nullish(),
+  default_ai_disclosure: z.enum(["none", "ai_assisted", "ai_generated"], "Choose a valid AI disclosure option").nullish(),
   default_ai_disclosure_note: z.string().max(LIMITS.line).nullish(),
 };
 

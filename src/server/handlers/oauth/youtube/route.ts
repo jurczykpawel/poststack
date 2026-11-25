@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   if (!auth) return ApiErrors.unauthorized();
   const clientId = await getConfig("GOOGLE_CLIENT_ID");
   if (!clientId) {
-    return ApiErrors.badRequest("YouTube isn't configured on this instance (GOOGLE_CLIENT_ID is unset)");
+    return new Response(null, { status: 302, headers: { Location: "/channels?error=youtube_not_configured" } });
   }
   const { state, setCookie } = generateOAuthState(auth, OAUTH_FLOWS.youtube);
   const redirectUri = `${env.APP_URL}/api/oauth/youtube/callback`;

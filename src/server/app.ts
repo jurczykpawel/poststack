@@ -13,9 +13,10 @@ import { mcpRoutes } from "./routes/mcp";
 import { oauthRoutes } from "./routes/oauth";
 import { ApiErrors, ApiError, apiErrorResponse, err } from "@/lib/api/response";
 import { toastHeader } from "./ui/components/toast";
-import { errorPage } from "./ui/error-page";
+import { errorPage, panelErrorPage } from "./ui/error-page";
 import { sanitizeForLog } from "@/lib/api/safe-log";
 import { ProRequiredError, LimitExceededError } from "@/lib/license/gate";
+import { authenticateDashboard } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 const corsMiddleware = cors({
@@ -85,8 +86,13 @@ export function buildApp(): Hono {
   });
 
   // Unmatched routes: branded HTML 404 for pages; JSON contract for the API.
-  app.notFound((c) => {
+  app.notFound(async (c) => {
     if (c.req.path.startsWith("/api/")) return ApiErrors.notFound();
+    if (c.req.method === "GET" && c.req.header("HX-Request") !== "true" &&
+        await authenticateDashboard(c.req.raw).catch(() => null)) {
+      c.header("Cache-Control", "private, no-store");
+      return c.html(await panelErrorPage(404), 404);
+    }
     return c.html(errorPage(404), 404);
   });
 

@@ -147,7 +147,7 @@ function table<R>(p: DataListProps<R>): Html {
     <tbody>${p.rows.map((row) => {
       const id = p.rowId(row);
       return html`<tr data-row="${id}"${p.state.open === id ? raw(' aria-current="true"') : raw("")}>${p.columns.map((col) => html`<td class="${cellClass(col)}">${col.main
-        ? html`<a class="dl-rowlink" href="${listHref(p.path, p.state, { open: id })}">${col.cell(row)}</a>${p.sub ? html`<div class="dl-sub">${p.sub(row)}</div>` : ""}`
+        ? html`<a class="dl-rowlink" href="${listHref(p.path, p.state, { open: id })}">${col.cell(row)}<span class="dl-loading" role="status">Loading details…</span></a>${p.sub ? html`<div class="dl-sub">${p.sub(row)}</div>` : ""}`
         : col.cell(row)}</td>`)}</tr>`;
     })}</tbody>
   </table>`;
@@ -183,7 +183,7 @@ function emptyView<R>(p: DataListProps<R>): Html {
 function detailPanel<R>(p: DataListProps<R>): Html | string {
   if (!p.detail) return "";
   // Esc and the close button are one path; Back closes it too, because opening pushed an address.
-  return html`<aside class="dl-detail" aria-label="Details" tabindex="-1" x-data x-init="$el.focus({ preventScroll: true })" @keydown.escape.window="$el.querySelector('.dl-close').click()">
+  return html`<aside class="dl-detail" aria-label="Details" tabindex="-1" x-data x-init="$el.focus({ preventScroll: true })" @keydown.escape.window="if (!document.querySelector('dialog:modal')) $el.querySelector('.dl-close').click()">
     <div class="dl-detail-head">
       <h2>${p.detail.title}</h2>
       <a class="btn-ic dl-close" href="${listHref(p.path, p.state, { open: "" })}" data-row-return="${p.state.open}" aria-label="Close details" title="Close">${icon("close", "ico", 16)}</a>

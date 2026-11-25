@@ -98,3 +98,43 @@ test("failed post: Cancel from panel and list, Retry and Disable confirm", async
     await client.end();
   }
 });
+
+
+test("reschedule explains disabled state, restores focus and refreshes a stale Queue card", async ({ page }) => {
+  await setPro(page.request);
+  const client = new Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  let id: string | undefined;
+  try {
+    const { rows: [channel] } = await client.query("select id, workspace_id from channels where platform = 'facebook' limit 1");
+    const { rows: [delivery] } = await client.query(
+      "insert into deliveries(workspace_id,channel_id,format,status,payload,scheduled_at,run_at) values($1,$2,'text','scheduled',$3,now()+interval '1 day',now()+interval '1 day') returning id",
+      [channel.workspace_id, channel.id, { format: "text", media: [], caption: "Reschedule fixture" }],
+    );
+    id = delivery.id;
+    await gotoOk(page, `/queue?open=${id}`);
+    const panel = page.locator(".dl-detail");
+    await panel.getByText("Reschedule", { exact: true }).click();
+    const save = panel.getByRole("button", { name: "Save new time" });
+    await expect(save).toBeDisabled();
+    await expect(panel.getByRole("status", { name: "" }).filter({ hasText: "Choose a future date and time to save." })).toBeVisible();
+    await panel.getByLabel("New time").fill(new Date(Date.now() + 172800000).toISOString().slice(0, 16));
+    await save.press("Enter");
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(confirm).toBeHidden();
+    await expect(save).toBeFocused();
+
+    expect((await page.request.post(`/api/v1/deliveries/${id}/cancel`)).status()).toBe(204);
+    await save.press("Enter");
+    const response = page.waitForResponse(r => new URL(r.url()).pathname === `/queue/${id}/reschedule`);
+    await confirm.getByRole("button", { name: "Save new time" }).click();
+    expect((await response).status()).toBe(409);
+    await expect(panel.locator(".q-panel-status")).toContainText("canceled");
+    await expect(panel.getByText("Reschedule", { exact: true })).toHaveCount(0);
+  } finally {
+    if (id) await client.query("delete from deliveries where id=$1", [id]);
+    await client.end();
+  }
+});

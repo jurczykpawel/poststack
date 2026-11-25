@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { platformLabel, platformCell } from "./platform";
+import { platformLabel, platformCell, platformGlyphString, PLATFORM_LABELS } from "./platform";
 
 describe("platformLabel", () => {
   it("splits meta into Instagram / Facebook by subKind", () => {
@@ -46,4 +46,9 @@ describe("platformCell", () => {
     expect(out).toContain("mastodon");
     expect(out).not.toContain("<svg");
   });
+});
+
+
+it.each(Object.keys(PLATFORM_LABELS))("renders a visible avatar glyph for %s", platform => {
+  expect(platformGlyphString(platform)).toMatch(/<path d="[^"]+"/);
 });

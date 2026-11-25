@@ -255,12 +255,15 @@
   .toast-x .ico { width: 13px; height: 13px; }
 
   /* ---- Styled confirm dialog (replaces native confirm() on destructive HTMX actions) ---- */
-  .confirm-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  .confirm-overlay[open] { display: grid; }
+  .confirm-overlay { position: fixed; inset: 0; z-index: 60; place-items: center;
     padding: 24px; background: color-mix(in srgb, var(--bg) 70%, transparent);
     backdrop-filter: blur(3px);
     /* it is a <dialog>: drop the UA box so it stays a full-viewport overlay */
     width: auto; height: auto; max-width: none; max-height: none; margin: 0; border: 0; color: inherit; }
-  .confirm-overlay::backdrop { background: transparent; }
+  .confirm-overlay:modal { overscroll-behavior: contain; }
+  .confirm-overlay::backdrop { background: transparent; overflow: hidden; overscroll-behavior: contain; }
+  .modal-feedback { margin: 8px; position: sticky; top: 8px; z-index: 1; }
   .confirm-card { width: 100%; max-width: 400px; padding: 20px;
     background: var(--surface); border: 1px solid var(--border-strong);
     border-radius: var(--radius-card);
@@ -1373,7 +1376,8 @@ a.settings-tab { text-decoration: none; display: inline-block; }
 .int-step h3 { margin: 0; font-size: 14px; color: var(--text-1); }
 .int-url-label { font-size: 12px; color: var(--text-2); margin: 8px 0 4px; }
 .int-url { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); }
-.int-url code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 12px; }
+.int-url code { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; white-space: normal; font-size: 12px; }
+.int-url .copy-btn { flex: 0 0 auto; }
 .int-note { font-size: 12.5px; margin: 0 0 10px; }
 .int-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 16px; }
 .int-field .label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1660,6 +1664,7 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 
 /* Branded error pages (404 / 500). */
 .errpage { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.content .errpage { min-height: min(32rem, 65dvh); }
 .errpage-card { text-align: center; max-width: 30rem; }
 .errpage-code { font-family: var(--font-mono); font-size: 64px; font-weight: 700; line-height: 1;
   letter-spacing: -0.04em; color: var(--accent);
@@ -1715,6 +1720,8 @@ form.htmx-request { opacity: 0.85; transition: opacity 0.1s; }
 .dl-table tbody tr[aria-current="true"] td { background: var(--accent-bg); }
 .dl-rowlink { color: inherit; text-decoration: none; }
 .dl-rowlink::after { content: ""; position: absolute; inset: 0; }
+.dl-loading { display: none; margin-inline-start: .5rem; color: var(--text-2); font-weight: normal; }
+.dl-rowlink.htmx-request > .dl-loading { display: inline; }
 .dl-rowlink:focus-visible { outline: none; }
 .dl-rowlink:focus-visible::after { outline: 2px solid var(--accent); outline-offset: -2px; }
 .dl-num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

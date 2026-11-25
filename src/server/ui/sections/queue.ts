@@ -15,7 +15,7 @@ import { btn } from "../components/button";
 import { icon } from "../components/icons";
 import { urlLink, safeHttpUrl } from "../components/url";
 import { relTime, localTime } from "../components/format";
-import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
+import { isHtmx, toastHeader } from "../components/toast";
 import { editDeliveryText } from "@/lib/content/service";
 import { getQueueItem, resolveZone, type QueueItem } from "./queue-data";
 import { currentListUrl, renderQueue } from "./queue-list";
@@ -221,26 +221,30 @@ export function registerQueue(r: Hono, guard: MiddlewareHandler): void {
       if (!a) return c.body(null, 401, { "HX-Redirect": "/login" });
       const id = c.req.param("id");
       if (!id || !UUID_RE.test(id)) return c.text("not found", 404);
+      let conflict: ApiError | undefined;
       try {
         await run(a.workspaceId, id, c);
       } catch (err) {
-        if (err instanceof ApiError) {
-        toastHeader(c, "warn", err.message);
-        return c.text(err.message, err.status as 400);
-      }
-        throw err;
+        if (!(err instanceof ApiError)) throw err;
+        if (err.status !== 409 || !isHtmx(c)) {
+          toastHeader(c, "warn", err.message);
+          return c.text(err.message, err.status as 400);
+        }
+        conflict = err;
+        c.header("HX-Reswap", "outerHTML");
       }
       if (!isHtmx(c)) return c.redirect(`/queue/${id}`, 303);
       const item = await getQueueItem(a.workspaceId, id);
-      if (!item) return c.text("not found", 404);
-      const tone: ToastTone = STATUS_TONE[item.post.status] === "bad" ? "warn" : "ok";
-      toastHeader(c, tone, toast(item.post));
+      if (conflict) toastHeader(c, "warn", conflict.message);
+      else if (item) toastHeader(c, STATUS_TONE[item.post.status] === "bad" ? "warn" : "ok", toast(item.post));
       if (c.req.header("HX-Target") === "post-detail-head") {
-        if (c.req.path.endsWith("/reschedule")) c.header("HX-Refresh", "true");
-        return c.html(postDetailHead(item));
+        if (!item) return c.text("not found", 404);
+        if (!conflict && c.req.path.endsWith("/reschedule")) c.header("HX-Refresh", "true");
+        return c.html(postDetailHead(item), conflict ? 409 : 200);
       }
+      if (!item && !conflict) return c.text("not found", 404);
       const tz = await resolveZone(getCookie(c, TZ_COOKIE));
-      return c.html(await renderQueue(a.workspaceId, currentListUrl(c.req.url, c.req.header("HX-Current-URL")), tz));
+      return c.html(await renderQueue(a.workspaceId, currentListUrl(c.req.url, c.req.header("HX-Current-URL")), tz), conflict ? 409 : 200);
     };
   }
 

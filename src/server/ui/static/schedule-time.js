@@ -40,7 +40,15 @@ window.psReschedule = function () {
     },
     get iso() { return window.psScheduleTime(this.local).iso; },
     get notice() { return window.psScheduleTime(this.local).notice; },
-    get valid() { return !!this.iso && new Date(this.iso).getTime() > Date.now(); },
+    get validation() {
+      if (!this.iso) return "Choose a future date and time to save.";
+      var difference = Date.parse(this.iso) - Date.now();
+      if (difference <= 0) return "Choose a time in the future.";
+      var days = Number(this.$el.dataset.horizonDays);
+      if (difference > days * 86400000) return "Choose a time within " + days + " days.";
+      return "";
+    },
+    get valid() { return !this.validation; },
     get preview() {
       return this.iso ? new Date(this.iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) + " · " + Intl.DateTimeFormat().resolvedOptions().timeZone : "";
     },

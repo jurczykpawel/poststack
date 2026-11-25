@@ -44,36 +44,22 @@ export function toastRegion(): Html {
   </div>`;
 }
 
-/**
- * The shared styled confirm dialog (replaces native confirm() on destructive HTMX actions).
- * Focus-trapped + Esc/Cancel via the `psTrap` Alpine directive defined in uiBehaviorScript
- * (no Alpine Focus plugin needed). `x-show` toggles it; the danger button resumes the request.
- */
+/** Shared modal confirmation for HTMX actions. The browser handles Escape and focus return. */
 export function confirmDialog(): Html {
-  // MQA13-B03: a modal <dialog> (showModal) joins the top layer above an already-open modal panel
-  // (e.g. Edit brand); a plain fixed div sat underneath it and could not be clicked.
   return html`<dialog
     class="confirm-overlay"
-    x-show="$store.ui.confirm.open"
-    x-cloak
-    x-effect="$store.ui.confirm.open ? ($el.open || !$el.showModal || $el.showModal()) : ($el.open && $el.close())"
-    @cancel.prevent="$store.ui.cancelConfirm()"
-    @keydown.escape.window="$store.ui.cancelConfirm()"
-    @click.self="$store.ui.cancelConfirm()"
-    x-transition.opacity.duration.120ms
+    role="alertdialog"
+    aria-labelledby="ps-confirm-title"
+    aria-describedby="ps-confirm-body"
+    x-effect="$store.ui.confirm.open ? ($el.open || $el.showModal()) : ($el.open && $el.close())"
+    @close="if (!$el.open) $store.ui.cancelConfirm()"
+    @click.self="$el.close()"
   >
-    <div
-      class="confirm-card"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="ps-confirm-title"
-      aria-describedby="ps-confirm-body"
-      x-pstrap="$store.ui.confirm.open"
-    >
+    <div class="confirm-card">
       <h2 class="confirm-title" id="ps-confirm-title" x-text="$store.ui.confirm.title"></h2>
       <p class="confirm-body" id="ps-confirm-body" x-text="$store.ui.confirm.body"></p>
       <div class="confirm-acts">
-        <button type="button" class="btn btn-ghost btn-md" @click="$store.ui.cancelConfirm()">
+        <button type="button" class="btn btn-ghost btn-md" autofocus @click="$el.closest('dialog').close()">
           Cancel
         </button>
         <button type="button" class="btn btn-danger btn-md" @click="$store.ui.acceptConfirm()" x-text="$store.ui.confirm.label"></button>
@@ -122,6 +108,7 @@ export function uiBehaviorScript(): Html {
         var r = this.confirm._resume;
         this.confirm.open = false;
         this.confirm._resume = null;
+        document.querySelector('.confirm-overlay[open]')?.close();
         if (r) r();
       },
       cancelConfirm: function () {
@@ -186,17 +173,44 @@ export function uiBehaviorScript(): Html {
         htmx.trigger(el, 'htmx:afterProcessNode');
       });
     });
+    function notify(tone, message) {
+      var dialogs = Array.from(document.querySelectorAll('dialog:modal'));
+      var modal = document.activeElement?.closest('dialog:modal') || dialogs.at(-1);
+      if (modal && (tone === 'bad' || tone === 'warn')) {
+        var feedback = modal.querySelector('.modal-feedback');
+        if (!feedback) {
+          feedback = document.createElement('p');
+          feedback.className = 'notice notice-err modal-feedback';
+          feedback.setAttribute('role', 'alert');
+          modal.prepend(feedback);
+          modal.addEventListener('close', function () { feedback.remove(); }, { once: true });
+        }
+        feedback.textContent = message;
+      } else if (window.Alpine && Alpine.store('ui')) {
+        Alpine.store('ui').push(tone, message);
+      }
+    }
+    document.body.addEventListener('htmx:beforeRequest', function (e) {
+      if (e.detail.requestConfig.verb !== 'get') e.target.closest('dialog:modal')?.querySelector('.modal-feedback')?.remove();
+    });
+    document.body.addEventListener('htmx:beforeSwap', function (e) {
+      var xhr = e.detail.xhr;
+      if ((xhr.status === 409 && xhr.getResponseHeader('HX-Reswap') === 'outerHTML') ||
+          (xhr.status === 429 && xhr.getResponseHeader('HX-Retarget') && xhr.getResponseHeader('HX-Reswap'))) {
+        e.detail.shouldSwap = true;
+      }
+    });
     // HTMX → toast: fire from a server HX-Trigger {"ps:toast":{tone,msg}}.
     document.body.addEventListener('ps:toast', function (e) {
       var d = (e && e.detail) || {};
-      if (window.Alpine && Alpine.store('ui')) Alpine.store('ui').push(d.tone, d.msg);
+      notify(d.tone, d.msg);
     });
     // MQA18-B04: a failed htmx write must never look saved. Network failure → sendError; a 5xx (or an
     // error the server did not already explain with its own toast) → responseError. GET polls stay silent.
     function writeFailed(e, fallback) {
       var d = e.detail || {};
       if (((d.requestConfig && d.requestConfig.verb) || 'get') === 'get') return;
-      if (window.Alpine && Alpine.store('ui')) Alpine.store('ui').push('bad', fallback);
+      notify('bad', fallback);
     }
     document.body.addEventListener('htmx:sendError', function (e) {
       writeFailed(e, 'Not saved — no connection. Check your network and try again.');
@@ -204,8 +218,12 @@ export function uiBehaviorScript(): Html {
     document.body.addEventListener('htmx:responseError', function (e) {
       var xhr = (e.detail || {}).xhr;
       // A 422 is swapped into the form's own message slot, so it is explained already (MQA19-B04).
-      var explained = xhr && (xhr.status === 422 || /ps:toast/.test(xhr.getResponseHeader('HX-Trigger') || ''));
-      if (!explained) writeFailed(e, 'Not saved — server error. Try again in a moment.');
+      var explained = xhr && (xhr.status === 422 ||
+        (xhr.status === 429 && xhr.getResponseHeader('HX-Retarget')) ||
+        /ps:toast/.test(xhr.getResponseHeader('HX-Trigger') || ''));
+      if (!explained) writeFailed(e, xhr?.status === 429
+        ? 'Too many requests. Wait and try again.'
+        : 'Not saved — server error. Try again in a moment.');
     });
     // HTMX confirm → styled Alpine dialog (only for elements carrying hx-confirm).
     document.body.addEventListener('htmx:confirm', function (e) {
@@ -214,6 +232,8 @@ export function uiBehaviorScript(): Html {
       var el = e.detail.elt;
       var label = (el && el.getAttribute('data-confirm-label')) || 'Confirm';
       if (window.Alpine && Alpine.store('ui')) {
+        var invoker = e.detail.triggeringEvent?.submitter || (el?.matches('button') ? el : null);
+        if (invoker) invoker.focus({ preventScroll: true });
         Alpine.store('ui').ask(
           { title: 'Please confirm', body: e.detail.question, label: label },
           function () { e.detail.issueRequest(true); }

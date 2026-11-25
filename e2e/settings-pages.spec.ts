@@ -134,3 +134,47 @@ test("API key validation keeps the sheet, name and custom permissions until succ
   await expect(sheet.getByLabel("Name", { exact: true })).toHaveValue("");
   await expect(sheet.locator('[name="preset"][value="publishing"]')).toBeChecked();
 });
+
+
+test("callback URLs wrap on a small phone and copy in full", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await gotoOk(page, "/settings/integrations/meta");
+  const code = page.locator(".int-url code").filter({ hasText: "/api/oauth/instagram-login/callback" });
+  await expect(code).toBeVisible();
+  expect(await code.evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(await code.evaluate(el => el.clientWidth));
+  const url = await code.textContent();
+  await code.locator("..").getByRole("button", { name: "Copy", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(url);
+});
+
+test("API key rate limit is shown inside the open sheet", async ({ page }) => {
+  await setPro(page.request);
+  await gotoOk(page, "/settings/api-keys");
+  let postCount = 0;
+  await page.route("**/settings/api-keys", route => {
+    if (route.request().method() !== "POST") return route.continue();
+    if (++postCount === 1) return route.fulfill({ status: 429, body: "Too many requests" });
+    return route.fulfill({
+      status: 429, contentType: "text/html",
+      headers: { "HX-Retarget": "#api-key-error", "HX-Reswap": "innerHTML" },
+      body: '<div class="notice notice-err">Too many API key creations. Try again later.</div>',
+    });
+  });
+  await page.getByRole("button", { name: "Create API key" }).click();
+  const sheet = page.locator("#api-key-sheet");
+  await sheet.getByLabel("Name", { exact: true }).fill("Rate limit fixture");
+  const create = sheet.getByRole("button", { name: "Create key", exact: true });
+  await create.click();
+  await expect(sheet.locator(".modal-feedback")).toHaveText("Too many requests. Wait and try again.");
+  await create.click();
+  await expect(sheet.getByRole("alert")).toHaveText("Too many API key creations. Try again later.");
+  await expect(sheet.getByRole("alert")).toBeFocused();
+});
+
+test("a missing dashboard detail uses the dashboard layout", async ({ page }) => {
+  const response = await page.goto("/queue/not-a-delivery");
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+  await expect(page.locator("#main .errpage-card")).toBeVisible();
+});

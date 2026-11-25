@@ -95,7 +95,7 @@ async function due(id: string) { await db.execute(sql`update graphile_worker._pr
 
 describe("Story segments for URL media", () => {
   it("publish reports pending; the post shows the count once ingest has measured the video", async () => {
-    const d = await publish("2099-01-01T00:00:00.000Z", "https://example.com/story.mp4", "story");
+    const d = await publish(new Date(Date.now() + 3_600_000).toISOString(), "https://example.com/story.mp4", "story");
     const read = async () => (await (await app.request(`/api/v1/posts/${d.postId}`, { headers: { authorization: `Bearer ${key}`, "content-type": "application/json" } })).json()).data.delivery;
     expect(await read()).toMatchObject({ storySegments: null, storySegmentsPending: true });
     await drain("media-ingest");

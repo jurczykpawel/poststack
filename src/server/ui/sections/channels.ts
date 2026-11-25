@@ -382,6 +382,7 @@ const CHANNEL_ERRORS: Record<string, string> = {
   no_ig_accounts: "No Instagram Business accounts found linked to your Pages.",
   no_gmail_accounts: "No Gmail account was returned. Check access and try again.",
   yt_no_refresh: "YouTube did not grant offline access. Reconnect and approve the requested access.",
+  youtube_not_configured: "YouTube isn’t configured on this instance. Ask the instance administrator to set it up.",
   yt_no_channel: "No YouTube channel was found for this Google account.",
   oauth_failed: "Connection failed. Please try again.",
   scope_unavailable: "The provider's app does not allow the requested permissions. For LinkedIn Company Pages, add the Community Management API product to the LinkedIn app, or connect your profile instead.",
@@ -471,12 +472,8 @@ async function channelsPage(c: Context): Promise<Response> {
 interface ConnectOpts { canMultiChannel: boolean; canNonMeta: boolean; upgradeUrl: string; hasFb: boolean; hasIg: boolean }
 interface ConnectTile { platform: string; name: string; does: string; href: string; locked: boolean }
 
-// Platforms without a brand glyph in components/platform get a letter on their brand colour.
-const TILE_FALLBACK: Record<string, { color: string; letter: string }> = { telegram: { color: "#27A7E7", letter: "✈" }, gmail: { color: "#EA4335", letter: "M" } };
-
 function tileAvatar(platform: string): Html {
-  const f = TILE_FALLBACK[platform];
-  return html`<span class="ct-av" style="background:${f?.color ?? platformColor(platform)}">${f ? f.letter : platformGlyph(platform, 18)}</span>`;
+  return html`<span class="ct-av" style="background:${platformColor(platform)}">${platformGlyph(platform, 18)}</span>`;
 }
 
 function connectTile(t: ConnectTile, upgradeUrl: string): Html {
@@ -493,8 +490,9 @@ function telegramTile(o: ConnectOpts): Html {
     <button class="ct-tile" type="button" @click="open = !open" :aria-expanded="open">${tileAvatar(t.platform)}<span><b>${t.name}</b><small>${t.does}</small></span></button>
     <div class="ct-tg-body" x-show="open" x-cloak>
       <p>In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token. We set up the webhook for you.</p>
-      <form class="ct-form" hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML">
-        <label class="label">Bot token<input class="input" name="token" placeholder="123456789:AA..." autocomplete="off" required /></label>
+      <form class="ct-form" hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML"
+        @htmx:before-send="$el.elements.token.value = ''">
+        <label class="label">Bot token<input class="input" type="password" name="token" placeholder="123456789:AA..." autocomplete="off" required /></label>
         <button class="btn btn-primary btn-sm" type="submit">Connect Telegram</button>
         <div class="ct-err" role="alert"></div>
       </form>
