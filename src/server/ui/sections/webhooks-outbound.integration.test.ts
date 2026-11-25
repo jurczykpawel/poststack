@@ -338,5 +338,6 @@ it("styles invalid extra fields as an error", async () => {
   const ep = await endpoints.createEndpoint(workspaceId, { url: "https://hooks.example.com/invalid-extra" });
   const res = await form(`/webhooks/outbound/${ep.id}`, { url: ep.url, extra: "{bad json" });
   expect(res.status).toBe(422);
+  expect(res.headers.get("HX-Retarget")).toBe(`#wh-edit-${ep.id}-error-extra`);
   expect(await res.text()).toMatch(/notice-err[^>]*>Extra payload fields/);
 });

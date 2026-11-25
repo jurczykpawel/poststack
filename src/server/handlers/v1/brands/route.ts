@@ -1,7 +1,7 @@
 import { authenticateWithScope } from "@/lib/auth";
 import { ok, created, ApiErrors, zodDetails } from "@/lib/api/response";
 import { camelizeKeys } from "@/lib/api/serialize";
-import { listBrands, createBrand } from "@/lib/brands/service";
+import { listBrands, createBrandWithinLimit } from "@/lib/brands/service";
 import { brandCreate } from "@/lib/brands/validation";
 
 export const runtime = "nodejs";
@@ -18,6 +18,6 @@ export async function POST(request: Request): Promise<Response> {
   const body = await request.json().catch(() => ({}));
   const parsed = brandCreate.safeParse(body);
   if (!parsed.success) return ApiErrors.validationError(zodDetails(parsed.error));
-  const row = await createBrand(parsed.data, auth.workspaceId);
+  const row = await createBrandWithinLimit(parsed.data, auth.workspaceId);
   return created(camelizeKeys(row));
 }

@@ -1,19 +1,19 @@
+import { brandPatch, BRAND_NAME_MAX } from "@/lib/brands/validation";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { html, raw } from "hono/html";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { brands as brandsTbl, channels as channelsTbl } from "@/db/schema";
+import { channels as channelsTbl } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { authenticateDashboard, type AuthContext } from "@/lib/auth";
 import { getInstanceLicense, LimitExceededError, ProRequiredError } from "@/lib/license/gate";
-import { createBrand, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
+import { createBrandWithinLimit, listBrands, getBrand, updateBrand, deleteBrand, type BrandRow } from "@/lib/brands/service";
 import { BRAND_ACCENT_RE, BRAND_KEY_HTML_PATTERN } from "@/lib/brands/validation";
 import { getStoryRenderer, STORY_TEMPLATES } from "@/lib/stories";
 import { resolveBrandSlots, EDITORIAL_PLATFORMS } from "@/lib/brands/resolve";
 import { lockedBrandKeys } from "@/lib/brands/access";
 import { channelMatchesPlatform } from "@/lib/channels/platform-match";
 import { env } from "@/lib/env";
-import { createWithinLimit } from "@/lib/license/limit-guard";
 import { listChannels } from "@/lib/channels/service";
 import { renderPage } from "../layout";
 import { platformLabel } from "../components/platform";
@@ -209,7 +209,7 @@ function editPanel(brand: BrandRow, error?: string): Html {
         hx-post="${keyPath(brand.key)}/edit" hx-target="#edit-error-${domSafe(brand.key)}" hx-swap="innerHTML" hx-disabled-elt="[form=edit-${domSafe(brand.key)}]"
         x-data="{ tpl: '${brand.story_template ?? ""}', disc: '${brand.default_ai_disclosure ?? ""}' }">
         <label class="brand-fld"><span>Brand name</span>
-          <input name="name" value="${brand.name}" required /></label>
+          <input name="name" maxlength="${BRAND_NAME_MAX}" value="${brand.name}" required /></label>
         ${accentField(brand.accent ?? "", `edit-error-${domSafe(brand.key)}`)}
         <div id="edit-error-${domSafe(brand.key)}" aria-live="polite">${error ? html`<div class="notice notice-err" role="alert">${error}</div>` : ""}</div>
         ${iconField(brand.icon ?? "")}
@@ -312,7 +312,7 @@ async function brandsPage(c: Context, notice?: string, status = 200, failedEdit?
               <label class="brand-fld"><span>Key <small>(stable id — e.g. techskills.academy)</small></span>
                 <input name="key" placeholder="techskills.academy" required pattern="${BRAND_KEY_HTML_PATTERN}" title="Letters, digits, dots, dashes and underscores; start with a letter or digit" /></label>
               <label class="brand-fld"><span>Display name</span>
-                <input name="name" placeholder="Tech Skills Academy" required /></label>
+                <input name="name" maxlength="${BRAND_NAME_MAX}" placeholder="Tech Skills Academy" required /></label>
               ${accentField()}
               ${iconField()}
               <button class="btn btn-primary btn-sm" type="submit">${icon("plus", "ico", 14)}Create brand</button>
@@ -421,18 +421,10 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
     const form = await c.req.parseBody();
     const key = String(form.key ?? "");
     try {
-      // Open-core: free = 1 brand; multiple brands is Pro. Atomic (advisory lock); workspace-scoped
-      // count + an existing-key exemption (→ 409 via createBrand).
-      await createWithinLimit("brands", {
-        exempt: async (tx) => !!(await tx.query.brands.findFirst({ where: and(eq(brandsTbl.workspace_id, ws), eq(brandsTbl.key, key)) })),
-        count: async (tx) => (await tx.query.brands.findMany({ where: eq(brandsTbl.workspace_id, ws), columns: { key: true } })).length,
-        create: (tx) =>
-          createBrand(
-            { key, name: String(form.name ?? ""), accent: form.accent ? String(form.accent) : null, icon: form.icon ? String(form.icon) : null },
-            ws,
-            tx,
-          ),
-      });
+      await createBrandWithinLimit(
+        { key, name: String(form.name ?? ""), accent: form.accent ? String(form.accent) : null, icon: form.icon ? String(form.icon) : null },
+        ws,
+      );
     } catch (err) {
       // Limit hit (free already has its 1 brand) or area not entitled → re-render the page with a
       // friendly notice, NOT a 500/raw text. A plain full-page form POST, so we return the HTML page.
@@ -456,20 +448,19 @@ export function registerBrands(r: Hono, guard: MiddlewareHandler): void {
     const key = c.req.param("key");
     const form = await c.req.parseBody();
     try {
-      await updateBrand(ws, key, {
+      const parsed = brandPatch.safeParse({
         name: String(form.name ?? ""),
-        accent: form.accent ? String(form.accent) : null,
         icon: form.icon ? String(form.icon) : null,
         story_template: form.story_template ? String(form.story_template) : null,
         // AIDISC2: "" from the select = not set (this brand declares nothing). A blank note falls back
         // to the built-in wording for the level rather than suppressing the line — see aiDisclosureField.
-        default_ai_disclosure: form.default_ai_disclosure
-          ? (String(form.default_ai_disclosure) as "none" | "ai_assisted" | "ai_generated")
-          : null,
+        default_ai_disclosure: form.default_ai_disclosure || null,
         default_ai_disclosure_note: form.default_ai_disclosure_note
           ? String(form.default_ai_disclosure_note).trim() || null
           : null,
       });
+      if (!parsed.success) throw new ApiError("invalid_request", parsed.error.issues[0]!.message, 422);
+      await updateBrand(ws, key, { ...parsed.data, accent: form.accent ? String(form.accent) : null });
     } catch (err) {
       if (err instanceof ApiError) {
         if (!isHtmx(c)) return brandsPage(c, err.message, err.status, { key, form });

@@ -21,7 +21,7 @@ export type Prober = (bytes: Uint8Array, mime: string | undefined, file?: string
 export type MediaRow = typeof media.$inferSelect;
 type MediaTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-function lockBlob(tx: MediaTx, key: string) {
+export function lockBlob(tx: MediaTx, key: string) {
   return tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
 }
 
@@ -71,7 +71,7 @@ export async function registerByUrl(
       const existing = await db.query.media.findFirst({
         where: and(eq(media.workspace_id, workspaceId), eq(media.checksum, checksum)),
       });
-      const probe: ProbeResult = existing?.kind === "image" || (existing?.kind === "video" && existing.duration_sec != null)
+      const probe: ProbeResult = existing?.kind === "video" && existing.duration_sec != null
         ? { kind: existing.kind, mime: existing.mime ?? undefined, width: existing.width ?? undefined,
           height: existing.height ?? undefined, durationSec: existing.duration_sec ?? undefined }
         : await ingestStage("probe", () => deps.probe(prefix, headerMime, file));
@@ -198,11 +198,25 @@ export async function deleteMedia(id: string, deps: { storage: Storage }, worksp
       getProviderForPlatform(platform).capabilities(platform)
         .filter(cap => cap.mediaIngestion === "pull_url" && cap.media.max > 0)
         .map(cap => sql`(${platform}, ${cap.format})`));
-    const blockers = await tx.execute<{ post_id: string | null; delivery_id: string | null; status: string }>(sql`
-      select p.id as post_id, d.id as delivery_id, d.status from ${deliveries} d
+    const blockers = await tx.execute<{ title: string | null; at: Date | string | null; status: string }>(sql`
+      with story_keys as (
+        select j.key from graphile_worker.jobs j
+        where j.task_identifier = 'publish-story' and j.key like 'auto-story:%'
+        and (j.locked_at is not null or j.attempts < j.max_attempts)
+        union
+        select o.delivery_key from ${outboundDeliveries} o
+        where o.workspace_id = ${workspaceId} and o.task_name = 'publish-story'
+          and o.delivery_key like 'auto-story:%' and o.status in ('held', 'sending')
+      ), story_deliveries as materialized (
+        select d.id, d.workspace_id, d.scheduled_at, d.status, d.payload
+        from story_keys k
+        join ${deliveries} d on d.id = substring(k.key from '^auto-story:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$')::uuid
+        where d.workspace_id = ${workspaceId} and d.status = 'sent'
+      )
+      select coalesce(p.title, d.payload->>'title') as title, (d.scheduled_at at time zone 'UTC') as at, d.status from ${deliveries} d
       left join ${posts} p on p.delivery_id = d.id and p.workspace_id = d.workspace_id
       where d.workspace_id = ${workspaceId}
-      and (((d.status not in ('sent', 'canceled') or (
+      and (d.status not in ('sent', 'canceled') or (
         d.status = 'sent' and d.sent_at > (now() at time zone 'UTC') - interval '1 hour'
         and exists (select 1 from ${channels} c where c.id = d.channel_id and c.workspace_id = d.workspace_id
           and (c.platform::text, d.format) in (${sql.join(pullUrlFormats, sql`, `)}))
@@ -210,19 +224,22 @@ export async function deleteMedia(id: string, deps: { storage: Storage }, worksp
         exists (select 1 from jsonb_array_elements_text(jsonb_path_query_array(d.payload, '$.media[*].mediaId')) item
           where lower(item) = any(${ids}::text[]))
         or d.payload->'options'->>'coverUrl' = ${url}
-      )) or (d.status = 'sent' and lower(d.payload->'media'->0->>'mediaId') = any(${ids}::text[]) and (
-        exists (select 1 from graphile_worker.jobs j where j.key = 'auto-story:' || d.id
-          and (j.locked_at is not null or j.attempts < j.max_attempts))
-        or exists (select 1 from ${outboundDeliveries} o where o.workspace_id = d.workspace_id
-          and o.delivery_key = 'auto-story:' || d.id and o.status in ('held', 'sending'))
-      )))
-      union all
-      select p.id, null, 'scheduled' from ${posts} p
+      )
+      union
+      select coalesce(p.title, d.payload->>'title'), (d.scheduled_at at time zone 'UTC'), d.status
+      from story_deliveries d
+      left join ${posts} p on p.delivery_id = d.id and p.workspace_id = d.workspace_id
+      where lower(d.payload->'media'->0->>'mediaId') = any(${ids}::text[])
+      union
+      select p.title, (p.scheduled_date at time zone 'UTC'), 'scheduled' from ${posts} p
       where p.workspace_id = ${workspaceId} and p.delivery_id is null and p.status = 'scheduled'
       and (${url} in (p.media_url, p.video_url, p.cover_url) or p.media_urls ? ${url})
     `);
     if (blockers.rows.length) {
-      const names = blockers.rows.map(p => p.post_id ? `post ${p.post_id}` : `delivery ${p.delivery_id}`);
+      const names = blockers.rows.map(({ title, at }) => {
+        const time = at ? new Date(at).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null;
+        return [title?.trim() || "a post", time].filter(Boolean).join(" · ");
+      });
       const statuses = new Set(blockers.rows.map(blocker => blocker.status));
       const message = [`Media is in use by ${names.join(", ")}.`];
       if (["scheduled", "held", "failed", "unknown"].some(status => statuses.has(status))) message.push("Cancel the post to delete the file.");

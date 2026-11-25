@@ -81,6 +81,52 @@ beforeEach(async () => {
   await db.delete(brands).where(eq(brands.workspace_id, workspaceId));
 });
 
+it.each([
+  { name: "", default_ai_disclosure: "" },
+  { name: "   ", default_ai_disclosure: "" },
+  { name: "a".repeat(101), default_ai_disclosure: "" },
+  { name: "Valid", default_ai_disclosure: "unknown" },
+])("rejects invalid brand edits %j", async (values) => {
+  await createBrandSvc({ key: "validation", name: "Original" }, workspaceId);
+  const res = await app.request("/brands/validation/edit", form({ ...values }));
+  expect(res.status).toBe(422);
+  expect((await db.query.brands.findFirst({
+    where: and(eq(brands.workspace_id, workspaceId), eq(brands.key, "validation")),
+  }))?.name).toBe("Original");
+});
+
+it("allows only one brand through concurrent FREE REST creates", async () => {
+  const { clearLicense, invalidateLicenseCache } = await import("@/lib/license/gate");
+  await clearLicense();
+  try {
+    const results = await Promise.all(["first", "second"].map(key => app.request("/api/v1/brands", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ key, name: key }),
+    })));
+    expect(results.map(res => res.status).sort()).toEqual([201, 402]);
+  } finally {
+    invalidateLicenseCache();
+    await licenseInstance();
+  }
+});
+
+it("rejects whitespace-only tag names on create and rename", async () => {
+  const save = (path: string, method: string, name: string) => app.request(path, {
+    method, headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name }),
+  });
+  const rejected = await save("/api/v1/tags", "POST", "   ");
+  const created = await save("/api/v1/tags", "POST", "Fixture tag");
+  const { data } = await created.json();
+  expect(created.status).toBe(201);
+  try {
+    expect(rejected.status).toBe(422);
+    expect((await save(`/api/v1/tags/${data.id}`, "PATCH", "   ")).status).toBe(422);
+  } finally {
+    await app.request(`/api/v1/tags/${data.id}`, { method: "DELETE", headers: { cookie } });
+  }
+});
+
 async function makeChannel(platform: string, accountId: string, subKind?: string): Promise<string> {
   const [row] = await db
     .insert(channels)

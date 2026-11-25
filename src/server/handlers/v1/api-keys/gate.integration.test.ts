@@ -90,6 +90,18 @@ describe("POST /api/v1/api-keys — api_access PRO gate", () => {
     expect(body.data.key).toMatch(/^sk_live_/);
   });
 
+  it("rejects an expiry in the past without storing a key", async () => {
+    await licenseInstance("pro");
+    const res = await route.POST(new Request("http://x/api/v1/api-keys", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "expired", scopes: ["channels:read"], expires_at: "2020-01-01T00:00:00Z" }),
+    }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.details).toEqual([expect.objectContaining({ path: "expires_at" })]);
+    expect(await db.query.apiKeys.findFirst({ where: eq(s.apiKeys.workspace_id, WS) })).toBeUndefined();
+  });
+
   it("exposes the complete API-key scope catalog", async () => {
     if (!TEST_DB) return;
     expect(route.VALID_SCOPES).toBe(API_SCOPES);

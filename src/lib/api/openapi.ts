@@ -1,3 +1,4 @@
+import { SCHEDULE_HORIZON_DAYS } from "@/lib/deliveries/schedule";
 /**
  * OpenAPI 3.1 specification for the API v1.
  *
@@ -511,6 +512,7 @@ export const openApiSpec = {
           url: { type: "string", format: "uri" },
           event_types: { type: "array", items: { type: "string" }, description: "Empty = subscribe to all event types" },
           active: { type: "boolean" },
+          previous_secret_expires_at: { type: ["string", "null"], format: "date-time", description: "When the previous signing secret stops being used. Null outside a rotation grace window." },
           header_names: { type: "array", items: { type: "string" }, description: "Names of the configured custom headers (never values — set-only via `headers` on create/PATCH)." },
           extra_payload_fields: { type: "object", additionalProperties: true, description: "Extra top-level fields merged into every delivered body. Not secret — returned in full. String leaves support {{id}} {{type}} {{created_at}} {{subject_id}} {{subject_type}} placeholders." },
           created_at: { type: "string", format: "date-time" },
@@ -642,7 +644,7 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Update a post",
         requestBody: zodBody(postPatch),
-        description: "Same body as create (all fields optional), including YouTube options and AI-disclosure fields. scheduledDate reschedules the linked pending delivery and publish job atomically. Returns 409 if the delivery is already publishing or no longer pending. Text, firstComment and media edits also update the pending payload atomically; sending deliveries return 409.",
+        description: `Same body as create (all fields optional), including YouTube options and AI disclosure fields. scheduledDate reschedules the linked pending delivery and publish job atomically up to ${SCHEDULE_HORIZON_DAYS} days ahead. Returns 409 if the delivery is already publishing or no longer pending. Text, firstComment and media edits also update the pending payload atomically; sending deliveries return 409.`,
 
         responses: { "200": { description: "Updated" }, "409": { description: "Delivery no longer pending" }, "422": { description: "Invalid schedule" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
@@ -675,8 +677,8 @@ export const openApiSpec = {
         summary: "Change a pending delivery's schedule",
         description: "Only scheduled and held deliveries can change; held becomes scheduled. TikTok deliveries awaiting renewed consent must be confirmed in Queue first. Updates the linked editorial date and replaces the publish job atomically. Saved publish settings and consent remain unchanged.",
         parameters: [{ name: "deliveryId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["scheduledAt"], properties: { scheduledAt: { type: "string", format: "date-time" } } } } } },
-        responses: { "200": { description: "Rescheduled delivery in data" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { description: "Delivery not found" }, "409": { description: "Already publishing or no longer pending" }, "422": { description: "Invalid or past date (same five-minute skew as creation)" } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["scheduledAt"], properties: { scheduledAt: { type: "string", format: "date-time", description: `Up to ${SCHEDULE_HORIZON_DAYS} days in the future.` } } } } } },
+        responses: { "200": { description: "Rescheduled delivery in data" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { description: "Delivery not found" }, "409": { description: "Already publishing or no longer pending" }, "422": { description: "Invalid, past (five-minute tolerance), or beyond the scheduling horizon" } },
       },
     },
     "/posts/{postId}/platform": {
@@ -695,8 +697,8 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Publish or schedule a post through the delivery engine",
         description: "Returns the existing delivery + post envelope immediately. For Instagram/Facebook, 2–10 mediaUrls select carousel automatically (or set format=carousel explicitly). Threads accepts 2–20 images/videos, including mixed carousels. TikTok accepts 1–35 images from the verified URL prefix as a photo post (processing until TikTok reports a final state). Threads publication remains processing while containers prepare; retries resume saved stages. An uncertain finalization is checked without another publish attempt. Facebook carousels require ready media. Video requires channel.video_carousel=available (pages_manage_ads for this Page and ADVERTISE task); missing access or still-ingesting items return 422. Wait for GET /media/{id} to report ready before retrying. Unregistered URL media are ingested in the background. The scheduled delivery waits without consuming publish attempts, never sends before its scheduled time, and fails with the media error if ingestion fails. Registered media are reused.",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { tiktokConsent: { type: "boolean", description: "Required true for TikTok Direct Post, including scheduled posts. Agents must set true only after explicit creator confirmation. Confirms the creator expressly consented to send this specific post with these settings and agreed to TikTok Music Usage Confirmation and, for branded content, Branded Content Policy. Not saved as a reusable post setting." }, channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now", default: "now", description: "Use now or an ISO 8601 date and time with Z or a UTC offset." }, format: { type: "string", description: "Optional override. Meta story accepts one image or video. An Instagram Story video over 60 s is split into consecutive Stories of up to 60 s (see storySegments). LinkedIn article requires saved articleUrl and title; thumbnail optional." } } } } } },
-        responses: { "200": { description: "Delivery created + linked. data.storySegments: number of Instagram Stories a Story video (format story, or auto-Story in media mode) is published as — over 60 s it is split into consecutive clips of up to 60 s; null when no Instagram Story video is involved or its length is not known yet.", content: { "application/json": { schema: { type: "object", properties: { data: { type: "object", properties: { delivery: { type: "object" }, post: { type: "object" }, storySegments: { type: ["integer", "null"], minimum: 1 }, storySegmentsPending: { type: "boolean", description: "true when the Story video is still being ingested from its URL; storySegments appears on GET /posts/{postId} (delivery.storySegments) after ingest." } } }, error: { type: "null" } } } } } }, "404": { description: "Not found" }, "409": { description: "Already published" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["channelId"], properties: { tiktokConsent: { type: "boolean", description: "Required true for TikTok Direct Post, including scheduled posts. Agents must set true only after explicit creator confirmation. Confirms the creator expressly consented to send this specific post with these settings and agreed to TikTok Music Usage Confirmation and, for branded content, Branded Content Policy. Not saved as a reusable post setting." }, channelId: { type: "string", format: "uuid" }, when: { type: "string", example: "now", default: "now", description: `Use now or an ISO 8601 date and time with Z or a UTC offset, up to ${SCHEDULE_HORIZON_DAYS} days in the future.` }, format: { type: "string", description: "Optional override. Meta story accepts one image or video. An Instagram Story video over 60 s is split into consecutive Stories of up to 60 s (see storySegments). LinkedIn article requires saved articleUrl and title; thumbnail optional." } } } } } },
+        responses: { "200": { description: "Delivery created + linked. data.storySegments: number of Instagram Stories a Story video (format story, or auto-Story in media mode) is published as — over 60 s it is split into consecutive clips of up to 60 s; null when no Instagram Story video is involved or its length is not known yet.", content: { "application/json": { schema: { type: "object", properties: { data: { type: "object", properties: { delivery: { type: "object" }, post: { type: "object" }, storySegments: { type: ["integer", "null"], minimum: 1 }, storySegmentsPending: { type: "boolean", description: "true when the Story video is still being ingested from its URL; storySegments appears on GET /posts/{postId} (delivery.storySegments) after ingest." } } }, error: { type: "null" } } } } } }, "404": { description: "Not found" }, "409": { description: "Post already scheduled, published, or linked to a delivery" }, "422": { description: "Validation error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
       },
     },
     "/media": {
@@ -709,7 +711,7 @@ export const openApiSpec = {
         ...requiresScope("media:write"),
         tags: ["Publishing"],
         summary: "Upload a file or register a media URL into content-addressed storage",
-        description: "Binary image/*, video/* or application/octet-stream bodies upload a file and return ready metadata with 201. Remote URLs return 202 immediately. Poll GET /media/{id} until status is ready or failed; error explains failures. Publish only ready media. Matching sha256+mime+kind objects already in storage return 201 without downloading. Compose and editorial post publishing also queue remote ingestion; their delivery remains scheduled until media is ready.",
+        description: "Binary image/*, video/* or application/octet-stream bodies upload a file and return ready metadata with 201. Images must have readable image metadata. Remote URLs return 202 immediately. Poll GET /media/{id} until status is ready or failed; error explains failures. Publish only ready media. Matching sha256+mime+kind objects already in storage return 201 without downloading. Compose and editorial post publishing also queue remote ingestion; their delivery remains scheduled until media is ready.",
         parameters: [{ name: "wait", in: "query", schema: { type: "boolean", default: false }, description: "Wait up to 60 seconds for a worker: 201 when ready, 400 when failed, otherwise 202 with the same polling handle." }],
         requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } }, "image/*": { schema: { type: "string", format: "binary" } }, "video/*": { schema: { type: "string", format: "binary" } }, "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, sha256: { type: "string", pattern: "^[0-9a-f]{64}$" }, mime: { type: "string" }, kind: { type: "string", enum: ["image", "video"] }, size: { type: "integer" }, durationSec: { type: "integer" }, width: { type: "integer" }, height: { type: "integer" } } } } } },
         responses: { "202": { description: "Accepted: data.id is the polling handle, data.status is ingesting; media metadata becomes available when ready" }, "201": { description: "Media registered" }, "400": { description: "Media ingest error" }, "401": { $ref: "#/components/responses/Unauthorized" } },
@@ -731,7 +733,7 @@ export const openApiSpec = {
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { description: "Missing media:write scope" },
           "404": { description: "Media not found in this workspace" },
-          "409": { description: "Media is ingesting or still needed for publication. The error message identifies any blocking posts or deliveries." },
+          "409": { description: "Media is ingesting or still needed for publication. For a blocking post, the error message includes the title and scheduled time when available." },
           "422": { description: "Invalid media id" },
         },
       },
@@ -751,7 +753,7 @@ export const openApiSpec = {
           "`default_ai_disclosure_note` — the brand-wide AI declaration inherited by any post that sets " +
           "none of its own (resolution order: post → channel → brand). Null on both = this brand declares nothing.",
         requestBody: zodBody(brandCreate),
-        responses: { "201": { description: "Created" }, "409": { description: "Already exists" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        responses: { "201": { description: "Created" }, "401": { $ref: "#/components/responses/Unauthorized" }, "402": { $ref: "#/components/responses/ProRequired" }, "409": { description: "Already exists" }, "422": { description: "Invalid brand fields" } },
       },
     },
     "/brands/{brandKey}/channels": {
@@ -778,7 +780,7 @@ export const openApiSpec = {
         tags: ["Publishing"],
         summary: "Update a brand",
         requestBody: zodBody(brandPatch),
-        responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" } },
+        responses: { "200": { description: "Updated" }, "404": { description: "Not found" }, "401": { $ref: "#/components/responses/Unauthorized" }, "422": { description: "Invalid brand fields" } },
       },
       delete: {
         ...requiresScope("brands:write"),
@@ -1641,13 +1643,14 @@ export const openApiSpec = {
         security: [{ SessionCookie: [] }],
         tags: ["API Keys"],
         summary: "Create an API key (full secret returned ONCE on creation)",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "scopes"], properties: { name: { type: "string" }, scopes: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: API_SCOPES } }, expires_at: { type: "string", format: "date-time", nullable: true } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "scopes"], properties: { name: { type: "string" }, scopes: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: API_SCOPES } }, expires_at: { type: "string", format: "date-time", description: "Optional future expiration time. Omit for no expiry." } } } } } },
         responses: {
           "201": { description: "Created — `data.key` holds the full secret, shown only here" },
           "401": { $ref: "#/components/responses/Unauthorized" },
-          "403": { $ref: "#/components/responses/Forbidden" },
           "402": { $ref: "#/components/responses/ProRequired" },
-          "422": { description: "Validation error" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "422": { description: "Invalid fields, including expiry at or before the current time" },
+          "429": { description: "Too many API key creations" },
         },
       },
     },
@@ -1890,7 +1893,7 @@ export const openApiSpec = {
         ...requiresScope("tags:write"),
         tags: ["Contacts"],
         summary: "Create a tag",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, color: { type: "string", example: "#6366f1" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 50, description: "Trimmed before validation and storage. Whitespace-only names are invalid." }, color: { type: "string", example: "#6366f1" } } } } } },
         responses: {
           "201": { description: "Created" },
           "401": { $ref: "#/components/responses/Unauthorized" },
@@ -1906,7 +1909,7 @@ export const openApiSpec = {
         tags: ["Contacts"],
         summary: "Rename or recolor a tag",
         parameters: [{ name: "tagId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, color: { type: "string", example: "#6366f1" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 50, description: "Trimmed before validation and storage. Whitespace-only names are invalid." }, color: { type: "string", example: "#6366f1" } } } } } },
         responses: {
           "200": { description: "Updated", content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/Tag" }, error: { type: "null" } } } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },

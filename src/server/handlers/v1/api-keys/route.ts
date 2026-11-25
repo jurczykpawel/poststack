@@ -46,7 +46,7 @@ const createSchema = z.object({
     .min(1, "Select at least one permission")
     .max(API_SCOPES.length)
     .refine((scopes) => new Set(scopes).size === scopes.length, "Permissions must be unique"),
-  expires_at: z.string().datetime().optional(),
+  expires_at: z.string().datetime().refine(value => Date.parse(value) > Date.now(), "Expiry must be in the future").optional(),
 });
 
 // POST /api/v1/api-keys

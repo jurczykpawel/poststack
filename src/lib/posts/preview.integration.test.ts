@@ -2,7 +2,8 @@ import tiktokRecorded from "@/lib/providers/__fixtures__/recorded/tiktok-direct-
 import tiktokInbox from "@/lib/providers/__fixtures__/recorded/tiktok-inbox.json";
 import publishDocs from "../../../tests/fixtures/provider-docs/publish-responses.json";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
 
 const TEST_DB = process.env.TEST_DATABASE_URL;
 
@@ -90,6 +91,46 @@ describe("externalPostCard (a post made outside PostStack)", () => {
     const again = await preview.externalPostCard(WS, CH, FB_POST.id, { storage, fetchImage });
     expect(again).toEqual(card);
     expect(graphCalls).toBe(1);
+  });
+
+  it("keeps a preview image while the last media entry is deleted", async () => {
+    const { casKey } = await import("@/lib/media/cas");
+    const { deleteMedia } = await import("@/lib/media/service");
+    const checksum = createHash("sha256").update(JPEG).digest("hex");
+    const key = casKey(checksum, "image/jpeg");
+    const url = storage.publicUrl(key);
+    await storage.putBytes(key, JPEG, "image/jpeg");
+    await db.insert(s.media).values({ id: MEDIA, workspace_id: WS, checksum, storage_key: key, url, kind: "image" });
+    graph(200, FB_POST);
+    const checked = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const head = storage.head.bind(storage);
+    const checking = vi.spyOn(storage, "head").mockImplementationOnce(async object => {
+      const result = await head(object);
+      checked.resolve();
+      await release.promise;
+      return result;
+    });
+    const card = preview.externalPostCard(WS, CH, FB_POST.id, { storage, fetchImage });
+    await checked.promise;
+    const deleting = deleteMedia(MEDIA, { storage }, WS);
+    try {
+      await Promise.race([
+        deleting,
+        expect.poll(async () => (await db.execute(sql`
+          select 1 from pg_stat_activity where datname = current_database()
+          and wait_event = 'advisory' and query like 'select pg_advisory_xact_lock%'
+        `)).rows.length).toBeGreaterThan(0),
+      ]);
+      release.resolve();
+      expect((await card)?.imageUrl).toBe(url);
+      await deleting;
+      expect(await head(key)).toMatchObject({ exists: true });
+    } finally {
+      release.resolve();
+      await Promise.allSettled([card, deleting]);
+      checking.mockRestore();
+    }
   });
 
   it("keeps the text when the picture cannot be copied", async () => {

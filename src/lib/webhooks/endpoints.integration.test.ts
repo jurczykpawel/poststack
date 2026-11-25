@@ -111,6 +111,14 @@ describe.skipIf(!TEST_DB)("webhook endpoint service", () => {
     expect(second.secret_secondary).toBe(first.secret);
   });
 
+  it.each([null, new Date(0)])("omits the previous secret when expiry is %s", async (expiry) => {
+    const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/grace" });
+    await svc.rotateSecret(WS, ep.id);
+    await db.update(s.webhookEndpoints).set({ secret_secondary_expires_at: expiry })
+      .where(and(eq(s.webhookEndpoints.workspace_id, WS), eq(s.webhookEndpoints.id, ep.id)));
+    expect((await svc.getEndpoint(WS, ep.id))?.secret_secondary).toBeNull();
+  });
+
   it("keeps the immediately preceding primary when two rotations overlap", async () => {
     const ep = await svc.createEndpoint(WS, { url: "https://hook.example.com/concurrent" });
     const rotations = await Promise.all([svc.rotateSecret(WS, ep.id), svc.rotateSecret(WS, ep.id)]);

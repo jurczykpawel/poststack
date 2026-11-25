@@ -18,12 +18,27 @@ type Html = ReturnType<typeof html>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MONO = "font-family:var(--font-mono);font-size:12.5px";
 type EndpointField = "url" | "event_types" | "headers" | "extra";
-const addErrorId = (field: EndpointField) => `wh-add-error-${field}`;
-const addErrorSlot = (field: EndpointField) => html`<div id="${addErrorId(field)}"></div>`;
-function addErrorAttributes(field: EndpointField): Html {
-  const id = addErrorId(field);
+const errorId = (form: string, field: EndpointField) => `wh-${form}-error-${field}`;
+const errorSlot = (form: string, field: EndpointField) => html`<div id="${errorId(form, field)}" role="alert"></div>`;
+function errorAttributes(form: string, field: EndpointField): Html {
+  const id = errorId(form, field);
   return html`data-wh-error="${id}" :aria-invalid="fieldError === '${id}'"
     :aria-describedby="fieldError === '${id}' ? fieldError : null"`;
+}
+const formFeedback = html`x-data="{ fieldError: '' }"
+  @htmx:before-request="if (fieldError) document.getElementById(fieldError).replaceChildren(); fieldError = ''"
+  @htmx:after-request="if ($event.detail.xhr.status === 422) {
+    fieldError = $event.detail.target.id;
+    $nextTick(() => $el.querySelector('[data-wh-error=' + fieldError + ']')?.focus());
+  }"`;
+
+function endpointValidationError(c: Context, error: ApiError, form: string, fallback: EndpointField) {
+  const path = error.details?.[0]?.path;
+  const field = path === "event_types" || path === "headers" ? path : fallback;
+  toastHeader(c, "bad", error.message);
+  c.header("HX-Retarget", `#${errorId(form, field)}`);
+  c.header("HX-Reswap", "innerHTML");
+  return c.html(html`<div class="notice notice-err">${error.message}</div>`, 422);
 }
 
 async function auth(c: Context): Promise<AuthContext | null> {
@@ -90,17 +105,18 @@ function eventChecks(selected: ReadonlySet<string>, idPrefix: string): Html {
  * configured NAMES (`headerNames`), so the operator knows what's set without leaking secrets. Extra
  * fields aren't secret, so `extraJson` prefills the textarea with the current value.
  */
-function headerAndExtraFields(headerNames: string[], extraJson: string, add = false): Html {
+function headerAndExtraFields(headerNames: string[], extraJson: string, form: string): Html {
   return html`<label class="fld"><span>Custom headers <small>— one <code>Key: Value</code> per line, encrypted at rest${headerNames.length ? html` · currently set: <strong>${headerNames.join(", ")}</strong> (re-enter to change)` : html``}</small></span>
-      <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${MONO}" ${add ? addErrorAttributes("headers") : ""}></textarea></label>
-    ${add ? addErrorSlot("headers") : ""}
+      <textarea name="headers" rows="2" placeholder="Authorization: Bearer xxx&#10;X-Api-Key: yyy" style="${MONO}" ${errorAttributes(form, "headers")}></textarea></label>
+    ${errorSlot(form, "headers")}
     <label class="fld"><span>Extra payload fields <small>— JSON; supports {{id}} {{type}} {{created_at}} {{subject_id}} {{subject_type}}</small></span>
-      <textarea name="extra" rows="3" placeholder='{ "source": "poststack" }' style="${MONO}" ${add ? addErrorAttributes("extra") : ""}>${extraJson}</textarea></label>
-    ${add ? addErrorSlot("extra") : ""}`;
+      <textarea name="extra" rows="3" placeholder='{ "source": "poststack" }' style="${MONO}" ${errorAttributes(form, "extra")}>${extraJson}</textarea></label>
+    ${errorSlot(form, "extra")}`;
 }
 
 /** One endpoint card: url, events, active toggle, revealable secret, edit form, rotate, delete. */
 function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
+  const form = `edit-${ep.id}`;
   const selected = new Set(ep.event_types ?? []);
   const headerNames = Object.keys(ep.headers);
   const extraFields = ep.extra_payload_fields as Record<string, unknown>;
@@ -118,6 +134,7 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
       <button type="button" class="btn btn-sm btn-ghost" @click="show = !show" x-text="show ? 'Hide' : 'Reveal'">Reveal</button>
       <button type="button" class="btn btn-sm btn-ghost" @click="navigator.clipboard && navigator.clipboard.writeText($refs.sec.textContent)">Copy</button>
     </div>` : html`<div class="row" style="font-size:.8rem"><span class="muted">Signing secret:</span> <code class="mono">whsec_••••••••••••</code></div>`}
+    ${ep.secret_secondary && ep.secret_secondary_expires_at ? html`<p class="muted">Previous signing secret expires ${localTime(ep.secret_secondary_expires_at)}.</p>` : ""}
     <div class="row" style="gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/toggle" hx-target="#wh-outbound" hx-swap="outerHTML"${ep.active ? raw(' hx-confirm="Disable this endpoint? Pending deliveries to it will be dropped." data-confirm-label="Disable"') : raw("")}>${ep.active ? "Disable" : "Enable"}</button>
       <button class="btn btn-sm" hx-post="/webhooks/outbound/${ep.id}/rotate" hx-target="#wh-outbound" hx-swap="outerHTML" hx-confirm="Rotate the signing secret? The previous secret keeps signing for 24 hours." data-confirm-label="Rotate">${icon("reconnect", "ico", 13)} Rotate secret</button>
@@ -129,14 +146,16 @@ function endpointCard(ep: WebhookEndpoint, highlight: boolean): Html {
     </details>
     <details style="margin-top:.5rem">
       <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Edit URL, events &amp; headers</summary>
-      <form hx-post="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" style="margin-top:.5rem">
+      <form hx-post="/webhooks/outbound/${ep.id}" hx-target="#wh-outbound" hx-swap="outerHTML" style="margin-top:.5rem" ${formFeedback}>
         <label class="fld"><span>Endpoint URL</span>
-          <input type="url" name="url" value="${ep.url}" required style="${MONO}" /></label>
-        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;margin:.4rem 0">
+          <input type="url" name="url" value="${ep.url}" required style="${MONO}" ${errorAttributes(form, "url")} /></label>
+        ${errorSlot(form, "url")}
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;margin:.4rem 0" tabindex="-1" ${errorAttributes(form, "event_types")}>
           <legend style="font-size:.8rem;padding:0 .3rem">Events <small class="muted">— none checked = all events</small></legend>
-          ${eventChecks(selected, `edit-${ep.id}`)}
+          ${eventChecks(selected, form)}
+          ${errorSlot(form, "event_types")}
         </fieldset>
-        ${headerAndExtraFields(headerNames, extraJson)}
+        ${headerAndExtraFields(headerNames, extraJson, form)}
         <button class="btn btn-sm btn-primary" type="submit">Save changes</button>
       </form>
     </details>
@@ -162,21 +181,16 @@ export function renderOutboundWebhooks(
     <details class="card" style="margin:.6rem 0">
       <summary style="cursor:pointer;font-weight:600">${icon("plus", "ico", 14)} Add an endpoint</summary>
       <form method="post" action="/webhooks/outbound" hx-post="/webhooks/outbound" hx-target="#wh-outbound" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" style="margin-top:.6rem"
-        x-data="{ fieldError: '' }"
-        @htmx:before-request="if (fieldError) document.getElementById(fieldError).replaceChildren(); fieldError = ''"
-        @htmx:after-request="if ($event.detail.xhr.status === 422) {
-          fieldError = $event.detail.target.id;
-          $nextTick(() => $el.querySelector('[data-wh-error=' + fieldError + ']')?.focus());
-        }">
+        ${formFeedback}>
         <label class="fld"><span>Endpoint URL</span>
-          <input type="url" name="url" placeholder="https://hooks.example.com/poststack" required style="${MONO}" ${addErrorAttributes("url")} /></label>
-        ${addErrorSlot("url")}
-        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;margin:.4rem 0" tabindex="-1" ${addErrorAttributes("event_types")}>
+          <input type="url" name="url" placeholder="https://hooks.example.com/poststack" required style="${MONO}" ${errorAttributes("add", "url")} /></label>
+        ${errorSlot("add", "url")}
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;margin:.4rem 0" tabindex="-1" ${errorAttributes("add", "event_types")}>
           <legend style="font-size:.8rem;padding:0 .3rem">Subscribe to events <small class="muted">— leave all unchecked to receive every event</small></legend>
           ${eventChecks(new Set<string>(), "new")}
-          ${addErrorSlot("event_types")}
+          ${errorSlot("add", "event_types")}
         </fieldset>
-        ${headerAndExtraFields([], "", true)}
+        ${headerAndExtraFields([], "", "add")}
         <button class="btn btn-primary" type="submit">${icon("plus", "ico", 14)} Add endpoint</button>
       </form>
     </details>
@@ -273,14 +287,7 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
         highlightId: ep.id,
       }));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 422) {
-        const validationField = err.details?.[0]?.path;
-        if (validationField === "event_types" || validationField === "headers") field = validationField;
-        toastHeader(c, "bad", err.message);
-        c.header("HX-Retarget", `#${addErrorId(field)}`);
-        c.header("HX-Reswap", "innerHTML");
-        return c.html(html`<div class="notice notice-err">${err.message}</div>`, 422);
-      }
+      if (err instanceof ApiError && err.status === 422) return endpointValidationError(c, err, "add", field);
       throw err;
     }
   });
@@ -293,19 +300,19 @@ export function registerWebhooksOutbound(r: Hono, guard: MiddlewareHandler): voi
     if (!id || !UUID_RE.test(id)) return c.text("not found", 404);
     if (!g.canManage) return c.html(await renderPanel(g.a.workspaceId, false, g.upgradeUrl));
     const { url, eventTypes, headersRaw, extraRaw } = await readEndpointForm(c);
+    let field: EndpointField = "extra";
     try {
       const extraFields = parseExtraFields(extraRaw); // blank textarea -> {} (visible, so blank = clear)
+      field = "headers";
       const headerLines = parseHeaderLines(headersRaw);
       // Blank textarea (no parsed keys) -> leave existing headers untouched (values are never echoed
       // back, so a blank submission almost certainly means "didn't intend to change them").
       const headers = Object.keys(headerLines).length ? headerLines : undefined;
+      field = "url";
       await updateEndpoint(g.a.workspaceId, id, { url, eventTypes, headers, extraFields });
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return missingEndpoint(c, g.a.workspaceId, g.upgradeUrl);
-      if (err instanceof ApiError) {
-        toastHeader(c, "bad", err.message);
-        return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: err.message, noticeError: true }), err.status === 422 ? 422 : 200);
-      }
+      if (err instanceof ApiError && err.status === 422) return endpointValidationError(c, err, `edit-${id}`, field);
       throw err;
     }
     return c.html(await renderPanel(g.a.workspaceId, true, g.upgradeUrl, { notice: "Endpoint updated." }));

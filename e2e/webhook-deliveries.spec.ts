@@ -45,6 +45,18 @@ test("keeps entered endpoint fields while showing the validation error next to i
   const { data: endpoints } = await (await page.request.get("/api/v1/webhooks")).json();
   const endpoint = endpoints.find((e: { url: string }) => e.url.endsWith("/retain-draft"));
   expect(endpoint.event_types).toEqual(["contact.updated"]);
+  const card = page.locator(".wh-just-created");
+  await card.getByText("Edit URL, events & headers", { exact: true }).click();
+  const edit = card.locator("form");
+  const editUrl = edit.getByLabel("Endpoint URL");
+  const editExtra = edit.getByLabel("Extra payload fields");
+  await editUrl.fill("https://hooks.example.test/edit-draft");
+  await editExtra.fill("{still invalid");
+  await edit.getByRole("button", { name: "Save changes" }).click();
+  await expect(editExtra).toHaveAccessibleDescription(/Extra payload fields must be valid JSON/);
+  await expect(editExtra).toBeFocused();
+  await expect(editUrl).toHaveValue("https://hooks.example.test/edit-draft");
+  await expect(editExtra).toHaveValue("{still invalid");
   expect((await page.request.delete(`/api/v1/webhooks/${endpoint.id}`)).status()).toBe(204);
 });
 

@@ -5,7 +5,7 @@ import { encryptString, decryptString, type SecretContext } from "@/lib/crypto";
 export type HeaderMap = Record<string, string>;
 
 export function isTransportManagedHeader(name: string): boolean {
-  return /^(?:(?:transfer-encoding|connection|keep-alive|upgrade|te|trailer|host|content-length)$|proxy-)/i.test(name);
+  return /^(?:(?:transfer-encoding|connection|keep-alive|upgrade|te|trailer|host|content-length|expect|http2-settings)$|proxy-)/i.test(name);
 }
 
 function assertHeaderSyntax(map: HeaderMap | undefined): void {
@@ -54,6 +54,7 @@ export function decryptHeaderMap(stored: string | null, context?: SecretContext)
 /** Parse a `Key: Value` per-line textarea into a header map (blank lines skipped; a line without `Name:` is a 422). */
 export function parseHeaderLines(raw: string): HeaderMap {
   const out: HeaderMap = Object.create(null);
+  const names = new Map<string, string>();
   for (const line of raw.replace(/\r\n/g, "\n").split("\n")) {
     const i = line.indexOf(":");
     if (!line.trim()) continue;
@@ -63,7 +64,10 @@ export function parseHeaderLines(raw: string): HeaderMap {
     }
     const key = line.slice(0, i).trim();
     const val = line.slice(i + 1).trim();
-    if (key) out[key] = val;
+    const lower = key.toLowerCase();
+    const name = names.get(lower) ?? key;
+    names.set(lower, name);
+    out[name] = val;
   }
   assertHeaderSyntax(out);
   return out;

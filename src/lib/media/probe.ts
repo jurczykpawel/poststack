@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import type { Prober, ProbeResult } from "./service";
 import { ApiError } from "@/lib/api/response";
 import { videoMetadata } from "./video-metadata";
@@ -21,6 +22,13 @@ export const defaultProbe: Prober = async (bytes, mime, file): Promise<ProbeResu
   if (mime && topLevel(mime) !== topLevel(sniffed)) {
     throw new ApiError("media_type_mismatch", `Declared ${mime} but the content is ${sniffed}`, 400);
   }
-  const kind = sniffed.startsWith("image/") ? "image" : "video";
-  return { kind, mime: sniffed, ...(kind === "video" ? await videoMetadata(file ?? bytes) : {}) };
+  if (sniffed.startsWith("image/")) {
+    try {
+      const { width, height } = await sharp(file ?? Buffer.from(bytes)).metadata();
+      return { kind: "image", mime: sniffed, width, height };
+    } catch {
+      throw new ApiError("unsupported_media", "Could not read image metadata", 400);
+    }
+  }
+  return { kind: "video", mime: sniffed, ...await videoMetadata(file ?? bytes) };
 };

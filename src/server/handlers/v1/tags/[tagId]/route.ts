@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 type Ctx = { params: Promise<{ tagId: string }> };
 
 const patchSchema = z.object({
-  name: z.string().min(1).max(50).optional(),
+  name: z.string().trim().min(1).max(50).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 

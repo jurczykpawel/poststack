@@ -141,7 +141,7 @@ describe("publishPost", () => {
     const { channelId, postId } = await fixtures();
     await publishPost({ postId, channelId, when: "now" }, WS, fakeRegister);
     await expect(publishPost({ postId, channelId, when: "now" }, WS, fakeRegister)).rejects.toMatchObject({
-      status: 409,
+      status: 409, message: "Post already scheduled",
     });
     const deliveries = await db.select().from(schema.deliveries).where(eq(schema.deliveries.workspace_id, WS));
     expect(deliveries.length).toBe(1);

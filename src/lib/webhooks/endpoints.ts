@@ -29,7 +29,7 @@ function decryptEndpoint(row: typeof webhookEndpoints.$inferSelect): WebhookEndp
   return {
     ...row,
     secret: decryptString(row.secret, [`ws:${row.workspace_id}`, "webhook_endpoints.secret", row.id]),
-    secret_secondary: row.secret_secondary ? decryptString(row.secret_secondary, [`ws:${row.workspace_id}`, "webhook_endpoints.secret_secondary", row.id]) : null,
+    secret_secondary: row.secret_secondary && row.secret_secondary_expires_at && row.secret_secondary_expires_at.getTime() > Date.now() ? decryptString(row.secret_secondary, [`ws:${row.workspace_id}`, "webhook_endpoints.secret_secondary", row.id]) : null,
     headers: decryptHeaderMap(row.custom_headers_encrypted, [`ws:${row.workspace_id}`, "webhook_endpoints.custom_headers_encrypted", row.id]),
   };
 }

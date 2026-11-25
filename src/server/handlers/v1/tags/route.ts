@@ -38,7 +38,7 @@ export async function GET(request: Request) {
 }
 
 const createSchema = z.object({
-  name: z.string().min(1).max(50),
+  name: z.string().trim().min(1).max(50),
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)

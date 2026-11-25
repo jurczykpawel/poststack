@@ -56,7 +56,7 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
     ["/conversations/{conversationId}/messages", "get"], ["/conversations/{conversationId}/messages", "post"],
     ["/messages/{messageId}", "get"], ["/comments/{commentId}", "get"],
     ["/tags", "get"], ["/tags", "post"], ["/tags/{tagId}", "patch"], ["/tags/{tagId}", "delete"],
-    ["/api-keys", "post"], ["/sequences", "post"], ["/rules", "post"], ["/rules/{ruleId}", "patch"],
+    ["/api-keys", "post"], ["/brands", "post"], ["/sequences", "post"], ["/rules", "post"], ["/rules/{ruleId}", "patch"],
     ["/channels/{channelId}", "patch"], ["/channels/telegram/connect", "post"],
   ] as const)("documents HTTP 402 for %s %s", (path, method) => {
     const paths = openApiSpec.paths as unknown as Record<string, Record<string, { responses: Record<string, unknown> }>>;
@@ -65,6 +65,15 @@ describe("OpenAPI spec ↔ v1 router parity", () => {
 
   it("documents the 24-hour grace period for webhook signing secret rotation", () => {
     expect(openApiSpec.paths["/webhooks/{webhookId}/rotate-secret"].post.description).toContain("24 hours");
+  });
+
+  it("documents when an old webhook signing secret stops signing", () => {
+    expect(openApiSpec.components.schemas.WebhookEndpoint.properties).toHaveProperty("previous_secret_expires_at");
+  });
+
+  it("documents key expiry and brand field validation", () => {
+    expect(openApiSpec.paths["/api-keys"].post.responses["422"].description).toMatch(/expiry/);
+    expect(openApiSpec.paths["/brands"].post.responses).toHaveProperty("422");
   });
 
   it("documents every registered v1 route", () => {

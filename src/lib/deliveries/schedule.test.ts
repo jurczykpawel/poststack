@@ -14,3 +14,7 @@ describe("delivery schedule", () => {
     expect(parseScheduledAt("2026-10-28T14:00:00+02:00").toISOString()).toBe("2026-10-28T12:00:00.000Z");
   });
 });
+
+it("rejects dates beyond the scheduling horizon", () => {
+  expect(() => parseScheduledAt("9999-12-31T23:59:59Z")).toThrow(/too far in the future/i);
+});

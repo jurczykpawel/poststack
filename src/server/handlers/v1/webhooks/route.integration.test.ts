@@ -145,6 +145,10 @@ describe.skipIf(!TEST_DB)("/api/v1/webhooks", () => {
     const { data } = await res.json();
     expect(data.secret).toMatch(/^whsec_[0-9a-f]{48}$/);
     expect(data.secret).not.toBe(json.data.secret);
+    expect(json.data.previous_secret_expires_at).toBeNull();
+    expect(Date.parse(data.previous_secret_expires_at)).toBeGreaterThan(Date.now());
+    const current = await call("GET", `/webhooks/${json.data.id}`);
+    expect((await current.json()).data.previous_secret_expires_at).toBe(data.previous_secret_expires_at);
   });
 
   it("DELETE removes the endpoint (then GET is 404)", async () => {

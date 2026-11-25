@@ -1,3 +1,4 @@
+import { parseScheduledAt } from "@/lib/deliveries/schedule";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { posts, content as contentTable, channels, deliveries, brands, media } from "@/db/schema";
@@ -186,6 +187,12 @@ const defaultDeps: PublishPostDeps = {
   },
 };
 
+function publishConflict(status: string): ApiError {
+  const message = status === "scheduled" ? "Post already scheduled"
+    : status === "published" ? "Post already published" : "Post already has a delivery";
+  return new ApiError("conflict", message, 409);
+}
+
 /**
  * Publish (or schedule) an editorial post through the delivery engine, scoped to a workspace. Atomic:
  * locks the editorial post row, guards against double-publish, creates the delivery on the same
@@ -201,14 +208,15 @@ export async function publishPost(
   });
   if (!post) throw new ApiError("not_found", "Post not found", 404);
   if (post.delivery_id || post.status === "published") {
-    throw new ApiError("conflict", "Post already published", 409);
+    throw publishConflict(post.status);
   }
 
   const directConsent = input.actor && post.platform === "tiktok" && post.tiktok_publish_mode === "direct";
   if (directConsent && input.tiktokConsent !== true) throw new ApiError("invalid_request", "TikTok Direct Post requires tiktokConsent: true confirming the creator agreed to send this post and to TikTok Music Usage Confirmation / Branded Content Policy.", 422);
+  const requestedTime = input.when === "now" ? undefined : parseScheduledAt(input.when);
   const request = await preparePublishRequest(post, input.channelId, workspaceId, deps, input.format);
-  const scheduledAt = (input.when === "now" ? new Date() : new Date(input.when)).toISOString();
-  if (Number.isNaN(Date.parse(scheduledAt))) throw new ApiError("invalid_request", "Invalid when", 422);
+  const scheduledAt = (requestedTime ?? new Date()).toISOString();
+
 
   const delivery = await db.transaction(async (tx) => {
     const locked = await tx.execute(
@@ -217,7 +225,7 @@ export async function publishPost(
     const row = locked.rows[0] as { delivery_id: string | null; status: string } | undefined;
     if (!row) throw new ApiError("not_found", "Post not found", 404);
     if (row.delivery_id || row.status === "published") {
-      throw new ApiError("conflict", "Post already published", 409);
+      throw publishConflict(row.status);
     }
     const d = await createDelivery({ channelId: input.channelId, scheduledAt, request, waitForMedia: true }, workspaceId, tx);
     await tx

@@ -8,6 +8,9 @@ export const BRAND_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const BRAND_KEY_HTML_PATTERN = "[A-Za-z0-9][A-Za-z0-9._\\-]*";
 export const BRAND_ACCENT_RE = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
+export const BRAND_NAME_MAX = 100;
+export const brandName = z.string().trim().min(1, "Brand name is required").max(BRAND_NAME_MAX);
+
 const aiDisclosure = {
   // AIDISC2: brand-wide default AI declaration. Explicit null clears it.
   default_ai_disclosure: z.enum(["none", "ai_assisted", "ai_generated"]).nullish(),
@@ -17,7 +20,7 @@ const aiDisclosure = {
 /** POST /brands body — also the OpenAPI request schema. */
 export const brandCreate = z.object({
   key: z.string().min(1).max(LIMITS.ref).regex(BRAND_KEY_RE, "letters, digits, dots, dashes and underscores only"),
-  name: z.string().min(1).max(LIMITS.name),
+  name: brandName,
   accent: z.string().regex(BRAND_ACCENT_RE, "hex colour like #7aa2f7").optional(),
   icon: z.string().max(LIMITS.line).optional(),
   story_template: z.string().max(LIMITS.ref).nullable().optional(),
@@ -26,7 +29,7 @@ export const brandCreate = z.object({
 
 /** PATCH /brands/{brandKey} body — also the OpenAPI request schema. */
 export const brandPatch = z.object({
-  name: z.string().min(1).max(LIMITS.name).optional(),
+  name: brandName.optional(),
   accent: z.string().regex(BRAND_ACCENT_RE, "hex colour like #7aa2f7").nullable().optional(),
   icon: z.string().max(LIMITS.line).nullable().optional(),
   story_template: z.string().max(LIMITS.ref).nullable().optional(),

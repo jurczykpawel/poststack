@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import { describe, it, expect } from "vitest";
@@ -22,14 +23,19 @@ describe("sniffMime [PSA12]", () => {
 });
 
 describe("defaultProbe [PSA12]", () => {
+  const validPng = () => sharp({ create: { width: 2, height: 3, channels: 3, background: "#fff" } }).png().toBuffer();
+
+  it("rejects an image signature without image data", async () => {
+    await expect(defaultProbe(PNG, "image/png")).rejects.toMatchObject({ status: 400 });
+  });
   it("derives kind + mime from the bytes, not the declared header", async () => {
-    expect(await defaultProbe(PNG, "image/png")).toMatchObject({ kind: "image", mime: "image/png" });
+    expect(await defaultProbe(await validPng(), "image/png")).toMatchObject({ kind: "image", mime: "image/png" });
     expect(await defaultProbe(MP4, "video/mp4")).toMatchObject({ kind: "video", mime: "video/mp4" });
   });
 
   it("ignores a (lying) declared mime and trusts the sniff when the top-level type agrees", async () => {
     // declared image/jpeg but bytes are PNG → both images → accepted, mime corrected to the truth
-    expect(await defaultProbe(PNG, "image/jpeg")).toMatchObject({ kind: "image", mime: "image/png" });
+    expect(await defaultProbe(await validPng(), "image/jpeg")).toMatchObject({ kind: "image", mime: "image/png" });
   });
 
   it("rejects content whose declared type contradicts the bytes (content-confusion)", async () => {

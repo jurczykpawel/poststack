@@ -1,3 +1,4 @@
+import { lockBlob } from "@/lib/media/service";
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -63,17 +64,14 @@ export async function deliveryPostCard(workspaceId: string, deliveryId: string):
   };
 }
 
-/** Copy a platform CDN picture (signed, it expires) into our storage; null when it is not an image. */
-async function copyImage(url: string, storage: Storage, fetchImage: (url: string) => Promise<Response>): Promise<string | null> {
+async function downloadImage(url: string, fetchImage: (url: string) => Promise<Response>) {
   try {
     const res = await fetchImage(url);
     if (!res.ok) return null;
     const bytes = await readBodyCapped(res, MAX_IMAGE_BYTES);
     const mime = sniffMime(bytes);
     if (!mime?.startsWith("image/")) return null;
-    const key = casKey(createHash("sha256").update(bytes).digest("hex"), mime);
-    if (!(await storage.head(key)).exists) await storage.putBytes(key, bytes, mime);
-    return storage.publicUrl(key);
+    return { bytes, mime, key: casKey(createHash("sha256").update(bytes).digest("hex"), mime) };
   } catch {
     return null;
   }
@@ -90,19 +88,37 @@ export async function externalPostCard(workspaceId: string, channelId: string, p
   let row = await db.query.postPreviews.findFirst({ where: key });
   if (!row || (row.status === "failed" && Date.now() - row.fetched_at.getTime() > RETRY_FAILED_MS)) {
     let values: Omit<typeof postPreviews.$inferInsert, "workspace_id" | "channel_id" | "post_id"> = { status: "failed", fetched_at: new Date() };
+    let image: Awaited<ReturnType<typeof downloadImage>> = null;
     try {
       const provider = getProvider(channel.platform as Platform);
       if (provider.getPostPreview) {
         const p = await provider.getPostPreview(decryptChannelToken(channel.token_encrypted, [`ws:${channel.workspace_id}`, "channels.token_encrypted", channel.platform, channel.platform_id]), postId);
-        const image = httpUrl(p.imageUrl);
-        const imageUrl = image ? await copyImage(image, deps.storage ?? getStorage(), deps.fetchImage ?? ((u) => safeFetch(u, { signal: AbortSignal.timeout(15_000) }))) : null;
-        values = { status: "ready", text: p.text, image_url: imageUrl, permalink: httpUrl(p.url), posted_at: p.postedAt, fetched_at: new Date() };
+        const url = httpUrl(p.imageUrl);
+        if (url) image = await downloadImage(url, deps.fetchImage ?? ((u) => safeFetch(u, { signal: AbortSignal.timeout(15_000) })));
+        values = { status: "ready", text: p.text, image_url: null, permalink: httpUrl(p.url), posted_at: p.postedAt, fetched_at: new Date() };
       }
     } catch {
       // Deleted post, missing permission or a broken token: the card shows without content.
     }
-    await db.insert(postPreviews).values({ workspace_id: workspaceId, channel_id: channelId, post_id: postId, ...values })
-      .onConflictDoUpdate({ target: [postPreviews.workspace_id, postPreviews.channel_id, postPreviews.post_id], set: values });
+    const save = (exec: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) =>
+      exec.insert(postPreviews).values({ workspace_id: workspaceId, channel_id: channelId, post_id: postId, ...values })
+        .onConflictDoUpdate({ target: [postPreviews.workspace_id, postPreviews.channel_id, postPreviews.post_id], set: values });
+    if (image) {
+      const { key: imageKey, bytes, mime } = image;
+      await db.transaction(async tx => {
+        await lockBlob(tx, imageKey);
+        try {
+          const storage = deps.storage ?? getStorage();
+          if (!(await storage.head(imageKey)).exists) await storage.putBytes(imageKey, bytes, mime);
+          values.image_url = storage.publicUrl(imageKey);
+        } catch {
+          // Preserve the text when storage is unavailable.
+        }
+        await save(tx);
+      });
+    } else {
+      await save(db);
+    }
     row = await db.query.postPreviews.findFirst({ where: key });
   }
   return {

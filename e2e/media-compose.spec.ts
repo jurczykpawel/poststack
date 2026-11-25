@@ -91,7 +91,7 @@ test("Media library confirms deletion and protects a scheduled post", async ({ p
 
   const { data: channels } = await (await page.request.get("/api/v1/channels")).json();
   const facebook = channels.find((channel: { platform: string }) => channel.platform === "facebook");
-  const post = await page.request.post("/api/v1/posts", { data: { platform: "facebook", mediaUrl: media.url } });
+  const post = await page.request.post("/api/v1/posts", { data: { platform: "facebook", mediaUrl: media.url, title: "Media library fixture post" } });
   expect(post.status()).toBe(201);
   const { data: editorial } = await post.json();
   const scheduled = await page.request.post(`/api/v1/posts/${editorial.id}/publish`, {
@@ -101,7 +101,7 @@ test("Media library confirms deletion and protects a scheduled post", async ({ p
   const { data: { delivery } } = await scheduled.json();
   await remove.click();
   await dialog.getByRole("button", { name: "Delete media", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: editorial.id })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Media library fixture post" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "Cancel the post to delete the file." })).toBeVisible();
   await expect(select).toBeVisible();
 

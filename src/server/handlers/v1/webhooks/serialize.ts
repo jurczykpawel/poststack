@@ -11,6 +11,7 @@ export function serializeEndpoint(ep: WebhookEndpoint) {
     url: ep.url,
     event_types: ep.event_types,
     active: ep.active,
+    previous_secret_expires_at: ep.secret_secondary ? ep.secret_secondary_expires_at : null,
     // Custom header NAMES only (never values) — same "what's configured without leaking secrets"
     // pattern as the alert webhook's edit form. Extra payload fields are not secret, so they're
     // echoed back in full (lets an integrator GET the endpoint to see what it's currently sending).

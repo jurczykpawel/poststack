@@ -1,9 +1,10 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { db, isUniqueViolation } from "@/lib/db";
 import { brands, channels, type AiDisclosureLevel } from "@/db/schema";
 import { ApiError } from "@/lib/api/response";
 import { STORY_TEMPLATES } from "@/lib/stories";
-import { BRAND_ACCENT_RE, BRAND_KEY_RE } from "./validation";
+import { BRAND_ACCENT_RE, BRAND_KEY_RE, brandName } from "./validation";
+import { createWithinLimit } from "@/lib/license/limit-guard";
 
 export type BrandRow = typeof brands.$inferSelect;
 
@@ -44,15 +45,15 @@ export async function createBrand(
   if (!BRAND_KEY_RE.test(key)) {
     throw new ApiError("invalid_request", "Brand key may contain only letters, digits, dots, dashes and underscores", 400);
   }
-  if (!input.name?.trim()) throw new ApiError("invalid_request", "Brand name is required", 400);
-  if (input.name.trim().length > 100) throw new ApiError("invalid_request", "Brand name must be at most 100 characters", 400);
+  const name = brandName.safeParse(input.name);
+  if (!name.success) throw new ApiError("invalid_request", name.error.issues[0]!.message, 422);
   const story_template = validateStoryTemplate(input.story_template);
   const inserted = await exec
     .insert(brands)
     .values({
       workspace_id: workspaceId,
       key,
-      name: input.name.trim(),
+      name: name.data,
       accent: validateAccent(input.accent),
       icon: input.icon ?? null,
       story_template,
@@ -66,6 +67,18 @@ export async function createBrand(
       throw err;
     });
   return inserted[0]!;
+}
+
+export function createBrandWithinLimit(input: Parameters<typeof createBrand>[0], workspaceId: string) {
+  const scope = eq(brands.workspace_id, workspaceId);
+  return createWithinLimit("brands", {
+    exempt: async tx => !!(await tx.query.brands.findFirst({
+      where: and(scope, eq(brands.key, input.key.trim())),
+      columns: { key: true },
+    })),
+    count: async tx => (await tx.select({ total: count() }).from(brands).where(scope))[0]!.total,
+    create: tx => createBrand(input, workspaceId, tx),
+  });
 }
 
 export async function listBrands(workspaceId: string): Promise<BrandRow[]> {

@@ -18,7 +18,7 @@ import { createHash } from "crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { runOnce } from "graphile-worker";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 
 // POST /api/v1/media reference fast-path: when sha256+mime+kind are supplied, an object already in the
@@ -257,6 +257,15 @@ describe("remote media polling contract", () => {
   });
 });
 
+it("rejects a PNG signature without image data", async () => {
+  const signature = Buffer.from("89504e470d0a1a0a", "hex");
+  const response = await app.request("/api/v1/media", {
+    method: "POST", headers: { authorization: `Bearer ${WRITE_KEY}`, "content-type": "image/png" }, body: signature,
+  });
+  expect(response.status).toBe(400);
+  expect((await response.json()).error.code).toBe("unsupported_media");
+});
+
 it("lists and uploads media with the publishing scope and standard response envelope", async () => {
   const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
   const upload = (key: string) => app.request("/api/v1/media", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/octet-stream" }, body: bytes });
@@ -425,14 +434,14 @@ describe("DELETE /api/v1/media/:id", () => {
       workspace_id: WS, platform: "facebook", platform_id: "media-cover", token_encrypted: "fixture", webhook_secret: "fixture",
     }).returning();
     try {
-      const [delivery] = await db.insert(schema.deliveries).values({
+      await db.insert(schema.deliveries).values({
         workspace_id: WS, channel_id: channel.id, format: "reel", scheduled_at: new Date(), status,
         payload: { format: "reel", media: [], options: { coverUrl: stored.url } },
       }).returning();
       const blocked = await remove(stored.id);
       expect(blocked.status).toBe(409);
       const { error } = await blocked.json();
-      expect(error.message).toContain(delivery.id);
+      expect(error.message).toMatch(/a post · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
       if (status === "failed") expect(error.message).toMatch(/cancel the post to delete the file/i);
       expect((await get(stored.id)).status).toBe(200);
       expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
@@ -452,7 +461,7 @@ describe("DELETE /api/v1/media/:id", () => {
       workspace_id: WS, platform, platform_id: "media-sent", token_encrypted: "fixture", webhook_secret: "fixture",
     }).returning();
     try {
-      const [delivery] = await db.insert(schema.deliveries).values({
+      await db.insert(schema.deliveries).values({
         workspace_id: WS, channel_id: channel.id, format, scheduled_at: new Date(), status: "sent",
         sent_at: new Date(Date.now() - minutesAgo * 60_000),
         payload: { format, media: [{ mediaId: stored.id }] },
@@ -461,7 +470,7 @@ describe("DELETE /api/v1/media/:id", () => {
       expect(response.status).toBe(expected);
       if (expected === 409) {
         const { error } = await response.json();
-        expect(error.message).toContain(delivery.id);
+        expect(error.message).toMatch(/a post · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
         expect(error.message).toMatch(/one hour after publication/i);
       }
       expect((await getStorage().head(stored.storageKey)).exists).toBe(expected === 409);
@@ -484,11 +493,13 @@ describe("DELETE /api/v1/media/:id", () => {
         payload: { format: "reel", media: [{ mediaId: alias.id }] },
       }).returning();
       const [editorial] = await db.insert(schema.posts).values({
-        workspace_id: WS, platform: "facebook", delivery_id: delivery.id, status: "scheduled",
+        workspace_id: WS, platform: "facebook", delivery_id: delivery.id, status: "scheduled", title: "Weekly update",
       }).returning();
       const blocked = await remove(stored.id);
       expect(blocked.status).toBe(409);
-      expect((await blocked.json()).error.message).toContain(editorial.id);
+      const { error } = await blocked.json();
+      expect(error.message).toContain("Weekly update");
+      expect(error.message).not.toContain(editorial.id);
       expect(await getStorage().head(stored.storageKey)).toMatchObject({ exists: true });
 
       await db.update(schema.deliveries).set({ status: "sent" }).where(eq(schema.deliveries.id, delivery.id));
@@ -501,10 +512,35 @@ describe("DELETE /api/v1/media/:id", () => {
       } finally {
         await db.execute(sql`select graphile_worker.remove_job(${storyKey})`);
       }
+      await db.insert(schema.outboundDeliveries).values({
+        workspace_id: WS, channel_id: channel.id, delivery_key: storyKey, task_name: "publish-story", status: "held", payload: {},
+      });
+      expect((await remove(stored.id)).status).toBe(409);
+      await db.update(schema.outboundDeliveries).set({ status: "sent" })
+        .where(and(eq(schema.outboundDeliveries.workspace_id, WS), eq(schema.outboundDeliveries.delivery_key, storyKey)));
       expect((await remove(stored.id)).status).toBe(200);
       expect((await get(alias.id)).status).toBe(404);
     } finally {
       await db.delete(schema.posts).where(eq(schema.posts.workspace_id, WS));
+      await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
+    }
+  });
+
+  it("ignores tasks other than Story publication for already sent media", async () => {
+    const stored = await storeVideo();
+    const [channel] = await db.insert(schema.channels).values({
+      workspace_id: WS, platform: "facebook", platform_id: "media-sent", token_encrypted: "fixture", webhook_secret: "fixture",
+    }).returning();
+    const [delivery] = await db.insert(schema.deliveries).values({
+      workspace_id: WS, channel_id: channel.id, format: "reel", scheduled_at: new Date(), status: "sent",
+      payload: { format: "reel", media: [{ mediaId: stored.id }] },
+    }).returning();
+    const storyKey = `auto-story:${delivery.id}`;
+    try {
+      await db.execute(sql`select graphile_worker.add_job('fixture-task', job_key => ${storyKey})`);
+      expect((await remove(stored.id)).status).toBe(200);
+    } finally {
+      await db.execute(sql`select graphile_worker.remove_job(${storyKey})`);
       await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
     }
   });

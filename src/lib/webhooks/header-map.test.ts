@@ -39,6 +39,10 @@ describe("parseHeaderLines", () => {
     expect(() => parseHeaderLines(":no-key")).toThrow(/Name: value/);
   });
 
+  it("keeps one value per header name regardless of casing", () => {
+    expect(parseHeaderLines("X-Foo: old\nx-foo: current")).toEqual({ "X-Foo": "current" });
+  });
+
   it("trims whitespace around keys and values", () => {
     expect(parseHeaderLines("  X-Foo  :   bar  ")).toEqual({ "X-Foo": "bar" });
   });
@@ -47,7 +51,7 @@ describe("parseHeaderLines", () => {
 
 describe("custom header validation", () => {
   it.each(["Transfer-Encoding", "cOnNeCtIoN", "Keep-Alive", "Upgrade", "TE", "Trailer",
-    "Proxy-Connection", "pRoXy-Example", "Host", "Content-Length"])("reserves %s for the transport", (name) => {
+    "Proxy-Connection", "pRoXy-Example", "Host", "Content-Length", "Expect", "Http2-Settings"])("reserves %s for the transport", (name) => {
     expect(() => assertValidHeaderMap({ [name]: "" })).toThrow(/managed by the transport/i);
   });
 
