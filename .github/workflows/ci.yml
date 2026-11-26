@@ -85,7 +85,9 @@ jobs:
           for i in 1 2 3; do npx -y npm@11.21.3 audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
       - name: Release gate script tests
-        run: bash scripts/release/open-items-gate.test.sh
+        run: |
+          bash scripts/release/open-items-gate.test.sh
+          bash scripts/release/release-workflow.test.sh
 
       - name: Install and audit landing dependencies
         run: |

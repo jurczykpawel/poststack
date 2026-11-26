@@ -41,9 +41,11 @@ permissions:
 
 jobs:
   deploy:
+    # !cancelled(): a job skipped before the caller must not skip this one.
     if: >-
-      (inputs.target == 'production' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
-      || (inputs.target == 'test-deploy' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+      !cancelled() &&
+      ((inputs.target == 'production' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      || (inputs.target == 'test-deploy' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     environment: ${{ inputs.target }}
     concurrency:

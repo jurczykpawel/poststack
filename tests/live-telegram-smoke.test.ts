@@ -41,7 +41,7 @@ it("attempts every deletion and fails if cleanup fails", async () => {
 });
 it("blocks release builds and manual PROD on the Telegram gate", () => {
   const release = readFileSync(".github/workflows/release.yml", "utf8");
-  expect(release).toContain("needs: [verify, dependabot-gate, live-telegram]");
+  expect(release).toContain("needs: [release-gate, verify, live-telegram]");
   expect(release).toContain("needs.live-telegram.result == 'success'");
   expect(release).toMatch(/resolve-images:[\s\S]*?needs: live-telegram/);
   expect(release).toMatch(/deploy-prod:[\s\S]*?needs: resolve-images/);

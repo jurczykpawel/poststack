@@ -26,6 +26,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   resolve:
+    # !cancelled() here and below: a job skipped before the caller must not skip these.
+    if: "!cancelled()"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -60,6 +62,7 @@ jobs:
           printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
 
   smoke:
+    if: "!cancelled() && needs.resolve.result == 'success'"
     needs: resolve
     runs-on: ubuntu-latest
     environment: live

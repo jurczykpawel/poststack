@@ -248,7 +248,8 @@ jobs:
 
   resolve-images:
     name: Resolve built images for PROD
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # !cancelled(): the release gate, skipped on a dispatch, is an ancestor of this job.
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.live-telegram.result == 'success'"
     needs: live-telegram
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -295,7 +296,7 @@ jobs:
 
   deploy-prod:
     name: Manual deploy to PROD
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.resolve-images.result == 'success'"
     needs: resolve-images
     uses: ./.github/workflows/deploy-release.yml
     with:
