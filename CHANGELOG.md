@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.8] - 2026-11-26
+
+### Fixed
+- Uploaded images are decoded once to reject truncated or corrupted files (for animated GIF/WebP, the first frame is checked). Decoding runs one image at a time per process and is limited by estimated memory (`MEDIA_DECODE_MAX_BYTES`, default 512 MiB), so very large images are rejected with a clear message instead of exhausting server memory; typical phone photos, including 108 MP, are accepted.
+- Link preview pictures are uploaded outside the database transaction, so slow storage no longer holds database connections; protection against concurrent media deletion is kept.
+- Invalid brand fields return 422, matching the API documentation.
+- Service secrets (Telegram, TikTok, AI provider and integration keys) are no longer offered to password managers.
+- Messages from requests inside a dialog appear in a live region in that dialog, and page messages wait until the dialog closes.
+
 ## [0.27.7] - 2026-11-25
 
 ### Fixed
