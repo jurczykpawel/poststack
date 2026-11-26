@@ -298,12 +298,12 @@ describe("Brands section", () => {
   // MQA13-B01/B05: the form refuses a non-slug key and a non-hex accent.
   it("rejects a non-slug key and a non-hex accent from the forms", async () => {
     const bad = await app.request("/brands", form({ key: "x'+(window.__p=1)+'", name: "Probe" }));
-    expect(bad.status).toBe(400);
+    expect(bad.status).toBe(422);
     const css = "#f00;background-image:url(https://probe.example/p.png)";
-    expect((await app.request("/brands", form({ key: "css", name: "Css", accent: css }))).status).toBe(400);
+    expect((await app.request("/brands", form({ key: "css", name: "Css", accent: css }))).status).toBe(422);
     expect(await db.query.brands.findFirst({ where: eq(brands.workspace_id, workspaceId) })).toBeUndefined();
     await createBrandSvc({ key: "ok", name: "Ok" }, workspaceId);
-    expect((await app.request("/brands/ok/edit", form({ name: "Ok", accent: css }))).status).toBe(400);
+    expect((await app.request("/brands/ok/edit", form({ name: "Ok", accent: css }))).status).toBe(422);
   });
 
   it("keeps invalid accent edits in the form error slot without saving", async () => {
@@ -323,7 +323,7 @@ describe("Brands section", () => {
   it("retains submitted values on a plain invalid brand edit", async () => {
     await createBrandSvc({ key: "plain", name: "Original" }, workspaceId);
     const res = await app.request("/brands/plain/edit", form({ name: "Unsaved name", accent: "red", icon: "🚀", story_template: "phone", default_ai_disclosure: "ai_generated", default_ai_disclosure_note: "Unsaved note" }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
     const body = await res.text();
     for (const value of ["Unsaved name", "red", "🚀", "Unsaved note"]) expect(body).toContain(`value="${value}"`);
     expect(body).toContain('x-init="$el.showModal()"');

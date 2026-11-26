@@ -86,7 +86,7 @@ describe("brand service (workspace-scoped)", () => {
     await expect(svc.updateBrand(WS, "nope", { name: "x" })).rejects.toMatchObject({ status: 404 });
   });
 
-  it("persists a valid auto-Story template and rejects an unknown one (400)", async () => {
+  it("persists a valid auto-Story template and rejects an unknown one (422)", async () => {
     if (!TEST_DB) return;
     const b = await svc.createBrand({ key: "tsa", name: "TSA", story_template: "phone" }, WS);
     expect(b.story_template).toBe("phone");
@@ -94,8 +94,12 @@ describe("brand service (workspace-scoped)", () => {
     expect(u.story_template).toBe("fullbleed");
     const cleared = await svc.updateBrand(WS, "tsa", { story_template: null });
     expect(cleared.story_template).toBeNull();
-    await expect(svc.createBrand({ key: "x", name: "X", story_template: "bogus" }, WS)).rejects.toMatchObject({ status: 400 });
-    await expect(svc.updateBrand(WS, "tsa", { story_template: "nope" })).rejects.toMatchObject({ status: 400 });
+    await expect(svc.createBrand({ key: "x", name: "X", story_template: "bogus" }, WS)).rejects.toMatchObject({ status: 422 });
+    await expect(svc.updateBrand(WS, "tsa", { story_template: "nope" })).rejects.toMatchObject({ status: 422 });
+    await expect(svc.updateBrand(WS, "tsa", { accent: "red" })).rejects.toMatchObject({ status: 422 });
+    for (const key of [" ", "a".repeat(65), "a b"]) {
+      await expect(svc.createBrand({ key, name: "X" }, WS), key).rejects.toMatchObject({ status: 422 });
+    }
   });
 
   it("the same brand key is allowed in a DIFFERENT workspace (per-workspace uniqueness)", async () => {

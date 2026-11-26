@@ -98,6 +98,12 @@ describe.skipIf(!TEST_DB)("/api/v1/brands", () => {
     expect((await call("PATCH", "/brands/css", { accent: null })).status).toBe(200);
   });
 
+  it("422 on an unknown story template on create and update, as the API spec declares", async () => {
+    expect((await call("POST", "/brands", { key: "tpl", name: "Tpl", story_template: "bogus" })).status).toBe(422);
+    expect((await call("POST", "/brands", { key: "tpl", name: "Tpl" })).status).toBe(201);
+    expect((await call("PATCH", "/brands/tpl", { story_template: "bogus" })).status).toBe(422);
+  });
+
   it("409 on a duplicate brand key in the same workspace", async () => {
     await call("POST", "/brands", { key: "dup", name: "First" });
     expect((await call("POST", "/brands", { key: "dup", name: "Second" })).status).toBe(409);

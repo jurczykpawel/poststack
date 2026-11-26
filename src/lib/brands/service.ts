@@ -12,14 +12,14 @@ export type BrandRow = typeof brands.$inferSelect;
  *  it (→ the renderer's default). Validated against the live registry so PRO custom templates pass too. */
 function validateStoryTemplate(id: string | null | undefined): string | null {
   if (id === undefined || id === null || id === "") return null;
-  if (!STORY_TEMPLATES[id]) throw new ApiError("invalid_request", `Unknown story template '${id}'`, 400);
+  if (!STORY_TEMPLATES[id]) throw new ApiError("invalid_request", `Unknown story template '${id}'`, 422);
   return id;
 }
 
 
 function validateAccent(accent: string | null | undefined): string | null {
   if (!accent) return null;
-  if (!BRAND_ACCENT_RE.test(accent)) throw new ApiError("invalid_request", "Accent colour must be a hex colour like #7aa2f7", 400);
+  if (!BRAND_ACCENT_RE.test(accent)) throw new ApiError("invalid_request", "Accent colour must be a hex colour like #7aa2f7", 422);
   return accent;
 }
 
@@ -40,10 +40,10 @@ export async function createBrand(
   exec: DbExec = db,
 ): Promise<BrandRow> {
   const key = input.key.trim();
-  if (!key) throw new ApiError("invalid_request", "Brand key is required", 400);
-  if (key.length > 64) throw new ApiError("invalid_request", "Brand key must be at most 64 characters", 400);
+  if (!key) throw new ApiError("invalid_request", "Brand key is required", 422);
+  if (key.length > 64) throw new ApiError("invalid_request", "Brand key must be at most 64 characters", 422);
   if (!BRAND_KEY_RE.test(key)) {
-    throw new ApiError("invalid_request", "Brand key may contain only letters, digits, dots, dashes and underscores", 400);
+    throw new ApiError("invalid_request", "Brand key may contain only letters, digits, dots, dashes and underscores", 422);
   }
   const name = brandName.safeParse(input.name);
   if (!name.success) throw new ApiError("invalid_request", name.error.issues[0]!.message, 422);
