@@ -229,9 +229,7 @@
 
   /* ---- Toasts (Alpine store → HX-Trigger driven, auto-dismiss, not focus-stealing) ---- */
   [x-cloak] { display: none !important; }
-  /* A popover (top layer, above modal dialogs): inset/margin/border/padding/background undo the UA box. */
-  .toasts { position: fixed; inset: auto 16px 16px auto; z-index: 50;
-    margin: 0; padding: 0; border: 0; background: transparent; overflow: visible;
+  .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 50;
     display: flex; flex-direction: column; gap: 8px; pointer-events: none;
     max-width: min(360px, calc(100vw - 32px)); }
   .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px;

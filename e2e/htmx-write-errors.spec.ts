@@ -29,7 +29,7 @@ test("server error on a write shows a toast; one the server already explained do
   await expect(page.locator(".toasts")).not.toContainText("server error");
 });
 
-test("with a modal open, only requests from the modal report inside it; other toasts stay above it", async ({ page }, testInfo) => {
+test("with a modal open, its requests report inside it without moving focus; other messages wait until it closes", async ({ page }, testInfo) => {
   await addHtmxForm(page);
   await page.evaluate(() => {
     document.body.insertAdjacentHTML("beforeend", '<dialog id="t-modal" aria-label="Probe"><form id="t-inner" hx-post="/e2e-inner" hx-swap="none"><button id="t-inner-go" type="submit">inner</button></form></dialog>');
@@ -40,21 +40,22 @@ test("with a modal open, only requests from the modal report inside it; other to
   const trigger = (tone: string, msg: string) => ({ status: 200, headers: { "HX-Trigger": JSON.stringify({ "ps:toast": { tone, msg } }) }, body: "" });
   const submit = (id: string) => page.evaluate((target) => (document.getElementById(target) as HTMLButtonElement).click(), id);
   const feedback = page.locator("#t-modal .modal-feedback");
+  const toasts = page.locator(".toasts");
+  await expect(toasts).not.toHaveAttribute("popover");
 
   await page.route("**/e2e-write", (r) => r.fulfill(trigger("warn", "Outside warning")));
   await submit("t-go");
-  await expect(page.locator(".toasts")).toContainText("Outside warning");
-  await expect(feedback).toHaveCount(0);
-
   await page.unroute("**/e2e-write");
   await page.route("**/e2e-write", (r) => r.fulfill({ status: 500, body: "boom" }));
   await submit("t-go");
-  await expect(page.locator(".toasts")).toContainText("Not saved — server error");
+  await page.waitForResponse("**/e2e-write");
+  await expect(toasts).toHaveText("");
   await expect(feedback).toHaveCount(0);
 
   await page.route("**/e2e-inner", (r) => r.fulfill(trigger("bad", "Inside error")));
   await submit("t-inner-go");
   await expect(feedback).toHaveText("Inside error");
+  await expect(feedback).toHaveAttribute("role", "alert");
   await page.unroute("**/e2e-inner");
   await page.route("**/e2e-inner", (r) => r.fulfill({ status: 500, body: "boom" }));
   await submit("t-inner-go");
@@ -62,13 +63,19 @@ test("with a modal open, only requests from the modal report inside it; other to
 
   await page.unroute("**/e2e-inner");
   await page.route("**/e2e-inner", (r) => r.fulfill(trigger("ok", "Inside saved")));
+  await page.focus("#t-inner-go");
   await submit("t-inner-go");
-  await expect(page.locator(".toasts")).toContainText("Inside saved");
-  // The top layer is the only place painted above a modal dialog.
-  await expect(page.locator(".toasts:popover-open")).toBeVisible();
-  const box = (await page.locator(".toasts").boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(viewport.width - (box.x + box.width)).toBeCloseTo(16, 0);
-  expect(viewport.height - (box.y + box.height)).toBeCloseTo(16, 0);
-  await page.screenshot({ path: testInfo.outputPath("toast-above-modal.png"), animations: "disabled" });
+  await expect(feedback).toHaveText("Inside saved");
+  await expect(feedback).toHaveAttribute("role", "status");
+  await expect(feedback).toHaveClass(/notice-ok/);
+  await expect(page.locator("#t-inner-go")).toBeFocused();
+  await expect(toasts).toHaveText("");
+  await page.screenshot({ path: testInfo.outputPath("status-in-modal.png"), animations: "disabled" });
+
+  // A modal that closes right after its save hands the confirmation to the page, with the deferred messages.
+  await page.evaluate(() => (document.getElementById("t-modal") as HTMLDialogElement).close());
+  await expect(feedback).toHaveCount(0);
+  await expect(toasts).toContainText("Outside warning");
+  await expect(toasts).toContainText("Not saved — server error");
+  await expect(toasts).toContainText("Inside saved");
 });

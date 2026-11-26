@@ -31,7 +31,7 @@ export function isHtmx(c: Context): boolean {
  * and adds the styled confirm dialog used in place of native confirm().
  */
 export function toastRegion(): Html {
-  return html`<div class="toasts" popover="manual" role="status" aria-live="polite" aria-atomic="false">
+  return html`<div class="toasts" role="status" aria-live="polite" aria-atomic="false">
     <template x-for="t in $store.ui.toasts" :key="t.id">
       <div class="toast" :class="'tone-' + t.tone" role="alert" x-transition.opacity.duration.150ms>
         <span class="toast-dot" :class="'tone-' + t.tone" aria-hidden="true"></span>
@@ -88,12 +88,6 @@ export function uiBehaviorScript(): Html {
       _seq: 0,
       push: function (tone, msg) {
         var id = ++this._seq;
-        // Only the top layer paints above an open modal dialog; re-opening moves the region to its front.
-        var region = document.querySelector('.toasts');
-        if (region && region.showPopover && document.querySelector('dialog:modal')) {
-          if (region.matches(':popover-open')) region.hidePopover();
-          region.showPopover();
-        }
         this.toasts.push({ id: id, tone: tone || 'info', msg: String(msg || '') });
         var self = this;
         setTimeout(function () { self.dismiss(id); }, 4200);
@@ -186,21 +180,53 @@ export function uiBehaviorScript(): Html {
         htmx.trigger(el, 'htmx:afterProcessNode');
       });
     });
-    function notify(tone, message, source) {
-      // A failure belongs inside a modal only when the request came from that modal.
-      var modal = source?.closest?.('dialog:modal');
-      if (modal && (tone === 'bad' || tone === 'warn')) {
+    // An open modal makes the rest of the page inert, so page toasts would be neither reachable nor
+    // reliably announced. Messages from the modal's own requests go to a live region inside it; the
+    // others wait for it to close.
+    var deferred = [];
+    var TONE_CLASS = { bad: 'notice-err', warn: 'notice-warn', ok: 'notice-ok', info: 'notice-info' };
+    function whenClosed(modal) {
+      if (modal._psWatched) return;
+      modal._psWatched = true;
+      modal.addEventListener('close', function () {
+        modal._psWatched = false;
         var feedback = modal.querySelector('.modal-feedback');
-        if (!feedback) {
-          feedback = document.createElement('p');
-          feedback.className = 'notice notice-err modal-feedback';
-          feedback.setAttribute('role', 'alert');
-          modal.prepend(feedback);
-          modal.addEventListener('close', function () { feedback.remove(); }, { once: true });
+        if (feedback) {
+          feedback.remove();
+          // A modal that closes right after its save hands the confirmation to the page.
+          if (/^(ok|info)$/.test(feedback.dataset.tone) && Date.now() - Number(feedback.dataset.at) < 4200) {
+            deferred.unshift([feedback.dataset.tone, feedback.dataset.msg]);
+          }
         }
-        feedback.textContent = message;
+        deferred.splice(0).forEach(function (d) { notify(d[0], d[1]); });
+      }, { once: true });
+    }
+    function notify(tone, message, source) {
+      tone = TONE_CLASS[tone] ? tone : 'info';
+      message = String(message || '');
+      var modal = source?.closest?.('dialog:modal');
+      if (modal) {
+        modal.querySelector('.modal-feedback')?.remove();
+        var failed = tone === 'bad' || tone === 'warn';
+        var feedback = document.createElement('p');
+        feedback.className = 'notice modal-feedback ' + TONE_CLASS[tone];
+        feedback.setAttribute('role', failed ? 'alert' : 'status');
+        feedback.dataset.tone = tone;
+        feedback.dataset.msg = message;
+        feedback.dataset.at = String(Date.now());
+        modal.prepend(feedback);
+        // Filled after insertion, so screen readers announce it as a change to a live region.
+        requestAnimationFrame(function () { feedback.textContent = message; });
+        whenClosed(modal);
+        return;
+      }
+      var open = document.querySelector('dialog:modal');
+      if (open) {
+        deferred.push([tone, message]);
+        whenClosed(open);
       } else if (window.Alpine && Alpine.store('ui')) {
-        Alpine.store('ui').push(tone, message);
+        // Also releases messages left behind by a modal removed from the page without closing.
+        deferred.splice(0).concat([[tone, message]]).forEach(function (d) { Alpine.store('ui').push(d[0], d[1]); });
       }
     }
     document.body.addEventListener('htmx:beforeRequest', function (e) {
