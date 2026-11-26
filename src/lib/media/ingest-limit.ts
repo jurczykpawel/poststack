@@ -26,6 +26,18 @@ export async function withIngestSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+let decodeTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run an image decode alone in this process. Decodes hold whole rasters (progressive JPEG, interlaced PNG),
+ * so they queue behind each other inside the ingest slots instead of multiplying peak memory.
+ */
+export function withDecodeSlot<T>(fn: () => Promise<T>): Promise<T> {
+  const run = decodeTail.then(fn);
+  decodeTail = run.catch(() => undefined);
+  return run;
+}
+
 /** Test hooks. */
 export function __ingestStats(): { active: number; queued: number } {
   return { active, queued: waiters.length };

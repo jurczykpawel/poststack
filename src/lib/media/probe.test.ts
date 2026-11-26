@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { defaultProbe } from "./probe";
 import { sniffMime } from "./sniff";
 import { ApiError } from "@/lib/api/response";
@@ -57,9 +57,43 @@ describe("defaultProbe [PSA12]", () => {
     expect(await defaultProbe(withTrailer, "image/jpeg")).toMatchObject({ width: 320 });
   });
 
-  it("rejects an image above the pixel limit with a clear message", async () => {
-    const huge = await sharp({ create: { width: 12_001, height: 10_000, channels: 3, background: "#fff" } }).png().toBuffer();
-    await expect(defaultProbe(huge, "image/png")).rejects.toMatchObject({ status: 400, message: "Image exceeds the 120 megapixel limit" });
+  it("rejects an image above the default 50 megapixel decode limit with a clear message", async () => {
+    const huge = await sharp({ create: { width: 10_001, height: 5_000, channels: 3, background: "#fff" } }).png().toBuffer();
+    await expect(defaultProbe(huge, "image/png")).rejects.toMatchObject({ status: 400, message: "Image exceeds the 50 megapixel limit" });
+  });
+
+  it("takes the decode pixel limit from MEDIA_DECODE_MAX_PIXELS", async () => {
+    process.env.MEDIA_DECODE_MAX_PIXELS = "76800";
+    try {
+      expect(await defaultProbe(await noisy("png"), "image/png")).toMatchObject({ width: 320, height: 240 });
+      process.env.MEDIA_DECODE_MAX_PIXELS = "76799";
+      await expect(defaultProbe(await noisy("png"), "image/png")).rejects.toMatchObject({ status: 400, message: "Image exceeds the 0.076799 megapixel limit" });
+    } finally {
+      delete process.env.MEDIA_DECODE_MAX_PIXELS;
+    }
+  });
+
+  it("decodes one image at a time per process, also after a failed decode", async () => {
+    const images = await Promise.all((["png", "jpeg", "webp", "gif"] as const).map(noisy));
+    let active = 0, peak = 0;
+    const original = sharp.prototype.toBuffer;
+    const spy = vi.spyOn(sharp.prototype, "toBuffer").mockImplementation(async function (this: unknown, ...args: unknown[]) {
+      peak = Math.max(peak, ++active);
+      await new Promise((r) => setTimeout(r, 20));
+      try { return await (original as (...a: unknown[]) => Promise<Buffer>).apply(this, args); } finally { active -= 1; }
+    } as never);
+    try {
+      const results = await Promise.allSettled([...images, images[0]!.subarray(0, images[0]!.length >> 1)].map((b) => defaultProbe(b, undefined)));
+      expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled", "fulfilled", "fulfilled", "rejected"]);
+      expect(await defaultProbe(images[1]!, undefined)).toMatchObject({ width: 320 });
+      expect(peak).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps decoded images out of the libvips operation cache", () => {
+    expect(sharp.cache().memory.max).toBe(0);
   });
 
   it("derives kind + mime from the bytes, not the declared header", async () => {
