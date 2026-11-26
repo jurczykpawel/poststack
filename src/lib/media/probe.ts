@@ -5,12 +5,16 @@ import { videoMetadata } from "./video-metadata";
 import { sniffMime } from "./sniff";
 
 const topLevel = (m: string): string => m.split("/")[0]!;
+// Above any platform's image limit. Bounds the decode: progressive/interlaced files are held whole in memory.
+const MAX_IMAGE_MEGAPIXELS = 120;
 
 /**
  * Default probe. PSA12: derive `kind` + `mime` from the actual magic bytes, not the attacker-supplied
  * Content-Type, and reject when the declared type contradicts the content (content-confusion). The
  * sniffed mime then drives `casKey`'s object extension + the capability `kinds` gate, so neither can
  * be spoofed by the header.
+ *
+ * An image is also decoded once (down to one pixel), so a valid header over cut-off data is refused.
  *
  * Video duration is rounded up to whole seconds for the media registry. Dimensions are read from the first video stream.
  */
@@ -23,12 +27,24 @@ export const defaultProbe: Prober = async (bytes, mime, file): Promise<ProbeResu
     throw new ApiError("media_type_mismatch", `Declared ${mime} but the content is ${sniffed}`, 400);
   }
   if (sniffed.startsWith("image/")) {
+    const maxPixels = MAX_IMAGE_MEGAPIXELS * 1_000_000;
+    const input = file ?? Buffer.from(bytes);
+    let width: number, height: number;
     try {
-      const { width, height } = await sharp(file ?? Buffer.from(bytes)).metadata();
-      return { kind: "image", mime: sniffed, width, height };
+      ({ width, height } = await sharp(input, { limitInputPixels: false }).metadata());
     } catch {
       throw new ApiError("unsupported_media", "Could not read image metadata", 400);
     }
+    if (width * height > maxPixels) {
+      throw new ApiError("unsupported_media", `Image exceeds the ${MAX_IMAGE_MEGAPIXELS} megapixel limit`, 400);
+    }
+    try {
+      await sharp(input, { limitInputPixels: maxPixels, failOn: "truncated", sequentialRead: true })
+        .resize(1, 1, { fit: "fill" }).raw().toBuffer();
+    } catch {
+      throw new ApiError("unsupported_media", "Could not decode the image: the file is damaged or incomplete", 400);
+    }
+    return { kind: "image", mime: sniffed, width, height };
   }
   return { kind: "video", mime: sniffed, ...await videoMetadata(file ?? bytes) };
 };
