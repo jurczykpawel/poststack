@@ -78,6 +78,36 @@ async function downloadImage(url: string, fetchImage: (url: string) => Promise<R
 }
 
 /**
+ * Writes the row that points at the stored picture while holding the object's lock, so a media delete
+ * either sees that row or has finished before the object is checked. Uploads run between transactions.
+ * False = the picture could not be stored and nothing was written.
+ */
+async function saveWithImage(
+  { key, bytes, mime }: NonNullable<Awaited<ReturnType<typeof downloadImage>>>,
+  deps: PreviewDeps,
+  write: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], url: string) => Promise<unknown>,
+): Promise<boolean> {
+  try {
+    const storage = deps.storage ?? getStorage();
+    const register = () => db.transaction(async tx => {
+      await lockBlob(tx, key);
+      if (!(await storage.head(key)).exists) return false;
+      await write(tx, storage.publicUrl(key));
+      return true;
+    });
+    let saved = await register();
+    for (let attempt = 0; !saved && attempt < 2; attempt++) {
+      await storage.putBytes(key, bytes, mime);
+      saved = await register();
+    }
+    return saved;
+  } catch {
+    // Preserve the text when storage is unavailable.
+    return false;
+  }
+}
+
+/**
  * A post made outside PostStack: read once from the platform and remembered in post_previews, so a
  * view never calls the API again. A failed read is remembered too (text-only card), retried after a day.
  */
@@ -103,20 +133,11 @@ export async function externalPostCard(workspaceId: string, channelId: string, p
     const save = (exec: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) =>
       exec.insert(postPreviews).values({ workspace_id: workspaceId, channel_id: channelId, post_id: postId, ...values })
         .onConflictDoUpdate({ target: [postPreviews.workspace_id, postPreviews.channel_id, postPreviews.post_id], set: values });
-    if (image) {
-      const { key: imageKey, bytes, mime } = image;
-      await db.transaction(async tx => {
-        await lockBlob(tx, imageKey);
-        try {
-          const storage = deps.storage ?? getStorage();
-          if (!(await storage.head(imageKey)).exists) await storage.putBytes(imageKey, bytes, mime);
-          values.image_url = storage.publicUrl(imageKey);
-        } catch {
-          // Preserve the text when storage is unavailable.
-        }
-        await save(tx);
-      });
-    } else {
+    if (!image || !(await saveWithImage(image, deps, (tx, url) => {
+      values.image_url = url;
+      return save(tx);
+    }))) {
+      values.image_url = null;
       await save(db);
     }
     row = await db.query.postPreviews.findFirst({ where: key });

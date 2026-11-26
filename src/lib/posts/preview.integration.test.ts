@@ -133,6 +133,68 @@ describe("externalPostCard (a post made outside PostStack)", () => {
     }
   });
 
+  it("uploads the picture without blocking a delete of the same object, and stores it again if it was removed", async () => {
+    const { casKey } = await import("@/lib/media/cas");
+    const { deleteMedia } = await import("@/lib/media/service");
+    const checksum = createHash("sha256").update(JPEG).digest("hex");
+    const key = casKey(checksum, "image/jpeg");
+    const url = storage.publicUrl(key);
+    await storage.delete(key);
+    graph(200, FB_POST);
+    const uploaded = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const put = storage.putBytes.bind(storage);
+    const uploading = vi.spyOn(storage, "putBytes").mockImplementationOnce(async (...args) => {
+      await put(...args);
+      uploaded.resolve();
+      await release.promise;
+    });
+    const card = preview.externalPostCard(WS, CH, FB_POST.id, { storage, fetchImage });
+    try {
+      await uploaded.promise;
+      await db.insert(s.media).values({ id: MEDIA, workspace_id: WS, checksum, storage_key: key, url, kind: "image" });
+      let deleted = false;
+      const deleting = deleteMedia(MEDIA, { storage }, WS).then(() => { deleted = true; });
+      await expect.poll(() => deleted, { timeout: 3000 }).toBe(true);
+      await deleting;
+      expect(await storage.head(key)).toMatchObject({ exists: false });
+      release.resolve();
+      expect((await card)?.imageUrl).toBe(url);
+      expect(await storage.head(key)).toMatchObject({ exists: true });
+      expect(uploading).toHaveBeenCalledTimes(2);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([card]);
+      uploading.mockRestore();
+    }
+  });
+
+  it("keeps only the text when the uploaded picture stays absent", async () => {
+    const { casKey } = await import("@/lib/media/cas");
+    const key = casKey(createHash("sha256").update(JPEG).digest("hex"), "image/jpeg");
+    await storage.delete(key);
+    graph(200, FB_POST);
+    const uploading = vi.spyOn(storage, "putBytes").mockImplementation(async () => {});
+    try {
+      const card = await preview.externalPostCard(WS, CH, FB_POST.id, { storage, fetchImage });
+      expect(card).toMatchObject({ text: FB_POST.message, imageUrl: null });
+      expect(uploading).toHaveBeenCalledTimes(2);
+    } finally {
+      uploading.mockRestore();
+    }
+  });
+
+  it.each(["head", "putBytes"] as const)("keeps the text when storage %s fails", async (operation) => {
+    await storage.delete((await import("@/lib/media/cas")).casKey(createHash("sha256").update(JPEG).digest("hex"), "image/jpeg"));
+    graph(200, FB_POST);
+    const failing = vi.spyOn(storage, operation).mockRejectedValue(new Error("storage unavailable"));
+    try {
+      expect(await preview.externalPostCard(WS, CH, FB_POST.id, { storage, fetchImage })).toMatchObject({ text: FB_POST.message, imageUrl: null });
+    } finally {
+      failing.mockRestore();
+    }
+  });
+
   it("keeps the text when the picture cannot be copied", async () => {
     if (!TEST_DB) return;
     graph(200, FB_POST);
