@@ -1,7 +1,7 @@
 name: Release & Deploy
 
 # Two flows:
-#  • push a tag `v*`  → verify → build+push GHCR images → AUTO deploy to the TEST environment
+#  • push a tag `v*`  → release gate (nothing open) → verify → build+push GHCR images → AUTO deploy to TEST
 #  • workflow_dispatch → MANUAL deploy of an existing tag to the PROD environment
 # Prod is never deployed automatically. Images are GHCR-pulled on the servers (docker login persisted).
 # Deploy targets use environment secrets and a fixed deployment command on each host.
@@ -25,9 +25,24 @@ env:
   WORKER_IMAGE: ghcr.io/jurczykpawel/poststack-worker
 
 jobs:
+  release-gate:
+    name: Release gate
+    # Every tag push first: no release while a pull request, issue or security alert is open.
+    # The PROD dispatch below deploys an already gated tag and does not run it.
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      security-events: read
+    secrets:
+      RELEASE_GATE_TOKEN: ${{ secrets.RELEASE_GATE_TOKEN }}
+
   live-telegram:
     name: Telegram live gate
-    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
+    if: "!cancelled() && (needs.release-gate.result == 'success' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))"
+    needs: release-gate
     uses: ./.github/workflows/live-telegram.yml
     with:
       ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -38,6 +53,7 @@ jobs:
   verify:
     name: Lint, Type Check, Test
     if: github.event_name == 'push'
+    needs: release-gate
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -117,39 +133,10 @@ jobs:
       - name: Browser tests
         run: npm run test:e2e
 
-  dependabot-gate:
-    name: Dependabot PRs handled
-    # A final release (vX.Y.Z, not an rc) is refused while a Dependabot PR is red or has been
-    # waiting more than 14 days.
-    if: github.event_name == 'push' && !contains(github.ref_name, '-')
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-      checks: read
-    steps:
-      - name: Check open Dependabot PRs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --author app/dependabot --state open \
-            --json number,title,createdAt,url,statusCheckRollup)
-          blocking=$(jq -r --arg cutoff "$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)" '
-            .[] | select(
-              (.createdAt < $cutoff) or
-              ([.statusCheckRollup[]? | select(.conclusion | IN("FAILURE","CANCELLED","TIMED_OUT"))] | length > 0)
-            ) | "#\(.number) \(.title) — \(.url)"' <<<"$prs")
-          if [ -n "$blocking" ]; then
-            echo "::error::Handle these Dependabot PRs before a final release (merge, fix, or close with @dependabot ignore):"
-            echo "$blocking"
-            exit 1
-          fi
-          echo "Dependabot PRs OK: $(jq length <<<"$prs") open, none red or older than 14 days."
-
   build:
     name: Build & push images
-    # rc tags skip dependabot-gate; a skipped gate must not skip the build.
-    if: "!cancelled() && github.event_name == 'push' && needs.verify.result == 'success' && needs.live-telegram.result == 'success' && contains(fromJSON('[\"success\",\"skipped\"]'), needs.dependabot-gate.result)"
-    needs: [verify, dependabot-gate, live-telegram]
+    if: "!cancelled() && github.event_name == 'push' && needs.release-gate.result == 'success' && needs.verify.result == 'success' && needs.live-telegram.result == 'success'"
+    needs: [release-gate, verify, live-telegram]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -211,8 +198,8 @@ jobs:
   github-release:
     name: GitHub Release
     # Final versions only (vX.Y.Z); release candidates stay tags. Notes come from CHANGELOG.md.
-    if: "!cancelled() && github.event_name == 'push' && !contains(github.ref_name, '-') && needs.build.result == 'success'"
-    needs: build
+    if: "!cancelled() && github.event_name == 'push' && !contains(github.ref_name, '-') && needs.release-gate.result == 'success' && needs.build.result == 'success'"
+    needs: [release-gate, build]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -244,8 +231,8 @@ jobs:
 
   deploy-test:
     name: Auto-deploy to TEST
-    if: "!cancelled() && github.event_name == 'push' && needs.build.result == 'success'"
-    needs: build
+    if: "!cancelled() && github.event_name == 'push' && needs.release-gate.result == 'success' && needs.build.result == 'success'"
+    needs: [release-gate, build]
     uses: ./.github/workflows/deploy-release.yml
     with:
       target: test-deploy

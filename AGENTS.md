@@ -177,6 +177,7 @@ See `.env.example`. Required:
 
 ## Important Rules
 
+- **No release while anything is open:** `release.yml` runs `release-gate.yml` (`scripts/release/open-items-gate.sh`) first on every `v*` tag; nothing builds or deploys while a pull request, issue, Dependabot / secret scanning / code scanning alert or a triage/draft security advisory is open, and any API error also fails it. Only a non-critical PR or issue may wait, with label `deferred-next-release`; never security alerts and never items labelled `bug` or `security`. Procedure: see Release procedure.
 - **ALWAYS read `vault/brands/_shared/reference/coding-standards.md` before writing code**
 - **Security:** See `vault/brands/_shared/prompts/checklists/security.md`
 - **OAuth tokens NEVER in plaintext** — always `encryptTokens()` before DB write, `decryptTokens()` before use
@@ -187,6 +188,14 @@ See `.env.example`. Required:
 - **NEVER `npm install` on server** — always prebuild artifacts, deploy via Docker
 - **Folded migrations:** every schema change appended to the current release migration MUST also have an idempotent `drizzle/reconcile/NNNN_<slug>.sql` delta. `scripts/migrate.ts` runs these in filename order after Drizzle migrations, each in a transaction under the same advisory lock, on TEST/PROD/self-host. Repeated runs must preserve data and the final schema; use `npm run db:migrate:deploy` to run both stages.
 - **Schema: every status/state is an enum from day 1** — never a `String` with an enumerating comment, never a new boolean per state. Each `*_id` column has a Drizzle `foreignKey` with an explicit `onDelete`.
+
+## Release procedure
+
+1. **Start of the release cycle, before the full test gate** (`priv/scripts/gate.sh`): run `scripts/release/open-items-gate.sh start`. Merge, fix or close everything it lists so it lands in the candidate before testing. A non-critical PR or issue (e.g. a tool or image bump) may wait with label `deferred-next-release`; bugs, security items and all security alerts cannot.
+2. Test the candidate, bump the version, tag `v*`. Run `scripts/release/open-items-gate.sh` again right before pushing the tag; the pre-push hook only sees a tag pushed together with new commits.
+3. On the tag, `release.yml` repeats the check server-side (`--no-verify` does not skip it). Anything opened since step 1 blocks the release: handle it and push a new tag.
+4. The gate needs the Actions secret `RELEASE_GATE_TOKEN`: a fine-grained PAT of a repository administrator, access to this repository only, read-only permissions *Dependabot alerts*, *Secret scanning alerts*, *Repository security advisories*. Without it the gate fails with these instructions. `GITHUB_TOKEN` (pull-requests, issues, security-events: read) covers PRs, issues and code scanning.
+5. The PROD `workflow_dispatch` deploys an already gated tag and does not rerun the gate.
 
 ## Phases
 

@@ -17,3 +17,15 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      # Early warning before the server-side release gate (release.yml → release-gate.yml). Runs only when
+      # pre-commit reports a v* tag as the pushed ref; plain branch pushes are untouched. pre-commit runs no
+      # pre-push hook at all for a tag on a commit the remote already has, so the release procedure in
+      # AGENTS.md also runs the script by hand.
+      - id: release-open-items-gate
+        name: Release gate (open PRs, issues, security alerts)
+        entry: bash -c 'case "${PRE_COMMIT_REMOTE_BRANCH:-}" in refs/tags/v*) exec bash scripts/release/open-items-gate.sh release ;; esac'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

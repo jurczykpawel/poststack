@@ -84,6 +84,9 @@ jobs:
           # npm 10 bundled with Node 22 lacks newer registry attestation keys (EMISSINGSIGNATUREKEY on magic-string 1.4.5); use the pinned npm 11 verifier with current registry keys
           for i in 1 2 3; do npx -y npm@11.21.3 audit signatures && break; [ "$i" = 3 ] && exit 1; sleep 20; done
 
+      - name: Release gate script tests
+        run: bash scripts/release/open-items-gate.test.sh
+
       - name: Install and audit landing dependencies
         run: |
           npm --prefix landing ci
