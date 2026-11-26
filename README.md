@@ -626,8 +626,10 @@ URL ingestion streams into S3 multipart storage with an in-flight SHA-256 checks
 complete files, including videos with metadata at the end. `MEDIA_FETCH_TIMEOUT_MS` defaults to
 one hour. The development in-memory adapter retains its 256 MiB limit; use S3 for larger files.
 Uploaded and ingested images are decoded once to reject damaged or incomplete files; for animated
-GIF and WebP only the first frame is checked. Each process decodes one image at a time and accepts
-at most `MEDIA_DECODE_MAX_PIXELS` (default 50 megapixels, about 480 MiB peak memory per decode).
+GIF and WebP only the first frame is checked. Each process decodes one image at a time and refuses
+images whose estimated decode memory exceeds `MEDIA_DECODE_MAX_BYTES` (default 512 MiB; a 108
+megapixel baseline JPEG fits, while progressive, interlaced, GIF and 16-bit images fit at lower
+resolutions).
 Storage credentials need multipart upload, abort, read, copy and delete operations. Public storage
 URLs must support HEAD and GET Range for chunked publishing. `PROVIDER_DOWNLOAD_MAX_BYTES` still
 sets a separate upload ceiling when configured. YouTube deliveries save their upload session for

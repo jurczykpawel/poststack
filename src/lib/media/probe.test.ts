@@ -57,19 +57,56 @@ describe("defaultProbe [PSA12]", () => {
     expect(await defaultProbe(withTrailer, "image/jpeg")).toMatchObject({ width: 320 });
   });
 
-  it("rejects an image above the default 50 megapixel decode limit with a clear message", async () => {
-    const huge = await sharp({ create: { width: 10_001, height: 5_000, channels: 3, background: "#fff" } }).png().toBuffer();
-    await expect(defaultProbe(huge, "image/png")).rejects.toMatchObject({ status: 400, message: "Image exceeds the 50 megapixel limit" });
+  const solid = (width: number, height: number, channels: 3 | 4 = 3) =>
+    sharp({ create: { width, height, channels, background: "#789" }, limitInputPixels: false });
+
+  it("accepts a 108 megapixel baseline JPEG phone photo within the default decode budget", async () => {
+    const photo = await solid(12_000, 9_000).jpeg().toBuffer();
+    expect(await defaultProbe(photo, "image/jpeg")).toMatchObject({ width: 12_000, height: 9_000 });
+  }, 30_000);
+
+  it("rejects an image whose estimated decode memory exceeds the default budget with a clear message", async () => {
+    const heavy = await solid(8_165, 6_124, 4).toColourspace("rgb16").png({ progressive: true }).toBuffer();
+    await expect(defaultProbe(heavy, "image/png")).rejects.toMatchObject({
+      status: 400, code: "unsupported_media", message: "Image is too large to process (50 MP); reduce its resolution",
+    });
+  }, 30_000);
+
+  // Budget = 128 MiB process reserve + compressed size + pixels × bytes held per pixel.
+  it.each([
+    ["baseline JPEG", "image/jpeg", 3, () => solid(320, 240).jpeg()],
+    ["progressive JPEG", "image/jpeg", 6, () => solid(320, 240).jpeg({ progressive: true })],
+    ["progressive CMYK JPEG", "image/jpeg", 8, () => solid(320, 240).toColourspace("cmyk").jpeg({ progressive: true })],
+    ["PNG", "image/png", 3, () => solid(320, 240).png()],
+    ["interlaced PNG", "image/png", 6, () => solid(320, 240).png({ progressive: true })],
+    ["interlaced 16-bit PNG", "image/png", 16, () => solid(320, 240, 4).toColourspace("rgb16").png({ progressive: true })],
+    ["opaque WebP", "image/webp", 4, () => solid(320, 240).webp({ lossless: true })],
+    ["GIF", "image/gif", 8, () => solid(320, 240).gif()],
+  ] as const)("holds a %s to MEDIA_DECODE_MAX_BYTES by its estimated decode memory", async (_name, mime, perPixel, image) => {
+    const bytes = await image().toBuffer();
+    const needed = 128 * 1024 * 1024 + bytes.length + 320 * 240 * perPixel;
+    const directory = await mkdtemp(join(tmpdir(), "probe-test-"));
+    try {
+      const file = join(directory, "image");
+      await writeFile(file, bytes);
+      process.env.MEDIA_DECODE_MAX_BYTES = String(needed);
+      expect(await defaultProbe(bytes, mime)).toMatchObject({ width: 320, height: 240 });
+      expect(await defaultProbe(bytes.subarray(0, 64), mime, file)).toMatchObject({ width: 320 });
+      process.env.MEDIA_DECODE_MAX_BYTES = String(needed - 1);
+      await expect(defaultProbe(bytes, mime)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("too large to process") });
+      await expect(defaultProbe(bytes.subarray(0, 64), mime, file)).rejects.toMatchObject({ status: 400 });
+    } finally {
+      delete process.env.MEDIA_DECODE_MAX_BYTES;
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
-  it("takes the decode pixel limit from MEDIA_DECODE_MAX_PIXELS", async () => {
-    process.env.MEDIA_DECODE_MAX_PIXELS = "76800";
+  it("falls back to the default budget when MEDIA_DECODE_MAX_BYTES is not a positive integer", async () => {
+    process.env.MEDIA_DECODE_MAX_BYTES = "512MB";
     try {
-      expect(await defaultProbe(await noisy("png"), "image/png")).toMatchObject({ width: 320, height: 240 });
-      process.env.MEDIA_DECODE_MAX_PIXELS = "76799";
-      await expect(defaultProbe(await noisy("png"), "image/png")).rejects.toMatchObject({ status: 400, message: "Image exceeds the 0.076799 megapixel limit" });
+      expect(await defaultProbe(await noisy("png"), "image/png")).toMatchObject({ width: 320 });
     } finally {
-      delete process.env.MEDIA_DECODE_MAX_PIXELS;
+      delete process.env.MEDIA_DECODE_MAX_BYTES;
     }
   });
 

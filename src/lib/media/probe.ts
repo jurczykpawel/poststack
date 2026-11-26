@@ -1,4 +1,5 @@
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
+import { stat } from "node:fs/promises";
 import type { Prober, ProbeResult } from "./service";
 import { ApiError } from "@/lib/api/response";
 import { videoMetadata } from "./video-metadata";
@@ -6,12 +7,19 @@ import { sniffMime } from "./sniff";
 import { withDecodeSlot } from "./ingest-limit";
 
 const topLevel = (m: string): string => m.split("/")[0]!;
-// A worst-case decode (16-bit RGBA interlaced PNG, CMYK progressive JPEG) holds ~8 bytes per pixel:
-// 50 MP peaks at ~450 MiB RSS, inside a 512 MiB budget for the one decode a process runs at a time.
-const DEFAULT_DECODE_MAX_PIXELS = 50_000_000;
-const decodeMaxPixels = (): number => {
-  const configured = Number(process.env.MEDIA_DECODE_MAX_PIXELS);
-  return Number.isSafeInteger(configured) && configured > 0 ? configured : DEFAULT_DECODE_MAX_PIXELS;
+const DEFAULT_DECODE_MAX_BYTES = 512 * 1024 * 1024;
+const PROCESS_RESERVE_BYTES = 128 * 1024 * 1024;
+const decodeMaxBytes = (): number => {
+  const configured = Number(process.env.MEDIA_DECODE_MAX_BYTES);
+  return Number.isSafeInteger(configured) && configured > 0 ? configured : DEFAULT_DECODE_MAX_BYTES;
+};
+
+// Upper estimate of peak RSS; multi-scan JPEG reports as progressive, and GIF peaks near 5 bytes per pixel.
+const decodeBytes = ({ format, width, height, channels, depth, isProgressive }: Metadata, fileBytes: number): number => {
+  const bands = format === "webp" || format === "gif" ? 4 : channels;
+  const bytesPerSample = depth === "uchar" ? 1 : 2;
+  const passes = isProgressive || format === "gif" ? 2 : 1;
+  return PROCESS_RESERVE_BYTES + fileBytes + width * height * bands * bytesPerSample * passes;
 };
 
 sharp.cache(false); // decoded uploads are never reused; do not keep them in libvips memory
@@ -23,7 +31,8 @@ sharp.cache(false); // decoded uploads are never reused; do not keep them in lib
  * be spoofed by the header.
  *
  * An image is also decoded once (down to one pixel, the first frame of an animation), so a valid header over
- * cut-off data is refused. Decodes run one at a time per process and are capped at MEDIA_DECODE_MAX_PIXELS.
+ * cut-off data is refused. Decodes run one at a time per process, and only when their estimated memory fits
+ * MEDIA_DECODE_MAX_BYTES.
  *
  * Video duration is rounded up to whole seconds for the media registry. Dimensions are read from the first video stream.
  */
@@ -36,19 +45,20 @@ export const defaultProbe: Prober = async (bytes, mime, file): Promise<ProbeResu
     throw new ApiError("media_type_mismatch", `Declared ${mime} but the content is ${sniffed}`, 400);
   }
   if (sniffed.startsWith("image/")) {
-    const maxPixels = decodeMaxPixels();
     const input = file ?? Buffer.from(bytes);
-    let width: number, height: number;
+    let metadata: Metadata;
     try {
-      ({ width, height } = await sharp(input, { limitInputPixels: false }).metadata());
+      metadata = await sharp(input, { limitInputPixels: false }).metadata();
     } catch {
       throw new ApiError("unsupported_media", "Could not read image metadata", 400);
     }
-    if (width * height > maxPixels) {
-      throw new ApiError("unsupported_media", `Image exceeds the ${maxPixels / 1_000_000} megapixel limit`, 400);
+    const { width, height } = metadata;
+    if (decodeBytes(metadata, file ? (await stat(file)).size : bytes.length) > decodeMaxBytes()) {
+      const megapixels = Math.round((width * height) / 1_000_000);
+      throw new ApiError("unsupported_media", `Image is too large to process (${megapixels} MP); reduce its resolution`, 400);
     }
     try {
-      await withDecodeSlot(() => sharp(input, { limitInputPixels: maxPixels, failOn: "truncated", sequentialRead: true })
+      await withDecodeSlot(() => sharp(input, { limitInputPixels: false, failOn: "truncated", sequentialRead: true })
         .resize(1, 1, { fit: "fill" }).raw().toBuffer());
     } catch {
       throw new ApiError("unsupported_media", "Could not decode the image: the file is damaged or incomplete", 400);
