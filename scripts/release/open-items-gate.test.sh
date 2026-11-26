@@ -24,11 +24,11 @@ echo "$key token=${GH_TOKEN:-}" >> "$FAKE_LOG"
 fail="FAKE_FAIL_$key"
 if [ -n "${!fail:-}" ]; then echo "${!fail}" >&2; exit 1; fi
 body="FAKE_$key"
-printf '%s\n' "${!body:-[]}"
+printf '%s\n' "${!body-[]}"
 GH
 chmod +x "$WORK/bin/gh"
 export PATH="$WORK/bin:$PATH" FAKE_LOG="$WORK/gh.log" GATE_REPO=acme/app GH_TOKEN=default-token
-unset GITHUB_ACTIONS RELEASE_GATE_TOKEN GATE_DEFER_LABEL GATE_CRITICAL_LABELS
+unset GITHUB_ACTIONS RELEASE_GATE_TOKEN GATE_DEFER_LABEL GATE_CRITICAL_LABELS GATE_DEFER_MAX_DAYS
 set -a # every FAKE_* assignment below must reach the fake gh
 
 failures=0
@@ -36,7 +36,8 @@ fail() { echo "FAIL: $1"; sed 's/^/    /' "$WORK/out"; failures=$((failures + 1)
 reset() {
     unset FAKE_PULLS FAKE_ISSUES FAKE_CODE FAKE_DEPENDABOT FAKE_SECRETS FAKE_ADVISORIES \
         FAKE_FAIL_PULLS FAKE_FAIL_ISSUES FAKE_FAIL_CODE FAKE_FAIL_DEPENDABOT FAKE_FAIL_SECRETS \
-        FAKE_FAIL_ADVISORIES GITHUB_ACTIONS RELEASE_GATE_TOKEN GATE_DEFER_LABEL GATE_CRITICAL_LABELS
+        FAKE_FAIL_ADVISORIES GITHUB_ACTIONS RELEASE_GATE_TOKEN GATE_DEFER_LABEL GATE_CRITICAL_LABELS \
+        GATE_DEFER_MAX_DAYS
     : > "$FAKE_LOG"
 }
 run() { bash "$GATE" "$@" > "$WORK/out" 2>&1; }
@@ -47,9 +48,10 @@ expect() {
     [ "$code" = "$2" ] || { fail "$1: exit $code, expected $2"; return; }
     if [ -n "${3:-}" ] && ! grep -qF -- "$3" "$WORK/out"; then fail "$1: output lacks '$3'"; fi
 }
-item() { # item <number> <title> <labels JSON array> [extra JSON fields]
-    printf '{"number":%s,"title":"%s","html_url":"https://github.com/acme/app/%s","labels":%s%s}' \
-        "$1" "$2" "$1" "$(jq -c 'map({name: .})' <<< "$3")" "${4:-}"
+days_ago() { jq -nr --argjson days "$1" 'now - $days * 86400 | floor | todate'; }
+item() { # item <number> <title> <labels JSON array> [extra JSON fields] [created_at]
+    printf '{"number":%s,"title":"%s","html_url":"https://github.com/acme/app/%s","created_at":"%s","labels":%s%s}' \
+        "$1" "$2" "$1" "${5:-$(days_ago 1)}" "$(jq -c 'map({name: .})' <<< "$3")" "${4:-}"
 }
 
 reset; expect "nothing open" 0 "nothing open in acme/app"
@@ -92,6 +94,17 @@ expect "API error fails closed" 1 "could not read Open pull requests"
 reset; FAKE_PULLS='not json'
 expect "unexpected response fails closed" 1 "unexpected response for Open pull requests"
 
+for source in PULLS ISSUES CODE DEPENDABOT SECRETS ADVISORIES; do
+    reset; declare "FAKE_$source="
+    expect "empty $source response fails closed" 1 "unexpected response for"
+    reset; declare "FAKE_$source={}"
+    expect "non-array $source response fails closed" 1 "unexpected response for"
+done
+
+reset; FAKE_PULLS='[]
+{}'
+expect "non-array later page fails closed" 1 "unexpected response for Open pull requests"
+
 reset; FAKE_PULLS="[$(item 1 'first page' '[]')]
 [$(item 2 'second page' '[]')]"
 expect "every page is checked" 1 "#2 second page"
@@ -132,6 +145,39 @@ expect "default deferral label not honoured when renamed" 1 "#14 Docs typo"
 reset; export GATE_CRITICAL_LABELS="type: bug, regression"
 FAKE_ISSUES="[$(item 15 'Regressed' '["regression","deferred-next-release"]')]"
 expect "critical labels come from the environment" 1 "not allowed on regression items"
+
+# Label spelling and issue types
+reset; FAKE_ISSUES="[$(item 17 'Capitalised' '["Bug","deferred-next-release"]')]"
+expect "critical label matches regardless of case" 1 "is not allowed on bug items"
+reset; FAKE_PULLS="[$(item 18 'Capitalised' '["Security","Deferred-Next-Release"]')]"
+expect "critical and deferral labels match regardless of case" 1 "is not allowed on security items"
+reset; FAKE_ISSUES="[$(item 19 'Typo' '["Deferred-Next-Release"]')]"
+expect "deferral label matches regardless of case" 0 "#19 Typo"
+reset; export GATE_CRITICAL_LABELS="Regression"
+FAKE_ISSUES="[$(item 20 'Regressed' '["regression","deferred-next-release"]')]"
+expect "configured critical labels match regardless of case" 1 "not allowed on regression items"
+
+reset; FAKE_ISSUES="[$(item 21 'Typed' '["deferred-next-release"]' ',"type":{"name":"Bug"}')]"
+expect "issue type Bug cannot be deferred" 1 "is not allowed on bug items"
+reset; FAKE_ISSUES="[$(item 22 'Chore' '["deferred-next-release"]' ',"type":{"name":"Task"}')]"
+expect "non-critical issue type can be deferred" 0 "#22 Chore"
+reset; FAKE_ISSUES="[$(item 23 'Untyped' '["deferred-next-release"]' ',"type":null')]"
+expect "issue without a type can be deferred" 0 "#23 Untyped"
+
+# Deferral expiry
+reset; FAKE_PULLS="[$(item 24 'Old bump' '["deferred-next-release"]' '' 2025-03-01T00:00:00Z)]"
+expect "old deferred item blocks" 1 "#24 Old bump — https://github.com/acme/app/24 (deferral expired: open for more than 30 days)"
+reset; FAKE_ISSUES="[$(item 25 'Recent' '["deferred-next-release"]' '' "$(days_ago 29)")]"
+expect "deferred item within the limit passes" 0 "#25 Recent"
+reset; FAKE_ISSUES="[$(item 26 'Just over' '["deferred-next-release"]' '' "$(days_ago 31)")]"
+expect "deferred item past the limit blocks" 1 "deferral expired"
+reset; export GATE_DEFER_MAX_DAYS=60
+FAKE_ISSUES="[$(item 27 'Longer limit' '["deferred-next-release"]' '' "$(days_ago 31)")]"
+expect "deferral limit comes from the environment" 0
+reset; export GATE_DEFER_MAX_DAYS=soon
+expect "invalid deferral limit fails closed" 1 "GATE_DEFER_MAX_DAYS must be a whole number"
+reset; FAKE_ISSUES='[{"number":28,"title":"Undated","html_url":"u","labels":[{"name":"deferred-next-release"}]}]'
+expect "deferred item without a creation date fails closed" 1 "unexpected response for Open issues"
 
 # Modes
 reset; FAKE_PULLS="[$(item 16 'Open work' '[]')]"

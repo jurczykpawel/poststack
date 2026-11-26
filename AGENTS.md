@@ -177,7 +177,7 @@ See `.env.example`. Required:
 
 ## Important Rules
 
-- **No release while anything is open:** `release.yml` runs `release-gate.yml` (`scripts/release/open-items-gate.sh`) first on every `v*` tag; nothing builds or deploys while a pull request, issue, Dependabot / secret scanning / code scanning alert or a triage/draft security advisory is open, and any API error also fails it. Only a non-critical PR or issue may wait, with label `deferred-next-release`; never security alerts and never items labelled `bug` or `security`. Procedure: see Release procedure.
+- **No release while anything is open:** `release.yml` runs `release-gate.yml` (`scripts/release/open-items-gate.sh`) first on every `v*` tag; nothing builds or deploys while a pull request, issue, Dependabot / secret scanning / code scanning alert or a triage/draft security advisory is open, and any API error also fails it. Only a non-critical PR or issue may wait, with label `deferred-next-release`, and only until it has been open for 30 days; never security alerts and never items labelled `bug` or `security` (or of issue type Bug). Procedure: see Release procedure.
 - **ALWAYS read `vault/brands/_shared/reference/coding-standards.md` before writing code**
 - **Security:** See `vault/brands/_shared/prompts/checklists/security.md`
 - **OAuth tokens NEVER in plaintext** — always `encryptTokens()` before DB write, `decryptTokens()` before use
@@ -191,11 +191,13 @@ See `.env.example`. Required:
 
 ## Release procedure
 
-1. **Start of the release cycle, before the full test gate** (`priv/scripts/gate.sh`): run `scripts/release/open-items-gate.sh start`. Merge, fix or close everything it lists so it lands in the candidate before testing. A non-critical PR or issue (e.g. a tool or image bump) may wait with label `deferred-next-release`; bugs, security items and all security alerts cannot.
+1. **Start of the release cycle, before the full test gate** (`priv/scripts/gate.sh`): run `scripts/release/open-items-gate.sh start`. Merge, fix or close everything it lists so it lands in the candidate before testing. A non-critical PR or issue (e.g. a tool or image bump) may wait with label `deferred-next-release` until it is 30 days old (counted from creation; `GATE_DEFER_MAX_DAYS`); then it blocks again. Bugs, security items and all security alerts cannot wait.
 2. Test the candidate, bump the version, tag `v*`. Run `scripts/release/open-items-gate.sh` again right before pushing the tag; the pre-push hook only sees a tag pushed together with new commits.
 3. On the tag, `release.yml` repeats the check server-side (`--no-verify` does not skip it). Anything opened since step 1 blocks the release: handle it and push a new tag.
 4. The gate needs the Actions secret `RELEASE_GATE_TOKEN`: a fine-grained PAT of a repository administrator, access to this repository only, read-only permissions *Dependabot alerts*, *Secret scanning alerts*, *Repository security advisories*. Without it the gate fails with these instructions. `GITHUB_TOKEN` (pull-requests, issues, security-events: read) covers PRs, issues and code scanning.
+   **Test the token when creating and after every rotation** (a token without the advisories permission may get an empty list instead of an error): create a draft security advisory, run `GITHUB_ACTIONS=true RELEASE_GATE_TOKEN=<new token> scripts/release/open-items-gate.sh`, require a red result that lists the draft, then close the draft.
 5. The PROD `workflow_dispatch` deploys an already gated tag and does not rerun the gate.
+6. A tag runs the workflow and script of the commit it points to; who may create or move `v*` tags is controlled by the `protect-release-tags` ruleset.
 
 ## Phases
 

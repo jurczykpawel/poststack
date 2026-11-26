@@ -9,16 +9,18 @@
 # Checks: (a) open pull requests, (b) open issues, (c) open Dependabot alerts, (d) open secret
 # scanning alerts, (e) open code scanning alerts (no analysis yet = nothing open), (f) repository
 # security advisories in triage or draft. Anything open exits 1 with the list; so does any API
-# error (fail closed).
+# error or a response that is not a JSON array (fail closed).
 #
 # The only way to let an item wait: a pull request or issue that carries the deferral label and
-# none of the critical labels. Security alerts (c-f) can never be deferred, and the deferral label
-# on a critical item keeps the gate red.
+# none of the critical labels, until it has been open for GATE_DEFER_MAX_DAYS. An issue type counts
+# as a critical label of the same name; names are compared ignoring case. Security alerts (c-f) can
+# never be deferred, and the deferral label on a critical item keeps the gate red.
 #
 # Repository-agnostic; configured only through the environment:
 #   GATE_REPO             owner/name. Default: $GITHUB_REPOSITORY, else the repository of the checkout (gh).
 #   GATE_DEFER_LABEL      deferral label. Default: deferred-next-release.
 #   GATE_CRITICAL_LABELS  comma-separated labels that can never be deferred. Default: bug,security.
+#   GATE_DEFER_MAX_DAYS   days since creation after which a deferred item blocks again. Default: 30.
 #   GH_TOKEN              token for (a), (b), (e). In GitHub Actions: GITHUB_TOKEN with
 #                         pull-requests: read, issues: read, security-events: read. Locally: gh's own login.
 #   RELEASE_GATE_TOKEN    token for (c), (d), (f), which GITHUB_TOKEN cannot read. Required in GitHub
@@ -48,6 +50,11 @@ if [ -z "$repo" ] && ! repo=$(gh repo view --json nameWithOwner --jq .nameWithOw
 fi
 defer_label="${GATE_DEFER_LABEL:-deferred-next-release}"
 critical_labels="${GATE_CRITICAL_LABELS:-bug,security}"
+defer_max_days="${GATE_DEFER_MAX_DAYS:-30}"
+if ! [[ "$defer_max_days" =~ ^[0-9]+$ ]]; then
+    echo "release gate: GATE_DEFER_MAX_DAYS must be a whole number of days." >&2
+    exit 1
+fi
 
 err_file=$(mktemp)
 trap 'rm -f "$err_file"' EXIT
@@ -57,13 +64,16 @@ deferred=""
 # shellcheck disable=SC2016 # jq variables, not shell ones
 # Pull requests and issues: "B<TAB>line" blocks, "D<TAB>line" is deferred.
 items_filter='
-  ($critical_csv | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $critical
+  ($critical_csv | ascii_downcase | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $critical
   | .[] | select(.pull_request | not)
-  | [.labels[]?.name] as $labels
-  | ($labels - ($labels - $critical)) as $hit
+  | [.labels[]?.name | ascii_downcase] as $labels
+  | ($labels + [.type.name? // empty | ascii_downcase] | unique) as $kinds
+  | ($kinds - ($kinds - $critical)) as $hit
   | "#\(.number) \(.title) — \(.html_url)" as $line
-  | if ($labels | index($defer)) == null then "B\t\($line)"
+  | if ($labels | index($defer | ascii_downcase)) == null then "B\t\($line)"
     elif ($hit | length) > 0 then "B\t\($line) (\($defer) is not allowed on \($hit | join("/")) items)"
+    elif now - (.created_at | fromdateiso8601) > $max_days * 86400 then
+      "B\t\($line) (deferral expired: open for more than \($max_days) days)"
     else "D\t\($line)" end'
 # The pulls endpoint has no pull_request key; the issues endpoint marks pull requests with it.
 
@@ -88,7 +98,14 @@ check() {
         status=1
         return
     fi
-    if ! out=$(jq -r --arg defer "$defer_label" --arg critical_csv "$critical_labels" "$4" <<< "$json" 2>"$err_file"); then
+    # An empty body or another JSON type would pass the filters as "nothing open".
+    if ! jq -es 'length > 0 and all(.[]; type == "array")' <<< "$json" >/dev/null 2>"$err_file"; then
+        echo "release gate: unexpected response for $1: expected a JSON array. $(tr '\n' ' ' < "$err_file")" >&2
+        status=1
+        return
+    fi
+    if ! out=$(jq -r --arg defer "$defer_label" --arg critical_csv "$critical_labels" \
+        --argjson max_days "$defer_max_days" "$4" <<< "$json" 2>"$err_file"); then
         echo "release gate: unexpected response for $1: $(tr '\n' ' ' < "$err_file")" >&2
         status=1
         return
@@ -141,9 +158,9 @@ fi
 
 if [ "$status" -ne 0 ]; then
     if [ "$mode" = start ]; then
-        msg="Release cycle cannot start: merge, fix or close everything listed above in $repo before the full test gate, so it lands in the candidate. Only a non-critical pull request or issue may wait, with label $defer_label."
+        msg="Release cycle cannot start: merge, fix or close everything listed above in $repo before the full test gate, so it lands in the candidate. Only a non-critical pull request or issue may wait, with label $defer_label, for at most $defer_max_days days since it was opened."
     else
-        msg="Release blocked: handle everything listed above in $repo (merge, fix or close; only a non-critical pull request or issue may wait, with label $defer_label), then release again."
+        msg="Release blocked: handle everything listed above in $repo (merge, fix or close; only a non-critical pull request or issue may wait, with label $defer_label, for at most $defer_max_days days since it was opened), then release again."
     fi
     if [ "${GITHUB_ACTIONS:-}" = true ]; then echo "::error::$msg" >&2; else echo "$msg" >&2; fi
     exit 1
