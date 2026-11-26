@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+- Inbox: on the first visit from a browser in a different time zone, only the conversation list is refreshed. An open thread is no longer reloaded under you (which cleared a half-written reply), and the reply box stays usable during the refresh.
+
 ## [0.27.8] - 2026-11-26
 
 ### Fixed

@@ -82,10 +82,13 @@ window.psReschedule = function () {
     var view = document.querySelector && document.querySelector("[data-view-tz]");
     if (!view || encodeURIComponent(view.getAttribute("data-view-tz")) === zone) return;
     view.setAttribute("data-view-tz", decodeURIComponent(zone));
-    var target = document.getElementById("data-list") ? "#data-list" : "#main";
+    // Only the list depends on the zone: a thread open next to it (Inbox) keeps its state.
+    var list = document.getElementById("data-list") || document.getElementById("conv-panel");
+    var target = list ? "#" + list.id : "#main";
     if (window.htmx && document.getElementById(target.slice(1))) {
-      view.inert = true;
-      var ready = function () { view.inert = false; };
+      var stale = list && list.id === "conv-panel" ? list : view;
+      stale.inert = true;
+      var ready = function () { stale.inert = false; };
       window.htmx.ajax("GET", location.href, { target: target, select: target, swap: "outerHTML" }).then(ready, ready);
     } else location.reload();
   }

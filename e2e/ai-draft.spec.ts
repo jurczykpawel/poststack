@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import recorded from "../tests/fixtures/mqa-delivery-approval.json";
 import { test, expect } from "@playwright/test";
 import { Client } from "pg";
@@ -26,10 +27,12 @@ async function seedWorkspace(client: Client): Promise<string> {
 }
 
 async function seedChannelAndContact(client: Client, workspaceId: string, tag: string): Promise<{ channelId: string; contactId: string }> {
+  // channels are unique per (workspace, platform, platform_id): a repeat on the same database needs fresh ids.
+  const unique = `${tag}-${randomUUID()}`;
   const ch = await client.query<{ id: string }>(
     `INSERT INTO channels (workspace_id, platform, platform_id, display_name, token_encrypted, webhook_secret, status)
      VALUES ($1, 'facebook', $2, $3, 'x', $4, 'active') RETURNING id`,
-    [workspaceId, `pg-${tag}`, `E2E ${tag} Page`, `wh-${tag}`],
+    [workspaceId, `pg-${unique}`, `E2E ${tag} Page`, `wh-${unique}`],
   );
   const contact = await client.query<{ id: string }>(
     `INSERT INTO contacts (workspace_id, display_name) VALUES ($1, $2) RETURNING id`,
@@ -173,24 +176,28 @@ test.describe.serial("AI-draft UX (ADUX1/ADUX2/ADDEL1/ADLOG1)", () => {
   });
 
   test("approvals page: Edit + Save/Cancel work the same as the inbox thread (ADUX2)", async ({ page }) => {
+    // The edited card stays behind, so each run needs its own text.
+    const run = randomUUID().slice(0, 8);
+    const draft = `Approvals page draft ${run}`;
+    const edited = `Edited from Approvals ${run}`;
     const client = await db();
     try {
       const workspaceId = await seedWorkspace(client);
       const { channelId, contactId } = await seedChannelAndContact(client, workspaceId, "ux2");
-      await seedDraft(client, workspaceId, channelId, contactId, "Approvals page draft");
+      await seedDraft(client, workspaceId, channelId, contactId, draft);
     } finally {
       await client.end();
     }
 
     await gotoOk(page, "/approvals");
-    const card = page.locator(".appr", { hasText: "Approvals page draft" });
+    const card = page.locator(".appr", { hasText: draft });
     await expect(card).toBeVisible();
     await card.getByRole("button", { name: "Edit", exact: true }).click();
     const textarea = card.locator("textarea");
-    await expect(textarea).toHaveValue("Approvals page draft");
-    await textarea.fill("Edited from Approvals");
+    await expect(textarea).toHaveValue(draft);
+    await textarea.fill(edited);
     await card.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.locator(".appr", { hasText: "Edited from Approvals" })).toBeVisible();
+    await expect(page.locator(".appr", { hasText: edited })).toBeVisible();
   });
 
   test("AI log is counted on Settings -> AI and listed in Activity (ADLOG1)", async ({ page }) => {
@@ -229,8 +236,14 @@ test("mobile inbox opens a full thread from a deep link and the list", async ({ 
   } finally {
     await client.end();
   }
+  // A view switch is over once the thread's response is in and htmx has settled it; the response
+  // wait has the test's time budget, so a slow machine is not mistaken for a broken view.
+  const threadLoaded = () => page.waitForResponse((r) => new URL(r.url()).pathname === `/inbox/${conversationId}`);
+  const deepLinked = threadLoaded();
   await gotoOk(page, `/inbox?open=${conversationId}`);
   const checkThread = async () => {
+    await expect(page.locator("#thread .thread-head")).toBeVisible();
+    await expect(page.locator("#thread.htmx-swapping, #thread.htmx-settling")).toHaveCount(0);
     await expect(page.locator("#conv-panel")).toBeHidden();
     for (const control of [page.locator(".reply-bar textarea"), page.getByRole("button", { name: "Send", exact: true }), page.getByRole("button", { name: "Done", exact: true })]) {
       await expect(control).toBeInViewport({ ratio: 1 });
@@ -238,6 +251,7 @@ test("mobile inbox opens a full thread from a deep link and the list", async ({ 
       expect(box!.width).toBeGreaterThan(40);
     }
   };
+  await deepLinked;
   await checkThread();
   await page.evaluate(async () => {
     await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
@@ -266,10 +280,81 @@ test("mobile inbox opens a full thread from a deep link and the list", async ({ 
     await expect(page.locator("#conv-panel")).not.toHaveClass(/htmx-settling/);
     await expect(filters.locator(`input[name='${name}']`)).toHaveValue(value);
   }
-  await page.locator(`.conv-item[hx-get="/inbox/${conversationId}"]`).click();
+  await Promise.all([threadLoaded(), page.locator(`.conv-item[hx-get="/inbox/${conversationId}"]`).click()]);
   await checkThread();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.locator("#conv-panel")).toBeVisible();
   await expect(page.locator("#thread")).toBeVisible();
   await expect(page.getByRole("button", { name: "← Back", exact: true })).toBeHidden();
+});
+
+test.describe("first visit from another time zone", () => {
+  test.use({ timezoneId: "Pacific/Auckland" });
+
+  test("the late list refresh keeps the open thread and the reply being typed", async ({ page }) => {
+    await setPro(page.request);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const client = await db();
+    let conversationId: string;
+    try {
+      const workspaceId = await seedWorkspace(client);
+      const { channelId, contactId } = await seedChannelAndContact(client, workspaceId, "zone");
+      ({ conversationId } = await seedDraft(client, workspaceId, channelId, contactId, "Zone draft"));
+      // A fresh inbound message opens the reply window, so the reply box accepts text.
+      await client.query("INSERT INTO messages (conversation_id, direction, text) VALUES ($1, 'inbound', 'Hello')", [conversationId]);
+      await client.query("UPDATE conversations SET last_message_at = now(), last_inbound_at = now() WHERE id = $1", [conversationId]);
+    } finally {
+      await client.end();
+    }
+    // Hold the zone refresh until the thread is open and in use.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(/\/inbox\?open=/, async (route) => {
+      if (route.request().resourceType() === "xhr") await held;
+      await route.continue();
+    });
+    let threadLoads = 0;
+    page.on("request", (r) => { if (new URL(r.url()).pathname === `/inbox/${conversationId}`) threadLoads++; });
+    const refresh = page.waitForResponse((r) => r.request().resourceType() === "xhr" && r.url().includes("/inbox?open="));
+    await gotoOk(page, `/inbox?open=${conversationId}`);
+    const reply = page.locator(".reply-bar textarea");
+    await expect(reply).toBeVisible();
+    expect(await reply.evaluate((el) => !!el.closest("[inert]")), "reply box blocked by the list refresh").toBe(false);
+    await reply.fill("Half-written reply");
+    await page.locator("#conv-panel").evaluate((panel) => panel.setAttribute("data-stale", ""));
+    release();
+    await refresh;
+    // The stale list is gone and htmx has finished settling the new one.
+    await expect(page.locator("[data-stale], .htmx-swapping, .htmx-settling")).toHaveCount(0);
+    await expect(page.locator(".inbox")).toHaveAttribute("data-view-tz", "Pacific/Auckland");
+    await expect(reply).toHaveValue("Half-written reply");
+    await expect(page.locator("#conv-panel")).toBeHidden();
+    expect(threadLoads).toBe(1);
+  });
+
+  test("a list refresh that beats the thread does not move focus to its row", async ({ page }) => {
+    await setPro(page.request);
+    const client = await db();
+    let conversationId: string;
+    try {
+      const workspaceId = await seedWorkspace(client);
+      const { channelId, contactId } = await seedChannelAndContact(client, workspaceId, "zone-early");
+      ({ conversationId } = await seedDraft(client, workspaceId, channelId, contactId, "Early refresh draft"));
+      await client.query("UPDATE conversations SET last_message_at = now() WHERE id = $1", [conversationId]);
+    } finally {
+      await client.end();
+    }
+    let release = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`**/inbox/${conversationId}`, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await gotoOk(page, `/inbox?open=${conversationId}`);
+    await expect(page.locator(".inbox")).toHaveAttribute("data-view-tz", "Pacific/Auckland");
+    await expect(page.locator("#conv-panel:not([inert]):not(.htmx-swapping):not(.htmx-settling)")).toBeVisible();
+    await expect(page.locator(`.conv-item[data-row="${conversationId}"]`)).not.toBeFocused();
+    release();
+    await expect(page.locator("#thread .thread-head")).toBeVisible();
+  });
 });
