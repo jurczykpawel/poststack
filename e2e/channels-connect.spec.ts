@@ -55,6 +55,10 @@ test("CTA above the fold, sheet opens and closes with Esc, ?connect=1 deep link,
   await expect(sheet(page).getByLabel("Bot token")).toBeVisible();
   await expect(sheet(page).getByRole("button", { name: "Connect Telegram" })).toBeVisible();
   const botToken = sheet(page).getByLabel("Bot token");
+  // Password managers must not offer to store a service token.
+  for (const [name, value] of [["autocomplete", "new-password"], ["data-1p-ignore", ""], ["data-lpignore", "true"]]) {
+    await expect(botToken).toHaveAttribute(name, value);
+  }
   await botToken.fill("invalid-fixture-token");
   await sheet(page).getByRole("button", { name: "Connect Telegram" }).click();
   await expect(sheet(page).getByRole("alert")).toContainText("doesn't look like a Telegram bot token");

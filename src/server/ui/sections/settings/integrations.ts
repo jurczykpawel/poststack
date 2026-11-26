@@ -16,6 +16,7 @@ import { copyBtn } from "../../components/copy";
 import { platformGlyph } from "../../components/platform";
 import { dot, type Tone } from "../../components/status";
 import { settingsAuth, settingsPage, managedByOperator, type Html } from "./shell";
+import { SERVICE_SECRET_ATTRS } from "../../components/secret-field";
 
 /** Provider setup URLs and registry-backed fields. */
 interface Service {
@@ -90,7 +91,7 @@ function field(f: ConfigStatus): Html {
     ? html`<select class="input" id="cf-${f.key}" name="${f.key}">
         <option value="false"${f.preview !== "true" ? raw(" selected") : ""}>Off — automatic after validation</option>
         <option value="true"${f.preview === "true" ? raw(" selected") : ""}>On — always confirm at send time</option></select>`
-    : html`<input class="input" id="cf-${f.key}" name="${f.key}" type="${f.secret ? "password" : "text"}" autocomplete="off"
+    : html`<input class="input" id="cf-${f.key}" name="${f.key}" type="${f.secret ? "password" : "text"}" ${f.secret ? SERVICE_SECRET_ATTRS : raw('autocomplete="off"')}
         placeholder="${f.secret ? (f.source === "unset" ? "Paste value" : "Paste to change") : f.preview || "Paste value"}" />`;
   return html`<div class="int-field">
     <label class="label" for="cf-${f.key}">${f.label} ${sourceBadge(f.source)}</label>

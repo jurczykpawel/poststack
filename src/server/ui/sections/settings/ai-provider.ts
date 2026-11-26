@@ -9,6 +9,7 @@ import { providerOperation } from "@/server/handlers/v1/settings/ai/providers/ro
 import { PROVIDERS, type AiModel, type AiProviderId } from "@/lib/ai/providers";
 import { type AiSettingsView } from "@/lib/ai/settings";
 import { type Html } from "./shell";
+import { SERVICE_SECRET_ATTRS } from "../../components/secret-field";
 
 // The dashboard and REST API share provider operations; Alpine holds only the connection form state.
 
@@ -39,7 +40,7 @@ export function aiProviderForm(v: AiSettingsView, id?: string): Html {
     </div>
     <div class="int-field">
       <label class="label" for="ai-key">API key ${v.api_key.set ? html`<span class="badge tone-${v.api_key.source === "db" ? "ok" : "info"}" x-show="keySet && provider === saved">${v.api_key.source === "db" ? "set here" : "from env"}</span>` : ""}</label>
-      <input class="input" id="ai-key" name="api_key" type="password" :aria-invalid="keyError ? 'true' : null" :aria-describedby="keyError ? 'ai-key-error' : null" @input="keyError = false" autocomplete="off" :placeholder="keySet && provider === saved ? '•••• set (paste to change)' : 'Paste your key'" @change="$dispatch('reload-models')" />
+      <input class="input" id="ai-key" name="api_key" type="password" :aria-invalid="keyError ? 'true' : null" :aria-describedby="keyError ? 'ai-key-error' : null" @input="keyError = false" ${SERVICE_SECRET_ATTRS} :placeholder="keySet && provider === saved ? '•••• set (paste to change)' : 'Paste your key'" @change="$dispatch('reload-models')" />
       <div id="ai-key-error" class="notice-err" role="alert" x-show="keyError" x-cloak></div>
       <div class="int-help"><template x-if="presets[provider].key"><span>Get one at <a :href="presets[provider].key" target="_blank" rel="noopener" x-text="presets[provider].key"></a>. </span></template>Never shown again after saving.</div>
     </div>

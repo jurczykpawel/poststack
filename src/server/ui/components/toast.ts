@@ -31,7 +31,7 @@ export function isHtmx(c: Context): boolean {
  * and adds the styled confirm dialog used in place of native confirm().
  */
 export function toastRegion(): Html {
-  return html`<div class="toasts" role="status" aria-live="polite" aria-atomic="false">
+  return html`<div class="toasts" popover="manual" role="status" aria-live="polite" aria-atomic="false">
     <template x-for="t in $store.ui.toasts" :key="t.id">
       <div class="toast" :class="'tone-' + t.tone" role="alert" x-transition.opacity.duration.150ms>
         <span class="toast-dot" :class="'tone-' + t.tone" aria-hidden="true"></span>
@@ -88,6 +88,12 @@ export function uiBehaviorScript(): Html {
       _seq: 0,
       push: function (tone, msg) {
         var id = ++this._seq;
+        // Only the top layer paints above an open modal dialog; re-opening moves the region to its front.
+        var region = document.querySelector('.toasts');
+        if (region && region.showPopover && document.querySelector('dialog:modal')) {
+          if (region.matches(':popover-open')) region.hidePopover();
+          region.showPopover();
+        }
         this.toasts.push({ id: id, tone: tone || 'info', msg: String(msg || '') });
         var self = this;
         setTimeout(function () { self.dismiss(id); }, 4200);
@@ -180,9 +186,9 @@ export function uiBehaviorScript(): Html {
         htmx.trigger(el, 'htmx:afterProcessNode');
       });
     });
-    function notify(tone, message) {
-      var dialogs = Array.from(document.querySelectorAll('dialog:modal'));
-      var modal = document.activeElement?.closest('dialog:modal') || dialogs.at(-1);
+    function notify(tone, message, source) {
+      // A failure belongs inside a modal only when the request came from that modal.
+      var modal = source?.closest?.('dialog:modal');
       if (modal && (tone === 'bad' || tone === 'warn')) {
         var feedback = modal.querySelector('.modal-feedback');
         if (!feedback) {
@@ -210,14 +216,14 @@ export function uiBehaviorScript(): Html {
     // HTMX → toast: fire from a server HX-Trigger {"ps:toast":{tone,msg}}.
     document.body.addEventListener('ps:toast', function (e) {
       var d = (e && e.detail) || {};
-      notify(d.tone, d.msg);
+      notify(d.tone, d.msg, e.target);
     });
     // MQA18-B04: a failed htmx write must never look saved. Network failure → sendError; a 5xx (or an
     // error the server did not already explain with its own toast) → responseError. GET polls stay silent.
     function writeFailed(e, fallback) {
       var d = e.detail || {};
       if (((d.requestConfig && d.requestConfig.verb) || 'get') === 'get') return;
-      notify('bad', fallback);
+      notify('bad', fallback, d.elt);
     }
     document.body.addEventListener('htmx:sendError', function (e) {
       writeFailed(e, 'Not saved — no connection. Check your network and try again.');

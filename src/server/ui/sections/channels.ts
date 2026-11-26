@@ -49,6 +49,7 @@ import { platformCell, platformLabel, platformColor, platformGlyph } from "../co
 import { btn } from "../components/button";
 import { icon } from "../components/icons";
 import { reconnectHref } from "../components/reconnect";
+import { SERVICE_SECRET_ATTRS } from "../components/secret-field";
 import { relTime, localTime } from "../components/format";
 import { isHtmx, toastHeader, type ToastTone } from "../components/toast";
 
@@ -492,7 +493,7 @@ function telegramTile(o: ConnectOpts): Html {
       <p>In Telegram, message <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → copy the bot token. We set up the webhook for you.</p>
       <form class="ct-form" hx-post="/channels/telegram/connect" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML"
         @htmx:before-send="$el.elements.token.value = ''">
-        <label class="label">Bot token<input class="input" type="password" name="token" placeholder="123456789:AA..." autocomplete="off" required /></label>
+        <label class="label">Bot token<input class="input" type="password" name="token" placeholder="123456789:AA..." ${SERVICE_SECRET_ATTRS} required /></label>
         <button class="btn btn-primary btn-sm" type="submit">Connect Telegram</button>
         <div class="ct-err" role="alert"></div>
       </form>
@@ -504,10 +505,10 @@ function tiktokTokenForm(): Html {
   return html`<p class="ct-note">By default, connect through this instance's TikTok app using OAuth. Paste a token from another TikTok app only with that app's client key and secret. Tokens refresh automatically; reconnect here with all four values if needed.</p>
     <form class="ct-form" hx-post="/channels/connect-token" hx-ext="json-enc" hx-target="find .ct-err" hx-swap="innerHTML">
       <input type="hidden" name="platform" value="tiktok" />
-      <label class="label">Access token<input class="input" type="password" name="access_token" autocomplete="off" required maxlength="4096" /></label>
-      <label class="label">Refresh token<input class="input" type="password" name="refresh_token" autocomplete="off" required maxlength="4096" /></label>
+      <label class="label">Access token<input class="input" type="password" name="access_token" ${SERVICE_SECRET_ATTRS} required maxlength="4096" /></label>
+      <label class="label">Refresh token<input class="input" type="password" name="refresh_token" ${SERVICE_SECRET_ATTRS} required maxlength="4096" /></label>
       <label class="label">Issuing app client key<input class="input" name="client_key" autocomplete="off" required maxlength="256" /></label>
-      <label class="label">Issuing app client secret<input class="input" type="password" name="client_secret" autocomplete="off" required maxlength="4096" /></label>
+      <label class="label">Issuing app client secret<input class="input" type="password" name="client_secret" ${SERVICE_SECRET_ATTRS} required maxlength="4096" /></label>
       <button class="btn btn-primary btn-sm" type="submit">Connect TikTok</button>
       <div class="ct-err" role="alert"></div>
     </form>`;
