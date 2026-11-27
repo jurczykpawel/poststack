@@ -11,7 +11,7 @@
   } catch { /* Storage may be disabled. */ }
 
   function restoreFocus(clear) {
-    if (!returnTo || document.querySelector(".dl-detail, #thread .thread-head")) return;
+    if (!returnTo || document.querySelector(".dl-detail, #thread .thread-head, #thread .thread-empty[hx-get]")) return;
     var row = Array.from(document.querySelectorAll("[data-row]")).find(function (r) { return r.getAttribute("data-row") === returnTo; });
     var link = row && (row.matches(".conv-item") ? row : row.querySelector("a.dl-rowlink"));
     if (link) link.focus({ preventScroll: !row.matches(".conv-item") });
