@@ -13,8 +13,9 @@ import { getInstanceLicense } from "@/lib/license/gate";
 import { env } from "@/lib/env";
 
 const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  // Explicit messages name the field: the register form shows only the message text.
+  email: z.string({ error: "Email is required" }).email("Enter a valid email address"),
+  password: z.string({ error: "Password is required" }).min(8, "Password must be at least 8 characters"),
   // The register form posts via htmx json-enc, which always sends every field —
   // so a blank name arrives as "". Treat empty/whitespace as absent.
   name: z.preprocess(
@@ -24,13 +25,24 @@ const schema = z.object({
   captchaToken: z.string().optional(),
 });
 
+// Two per-IP hourly limits (AUTHRL1):
+// - ATTEMPT: requests that passed validation, i.e. the ones that hash a password, call the captcha
+//   provider and touch the accounts table. Strict, because this is what an attacker wants to repeat.
+// - FLOOD: every request, including ones rejected by validation. A person fixing form mistakes needs
+//   a handful of tries; 60/h leaves ample room for that, while capping the cheap rejected path
+//   (body parse + one counter upsert) at one request a minute on average per IP.
+const REGISTER_ATTEMPT_LIMIT = 5;
+const REGISTER_FLOOD_LIMIT = 60;
+const REGISTER_WINDOW_SECONDS = 3600;
+
+function tooManyAttempts(retryAfter: number) {
+  return ApiErrors.tooManyRequests(`Too many registration attempts. Try again in ${retryAfter}s.`);
+}
+
 export async function POST(request: Request) {
-  // Rate limit: 5 registrations per hour per IP
   const ip = getClientIp(request);
-  const rl = await rateLimit(`rl:register:${ip}`, 5, 3600);
-  if (!rl.allowed) {
-    return ApiErrors.tooManyRequests(`Too many registration attempts. Try again in ${rl.retryAfter}s.`);
-  }
+  const flood = await rateLimit(`rl:register-all:${ip}`, REGISTER_FLOOD_LIMIT, REGISTER_WINDOW_SECONDS);
+  if (!flood.allowed) return tooManyAttempts(flood.retryAfter);
 
   const body = await parseJsonBody(request, 4_096);
   if (body === null) {
@@ -41,6 +53,10 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return ApiErrors.validationError(parsed.error);
   }
+
+  // Counted only after validation: form mistakes (422) must not lock a person out for an hour.
+  const rl = await rateLimit(`rl:register:${ip}`, REGISTER_ATTEMPT_LIMIT, REGISTER_WINDOW_SECONDS);
+  if (!rl.allowed) return tooManyAttempts(rl.retryAfter);
 
   const { email, password, name, captchaToken } = parsed.data;
 
