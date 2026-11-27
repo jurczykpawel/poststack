@@ -36,8 +36,7 @@ jobs:
       pull-requests: read
       issues: read
       security-events: read
-    secrets:
-      RELEASE_GATE_TOKEN: ${{ secrets.RELEASE_GATE_TOKEN }}
+      vulnerability-alerts: read
 
   live-telegram:
     name: Telegram live gate

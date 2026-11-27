@@ -28,7 +28,7 @@ printf '%s\n' "${!body-[]}"
 GH
 chmod +x "$WORK/bin/gh"
 export PATH="$WORK/bin:$PATH" FAKE_LOG="$WORK/gh.log" GATE_REPO=acme/app GH_TOKEN=default-token
-unset GITHUB_ACTIONS RELEASE_GATE_TOKEN GATE_DEFER_LABEL GATE_CRITICAL_LABELS GATE_DEFER_MAX_DAYS
+unset GITHUB_ACTIONS GATE_DEFER_LABEL GATE_CRITICAL_LABELS GATE_DEFER_MAX_DAYS
 set -a # every FAKE_* assignment below must reach the fake gh
 
 failures=0
@@ -36,7 +36,7 @@ fail() { echo "FAIL: $1"; sed 's/^/    /' "$WORK/out"; failures=$((failures + 1)
 reset() {
     unset FAKE_PULLS FAKE_ISSUES FAKE_CODE FAKE_DEPENDABOT FAKE_SECRETS FAKE_ADVISORIES \
         FAKE_FAIL_PULLS FAKE_FAIL_ISSUES FAKE_FAIL_CODE FAKE_FAIL_DEPENDABOT FAKE_FAIL_SECRETS \
-        FAKE_FAIL_ADVISORIES GITHUB_ACTIONS RELEASE_GATE_TOKEN GATE_DEFER_LABEL GATE_CRITICAL_LABELS \
+        FAKE_FAIL_ADVISORIES GITHUB_ACTIONS GATE_DEFER_LABEL GATE_CRITICAL_LABELS \
         GATE_DEFER_MAX_DAYS
     : > "$FAKE_LOG"
 }
@@ -109,18 +109,32 @@ reset; FAKE_PULLS="[$(item 1 'first page' '[]')]
 [$(item 2 'second page' '[]')]"
 expect "every page is checked" 1 "#2 second page"
 
+# GitHub Actions: GITHUB_TOKEN only; secret scanning and advisories are skipped out loud
 reset; export GITHUB_ACTIONS=true
-expect "missing RELEASE_GATE_TOKEN in Actions fails with instructions" 1 "gh secret set RELEASE_GATE_TOKEN --repo acme/app"
-grep -qF "Repository security advisories" "$WORK/out" || fail "token instructions lack the permissions"
-grep -qE 'DEPENDABOT|SECRETS|ADVISORIES' "$FAKE_LOG" && fail "security sources read with GITHUB_TOKEN"
-
-reset; export GITHUB_ACTIONS=true RELEASE_GATE_TOKEN=gate-token
-expect "Actions with RELEASE_GATE_TOKEN" 0
-[ "$(grep -c 'token=gate-token' "$FAKE_LOG")" = 3 ] || fail "security sources not read with RELEASE_GATE_TOKEN"
-[ "$(grep -c 'token=default-token' "$FAKE_LOG")" = 3 ] || fail "pull requests/issues/code scanning not read with GH_TOKEN"
+expect "Actions with nothing open in (a)(b)(c)(e)" 0 "not checked in GitHub Actions (GITHUB_TOKEN cannot read them); checked locally at cycle start"
+[ "$(grep -cE '^(PULLS|ISSUES|CODE|DEPENDABOT) token=default-token' "$FAKE_LOG")" = 4 ] || fail "Actions did not read (a)(b)(c)(e) with GH_TOKEN"
+grep -qE '^(SECRETS|ADVISORIES)' "$FAKE_LOG" && fail "Actions read secret scanning or advisories"
+reset; export GITHUB_ACTIONS=true
+FAKE_SECRETS='[{"number":4,"secret_type_display_name":"Stripe API Key","html_url":"u"}]'
+FAKE_ADVISORIES='[{"ghsa_id":"GHSA-dddd","state":"draft","summary":"x","html_url":"u"}]'
+expect "Actions never reads (d)(f), even when they have items" 0
+reset; export GITHUB_ACTIONS=true
+FAKE_DEPENDABOT='[{"number":3,"html_url":"u","security_advisory":{"severity":"high","summary":"ReDoS"},"dependency":{"package":{"ecosystem":"npm","name":"lodash"}}}]'
+expect "Actions blocks on a Dependabot alert" 1 "#3 high npm/lodash: ReDoS"
+reset; export GITHUB_ACTIONS=true
+FAKE_FAIL_DEPENDABOT='gh: Resource not accessible by integration (HTTP 403)'
+expect "Actions: 403 on Dependabot alerts fails closed" 1 "GITHUB_TOKEN cannot read Dependabot alerts here — tell the coordinator"
+grep -qF "::error::" "$WORK/out" || fail "Actions failure lacks the ::error:: annotation"
+reset; FAKE_FAIL_DEPENDABOT='gh: Resource not accessible (HTTP 403)'
+expect "locally: 403 on Dependabot alerts fails closed" 1 "could not read Open Dependabot alerts"
+grep -qF "tell the coordinator" "$WORK/out" && fail "Actions hint shown locally"
+reset; export GITHUB_ACTIONS=true; FAKE_FAIL_DEPENDABOT='gh: Server Error (HTTP 500)'
+expect "Actions: other Dependabot error fails closed" 1 "could not read Open Dependabot alerts"
+grep -qF "tell the coordinator" "$WORK/out" && fail "403 hint shown for another error"
 
 reset; expect "locally gh's own login reads security sources" 0
 [ "$(grep -cE '^(DEPENDABOT|SECRETS|ADVISORIES)' "$FAKE_LOG")" = 3 ] || fail "security sources skipped locally"
+grep -qF "not checked in GitHub Actions" "$WORK/out" && fail "skip note printed locally"
 
 # Deferral label
 reset; FAKE_PULLS="[$(item 10 'Bump tool image' '["dependencies","deferred-next-release"]')]"

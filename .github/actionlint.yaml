@@ -1,0 +1,7 @@
+# actionlint 1.7.12 (latest as of 2026-11) predates the GITHUB_TOKEN permission `vulnerability-alerts`
+# (documented for github.com since 2026-04; github/docs data/features/vulnerability-alerts-permission.yml).
+# Ignore only that one key; drop this file once actionlint knows it.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'unknown permission scope "vulnerability-alerts"'

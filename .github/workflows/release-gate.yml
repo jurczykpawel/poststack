@@ -2,13 +2,10 @@ name: Release gate
 
 # Refuses a release while pull requests, issues or security alerts are open in the repository.
 # Repository-agnostic: called from release.yml today, meant to move 1:1 into a shared repository.
-# The caller grants the permissions below and passes RELEASE_GATE_TOKEN (see scripts/release/open-items-gate.sh).
+# The caller grants the permissions below. Only GITHUB_TOKEN is used: secret scanning alerts and draft
+# security advisories are out of its reach and are checked locally at cycle start (see scripts/release/open-items-gate.sh).
 on:
   workflow_call:
-    secrets:
-      RELEASE_GATE_TOKEN:
-        # Not required here: when it is missing the gate fails with instructions instead of a bare validation error.
-        required: false
 
 permissions:
   contents: read
@@ -23,6 +20,7 @@ jobs:
       pull-requests: read
       issues: read
       security-events: read
+      vulnerability-alerts: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,5 +29,4 @@ jobs:
       - name: Check open pull requests, issues and security alerts
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_GATE_TOKEN: ${{ secrets.RELEASE_GATE_TOKEN }}
         run: bash scripts/release/open-items-gate.sh release

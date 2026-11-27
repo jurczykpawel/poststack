@@ -11,6 +11,10 @@
 # security advisories in triage or draft. Anything open exits 1 with the list; so does any API
 # error or a response that is not a JSON array (fail closed).
 #
+# In GitHub Actions only GITHUB_TOKEN is used, and it cannot read (d) and (f): those two are skipped
+# there with an explicit note and are checked only locally, with gh's own login, by the mandatory
+# "start" run at the beginning of every release cycle (and the manual run before the tag).
+#
 # The only way to let an item wait: a pull request or issue that carries the deferral label and
 # none of the critical labels, until it has been open for GATE_DEFER_MAX_DAYS. An issue type counts
 # as a critical label of the same name; names are compared ignoring case. Security alerts (c-f) can
@@ -21,11 +25,8 @@
 #   GATE_DEFER_LABEL      deferral label. Default: deferred-next-release.
 #   GATE_CRITICAL_LABELS  comma-separated labels that can never be deferred. Default: bug,security.
 #   GATE_DEFER_MAX_DAYS   days since creation after which a deferred item blocks again. Default: 30.
-#   GH_TOKEN              token for (a), (b), (e). In GitHub Actions: GITHUB_TOKEN with
-#                         pull-requests: read, issues: read, security-events: read. Locally: gh's own login.
-#   RELEASE_GATE_TOKEN    token for (c), (d), (f), which GITHUB_TOKEN cannot read. Required in GitHub
-#                         Actions (the error message lists the exact permissions). Locally optional:
-#                         gh's own login is used when it is unset.
+#   GH_TOKEN              In GitHub Actions: GITHUB_TOKEN with pull-requests: read, issues: read,
+#                         security-events: read, vulnerability-alerts: read. Locally: gh's own login.
 # Requires: gh (GitHub CLI), jq.
 
 set -uo pipefail
@@ -77,24 +78,21 @@ items_filter='
     else "D\t\($line)" end'
 # The pulls endpoint has no pull_request key; the issues endpoint marks pull requests with it.
 
-# fetch <default|security> <endpoint>: prints the raw JSON pages.
-fetch() {
-    if [ "$1" = security ] && [ -n "${RELEASE_GATE_TOKEN:-}" ]; then
-        GH_TOKEN="$RELEASE_GATE_TOKEN" gh api --paginate "$2" 2>"$err_file"
-    else
-        gh api --paginate "$2" 2>"$err_file"
-    fi
-}
+in_actions=false
+[ "${GITHUB_ACTIONS:-}" = true ] && in_actions=true
 
-# check <title> <default|security> <endpoint> <jq filter> [tolerated error pattern]
+# check <title> <endpoint> <jq filter> [tolerated error pattern] [hint shown on HTTP 403]
 # Security filters print plain lines (always blocking); item filters print B/D-tagged lines.
 check() {
     local json out line blocking=""
-    if ! json=$(fetch "$2" "$3"); then
-        if [ -n "${5:-}" ] && grep -Eq "$5" "$err_file"; then
+    if ! json=$(gh api --paginate "$2" 2>"$err_file"); then
+        if [ -n "${4:-}" ] && grep -Eq "$4" "$err_file"; then
             return
         fi
         echo "release gate: could not read $1: $(tr '\n' ' ' < "$err_file")" >&2
+        if [ -n "${5:-}" ] && grep -q 'HTTP 403' "$err_file"; then
+            echo "release gate: $5" >&2
+        fi
         status=1
         return
     fi
@@ -105,7 +103,7 @@ check() {
         return
     fi
     if ! out=$(jq -r --arg defer "$defer_label" --arg critical_csv "$critical_labels" \
-        --argjson max_days "$defer_max_days" "$4" <<< "$json" 2>"$err_file"); then
+        --argjson max_days "$defer_max_days" "$3" <<< "$json" 2>"$err_file"); then
         echo "release gate: unexpected response for $1: $(tr '\n' ' ' < "$err_file")" >&2
         status=1
         return
@@ -125,30 +123,24 @@ check() {
 
 api="repos/$repo"
 
-check "Open pull requests" default "$api/pulls?state=open&per_page=100" "$items_filter"
-check "Open issues" default "$api/issues?state=open&per_page=100" "$items_filter"
-check "Open code scanning alerts" default "$api/code-scanning/alerts?state=open&per_page=100" \
+check "Open pull requests" "$api/pulls?state=open&per_page=100" "$items_filter"
+check "Open issues" "$api/issues?state=open&per_page=100" "$items_filter"
+check "Open code scanning alerts" "$api/code-scanning/alerts?state=open&per_page=100" \
     '.[] | "#\(.number) \(.rule.severity // "") \(.rule.description // .rule.id) — \(.html_url)"' \
     'no analysis found.*HTTP 404'
+dependabot_hint=""
+$in_actions && dependabot_hint="GITHUB_TOKEN cannot read Dependabot alerts here — tell the coordinator."
+check "Open Dependabot alerts" "$api/dependabot/alerts?state=open&per_page=100" \
+    '.[] | "#\(.number) \(.security_advisory.severity) \(.dependency.package.ecosystem)/\(.dependency.package.name): \(.security_advisory.summary) — \(.html_url)"' \
+    '' "$dependabot_hint"
 
-if [ -z "${RELEASE_GATE_TOKEN:-}" ] && [ "${GITHUB_ACTIONS:-}" = true ]; then
-    cat >&2 <<EOF
-release gate: the RELEASE_GATE_TOKEN secret is missing, so Dependabot alerts, secret scanning
-alerts and security advisories cannot be checked (GITHUB_TOKEN cannot read them).
-Create a fine-grained personal access token as a repository administrator (only administrators
-see unpublished advisories and secret scanning alerts):
-  Repository access: only $repo
-  Repository permissions, all Read-only: Dependabot alerts, Secret scanning alerts,
-  Repository security advisories (Metadata: Read is added automatically)
-Then save it as an Actions secret: gh secret set RELEASE_GATE_TOKEN --repo $repo
-EOF
-    status=1
+if $in_actions; then
+    # GITHUB_TOKEN has no permission for these two; never pass them silently.
+    echo "Secret scanning alerts and security advisories: not checked in GitHub Actions (GITHUB_TOKEN cannot read them); checked locally at cycle start (open-items-gate.sh start with gh login)."
 else
-    check "Open Dependabot alerts" security "$api/dependabot/alerts?state=open&per_page=100" \
-        '.[] | "#\(.number) \(.security_advisory.severity) \(.dependency.package.ecosystem)/\(.dependency.package.name): \(.security_advisory.summary) — \(.html_url)"'
-    check "Open secret scanning alerts" security "$api/secret-scanning/alerts?state=open&per_page=100" \
+    check "Open secret scanning alerts" "$api/secret-scanning/alerts?state=open&per_page=100" \
         '.[] | "#\(.number) \(.secret_type_display_name // .secret_type) — \(.html_url)"'
-    check "Security advisories in triage or draft" security "$api/security-advisories?per_page=100" \
+    check "Security advisories in triage or draft" "$api/security-advisories?per_page=100" \
         '.[] | select(.state == "triage" or .state == "draft") | "\(.ghsa_id) [\(.state)] \(.summary) — \(.html_url)"'
 fi
 
@@ -162,7 +154,7 @@ if [ "$status" -ne 0 ]; then
     else
         msg="Release blocked: handle everything listed above in $repo (merge, fix or close; only a non-critical pull request or issue may wait, with label $defer_label, for at most $defer_max_days days since it was opened), then release again."
     fi
-    if [ "${GITHUB_ACTIONS:-}" = true ]; then echo "::error::$msg" >&2; else echo "$msg" >&2; fi
+    if $in_actions; then echo "::error::$msg" >&2; else echo "$msg" >&2; fi
     exit 1
 fi
 echo "Release gate ($mode): nothing open in $repo."
