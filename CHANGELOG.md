@@ -9,8 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.27.9] - 2026-11-28
+
 ### Fixed
+- Registration: mistakes in the form no longer use up the registration limit (5 attempts per hour per IP), and validation errors name the field to correct, e.g. "Password must be at least 8 characters". A separate, looser limit (60 requests per hour per IP) protects the endpoint from flooding.
 - Inbox: on the first visit from a browser in a different time zone, only the conversation list is refreshed. An open thread is no longer reloaded under you (which cleared a half-written reply), and the reply box stays usable during the refresh.
+
+### Changed
+- Releases are blocked while any pull request, issue or Dependabot / code scanning alert is open (`release-gate.yml`, `scripts/release/open-items-gate.sh`); secret scanning alerts and draft security advisories are checked at the start of each release cycle. Only non-critical items may wait, with label `deferred-next-release`, for up to 30 days.
+- Dependency updates (maintenance group).
 
 ## [0.27.8] - 2026-11-26
 
