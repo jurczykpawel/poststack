@@ -41,7 +41,7 @@
 - **Comment automation** -- reply publicly under the comment, send a private DM (Meta `private_replies`), or both -- scoped to a specific post or all posts, on Facebook **and** Instagram
 - **AI rephrasing** -- optionally rewrite any reply (including a random pool) through an OpenAI-compatible endpoint before sending
 - **AI-drafted replies** (PRO) -- when no auto-reply rule matches an incoming comment/DM and the channel has AI-draft enabled, an LLM prepares a draft reply for human approval; plus an on-demand "Generate reply" button in the inbox. Drafts are reviewed/edited/accepted/rejected in the inbox thread (and the Approvals tab) -- **never auto-sent by default**; optional per-channel auto-send toggles (DM / public, default off, consent-gated). Uses the same `AI_*` config (**BYOK**); daily budget via `AI_DRAFT_DAILY_LIMIT` (default 0 = unlimited)
-- **Live inbox** -- manage all conversations, reply manually, assign to team members
+- **Live inbox** -- manage all conversations, reply manually
 - **Drip sequences** -- timed message series with configurable delays between steps
 
 ### CRM
